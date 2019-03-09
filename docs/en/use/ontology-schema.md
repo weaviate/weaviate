@@ -151,7 +151,7 @@ An overview of available data types:
 The crossref datatype consists of a URL type:
 
 - **scheme** = `weaviate://`
-- **host** = Weaviate P2P node, `localhost` for a local thing or action.
+- **host** = Weaviate P2P node, `localhost` for a local thing or action. Read more about Weaviate-P2P hosts [here](peer2peer-network.md).
 - **path** = location of the thing or action.
 
 Example: `weaviate://localhost/things/6406759e-f6fb-47ba-a537-1a62728d2f55`

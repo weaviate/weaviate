@@ -10,11 +10,9 @@ If you want to create, manipulate or inspect individual nodes in Weaviate or if 
 
 ## Overview
 
-- [Working with the ontology schema](#ontology-schema).
-- Working with things and actions.
-- Meta and knowledge tools.
-- Batching.
-- PATCH semantics.
+- [Working with the ontology schema](#ontology-schema)
+- [Working with things and actions](#)
+- [Meta and knowledge tools]()
 
 ## Ontology Schema
 
@@ -80,7 +78,7 @@ $ curl -X POST http://localhost:8080/weaviate/v1/schema/things -H "Content-Type:
 }'
 ```
 
-### Update a _thing_'s keywords
+### Update a _thing_'s name and keywords
 
 (<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/schema/weaviate.schema.things.update" target="_blank">Definition on Swaggerhub</a>)
 
@@ -92,6 +90,24 @@ $ curl -X PUT http://localhost:8080/weaviate/v1/schema/things/Zoo -H "Content-Ty
   "keywords": [
     {
       "keyword": "zoo",
+      "weight": 1.0
+    }
+  ]
+}'
+```
+
+### Update an _thing_ property name and keywords
+
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/schema/weaviate.schema.things.properties.update" target="_blank">Definition on Swaggerhub</a>)
+
+Example request:
+
+```bash
+$ curl -X PUT http://localhost:8080/weaviate/v1/schema/actions/Zoo/properties/name -H "Content-Type: application/json" -d '{
+  "newName": "identifier",
+  "keywords": [
+    {
+      "keyword": "name",
       "weight": 1.0
     }
   ]
@@ -168,7 +184,7 @@ $ curl -X POST http://localhost:8080/weaviate/v1/schema/actions -H "Content-Type
 }'
 ```
 
-### Update an _action_'s keywords
+### Update an _action_'s name and keywords
 
 (<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/schema/weaviate.schema.actions.update" target="_blank">Definition on Swaggerhub</a>)
 
@@ -180,6 +196,24 @@ $ curl -X PUT http://localhost:8080/weaviate/v1/schema/actions/BuyAction -H "Con
   "keywords": [
     {
       "keyword": "buyAction",
+      "weight": 1.0
+    }
+  ]
+}'
+```
+
+### Update an _action_ property name and keywords
+
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/schema/weaviate.schema.actions.properties.update" target="_blank">Definition on Swaggerhub</a>)
+
+Example request:
+
+```bash
+$ curl -X PUT http://localhost:8080/weaviate/v1/schema/actions/BuyAction/properties/amount -H "Content-Type: application/json" -d '{
+  "newName": "quantity",
+  "keywords": [
+    {
+      "keyword": "amount",
       "weight": 1.0
     }
   ]
@@ -224,4 +258,296 @@ Example request:
 
 ```bash
 $ curl -X DELETE http://localhost:8080/weaviate/v1/schema/actions/BuyAction/properties/inShop
+```
+
+## Things & Actions
+
+The Weaviate graph contains two root-level concepts: things (noun-based) and actions (verb-based) which can be added to the graph.
+
+### Get a list of _things_
+
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/things/weaviate.things.list" target="_blank">Definition on Swaggerhub</a>)
+
+Example request:
+
+```bash
+$ curl http://localhost:8080/weaviate/v1/things
+```
+
+### Validate a _thing_
+
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/things/weaviate.things.validate" target="_blank">Definition on Swaggerhub</a>)
+
+Can be used to validate if a concept is properly structured.
+
+Example request:
+
+```bash
+$ curl http://localhost:8080/weaviate/v1/things/validate -H "Content-Type: application/json" -d '{
+    "thing": {
+        "@class": "Animal",
+        "@context": "http://myzoo.org",
+        "schema": {
+            "name": "Bert",
+            "species": "elephant"
+        }
+    }
+}'
+```
+
+### Create a _thing_
+
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/things/weaviate.things.create" target="_blank">Definition on Swaggerhub</a>)
+
+Returns the unique ID of the newly created concept.
+
+Example request:
+
+```bash
+$ curl http://localhost:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
+    "thing": {
+        "@class": "Animal",
+        "@context": "http://myzoo.org",
+        "schema": {
+            "name": "Bert",
+            "species": "elephant"
+        }
+    }
+}'
+```
+
+### Update a _thing_
+
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/things/weaviate.things.update" target="_blank">Definition on Swaggerhub</a>)
+
+Example request:
+
+```bash
+$ curl http://localhost:8080/weaviate/v1/things/{uuid} -H "Content-Type: application/json" -d '{
+    "thing": {
+        "@class": "Animal",
+        "@context": "http://myzoo.org",
+        "schema": {
+            "name": "Charles",
+            "species": "monkey"
+        }
+    }
+}'
+```
+
+### Update a _thing_ using PATCH semantics
+
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/things/weaviate.things.patch" target="_blank">Definition on Swaggerhub</a>)
+
+> Weaviate supports [RFC 6902](https://tools.ietf.org/html/rfc6902) patching ([learn](http://jsonpatch.com/)).
+
+Example where a `$cref` is added to the `inZoo` property:
+
+```bash
+$ curl PATCH http://localhost:8080/weaviate/v1/actions/c354ba34-432e-4e51-97ef-f33e39f39e55 -H "Content-Type: application/json" -d '[
+  {
+    "op": "add",
+    "path": "/schema/inZoo",
+    "value": {
+      "$cref": "weaviate://localhost/things/52eeba34-f562-4211-96b2-ea24d112b3d1"
+    }
+  }
+]'
+```
+
+### Delete a _thing_
+
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/things/weaviate.things.delete" target="_blank">Definition on Swaggerhub</a>)
+
+Example request:
+
+```bash
+$ curl -X DELETE http://localhost:8080/weaviate/v1/things/{uuid}
+```
+
+### Create a single _thing_ property
+
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/things/weaviate.things.properties.create" target="_blank">Definition on Swaggerhub</a>)
+
+Add a single reference to a class-property when cardinality is set to 'hasMany'. You can learn more about Weaviate `$cref` definitions [here](ontology-schema.md#crossref-data-type).
+
+```bash
+$ curl -X POST http://localhost:8080/weaviate/v1/things/{uuid}/properties/{propertyName} -H "Content-Type: application/json" -d '{
+    "$cref": "weaviate://localhost/things/82f91e01-37b4-431c-98d1-43ebb48bca0f"
+}'
+```
+
+### Update a single _thing_ property
+
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/things/weaviate.things.properties.update" target="_blank">Definition on Swaggerhub</a>)
+
+Add an array of references to a class-property when cardinality is set to 'hasMany'. You can learn more about Weaviate `$cref` definitions [here](ontology-schema.md#crossref-data-type).
+
+```bash
+$ curl -X PUT http://localhost:8080/weaviate/v1/things/{uuid}/properties/{propertyName} -H "Content-Type: application/json" -d '[
+  {
+    "$cref": "weaviate://localhost/things/82f91e01-37b4-431c-98d1-43ebb48bca0f"
+  }
+]'
+```
+
+### Delete a single _thing_ property
+
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/things/weaviate.things.properties.delete" target="_blank">Definition on Swaggerhub</a>)
+
+```bash
+$ curl -X DELETE http://localhost:8080/weaviate/v1/things/{uuid}/properties/{propertyName} -H "Content-Type: application/json" -d '{
+    "$cref": "weaviate://localhost/things/82f91e01-37b4-431c-98d1-43ebb48bca0f"
+}'
+```
+
+### Get a list of _actions_
+
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/actions/weaviate.actions.list" target="_blank">Definition on Swaggerhub</a>)
+
+Example request:
+
+```bash
+$ curl http://localhost:8080/weaviate/v1/actions
+```
+
+### Validate a _action_
+
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/actions/weaviate.actions.validate" target="_blank">Definition on Swaggerhub</a>)
+
+Can be used to validate if a concept is properly structured.
+
+Example request:
+
+```bash
+$ curl http://localhost:8080/weaviate/v1/actions/validate -H "Content-Type: application/json" -d '{
+    "action": {
+        "@class": "Animal",
+        "@context": "http://myzoo.org",
+        "schema": {
+            "name": "Bert",
+            "species": "elephant"
+        }
+    }
+}'
+```
+
+### Create a _action_
+
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/actions/weaviate.actions.create" target="_blank">Definition on Swaggerhub</a>)
+
+Returns the unique ID of the newly created concept.
+
+Example request:
+
+```bash
+$ curl http://localhost:8080/weaviate/v1/actions -H "Content-Type: application/json" -d '{
+    "action": {
+        "@class": "Animal",
+        "@context": "http://myzoo.org",
+        "schema": {
+            "name": "Bert",
+            "species": "elephant"
+        }
+    }
+}'
+```
+
+### Update a _action_
+
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/actions/weaviate.actions.update" target="_blank">Definition on Swaggerhub</a>)
+
+Example request:
+
+```bash
+$ curl http://localhost:8080/weaviate/v1/actions/{uuid} -H "Content-Type: application/json" -d '{
+    "action": {
+        "@class": "Animal",
+        "@context": "http://myzoo.org",
+        "schema": {
+            "name": "Charles",
+            "species": "monkey"
+        }
+    }
+}'
+```
+
+### Update a _action_ using PATCH semantics
+
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/actions/weaviate.actions.patch" target="_blank">Definition on Swaggerhub</a>)
+
+> Weaviate supports [RFC 6902](https://tools.ietf.org/html/rfc6902) patching ([learn](http://jsonpatch.com/)).
+
+Example where a `$cref` is added to the `inZoo` property:
+
+```bash
+$ curl PATCH http://localhost:8080/weaviate/v1/actions/c354ba34-432e-4e51-97ef-f33e39f39e55 -H "Content-Type: application/json" -d '[
+  {
+    "op": "add",
+    "path": "/schema/inZoo",
+    "value": {
+      "$cref": "weaviate://localhost/actions/52eeba34-f562-4211-96b2-ea24d112b3d1"
+    }
+  }
+]'
+```
+
+### Delete a _action_
+
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/actions/weaviate.actions.delete" target="_blank">Definition on Swaggerhub</a>)
+
+Example request:
+
+```bash
+$ curl -X DELETE http://localhost:8080/weaviate/v1/actions/{uuid}
+```
+
+### Create a single _action_ property
+
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/actions/weaviate.actions.properties.create" target="_blank">Definition on Swaggerhub</a>)
+
+Add a single reference to a class-property when cardinality is set to 'hasMany'. You can learn more about Weaviate `$cref` definitions [here](ontology-schema.md#crossref-data-type).
+
+```bash
+$ curl -X POST http://localhost:8080/weaviate/v1/actions/{uuid}/properties/{propertyName} -H "Content-Type: application/json" -d '{
+    "$cref": "weaviate://localhost/actions/82f91e01-37b4-431c-98d1-43ebb48bca0f"
+}'
+```
+
+### Update a single _action_ property
+
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/actions/weaviate.actions.properties.update" target="_blank">Definition on Swaggerhub</a>)
+
+Add an array of references to a class-property when cardinality is set to 'hasMany'. You can learn more about Weaviate `$cref` definitions [here](ontology-schema.md#crossref-data-type).
+
+```bash
+$ curl -X PUT http://localhost:8080/weaviate/v1/actions/{uuid}/properties/{propertyName} -H "Content-Type: application/json" -d '[
+  {
+    "$cref": "weaviate://localhost/actions/82f91e01-37b4-431c-98d1-43ebb48bca0f"
+  }
+]'
+```
+
+### Delete a single _action_ property
+
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/actions/weaviate.actions.properties.delete" target="_blank">Definition on Swaggerhub</a>)
+
+```bash
+$ curl -X DELETE http://localhost:8080/weaviate/v1/actions/{uuid}/properties/{propertyName} -H "Content-Type: application/json" -d '{
+    "$cref": "weaviate://localhost/actions/82f91e01-37b4-431c-98d1-43ebb48bca0f"
+}'
+```
+
+# Meta and Knowledge Tools
+
+Tools to inspect the knowledge graph or to get meta information about the local Weaviate.
+
+### Meta
+
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/meta/weaviate.meta.get" target="_blank">Definition on Swaggerhub</a>)
+
+Gives meta information about the server and can be used to provide information to another Weaviate instance that wants to interact with the current instance.
+
+```bash
+$ curl http://localhost:8080/weaviate/v1/meta
 ```
