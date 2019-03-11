@@ -24,6 +24,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get/refclasses"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
 )
@@ -234,6 +235,11 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 			Pagination: pagination,
 			Properties: properties,
 		}
+
+		// Log the request
+		source, _ := p.Source.(map[string]interface{})
+		requestsLog := source["RequestsLog"].(RequestsLog)
+		requestsLog.Register(telemetry.TypeGQL, telemetry.LocalQuery)
 
 		return func() (interface{}, error) {
 			return filtersAndResolver.resolver.LocalGetClass(&params)

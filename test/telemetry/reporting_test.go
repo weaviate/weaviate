@@ -1,6 +1,7 @@
 package test
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -21,7 +22,7 @@ func TestLoop(t *testing.T) {
 	calledFunctions.Register("REST", "weaviate.something.or.other")
 
 	interval := 1
-	url := ""
+	url := "http://webhook.site/73641e3c-6d28-4875-aa5e-b0e66abd3b00"
 
 	reporter := telemetry.NewReporter(calledFunctions, interval, url, telemetryEnabled)
 
@@ -116,4 +117,18 @@ func TestAddTimestamps(t *testing.T) {
 	assert.Equal(t, true, notZero)
 	assert.Equal(t, true, notFromThePast)
 	assert.Equal(t, true, notFromTheFuture)
+}
+
+func TestReporting(t *testing.T) {
+	t.Parallel()
+
+	// setup
+	a := []byte{165, 97, 120, 10, 97, 121, 15, 97, 122, 24, 100, 101, 114, 97, 110, 103, 101, 132, 162, 102, 108, 101, 110, 103, 116, 104, 1, 101, 97, 108, 105, 103, 110, 250, 65, 32, 0, 0, 162, 102, 108, 101, 110, 103, 116, 104, 26, 13, 81, 78, 231, 101, 97, 108, 105, 103, 110, 250, 65, 240, 0, 0, 162, 102, 108, 101, 110, 103, 116, 104, 3, 101, 97, 108, 105, 103, 110, 250, 66, 38, 0, 0, 162, 102, 108, 101, 110, 103, 116, 104, 24, 174, 101, 97, 108, 105, 103, 110, 250, 71, 89, 3, 51, 101, 108, 97, 98, 101, 108, 102, 72, 111, 72, 111, 72, 111}
+	b := bytes.NewReader(a)
+	fmt.Println(b)
+	poster := telemetry.NewPoster("http://webhook.site/73641e3c-6d28-4875-aa5e-b0e66abd3b00")
+	poster.ReportLoggedCalls(a)
+
+	// test
+	assert.Equal(t, 1, 1)
 }

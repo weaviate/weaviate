@@ -16,6 +16,8 @@ package aggregate
 import (
 	"fmt"
 
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
+
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
@@ -114,6 +116,14 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 			return nil, fmt.Errorf("could not extract filters: %s", err)
 		}
 
+		requestsLog := source["RequestsLog"].(RequestsLog)
+		for _, property := range properties {
+			for _, aggregator := range property.Aggregators {
+				serviceID := fmt.Sprintf("%s[%s]", telemetry.LocalQuery, aggregator)
+				requestsLog.Register(telemetry.TypeGQL, serviceID)
+			}
+		}
+
 		params := &Params{
 			Kind:       kind,
 			Filters:    filters,
@@ -121,6 +131,7 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 			Properties: properties,
 			GroupBy:    groupBy,
 		}
+
 		return resolver.LocalAggregate(params)
 	}
 }

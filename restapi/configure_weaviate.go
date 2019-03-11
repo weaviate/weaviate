@@ -119,7 +119,7 @@ func (r graphQLRoot) GetContextionary() fetch.Contextionary {
 	return r.contextionary
 }
 
-func (r graphQLRoot) GetRequestsLog() *telemetry.RequestsLog {
+func (r graphQLRoot) GetRequestsLog() fetch.RequestsLog {
 	return r.log
 }
 

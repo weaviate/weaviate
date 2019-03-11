@@ -15,6 +15,7 @@ import (
 	"fmt"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
 	"github.com/graphql-go/graphql"
 )
 
@@ -31,6 +32,9 @@ func resolveKind(k kind.Kind) func(p graphql.ResolveParams) (interface{}, error)
 		if !ok {
 			return nil, fmt.Errorf("expected source to be map[string]map[string][]interface{}, was %#v", firstLevel[kindField])
 		}
+
+		requestsLog := firstLevel["RequestsLog"].(RequestsLog)
+		requestsLog.Register(telemetry.TypeGQL, telemetry.NetworkQuery)
 
 		return secondLevel[p.Info.FieldName], nil
 	}

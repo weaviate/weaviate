@@ -19,6 +19,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
@@ -29,6 +30,12 @@ import (
 // want to support the GetMeta feature must implement this interface.
 type Resolver interface {
 	LocalGetMeta(info *Params) (interface{}, error)
+}
+
+// RequestsLog is a local abstraction on the RequestsLog that needs to be
+// provided to the graphQL API in order to log Local.GetMeta queries.
+type RequestsLog interface {
+	Register(requestType string, identifier string)
 }
 
 // Params to describe the Local->GetMeta->Kind->Class query. Will be passed to
@@ -135,6 +142,11 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 			ClassName:  className,
 			Properties: properties,
 		}
+
+		// Log the request
+		requestsLog := source["RequestsLog"].(RequestsLog)
+		requestsLog.Register(telemetry.TypeGQL, telemetry.LocalQueryMeta)
+
 		return resolver.LocalGetMeta(params)
 	}
 }
