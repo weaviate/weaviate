@@ -32,6 +32,12 @@ type Resolver interface {
 	ProxyGetInstance(info Params) (*models.GraphQLResponse, error)
 }
 
+// RequestsLog is a local abstraction on the RequestsLog that needs to be
+// provided to the graphQL API in order to log Network.Get queries.
+type RequestsLog interface {
+	Register(requestType string, identifier string)
+}
+
 // FiltersAndResolver is a helper tuple to bubble data through the resolvers.
 type FiltersAndResolver struct {
 	Resolver Resolver
