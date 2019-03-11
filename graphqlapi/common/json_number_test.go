@@ -64,3 +64,17 @@ func resolveParams(input interface{}) graphql.ResolveParams {
 		Info: graphql.ResolveInfo{FieldName: "myField"},
 	}
 }
+
+func TestNumberFieldNotPresent(t *testing.T) {
+	// shouldn't return anything, but also not error. This can otherwise lead to
+	// odd behavior when no entries are present, yet we asked for int props and
+	// type, see https://github.com/creativesoftwarefdn/weaviate/issues/775
+	params := graphql.ResolveParams{
+		Source: map[string]interface{}{},
+		Info:   graphql.ResolveInfo{FieldName: "myField"},
+	}
+
+	result, err := JSONNumberResolver(params)
+	assert.Nil(t, err)
+	assert.Equal(t, nil, result)
+}
