@@ -29,7 +29,17 @@ version: '3.4'
 services:
   weaviate:
     image: weaviate/dev-server
-    command: [ "--host", "${HOST:-0.0.0.0}", "--port", "${PORT:-8080}", "--scheme", "${SCHEME:-http}", "--config", "janusgraph_docker"]
+    command: 
+      - "--host"
+      - "${HOST:-0.0.0.0}"
+      - "--port"
+      - "${PORT:-8080}"
+      - "--scheme"
+      - "${SCHEME:-http}"
+      - "--config-file"
+      - "./weaviate.conf.yaml"
+      - "--config"
+      - "janusgraph_docker"
     build:
       context: .
       dockerfile: Dockerfile
