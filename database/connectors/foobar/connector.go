@@ -41,6 +41,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/mitchellh/mapstructure"
 
+	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
@@ -61,14 +62,17 @@ type Foobar struct {
 	client *websocket.Conn
 	kind   string
 
+	appConfig     config.Environment
 	config        Config
 	serverAddress string
 	schema        schema.Schema
 	messaging     *messages.Messaging
 }
 
-func New(config interface{}) (error, dbconnector.DatabaseConnector) {
-	f := &Foobar{}
+func New(config interface{}, appConfig config.Environment) (error, dbconnector.DatabaseConnector) {
+	f := &Foobar{
+		appConfig: appConfig,
+	}
 	err := f.setConfig(config)
 
 	if err != nil {
