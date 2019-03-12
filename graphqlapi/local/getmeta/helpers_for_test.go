@@ -14,6 +14,7 @@ package getmeta
 import (
 	"fmt"
 
+	"github.com/creativesoftwarefdn/weaviate/config"
 	testhelper "github.com/creativesoftwarefdn/weaviate/graphqlapi/test/helper"
 )
 
@@ -22,7 +23,7 @@ type mockResolver struct {
 }
 
 func newMockResolver() *mockResolver {
-	field, err := Build(&testhelper.CarSchema)
+	field, err := Build(&testhelper.CarSchema, config.Environment{})
 	if err != nil {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
 	}
