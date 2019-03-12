@@ -671,8 +671,9 @@ func configureServer(s *http.Server, scheme, addr string) {
 	}
 
 	// parse config store URL
-	configStore, err := url.Parse(serverConfig.Environment.ConfigStore.URL)
-	if err != nil {
+	configURL := serverConfig.Environment.ConfigurationStorage.URL
+	configStore, err := url.Parse(configURL)
+	if err != nil || configURL == "" {
 		messaging.ExitError(78, fmt.Sprintf("cannot parse config store URL: %s", err))
 	}
 

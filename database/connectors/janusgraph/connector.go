@@ -82,8 +82,6 @@ func (f *Janusgraph) setConfig(config interface{}) error {
 
 	// Mandatory: needed to add the JSON config represented as a map in f.config
 	err := mapstructure.Decode(config, &f.config)
-
-	// Example to: Validate if the essential  config is available, like host and port.
 	if err != nil || len(f.config.Url) == 0 {
 		return errors_.New("could not get Janusgraph url from config")
 	}
