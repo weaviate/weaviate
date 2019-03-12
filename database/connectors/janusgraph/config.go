@@ -45,7 +45,7 @@ func (c Config) validate(appConfig config.Environment) error {
 			c.AnalyticsEngine.Type)
 	}
 
-	if c.AnalyticsEngine.URL != "" {
+	if c.AnalyticsEngine.URL == "" {
 		return fmt.Errorf("invalid analtyics engine config: url cannot be empty")
 	}
 
