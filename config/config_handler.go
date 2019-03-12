@@ -44,20 +44,39 @@ type File struct {
 
 // Environment outline of the environment inside the config file
 type Environment struct {
-	Name                 string        `json:"name" yaml:"name"`
-	Database             Database      `json:"database" yaml:"database"`
-	Broker               Broker        `json:"broker" yaml:"broker"`
-	Network              *Network      `json:"network" yaml:"network"`
-	Limit                int64         `json:"limit" yaml:"limit"`
-	Debug                bool          `json:"debug" yaml:"debug"`
-	Development          Development   `json:"development" yaml:"development"`
-	Contextionary        Contextionary `json:"contextionary" yaml:"contextionary"`
-	ConfigurationStorage ConfigStore   `json:"configuration_storage" yaml:"configuration_storage"`
+	Name                 string          `json:"name" yaml:"name"`
+	AnalyticsEngine      AnalyticsEngine `json:"analytics_engine" yaml:"analytics_engine"`
+	Database             Database        `json:"database" yaml:"database"`
+	Broker               Broker          `json:"broker" yaml:"broker"`
+	Network              *Network        `json:"network" yaml:"network"`
+	Limit                int64           `json:"limit" yaml:"limit"`
+	Debug                bool            `json:"debug" yaml:"debug"`
+	Development          Development     `json:"development" yaml:"development"`
+	Contextionary        Contextionary   `json:"contextionary" yaml:"contextionary"`
+	ConfigurationStorage ConfigStore     `json:"configuration_storage" yaml:"configuration_storage"`
 }
 
 type Contextionary struct {
 	KNNFile string `json:"knn_file" yaml:"knn_file"`
 	IDXFile string `json:"idx_file" yaml:"idx_file"`
+}
+
+// AnalyticsEngine represents an external analytics engine, such as Spark for
+// Janusgraph
+type AnalyticsEngine struct {
+	// Enabled configures whether an analytics engine should be used. Setting
+	// this to true leads to the options "useAnalyticsEngine" and
+	// "forceRecalculate" to become available in the GraphQL GetMeta->Kind->Class
+	// and Aggregate->Kind->Class.
+	//
+	// Important: If enabled is set to true, you must also configure an analytics
+	// engine in your database connector. If the chosen connector does not
+	// support an external analytics engine, enabled must be set to false.
+	Enabled bool `json:"enabled" yaml:"enabled"`
+
+	// DefaultUseAnalyticsEngine configures what the "useAnalyticsEngine" in the
+	// GraphQL API will default to when not set.
+	DefaultUseAnalyticsEngine bool `json:"default_use_analytics_engine" yaml:"default_use_analytics_engine"`
 }
 
 type Network struct {
