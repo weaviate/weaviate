@@ -16,6 +16,7 @@ package getmeta
 import (
 	"fmt"
 
+	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
@@ -23,16 +24,16 @@ import (
 )
 
 // Build the local queries from the database schema.
-func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
+func Build(dbSchema *schema.Schema, config config.Environment) (*graphql.Field, error) {
 	if len(dbSchema.Actions.Classes) == 0 && len(dbSchema.Things.Classes) == 0 {
 		return nil, fmt.Errorf("there are no Actions or Things classes defined yet")
 	}
 
 	getMetaKinds := graphql.Fields{}
 	if len(dbSchema.Actions.Classes) > 0 {
-		localGetMetaActions, localGetMetaErr := classFields(dbSchema.Actions.Classes, kind.ACTION_KIND)
-		if localGetMetaErr != nil {
-			return nil, fmt.Errorf("failed to generate action fields from schema for local MetaGet because: %v", localGetMetaErr)
+		localGetMetaActions, err := classFields(dbSchema.Actions.Classes, kind.ACTION_KIND, config)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate action fields from schema for local MetaGet because: %v", err)
 		}
 
 		getMetaKinds["Actions"] = &graphql.Field{
@@ -44,9 +45,9 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 	}
 
 	if len(dbSchema.Things.Classes) > 0 {
-		localGetMetaThings, localGetMetaErr := classFields(dbSchema.Things.Classes, kind.THING_KIND)
-		if localGetMetaErr != nil {
-			return nil, fmt.Errorf("failed to generate thing fields from schema for local MetaGet because: %v", localGetMetaErr)
+		localGetMetaThings, err := classFields(dbSchema.Things.Classes, kind.THING_KIND, config)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate thing fields from schema for local MetaGet because: %v", err)
 		}
 
 		getMetaKinds["Things"] = &graphql.Field{

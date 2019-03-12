@@ -758,7 +758,7 @@ func rebuildGraphQL(updatedSchema schema.Schema) {
 
 	c11y := schemaContextionary.New(contextionary)
 	root := graphQLRoot{Database: db, Network: network, contextionary: c11y}
-	updatedGraphQL, err := graphqlapi.Build(&updatedSchema, peers, root, messaging)
+	updatedGraphQL, err := graphqlapi.Build(&updatedSchema, peers, root, messaging, serverConfig.Environment)
 	if err != nil {
 		// TODO: turn on safe mode gh-520
 		graphQL = nil
