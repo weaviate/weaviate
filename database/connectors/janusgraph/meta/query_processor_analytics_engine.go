@@ -16,6 +16,12 @@ func (p *Processor) getResultFromAnalyticsEngine(query *gremlin.Query, params *g
 	defer cancel()
 
 	hash, err := params.AnalyticsHash()
+	if params.Analytics.ForceRecalculate {
+		// no need to even check the cache, the user wants to start a new job
+		// regardless of the cache state
+		return p.triggerNewAnalyticsJob(ctx, query, hash)
+	}
+
 	cachedResult, err := p.cache.Get(ctx, keyFromHash(hash))
 	if err != nil {
 		return nil, fmt.Errorf("could not check whether cached query result is present: %v", err)
