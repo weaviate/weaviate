@@ -179,6 +179,42 @@ func Test_QueryProcessor_AnalyticsEngine(t *testing.T) {
 
 		assert.Equal(t, expectedMessage, err)
 	})
+
+	t.Run("when forceRecalculate is set", func(t *testing.T) {
+		params := paramsWithAnalyticsProps(cf.AnalyticsProps{
+			UseAnaltyicsEngine: true,
+			ForceRecalculate:   true,
+		})
+		executorResponse := &gremlin.Response{Data: []gremlin.Datum{}}
+		executor := &fakeExecutor{result: executorResponse}
+		hash, err := params.AnalyticsHash()
+		require.Nil(t, err)
+
+		etcd := &etcdClientMock{}
+
+		scheduleParams := analytics.QueryParams{
+			ID:    hash,
+			Query: "g.V().count()", // exact query doesn't matter for this test, only that it matches
+		}
+		analytics := &analyticsAPIMock{}
+		analytics.On("Schedule", mock.Anything, scheduleParams).
+			Return(nil)
+
+		_, err = NewProcessor(executor, etcd, analytics).
+			Process(gremlin.New().Raw("g.V().count()"), nil, &params)
+
+		analytics.AssertExpectations(t)
+
+		// It should skip calling etcd
+		etcd.AssertNotCalled(t, "Get")
+
+		expectedMessage := fmt.Errorf("could not process meta query: new job started - check back later: "+
+			"the requested analytics request could not be served from cache, so a new analytics job "+
+			"was triggered. This job runs in the background and can take considerable time depending "+
+			"on the size of your graph. Please check back later. The id of your analysis job is '%s'.",
+			hash)
+		assert.Equal(t, expectedMessage, err)
+	})
 }
 
 func paramsWithAnalyticsProps(a cf.AnalyticsProps) getmeta.Params {
