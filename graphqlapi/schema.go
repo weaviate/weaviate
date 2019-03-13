@@ -37,6 +37,7 @@ type graphQL struct {
 	schema           graphql.Schema
 	resolverProvider ResolverProvider
 	networkPeers     peers.Peers
+	config           config.Environment
 }
 
 // Construct a GraphQL API from the database schema, and resolver interface.
@@ -52,6 +53,7 @@ func Build(dbSchema *schema.Schema, peers peers.Peers, resolverProvider Resolver
 		schema:           graphqlSchema,
 		resolverProvider: resolverProvider,
 		networkPeers:     peers,
+		config:           config,
 	}, nil
 }
 
@@ -77,6 +79,7 @@ func (g *graphQL) Resolve(query string, operationName string, variables map[stri
 			"NetworkResolver": networkResolver,
 			"NetworkPeers":    g.networkPeers,
 			"Contextionary":   contextionary,
+			"Config":          g.config,
 		},
 		RequestString:  query,
 		OperationName:  operationName,
