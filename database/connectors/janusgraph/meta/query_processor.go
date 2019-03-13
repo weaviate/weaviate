@@ -14,7 +14,6 @@ package meta
 import (
 	"context"
 	"fmt"
-	"time"
 
 	analytics "github.com/SeMI-network/janus-spark-analytics/clients/go"
 	"github.com/coreos/etcd/clientv3"
@@ -38,7 +37,7 @@ type etcdClient interface {
 }
 
 type analyticsClient interface {
-	Get(ctx context.Context, params analytics.QueryParams) error
+	Schedule(ctx context.Context, params analytics.QueryParams) error
 }
 
 type executor interface {
@@ -77,38 +76,6 @@ func (p *Processor) getResult(query *gremlin.Query, params *getmeta.Params) ([]i
 	}
 
 	return p.getResultFromAnalyticsEngine(query, params)
-}
-
-func (p *Processor) getResultFromAnalyticsEngine(query *gremlin.Query, params *getmeta.Params) ([]interface{}, error) {
-	// TODO: gh-697: use existing context, don't recreate new context here
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
-
-	hash, err := params.AnalyticsHash()
-	cachedResult, err := p.cache.Get(ctx, keyFromHash(hash))
-	if err != nil {
-		return nil, fmt.Errorf("could not check whether cached query result is present: %v", err)
-	}
-
-	if len(cachedResult.Kvs) > 0 {
-		return p.cachedAnalyticsResult(cachedResult.Kvs[0].Value)
-	}
-
-	return nil, fmt.Errorf("not implemented yet")
-}
-
-func (p *Processor) cachedAnalyticsResult(res []byte) ([]interface{}, error) {
-	parsed, err := analytics.ParseResult(res)
-	if err != nil {
-		return nil, fmt.Errorf("found a cached result, but couldn't parse it: %v", err)
-	}
-
-	switch parsed.Status {
-	case analytics.StatusSucceeded:
-		return parsed.Result.([]interface{}), nil
-	default:
-		return nil, fmt.Errorf("other stati not implemented yet")
-	}
 }
 
 func (p *Processor) mergeResults(input []interface{},

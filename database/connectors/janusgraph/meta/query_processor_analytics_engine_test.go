@@ -3,6 +3,7 @@ package meta
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	analytics "github.com/SeMI-network/janus-spark-analytics/clients/go"
@@ -75,7 +76,7 @@ func Test_QueryProcessor_AnalyticsEngine(t *testing.T) {
 		}
 		etcd.On("Get", mock.Anything, keyFromHash(hash),
 			[]clientv3.OpOption(nil)).
-			Return(etcdResponse(analyticsResult, keyFromHash(hash), analytics.StatusSucceeded), nil)
+			Return(etcdResponse(analyticsResult, hash, analytics.StatusSucceeded), nil)
 
 		analytics := &analyticsAPIMock{}
 
@@ -88,6 +89,95 @@ func Test_QueryProcessor_AnalyticsEngine(t *testing.T) {
 		// Make sure the analytics API wasn't called (since we retrieved the result from the cache)
 		etcd.AssertExpectations(t)
 		analytics.AssertNotCalled(t, "Schedule")
+	})
+
+	t.Run("when analytics engine should be used and there is no cache at all", func(t *testing.T) {
+		params := paramsWithAnalyticsProps(cf.AnalyticsProps{UseAnaltyicsEngine: true})
+		executorResponse := &gremlin.Response{Data: []gremlin.Datum{}}
+		executor := &fakeExecutor{result: executorResponse}
+		hash, err := params.AnalyticsHash()
+		require.Nil(t, err)
+
+		etcd := &etcdClientMock{}
+		etcd.On("Get", mock.Anything, keyFromHash(hash),
+			[]clientv3.OpOption(nil)).
+			Return(emptyEtcdResponse(), nil)
+
+		scheduleParams := analytics.QueryParams{
+			ID:    hash,
+			Query: "g.V().count()", // exact query doesn't matter for this test, only that it matches
+		}
+		analytics := &analyticsAPIMock{}
+		analytics.On("Schedule", mock.Anything, scheduleParams).
+			Return(nil)
+
+		_, err = NewProcessor(executor, etcd, analytics).
+			Process(gremlin.New().Raw("g.V().count()"), nil, &params)
+
+		etcd.AssertExpectations(t)
+		analytics.AssertExpectations(t)
+
+		expectedMessage := fmt.Errorf("could not process meta query: new job started - check back later: "+
+			"the requested analytics request could not be served from cache, so a new analytics job "+
+			"was triggered. This job runs in the background and can take considerable time depending "+
+			"on the size of your graph. Please check back later. The id of your analysis job is '%s'.",
+			hash)
+		assert.Equal(t, expectedMessage, err)
+	})
+
+	t.Run("when analytics engine should be used and a job is ongoing", func(t *testing.T) {
+		params := paramsWithAnalyticsProps(cf.AnalyticsProps{UseAnaltyicsEngine: true})
+		executorResponse := &gremlin.Response{Data: []gremlin.Datum{}}
+		executor := &fakeExecutor{result: executorResponse}
+		hash, err := params.AnalyticsHash()
+		require.Nil(t, err)
+
+		etcd := &etcdClientMock{}
+		etcd.On("Get", mock.Anything, keyFromHash(hash),
+			[]clientv3.OpOption(nil)).
+			Return(etcdResponse(nil, hash, analytics.StatusInProgress), nil)
+
+		analytics := &analyticsAPIMock{}
+
+		_, err = NewProcessor(executor, etcd, analytics).
+			Process(gremlin.New().Raw("g.V().count()"), nil, &params)
+
+		etcd.AssertExpectations(t)
+		analytics.AssertNotCalled(t, "Schedule")
+
+		expectedMessage := fmt.Errorf("could not process meta query: an analysis job matching your query "+
+			"is already running with id '%s'. However, it hasn't finished yet. Please check back later.",
+			hash)
+
+		assert.Equal(t, expectedMessage, err)
+	})
+
+	t.Run("when analytics engine has failed", func(t *testing.T) {
+		params := paramsWithAnalyticsProps(cf.AnalyticsProps{UseAnaltyicsEngine: true})
+		executorResponse := &gremlin.Response{Data: []gremlin.Datum{}}
+		executor := &fakeExecutor{result: executorResponse}
+		hash, err := params.AnalyticsHash()
+		require.Nil(t, err)
+
+		etcd := &etcdClientMock{}
+		analyticsErrorResponse := []interface{}{"spark died unexpectedly"}
+		etcd.On("Get", mock.Anything, keyFromHash(hash),
+			[]clientv3.OpOption(nil)).
+			Return(etcdResponse(analyticsErrorResponse, hash, analytics.StatusFailed), nil)
+
+		analytics := &analyticsAPIMock{}
+
+		_, err = NewProcessor(executor, etcd, analytics).
+			Process(gremlin.New().Raw("g.V().count()"), nil, &params)
+
+		etcd.AssertExpectations(t)
+		analytics.AssertNotCalled(t, "Schedule")
+
+		expectedMessage := fmt.Errorf("could not process meta query: the previous analyis job matching "+
+			"your query with id '%s' failed. To try again, set 'forceRecalculate' to 'true', the error message "+
+			"from the previous failure was: %v", hash, analyticsErrorResponse)
+
+		assert.Equal(t, expectedMessage, err)
 	})
 }
 
@@ -118,7 +208,7 @@ type analyticsAPIMock struct {
 	mock.Mock
 }
 
-func (m *analyticsAPIMock) Get(ctx context.Context, params analytics.QueryParams) error {
+func (m *analyticsAPIMock) Schedule(ctx context.Context, params analytics.QueryParams) error {
 	args := m.Called(ctx, params)
 	return args.Error(0)
 }
@@ -140,5 +230,12 @@ func etcdResponse(data []interface{}, id string, status analytics.Status) *clien
 				Value: resBytes,
 			},
 		},
+	}
+}
+
+func emptyEtcdResponse() *clientv3.GetResponse {
+	return &clientv3.GetResponse{
+		Count: 0,
+		Kvs:   []*mvccpb.KeyValue{},
 	}
 }
