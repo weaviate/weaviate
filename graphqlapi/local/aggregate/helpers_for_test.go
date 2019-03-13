@@ -22,15 +22,18 @@ type mockResolver struct {
 	testhelper.MockResolver
 }
 
-func newMockResolver() *mockResolver {
-	field, err := Build(&testhelper.CarSchema, config.Environment{})
+func newMockResolver(cfg config.Environment) *mockResolver {
+	field, err := Build(&testhelper.CarSchema, cfg)
 	if err != nil {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
 	}
 	mocker := &mockResolver{}
 	mocker.RootFieldName = "Aggregate"
 	mocker.RootField = field
-	mocker.RootObject = map[string]interface{}{"Resolver": Resolver(mocker)}
+	mocker.RootObject = map[string]interface{}{
+		"Resolver": Resolver(mocker),
+		"Config":   cfg,
+	}
 	return mocker
 }
 
