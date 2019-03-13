@@ -37,6 +37,12 @@ type Resolver interface {
 	LocalAggregate(info *Params) (interface{}, error)
 }
 
+// RequestsLog is a local abstraction on the RequestsLog that needs to be
+// provided to the graphQL API in order to log Local.Get queries.
+type RequestsLog interface {
+	Register(requestType string, identifier string)
+}
+
 // Params to describe the Local->GetMeta->Kind->Class query. Will be passed to
 // the individual connector methods responsible for resolving the GetMeta
 // query.

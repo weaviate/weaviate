@@ -1,6 +1,7 @@
 package telemetry
 
 import (
+	"fmt"
 	"sync"
 )
 
@@ -35,10 +36,12 @@ func (r *RequestsLog) Register(requestType string, identifier string) {
 
 		r.Mutex.Lock()
 
-		if _, ok := r.Log[identifier]; ok {
-			r.Log[identifier].Amount++
+		requestUID := fmt.Sprintf("[%s]%s", requestType, identifier)
+
+		if _, ok := r.Log[requestUID]; ok {
+			r.Log[requestUID].Amount++
 		} else {
-			r.Log[identifier] = requestLog
+			r.Log[requestUID] = requestLog
 		}
 		r.Mutex.Unlock()
 	}
