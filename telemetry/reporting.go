@@ -6,8 +6,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/creativesoftwarefdn/weaviate/telemetry"
-
 	"github.com/2tvenom/cbor"
 )
 
@@ -72,7 +70,7 @@ func (r *Reporter) AddTimeStamps(extractedLog *map[string]*RequestLog) {
 	}
 }
 
-func (r *Reporter) triggerCBORFailsafe(requests *map[string]*telemetry.RequestLog) {
+func (r *Reporter) triggerCBORFailsafe(requests *map[string]*RequestLog) {
 	// TODO fill in failsafe etcd handling
 }
 
