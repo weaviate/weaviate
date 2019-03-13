@@ -14,6 +14,7 @@ package meta
 import (
 	"testing"
 
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -53,7 +54,7 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		result, err := NewProcessor(executor).Process(gremlin.New(), nil)
+		result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), nil, &getmeta.Params{})
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -95,7 +96,7 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		result, err := NewProcessor(executor).Process(gremlin.New(), nil)
+		result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), nil, &getmeta.Params{})
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -137,7 +138,7 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		result, err := NewProcessor(executor).Process(gremlin.New(), nil)
+		result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), nil, &getmeta.Params{})
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -162,7 +163,7 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		result, err := NewProcessor(executor).Process(gremlin.New(), nil)
+		result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), nil, &getmeta.Params{})
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -196,7 +197,7 @@ func Test_QueryProcessor(t *testing.T) {
 				},
 			}
 
-			result, err := NewProcessor(executor).Process(gremlin.New(), typeInput)
+			result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), typeInput, &getmeta.Params{})
 
 			require.Nil(t, err, "should not error")
 			assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -228,7 +229,7 @@ func Test_QueryProcessor(t *testing.T) {
 				},
 			}
 
-			result, err := NewProcessor(executor).Process(gremlin.New(), typeInput)
+			result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), typeInput, &getmeta.Params{})
 
 			require.Nil(t, err, "should not error")
 			assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -251,8 +252,7 @@ func Test_QueryProcessor(t *testing.T) {
 				},
 			}
 
-			result, err := NewProcessor(executor).Process(gremlin.New(), typeInput)
-
+			result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), typeInput, &getmeta.Params{})
 			require.Nil(t, err, "should not error")
 			assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
 		})
@@ -293,7 +293,7 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		result, err := NewProcessor(executor).Process(gremlin.New(), nil)
+		result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), nil, &getmeta.Params{})
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
