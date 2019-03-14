@@ -75,7 +75,7 @@ services:
     ports:
       - "8081:8081"
   janus:
-    image: creativesoftwarefdn/janusgraph-docker:0.2.0
+    image: creativesoftwarefdn/janusgraph-docker:0.3.1
     depends_on:
       - db
       - index
@@ -85,7 +85,8 @@ services:
     environment:
      - DEV_MODE=true
     volumes:
-      - ./janusgraph.properties:/janusgraph-config/janusgraph.properties
+      - ./database/connectors/janusgraph/janusgraph.properties:/janusgraph-config/janusgraph.properties
+      - ./database/connectors/janusgraph/gremlin-server.yaml:/janusgraph-config/gremlin-server.yaml
   db:
     image: scylladb/scylla:2.0.1
     ports:
