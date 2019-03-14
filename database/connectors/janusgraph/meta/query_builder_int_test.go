@@ -29,12 +29,14 @@ func Test_QueryBuilder_IntProps(t *testing.T) {
 			},
 			expectedQuery: `
 				.union(
-					aggregate("aggregation").by("population").cap("aggregation").limit(1)
-						.as("count")
-						.select("count")
-						.by(count(local))
-						.as("count_combined").project("count").by(select("count_combined"))
-						.as("population").project("population").by(select("population"))
+				  values("population").union(
+					  count().project("count").project("population")
+					)
+				)
+				.group().by(select(keys).unfold()).by(
+					select(values).unfold().group()
+					.by( select(keys).unfold())
+					.by( select(values).unfold())
 				)
 			`,
 		},
@@ -51,11 +53,18 @@ func Test_QueryBuilder_IntProps(t *testing.T) {
 			},
 			expectedQuery: `
 				.union(
-					aggregate("aggregation").by("population").cap("aggregation").limit(1)
-						.as("mean", "sum", "maximum", "minimum", "count")
-						.select("mean", "sum", "maximum", "minimum", "count")
-						.by(mean(local)).by(sum(local)).by(max(local)).by(min(local)).by(count(local))
-						.as("population").project("population").by(select("population"))
+				  values("population").union(
+					  mean().project("mean").project("population"),
+					  sum().project("sum").project("population"),
+					  max().project("maximum").project("population"),
+					  min().project("minimum").project("population"),
+					  count().project("count").project("population")
+					)
+				)
+				.group().by(select(keys).unfold()).by(
+					select(values).unfold().group()
+					.by( select(keys).unfold())
+					.by( select(values).unfold())
 				)
 			`,
 		},

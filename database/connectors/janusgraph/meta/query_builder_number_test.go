@@ -29,12 +29,14 @@ func Test_QueryBuilder_NumberProps(t *testing.T) {
 			},
 			expectedQuery: `
 				.union(
-					aggregate("aggregation").by("area").cap("aggregation").limit(1)
-						.as("count")
-						.select("count")
-						.by(count(local))
-						.as("count_combined").project("count").by(select("count_combined"))
-						.as("area").project("area").by(select("area"))
+				  values("area").union(
+					  count().project("count").project("area")
+					)
+				)
+				.group().by(select(keys).unfold()).by(
+					select(values).unfold().group()
+					.by( select(keys).unfold())
+					.by( select(values).unfold())
 				)
 			`,
 		},
@@ -45,22 +47,28 @@ func Test_QueryBuilder_NumberProps(t *testing.T) {
 				gm.MetaProperty{
 					Name: "area",
 					StatisticalAnalyses: []gm.StatisticalAnalysis{
-						gm.Mean, gm.Sum, gm.Maximum, gm.Minimum, gm.Count, gm.Type,
+						gm.Mean, gm.Type, gm.Sum, gm.Maximum, gm.Minimum, gm.Count,
 					},
 				},
 			},
 			expectedQuery: `
 				.union(
-					aggregate("aggregation").by("area").cap("aggregation").limit(1)
-						.as("mean", "sum", "maximum", "minimum", "count")
-						.select("mean", "sum", "maximum", "minimum", "count")
-						.by(mean(local)).by(sum(local)).by(max(local)).by(min(local)).by(count(local))
-						.as("area").project("area").by(select("area"))
+				  values("area").union(
+					  mean().project("mean").project("area"),
+					  sum().project("sum").project("area"),
+					  max().project("maximum").project("area"),
+					  min().project("minimum").project("area"),
+					  count().project("count").project("area")
+					)
+				)
+				.group().by(select(keys).unfold()).by(
+					select(values).unfold().group()
+					.by( select(keys).unfold())
+					.by( select(values).unfold())
 				)
 			`,
 		},
 	}
 
 	tests.AssertQuery(t, nil)
-
 }

@@ -140,6 +140,16 @@ func (q *Query) ByQuery(subquery *Query) *Query {
 	return extend_query(q, `.by(%s)`, subquery.String())
 }
 
+// SelectKeys turns to select(keys), note that there are no quotes aruond keys.
+func (q *Query) SelectKeys() *Query {
+	return smartExtendQuery(q, `select(keys)`)
+}
+
+// SelectValues turns to select(values), note that there are no quotes aruond values.
+func (q *Query) SelectValues() *Query {
+	return smartExtendQuery(q, `select(values)`)
+}
+
 func (q *Query) Fold() *Query {
 	return smartExtendQuery(q, "fold()")
 }
@@ -176,7 +186,7 @@ func (q *Query) Values(propNames []string) *Query {
 		sanitized = append(sanitized, fmt.Sprintf(`"%s"`, EscapeString(propName)))
 	}
 
-	return extend_query(q, ".values(%s)", strings.Join(sanitized, ","))
+	return smartExtendQuery(q, "values(%s)", strings.Join(sanitized, ","))
 }
 
 func (q *Query) Range(offset int, limit int) *Query {
@@ -206,7 +216,7 @@ func (q *Query) HasString(key string, value string) *Query {
 }
 
 func (q *Query) HasBool(key string, value bool) *Query {
-	return extend_query(q, `.has("%s", %v)`, EscapeString(key), value)
+	return smartExtendQuery(q, `has("%s", %v)`, EscapeString(key), value)
 }
 
 func (q *Query) StringProperty(key string, value string) *Query {

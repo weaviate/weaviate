@@ -56,7 +56,7 @@ func (p *Processor) Process(query *gremlin.Query, typeInfo map[string]interface{
 		return nil, fmt.Errorf("could not process meta query: %v", err)
 	}
 
-	merged, err := p.mergeResults(result, typeInfo)
+	merged, err := p.mergeResults(result, typeInfo, params)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"got a successful response from janus, but could not merge the results: %s", err)
@@ -79,13 +79,17 @@ func (p *Processor) getResult(query *gremlin.Query, params *getmeta.Params) ([]i
 }
 
 func (p *Processor) mergeResults(input []interface{},
-	typeInfo map[string]interface{}) (interface{}, error) {
+	typeInfo map[string]interface{}, params *getmeta.Params) (interface{}, error) {
 	result := map[string]interface{}{}
 
-	for _, datum := range input {
-		datumAsMap, ok := datum.(map[string]interface{})
+	if len(input) > 1 {
+		return nil, fmt.Errorf("expected a single result from the database, but got %d", len(input))
+	}
+
+	if len(input) == 1 {
+		datumAsMap, ok := input[0].(map[string]interface{})
 		if !ok {
-			return nil, fmt.Errorf("expected datum to be map, but was %#v", datum)
+			return nil, fmt.Errorf("expected datum to be map, but was %#v", input[0])
 		}
 
 		// merge datums from janus
@@ -95,7 +99,7 @@ func (p *Processor) mergeResults(input []interface{},
 				return nil, fmt.Errorf("expected property to be map, but was %#v", v)
 			}
 
-			processed, err := p.postProcess(vAsMap)
+			processed, err := p.postProcess(k, vAsMap, params)
 			if err != nil {
 				return nil, fmt.Errorf("could not postprocess '%#v': %s", v, err)
 			}
@@ -129,11 +133,15 @@ func (p *Processor) mergeResults(input []interface{},
 	return map[string]interface{}(result), nil
 }
 
-func (p *Processor) postProcess(m map[string]interface{}) (map[string]interface{}, error) {
+func (p *Processor) postProcess(propName string, m map[string]interface{},
+	params *getmeta.Params) (map[string]interface{}, error) {
+
+	if hasBoolAnalyses(propName, params) {
+		return p.postProcessBoolGroupCount(m)
+	}
+
 	for k := range m {
 		switch k {
-		case BoolGroupCount:
-			return p.postProcessBoolGroupCount(m)
 		case StringTopOccurrences:
 			return p.postProcessStringTopOccurrences(m)
 		}
@@ -162,4 +170,27 @@ func datumsToSlice(g *gremlin.Response) []interface{} {
 	}
 
 	return res
+}
+
+func hasBoolAnalyses(propName string, params *getmeta.Params) bool {
+	for _, prop := range params.Properties {
+		if string(prop.Name) == propName && hasAtLeastOneBooleanAnalysis(prop.StatisticalAnalyses) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func hasAtLeastOneBooleanAnalysis(analyses []getmeta.StatisticalAnalysis) bool {
+	for _, analysis := range analyses {
+		if analysis == getmeta.PercentageTrue ||
+			analysis == getmeta.PercentageFalse ||
+			analysis == getmeta.TotalTrue ||
+			analysis == getmeta.TotalFalse {
+			return true
+		}
+	}
+
+	return false
 }
