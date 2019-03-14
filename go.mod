@@ -33,6 +33,7 @@ require (
 	github.com/sirupsen/logrus v1.2.0
 	github.com/stretchr/testify v1.2.2
 	github.com/syndtr/goleveldb v0.0.0-20180708030551-c4c61651e9e3
+	github.com/ugorji/go/codec v0.0.0-20190309163734-c4a1c341dc93 // indirect
 	golang.org/x/net v0.0.0-20181114220301-adae6a3d119a
 	google.golang.org/grpc v1.16.0
 	gopkg.in/yaml.v2 v2.2.1

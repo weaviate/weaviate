@@ -14,7 +14,10 @@ package janusgraph
 import (
 	"context"
 	"fmt"
+	"net/url"
 
+	client "github.com/SeMI-network/janus-spark-analytics/clients/go"
+	"github.com/coreos/etcd/clientv3"
 	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
@@ -49,6 +52,12 @@ type Janusgraph struct {
 	serverAddress string
 	schema        schema.Schema
 	messaging     *messages.Messaging
+
+	// etcd can be used as an external cache for the analytics api
+	etcdClient *clientv3.Client
+
+	// analyticsClient for background analytical jobs
+	analyticsClient *client.Client
 }
 
 // New Janusgraph Connector
@@ -92,6 +101,21 @@ func (f *Janusgraph) Init(ctx context.Context) error {
 	err := f.ensureBasicSchema(ctx)
 	if err != nil {
 		return err
+	}
+
+	if f.config.AnalyticsEngine.Enabled {
+		etcdCfg := clientv3.Config{Endpoints: []string{f.appConfig.ConfigurationStorage.URL}}
+		f.etcdClient, err = clientv3.New(etcdCfg)
+		if err != nil {
+			return fmt.Errorf("could not build etcd client: %v", err)
+		}
+
+		analyticsURL, err := url.Parse(f.config.AnalyticsEngine.URL)
+		if err != nil {
+			return fmt.Errorf("could not parse URL for analytics client: %v", err)
+		}
+
+		f.analyticsClient = client.New(analyticsURL)
 	}
 
 	f.initialized = true
