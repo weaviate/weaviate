@@ -184,40 +184,6 @@ func Test_QueryProcessor(t *testing.T) {
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
 	})
 
-	t.Run("when there are more than 1 gremlin result",
-		func(t *testing.T) {
-			janusResponse := &gremlin.Response{
-				Data: []gremlin.Datum{
-					gremlin.Datum{
-						Datum: map[string]interface{}{
-							"myStringProp": map[string]interface{}{
-								"topOccurrences": map[string]interface{}{
-									"rare string":          1.0,
-									"common string":        7.0,
-									"not so common string": 3.0,
-								},
-							},
-						},
-					},
-					gremlin.Datum{
-						Datum: map[string]interface{}{
-							"myStringProp": map[string]interface{}{
-								"topOccurrences": map[string]interface{}{
-									"rare string":          1.0,
-									"common string":        7.0,
-									"not so common string": 3.0,
-								},
-							},
-						},
-					},
-				},
-			}
-
-			executor := &fakeExecutor{result: janusResponse}
-			_, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), nil, &getmeta.Params{})
-			require.NotNil(t, err, "should error")
-		})
-
 	t.Run("when int count is requested and there are types to be merged in from a different prop",
 		func(t *testing.T) {
 			janusResponse := &gremlin.Response{

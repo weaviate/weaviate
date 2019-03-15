@@ -44,11 +44,11 @@ func Test_QueryBuilder_MultipleProps(t *testing.T) {
 				.group().by("isCapital").by(
 					fold()
 						.match(
-							__.as("a").unfold().values("name").count().as("name__count"),
-							__.as("a").unfold().values("population").count().as("population__count")
+							__.as("a").unfold().values("name").count().project("name__count").as("name__count"),
+							__.as("a").unfold().values("population").count().project("population__count").as("population__count")
 						)
-						.select("name__count").by(project("name__count")).as("name")
-						.select("population__count").by(project("population__count")).as("population")
+						.select("name__count").as("name")
+						.select("population__count").as("population")
 						.select("name", "population")
 					)
 				`,
