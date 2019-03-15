@@ -41,7 +41,7 @@ func NewWeaviateThingsUpdate(ctx *middleware.Context, handler WeaviateThingsUpda
 
 /*WeaviateThingsUpdate swagger:route PUT /things/{thingId} things weaviateThingsUpdate
 
-Update a Thing based on its UUID related to this key.
+Update a Thing based on its UUID.
 
 Updates a Thing's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 
