@@ -235,6 +235,33 @@
                     "description": "number of seats available in the aircraft."
                 }
             ]
+        },
+        {
+            "class": "Car",
+            "description": "A specific car with make and model",
+            "properties": [
+                {
+                    "name": "model",
+                    "@dataType": [
+                        "string"
+                    ],
+                    "description": "name of the model"
+                },
+                {
+                    "name": "power",
+                    "@dataType": [
+                        "int"
+                    ],
+                    "description": "horsepower of the engine"
+                },
+                {
+                    "name": "weight",
+                    "@dataType": [
+                        "number"
+                    ],
+                    "description": "total weight of the car, including driver and a full gas tank"
+                }
+            ]
         }
     ]
 }
