@@ -5,7 +5,7 @@ import (
 	"sync"
 )
 
-// A struct used to log the type and amount of POST and GQL Requests this Weaviate receives.
+// RequestsLog is a struct used to log the type and amount of POST and GQL Requests this Weaviate receives.
 // Contains a map and a mutex used to control access to this map.
 type RequestsLog struct { // TODO: RENAME
 	Mutex    *sync.Mutex
@@ -14,7 +14,7 @@ type RequestsLog struct { // TODO: RENAME
 	Enabled  bool
 }
 
-// Create a new Requestslog
+// NewLog creates a new Requestslog and returns a pointer to it.
 func NewLog(enabled bool) *RequestsLog {
 	return &RequestsLog{
 		Mutex:   &sync.Mutex{},
@@ -47,7 +47,7 @@ func (r *RequestsLog) Register(requestType string, identifier string) {
 	}
 }
 
-// Extract the hashmap used to log performed Requests and reset it to its default state.
+// ExtractLoggedRequests extracts the hashmap used to log performed Requests and reset it to its default state.
 func (r *RequestsLog) ExtractLoggedRequests() *map[string]*RequestLog {
 	if r.Enabled {
 		r.Mutex.Lock()
@@ -66,7 +66,7 @@ func (r *RequestsLog) ExtractLoggedRequests() *map[string]*RequestLog {
 	return nil
 }
 
-// A struct used both for logging new Request type calls and for counting the total amount of calls per
+// RequestLog is a struct used both for logging new Request type calls and for counting the total amount of calls per
 // Request type in a RequestsLog. Contains all relevant details of an individual Request type.
 type RequestLog struct {
 	Name       string // name of the Weaviate instance. Is `a-b-c` where a, b, and c are random words from the contextionary.

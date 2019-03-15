@@ -1,18 +1,28 @@
 package telemetry
 
 import (
-	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
-	"github.com/2tvenom/cbor"
+	"github.com/ugorji/go/codec"
 )
 
+// Name contains the minimized string value of the Name field.
 const Name string = "n"
+
+// Type contains the minimized string value of the Type field.
 const Type string = "t"
+
+// Identifier contains the minimized string value of the Identifier field.
 const Identifier string = "i"
+
+// Amount contains the minimized string value of the Amount field.
 const Amount string = "a"
+
+// When contains the minimized string value of the When field.
 const When string = "w"
 
 // TODO:
@@ -22,27 +32,29 @@ const When string = "w"
 // send + retry
 // failsafe
 
-func NewReporter(requestsLog *RequestsLog, reportInterval int, reportURL string, telemetryEnabled bool) *Reporter {
+// NewReporter creates a new Reporter struct and returns a pointer to it.
+func NewReporter(requestsLog *RequestsLog, reportInterval int, reportURL string, telemetryEnabled bool, testing bool) *Reporter {
 	return &Reporter{
 		log:         requestsLog,
 		interval:    reportInterval,
 		url:         reportURL,
 		enabled:     telemetryEnabled,
-		transformer: NewOutputTransformer(),
+		transformer: NewOutputTransformer(testing),
 		poster:      NewPoster(reportURL),
 	}
 }
 
+// Reporter is the struct used to report the logged function calls, either to an endpoint or to the etcd store.
 type Reporter struct {
 	log         *RequestsLog
 	interval    int
 	url         string
 	enabled     bool
-	transformer *outputTransformer
-	poster      *poster
+	transformer *OutputTransformer
+	poster      *Poster
 }
 
-// Post logged function calls in CBOR format to the provided url every <provided interval> seconds.
+// Start posts logged function calls in CBOR format to the provided url every <provided interval> seconds.
 // Contains a failsafe mechanism in the case the url is unreachable.
 func (r *Reporter) Start() {
 	if r.enabled {
@@ -61,7 +73,7 @@ func (r *Reporter) Start() {
 	}
 }
 
-// Add the current timestamp to the logged requests types
+// AddTimeStamps adds the current timestamp to the logged request types.
 func (r *Reporter) AddTimeStamps(extractedLog *map[string]*RequestLog) {
 	timestamp := time.Now().Unix()
 
@@ -74,9 +86,8 @@ func (r *Reporter) triggerCBORFailsafe(requests *map[string]*RequestLog) {
 	// TODO fill in failsafe etcd handling
 }
 
-// TODO: cover with test
-// Transform the logged function calls to a minimized output format to reduce network traffic.
-func (r *Reporter) TransformToOutputFormat(logs *map[string]*RequestLog) ([]byte, error) {
+// TransformToOutputFormat transforms the logged function calls to a minimized output format to reduce network traffic.
+func (r *Reporter) TransformToOutputFormat(logs *map[string]*RequestLog) (*string, error) { // TODO: cover with test
 	minimizedLogs := r.transformer.ConvertToMinimizedJSON(logs)
 
 	cborLogs, err := r.transformer.EncodeAsCBOR(minimizedLogs)
@@ -87,15 +98,18 @@ func (r *Reporter) TransformToOutputFormat(logs *map[string]*RequestLog) ([]byte
 	return cborLogs, nil
 }
 
-type outputTransformer struct {
+// OutputTransformer contains methods that transform the function call logs to an outputtable format.
+type OutputTransformer struct {
+	testing bool
 }
 
-func NewOutputTransformer() *outputTransformer {
-	return &outputTransformer{}
+// NewOutputTransformer creates a new OutputTransformer and returns a pointer to it.
+func NewOutputTransformer(testing bool) *OutputTransformer {
+	return &OutputTransformer{testing}
 }
 
-// Convert the request logs to minimized JSON
-func (o *outputTransformer) ConvertToMinimizedJSON(logs *map[string]*RequestLog) *string {
+// ConvertToMinimizedJSON converts the request logs to minimized JSON
+func (o *OutputTransformer) ConvertToMinimizedJSON(logs *map[string]*RequestLog) *string {
 	minimizedLogs := make([]map[string]interface{}, len(*logs))
 
 	iterations := 0
@@ -117,34 +131,42 @@ func (o *outputTransformer) ConvertToMinimizedJSON(logs *map[string]*RequestLog)
 	return &minimizedJSON
 }
 
-// Encode the logs in CBOR format
-func (o *outputTransformer) EncodeAsCBOR(minimizedJSON *string) ([]byte, error) {
-	var buffer bytes.Buffer
-	encoder := cbor.NewEncoder(&buffer)
-	ok, err := encoder.Marshal(minimizedJSON)
-
-	if !ok {
-		return nil, err
-	} else {
-		return buffer.Bytes(), nil
+// EncodeAsCBOR encodes logs in CBOR format and returns them as a base-16 string with two chars per byte.
+// Sample output: "816B48656C6C6F20776F726C64"
+func (o *OutputTransformer) EncodeAsCBOR(minimizedJSON *string) (*string, error) {
+	encoded := make([]byte, 0, 64)
+	cborHandle := new(codec.CborHandle)
+	if o.testing {
+		cborHandle.Canonical = true
 	}
+
+	encoder := codec.NewEncoderBytes(&encoded, cborHandle)
+	err := encoder.Encode(minimizedJSON)
+
+	if err != nil {
+		return nil, err
+	}
+
+	byteString := fmt.Sprintf("%x", encoded)
+
+	return &byteString, nil
 }
 
-func NewPoster(url string) *poster {
-	return &poster{url: url}
+// NewPoster creates a new
+func NewPoster(url string) *Poster {
+	return &Poster{url: url}
 }
 
-// The class responsible for sending the converted log to the desired location.
+// Poster is a class responsible for sending the converted log to the desired location.
 // Tries to send the log to a REST endpoint. If the endpoint is unreachable then the logs are stored in the etcd store.
-type poster struct {
+type Poster struct {
 	url string
 }
 
-// Send the logs to a previously determined REST endpoint
-func (p *poster) ReportLoggedCalls(encoded []byte) {
-	req, err := http.NewRequest("POST", p.url, bytes.NewReader(encoded))
-	//req.Header.Set("X-Custom-Header", "myvalue")
-	req.Header.Set("Content-Type", "application/json")
+// ReportLoggedCalls sends the logs to a previously determined REST endpoint.
+func (p *Poster) ReportLoggedCalls(encoded *string) {
+	req, err := http.NewRequest("POST", p.url, strings.NewReader(*encoded))
+	req.Header.Set("Content-Type", "application/cbor")
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
@@ -155,6 +177,6 @@ func (p *poster) ReportLoggedCalls(encoded []byte) {
 }
 
 // Should the REST endpoint be unreachable then the log is stored in the etcd key item store
-func (p *poster) triggerPOSTFailsafe(encoded []byte) {
+func (p *Poster) triggerPOSTFailsafe(encoded *string) {
 
 }

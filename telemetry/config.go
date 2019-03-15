@@ -1,37 +1,37 @@
 package telemetry
 
-// ServiceID for a local query
+// LocalQuery contains the serviceID for a local query
 const LocalQuery string = "weaviate.local.query"
 
-// ServiceID for a local meta query
+// LocalQueryMeta contains the serviceID for a local meta query
 const LocalQueryMeta string = "weaviate.local.query.meta"
 
-// ServiceID for a network query
+// NetworkQuery contains the serviceID for a network query
 const NetworkQuery string = "Weaviate.network.query"
 
-// ServiceID for a network meta query
+// NetworkQueryMeta contains the serviceID for a network meta query
 const NetworkQueryMeta string = "weaviate.network.query.meta"
 
-// ServiceID for a local add query
+// LocalAdd contains the serviceID for a local add query
 const LocalAdd string = "weaviate.local.add"
 
-// ServiceID for a local add meta query
+// LocalAddMeta contains the serviceID for a local add meta query
 const LocalAddMeta string = "weaviate.local.add.meta"
 
-// ServiceID for a local manipulate query
+// LocalManipulate contains the serviceID for a local manipulate query
 const LocalManipulate string = "weaviate.local.manipulate"
 
-// ServiceID for a local manipulate meta query
+// LocalManipulateMeta contains the serviceID for a local manipulate meta query
 const LocalManipulateMeta string = "weaviate.local.manipulate.meta"
 
-// ServiceID for a network tools query
+// NetworkToolsMap contains the serviceID for a network tools query
 const NetworkToolsMap string = "weaviate.network.tools.map"
 
-// ServiceID for a local query
+// TypeGQL contains the serviceID for a local query
 const TypeGQL string = "GQL"
 
-// ServiceID for a local query
+// TypeREST contains the serviceID for a local query
 const TypeREST string = "REST"
 
-// ServiceID for a local query
+// TargetURL contains the serviceID for a local query
 const TargetURL string = "http://webhook.site/73641e3c-6d28-4875-aa5e-b0e66abd3b00"
