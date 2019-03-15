@@ -16,12 +16,10 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/meta"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
-	"github.com/davecgh/go-spew/spew"
 )
 
 // LocalGetMeta based on GraphQL Query params
 func (j *Janusgraph) LocalGetMeta(params *getmeta.Params) (interface{}, error) {
-	spew.Dump(params)
 	className := j.state.GetMappedClassName(params.ClassName)
 	q := gremlin.New().Raw(`g.V()`).
 		HasString("kind", params.Kind.Name()).

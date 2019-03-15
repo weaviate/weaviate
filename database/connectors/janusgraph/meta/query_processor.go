@@ -82,14 +82,10 @@ func (p *Processor) mergeResults(input []interface{},
 	typeInfo map[string]interface{}, params *getmeta.Params) (interface{}, error) {
 	result := map[string]interface{}{}
 
-	if len(input) > 1 {
-		return nil, fmt.Errorf("expected a single result from the database, but got %d", len(input))
-	}
-
-	if len(input) == 1 {
-		datumAsMap, ok := input[0].(map[string]interface{})
+	for _, datum := range input {
+		datumAsMap, ok := datum.(map[string]interface{})
 		if !ok {
-			return nil, fmt.Errorf("expected datum to be map, but was %#v", input[0])
+			return nil, fmt.Errorf("expected datum to be map, but was %#v", datum)
 		}
 
 		// merge datums from janus

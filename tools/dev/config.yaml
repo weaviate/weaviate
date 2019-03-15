@@ -8,7 +8,7 @@ environments:
       analytics_engine:
         enabled: true
         type: spark-analytics-api
-        url: http://analytics-api:1234
+        url: http://localhost:8100
   analytics_engine:
     enabled: true
     defaultUseAnalyticsEngine: false
