@@ -59,8 +59,9 @@ type SelectClass struct {
 
 // Internal struct to bubble data through the resolvers.
 type filtersAndResolver struct {
-	filters  *common_filters.LocalFilter
-	resolver Resolver
+	filters     *common_filters.LocalFilter
+	resolver    Resolver
+	requestsLog RequestsLog
 }
 
 // FindSelectClass by specifying the exact class name

@@ -122,7 +122,10 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 			return nil, fmt.Errorf("could not extract filters: %s", err)
 		}
 
-		requestsLog := source["RequestsLog"].(RequestsLog)
+		requestsLog, ok := source["RequestsLog"].(RequestsLog)
+		if !ok {
+			return nil, fmt.Errorf("expected source to contain a usable RequestsLog, but was %t", p.Source)
+		}
 		for _, property := range properties {
 			for _, aggregator := range property.Aggregators {
 				serviceID := fmt.Sprintf("%s[%s]", telemetry.LocalQuery, aggregator)
