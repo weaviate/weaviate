@@ -23,6 +23,12 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 )
 
+// type mockRequestsLog struct{}
+
+// func (m *mockRequestsLog) Register(first string, second string) {
+
+// }
+
 type mockResolver struct {
 	test_helper.MockResolver
 }
@@ -33,6 +39,7 @@ func newMockResolver(peers peers.Peers) *mockResolver {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
 	}
 	mocker := &mockResolver{}
+	// mockLog := &mockRequestsLog{}
 	mocker.RootFieldName = "Get"
 	mocker.RootField = field
 	mocker.RootObject = map[string]interface{}{"Resolver": Resolver(mocker)}
