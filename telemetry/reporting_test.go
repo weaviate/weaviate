@@ -1,13 +1,11 @@
 package telemetry
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
 
-	"github.com/2tvenom/cbor"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -24,7 +22,7 @@ func TestLoop(t *testing.T) {
 	interval := 1
 	url := "http://webhook.site/73641e3c-6d28-4875-aa5e-b0e66abd3b00"
 
-	reporter := NewReporter(calledFunctions, interval, url, telemetryEnabled)
+	reporter := NewReporter(calledFunctions, interval, url, telemetryEnabled, true)
 
 	go reporter.Start()
 
@@ -49,7 +47,7 @@ func TestConvertToMinimizedJSON(t *testing.T) {
 	calledFunctions.Log["[REST]weaviate.something.or.other"].Name = "tiny-grey-chainsword"
 	calledFunctions.Log["[REST]weaviate.something.or.other"].When = int64(1550745544)
 
-	transformer := NewOutputTransformer()
+	transformer := NewOutputTransformer(true)
 
 	jsonLogs := transformer.ConvertToMinimizedJSON(&calledFunctions.Log)
 
@@ -98,7 +96,7 @@ func TestAddTimestamps(t *testing.T) {
 
 	time.Sleep(time.Duration(1) * time.Second)
 
-	reporter := NewReporter(nil, 0, "", true)
+	reporter := NewReporter(nil, 0, "", true, true)
 	reporter.AddTimeStamps(&calledFunctions.Log)
 
 	time.Sleep(time.Duration(1) * time.Second)
@@ -126,33 +124,26 @@ func TestCborEncode(t *testing.T) {
 	// setup
 	minimizedLog := `[{"n": "upbeat-aquatic-pen", "t": "REST", "i": "weaviate.something.or.other", "a": 1, "w": 1550745544}]`
 
-	outputTransformer := NewOutputTransformer()
+	outputTransformer := NewOutputTransformer(true)
 
 	encoded, err := outputTransformer.EncodeAsCBOR(&minimizedLog)
 
-	var result string
-	var buffTest bytes.Buffer
+	expected := "78675b7b226e223a20227570626561742d617175617469632d70656e222c202274223a202252455354222c202269223a202277656176696174652e736f6d657468696e672e6f722e6f74686572222c202261223a20312c202277223a20313535303734353534347d5d"
 
-	encoder := cbor.NewEncoder(&buffTest)
-	ok, err := encoder.Unmarshal(encoded, &result)
+	assert.Equal(t, nil, err)
 
-	if !ok {
-		fmt.Printf("Error Unmarshal %s", err)
-		return
-	}
-
-	assert.Equal(t, minimizedLog, result)
+	assert.Equal(t, expected, *encoded)
 }
 
 func TestReporting(t *testing.T) {
 	t.Parallel()
 
 	// setup
-	a := []byte{165, 97, 120, 10, 97, 121, 15, 97, 122, 24, 100, 101, 114, 97, 110, 103, 101, 132, 162, 102, 108, 101, 110, 103, 116, 104, 1, 101, 97, 108, 105, 103, 110, 250, 65, 32, 0, 0, 162, 102, 108, 101, 110, 103, 116, 104, 26, 13, 81, 78, 231, 101, 97, 108, 105, 103, 110, 250, 65, 240, 0, 0, 162, 102, 108, 101, 110, 103, 116, 104, 3, 101, 97, 108, 105, 103, 110, 250, 66, 38, 0, 0, 162, 102, 108, 101, 110, 103, 116, 104, 24, 174, 101, 97, 108, 105, 103, 110, 250, 71, 89, 3, 51, 101, 108, 97, 98, 101, 108, 102, 72, 111, 72, 111, 72, 111}
-	b := bytes.NewReader(a)
-	fmt.Println(b)
-	poster := NewPoster("http://webhook.site/73641e3c-6d28-4875-aa5e-b0e66abd3b00")
-	poster.ReportLoggedCalls(a)
+	// a := []byte{165, 97, 120, 10, 97, 121, 15, 97, 122, 24, 100, 101, 114, 97, 110, 103, 101, 132, 162, 102, 108, 101, 110, 103, 116, 104, 1, 101, 97, 108, 105, 103, 110, 250, 65, 32, 0, 0, 162, 102, 108, 101, 110, 103, 116, 104, 26, 13, 81, 78, 231, 101, 97, 108, 105, 103, 110, 250, 65, 240, 0, 0, 162, 102, 108, 101, 110, 103, 116, 104, 3, 101, 97, 108, 105, 103, 110, 250, 66, 38, 0, 0, 162, 102, 108, 101, 110, 103, 116, 104, 24, 174, 101, 97, 108, 105, 103, 110, 250, 71, 89, 3, 51, 101, 108, 97, 98, 101, 108, 102, 72, 111, 72, 111, 72, 111}
+	// b := bytes.NewReader(a)
+	// fmt.Println(b)
+	// poster := NewPoster("http://webhook.site/73641e3c-6d28-4875-aa5e-b0e66abd3b00")
+	// poster.ReportLoggedCalls(a)
 
 	// test
 	assert.Equal(t, 1, 1)

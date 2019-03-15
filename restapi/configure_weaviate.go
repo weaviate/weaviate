@@ -215,7 +215,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	requestsLog = telemetry.NewLog(enabled)
 
-	reporter = telemetry.NewReporter(requestsLog, interval, url, enabled)
+	reporter = telemetry.NewReporter(requestsLog, interval, url, enabled, false)
 
 	setupSchemaHandlers(api, requestsLog)
 	setupThingsHandlers(api, requestsLog)
