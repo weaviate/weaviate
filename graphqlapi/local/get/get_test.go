@@ -116,33 +116,35 @@ func TestExtractPagination(t *testing.T) {
 func TestGetRelation(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver(emptyPeers())
+	t.Run("without using custom fragments", func(t *testing.T) {
+		resolver := newMockResolver(emptyPeers())
 
-	expectedParams := &Params{
-		Kind:      kind.ACTION_KIND,
-		ClassName: "SomeAction",
-		Properties: []SelectProperty{
-			{
-				Name:        "HasAction",
-				IsPrimitive: false,
-				Refs: []SelectClass{
-					{
-						ClassName: "SomeAction",
-						RefProperties: []SelectProperty{
-							{
-								Name:        "intField",
-								IsPrimitive: true,
-							},
-							{
-								Name:        "HasAction",
-								IsPrimitive: false,
-								Refs: []SelectClass{
-									{
-										ClassName: "SomeAction",
-										RefProperties: []SelectProperty{
-											{
-												Name:        "intField",
-												IsPrimitive: true,
+		expectedParams := &Params{
+			Kind:      kind.ACTION_KIND,
+			ClassName: "SomeAction",
+			Properties: []SelectProperty{
+				{
+					Name:        "HasAction",
+					IsPrimitive: false,
+					Refs: []SelectClass{
+						{
+							ClassName: "SomeAction",
+							RefProperties: []SelectProperty{
+								{
+									Name:        "intField",
+									IsPrimitive: true,
+								},
+								{
+									Name:        "HasAction",
+									IsPrimitive: false,
+									Refs: []SelectClass{
+										{
+											ClassName: "SomeAction",
+											RefProperties: []SelectProperty{
+												{
+													Name:        "intField",
+													IsPrimitive: true,
+												},
 											},
 										},
 									},
@@ -152,12 +154,95 @@ func TestGetRelation(t *testing.T) {
 					},
 				},
 			},
-		},
-	}
+		}
 
-	resolver.On("LocalGetClass", expectedParams).
-		Return(test_helper.EmptyList(), nil).Once()
+		resolver.On("LocalGetClass", expectedParams).
+			Return(test_helper.EmptyList(), nil).Once()
 
-	query := "{ Get { Actions { SomeAction { HasAction { ... on SomeAction { intField, HasAction { ... on SomeAction { intField } } } } } } } }"
-	resolver.AssertResolve(t, query)
+		query := "{ Get { Actions { SomeAction { HasAction { ... on SomeAction { intField, HasAction { ... on SomeAction { intField } } } } } } } }"
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("with a custom fragment one level deep", func(t *testing.T) {
+		resolver := newMockResolver(emptyPeers())
+
+		expectedParams := &Params{
+			Kind:      kind.ACTION_KIND,
+			ClassName: "SomeAction",
+			Properties: []SelectProperty{
+				{
+					Name:        "HasAction",
+					IsPrimitive: false,
+					Refs: []SelectClass{
+						{
+							ClassName: "SomeAction",
+							RefProperties: []SelectProperty{
+								{
+									Name:        "intField",
+									IsPrimitive: true,
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		resolver.On("LocalGetClass", expectedParams).
+			Return(test_helper.EmptyList(), nil).Once()
+
+		query := "fragment actionFragment on SomeAction { intField } { Get { Actions { SomeAction { HasAction { ...actionFragment } } } } }"
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("with a custom fragment multiple levels deep", func(t *testing.T) {
+		resolver := newMockResolver(emptyPeers())
+
+		expectedParams := &Params{
+			Kind:      kind.ACTION_KIND,
+			ClassName: "SomeAction",
+			Properties: []SelectProperty{
+				{
+					Name:        "HasAction",
+					IsPrimitive: false,
+					Refs: []SelectClass{
+						{
+							ClassName: "SomeAction",
+							RefProperties: []SelectProperty{
+								{
+									Name:        "intField",
+									IsPrimitive: true,
+								},
+								{
+									Name:        "HasAction",
+									IsPrimitive: false,
+									Refs: []SelectClass{
+										{
+											ClassName: "SomeAction",
+											RefProperties: []SelectProperty{
+												{
+													Name:        "intField",
+													IsPrimitive: true,
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		resolver.On("LocalGetClass", expectedParams).
+			Return(test_helper.EmptyList(), nil).Once()
+
+		query := `
+			fragment innerFragment on SomeAction { intField }
+			fragment actionFragment on SomeAction { intField HasAction { ...innerFragment } } 
+			
+			{ Get { Actions { SomeAction { HasAction { ...actionFragment } } } } }`
+		resolver.AssertResolve(t, query)
+	})
 }

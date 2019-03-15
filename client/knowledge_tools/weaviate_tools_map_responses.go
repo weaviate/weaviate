@@ -139,7 +139,7 @@ func NewWeaviateToolsMapForbidden() *WeaviateToolsMapForbidden {
 
 /*WeaviateToolsMapForbidden handles this case with default header values.
 
-The used API-key has insufficient permissions.
+Insufficient permissions.
 */
 type WeaviateToolsMapForbidden struct {
 }

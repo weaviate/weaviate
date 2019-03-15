@@ -49,7 +49,7 @@ func NewWeaviateBatchingThingsCreate(ctx *middleware.Context, handler WeaviateBa
 
 /*WeaviateBatchingThingsCreate swagger:route POST /batching/things batching things weaviateBatchingThingsCreate
 
-Creates new Things based on a Thing template related to this key as a batch.
+Creates new Things based on a Thing template as a batch.
 
 Register new Things in bulk. Provided meta-data and schema values are validated.
 

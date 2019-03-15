@@ -46,7 +46,7 @@ func init() {
       "url": "https://github.com/creativesoftwarefdn",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.12.63"
+    "version": "0.12.67"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -56,7 +56,7 @@ func init() {
         "tags": [
           "actions"
         ],
-        "summary": "Get a list of Actions related to this key.",
+        "summary": "Get a list of Actions.",
         "operationId": "weaviate.actions.list",
         "parameters": [
           {
@@ -77,7 +77,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -92,8 +92,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       },
       "post": {
@@ -139,7 +138,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -187,7 +186,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -205,8 +204,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query.meta",
-          "weaviate.network.query.meta"
+          "weaviate.local.query.meta"
         ]
       }
     },
@@ -216,7 +214,7 @@ func init() {
         "tags": [
           "actions"
         ],
-        "summary": "Get a specific Action based on its UUID and a Thing UUID related to this key. Also available as Websocket bus.",
+        "summary": "Get a specific Action based on its UUID and a Thing UUID. Also available as Websocket bus.",
         "operationId": "weaviate.actions.get",
         "parameters": [
           {
@@ -239,7 +237,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -254,8 +252,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       },
       "put": {
@@ -263,7 +260,7 @@ func init() {
         "tags": [
           "actions"
         ],
-        "summary": "Update an Action based on its UUID related to this key.",
+        "summary": "Update an Action based on its UUID.",
         "operationId": "weaviate.action.update",
         "parameters": [
           {
@@ -294,7 +291,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -323,7 +320,7 @@ func init() {
         "tags": [
           "actions"
         ],
-        "summary": "Delete an Action based on its UUID related to this key.",
+        "summary": "Delete an Action based on its UUID.",
         "operationId": "weaviate.actions.delete",
         "parameters": [
           {
@@ -343,7 +340,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -366,7 +363,7 @@ func init() {
         "tags": [
           "actions"
         ],
-        "summary": "Update an Action based on its UUID (using patch semantics) related to this key.",
+        "summary": "Update an Action based on its UUID (using patch semantics).",
         "operationId": "weaviate.actions.patch",
         "parameters": [
           {
@@ -416,7 +413,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -447,7 +444,7 @@ func init() {
         "tags": [
           "actions"
         ],
-        "summary": "Get an Action's history based on its UUID related to this key.",
+        "summary": "Get an Action's history based on its UUID.",
         "operationId": "weaviate.action.history.get",
         "parameters": [
           {
@@ -470,7 +467,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -488,8 +485,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       }
     },
@@ -534,7 +530,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
@@ -595,7 +591,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
@@ -656,7 +652,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found.",
@@ -685,7 +681,7 @@ func init() {
           "batching",
           "actions"
         ],
-        "summary": "Creates new Actions based on an Action template related to this key as a batch.",
+        "summary": "Creates new Actions based on an Action template as a batch.",
         "operationId": "weaviate.batching.actions.create",
         "parameters": [
           {
@@ -748,7 +744,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -777,7 +773,7 @@ func init() {
           "batching",
           "things"
         ],
-        "summary": "Creates new Things based on a Thing template related to this key as a batch.",
+        "summary": "Creates new Things based on a Thing template as a batch.",
         "operationId": "weaviate.batching.things.create",
         "parameters": [
           {
@@ -840,7 +836,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -892,7 +888,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -947,7 +943,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -1003,8 +999,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query.meta",
-          "weaviate.network.query.meta"
+          "weaviate.local.query.meta"
         ]
       }
     },
@@ -1107,8 +1102,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.local.query.meta",
-          "weaviate.network.query.meta"
+          "weaviate.local.query.meta"
         ]
       }
     },
@@ -1714,7 +1708,7 @@ func init() {
         "tags": [
           "things"
         ],
-        "summary": "Get a list of Things related to this key.",
+        "summary": "Get a list of Things.",
         "operationId": "weaviate.things.list",
         "parameters": [
           {
@@ -1735,7 +1729,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -1750,8 +1744,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       },
       "post": {
@@ -1759,7 +1752,7 @@ func init() {
         "tags": [
           "things"
         ],
-        "summary": "Create a new Thing based on a Thing template related to this key.",
+        "summary": "Create a new Thing based on a Thing template.",
         "operationId": "weaviate.things.create",
         "parameters": [
           {
@@ -1797,7 +1790,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -1845,7 +1838,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -1863,8 +1856,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query.meta",
-          "weaviate.network.query.meta"
+          "weaviate.local.query.meta"
         ]
       }
     },
@@ -1874,7 +1866,7 @@ func init() {
         "tags": [
           "things"
         ],
-        "summary": "Get a Thing based on its UUID related to this key.",
+        "summary": "Get a Thing based on its UUID.",
         "operationId": "weaviate.things.get",
         "parameters": [
           {
@@ -1897,7 +1889,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -1912,8 +1904,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       },
       "put": {
@@ -1921,7 +1912,7 @@ func init() {
         "tags": [
           "things"
         ],
-        "summary": "Update a Thing based on its UUID related to this key.",
+        "summary": "Update a Thing based on its UUID.",
         "operationId": "weaviate.things.update",
         "parameters": [
           {
@@ -1952,7 +1943,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -1981,7 +1972,7 @@ func init() {
         "tags": [
           "things"
         ],
-        "summary": "Delete a Thing based on its UUID related to this key.",
+        "summary": "Delete a Thing based on its UUID.",
         "operationId": "weaviate.things.delete",
         "parameters": [
           {
@@ -2001,7 +1992,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -2024,7 +2015,7 @@ func init() {
         "tags": [
           "things"
         ],
-        "summary": "Update a Thing based on its UUID (using patch semantics) related to this key.",
+        "summary": "Update a Thing based on its UUID (using patch semantics).",
         "operationId": "weaviate.things.patch",
         "parameters": [
           {
@@ -2074,7 +2065,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -2105,7 +2096,7 @@ func init() {
         "tags": [
           "things"
         ],
-        "summary": "Get a Thing's history based on its UUID related to this key.",
+        "summary": "Get a Thing's history based on its UUID.",
         "operationId": "weaviate.thing.history.get",
         "parameters": [
           {
@@ -2128,7 +2119,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -2146,8 +2137,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       }
     },
@@ -2192,7 +2182,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
@@ -2253,7 +2243,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
@@ -2314,7 +2304,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found.",
@@ -2365,7 +2355,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -3250,7 +3240,7 @@ func init() {
       "url": "https://github.com/creativesoftwarefdn",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.12.63"
+    "version": "0.12.67"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -3260,7 +3250,7 @@ func init() {
         "tags": [
           "actions"
         ],
-        "summary": "Get a list of Actions related to this key.",
+        "summary": "Get a list of Actions.",
         "operationId": "weaviate.actions.list",
         "parameters": [
           {
@@ -3289,7 +3279,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -3304,8 +3294,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       },
       "post": {
@@ -3351,7 +3340,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -3399,7 +3388,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -3417,8 +3406,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query.meta",
-          "weaviate.network.query.meta"
+          "weaviate.local.query.meta"
         ]
       }
     },
@@ -3428,7 +3416,7 @@ func init() {
         "tags": [
           "actions"
         ],
-        "summary": "Get a specific Action based on its UUID and a Thing UUID related to this key. Also available as Websocket bus.",
+        "summary": "Get a specific Action based on its UUID and a Thing UUID. Also available as Websocket bus.",
         "operationId": "weaviate.actions.get",
         "parameters": [
           {
@@ -3451,7 +3439,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -3466,8 +3454,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       },
       "put": {
@@ -3475,7 +3462,7 @@ func init() {
         "tags": [
           "actions"
         ],
-        "summary": "Update an Action based on its UUID related to this key.",
+        "summary": "Update an Action based on its UUID.",
         "operationId": "weaviate.action.update",
         "parameters": [
           {
@@ -3506,7 +3493,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -3535,7 +3522,7 @@ func init() {
         "tags": [
           "actions"
         ],
-        "summary": "Delete an Action based on its UUID related to this key.",
+        "summary": "Delete an Action based on its UUID.",
         "operationId": "weaviate.actions.delete",
         "parameters": [
           {
@@ -3555,7 +3542,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -3578,7 +3565,7 @@ func init() {
         "tags": [
           "actions"
         ],
-        "summary": "Update an Action based on its UUID (using patch semantics) related to this key.",
+        "summary": "Update an Action based on its UUID (using patch semantics).",
         "operationId": "weaviate.actions.patch",
         "parameters": [
           {
@@ -3628,7 +3615,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -3659,7 +3646,7 @@ func init() {
         "tags": [
           "actions"
         ],
-        "summary": "Get an Action's history based on its UUID related to this key.",
+        "summary": "Get an Action's history based on its UUID.",
         "operationId": "weaviate.action.history.get",
         "parameters": [
           {
@@ -3682,7 +3669,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -3700,8 +3687,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       }
     },
@@ -3746,7 +3732,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
@@ -3807,7 +3793,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
@@ -3868,7 +3854,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found.",
@@ -3897,7 +3883,7 @@ func init() {
           "batching",
           "actions"
         ],
-        "summary": "Creates new Actions based on an Action template related to this key as a batch.",
+        "summary": "Creates new Actions based on an Action template as a batch.",
         "operationId": "weaviate.batching.actions.create",
         "parameters": [
           {
@@ -3960,7 +3946,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -3989,7 +3975,7 @@ func init() {
           "batching",
           "things"
         ],
-        "summary": "Creates new Things based on a Thing template related to this key as a batch.",
+        "summary": "Creates new Things based on a Thing template as a batch.",
         "operationId": "weaviate.batching.things.create",
         "parameters": [
           {
@@ -4052,7 +4038,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -4104,7 +4090,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -4159,7 +4145,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -4215,8 +4201,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query.meta",
-          "weaviate.network.query.meta"
+          "weaviate.local.query.meta"
         ]
       }
     },
@@ -4319,8 +4304,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.local.query.meta",
-          "weaviate.network.query.meta"
+          "weaviate.local.query.meta"
         ]
       }
     },
@@ -4926,7 +4910,7 @@ func init() {
         "tags": [
           "things"
         ],
-        "summary": "Get a list of Things related to this key.",
+        "summary": "Get a list of Things.",
         "operationId": "weaviate.things.list",
         "parameters": [
           {
@@ -4955,7 +4939,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -4970,8 +4954,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       },
       "post": {
@@ -4979,7 +4962,7 @@ func init() {
         "tags": [
           "things"
         ],
-        "summary": "Create a new Thing based on a Thing template related to this key.",
+        "summary": "Create a new Thing based on a Thing template.",
         "operationId": "weaviate.things.create",
         "parameters": [
           {
@@ -5017,7 +5000,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -5065,7 +5048,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -5083,8 +5066,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query.meta",
-          "weaviate.network.query.meta"
+          "weaviate.local.query.meta"
         ]
       }
     },
@@ -5094,7 +5076,7 @@ func init() {
         "tags": [
           "things"
         ],
-        "summary": "Get a Thing based on its UUID related to this key.",
+        "summary": "Get a Thing based on its UUID.",
         "operationId": "weaviate.things.get",
         "parameters": [
           {
@@ -5117,7 +5099,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -5132,8 +5114,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       },
       "put": {
@@ -5141,7 +5122,7 @@ func init() {
         "tags": [
           "things"
         ],
-        "summary": "Update a Thing based on its UUID related to this key.",
+        "summary": "Update a Thing based on its UUID.",
         "operationId": "weaviate.things.update",
         "parameters": [
           {
@@ -5172,7 +5153,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -5201,7 +5182,7 @@ func init() {
         "tags": [
           "things"
         ],
-        "summary": "Delete a Thing based on its UUID related to this key.",
+        "summary": "Delete a Thing based on its UUID.",
         "operationId": "weaviate.things.delete",
         "parameters": [
           {
@@ -5221,7 +5202,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -5244,7 +5225,7 @@ func init() {
         "tags": [
           "things"
         ],
-        "summary": "Update a Thing based on its UUID (using patch semantics) related to this key.",
+        "summary": "Update a Thing based on its UUID (using patch semantics).",
         "operationId": "weaviate.things.patch",
         "parameters": [
           {
@@ -5294,7 +5275,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -5325,7 +5306,7 @@ func init() {
         "tags": [
           "things"
         ],
-        "summary": "Get a Thing's history based on its UUID related to this key.",
+        "summary": "Get a Thing's history based on its UUID.",
         "operationId": "weaviate.thing.history.get",
         "parameters": [
           {
@@ -5348,7 +5329,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -5366,8 +5347,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       }
     },
@@ -5412,7 +5392,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
@@ -5473,7 +5453,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
@@ -5534,7 +5514,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found.",
@@ -5585,7 +5565,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
