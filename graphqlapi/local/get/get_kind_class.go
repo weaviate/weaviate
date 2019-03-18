@@ -206,7 +206,15 @@ func buildGetClassField(classObject *graphql.Object, k kind.Kind,
 
 func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 	return func(p graphql.ResolveParams) (interface{}, error) {
-		filtersAndResolver := p.Source.(*filtersAndResolver)
+		source, ok := p.Source.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("expected graphql root to be a map, but was %T", p.Source)
+		}
+
+		resolver, ok := source["Resolver"].(Resolver)
+		if !ok {
+			return nil, fmt.Errorf("expected source map to have a usable Resolver, but got %#v", source["Resolver"])
+		}
 
 		pagination, err := common.ExtractPaginationFromArgs(p.Args)
 		if err != nil {
@@ -251,7 +259,7 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 		// // filtersAndResolver.requestsLog.Register(telemetry.TypeGQL, telemetry.LocalQuery)
 		// fmt.Println(12)
 		return func() (interface{}, error) {
-			return filtersAndResolver.resolver.LocalGetClass(&params)
+			return resolver.LocalGetClass(&params)
 		}, nil
 	}
 }
