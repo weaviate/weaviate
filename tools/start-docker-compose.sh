@@ -35,10 +35,10 @@ for singleFile in $(curl -s https://api.github.com/repos/creativesoftwarefdn/wea
     URL_NOPRO=${URL_RAW:7}
     URL_REL=${URL_NOPRO#*/}
     FILENAME=$(basename "/${URL_REL%%\?*}")
-    curl $(_jq '.url') --output $FILENAME
+    curl $(_jq '.download_url') --output $FILENAME
 done
 
 ##
 # Run the docker compose file
 ##
-docker-compose up
+# docker-compose up
