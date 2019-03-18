@@ -13,7 +13,8 @@ A complete Weaviate stack based on Janusgraph (with Elasticsearch and Cassandra)
 #### Running the latest version
 
 ```sh
-$ source <(curl -s https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/tools/start-docker-compose.sh)
+$ source <(curl -s https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/tools/download-docker-compose-deps.sh)
+$ docker-compose up
 ```
 
 - Releases can be found [here](https://github.com/creativesoftwarefdn/weaviate/releases).
@@ -27,9 +28,7 @@ $ source <(curl -s https://raw.githubusercontent.com/creativesoftwarefdn/weaviat
 #### Running a specific version
 
 ```sh
-$ wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/docker-compose/runtime/docker-compose.yml && \
-  wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/docker-compose/runtime/config.json && \
-  wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/docker-compose/runtime/janusgraph.properties
+$ source <(curl -s https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/tools/download-docker-compose-deps.sh)
 ```
 
 Open docker-compose.yml and replace `latest` in the image (`image: creativesoftwarefdn/weaviate:latest`) with the preferred version number. An overview can be found on [Dockerhub](https://hub.docker.com/r/creativesoftwarefdn/weaviate/tags).

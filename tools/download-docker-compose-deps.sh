@@ -37,8 +37,3 @@ for singleFile in $(curl -s https://api.github.com/repos/creativesoftwarefdn/wea
     FILENAME=$(basename "/${URL_REL%%\?*}")
     curl $(_jq '.download_url') --output $FILENAME
 done
-
-##
-# Run the docker compose file
-##
-# docker-compose up
