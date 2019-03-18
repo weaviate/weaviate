@@ -1,7 +1,7 @@
 version: '3.4'
 services:
   weaviate-playground:
-    image: creativesoftwarefdn/weaviate-playground:stable
+    image: creativesoftwarefdn/weaviate-playground:latest
     depends_on:
       - weaviate
     ports:
