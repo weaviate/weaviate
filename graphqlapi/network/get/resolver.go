@@ -18,6 +18,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/common"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
 	"github.com/graphql-go/graphql"
 )
 
@@ -73,6 +74,14 @@ func NetworkGetInstanceResolve(p graphql.ResolveParams) (interface{}, error) {
 		return nil, fmt.Errorf("expected response.data.Local to be map[string]interface{}, but response was %#v",
 			graphQLResponse.Data["Local"])
 	}
+
+	// Log the request
+	source := p.Source.(map[string]interface{})
+	requestsLog, ok := source["RequestsLog"].(RequestsLog)
+	if !ok {
+		return nil, fmt.Errorf("expected source to contain a usable RequestsLog, but was %#v", source)
+	}
+	requestsLog.Register(telemetry.TypeGQL, telemetry.NetworkQuery)
 
 	return local["Get"], nil
 }

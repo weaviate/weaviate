@@ -42,7 +42,7 @@ func newMockResolver(peers peers.Peers) *mockResolver {
 	// mockLog := &mockRequestsLog{}
 	mocker.RootFieldName = "Get"
 	mocker.RootField = field
-	mocker.RootObject = map[string]interface{}{"Resolver": Resolver(mocker)}
+	mocker.RootObject = map[string]interface{}{"Resolver": Resolver(mocker) /*, "RequestsLog": RequestsLog(mockLog)*/}
 	return mocker
 }
 
