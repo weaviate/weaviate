@@ -227,92 +227,92 @@ func (a *Client) WeaviateThingsPatch(params *WeaviateThingsPatchParams) (*Weavia
 }
 
 /*
-WeaviateThingsPropertiesCreate adds a single reference to a class property when cardinality is set to has many
+WeaviateThingsReferencesCreate adds a single reference to a class property when cardinality is set to has many
 
 Add a single reference to a class-property when cardinality is set to 'hasMany'.
 */
-func (a *Client) WeaviateThingsPropertiesCreate(params *WeaviateThingsPropertiesCreateParams) (*WeaviateThingsPropertiesCreateOK, error) {
+func (a *Client) WeaviateThingsReferencesCreate(params *WeaviateThingsReferencesCreateParams) (*WeaviateThingsReferencesCreateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateThingsPropertiesCreateParams()
+		params = NewWeaviateThingsReferencesCreateParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.things.properties.create",
+		ID:                 "weaviate.things.references.create",
 		Method:             "POST",
-		PathPattern:        "/things/{thingId}/properties/{propertyName}",
+		PathPattern:        "/things/{thingId}/references/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateThingsPropertiesCreateReader{formats: a.formats},
+		Reader:             &WeaviateThingsReferencesCreateReader{formats: a.formats},
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateThingsPropertiesCreateOK), nil
+	return result.(*WeaviateThingsReferencesCreateOK), nil
 
 }
 
 /*
-WeaviateThingsPropertiesDelete deletes the single reference that is given in the body from the list of references that this property has
+WeaviateThingsReferencesDelete deletes the single reference that is given in the body from the list of references that this property has
 
 Delete the single reference that is given in the body from the list of references that this property has.
 */
-func (a *Client) WeaviateThingsPropertiesDelete(params *WeaviateThingsPropertiesDeleteParams) (*WeaviateThingsPropertiesDeleteNoContent, error) {
+func (a *Client) WeaviateThingsReferencesDelete(params *WeaviateThingsReferencesDeleteParams) (*WeaviateThingsReferencesDeleteNoContent, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateThingsPropertiesDeleteParams()
+		params = NewWeaviateThingsReferencesDeleteParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.things.properties.delete",
+		ID:                 "weaviate.things.references.delete",
 		Method:             "DELETE",
-		PathPattern:        "/things/{thingId}/properties/{propertyName}",
+		PathPattern:        "/things/{thingId}/references/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateThingsPropertiesDeleteReader{formats: a.formats},
+		Reader:             &WeaviateThingsReferencesDeleteReader{formats: a.formats},
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateThingsPropertiesDeleteNoContent), nil
+	return result.(*WeaviateThingsReferencesDeleteNoContent), nil
 
 }
 
 /*
-WeaviateThingsPropertiesUpdate replaces all references to a class property
+WeaviateThingsReferencesUpdate replaces all references to a class property
 
 Replace all references to a class-property.
 */
-func (a *Client) WeaviateThingsPropertiesUpdate(params *WeaviateThingsPropertiesUpdateParams) (*WeaviateThingsPropertiesUpdateOK, error) {
+func (a *Client) WeaviateThingsReferencesUpdate(params *WeaviateThingsReferencesUpdateParams) (*WeaviateThingsReferencesUpdateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateThingsPropertiesUpdateParams()
+		params = NewWeaviateThingsReferencesUpdateParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.things.properties.update",
+		ID:                 "weaviate.things.references.update",
 		Method:             "PUT",
-		PathPattern:        "/things/{thingId}/properties/{propertyName}",
+		PathPattern:        "/things/{thingId}/references/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateThingsPropertiesUpdateReader{formats: a.formats},
+		Reader:             &WeaviateThingsReferencesUpdateReader{formats: a.formats},
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateThingsPropertiesUpdateOK), nil
+	return result.(*WeaviateThingsReferencesUpdateOK), nil
 
 }
 

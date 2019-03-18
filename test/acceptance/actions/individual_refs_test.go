@@ -38,12 +38,12 @@ func TestCanAddAPropertyIndividually(t *testing.T) {
 	assert.Nil(t, updatedSchema["testCrefs"])
 
 	// Append a property reference
-	params := actions.NewWeaviateActionsPropertiesCreateParams().
+	params := actions.NewWeaviateActionsReferencesCreateParams().
 		WithActionID(uuid).
 		WithPropertyName("testCrefs").
 		WithBody(crossref.New("localhost", toPointToUuid, kind.ACTION_KIND).SingleRef())
 
-	updateResp, err := helper.Client(t).Actions.WeaviateActionsPropertiesCreate(params)
+	updateResp, err := helper.Client(t).Actions.WeaviateActionsReferencesCreate(params)
 	helper.AssertRequestOk(t, updateResp, err, nil)
 
 	// Get the property again.
@@ -72,14 +72,14 @@ func TestCanReplaceAllProperties(t *testing.T) {
 	assert.NotNil(t, updatedSchema["testCrefs"])
 
 	// Replace
-	params := actions.NewWeaviateActionsPropertiesUpdateParams().
+	params := actions.NewWeaviateActionsReferencesUpdateParams().
 		WithActionID(uuid).
 		WithPropertyName("testCrefs").
 		WithBody(models.MultipleRef{
 			crossref.New("localhost", toPointToUuidLater, kind.ACTION_KIND).SingleRef(),
 		})
 
-	updateResp, err := helper.Client(t).Actions.WeaviateActionsPropertiesUpdate(params)
+	updateResp, err := helper.Client(t).Actions.WeaviateActionsReferencesUpdate(params)
 	helper.AssertRequestOk(t, updateResp, err, nil)
 
 	// Get the property again.
@@ -106,14 +106,14 @@ func TestRemovePropertyIndividually(t *testing.T) {
 	assert.NotNil(t, updatedSchema["testCrefs"])
 
 	// Append a property reference
-	params := actions.NewWeaviateActionsPropertiesDeleteParams().
+	params := actions.NewWeaviateActionsReferencesDeleteParams().
 		WithActionID(uuid).
 		WithPropertyName("testCrefs").
 		WithBody(
 			crossref.New("localhost", toPointToUuid, kind.ACTION_KIND).SingleRef(),
 		)
 
-	updateResp, err := helper.Client(t).Actions.WeaviateActionsPropertiesDelete(params)
+	updateResp, err := helper.Client(t).Actions.WeaviateActionsReferencesDelete(params)
 	helper.AssertRequestOk(t, updateResp, err, nil)
 
 	// Get the property again.

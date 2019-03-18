@@ -88,7 +88,7 @@ type WeaviateThingsPropertiesDeleteNoContent struct {
 }
 
 func (o *WeaviateThingsPropertiesDeleteNoContent) Error() string {
-	return fmt.Sprintf("[DELETE /things/{thingId}/properties/{propertyName}][%d] weaviateThingsPropertiesDeleteNoContent ", 204)
+	return fmt.Sprintf("[DELETE /things/{thingId}/references/{propertyName}][%d] weaviateThingsPropertiesDeleteNoContent ", 204)
 }
 
 func (o *WeaviateThingsPropertiesDeleteNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -109,7 +109,7 @@ type WeaviateThingsPropertiesDeleteUnauthorized struct {
 }
 
 func (o *WeaviateThingsPropertiesDeleteUnauthorized) Error() string {
-	return fmt.Sprintf("[DELETE /things/{thingId}/properties/{propertyName}][%d] weaviateThingsPropertiesDeleteUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /things/{thingId}/references/{propertyName}][%d] weaviateThingsPropertiesDeleteUnauthorized ", 401)
 }
 
 func (o *WeaviateThingsPropertiesDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -130,7 +130,7 @@ type WeaviateThingsPropertiesDeleteForbidden struct {
 }
 
 func (o *WeaviateThingsPropertiesDeleteForbidden) Error() string {
-	return fmt.Sprintf("[DELETE /things/{thingId}/properties/{propertyName}][%d] weaviateThingsPropertiesDeleteForbidden ", 403)
+	return fmt.Sprintf("[DELETE /things/{thingId}/references/{propertyName}][%d] weaviateThingsPropertiesDeleteForbidden ", 403)
 }
 
 func (o *WeaviateThingsPropertiesDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -152,7 +152,7 @@ type WeaviateThingsPropertiesDeleteNotFound struct {
 }
 
 func (o *WeaviateThingsPropertiesDeleteNotFound) Error() string {
-	return fmt.Sprintf("[DELETE /things/{thingId}/properties/{propertyName}][%d] weaviateThingsPropertiesDeleteNotFound  %+v", 404, o.Payload)
+	return fmt.Sprintf("[DELETE /things/{thingId}/references/{propertyName}][%d] weaviateThingsPropertiesDeleteNotFound  %+v", 404, o.Payload)
 }
 
 func (o *WeaviateThingsPropertiesDeleteNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -181,7 +181,7 @@ type WeaviateThingsPropertiesDeleteInternalServerError struct {
 }
 
 func (o *WeaviateThingsPropertiesDeleteInternalServerError) Error() string {
-	return fmt.Sprintf("[DELETE /things/{thingId}/properties/{propertyName}][%d] weaviateThingsPropertiesDeleteInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[DELETE /things/{thingId}/references/{propertyName}][%d] weaviateThingsPropertiesDeleteInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *WeaviateThingsPropertiesDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

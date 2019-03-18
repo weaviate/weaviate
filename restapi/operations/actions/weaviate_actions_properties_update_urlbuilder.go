@@ -53,7 +53,7 @@ func (o *WeaviateActionsPropertiesUpdateURL) SetBasePath(bp string) {
 func (o *WeaviateActionsPropertiesUpdateURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/actions/{actionId}/properties/{propertyName}"
+	var _path = "/actions/{actionId}/references/{propertyName}"
 
 	actionID := o.ActionID.String()
 	if actionID != "" {
