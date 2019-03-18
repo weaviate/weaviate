@@ -11,3 +11,4 @@ rm -rf data connector_state.json schema_state.json
 
 docker-compose up -d index janus db etcd genesis_fake weaviate_b_fake 
 
+echo "You can now run the dev version with: ./tools/dev/run_dev_server.sh"
