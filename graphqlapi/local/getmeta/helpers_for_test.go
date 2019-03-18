@@ -17,6 +17,12 @@ import (
 	testhelper "github.com/creativesoftwarefdn/weaviate/graphqlapi/test/helper"
 )
 
+type mockRequestsLog struct{}
+
+func (m *mockRequestsLog) Register(first string, second string) {
+
+}
+
 type mockResolver struct {
 	testhelper.MockResolver
 }
@@ -27,9 +33,10 @@ func newMockResolver() *mockResolver {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
 	}
 	mocker := &mockResolver{}
+	mockLog := &mockRequestsLog{}
 	mocker.RootFieldName = "GetMeta"
 	mocker.RootField = field
-	mocker.RootObject = map[string]interface{}{"Resolver": Resolver(mocker)}
+	mocker.RootObject = map[string]interface{}{"Resolver": Resolver(mocker), "RequestsLog": mockLog}
 	return mocker
 }
 

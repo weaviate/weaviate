@@ -26,8 +26,8 @@ type Resolver interface {
 	LocalGetClass(info *Params) (interface{}, error)
 }
 
-// RequestsLog is a local abstraction on the RequestsLog that needs to be
-// provided to the graphQL API in order to log Local.Get queries.
+// // RequestsLog is a local abstraction on the RequestsLog that needs to be
+// // provided to the graphQL API in order to log Local.Get queries.
 type RequestsLog interface {
 	Register(requestType string, identifier string)
 }
@@ -59,9 +59,8 @@ type SelectClass struct {
 
 // Internal struct to bubble data through the resolvers.
 type filtersAndResolver struct {
-	filters     *common_filters.LocalFilter
-	resolver    Resolver
-	requestsLog RequestsLog
+	filters  *common_filters.LocalFilter
+	resolver Resolver
 }
 
 // FindSelectClass by specifying the exact class name
