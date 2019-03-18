@@ -12,6 +12,7 @@ type RequestsLog struct { // TODO: RENAME
 	Log      map[string]*RequestLog
 	PeerName string
 	Enabled  bool
+	Debug    bool
 }
 
 // NewLog creates a new Requestslog and returns a pointer to it.
@@ -20,6 +21,7 @@ func NewLog(enabled bool) *RequestsLog {
 		Mutex:   &sync.Mutex{},
 		Log:     make(map[string]*RequestLog),
 		Enabled: enabled,
+		Debug:   false,
 	}
 }
 
