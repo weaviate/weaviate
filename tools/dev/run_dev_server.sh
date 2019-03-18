@@ -3,6 +3,7 @@
 # Jump to root directory
 cd "$( dirname "${BASH_SOURCE[0]}" )"/../..
 
+export GO111MODULE=on
 
 export DEVELOPMENT_UI=on
 go run ./cmd/weaviate-server \

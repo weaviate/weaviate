@@ -25,12 +25,12 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// VectorBasedQuestion Receive question based on array of classes, properties and values.
-// swagger:model VectorBasedQuestion
-type VectorBasedQuestion []*VectorBasedQuestionItems0
+// C11yVectorBasedQuestion Receive question based on array of classes, properties and values.
+// swagger:model C11yVectorBasedQuestion
+type C11yVectorBasedQuestion []*C11yVectorBasedQuestionItems0
 
-// Validate validates this vector based question
-func (m VectorBasedQuestion) Validate(formats strfmt.Registry) error {
+// Validate validates this c11y vector based question
+func (m C11yVectorBasedQuestion) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	for i := 0; i < len(m); i++ {
@@ -55,14 +55,14 @@ func (m VectorBasedQuestion) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-// VectorBasedQuestionItems0 vector based question items0
-// swagger:model VectorBasedQuestionItems0
-type VectorBasedQuestionItems0 struct {
+// C11yVectorBasedQuestionItems0 c11y vector based question items0
+// swagger:model C11yVectorBasedQuestionItems0
+type C11yVectorBasedQuestionItems0 struct {
 
 	// Vectorized properties.
 	// Max Items: 300
 	// Min Items: 300
-	ClassProps []*VectorBasedQuestionItems0ClassPropsItems0 `json:"classProps"`
+	ClassProps []*C11yVectorBasedQuestionItems0ClassPropsItems0 `json:"classProps"`
 
 	// Vectorized classname.
 	// Max Items: 300
@@ -70,8 +70,8 @@ type VectorBasedQuestionItems0 struct {
 	ClassVectors []float32 `json:"classVectors"`
 }
 
-// Validate validates this vector based question items0
-func (m *VectorBasedQuestionItems0) Validate(formats strfmt.Registry) error {
+// Validate validates this c11y vector based question items0
+func (m *C11yVectorBasedQuestionItems0) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateClassProps(formats); err != nil {
@@ -88,7 +88,7 @@ func (m *VectorBasedQuestionItems0) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *VectorBasedQuestionItems0) validateClassProps(formats strfmt.Registry) error {
+func (m *C11yVectorBasedQuestionItems0) validateClassProps(formats strfmt.Registry) error {
 
 	if swag.IsZero(m.ClassProps) { // not required
 		return nil
@@ -123,7 +123,7 @@ func (m *VectorBasedQuestionItems0) validateClassProps(formats strfmt.Registry) 
 	return nil
 }
 
-func (m *VectorBasedQuestionItems0) validateClassVectors(formats strfmt.Registry) error {
+func (m *C11yVectorBasedQuestionItems0) validateClassVectors(formats strfmt.Registry) error {
 
 	if swag.IsZero(m.ClassVectors) { // not required
 		return nil
@@ -143,7 +143,7 @@ func (m *VectorBasedQuestionItems0) validateClassVectors(formats strfmt.Registry
 }
 
 // MarshalBinary interface implementation
-func (m *VectorBasedQuestionItems0) MarshalBinary() ([]byte, error) {
+func (m *C11yVectorBasedQuestionItems0) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -151,8 +151,8 @@ func (m *VectorBasedQuestionItems0) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *VectorBasedQuestionItems0) UnmarshalBinary(b []byte) error {
-	var res VectorBasedQuestionItems0
+func (m *C11yVectorBasedQuestionItems0) UnmarshalBinary(b []byte) error {
+	var res C11yVectorBasedQuestionItems0
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}
@@ -160,9 +160,9 @@ func (m *VectorBasedQuestionItems0) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// VectorBasedQuestionItems0ClassPropsItems0 vector based question items0 class props items0
-// swagger:model VectorBasedQuestionItems0ClassPropsItems0
-type VectorBasedQuestionItems0ClassPropsItems0 struct {
+// C11yVectorBasedQuestionItems0ClassPropsItems0 c11y vector based question items0 class props items0
+// swagger:model C11yVectorBasedQuestionItems0ClassPropsItems0
+type C11yVectorBasedQuestionItems0ClassPropsItems0 struct {
 
 	// props vectors
 	PropsVectors []float32 `json:"propsVectors"`
@@ -171,13 +171,13 @@ type VectorBasedQuestionItems0ClassPropsItems0 struct {
 	Value string `json:"value,omitempty"`
 }
 
-// Validate validates this vector based question items0 class props items0
-func (m *VectorBasedQuestionItems0ClassPropsItems0) Validate(formats strfmt.Registry) error {
+// Validate validates this c11y vector based question items0 class props items0
+func (m *C11yVectorBasedQuestionItems0ClassPropsItems0) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
 // MarshalBinary interface implementation
-func (m *VectorBasedQuestionItems0ClassPropsItems0) MarshalBinary() ([]byte, error) {
+func (m *C11yVectorBasedQuestionItems0ClassPropsItems0) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -185,8 +185,8 @@ func (m *VectorBasedQuestionItems0ClassPropsItems0) MarshalBinary() ([]byte, err
 }
 
 // UnmarshalBinary interface implementation
-func (m *VectorBasedQuestionItems0ClassPropsItems0) UnmarshalBinary(b []byte) error {
-	var res VectorBasedQuestionItems0ClassPropsItems0
+func (m *C11yVectorBasedQuestionItems0ClassPropsItems0) UnmarshalBinary(b []byte) error {
+	var res C11yVectorBasedQuestionItems0ClassPropsItems0
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

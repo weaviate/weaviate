@@ -1,7 +1,8 @@
 {
   "basePath": "/weaviate/v1",
   "consumes": [
-    "application/json"
+    "application/json",
+    "application/yaml"
   ],
   "definitions": {
     "Action": {
@@ -179,6 +180,103 @@
         }
       },
       "type": "object"
+    },
+    "C11yContextResponse": {
+      "description": "An array of available words and contexts.",
+      "properties": {
+        "results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "word": {
+                "type": "string"
+              },
+              "inC11y": {
+                "type": "boolean"
+              },
+              "info": {
+                "type": "object",
+                "properties": {
+                  "vector": {
+                    "$ref": "#/definitions/C11yVector"
+                  },
+                  "nearestNeighbors": {
+                    "$ref": "#/definitions/C11yNearestNeighbors"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "C11yNearestNeighbors": {
+      "description": "C11y function to show the nearest neighbors to a word.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "word": {
+            "type": "string"
+          },
+          "distance": {
+            "type": "number",
+            "format": "float"
+          }
+        }
+      }
+    },
+    "C11yVector": {
+      "description": "A Vector in the Contextionary",
+      "type": "array",
+      "items": {
+        "type": "number",
+        "format": "float",
+        "minimum": 300,
+        "maximum": 300
+      }
+    },
+    "C11yVectorBasedQuestion": {
+      "description": "Receive question based on array of classes, properties and values.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "classVectors": {
+            "description": "Vectorized classname.",
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "float"
+            },
+            "minItems": 300,
+            "maxItems": 300
+          },
+          "classProps": {
+            "description": "Vectorized properties.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "propsVectors": {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "format": "float"
+                  }
+                },
+                "value": {
+                  "description": "String with valuename.",
+                  "type": "string"
+                }
+              }
+            },
+            "minItems": 300,
+            "maxItems": 300
+          }
+        }
+      }
     },
     "ErrorResponse": {
       "description": "An error response given by Weaviate end-points.",
@@ -677,125 +775,6 @@
         }
       },
       "type": "object"
-    },
-    "VectorBasedQuestion": {
-      "description": "Receive question based on array of classes, properties and values.",
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "classVectors": {
-            "description": "Vectorized classname.",
-            "type": "array",
-            "items": {
-              "type": "number",
-              "format": "float"
-            },
-            "minItems": 300,
-            "maxItems": 300
-          },
-          "classProps": {
-            "description": "Vectorized properties.",
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "propsVectors": {
-                  "type": "array",
-                  "items": {
-                    "type": "number",
-                    "format": "float"
-                  }
-                },
-                "value": {
-                  "description": "String with valuename.",
-                  "type": "string"
-                }
-              }
-            },
-            "minItems": 300,
-            "maxItems": 300
-          }
-        }
-      }
-    },
-    "ToolsMapRequest": {
-      "properties": {
-        "type": {
-          "description": "What type of map should be generated?",
-          "type": "string",
-          "enum": [
-            "zeroPointPosition",
-            "centerOfSelf",
-            "centerOfNetwork",
-            "centerOfConcept"
-          ]
-        },
-        "networkCenter": {
-          "description": "Only needs to be set when type is centerOfNetwork and should contain the name of the Weaviate that is taken as center.",
-          "type": "string"
-        },
-        "conceptCenter": {
-          "description": "Concept that should function as center. Should be one concept (e.g., car) or CamelCased (e.g, MovedTo)",
-          "type": "string"
-        }
-      },
-      "type": "object"
-    },
-    "ToolsMapRequestResponse": {
-      "description": "Map of concepts.",
-      "properties": {
-        "type": {
-          "description": "What type of map should be generated?",
-          "type": "string",
-          "enum": [
-            "zeroPointPosition",
-            "centerOfSelf",
-            "centerOfNetwork",
-            "centerOfConcept"
-          ]
-        },
-        "results": {
-          "type": "array",
-          "description": "Results of the map request",
-          "items": {
-            "type": "object",
-            "properties": {
-              "type": {
-                "description": "Thing or Action",
-                "type": "string",
-                "enum": [
-                  "thing",
-                  "action"
-                ]
-              },
-              "distance": {
-                "description": "Distance to original vector concept",
-                "type": "number",
-                "format": "float"
-              },
-              "location": {
-                "description": "On which Weaviate is this concept located?",
-                "type": "string"
-              },
-              "concept": {
-                "$ref": "#/definitions/SemanticSchemaClass"
-              }
-            }
-          }
-        },
-        "startVector": {
-          "description": "Startpoint in the Contextionary expressed as 300-dimensional space",
-          "type": "array",
-          "items": {
-            "type": "number",
-            "format": "float",
-            "minimum": 300,
-            "maximum": 300
-          }
-        }
-      },
-      "type": "object"
     }
   },
   "externalDocs": {
@@ -809,7 +788,7 @@
     },
     "description": "Decentralised Knowledge Graph",
     "title": "Weaviate - Decentralised Knowledge Graph",
-    "version": "0.12.67"
+    "version": "0.12.68"
   },
   "parameters": {
     "CommonMaxResultsParameterQuery": {
@@ -1754,9 +1733,6 @@
         "operationId": "weaviate.meta.get",
         "x-serviceIds": [
           "weaviate.local.query.meta"
-        ],
-        "produces": [
-          "application/json"
         ],
         "responses": {
           "200": {
@@ -3106,28 +3082,33 @@
         "x-available-in-websocket": false
       }
     },
-    "/tools/map": {
-      "post": {
-        "description": "Tool to render a map of concepts, based on ontologies available over the network.",
-        "operationId": "weaviate.tools.map",
+    "/c11y/context/{words}": {
+      "get": {
+        "description": "Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/creativesoftwarefdn/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase",
+        "operationId": "weaviate.c11y.context",
         "x-serviceIds": [
-          "weaviate.network.tools.map"
+          "weaviate.c11y.context.get"
         ],
         "parameters": [
           {
-            "in": "body",
-            "name": "body",
+            "description": "CamelCase list of words to validate.",
+            "in": "path",
+            "name": "words",
             "required": true,
-            "schema": {
-              "$ref": "#/definitions/ToolsMapRequest"
-            }
+            "type": "string"
           }
         ],
         "responses": {
           "200": {
             "description": "Successful response.",
             "schema": {
-              "$ref": "#/definitions/ToolsMapRequestResponse"
+              "$ref": "#/definitions/C11yContextResponse"
+            }
+          },
+          "400": {
+            "description": "Incorrect request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -3135,9 +3116,6 @@
           },
           "403": {
             "description": "Insufficient permissions."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -3149,9 +3127,9 @@
             "description": "Not (yet) implemented."
           }
         },
-        "summary": "Tool to render a map of concepts, based on ontologies available over the network.",
+        "summary": "Checks if a word or wordString is part of the contextionary.",
         "tags": [
-          "knowledge tools"
+          "contextionary-API"
         ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
@@ -3159,7 +3137,8 @@
     }
   },
   "produces": [
-    "application/json"
+    "application/json",
+    "application/yaml"
   ],
   "schemes": [
     "https"
@@ -3188,7 +3167,7 @@
       "name": "things"
     },
     {
-      "name": "knowledge tools"
+      "name": "contextionary-API"
     },
     {
       "name": "schema",
