@@ -200,10 +200,10 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 			return actions.NewWeaviateActionsPatchOK().WithPayload(&actionGetResponse)
 		}
 	})
-	api.ActionsWeaviateActionsPropertiesCreateHandler = actions.WeaviateActionsPropertiesCreateHandlerFunc(func(params actions.WeaviateActionsPropertiesCreateParams) middleware.Responder {
+	api.ActionsWeaviateActionsReferencesCreateHandler = actions.WeaviateActionsReferencesCreateHandlerFunc(func(params actions.WeaviateActionsReferencesCreateParams) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
-			return actions.NewWeaviateActionsPropertiesCreateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+			return actions.NewWeaviateActionsReferencesCreateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 		}
 		delayedLock := delayed_unlock.New(dbLock)
 		defer delayedLock.Unlock()
@@ -217,7 +217,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		err = dbConnector.GetAction(ctx, UUID, &class)
 
 		if err != nil {
-			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+			return actions.NewWeaviateActionsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject("Could not find action"))
 		}
 
@@ -226,20 +226,20 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		// Find property and see if it has a max cardinality of >1
 		err, prop := dbSchema.GetProperty(kind.ACTION_KIND, schema.AssertValidClassName(class.AtClass), schema.AssertValidPropertyName(params.PropertyName))
 		if err != nil {
-			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+			return actions.NewWeaviateActionsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find property '%s'; %s", params.PropertyName, err.Error())))
 		}
 		propertyDataType, err := dbSchema.FindPropertyDataType(prop.AtDataType)
 		if err != nil {
-			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+			return actions.NewWeaviateActionsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find datatype of property '%s'; %s", params.PropertyName, err.Error())))
 		}
 		if propertyDataType.IsPrimitive() {
-			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+			return actions.NewWeaviateActionsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' is a primitive datatype", params.PropertyName)))
 		}
 		if prop.Cardinality == nil || *prop.Cardinality != "many" {
-			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+			return actions.NewWeaviateActionsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' has a cardinality of atMostOne", params.PropertyName)))
 		}
 
@@ -247,7 +247,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		err = validation.ValidateSingleRef(ctx, serverConfig, params.Body, dbConnector, network,
 			"reference not found")
 		if err != nil {
-			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+			return actions.NewWeaviateActionsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(err.Error()))
 		}
 
@@ -280,22 +280,22 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 
 		err = dbConnector.UpdateAction(ctx, &(class.Action), UUID)
 		if err != nil {
-			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
+			return actions.NewWeaviateActionsReferencesCreateUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
 		}
 
 		// Returns accepted so a Go routine can process in the background
-		return actions.NewWeaviateActionsPropertiesCreateOK()
+		return actions.NewWeaviateActionsReferencesCreateOK()
 	})
-	api.ActionsWeaviateActionsPropertiesDeleteHandler = actions.WeaviateActionsPropertiesDeleteHandlerFunc(func(params actions.WeaviateActionsPropertiesDeleteParams) middleware.Responder {
+	api.ActionsWeaviateActionsReferencesDeleteHandler = actions.WeaviateActionsReferencesDeleteHandlerFunc(func(params actions.WeaviateActionsReferencesDeleteParams) middleware.Responder {
 		if params.Body == nil {
-			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+			return actions.NewWeaviateActionsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' has a no valid reference", params.PropertyName)))
 		}
 
 		// Delete a specific SingleRef from the selected property.
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
-			return actions.NewWeaviateActionsPropertiesDeleteInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+			return actions.NewWeaviateActionsReferencesDeleteInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 		}
 		delayedLock := delayed_unlock.New(dbLock)
 		defer delayedLock.Unlock()
@@ -309,7 +309,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		err = dbConnector.GetAction(ctx, UUID, &class)
 
 		if err != nil {
-			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+			return actions.NewWeaviateActionsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject("Could not find action"))
 		}
 
@@ -318,20 +318,20 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		// Find property and see if it has a max cardinality of >1
 		err, prop := dbSchema.GetProperty(kind.ACTION_KIND, schema.AssertValidClassName(class.AtClass), schema.AssertValidPropertyName(params.PropertyName))
 		if err != nil {
-			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+			return actions.NewWeaviateActionsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find property '%s'; %s", params.PropertyName, err.Error())))
 		}
 		propertyDataType, err := dbSchema.FindPropertyDataType(prop.AtDataType)
 		if err != nil {
-			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+			return actions.NewWeaviateActionsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find datatype of property '%s'; %s", params.PropertyName, err.Error())))
 		}
 		if propertyDataType.IsPrimitive() {
-			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+			return actions.NewWeaviateActionsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' is a primitive datatype", params.PropertyName)))
 		}
 		if prop.Cardinality == nil || *prop.Cardinality != "many" {
-			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+			return actions.NewWeaviateActionsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' has a cardinality of atMostOne", params.PropertyName)))
 		}
 
@@ -378,16 +378,16 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 
 		err = dbConnector.UpdateAction(ctx, &(class.Action), UUID)
 		if err != nil {
-			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
+			return actions.NewWeaviateActionsReferencesCreateUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
 		}
 
 		// Returns accepted so a Go routine can process in the background
-		return actions.NewWeaviateActionsPropertiesDeleteNoContent()
+		return actions.NewWeaviateActionsReferencesDeleteNoContent()
 	})
-	api.ActionsWeaviateActionsPropertiesUpdateHandler = actions.WeaviateActionsPropertiesUpdateHandlerFunc(func(params actions.WeaviateActionsPropertiesUpdateParams) middleware.Responder {
+	api.ActionsWeaviateActionsReferencesUpdateHandler = actions.WeaviateActionsReferencesUpdateHandlerFunc(func(params actions.WeaviateActionsReferencesUpdateParams) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
-			return actions.NewWeaviateActionsPropertiesUpdateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+			return actions.NewWeaviateActionsReferencesUpdateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 		}
 		delayedLock := delayed_unlock.New(dbLock)
 		defer delayedLock.Unlock()
@@ -401,7 +401,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		err = dbConnector.GetAction(ctx, UUID, &class)
 
 		if err != nil {
-			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+			return actions.NewWeaviateActionsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject("Could not find action"))
 		}
 
@@ -410,20 +410,20 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		// Find property and see if it has a max cardinality of >1
 		err, prop := dbSchema.GetProperty(kind.ACTION_KIND, schema.AssertValidClassName(class.AtClass), schema.AssertValidPropertyName(params.PropertyName))
 		if err != nil {
-			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+			return actions.NewWeaviateActionsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find property '%s'; %s", params.PropertyName, err.Error())))
 		}
 		propertyDataType, err := dbSchema.FindPropertyDataType(prop.AtDataType)
 		if err != nil {
-			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+			return actions.NewWeaviateActionsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find datatype of property '%s'; %s", params.PropertyName, err.Error())))
 		}
 		if propertyDataType.IsPrimitive() {
-			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+			return actions.NewWeaviateActionsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' is a primitive datatype", params.PropertyName)))
 		}
 		if prop.Cardinality == nil || *prop.Cardinality != "many" {
-			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+			return actions.NewWeaviateActionsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' has a cardinality of atMostOne", params.PropertyName)))
 		}
 
@@ -431,7 +431,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		err = validation.ValidateMultipleRef(ctx, serverConfig, &params.Body, dbConnector, network,
 			"reference not found")
 		if err != nil {
-			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+			return actions.NewWeaviateActionsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("validation failed: %s", err.Error())))
 		}
 
@@ -450,12 +450,12 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 
 		err = dbConnector.UpdateAction(ctx, &(class.Action), UUID)
 		if err != nil {
-			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+			return actions.NewWeaviateActionsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("could not perform db update query: %s", err.Error())))
 		}
 
 		// Returns accepted so a Go routine can process in the background
-		return actions.NewWeaviateActionsPropertiesCreateOK()
+		return actions.NewWeaviateActionsReferencesCreateOK()
 	})
 	api.ActionsWeaviateActionUpdateHandler = actions.WeaviateActionUpdateHandlerFunc(func(params actions.WeaviateActionUpdateParams) middleware.Responder {
 		dbLock, err := db.ConnectorLock()

@@ -88,7 +88,7 @@ type WeaviateActionsPropertiesDeleteNoContent struct {
 }
 
 func (o *WeaviateActionsPropertiesDeleteNoContent) Error() string {
-	return fmt.Sprintf("[DELETE /actions/{actionId}/properties/{propertyName}][%d] weaviateActionsPropertiesDeleteNoContent ", 204)
+	return fmt.Sprintf("[DELETE /actions/{actionId}/references/{propertyName}][%d] weaviateActionsPropertiesDeleteNoContent ", 204)
 }
 
 func (o *WeaviateActionsPropertiesDeleteNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -109,7 +109,7 @@ type WeaviateActionsPropertiesDeleteUnauthorized struct {
 }
 
 func (o *WeaviateActionsPropertiesDeleteUnauthorized) Error() string {
-	return fmt.Sprintf("[DELETE /actions/{actionId}/properties/{propertyName}][%d] weaviateActionsPropertiesDeleteUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /actions/{actionId}/references/{propertyName}][%d] weaviateActionsPropertiesDeleteUnauthorized ", 401)
 }
 
 func (o *WeaviateActionsPropertiesDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -130,7 +130,7 @@ type WeaviateActionsPropertiesDeleteForbidden struct {
 }
 
 func (o *WeaviateActionsPropertiesDeleteForbidden) Error() string {
-	return fmt.Sprintf("[DELETE /actions/{actionId}/properties/{propertyName}][%d] weaviateActionsPropertiesDeleteForbidden ", 403)
+	return fmt.Sprintf("[DELETE /actions/{actionId}/references/{propertyName}][%d] weaviateActionsPropertiesDeleteForbidden ", 403)
 }
 
 func (o *WeaviateActionsPropertiesDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -152,7 +152,7 @@ type WeaviateActionsPropertiesDeleteNotFound struct {
 }
 
 func (o *WeaviateActionsPropertiesDeleteNotFound) Error() string {
-	return fmt.Sprintf("[DELETE /actions/{actionId}/properties/{propertyName}][%d] weaviateActionsPropertiesDeleteNotFound  %+v", 404, o.Payload)
+	return fmt.Sprintf("[DELETE /actions/{actionId}/references/{propertyName}][%d] weaviateActionsPropertiesDeleteNotFound  %+v", 404, o.Payload)
 }
 
 func (o *WeaviateActionsPropertiesDeleteNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -181,7 +181,7 @@ type WeaviateActionsPropertiesDeleteInternalServerError struct {
 }
 
 func (o *WeaviateActionsPropertiesDeleteInternalServerError) Error() string {
-	return fmt.Sprintf("[DELETE /actions/{actionId}/properties/{propertyName}][%d] weaviateActionsPropertiesDeleteInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[DELETE /actions/{actionId}/references/{propertyName}][%d] weaviateActionsPropertiesDeleteInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *WeaviateActionsPropertiesDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

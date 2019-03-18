@@ -1269,10 +1269,10 @@
         "x-available-in-websocket": false
       }
     },
-    "/actions/{actionId}/properties/{propertyName}": {
+    "/actions/{actionId}/references/{propertyName}": {
       "post": {
         "description": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
-        "operationId": "weaviate.actions.properties.create",
+        "operationId": "weaviate.actions.references.create",
         "x-serviceIds": [
           "weaviate.local.manipulate"
         ],
@@ -1333,7 +1333,7 @@
       },
       "put": {
         "description": "Replace all references to a class-property.",
-        "operationId": "weaviate.actions.properties.update",
+        "operationId": "weaviate.actions.references.update",
         "x-serviceIds": [
           "weaviate.local.manipulate"
         ],
@@ -1394,7 +1394,7 @@
       },
       "delete": {
         "description": "Delete the single reference that is given in the body from the list of references that this property has.",
-        "operationId": "weaviate.actions.properties.delete",
+        "operationId": "weaviate.actions.references.delete",
         "x-serviceIds": [
           "weaviate.local.manipulate"
         ],
@@ -2921,10 +2921,10 @@
         "x-available-in-websocket": false
       }
     },
-    "/things/{thingId}/properties/{propertyName}": {
+    "/things/{thingId}/references/{propertyName}": {
       "post": {
         "description": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
-        "operationId": "weaviate.things.properties.create",
+        "operationId": "weaviate.things.references.create",
         "x-serviceIds": [
           "weaviate.local.manipulate"
         ],
@@ -2985,7 +2985,7 @@
       },
       "put": {
         "description": "Replace all references to a class-property.",
-        "operationId": "weaviate.things.properties.update",
+        "operationId": "weaviate.things.references.update",
         "x-serviceIds": [
           "weaviate.local.manipulate"
         ],
@@ -3046,7 +3046,7 @@
       },
       "delete": {
         "description": "Delete the single reference that is given in the body from the list of references that this property has.",
-        "operationId": "weaviate.things.properties.delete",
+        "operationId": "weaviate.things.references.delete",
         "x-serviceIds": [
           "weaviate.local.manipulate"
         ],

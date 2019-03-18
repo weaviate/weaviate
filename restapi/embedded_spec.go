@@ -489,14 +489,14 @@ func init() {
         ]
       }
     },
-    "/actions/{actionId}/properties/{propertyName}": {
+    "/actions/{actionId}/references/{propertyName}": {
       "put": {
         "description": "Replace all references to a class-property.",
         "tags": [
           "actions"
         ],
         "summary": "Replace all references to a class-property.",
-        "operationId": "weaviate.actions.properties.update",
+        "operationId": "weaviate.actions.references.update",
         "parameters": [
           {
             "type": "string",
@@ -557,7 +557,7 @@ func init() {
           "actions"
         ],
         "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
-        "operationId": "weaviate.actions.properties.create",
+        "operationId": "weaviate.actions.references.create",
         "parameters": [
           {
             "type": "string",
@@ -618,7 +618,7 @@ func init() {
           "actions"
         ],
         "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
-        "operationId": "weaviate.actions.properties.delete",
+        "operationId": "weaviate.actions.references.delete",
         "parameters": [
           {
             "type": "string",
@@ -2141,14 +2141,14 @@ func init() {
         ]
       }
     },
-    "/things/{thingId}/properties/{propertyName}": {
+    "/things/{thingId}/references/{propertyName}": {
       "put": {
         "description": "Replace all references to a class-property.",
         "tags": [
           "things"
         ],
         "summary": "Replace all references to a class-property.",
-        "operationId": "weaviate.things.properties.update",
+        "operationId": "weaviate.things.references.update",
         "parameters": [
           {
             "type": "string",
@@ -2209,7 +2209,7 @@ func init() {
           "things"
         ],
         "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
-        "operationId": "weaviate.things.properties.create",
+        "operationId": "weaviate.things.references.create",
         "parameters": [
           {
             "type": "string",
@@ -2270,7 +2270,7 @@ func init() {
           "things"
         ],
         "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
-        "operationId": "weaviate.things.properties.delete",
+        "operationId": "weaviate.things.references.delete",
         "parameters": [
           {
             "type": "string",
@@ -3691,14 +3691,14 @@ func init() {
         ]
       }
     },
-    "/actions/{actionId}/properties/{propertyName}": {
+    "/actions/{actionId}/references/{propertyName}": {
       "put": {
         "description": "Replace all references to a class-property.",
         "tags": [
           "actions"
         ],
         "summary": "Replace all references to a class-property.",
-        "operationId": "weaviate.actions.properties.update",
+        "operationId": "weaviate.actions.references.update",
         "parameters": [
           {
             "type": "string",
@@ -3759,7 +3759,7 @@ func init() {
           "actions"
         ],
         "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
-        "operationId": "weaviate.actions.properties.create",
+        "operationId": "weaviate.actions.references.create",
         "parameters": [
           {
             "type": "string",
@@ -3820,7 +3820,7 @@ func init() {
           "actions"
         ],
         "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
-        "operationId": "weaviate.actions.properties.delete",
+        "operationId": "weaviate.actions.references.delete",
         "parameters": [
           {
             "type": "string",
@@ -5351,14 +5351,14 @@ func init() {
         ]
       }
     },
-    "/things/{thingId}/properties/{propertyName}": {
+    "/things/{thingId}/references/{propertyName}": {
       "put": {
         "description": "Replace all references to a class-property.",
         "tags": [
           "things"
         ],
         "summary": "Replace all references to a class-property.",
-        "operationId": "weaviate.things.properties.update",
+        "operationId": "weaviate.things.references.update",
         "parameters": [
           {
             "type": "string",
@@ -5419,7 +5419,7 @@ func init() {
           "things"
         ],
         "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
-        "operationId": "weaviate.things.properties.create",
+        "operationId": "weaviate.things.references.create",
         "parameters": [
           {
             "type": "string",
@@ -5480,7 +5480,7 @@ func init() {
           "things"
         ],
         "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
-        "operationId": "weaviate.things.properties.delete",
+        "operationId": "weaviate.things.references.delete",
         "parameters": [
           {
             "type": "string",

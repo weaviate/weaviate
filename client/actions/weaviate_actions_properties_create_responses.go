@@ -88,7 +88,7 @@ type WeaviateActionsPropertiesCreateOK struct {
 }
 
 func (o *WeaviateActionsPropertiesCreateOK) Error() string {
-	return fmt.Sprintf("[POST /actions/{actionId}/properties/{propertyName}][%d] weaviateActionsPropertiesCreateOK ", 200)
+	return fmt.Sprintf("[POST /actions/{actionId}/references/{propertyName}][%d] weaviateActionsPropertiesCreateOK ", 200)
 }
 
 func (o *WeaviateActionsPropertiesCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -109,7 +109,7 @@ type WeaviateActionsPropertiesCreateUnauthorized struct {
 }
 
 func (o *WeaviateActionsPropertiesCreateUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /actions/{actionId}/properties/{propertyName}][%d] weaviateActionsPropertiesCreateUnauthorized ", 401)
+	return fmt.Sprintf("[POST /actions/{actionId}/references/{propertyName}][%d] weaviateActionsPropertiesCreateUnauthorized ", 401)
 }
 
 func (o *WeaviateActionsPropertiesCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -130,7 +130,7 @@ type WeaviateActionsPropertiesCreateForbidden struct {
 }
 
 func (o *WeaviateActionsPropertiesCreateForbidden) Error() string {
-	return fmt.Sprintf("[POST /actions/{actionId}/properties/{propertyName}][%d] weaviateActionsPropertiesCreateForbidden ", 403)
+	return fmt.Sprintf("[POST /actions/{actionId}/references/{propertyName}][%d] weaviateActionsPropertiesCreateForbidden ", 403)
 }
 
 func (o *WeaviateActionsPropertiesCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -152,7 +152,7 @@ type WeaviateActionsPropertiesCreateUnprocessableEntity struct {
 }
 
 func (o *WeaviateActionsPropertiesCreateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /actions/{actionId}/properties/{propertyName}][%d] weaviateActionsPropertiesCreateUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /actions/{actionId}/references/{propertyName}][%d] weaviateActionsPropertiesCreateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *WeaviateActionsPropertiesCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -181,7 +181,7 @@ type WeaviateActionsPropertiesCreateInternalServerError struct {
 }
 
 func (o *WeaviateActionsPropertiesCreateInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /actions/{actionId}/properties/{propertyName}][%d] weaviateActionsPropertiesCreateInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /actions/{actionId}/references/{propertyName}][%d] weaviateActionsPropertiesCreateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *WeaviateActionsPropertiesCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
