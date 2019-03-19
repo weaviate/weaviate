@@ -367,6 +367,7 @@ func setupBatchHandlers(api *operations.WeaviateAPI) {
 
 	api.WeaviateBatchingThingsCreateHandler = operations.WeaviateBatchingThingsCreateHandlerFunc(batchAPI.ThingsCreate)
 	api.WeaviateBatchingActionsCreateHandler = operations.WeaviateBatchingActionsCreateHandlerFunc(batchAPI.ActionsCreate)
+	api.WeaviateBatchingReferencesCreateHandler = operations.WeaviateBatchingReferencesCreateHandlerFunc(batchAPI.References)
 }
 
 // Handle a single unbatched GraphQL request, return a tuple containing the index of the request in the batch and either the response or an error
