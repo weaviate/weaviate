@@ -43,17 +43,19 @@ func (b References) Response() []*models.BatchReferenceResponse {
 	response := make([]*models.BatchReferenceResponse, len(b), len(b))
 	for i, ref := range b {
 		var errorResponse *models.ErrorResponse
+		var reference models.BatchReference
+
 		status := models.BatchReferenceResponseAO1ResultStatusSUCCESS
 		if ref.Err != nil {
 			errorResponse = errPayloadFromSingleErr(ref.Err)
 			status = models.BatchReferenceResponseAO1ResultStatusFAILED
+		} else {
+			reference.From = strfmt.URI(ref.From.String())
+			reference.To = strfmt.URI(ref.To.String())
 		}
 
 		response[i] = &models.BatchReferenceResponse{
-			BatchReference: models.BatchReference{
-				From: strfmt.URI(ref.From.String()),
-				To:   strfmt.URI(ref.To.String()),
-			},
+			BatchReference: reference,
 			Result: &models.BatchReferenceResponseAO1Result{
 				Errors: errorResponse,
 				Status: &status,

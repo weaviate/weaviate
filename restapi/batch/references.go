@@ -47,8 +47,10 @@ func (b *Batch) References(params operations.WeaviateBatchingReferencesCreatePar
 	}
 
 	batchReferences := r.validateConcurrently(params.Body)
-
-	// TODO: call connector
+	if err := r.locks.DBConnector.AddBatchReferences(r.Context(), batchReferences); err != nil {
+		return operations.NewWeaviateBatchingReferencesCreateInternalServerError().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
 
 	return operations.NewWeaviateBatchingReferencesCreateOK().
 		WithPayload(batchReferences.Response())
@@ -108,10 +110,21 @@ func (r *referencesRequest) validateReference(wg *sync.WaitGroup, ref *models.Ba
 	defer wg.Done()
 	var errors []error
 	source, err := crossref.ParseSource(string(ref.From))
-	errors = append(errors, err)
+	if err != nil {
+		errors = append(errors, err)
+	} else if !source.Local {
+		errors = append(errors, fmt.Errorf("source class must always point to the local peer, but got %s",
+			source.PeerName))
+	}
 
 	target, err := crossref.Parse(string(ref.To))
-	errors = append(errors, err)
+	if err != nil {
+		errors = append(errors, err)
+	} else if !target.Local {
+		errors = append(errors, fmt.Errorf("importing network references in batch is not possible. "+
+			"Please perform a regular non-batch import for network references, got peer %s",
+			target.PeerName))
+	}
 
 	if len(errors) == 0 {
 		err = nil
@@ -120,9 +133,10 @@ func (r *referencesRequest) validateReference(wg *sync.WaitGroup, ref *models.Ba
 	}
 
 	*resultsC <- batchmodels.Reference{
-		From: source,
-		To:   target,
-		Err:  err,
+		From:          source,
+		To:            target,
+		Err:           err,
+		OriginalIndex: i,
 	}
 }
 
