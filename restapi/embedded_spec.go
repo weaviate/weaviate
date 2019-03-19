@@ -766,6 +766,65 @@ func init() {
         ]
       }
     },
+    "/batching/references": {
+      "post": {
+        "description": "Register cross-references between any class items (things or actions) in bulk.",
+        "tags": [
+          "batching",
+          "references"
+        ],
+        "summary": "Creates new Cross-References between arbitrary classes in bulk.",
+        "operationId": "weaviate.batching.references.create",
+        "parameters": [
+          {
+            "description": "A list of references to be batched. The ideal size depends on the used database connector. Please see the documentation of the used connector for help",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/BatchReference"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Request Successful. Warning: A successful request does not guarantuee that every batched reference was successfully created. Inspect the response body to see which references succeeded and which failed.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/BatchReferenceResponse"
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Insufficient permissions."
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.add"
+        ]
+      }
+    },
     "/batching/things": {
       "post": {
         "description": "Register new Things in bulk. Provided meta-data and schema values are validated.",
@@ -2555,6 +2614,52 @@ func init() {
         }
       }
     },
+    "BatchReference": {
+      "properties": {
+        "from": {
+          "description": "Beacon-style URI to identify the source of the cross-ref including the property name. Should be in the form of weaviate://localhost/\u003ckinds\u003e/\u003cuuid\u003e/\u003cpropertyName\u003e, where \u003ckinds\u003e must be one of 'actions', 'things' and \u003cpropertyName\u003e must represent the cross-ref property of the source class to be used.",
+          "type": "string",
+          "format": "uri",
+          "example": "weaviate://localhost/things/a5d09582-4239-4702-81c9-92a6e0122bb4/hasAnimals"
+        },
+        "to": {
+          "description": "URI to point to the cross-ref. Should be in the form of weaviate://localhost/things/\u003cuuid\u003e for the example of a local cross-ref to a thing",
+          "type": "string",
+          "format": "uri",
+          "example": "weaviate://localhost/things/97525810-a9a5-4eb0-858a-71449aeb007f"
+        }
+      }
+    },
+    "BatchReferenceResponse": {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/definitions/BatchReference"
+        },
+        {
+          "properties": {
+            "result": {
+              "description": "Results for this specific reference.",
+              "format": "object",
+              "properties": {
+                "errors": {
+                  "$ref": "#/definitions/ErrorResponse"
+                },
+                "status": {
+                  "type": "string",
+                  "default": "SUCCESS",
+                  "enum": [
+                    "SUCCESS",
+                    "PENDING",
+                    "FAILED"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
     "ErrorResponse": {
       "description": "An error response given by Weaviate end-points.",
       "type": "object",
@@ -3939,6 +4044,65 @@ func init() {
               "type": "array",
               "items": {
                 "$ref": "#/definitions/ActionsGetResponse"
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Insufficient permissions."
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.add"
+        ]
+      }
+    },
+    "/batching/references": {
+      "post": {
+        "description": "Register cross-references between any class items (things or actions) in bulk.",
+        "tags": [
+          "batching",
+          "references"
+        ],
+        "summary": "Creates new Cross-References between arbitrary classes in bulk.",
+        "operationId": "weaviate.batching.references.create",
+        "parameters": [
+          {
+            "description": "A list of references to be batched. The ideal size depends on the used database connector. Please see the documentation of the used connector for help",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/BatchReference"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Request Successful. Warning: A successful request does not guarantuee that every batched reference was successfully created. Inspect the response body to see which references succeeded and which failed.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/BatchReferenceResponse"
               }
             }
           },
@@ -5764,6 +5928,52 @@ func init() {
           "format": "int64"
         }
       }
+    },
+    "BatchReference": {
+      "properties": {
+        "from": {
+          "description": "Beacon-style URI to identify the source of the cross-ref including the property name. Should be in the form of weaviate://localhost/\u003ckinds\u003e/\u003cuuid\u003e/\u003cpropertyName\u003e, where \u003ckinds\u003e must be one of 'actions', 'things' and \u003cpropertyName\u003e must represent the cross-ref property of the source class to be used.",
+          "type": "string",
+          "format": "uri",
+          "example": "weaviate://localhost/things/a5d09582-4239-4702-81c9-92a6e0122bb4/hasAnimals"
+        },
+        "to": {
+          "description": "URI to point to the cross-ref. Should be in the form of weaviate://localhost/things/\u003cuuid\u003e for the example of a local cross-ref to a thing",
+          "type": "string",
+          "format": "uri",
+          "example": "weaviate://localhost/things/97525810-a9a5-4eb0-858a-71449aeb007f"
+        }
+      }
+    },
+    "BatchReferenceResponse": {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/definitions/BatchReference"
+        },
+        {
+          "properties": {
+            "result": {
+              "description": "Results for this specific reference.",
+              "format": "object",
+              "properties": {
+                "errors": {
+                  "$ref": "#/definitions/ErrorResponse"
+                },
+                "status": {
+                  "type": "string",
+                  "default": "SUCCESS",
+                  "enum": [
+                    "SUCCESS",
+                    "PENDING",
+                    "FAILED"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
     },
     "ErrorResponse": {
       "description": "An error response given by Weaviate end-points.",
