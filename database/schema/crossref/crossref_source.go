@@ -19,7 +19,6 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/go-openapi/strfmt"
 )
 
@@ -53,8 +52,6 @@ func ParseSource(uriString string) (*RefSource, error) {
 			"invalid cref URI: must use long-form: path must be of format '/{things,actions}/<className>/<uuid>/<propertyName>', but got '%s'",
 			uri.Path)
 	}
-
-	spew.Dump(pathSegments)
 
 	if ok := strfmt.IsUUID(pathSegments[3]); !ok {
 		return nil, fmt.Errorf("invalid cref URI: 2nd path segment must be uuid, but got '%s'",
