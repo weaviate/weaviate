@@ -23,7 +23,7 @@ import (
 
 func Test_Source_ParsingFromString(t *testing.T) {
 	t.Run("from a local thing ref that is well-formed", func(t *testing.T) {
-		uri := "weaviate://localhost/things/c2cd3f91-0160-477e-869a-8da8829e0a4d/myRefProp"
+		uri := "weaviate://localhost/things/MyClassName/c2cd3f91-0160-477e-869a-8da8829e0a4d/myRefProp"
 		ref, err := ParseSource(uri)
 
 		require.Nil(t, err, "should not error")
@@ -44,13 +44,17 @@ func Test_Source_ParsingFromString(t *testing.T) {
 			assert.Equal(t, ref.Kind, kind.THING_KIND)
 		})
 
+		t.Run("the class name is correct", func(t *testing.T) {
+			assert.Equal(t, ref.Class, schema.ClassName("MyClassName"))
+		})
+
 		t.Run("the property name is correct", func(t *testing.T) {
 			assert.Equal(t, ref.Property, schema.PropertyName("myRefProp"))
 		})
 	})
 
 	t.Run("from a local action ref that is well-formed", func(t *testing.T) {
-		uri := "weaviate://localhost/actions/c2cd3f91-0160-477e-869a-8da8829e0a4d/myRefProp"
+		uri := "weaviate://localhost/actions/MyActionClass/c2cd3f91-0160-477e-869a-8da8829e0a4d/myRefProp"
 		ref, err := ParseSource(uri)
 
 		require.Nil(t, err, "should not error")
@@ -71,13 +75,17 @@ func Test_Source_ParsingFromString(t *testing.T) {
 			assert.Equal(t, ref.Kind, kind.ACTION_KIND)
 		})
 
+		t.Run("the class name is correct", func(t *testing.T) {
+			assert.Equal(t, ref.Class, schema.ClassName("MyActionClass"))
+		})
+
 		t.Run("the property name is correct", func(t *testing.T) {
 			assert.Equal(t, ref.Property, schema.PropertyName("myRefProp"))
 		})
 	})
 
 	t.Run("from a network action ref that is well-formed", func(t *testing.T) {
-		uri := "weaviate://another-weaviate/actions/c2cd3f91-0160-477e-869a-8da8829e0a4d/myRefProp"
+		uri := "weaviate://another-weaviate/actions/SomeActionClass/c2cd3f91-0160-477e-869a-8da8829e0a4d/myRefProp"
 		ref, err := ParseSource(uri)
 
 		require.Nil(t, err, "should not error")
@@ -96,6 +104,10 @@ func Test_Source_ParsingFromString(t *testing.T) {
 
 		t.Run("the kind is 'thing'", func(t *testing.T) {
 			assert.Equal(t, ref.Kind, kind.ACTION_KIND)
+		})
+
+		t.Run("the class name is correct", func(t *testing.T) {
+			assert.Equal(t, ref.Class, schema.ClassName("SomeActionClass"))
 		})
 
 		t.Run("the property name is correct", func(t *testing.T) {
@@ -117,23 +129,27 @@ func Test_Source_ParsingFromString(t *testing.T) {
 			},
 			{
 				name: "with too few path segments",
-				uri:  "weaviate://localhost/things",
+				uri:  "weaviate://localhost/things/SomeClass",
 			},
 			{
 				name: "with too many path segments",
-				uri:  "weaviate://localhost/things/c2cd3f91-0160-477e-869a-8da8829e0a4d/myRefProp/somethingElse",
+				uri:  "weaviate://localhost/things/SomeClass/c2cd3f91-0160-477e-869a-8da8829e0a4d/myRefProp/somethingElse",
 			},
 			{
 				name: "without a property",
-				uri:  "weaviate://localhost/things/c2cd3f91-0160-477e-869a-8da8829e0a4d/",
+				uri:  "weaviate://localhost/things/SomeClass/c2cd3f91-0160-477e-869a-8da8829e0a4d/",
 			},
 			{
 				name: "with an invalid uuid",
-				uri:  "weaviate://localhost/things/c2cd3f91-iSneakedInHere-477e-869a-8da8829e0a4d",
+				uri:  "weaviate://localhost/things/SomeClass/c2cd3f91-iSneakedInHere-477e-869a-8da8829e0a4d",
 			},
 			{
 				name: "with an invalid kind",
-				uri:  "weaviate://localhost/humans/c2cd3f91-0160-477e-869a-8da8829e0a4d",
+				uri:  "weaviate://localhost/humans/SomeClass/c2cd3f91-0160-477e-869a-8da8829e0a4d",
+			},
+			{
+				name: "with a lowercased class name",
+				uri:  "weaviate://localhost/things/someClass/c2cd3f91-0160-477e-869a-8da8829e0a4d/myRefProp",
 			},
 		}
 
@@ -147,7 +163,7 @@ func Test_Source_ParsingFromString(t *testing.T) {
 }
 
 func Test_Source_GenerateString(t *testing.T) {
-	uri := "weaviate://localhost/things/c2cd3f91-0160-477e-869a-8da8829e0a4d/myRefProp"
+	uri := "weaviate://localhost/things/MyClass/c2cd3f91-0160-477e-869a-8da8829e0a4d/myRefProp"
 	ref, err := ParseSource(uri)
 
 	require.Nil(t, err, "should not error")

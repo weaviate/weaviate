@@ -15,9 +15,11 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"unicode"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/go-openapi/strfmt"
 )
 
@@ -32,6 +34,7 @@ type RefSource struct {
 	Local    bool
 	PeerName string
 	Property schema.PropertyName
+	Class    schema.ClassName
 	TargetID strfmt.UUID
 	Kind     kind.Kind
 }
@@ -45,15 +48,17 @@ func ParseSource(uriString string) (*RefSource, error) {
 	}
 
 	pathSegments := strings.Split(uri.Path, "/")
-	if len(pathSegments) != 4 {
+	if len(pathSegments) != 5 {
 		return nil, fmt.Errorf(
-			"invalid cref URI: path must be of format '/{things,actions}/<uuid>/<propertyName>', but got '%s'",
+			"invalid cref URI: must use long-form: path must be of format '/{things,actions}/<className>/<uuid>/<propertyName>', but got '%s'",
 			uri.Path)
 	}
 
-	if ok := strfmt.IsUUID(pathSegments[2]); !ok {
+	spew.Dump(pathSegments)
+
+	if ok := strfmt.IsUUID(pathSegments[3]); !ok {
 		return nil, fmt.Errorf("invalid cref URI: 2nd path segment must be uuid, but got '%s'",
-			pathSegments[2])
+			pathSegments[3])
 	}
 
 	k, err := parseKind(pathSegments[1])
@@ -61,7 +66,16 @@ func ParseSource(uriString string) (*RefSource, error) {
 		return nil, fmt.Errorf("invalid cref URI: %s", err)
 	}
 
-	property := pathSegments[3]
+	class := pathSegments[2]
+	if class == "" {
+		return nil, fmt.Errorf("className cannot be empty")
+	}
+
+	if unicode.IsLower(rune(class[0])) {
+		return nil, fmt.Errorf("className must start with an uppercase letter, but got %s", class)
+	}
+
+	property := pathSegments[4]
 	if property == "" {
 		return nil, fmt.Errorf("property cannot be empty")
 	}
@@ -69,9 +83,10 @@ func ParseSource(uriString string) (*RefSource, error) {
 	return &RefSource{
 		Local:    (uri.Host == "localhost"),
 		PeerName: uri.Host,
-		TargetID: strfmt.UUID(pathSegments[2]),
+		TargetID: strfmt.UUID(pathSegments[3]),
 		Kind:     k,
-		Property: schema.PropertyName(pathSegments[3]),
+		Class:    schema.ClassName(class),
+		Property: schema.PropertyName(property),
 	}, nil
 }
 
@@ -79,7 +94,7 @@ func (r *RefSource) String() string {
 	uri := url.URL{
 		Host:   r.PeerName,
 		Scheme: "weaviate",
-		Path:   fmt.Sprintf("/%s/%s/%s", pluralizeKindName(r.Kind), r.TargetID, r.Property),
+		Path:   fmt.Sprintf("/%s/%s/%s/%s", pluralizeKindName(r.Kind), r.Class, r.TargetID, r.Property),
 	}
 
 	return uri.String()
