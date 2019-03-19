@@ -33,7 +33,6 @@ func init() {
     "application/json"
   ],
   "produces": [
-    "application/yaml",
     "application/json"
   ],
   "schemes": [
@@ -3267,7 +3266,6 @@ func init() {
     "application/json"
   ],
   "produces": [
-    "application/yaml",
     "application/json"
   ],
   "schemes": [

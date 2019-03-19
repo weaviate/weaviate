@@ -28,7 +28,6 @@ Decentralised Knowledge Graph
 
     Produces:
     - application/json
-    - application/yaml
 
 swagger:meta
 */

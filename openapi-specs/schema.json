@@ -3197,7 +3197,6 @@
     }
   },
   "produces": [
-    "application/yaml",
     "application/json"
   ],
   "schemes": [
