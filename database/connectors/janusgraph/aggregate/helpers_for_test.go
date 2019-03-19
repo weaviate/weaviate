@@ -172,6 +172,6 @@ func stripAll(input string) string {
 }
 
 func breakOnDot(input string) string {
-	// input = strings.Replace(input, ".", "\n.", -1)
+	input = strings.Replace(input, ".", "\n.", -1)
 	return input
 }

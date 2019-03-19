@@ -37,10 +37,9 @@ func Test_QueryBuilder_NonNumericalProps(t *testing.T) {
 				.group().by("isCapital").by(
 					fold()
 						.match(
-							__.as("a").unfold().values("name").count().as("name__count")
+							__.as("a").unfold().values("name").count().project("name__count").as("name__count")
 						)
-						.select("name__count").by(project("name__count")).as("name")
-						.select("name").by(project("name"))
+						.select("name__count").as("name").project("name")
 					)
 				`,
 		},
@@ -61,10 +60,9 @@ func Test_QueryBuilder_NonNumericalProps(t *testing.T) {
 				.group().by("isCapital").by(
 					fold()
 						.match(
-							__.as("a").unfold().values("dateOfFirstApperance").count().as("dateOfFirstApperance__count")
+							__.as("a").unfold().values("dateOfFirstApperance").count().project("dateOfFirstApperance__count").as("dateOfFirstApperance__count")
 						)
-						.select("dateOfFirstApperance__count").by(project("dateOfFirstApperance__count")).as("dateOfFirstApperance")
-						.select("dateOfFirstApperance").by(project("dateOfFirstApperance"))
+						.select("dateOfFirstApperance__count").as("dateOfFirstApperance").project("dateOfFirstApperance")
 					)
 				`,
 		},
@@ -85,10 +83,9 @@ func Test_QueryBuilder_NonNumericalProps(t *testing.T) {
 				.group().by("isCapital").by(
 					fold()
 						.match(
-							__.as("a").unfold().values("isCapital").count().as("isCapital__count")
+							__.as("a").unfold().values("isCapital").count().project("isCapital__count").as("isCapital__count")
 						)
-						.select("isCapital__count").by(project("isCapital__count")).as("isCapital")
-						.select("isCapital").by(project("isCapital"))
+						.select("isCapital__count").as("isCapital").project("isCapital")
 					)
 				`,
 		},

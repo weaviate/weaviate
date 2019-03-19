@@ -35,5 +35,5 @@ func (j *Janusgraph) LocalAggregate(params *graphql_aggregate.Params) (interface
 
 	q = q.Raw(metaQuery)
 
-	return aggregate.NewProcessor(j.client).Process(q, params.GroupBy)
+	return aggregate.NewProcessor(j.client, j.etcdClient, j.analyticsClient).Process(q, params.GroupBy, params)
 }

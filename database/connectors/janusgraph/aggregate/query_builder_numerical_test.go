@@ -37,10 +37,9 @@ func Test_QueryBuilder_IntProps(t *testing.T) {
 				.group().by("isCapital").by(
 					fold()
 						.match(
-							__.as("a").unfold().values("population").count().as("population__count")
+							__.as("a").unfold().values("population").count().project("population__count").as("population__count")
 						)
-						.select("population__count").by(project("population__count")).as("population")
-						.select("population").by(project("population"))
+						.select("population__count").as("population").project("population")
 					)
 				`,
 		},
@@ -73,7 +72,7 @@ func Test_QueryBuilder_IntProps(t *testing.T) {
 							"population__count", "population__mean", "population__sum", "population__maximum", "population__minimum", "population__mode"
 						)
 						.as("population")
-						.select("population").by(project("population"))
+						.project("population")
 					)
 				`,
 		},
