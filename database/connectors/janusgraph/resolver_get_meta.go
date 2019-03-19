@@ -39,5 +39,5 @@ func (j *Janusgraph) LocalGetMeta(params *getmeta.Params) (interface{}, error) {
 		return nil, err
 	}
 
-	return meta.NewProcessor(j.client).Process(q, typeInfo)
+	return meta.NewProcessor(j.client, j.etcdClient, j.analyticsClient).Process(q, typeInfo, params)
 }

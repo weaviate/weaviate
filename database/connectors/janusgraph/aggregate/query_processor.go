@@ -13,18 +13,36 @@
 package aggregate
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
+	analytics "github.com/SeMI-network/janus-spark-analytics/clients/go"
+	"github.com/coreos/etcd/clientv3"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/aggregate"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 )
+
+// AnalyticsAPICachePrefix is prepended to the ids to form the keys in the
+// key-value cache storage
+const AnalyticsAPICachePrefix = "/weaviate/janusgraph-connector/analytics-cache/"
 
 // Processor is a simple Gremlin-Query Executor that is specific to GetMeta in
 // that it merges the results into the expected format and applies
 // post-processing where necessary
 type Processor struct {
-	executor executor
+	executor  executor
+	cache     etcdClient
+	analytics analyticsClient
+}
+
+type etcdClient interface {
+	Get(ctx context.Context, key string, opts ...clientv3.OpOption) (*clientv3.GetResponse, error)
+}
+
+type analyticsClient interface {
+	Schedule(ctx context.Context, params analytics.QueryParams) error
 }
 
 type executor interface {
@@ -32,17 +50,19 @@ type executor interface {
 }
 
 //NewProcessor of type Processor
-func NewProcessor(executor executor) *Processor {
-	return &Processor{executor: executor}
+func NewProcessor(executor executor, cache etcdClient, analytics analyticsClient) *Processor {
+	return &Processor{executor: executor, cache: cache, analytics: analytics}
 }
 
 // Process the query (i.e. execute it), then post-process it, i.e. transform
 // the structure we get from janusgraph into the structure we need for the
 // graphQL API
-func (p *Processor) Process(query *gremlin.Query, groupBy *common_filters.Path) (interface{}, error) {
-	result, err := p.executor.Execute(query)
+func (p *Processor) Process(query *gremlin.Query, groupBy *common_filters.Path,
+	params *aggregate.Params) (interface{}, error) {
+
+	result, err := p.getResult(query, params)
 	if err != nil {
-		return nil, fmt.Errorf("could not process meta query: executing the query failed: %s", err)
+		return nil, fmt.Errorf("could not process aggregate query: %v", err)
 	}
 
 	sliced, err := p.sliceResults(result, groupBy)
@@ -54,14 +74,27 @@ func (p *Processor) Process(query *gremlin.Query, groupBy *common_filters.Path) 
 	return sliced, nil
 }
 
-func (p *Processor) sliceResults(input *gremlin.Response, groupBy *common_filters.Path) ([]interface{}, error) {
-	if len(input.Data) != 1 {
-		return nil, fmt.Errorf("expected exactly one Datum from janus, but got: %#v", input.Data)
+func (p *Processor) getResult(query *gremlin.Query, params *aggregate.Params) ([]interface{}, error) {
+	if params.Analytics.UseAnaltyicsEngine == false {
+		result, err := p.executor.Execute(query)
+		if err != nil {
+			return nil, fmt.Errorf("executing query against janusgraph failed: %s", err)
+		}
+
+		return datumsToSlice(result), nil
 	}
 
-	datumAsMap, ok := input.Data[0].Datum.(map[string]interface{})
+	return p.getResultFromAnalyticsEngine(query, params)
+}
+
+func (p *Processor) sliceResults(input []interface{}, groupBy *common_filters.Path) ([]interface{}, error) {
+	if len(input) != 1 {
+		return nil, fmt.Errorf("expected exactly one Datum from janus, but got: %#v", input)
+	}
+
+	datumAsMap, ok := input[0].(map[string]interface{})
 	if !ok {
-		return nil, fmt.Errorf("expected datum at pos 0 to be map, but was %#v", input.Data[0].Datum)
+		return nil, fmt.Errorf("expected datum at pos 0 to be map, but was %#v", input[0])
 	}
 
 	result := []interface{}{}
@@ -141,4 +174,17 @@ func mergeMaps(m1, m2 map[string]interface{}) map[string]interface{} {
 	}
 
 	return m1
+}
+
+func keyFromHash(hash string) string {
+	return fmt.Sprintf("%s%s", AnalyticsAPICachePrefix, hash)
+}
+
+func datumsToSlice(g *gremlin.Response) []interface{} {
+	res := make([]interface{}, len(g.Data), len(g.Data))
+	for i, datum := range g.Data {
+		res[i] = datum.Datum
+	}
+
+	return res
 }

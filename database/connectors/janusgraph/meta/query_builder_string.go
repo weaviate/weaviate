@@ -13,6 +13,7 @@ package meta
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
@@ -57,7 +58,7 @@ func (b *Query) stringProp(prop getmeta.MetaProperty) (*gremlin.Query, error) {
 
 	}
 
-	q = q.Union(analysisQueries...).AsProjectBy(string(prop.Name))
+	q = concatGremlin(analysisQueries...)
 
 	return q, nil
 }
@@ -91,7 +92,8 @@ func (b *Query) stringPropCount(prop getmeta.MetaProperty) (*gremlin.Query, erro
 
 	q = q.HasProperty(b.mappedPropertyName(b.params.ClassName, prop.Name)).
 		Count().
-		AsProjectBy("count")
+		Project("count").
+		Project(string(prop.Name))
 
 	return q, nil
 }
@@ -101,7 +103,17 @@ func (b *Query) stringPropTopOccurrences(prop getmeta.MetaProperty) (*gremlin.Qu
 
 	q = q.GroupCount().By(b.mappedPropertyName(b.params.ClassName, prop.Name)).
 		OrderLocalByValuesLimit("decr", 3).
-		AsProjectBy(StringTopOccurrences)
+		Project(StringTopOccurrences).
+		Project(string(prop.Name))
 
 	return q, nil
+}
+
+func concatGremlin(queries ...*gremlin.Query) *gremlin.Query {
+	queryStrings := make([]string, len(queries), len(queries))
+	for i, q := range queries {
+		queryStrings[i] = q.String()
+	}
+
+	return gremlin.New().Raw(strings.Join(queryStrings, ", "))
 }

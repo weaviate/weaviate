@@ -29,10 +29,14 @@ func Test_QueryBuilder_BoolProps(t *testing.T) {
 			},
 			expectedQuery: `
 				.union(
-					union(
-						has("isCapital").count().as("count").project("count").by(select("count"))
+					values("isCapital").union(
+						count().project("count").project("isCapital")
 					)
-					.as("isCapital").project("isCapital").by(select("isCapital"))
+				)
+				.group().by(select(keys).unfold()).by(
+					select(values).unfold().group()
+					.by( select(keys).unfold())
+					.by( select(values).unfold())
 				)
 			`,
 		},
@@ -47,10 +51,14 @@ func Test_QueryBuilder_BoolProps(t *testing.T) {
 			},
 			expectedQuery: `
 				.union(
-					union(
-						has("isCapital").count().as("count").project("count").by(select("count"))
+					values("isCapital").union(
+						count().project("count").project("isCapital")
 					)
-					.as("isCapital").project("isCapital").by(select("isCapital"))
+				)
+				.group().by(select(keys).unfold()).by(
+					select(values).unfold().group()
+					.by( select(keys).unfold())
+					.by( select(values).unfold())
 				)
 			`,
 		},
@@ -65,11 +73,14 @@ func Test_QueryBuilder_BoolProps(t *testing.T) {
 			},
 			expectedQuery: `
 				.union(
-					union(
-						groupCount().by("isCapital")
-							.as("boolGroupCount").project("boolGroupCount").by(select("boolGroupCount"))
+					values("isCapital").union(
+						groupCount().unfold().project("isCapital")
 					)
-						.as("isCapital").project("isCapital").by(select("isCapital"))
+				)
+				.group().by(select(keys).unfold()).by(
+					select(values).unfold().group()
+					.by( select(keys).unfold())
+					.by( select(values).unfold())
 				)
 			`,
 		},
@@ -86,13 +97,15 @@ func Test_QueryBuilder_BoolProps(t *testing.T) {
 			},
 			expectedQuery: `
 				.union(
-					union(
-						has("isCapital").count()
-							.as("count").project("count").by(select("count")),
-						groupCount().by("isCapital")
-							.as("boolGroupCount").project("boolGroupCount").by(select("boolGroupCount"))
+					values("isCapital").union(
+						count().project("count").project("isCapital"),
+						groupCount().unfold().project("isCapital")
 					)
-						.as("isCapital").project("isCapital").by(select("isCapital"))
+				)
+				.group().by(select(keys).unfold()).by(
+					select(values).unfold().group()
+					.by( select(keys).unfold())
+					.by( select(values).unfold())
 				)
 			`,
 		},
@@ -108,11 +121,14 @@ func Test_QueryBuilder_BoolProps(t *testing.T) {
 			},
 			expectedQuery: `
 				.union(
-					union(
-						groupCount().by("isCapital")
-							.as("boolGroupCount").project("boolGroupCount").by(select("boolGroupCount"))
+					values("isCapital").union(
+						groupCount().unfold().project("isCapital")
 					)
-						.as("isCapital").project("isCapital").by(select("isCapital"))
+				)
+				.group().by(select(keys).unfold()).by(
+					select(values).unfold().group()
+					.by( select(keys).unfold())
+					.by( select(values).unfold())
 				)
 			`,
 		},
@@ -132,9 +148,18 @@ func Test_QueryBuilderWithNamesource(t *testing.T) {
 					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.Count},
 				},
 			},
-			expectedQuery: `.union(` +
-				`union(has("prop_20").count().as("count").project("count").by(select("count"))).as("isCapital").project("isCapital").by(select("isCapital"))` +
-				`)`,
+			expectedQuery: `
+				.union(
+					values("prop_20").union(
+						count().project("count").project("isCapital")
+					)
+				)
+				.group().by(select(keys).unfold()).by(
+					select(values).unfold().group()
+					.by( select(keys).unfold())
+					.by( select(values).unfold())
+				)
+			`,
 		},
 	}
 

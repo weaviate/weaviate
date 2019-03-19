@@ -16,6 +16,7 @@ package aggregate
 import (
 	"fmt"
 
+	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
@@ -41,6 +42,7 @@ type Resolver interface {
 type Params struct {
 	Kind       kind.Kind
 	Filters    *common_filters.LocalFilter
+	Analytics  common_filters.AnalyticsProps
 	ClassName  schema.ClassName
 	Properties []Property
 	GroupBy    *common_filters.Path
@@ -93,6 +95,11 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 			return nil, fmt.Errorf("expected source to contain a usable Resolver, but was %t", p.Source)
 		}
 
+		cfg, ok := source["Config"].(config.Environment)
+		if !ok {
+			return nil, fmt.Errorf("expected source to contain a config, but was %t", p.Source)
+		}
+
 		// There can only be exactly one ast.Field; it is the class name.
 		if len(p.Info.FieldASTs) != 1 {
 			panic("Only one Field expected here")
@@ -114,12 +121,18 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 			return nil, fmt.Errorf("could not extract filters: %s", err)
 		}
 
+		analytics, err := common_filters.ExtractAnalyticsProps(p.Args, cfg.AnalyticsEngine)
+		if err != nil {
+			return nil, fmt.Errorf("could not extract filters: %s", err)
+		}
+
 		params := &Params{
 			Kind:       kind,
 			Filters:    filters,
 			ClassName:  className,
 			Properties: properties,
 			GroupBy:    groupBy,
+			Analytics:  analytics,
 		}
 		return resolver.LocalAggregate(params)
 	}

@@ -14,6 +14,7 @@ package aggregate
 import (
 	"testing"
 
+	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
@@ -253,7 +254,7 @@ func Test_Resolve(t *testing.T) {
 func (tests testCases) AssertExtraction(t *testing.T, k kind.Kind, className string) {
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			resolver := newMockResolver()
+			resolver := newMockResolver(config.Environment{})
 
 			expectedParams := &Params{
 				Kind:       k,

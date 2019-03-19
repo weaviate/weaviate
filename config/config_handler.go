@@ -17,8 +17,10 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"regexp"
 
 	"github.com/go-openapi/swag"
+	"gopkg.in/yaml.v2"
 
 	"github.com/creativesoftwarefdn/weaviate/messages"
 )
@@ -42,64 +44,75 @@ type File struct {
 
 // Environment outline of the environment inside the config file
 type Environment struct {
-	Name          string        `json:"name"`
-	Database      Database      `json:"database"`
-	Schemas       Schemas       `json:"schemas"`
-	Broker        Broker        `json:"broker"`
-	Network       *Network      `json:"network"`
-	Limit         int64         `json:"limit"`
-	Debug         bool          `json:"debug"`
-	Development   Development   `json:"development"`
-	Contextionary Contextionary `json:"contextionary"`
-	ConfigStore   ConfigStore   `json:"configuration_storage"`
+	Name                 string          `json:"name" yaml:"name"`
+	AnalyticsEngine      AnalyticsEngine `json:"analytics_engine" yaml:"analytics_engine"`
+	Database             Database        `json:"database" yaml:"database"`
+	Broker               Broker          `json:"broker" yaml:"broker"`
+	Network              *Network        `json:"network" yaml:"network"`
+	Limit                int64           `json:"limit" yaml:"limit"`
+	Debug                bool            `json:"debug" yaml:"debug"`
+	Development          Development     `json:"development" yaml:"development"`
+	Contextionary        Contextionary   `json:"contextionary" yaml:"contextionary"`
+	ConfigurationStorage ConfigStore     `json:"configuration_storage" yaml:"configuration_storage"`
 }
 
 type Contextionary struct {
-	KNNFile      string `json:"knn_file"`
-	IDXFile      string `json:"idx_file"`
-	failOnGerund bool   `json:"fail_ongerund"` // is false by default.
+	KNNFile string `json:"knn_file" yaml:"knn_file"`
+	IDXFile string `json:"idx_file" yaml:"idx_file"`
+}
+
+// AnalyticsEngine represents an external analytics engine, such as Spark for
+// Janusgraph
+type AnalyticsEngine struct {
+	// Enabled configures whether an analytics engine should be used. Setting
+	// this to true leads to the options "useAnalyticsEngine" and
+	// "forceRecalculate" to become available in the GraphQL GetMeta->Kind->Class
+	// and Aggregate->Kind->Class.
+	//
+	// Important: If enabled is set to true, you must also configure an analytics
+	// engine in your database connector. If the chosen connector does not
+	// support an external analytics engine, enabled must be set to false.
+	Enabled bool `json:"enabled" yaml:"enabled"`
+
+	// DefaultUseAnalyticsEngine configures what the "useAnalyticsEngine" in the
+	// GraphQL API will default to when not set.
+	DefaultUseAnalyticsEngine bool `json:"default_use_analytics_engine" yaml:"default_use_analytics_engine"`
 }
 
 type Network struct {
-	GenesisURL string `json:"genesis_url"`
-	PublicURL  string `json:"public_url"`
-	PeerName   string `json:"peer_name"`
+	GenesisURL string `json:"genesis_url" yaml:"genesis_url"`
+	PublicURL  string `json:"public_url" yaml:"public_url"`
+	PeerName   string `json:"peer_name" yaml:"peer_name"`
 }
 
 type ConfigStore struct {
-	Type string `json:"type"`
-	URL  string `json:"url"`
+	Type string `json:"type" yaml:"type"`
+	URL  string `json:"url" yaml:"url"`
 }
 
 // Broker checks if broker details are set
 type Broker struct {
-	Host string `json:"host"`
-	Port int32  `json:"port"`
+	Host string `json:"host" yaml:"host"`
+	Port int32  `json:"port" yaml:"port"`
 }
 
 // Database is the outline of the database
 type Database struct {
-	Name           string      `json:"name"`
-	DatabaseConfig interface{} `json:"database_config"`
-}
-
-// Schemas contains the schema for 'things' and for 'actions'
-type Schemas struct {
-	Thing  string `json:"thing"`
-	Action string `json:"action"`
+	Name           string      `json:"name" yaml:"name"`
+	DatabaseConfig interface{} `json:"database_config" yaml:"database_config"`
 }
 
 // Development is the outline of (temporary) config variables
 // Note: the purpose is that these variables will be moved somewhere else in time
 type Development struct {
-	ExternalInstances []Instance `json:"external_instances"`
+	ExternalInstances []Instance `json:"external_instances" yaml:"external_instances"`
 }
 
 // Instance is the outline for an external instance whereto crossreferences can be resolved
 type Instance struct {
-	URL      string `json:"url"`
-	APIKey   string `json:"api_key"`
-	APIToken string `json:"api_token"`
+	URL      string `json:"url" yaml:"url"`
+	APIKey   string `json:"api_key" yaml:"api_key"`
+	APIToken string `json:"api_token" yaml:"api_token"`
 }
 
 // GetConfigOptionGroup creates a option group for swagger
@@ -149,13 +162,9 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, m *mess
 		m.InfoMessage("Using default environment '" + DefaultEnvironment + "'.")
 	}
 
-	// Read from the config file and add it to an object
-	var configFile File
-	err = json.Unmarshal(file, &configFile)
-
-	// Return error if config file is incorrect
+	configFile, err := f.parseConfigFile(file, configFileName)
 	if err != nil {
-		return fmt.Errorf("error unmarshalling the config file: %s", err)
+		return err
 	}
 
 	// Loop through all values in object to see whether the given connection-name exists
@@ -183,6 +192,32 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, m *mess
 	}
 
 	return nil
+}
+
+func (f *WeaviateConfig) parseConfigFile(file []byte, name string) (File, error) {
+	var config File
+
+	m := regexp.MustCompile(".*\\.(\\w+)$").FindStringSubmatch(name)
+	if len(m) < 2 {
+		return config, fmt.Errorf("config file does not have a file ending, got '%s'", name)
+	}
+
+	switch m[1] {
+	case "json":
+		err := json.Unmarshal(file, &config)
+		if err != nil {
+			return config, fmt.Errorf("error unmarshalling the json config file: %s", err)
+		}
+	case "yaml":
+		err := yaml.Unmarshal(file, &config)
+		if err != nil {
+			return config, fmt.Errorf("error unmarshalling the yaml config file: %s", err)
+		}
+	default:
+		return config, fmt.Errorf("unsupported config file extension '%s', use .yaml or .json", m[1])
+	}
+
+	return config, nil
 }
 
 // GetInstance from config

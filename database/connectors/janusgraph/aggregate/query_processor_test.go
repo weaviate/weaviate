@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/aggregate"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/stretchr/testify/assert"
@@ -68,7 +69,7 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		result, err := NewProcessor(executor).Process(gremlin.New(), groupBy)
+		result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), groupBy, &aggregate.Params{})
 
 		require.Nil(t, err, "should not error")
 		assert.ElementsMatch(t, expectedResult, result, "result should be merged and post-processed")
