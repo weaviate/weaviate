@@ -50,7 +50,7 @@ func (a *Client) WeaviateMetaGet(params *WeaviateMetaGetParams) (*WeaviateMetaGe
 		Method:             "GET",
 		PathPattern:        "/meta",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateMetaGetReader{formats: a.formats},
