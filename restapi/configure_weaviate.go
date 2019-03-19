@@ -640,7 +640,7 @@ func configureServer(s *http.Server, scheme, addr string) {
 	ctx := context.Background()
 	// The timeout is arbitrary we have to adjust it as we go along, if we
 	// realize it is to big/small
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 
 	// Create message service
@@ -672,7 +672,7 @@ func configureServer(s *http.Server, scheme, addr string) {
 
 	// Connect to MQTT via Broker
 	weaviateBroker.ConnectToMqtt(serverConfig.Environment.Broker.Host, serverConfig.Environment.Broker.Port)
-	messaging.InfoMessage(fmt.Sprintf("connected to broker (do we still need this???), time left is: %s", timeTillDeadline(ctx)))
+	messaging.InfoMessage(fmt.Sprintf("connected to broker, time left is: %s", timeTillDeadline(ctx)))
 
 	// Create the database connector usint the config
 	err, dbConnector := dblisting.NewConnector(serverConfig.Environment.Database.Name, serverConfig.Environment.Database.DatabaseConfig)
