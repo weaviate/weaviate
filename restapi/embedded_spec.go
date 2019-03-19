@@ -29,6 +29,7 @@ var (
 func init() {
 	SwaggerJSON = json.RawMessage([]byte(`{
   "consumes": [
+    "application/yaml",
     "application/json"
   ],
   "produces": [
@@ -46,7 +47,7 @@ func init() {
       "url": "https://github.com/creativesoftwarefdn",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.12.67"
+    "version": "0.12.70"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -858,6 +859,97 @@ func init() {
         ]
       }
     },
+    "/c11y/corpus": {
+      "post": {
+        "description": "Analyzes a sentence based on the contextionary",
+        "tags": [
+          "contextionary-API"
+        ],
+        "summary": "Checks if a word or wordString is part of the contextionary.",
+        "operationId": "weaviate.c11y.corpus.get",
+        "parameters": [
+          {
+            "description": "A text corpus",
+            "name": "corpus",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "description": "The text corpus.",
+              "type": "object",
+              "properties": {
+                "corpus": {
+                  "type": "string",
+                  "example": "In certain latitudes there comes a span of time approaching and following the summer solstice, some weeks in all, when the twilights turn long and blue."
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.c11y.corpus.get"
+        ]
+      }
+    },
+    "/c11y/words/{words}": {
+      "get": {
+        "description": "Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/creativesoftwarefdn/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase",
+        "tags": [
+          "contextionary-API"
+        ],
+        "summary": "Checks if a word or wordString is part of the contextionary.",
+        "operationId": "weaviate.c11y.words",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "CamelCase list of words to validate.",
+            "name": "words",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/C11yWordsResponse"
+            }
+          },
+          "400": {
+            "description": "Incorrect request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Insufficient permissions."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.c11y.words.get"
+        ]
+      }
+    },
     "/graphql": {
       "post": {
         "description": "Get an object based on GraphQL",
@@ -971,9 +1063,6 @@ func init() {
     "/meta": {
       "get": {
         "description": "Gives meta information about the server and can be used to provide information to another Weaviate instance that wants to interact with the current instance.",
-        "produces": [
-          "application/json"
-        ],
         "tags": [
           "meta"
         ],
@@ -2325,57 +2414,6 @@ func init() {
           "weaviate.local.manipulate"
         ]
       }
-    },
-    "/tools/map": {
-      "post": {
-        "description": "Tool to render a map of concepts, based on ontologies available over the network.",
-        "tags": [
-          "knowledge tools"
-        ],
-        "summary": "Tool to render a map of concepts, based on ontologies available over the network.",
-        "operationId": "weaviate.tools.map",
-        "parameters": [
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/ToolsMapRequest"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/ToolsMapRequestResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Insufficient permissions."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false,
-        "x-serviceIds": [
-          "weaviate.network.tools.map"
-        ]
-      }
     }
   },
   "definitions": {
@@ -2552,6 +2590,125 @@ func init() {
           "description": "The total number of Actions for the query. The number of items in a response may be smaller due to paging.",
           "type": "integer",
           "format": "int64"
+        }
+      }
+    },
+    "C11yNearestNeighbors": {
+      "description": "C11y function to show the nearest neighbors to a word.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "distance": {
+            "type": "number",
+            "format": "float"
+          },
+          "word": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "C11yVector": {
+      "description": "A Vector in the Contextionary",
+      "type": "array",
+      "items": {
+        "type": "number",
+        "format": "float",
+        "maximum": 300,
+        "minimum": 300
+      }
+    },
+    "C11yVectorBasedQuestion": {
+      "description": "Receive question based on array of classes, properties and values.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "classProps": {
+            "description": "Vectorized properties.",
+            "type": "array",
+            "maxItems": 300,
+            "minItems": 300,
+            "items": {
+              "type": "object",
+              "properties": {
+                "propsVectors": {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "format": "float"
+                  }
+                },
+                "value": {
+                  "description": "String with valuename.",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "classVectors": {
+            "description": "Vectorized classname.",
+            "type": "array",
+            "maxItems": 300,
+            "minItems": 300,
+            "items": {
+              "type": "number",
+              "format": "float"
+            }
+          }
+        }
+      }
+    },
+    "C11yWordsResponse": {
+      "description": "An array of available words and contexts.",
+      "properties": {
+        "concatenatedWord": {
+          "description": "Weighted results for all words",
+          "type": "object",
+          "properties": {
+            "concatenatedNearestNeighbors": {
+              "$ref": "#/definitions/C11yNearestNeighbors"
+            },
+            "concatenatedVector": {
+              "$ref": "#/definitions/C11yVector"
+            },
+            "concatenatedWord": {
+              "type": "string"
+            },
+            "singleWords": {
+              "type": "array",
+              "items": {
+                "format": "string"
+              }
+            }
+          }
+        },
+        "individualWords": {
+          "description": "Weighted results for per individual word",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "inC11y": {
+                "type": "boolean"
+              },
+              "info": {
+                "type": "object",
+                "properties": {
+                  "nearestNeighbors": {
+                    "$ref": "#/definitions/C11yNearestNeighbors"
+                  },
+                  "vector": {
+                    "$ref": "#/definitions/C11yVector"
+                  }
+                }
+              },
+              "word": {
+                "type": "string"
+              }
+            }
+          }
         }
       }
     },
@@ -3052,125 +3209,6 @@ func init() {
           "format": "int64"
         }
       }
-    },
-    "ToolsMapRequest": {
-      "type": "object",
-      "properties": {
-        "conceptCenter": {
-          "description": "Concept that should function as center. Should be one concept (e.g., car) or CamelCased (e.g, MovedTo)",
-          "type": "string"
-        },
-        "networkCenter": {
-          "description": "Only needs to be set when type is centerOfNetwork and should contain the name of the Weaviate that is taken as center.",
-          "type": "string"
-        },
-        "type": {
-          "description": "What type of map should be generated?",
-          "type": "string",
-          "enum": [
-            "zeroPointPosition",
-            "centerOfSelf",
-            "centerOfNetwork",
-            "centerOfConcept"
-          ]
-        }
-      }
-    },
-    "ToolsMapRequestResponse": {
-      "description": "Map of concepts.",
-      "type": "object",
-      "properties": {
-        "results": {
-          "description": "Results of the map request",
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "concept": {
-                "$ref": "#/definitions/SemanticSchemaClass"
-              },
-              "distance": {
-                "description": "Distance to original vector concept",
-                "type": "number",
-                "format": "float"
-              },
-              "location": {
-                "description": "On which Weaviate is this concept located?",
-                "type": "string"
-              },
-              "type": {
-                "description": "Thing or Action",
-                "type": "string",
-                "enum": [
-                  "thing",
-                  "action"
-                ]
-              }
-            }
-          }
-        },
-        "startVector": {
-          "description": "Startpoint in the Contextionary expressed as 300-dimensional space",
-          "type": "array",
-          "items": {
-            "type": "number",
-            "format": "float",
-            "maximum": 300,
-            "minimum": 300
-          }
-        },
-        "type": {
-          "description": "What type of map should be generated?",
-          "type": "string",
-          "enum": [
-            "zeroPointPosition",
-            "centerOfSelf",
-            "centerOfNetwork",
-            "centerOfConcept"
-          ]
-        }
-      }
-    },
-    "VectorBasedQuestion": {
-      "description": "Receive question based on array of classes, properties and values.",
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "classProps": {
-            "description": "Vectorized properties.",
-            "type": "array",
-            "maxItems": 300,
-            "minItems": 300,
-            "items": {
-              "type": "object",
-              "properties": {
-                "propsVectors": {
-                  "type": "array",
-                  "items": {
-                    "type": "number",
-                    "format": "float"
-                  }
-                },
-                "value": {
-                  "description": "String with valuename.",
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "classVectors": {
-            "description": "Vectorized classname.",
-            "type": "array",
-            "maxItems": 300,
-            "minItems": 300,
-            "items": {
-              "type": "number",
-              "format": "float"
-            }
-          }
-        }
-      }
     }
   },
   "parameters": {
@@ -3210,7 +3248,8 @@ func init() {
       "name": "things"
     },
     {
-      "name": "knowledge tools"
+      "description": "All functions related to the Contextionary.",
+      "name": "contextionary-API"
     },
     {
       "description": "These operations enable manipulation of the schema in Weaviate schema.",
@@ -3223,6 +3262,7 @@ func init() {
 }`))
 	FlatSwaggerJSON = json.RawMessage([]byte(`{
   "consumes": [
+    "application/yaml",
     "application/json"
   ],
   "produces": [
@@ -3240,7 +3280,7 @@ func init() {
       "url": "https://github.com/creativesoftwarefdn",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.12.67"
+    "version": "0.12.70"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -4060,6 +4100,97 @@ func init() {
         ]
       }
     },
+    "/c11y/corpus": {
+      "post": {
+        "description": "Analyzes a sentence based on the contextionary",
+        "tags": [
+          "contextionary-API"
+        ],
+        "summary": "Checks if a word or wordString is part of the contextionary.",
+        "operationId": "weaviate.c11y.corpus.get",
+        "parameters": [
+          {
+            "description": "A text corpus",
+            "name": "corpus",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "description": "The text corpus.",
+              "type": "object",
+              "properties": {
+                "corpus": {
+                  "type": "string",
+                  "example": "In certain latitudes there comes a span of time approaching and following the summer solstice, some weeks in all, when the twilights turn long and blue."
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.c11y.corpus.get"
+        ]
+      }
+    },
+    "/c11y/words/{words}": {
+      "get": {
+        "description": "Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/creativesoftwarefdn/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase",
+        "tags": [
+          "contextionary-API"
+        ],
+        "summary": "Checks if a word or wordString is part of the contextionary.",
+        "operationId": "weaviate.c11y.words",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "CamelCase list of words to validate.",
+            "name": "words",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/C11yWordsResponse"
+            }
+          },
+          "400": {
+            "description": "Incorrect request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Insufficient permissions."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.c11y.words.get"
+        ]
+      }
+    },
     "/graphql": {
       "post": {
         "description": "Get an object based on GraphQL",
@@ -4173,9 +4304,6 @@ func init() {
     "/meta": {
       "get": {
         "description": "Gives meta information about the server and can be used to provide information to another Weaviate instance that wants to interact with the current instance.",
-        "produces": [
-          "application/json"
-        ],
         "tags": [
           "meta"
         ],
@@ -5535,57 +5663,6 @@ func init() {
           "weaviate.local.manipulate"
         ]
       }
-    },
-    "/tools/map": {
-      "post": {
-        "description": "Tool to render a map of concepts, based on ontologies available over the network.",
-        "tags": [
-          "knowledge tools"
-        ],
-        "summary": "Tool to render a map of concepts, based on ontologies available over the network.",
-        "operationId": "weaviate.tools.map",
-        "parameters": [
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/ToolsMapRequest"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/ToolsMapRequestResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Insufficient permissions."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false,
-        "x-serviceIds": [
-          "weaviate.network.tools.map"
-        ]
-      }
     }
   },
   "definitions": {
@@ -5762,6 +5839,125 @@ func init() {
           "description": "The total number of Actions for the query. The number of items in a response may be smaller due to paging.",
           "type": "integer",
           "format": "int64"
+        }
+      }
+    },
+    "C11yNearestNeighbors": {
+      "description": "C11y function to show the nearest neighbors to a word.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "distance": {
+            "type": "number",
+            "format": "float"
+          },
+          "word": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "C11yVector": {
+      "description": "A Vector in the Contextionary",
+      "type": "array",
+      "items": {
+        "type": "number",
+        "format": "float",
+        "maximum": 300,
+        "minimum": 300
+      }
+    },
+    "C11yVectorBasedQuestion": {
+      "description": "Receive question based on array of classes, properties and values.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "classProps": {
+            "description": "Vectorized properties.",
+            "type": "array",
+            "maxItems": 300,
+            "minItems": 300,
+            "items": {
+              "type": "object",
+              "properties": {
+                "propsVectors": {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "format": "float"
+                  }
+                },
+                "value": {
+                  "description": "String with valuename.",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "classVectors": {
+            "description": "Vectorized classname.",
+            "type": "array",
+            "maxItems": 300,
+            "minItems": 300,
+            "items": {
+              "type": "number",
+              "format": "float"
+            }
+          }
+        }
+      }
+    },
+    "C11yWordsResponse": {
+      "description": "An array of available words and contexts.",
+      "properties": {
+        "concatenatedWord": {
+          "description": "Weighted results for all words",
+          "type": "object",
+          "properties": {
+            "concatenatedNearestNeighbors": {
+              "$ref": "#/definitions/C11yNearestNeighbors"
+            },
+            "concatenatedVector": {
+              "$ref": "#/definitions/C11yVector"
+            },
+            "concatenatedWord": {
+              "type": "string"
+            },
+            "singleWords": {
+              "type": "array",
+              "items": {
+                "format": "string"
+              }
+            }
+          }
+        },
+        "individualWords": {
+          "description": "Weighted results for per individual word",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "inC11y": {
+                "type": "boolean"
+              },
+              "info": {
+                "type": "object",
+                "properties": {
+                  "nearestNeighbors": {
+                    "$ref": "#/definitions/C11yNearestNeighbors"
+                  },
+                  "vector": {
+                    "$ref": "#/definitions/C11yVector"
+                  }
+                }
+              },
+              "word": {
+                "type": "string"
+              }
+            }
+          }
         }
       }
     },
@@ -6262,125 +6458,6 @@ func init() {
           "format": "int64"
         }
       }
-    },
-    "ToolsMapRequest": {
-      "type": "object",
-      "properties": {
-        "conceptCenter": {
-          "description": "Concept that should function as center. Should be one concept (e.g., car) or CamelCased (e.g, MovedTo)",
-          "type": "string"
-        },
-        "networkCenter": {
-          "description": "Only needs to be set when type is centerOfNetwork and should contain the name of the Weaviate that is taken as center.",
-          "type": "string"
-        },
-        "type": {
-          "description": "What type of map should be generated?",
-          "type": "string",
-          "enum": [
-            "zeroPointPosition",
-            "centerOfSelf",
-            "centerOfNetwork",
-            "centerOfConcept"
-          ]
-        }
-      }
-    },
-    "ToolsMapRequestResponse": {
-      "description": "Map of concepts.",
-      "type": "object",
-      "properties": {
-        "results": {
-          "description": "Results of the map request",
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "concept": {
-                "$ref": "#/definitions/SemanticSchemaClass"
-              },
-              "distance": {
-                "description": "Distance to original vector concept",
-                "type": "number",
-                "format": "float"
-              },
-              "location": {
-                "description": "On which Weaviate is this concept located?",
-                "type": "string"
-              },
-              "type": {
-                "description": "Thing or Action",
-                "type": "string",
-                "enum": [
-                  "thing",
-                  "action"
-                ]
-              }
-            }
-          }
-        },
-        "startVector": {
-          "description": "Startpoint in the Contextionary expressed as 300-dimensional space",
-          "type": "array",
-          "items": {
-            "type": "number",
-            "format": "float",
-            "maximum": 300,
-            "minimum": 300
-          }
-        },
-        "type": {
-          "description": "What type of map should be generated?",
-          "type": "string",
-          "enum": [
-            "zeroPointPosition",
-            "centerOfSelf",
-            "centerOfNetwork",
-            "centerOfConcept"
-          ]
-        }
-      }
-    },
-    "VectorBasedQuestion": {
-      "description": "Receive question based on array of classes, properties and values.",
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "classProps": {
-            "description": "Vectorized properties.",
-            "type": "array",
-            "maxItems": 300,
-            "minItems": 300,
-            "items": {
-              "type": "object",
-              "properties": {
-                "propsVectors": {
-                  "type": "array",
-                  "items": {
-                    "type": "number",
-                    "format": "float"
-                  }
-                },
-                "value": {
-                  "description": "String with valuename.",
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "classVectors": {
-            "description": "Vectorized classname.",
-            "type": "array",
-            "maxItems": 300,
-            "minItems": 300,
-            "items": {
-              "type": "number",
-              "format": "float"
-            }
-          }
-        }
-      }
     }
   },
   "parameters": {
@@ -6420,7 +6497,8 @@ func init() {
       "name": "things"
     },
     {
-      "name": "knowledge tools"
+      "description": "All functions related to the Contextionary.",
+      "name": "contextionary-API"
     },
     {
       "description": "These operations enable manipulation of the schema in Weaviate schema.",
