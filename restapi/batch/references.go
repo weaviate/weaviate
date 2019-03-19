@@ -13,7 +13,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations"
 	rest_api_utils "github.com/creativesoftwarefdn/weaviate/restapi/rest_api_utils"
 	"github.com/creativesoftwarefdn/weaviate/restapi/state"
-	"github.com/creativesoftwarefdn/weaviate/validation"
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
@@ -102,10 +101,6 @@ func (r *referencesRequest) validateReference(wg *sync.WaitGroup, ref *models.Ba
 	errors = append(errors, err)
 
 	target, err := crossref.Parse(string(ref.To))
-	errors = append(errors, err)
-
-	err = validation.ValidateSingleRef(r.Context(), r.State.ServerConfig, target.SingleRef(),
-		r.locks.DBConnector, r.State.Network, "target ref")
 	errors = append(errors, err)
 
 	if len(errors) == 0 {
