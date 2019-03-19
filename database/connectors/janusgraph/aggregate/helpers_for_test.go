@@ -29,7 +29,7 @@ import (
 
 type fakeNameSource struct{}
 
-func (f *fakeNameSource) GetMappedPropertyName(className schema.ClassName,
+func (f *fakeNameSource) MustGetMappedPropertyName(className schema.ClassName,
 	propName schema.PropertyName) state.MappedPropertyName {
 	switch propName {
 	case schema.PropertyName("name"):
@@ -46,7 +46,7 @@ func (f *fakeNameSource) GetMappedPropertyName(className schema.ClassName,
 	return state.MappedPropertyName("prop_20")
 }
 
-func (f *fakeNameSource) GetMappedClassName(className schema.ClassName) state.MappedClassName {
+func (f *fakeNameSource) MustGetMappedClassName(className schema.ClassName) state.MappedClassName {
 	switch className {
 	case schema.ClassName("Country"):
 		return state.MappedClassName("class_18")

@@ -52,9 +52,9 @@ func NewQuery(p get.Params, ns nameSource, ts typeSource) *Query {
 // nameSource can only be used after verifying that the property exists, if in
 // doubt use typeSource first
 type nameSource interface {
-	GetMappedPropertyName(className schema.ClassName, propName schema.PropertyName) state.MappedPropertyName
+	MustGetMappedPropertyName(className schema.ClassName, propName schema.PropertyName) state.MappedPropertyName
 	GetPropertyNameFromMapped(className schema.ClassName, mappedPropName state.MappedPropertyName) schema.PropertyName
-	GetMappedClassName(className schema.ClassName) state.MappedClassName
+	MustGetMappedClassName(className schema.ClassName) state.MappedClassName
 	GetClassNameFromMapped(className state.MappedClassName) schema.ClassName
 }
 
@@ -89,7 +89,7 @@ func (b *Query) String() (string, error) {
 
 	q := gremlin.New().Raw("g.V()").
 		HasString("kind", b.params.Kind.Name()).
-		HasLabel(string(b.nameSource.GetMappedClassName(schema.ClassName(b.params.ClassName)))).
+		HasLabel(string(b.nameSource.MustGetMappedClassName(schema.ClassName(b.params.ClassName)))).
 		Raw(filterQuery).
 		Raw(refPropQueries).
 		Range(offset, first).
@@ -125,7 +125,7 @@ func (b *Query) refPropQuery(prop get.SelectProperty, className string) []*greml
 		return nil
 	}
 
-	propName := string(b.nameSource.GetMappedPropertyName(schema.ClassName(className),
+	propName := string(b.nameSource.MustGetMappedPropertyName(schema.ClassName(className),
 		untitle(prop.Name)))
 
 	var queries []*gremlin.Query
@@ -135,7 +135,7 @@ func (b *Query) refPropQuery(prop get.SelectProperty, className string) []*greml
 		if isNetworkRef.MatchString(refClass.ClassName) {
 			q = gremlin.New().Optional(gremlin.New().OutEWithLabel(propName).InV())
 		} else {
-			className := string(b.nameSource.GetMappedClassName(schema.ClassName(refClass.ClassName)))
+			className := string(b.nameSource.MustGetMappedClassName(schema.ClassName(refClass.ClassName)))
 			q = gremlin.New().Optional(gremlin.New().OutEWithLabel(propName).InV().HasLabel(className))
 		}
 

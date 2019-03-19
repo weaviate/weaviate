@@ -194,7 +194,7 @@ func (j *Janusgraph) getClasses(k kind.Kind, className *schema.ClassName, first 
 		HasString(PROP_KIND, k.Name())
 
 	if className != nil {
-		vertexLabel := j.state.GetMappedClassName(*className)
+		vertexLabel := j.state.MustGetMappedClassName(*className)
 		q = q.HasString(PROP_CLASS_ID, string(vertexLabel))
 	}
 
@@ -341,7 +341,7 @@ func (j *Janusgraph) listClass(k kind.Kind, className *schema.ClassName, first i
 		HasString(PROP_KIND, k.Name())
 
 	if className != nil {
-		vertexLabel := j.state.GetMappedClassName(*className)
+		vertexLabel := j.state.MustGetMappedClassName(*className)
 		q = q.HasString(PROP_CLASS_ID, string(vertexLabel))
 	}
 

@@ -55,7 +55,7 @@ func (s *JanusGraphConnectorState) AddMappedClassName(className schema.ClassName
 }
 
 // Map a schema name to the internal janusgraph name
-func (s *JanusGraphConnectorState) GetMappedClassName(className schema.ClassName) MappedClassName {
+func (s *JanusGraphConnectorState) MustGetMappedClassName(className schema.ClassName) MappedClassName {
 	mappedName, exists := s.ClassMap[className]
 
 	if !exists {
@@ -102,7 +102,7 @@ func (s *JanusGraphConnectorState) AddMappedPropertyName(className schema.ClassN
 }
 
 // Map a schema name to the internal janusgraph name
-func (s *JanusGraphConnectorState) GetMappedPropertyName(className schema.ClassName, propName schema.PropertyName) MappedPropertyName {
+func (s *JanusGraphConnectorState) MustGetMappedPropertyName(className schema.ClassName, propName schema.PropertyName) MappedPropertyName {
 	propsOfClass, exists := s.PropertyMap[className]
 
 	if !exists {
