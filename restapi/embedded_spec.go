@@ -2617,13 +2617,13 @@ func init() {
     "BatchReference": {
       "properties": {
         "from": {
-          "description": "Beacon-style URI to identify the source of the cross-ref including the property name. Should be in the form of weaviate://localhost/\u003ckinds\u003e/\u003cuuid\u003e/\u003cpropertyName\u003e, where \u003ckinds\u003e must be one of 'actions', 'things' and \u003cpropertyName\u003e must represent the cross-ref property of the source class to be used.",
+          "description": "Long-form beacon-style URI to identify the source of the cross-ref including the property name. Should be in the form of weaviate://localhost/\u003ckinds\u003e/\u003cuuid\u003e/\u003cclassName\u003e/\u003cpropertyName\u003e, where \u003ckinds\u003e must be one of 'actions', 'things' and \u003cclassName\u003e and \u003cpropertyName\u003e must represent the cross-ref property of source class to be used.",
           "type": "string",
           "format": "uri",
-          "example": "weaviate://localhost/things/a5d09582-4239-4702-81c9-92a6e0122bb4/hasAnimals"
+          "example": "weaviate://localhost/things/Zoo/a5d09582-4239-4702-81c9-92a6e0122bb4/hasAnimals"
         },
         "to": {
-          "description": "URI to point to the cross-ref. Should be in the form of weaviate://localhost/things/\u003cuuid\u003e for the example of a local cross-ref to a thing",
+          "description": "Short-form URI to point to the cross-ref. Should be in the form of weaviate://localhost/things/\u003cuuid\u003e for the example of a local cross-ref to a thing",
           "type": "string",
           "format": "uri",
           "example": "weaviate://localhost/things/97525810-a9a5-4eb0-858a-71449aeb007f"
@@ -5932,13 +5932,13 @@ func init() {
     "BatchReference": {
       "properties": {
         "from": {
-          "description": "Beacon-style URI to identify the source of the cross-ref including the property name. Should be in the form of weaviate://localhost/\u003ckinds\u003e/\u003cuuid\u003e/\u003cpropertyName\u003e, where \u003ckinds\u003e must be one of 'actions', 'things' and \u003cpropertyName\u003e must represent the cross-ref property of the source class to be used.",
+          "description": "Long-form beacon-style URI to identify the source of the cross-ref including the property name. Should be in the form of weaviate://localhost/\u003ckinds\u003e/\u003cuuid\u003e/\u003cclassName\u003e/\u003cpropertyName\u003e, where \u003ckinds\u003e must be one of 'actions', 'things' and \u003cclassName\u003e and \u003cpropertyName\u003e must represent the cross-ref property of source class to be used.",
           "type": "string",
           "format": "uri",
-          "example": "weaviate://localhost/things/a5d09582-4239-4702-81c9-92a6e0122bb4/hasAnimals"
+          "example": "weaviate://localhost/things/Zoo/a5d09582-4239-4702-81c9-92a6e0122bb4/hasAnimals"
         },
         "to": {
-          "description": "URI to point to the cross-ref. Should be in the form of weaviate://localhost/things/\u003cuuid\u003e for the example of a local cross-ref to a thing",
+          "description": "Short-form URI to point to the cross-ref. Should be in the form of weaviate://localhost/things/\u003cuuid\u003e for the example of a local cross-ref to a thing",
           "type": "string",
           "format": "uri",
           "example": "weaviate://localhost/things/97525810-a9a5-4eb0-858a-71449aeb007f"
