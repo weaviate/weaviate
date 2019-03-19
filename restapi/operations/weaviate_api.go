@@ -57,7 +57,6 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		JSONConsumer:        runtime.JSONConsumer(),
 		YamlConsumer:        yamlpc.YAMLConsumer(),
 		JSONProducer:        runtime.JSONProducer(),
-		YamlProducer:        yamlpc.YAMLProducer(),
 		ActionsWeaviateActionHistoryGetHandler: actions.WeaviateActionHistoryGetHandlerFunc(func(params actions.WeaviateActionHistoryGetParams) middleware.Responder {
 			return middleware.NotImplemented("operation ActionsWeaviateActionHistoryGet has not yet been implemented")
 		}),
@@ -222,8 +221,6 @@ type WeaviateAPI struct {
 
 	// JSONProducer registers a producer for a "application/json" mime type
 	JSONProducer runtime.Producer
-	// YamlProducer registers a producer for a "application/yaml" mime type
-	YamlProducer runtime.Producer
 
 	// ActionsWeaviateActionHistoryGetHandler sets the operation handler for the weaviate action history get operation
 	ActionsWeaviateActionHistoryGetHandler actions.WeaviateActionHistoryGetHandler
@@ -378,10 +375,6 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.JSONProducer == nil {
 		unregistered = append(unregistered, "JSONProducer")
-	}
-
-	if o.YamlProducer == nil {
-		unregistered = append(unregistered, "YamlProducer")
 	}
 
 	if o.ActionsWeaviateActionHistoryGetHandler == nil {
@@ -618,9 +611,6 @@ func (o *WeaviateAPI) ProducersFor(mediaTypes []string) map[string]runtime.Produ
 
 		case "application/json":
 			result["application/json"] = o.JSONProducer
-
-		case "application/yaml":
-			result["application/yaml"] = o.YamlProducer
 
 		}
 
