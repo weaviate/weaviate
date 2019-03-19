@@ -35,32 +35,62 @@ type Client struct {
 }
 
 /*
-WeaviateC11yContext checks if a word or word string is part of the contextionary
+WeaviateC11yCorpusGet checks if a word or word string is part of the contextionary
 
-Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/creativesoftwarefdn/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase
+Analyzes a sentence based on the contextionary
 */
-func (a *Client) WeaviateC11yContext(params *WeaviateC11yContextParams) (*WeaviateC11yContextOK, error) {
+func (a *Client) WeaviateC11yCorpusGet(params *WeaviateC11yCorpusGetParams) error {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateC11yContextParams()
+		params = NewWeaviateC11yCorpusGetParams()
 	}
 
-	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.c11y.context",
-		Method:             "GET",
-		PathPattern:        "/c11y/context/{words}",
+	_, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "weaviate.c11y.corpus.get",
+		Method:             "POST",
+		PathPattern:        "/c11y/corpus",
 		ProducesMediaTypes: []string{"application/json", "application/yaml"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateC11yContextReader{formats: a.formats},
+		Reader:             &WeaviateC11yCorpusGetReader{formats: a.formats},
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return err
+	}
+	return nil
+
+}
+
+/*
+WeaviateC11yWords checks if a word or word string is part of the contextionary
+
+Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/creativesoftwarefdn/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase
+*/
+func (a *Client) WeaviateC11yWords(params *WeaviateC11yWordsParams) (*WeaviateC11yWordsOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewWeaviateC11yWordsParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "weaviate.c11y.words",
+		Method:             "GET",
+		PathPattern:        "/c11y/words/{words}",
+		ProducesMediaTypes: []string{"application/json", "application/yaml"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &WeaviateC11yWordsReader{formats: a.formats},
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateC11yContextOK), nil
+	return result.(*WeaviateC11yWordsOK), nil
 
 }
 

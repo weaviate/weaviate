@@ -21,42 +21,42 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
-// WeaviateC11yContextHandlerFunc turns a function with the right signature into a weaviate c11y context handler
-type WeaviateC11yContextHandlerFunc func(WeaviateC11yContextParams) middleware.Responder
+// WeaviateC11yWordsHandlerFunc turns a function with the right signature into a weaviate c11y words handler
+type WeaviateC11yWordsHandlerFunc func(WeaviateC11yWordsParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateC11yContextHandlerFunc) Handle(params WeaviateC11yContextParams) middleware.Responder {
+func (fn WeaviateC11yWordsHandlerFunc) Handle(params WeaviateC11yWordsParams) middleware.Responder {
 	return fn(params)
 }
 
-// WeaviateC11yContextHandler interface for that can handle valid weaviate c11y context params
-type WeaviateC11yContextHandler interface {
-	Handle(WeaviateC11yContextParams) middleware.Responder
+// WeaviateC11yWordsHandler interface for that can handle valid weaviate c11y words params
+type WeaviateC11yWordsHandler interface {
+	Handle(WeaviateC11yWordsParams) middleware.Responder
 }
 
-// NewWeaviateC11yContext creates a new http.Handler for the weaviate c11y context operation
-func NewWeaviateC11yContext(ctx *middleware.Context, handler WeaviateC11yContextHandler) *WeaviateC11yContext {
-	return &WeaviateC11yContext{Context: ctx, Handler: handler}
+// NewWeaviateC11yWords creates a new http.Handler for the weaviate c11y words operation
+func NewWeaviateC11yWords(ctx *middleware.Context, handler WeaviateC11yWordsHandler) *WeaviateC11yWords {
+	return &WeaviateC11yWords{Context: ctx, Handler: handler}
 }
 
-/*WeaviateC11yContext swagger:route GET /c11y/context/{words} contextionary-API weaviateC11yContext
+/*WeaviateC11yWords swagger:route GET /c11y/words/{words} contextionary-API weaviateC11yWords
 
 Checks if a word or wordString is part of the contextionary.
 
 Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/creativesoftwarefdn/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase
 
 */
-type WeaviateC11yContext struct {
+type WeaviateC11yWords struct {
 	Context *middleware.Context
-	Handler WeaviateC11yContextHandler
+	Handler WeaviateC11yWordsHandler
 }
 
-func (o *WeaviateC11yContext) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+func (o *WeaviateC11yWords) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
 		r = rCtx
 	}
-	var Params = NewWeaviateC11yContextParams()
+	var Params = NewWeaviateC11yWordsParams()
 
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)

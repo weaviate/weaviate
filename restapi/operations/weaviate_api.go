@@ -97,8 +97,11 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		WeaviateBatchingThingsCreateHandler: WeaviateBatchingThingsCreateHandlerFunc(func(params WeaviateBatchingThingsCreateParams) middleware.Responder {
 			return middleware.NotImplemented("operation WeaviateBatchingThingsCreate has not yet been implemented")
 		}),
-		ContextionaryAPIWeaviateC11yContextHandler: contextionary_api.WeaviateC11yContextHandlerFunc(func(params contextionary_api.WeaviateC11yContextParams) middleware.Responder {
-			return middleware.NotImplemented("operation ContextionaryAPIWeaviateC11yContext has not yet been implemented")
+		ContextionaryAPIWeaviateC11yCorpusGetHandler: contextionary_api.WeaviateC11yCorpusGetHandlerFunc(func(params contextionary_api.WeaviateC11yCorpusGetParams) middleware.Responder {
+			return middleware.NotImplemented("operation ContextionaryAPIWeaviateC11yCorpusGet has not yet been implemented")
+		}),
+		ContextionaryAPIWeaviateC11yWordsHandler: contextionary_api.WeaviateC11yWordsHandlerFunc(func(params contextionary_api.WeaviateC11yWordsParams) middleware.Responder {
+			return middleware.NotImplemented("operation ContextionaryAPIWeaviateC11yWords has not yet been implemented")
 		}),
 		GraphqlWeaviateGraphqlBatchHandler: graphql.WeaviateGraphqlBatchHandlerFunc(func(params graphql.WeaviateGraphqlBatchParams) middleware.Responder {
 			return middleware.NotImplemented("operation GraphqlWeaviateGraphqlBatch has not yet been implemented")
@@ -248,8 +251,10 @@ type WeaviateAPI struct {
 	WeaviateBatchingActionsCreateHandler WeaviateBatchingActionsCreateHandler
 	// WeaviateBatchingThingsCreateHandler sets the operation handler for the weaviate batching things create operation
 	WeaviateBatchingThingsCreateHandler WeaviateBatchingThingsCreateHandler
-	// ContextionaryAPIWeaviateC11yContextHandler sets the operation handler for the weaviate c11y context operation
-	ContextionaryAPIWeaviateC11yContextHandler contextionary_api.WeaviateC11yContextHandler
+	// ContextionaryAPIWeaviateC11yCorpusGetHandler sets the operation handler for the weaviate c11y corpus get operation
+	ContextionaryAPIWeaviateC11yCorpusGetHandler contextionary_api.WeaviateC11yCorpusGetHandler
+	// ContextionaryAPIWeaviateC11yWordsHandler sets the operation handler for the weaviate c11y words operation
+	ContextionaryAPIWeaviateC11yWordsHandler contextionary_api.WeaviateC11yWordsHandler
 	// GraphqlWeaviateGraphqlBatchHandler sets the operation handler for the weaviate graphql batch operation
 	GraphqlWeaviateGraphqlBatchHandler graphql.WeaviateGraphqlBatchHandler
 	// GraphqlWeaviateGraphqlPostHandler sets the operation handler for the weaviate graphql post operation
@@ -431,8 +436,12 @@ func (o *WeaviateAPI) Validate() error {
 		unregistered = append(unregistered, "WeaviateBatchingThingsCreateHandler")
 	}
 
-	if o.ContextionaryAPIWeaviateC11yContextHandler == nil {
-		unregistered = append(unregistered, "contextionary_api.WeaviateC11yContextHandler")
+	if o.ContextionaryAPIWeaviateC11yCorpusGetHandler == nil {
+		unregistered = append(unregistered, "contextionary_api.WeaviateC11yCorpusGetHandler")
+	}
+
+	if o.ContextionaryAPIWeaviateC11yWordsHandler == nil {
+		unregistered = append(unregistered, "contextionary_api.WeaviateC11yWordsHandler")
 	}
 
 	if o.GraphqlWeaviateGraphqlBatchHandler == nil {
@@ -720,10 +729,15 @@ func (o *WeaviateAPI) initHandlerCache() {
 	}
 	o.handlers["POST"]["/batching/things"] = NewWeaviateBatchingThingsCreate(o.context, o.WeaviateBatchingThingsCreateHandler)
 
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/c11y/corpus"] = contextionary_api.NewWeaviateC11yCorpusGet(o.context, o.ContextionaryAPIWeaviateC11yCorpusGetHandler)
+
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/c11y/context/{words}"] = contextionary_api.NewWeaviateC11yContext(o.context, o.ContextionaryAPIWeaviateC11yContextHandler)
+	o.handlers["GET"]["/c11y/words/{words}"] = contextionary_api.NewWeaviateC11yWords(o.context, o.ContextionaryAPIWeaviateC11yWordsHandler)
 
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)

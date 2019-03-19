@@ -11,8 +11,8 @@ If you want to create, manipulate or inspect individual nodes in Weaviate or if 
 ## Overview
 
 - [Working with the ontology schema](#ontology-schema)
-- [Working with things and actions](#)
-- [Meta and knowledge tools]()
+- [Working with things and actions](##things--actions)
+- [Meta and contextionary tools](#meta-and-contextionary-tools)
 
 ## Ontology Schema
 
@@ -20,7 +20,7 @@ Before you can add thing and action nodes to Weaviate you need to create an onto
 
 ### Dump the ontology schema
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/schema/weaviate.schema.dump" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/schema/weaviate.schema.dump" target="_blank">Definition on Swaggerhub</a>)
 
 The complete things and actions schema can be dumped as follows:
 
@@ -46,7 +46,7 @@ Example result:
 
 ### Define a _thing_ in the ontology schema
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/schema/weaviate.schema.things.create" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/schema/weaviate.schema.things.create" target="_blank">Definition on Swaggerhub</a>)
 
 You can learn more about what should be part of the POST body [here](ontology-schema.md).
 
@@ -80,7 +80,7 @@ $ curl -X POST http://localhost:8080/weaviate/v1/schema/things -H "Content-Type:
 
 ### Update a _thing_'s name and keywords
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/schema/weaviate.schema.things.update" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/schema/weaviate.schema.things.update" target="_blank">Definition on Swaggerhub</a>)
 
 Example request:
 
@@ -98,7 +98,7 @@ $ curl -X PUT http://localhost:8080/weaviate/v1/schema/things/Zoo -H "Content-Ty
 
 ### Update an _thing_ property name and keywords
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/schema/weaviate.schema.things.properties.update" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/schema/weaviate.schema.things.properties.update" target="_blank">Definition on Swaggerhub</a>)
 
 Example request:
 
@@ -116,7 +116,7 @@ $ curl -X PUT http://localhost:8080/weaviate/v1/schema/actions/Zoo/properties/na
 
 ### Delete a _thing_ from the ontology schema
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/schema/weaviate.schema.things.delete" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/schema/weaviate.schema.things.delete" target="_blank">Definition on Swaggerhub</a>)
 
 Example request:
 
@@ -126,7 +126,7 @@ $ curl -X DELETE http://localhost:8080/weaviate/v1/schema/things/Zoo
 
 ### Add a _thing_ property to the ontology schema
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/schema/weaviate.schema.things.properties.add" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/schema/weaviate.schema.things.properties.add" target="_blank">Definition on Swaggerhub</a>)
 
 You can learn more about what should be part of the POST body [here](ontology-schema.md#property-datatypes).
 
@@ -146,7 +146,7 @@ $ curl -X PUT http://localhost:8080/weaviate/v1/schema/things/Zoo/properties -H 
 
 ### Delete a _thing_'s property from the ontology schema
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/schema/weaviate.schema.things.properties.delete" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/schema/weaviate.schema.things.properties.delete" target="_blank">Definition on Swaggerhub</a>)
 
 Example request:
 
@@ -156,7 +156,7 @@ $ curl -X DELETE http://localhost:8080/weaviate/v1/schema/things/Zoo/properties/
 
 ### Define an _action_ in the ontology schema
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/schema/weaviate.schema.actions.create" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/schema/weaviate.schema.actions.create" target="_blank">Definition on Swaggerhub</a>)
 
 You can learn more about what should be part of the POST body [here](ontology-schema.md).
 
@@ -186,7 +186,7 @@ $ curl -X POST http://localhost:8080/weaviate/v1/schema/actions -H "Content-Type
 
 ### Update an _action_'s name and keywords
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/schema/weaviate.schema.actions.update" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/schema/weaviate.schema.actions.update" target="_blank">Definition on Swaggerhub</a>)
 
 Example request:
 
@@ -204,7 +204,7 @@ $ curl -X PUT http://localhost:8080/weaviate/v1/schema/actions/BuyAction -H "Con
 
 ### Update an _action_ property name and keywords
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/schema/weaviate.schema.actions.properties.update" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/schema/weaviate.schema.actions.properties.update" target="_blank">Definition on Swaggerhub</a>)
 
 Example request:
 
@@ -222,7 +222,7 @@ $ curl -X PUT http://localhost:8080/weaviate/v1/schema/actions/BuyAction/propert
 
 ### Delete an _action_ from the ontology schema
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/schema/weaviate.schema.actions.delete" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/schema/weaviate.schema.actions.delete" target="_blank">Definition on Swaggerhub</a>)
 
 Example request:
 
@@ -232,7 +232,7 @@ $ curl -X DELETE http://localhost:8080/weaviate/v1/schema/things/BuyAction
 
 ### Add an _action_ property to the ontology schema
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/schema/weaviate.schema.actions.properties.add" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/schema/weaviate.schema.actions.properties.add" target="_blank">Definition on Swaggerhub</a>)
 
 You can learn more about what should be part of the POST body [here](ontology-schema.md#property-datatypes).
 
@@ -252,7 +252,7 @@ $ curl -X PUT http://localhost:8080/weaviate/v1/schema/actions/BuyAction/propert
 
 ### Delete an _action_'s property from the ontology schema
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/schema/weaviate.schema.things.properties.delete" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/schema/weaviate.schema.things.properties.delete" target="_blank">Definition on Swaggerhub</a>)
 
 Example request:
 
@@ -266,7 +266,7 @@ The Weaviate graph contains two root-level concepts: things (noun-based) and act
 
 ### Get a list of _things_
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/things/weaviate.things.list" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/things/weaviate.things.list" target="_blank">Definition on Swaggerhub</a>)
 
 Example request:
 
@@ -276,7 +276,7 @@ $ curl http://localhost:8080/weaviate/v1/things
 
 ### Validate a _thing_
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/things/weaviate.things.validate" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/things/weaviate.things.validate" target="_blank">Definition on Swaggerhub</a>)
 
 Can be used to validate if a concept is properly structured.
 
@@ -297,7 +297,7 @@ $ curl http://localhost:8080/weaviate/v1/things/validate -H "Content-Type: appli
 
 ### Create a _thing_
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/things/weaviate.things.create" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/things/weaviate.things.create" target="_blank">Definition on Swaggerhub</a>)
 
 Returns the unique ID of the newly created concept.
 
@@ -318,7 +318,7 @@ $ curl http://localhost:8080/weaviate/v1/things -H "Content-Type: application/js
 
 ### Update a _thing_
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/things/weaviate.things.update" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/things/weaviate.things.update" target="_blank">Definition on Swaggerhub</a>)
 
 Example request:
 
@@ -337,7 +337,7 @@ $ curl http://localhost:8080/weaviate/v1/things/{uuid} -H "Content-Type: applica
 
 ### Update a _thing_ using PATCH semantics
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/things/weaviate.things.patch" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/things/weaviate.things.patch" target="_blank">Definition on Swaggerhub</a>)
 
 > Weaviate supports [RFC 6902](https://tools.ietf.org/html/rfc6902) patching ([learn](http://jsonpatch.com/)).
 
@@ -357,7 +357,7 @@ $ curl PATCH http://localhost:8080/weaviate/v1/actions/c354ba34-432e-4e51-97ef-f
 
 ### Delete a _thing_
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/things/weaviate.things.delete" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/things/weaviate.things.delete" target="_blank">Definition on Swaggerhub</a>)
 
 Example request:
 
@@ -367,7 +367,7 @@ $ curl -X DELETE http://localhost:8080/weaviate/v1/things/{uuid}
 
 ### Create a single _thing_ property
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/things/weaviate.things.properties.create" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/things/weaviate.things.properties.create" target="_blank">Definition on Swaggerhub</a>)
 
 Add a single reference to a class-property when cardinality is set to 'hasMany'. You can learn more about Weaviate `$cref` definitions [here](ontology-schema.md#crossref-data-type).
 
@@ -379,7 +379,7 @@ $ curl -X POST http://localhost:8080/weaviate/v1/things/{uuid}/properties/{prope
 
 ### Update a single _thing_ property
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/things/weaviate.things.properties.update" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/things/weaviate.things.properties.update" target="_blank">Definition on Swaggerhub</a>)
 
 Add an array of references to a class-property when cardinality is set to 'hasMany'. You can learn more about Weaviate `$cref` definitions [here](ontology-schema.md#crossref-data-type).
 
@@ -393,7 +393,7 @@ $ curl -X PUT http://localhost:8080/weaviate/v1/things/{uuid}/properties/{proper
 
 ### Delete a single _thing_ property
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/things/weaviate.things.properties.delete" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/things/weaviate.things.properties.delete" target="_blank">Definition on Swaggerhub</a>)
 
 ```bash
 $ curl -X DELETE http://localhost:8080/weaviate/v1/things/{uuid}/properties/{propertyName} -H "Content-Type: application/json" -d '{
@@ -403,7 +403,7 @@ $ curl -X DELETE http://localhost:8080/weaviate/v1/things/{uuid}/properties/{pro
 
 ### Get a list of _actions_
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/actions/weaviate.actions.list" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/actions/weaviate.actions.list" target="_blank">Definition on Swaggerhub</a>)
 
 Example request:
 
@@ -413,7 +413,7 @@ $ curl http://localhost:8080/weaviate/v1/actions
 
 ### Validate a _action_
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/actions/weaviate.actions.validate" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/actions/weaviate.actions.validate" target="_blank">Definition on Swaggerhub</a>)
 
 Can be used to validate if a concept is properly structured.
 
@@ -434,7 +434,7 @@ $ curl http://localhost:8080/weaviate/v1/actions/validate -H "Content-Type: appl
 
 ### Create a _action_
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/actions/weaviate.actions.create" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/actions/weaviate.actions.create" target="_blank">Definition on Swaggerhub</a>)
 
 Returns the unique ID of the newly created concept.
 
@@ -455,7 +455,7 @@ $ curl http://localhost:8080/weaviate/v1/actions -H "Content-Type: application/j
 
 ### Update a _action_
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/actions/weaviate.actions.update" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/actions/weaviate.actions.update" target="_blank">Definition on Swaggerhub</a>)
 
 Example request:
 
@@ -474,7 +474,7 @@ $ curl http://localhost:8080/weaviate/v1/actions/{uuid} -H "Content-Type: applic
 
 ### Update a _action_ using PATCH semantics
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/actions/weaviate.actions.patch" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/actions/weaviate.actions.patch" target="_blank">Definition on Swaggerhub</a>)
 
 > Weaviate supports [RFC 6902](https://tools.ietf.org/html/rfc6902) patching ([learn](http://jsonpatch.com/)).
 
@@ -494,7 +494,7 @@ $ curl PATCH http://localhost:8080/weaviate/v1/actions/c354ba34-432e-4e51-97ef-f
 
 ### Delete a _action_
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/actions/weaviate.actions.delete" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/actions/weaviate.actions.delete" target="_blank">Definition on Swaggerhub</a>)
 
 Example request:
 
@@ -504,7 +504,7 @@ $ curl -X DELETE http://localhost:8080/weaviate/v1/actions/{uuid}
 
 ### Create a single _action_ property
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/actions/weaviate.actions.properties.create" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/actions/weaviate.actions.properties.create" target="_blank">Definition on Swaggerhub</a>)
 
 Add a single reference to a class-property when cardinality is set to 'hasMany'. You can learn more about Weaviate `$cref` definitions [here](ontology-schema.md#crossref-data-type).
 
@@ -516,7 +516,7 @@ $ curl -X POST http://localhost:8080/weaviate/v1/actions/{uuid}/properties/{prop
 
 ### Update a single _action_ property
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/actions/weaviate.actions.properties.update" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/actions/weaviate.actions.properties.update" target="_blank">Definition on Swaggerhub</a>)
 
 Add an array of references to a class-property when cardinality is set to 'hasMany'. You can learn more about Weaviate `$cref` definitions [here](ontology-schema.md#crossref-data-type).
 
@@ -530,7 +530,7 @@ $ curl -X PUT http://localhost:8080/weaviate/v1/actions/{uuid}/properties/{prope
 
 ### Delete a single _action_ property
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/actions/weaviate.actions.properties.delete" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/actions/weaviate.actions.properties.delete" target="_blank">Definition on Swaggerhub</a>)
 
 ```bash
 $ curl -X DELETE http://localhost:8080/weaviate/v1/actions/{uuid}/properties/{propertyName} -H "Content-Type: application/json" -d '{
@@ -538,13 +538,27 @@ $ curl -X DELETE http://localhost:8080/weaviate/v1/actions/{uuid}/properties/{pr
 }'
 ```
 
-# Meta and Knowledge Tools
+# Meta and Contextionary Tools
 
 Tools to inspect the knowledge graph or to get meta information about the local Weaviate.
 
+### Contextionary Tools
+
+### Get Words from the Contextionary
+
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/meta/weaviate.c11y.words.get" target="_blank">Definition on Swaggerhub</a>)
+
+Gives information about a set of words. Words should be concatenated [CamelCase]().
+
+_Note: When only a single word is provided, one `individualWords` is returned.
+
+```bash
+$ curl http://localhost:8080/weaviate/v1/c11y/words/monkeyZooBanana -H "Content-Type: application/json"
+```
+
 ### Meta
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/meta/weaviate.meta.get" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/meta/weaviate.meta.get" target="_blank">Definition on Swaggerhub</a>)
 
 Gives meta information about the server and can be used to provide information to another Weaviate instance that wants to interact with the current instance.
 

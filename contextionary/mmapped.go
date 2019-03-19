@@ -13,6 +13,7 @@ package contextionary
 
 import (
 	"fmt"
+
 	annoy "github.com/creativesoftwarefdn/weaviate/contextionary/annoyindex"
 )
 
