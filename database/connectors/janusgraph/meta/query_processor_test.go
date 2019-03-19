@@ -14,6 +14,7 @@ package meta
 import (
 	"testing"
 
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,16 +28,8 @@ func Test_QueryProcessor(t *testing.T) {
 					Datum: map[string]interface{}{
 						"myBoolProp": map[string]interface{}{
 							"count": 8,
-						},
-					},
-				},
-				gremlin.Datum{
-					Datum: map[string]interface{}{
-						"myBoolProp": map[string]interface{}{
-							BoolGroupCount: map[string]interface{}{
-								"true":  2.0,
-								"false": 6.0,
-							},
+							"true":  2.0,
+							"false": 6.0,
 						},
 					},
 				},
@@ -53,7 +46,20 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		result, err := NewProcessor(executor).Process(gremlin.New(), nil)
+		params := &getmeta.Params{
+			Properties: []getmeta.MetaProperty{
+				getmeta.MetaProperty{
+					Name: "myBoolProp",
+					StatisticalAnalyses: []getmeta.StatisticalAnalysis{
+						getmeta.Count,
+						getmeta.PercentageTrue,
+						getmeta.PercentageFalse,
+						getmeta.TotalTrue,
+						getmeta.TotalFalse,
+					},
+				}},
+		}
+		result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), nil, params)
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -70,15 +76,7 @@ func Test_QueryProcessor(t *testing.T) {
 					Datum: map[string]interface{}{
 						"myBoolProp": map[string]interface{}{
 							"count": 8,
-						},
-					},
-				},
-				gremlin.Datum{
-					Datum: map[string]interface{}{
-						"myBoolProp": map[string]interface{}{
-							BoolGroupCount: map[string]interface{}{
-								"true": 8.0,
-							},
+							"true":  8.0,
 						},
 					},
 				},
@@ -95,7 +93,20 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		result, err := NewProcessor(executor).Process(gremlin.New(), nil)
+		params := &getmeta.Params{
+			Properties: []getmeta.MetaProperty{
+				getmeta.MetaProperty{
+					Name: "myBoolProp",
+					StatisticalAnalyses: []getmeta.StatisticalAnalysis{
+						getmeta.Count,
+						getmeta.PercentageTrue,
+						getmeta.PercentageFalse,
+						getmeta.TotalTrue,
+						getmeta.TotalFalse,
+					},
+				}},
+		}
+		result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), nil, params)
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -112,15 +123,7 @@ func Test_QueryProcessor(t *testing.T) {
 					Datum: map[string]interface{}{
 						"myBoolProp": map[string]interface{}{
 							"count": 8,
-						},
-					},
-				},
-				gremlin.Datum{
-					Datum: map[string]interface{}{
-						"myBoolProp": map[string]interface{}{
-							BoolGroupCount: map[string]interface{}{
-								"false": 8.0,
-							},
+							"false": 8.0,
 						},
 					},
 				},
@@ -137,7 +140,20 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		result, err := NewProcessor(executor).Process(gremlin.New(), nil)
+		params := &getmeta.Params{
+			Properties: []getmeta.MetaProperty{
+				getmeta.MetaProperty{
+					Name: "myBoolProp",
+					StatisticalAnalyses: []getmeta.StatisticalAnalysis{
+						getmeta.Count,
+						getmeta.PercentageTrue,
+						getmeta.PercentageFalse,
+						getmeta.TotalTrue,
+						getmeta.TotalFalse,
+					},
+				}},
+		}
+		result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), nil, params)
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -162,7 +178,7 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		result, err := NewProcessor(executor).Process(gremlin.New(), nil)
+		result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), nil, &getmeta.Params{})
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -196,7 +212,7 @@ func Test_QueryProcessor(t *testing.T) {
 				},
 			}
 
-			result, err := NewProcessor(executor).Process(gremlin.New(), typeInput)
+			result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), typeInput, &getmeta.Params{})
 
 			require.Nil(t, err, "should not error")
 			assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -228,7 +244,7 @@ func Test_QueryProcessor(t *testing.T) {
 				},
 			}
 
-			result, err := NewProcessor(executor).Process(gremlin.New(), typeInput)
+			result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), typeInput, &getmeta.Params{})
 
 			require.Nil(t, err, "should not error")
 			assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -251,8 +267,7 @@ func Test_QueryProcessor(t *testing.T) {
 				},
 			}
 
-			result, err := NewProcessor(executor).Process(gremlin.New(), typeInput)
-
+			result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), typeInput, &getmeta.Params{})
 			require.Nil(t, err, "should not error")
 			assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
 		})
@@ -293,7 +308,51 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		result, err := NewProcessor(executor).Process(gremlin.New(), nil)
+		result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), nil, &getmeta.Params{})
+
+		require.Nil(t, err, "should not error")
+		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
+	})
+
+	t.Run("when string top occurrences are requested including count", func(t *testing.T) {
+		janusResponse := &gremlin.Response{
+			Data: []gremlin.Datum{
+				gremlin.Datum{
+					Datum: map[string]interface{}{
+						"myStringProp": map[string]interface{}{
+							"count": 11,
+							"topOccurrences": map[string]interface{}{
+								"rare string":          1.0,
+								"common string":        7.0,
+								"not so common string": 3.0,
+							},
+						},
+					},
+				},
+			},
+		}
+		executor := &fakeExecutor{result: janusResponse}
+		expectedResult := map[string]interface{}{
+			"myStringProp": map[string]interface{}{
+				"count": 11,
+				"topOccurrences": []interface{}{
+					map[string]interface{}{
+						"value":  "common string",
+						"occurs": 7.0,
+					},
+					map[string]interface{}{
+						"value":  "not so common string",
+						"occurs": 3.0,
+					},
+					map[string]interface{}{
+						"value":  "rare string",
+						"occurs": 1.0,
+					},
+				},
+			},
+		}
+
+		result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), nil, &getmeta.Params{})
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")

@@ -29,12 +29,13 @@ func Test_QueryBuilder_StringProps(t *testing.T) {
 			},
 			expectedQuery: `
 				.union(
-					union(
 						groupCount().by("name")
-							.order(local).by(values, decr).limit(local, 3)
-							.as("topOccurrences").project("topOccurrences").by(select("topOccurrences"))
-						)
-          .as("name").project("name").by(select("name"))
+							.order(local).by(values, decr).limit(local, 3).project("topOccurrences").project("name")
+				)
+				.group().by(select(keys).unfold()).by(
+					select(values).unfold().group()
+					.by( select(keys).unfold())
+					.by( select(values).unfold())
 				)
 			`,
 		},
@@ -49,12 +50,13 @@ func Test_QueryBuilder_StringProps(t *testing.T) {
 			},
 			expectedQuery: `
 				.union(
-					union(
 						groupCount().by("name")
-							.order(local).by(values, decr).limit(local, 3)
-							.as("topOccurrences").project("topOccurrences").by(select("topOccurrences"))
-						)
-          .as("name").project("name").by(select("name"))
+							.order(local).by(values, decr).limit(local, 3).project("topOccurrences").project("name")
+				)
+				.group().by(select(keys).unfold()).by(
+					select(values).unfold().group()
+					.by( select(keys).unfold())
+					.by( select(values).unfold())
 				)
 			`,
 		},
@@ -69,15 +71,15 @@ func Test_QueryBuilder_StringProps(t *testing.T) {
 			},
 			expectedQuery: `
 				.union(
-					union(
-						has("name").count()
-							.as("count").project("count").by(select("count")),
+				    has("name").count().project("count").project("name"),
 						groupCount().by("name")
-							.order(local).by(values, decr).limit(local, 3)
-							.as("topOccurrences").project("topOccurrences").by(select("topOccurrences"))
-						)
-				.as("name").project("name").by(select("name"))
-					)
+							.order(local).by(values, decr).limit(local, 3).project("topOccurrences").project("name")
+				)
+				.group().by(select(keys).unfold()).by(
+					select(values).unfold().group()
+					.by( select(keys).unfold())
+					.by( select(values).unfold())
+				)
 			`,
 		},
 	}

@@ -37,10 +37,9 @@ func Test_QueryBuilder_ReferenceProps(t *testing.T) {
 				.group().by("isCapital").by(
 					fold()
 						.match(
-							__.as("a").unfold().out("inCountry").count().as("inCountry__count")
+							__.as("a").unfold().out("inCountry").count().project("inCountry__count").as("inCountry__count")
 						)
-						.select("inCountry__count").by(project("inCountry__count")).as("inCountry")
-						.select("inCountry").by(project("inCountry"))
+						.select("inCountry__count").as("inCountry").project("inCountry")
 					)
 				`,
 		},

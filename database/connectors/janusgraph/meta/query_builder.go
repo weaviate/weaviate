@@ -77,7 +77,12 @@ func (b *Query) String() (string, error) {
 	}
 
 	q = q.Raw(filterQuery)
-	q = q.Union(propQueries...)
+	q = q.Union(propQueries...).
+		Group().ByQuery(gremlin.New().SelectKeys().Unfold()).ByQuery(
+		gremlin.New().SelectValues().Unfold().Group().
+			ByQuery(gremlin.New().SelectKeys().Unfold()).
+			ByQuery(gremlin.New().SelectValues().Unfold()),
+	)
 	return idempotentLeadWithDot(q), nil
 }
 

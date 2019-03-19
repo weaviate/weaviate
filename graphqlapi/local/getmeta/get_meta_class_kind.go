@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	commonGetMeta "github.com/creativesoftwarefdn/weaviate/graphqlapi/common/getmeta"
@@ -27,7 +28,8 @@ import (
 )
 
 // Build the dynamically generated GetMeta Things part of the schema
-func classFields(databaseSchema []*models.SemanticSchemaClass, k kind.Kind) (*graphql.Object, error) {
+func classFields(databaseSchema []*models.SemanticSchemaClass, k kind.Kind,
+	config config.Environment) (*graphql.Object, error) {
 	fields := graphql.Fields{}
 	var (
 		description string
@@ -43,7 +45,7 @@ func classFields(databaseSchema []*models.SemanticSchemaClass, k kind.Kind) (*gr
 	}
 
 	for _, class := range databaseSchema {
-		field, err := classField(k, class, class.Description)
+		field, err := classField(k, class, class.Description, config)
 
 		if err != nil {
 			return nil, err
@@ -59,7 +61,8 @@ func classFields(databaseSchema []*models.SemanticSchemaClass, k kind.Kind) (*gr
 	}), nil
 }
 
-func classField(k kind.Kind, class *models.SemanticSchemaClass, description string) (*graphql.Field, error) {
+func classField(k kind.Kind, class *models.SemanticSchemaClass, description string,
+	config config.Environment) (*graphql.Field, error) {
 	metaClassName := fmt.Sprintf("Meta%s", class.Class)
 
 	fields := graphql.ObjectConfig{
@@ -103,7 +106,26 @@ func classField(k kind.Kind, class *models.SemanticSchemaClass, description stri
 		Resolve: makeResolveClass(k),
 	}
 
+	fieldsField = extendArgsWithAnalyticsConfig(fieldsField, config)
 	return fieldsField, nil
+}
+
+func extendArgsWithAnalyticsConfig(field *graphql.Field, config config.Environment) *graphql.Field {
+	if !config.AnalyticsEngine.Enabled {
+		return field
+	}
+
+	field.Args["useAnalyticsEngine"] = &graphql.ArgumentConfig{
+		DefaultValue: config.AnalyticsEngine.DefaultUseAnalyticsEngine,
+		Type:         graphql.Boolean,
+	}
+
+	field.Args["forceRecalculate"] = &graphql.ArgumentConfig{
+		DefaultValue: false,
+		Type:         graphql.Boolean,
+	}
+
+	return field
 }
 
 func classPropertyFields(class *models.SemanticSchemaClass) (graphql.Fields, error) {
