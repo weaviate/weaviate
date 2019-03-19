@@ -546,7 +546,7 @@ Tools to inspect the knowledge graph or to get meta information about the local 
 
 ### Get Words from the Contextionary
 
-(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/meta/weaviate.c11y.words.get" target="_blank">Definition on Swaggerhub</a>)
+(<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/contextionary-API/weaviate.c11y.words" target="_blank">Definition on Swaggerhub</a>)
 
 Gives information about a set of words like nearest neighbors, relations to other words and vector spaces. Words should be concatenated [CamelCase](ontology-schema.md#camelcase).
 
