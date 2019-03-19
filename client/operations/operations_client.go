@@ -71,6 +71,36 @@ func (a *Client) WeaviateBatchingActionsCreate(params *WeaviateBatchingActionsCr
 }
 
 /*
+WeaviateBatchingReferencesCreate creates new cross references between arbitrary classes in bulk
+
+Register cross-references between any class items (things or actions) in bulk.
+*/
+func (a *Client) WeaviateBatchingReferencesCreate(params *WeaviateBatchingReferencesCreateParams) (*WeaviateBatchingReferencesCreateOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewWeaviateBatchingReferencesCreateParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "weaviate.batching.references.create",
+		Method:             "POST",
+		PathPattern:        "/batching/references",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &WeaviateBatchingReferencesCreateReader{formats: a.formats},
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*WeaviateBatchingReferencesCreateOK), nil
+
+}
+
+/*
 WeaviateBatchingThingsCreate creates new things based on a thing template as a batch
 
 Register new Things in bulk. Provided meta-data and schema values are validated.

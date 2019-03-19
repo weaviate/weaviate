@@ -91,6 +91,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		WeaviateBatchingActionsCreateHandler: WeaviateBatchingActionsCreateHandlerFunc(func(params WeaviateBatchingActionsCreateParams) middleware.Responder {
 			return middleware.NotImplemented("operation WeaviateBatchingActionsCreate has not yet been implemented")
 		}),
+		WeaviateBatchingReferencesCreateHandler: WeaviateBatchingReferencesCreateHandlerFunc(func(params WeaviateBatchingReferencesCreateParams) middleware.Responder {
+			return middleware.NotImplemented("operation WeaviateBatchingReferencesCreate has not yet been implemented")
+		}),
 		WeaviateBatchingThingsCreateHandler: WeaviateBatchingThingsCreateHandlerFunc(func(params WeaviateBatchingThingsCreateParams) middleware.Responder {
 			return middleware.NotImplemented("operation WeaviateBatchingThingsCreate has not yet been implemented")
 		}),
@@ -239,6 +242,8 @@ type WeaviateAPI struct {
 	ActionsWeaviateActionsValidateHandler actions.WeaviateActionsValidateHandler
 	// WeaviateBatchingActionsCreateHandler sets the operation handler for the weaviate batching actions create operation
 	WeaviateBatchingActionsCreateHandler WeaviateBatchingActionsCreateHandler
+	// WeaviateBatchingReferencesCreateHandler sets the operation handler for the weaviate batching references create operation
+	WeaviateBatchingReferencesCreateHandler WeaviateBatchingReferencesCreateHandler
 	// WeaviateBatchingThingsCreateHandler sets the operation handler for the weaviate batching things create operation
 	WeaviateBatchingThingsCreateHandler WeaviateBatchingThingsCreateHandler
 	// GraphqlWeaviateGraphqlBatchHandler sets the operation handler for the weaviate graphql batch operation
@@ -410,6 +415,10 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.WeaviateBatchingActionsCreateHandler == nil {
 		unregistered = append(unregistered, "WeaviateBatchingActionsCreateHandler")
+	}
+
+	if o.WeaviateBatchingReferencesCreateHandler == nil {
+		unregistered = append(unregistered, "WeaviateBatchingReferencesCreateHandler")
 	}
 
 	if o.WeaviateBatchingThingsCreateHandler == nil {
@@ -693,6 +702,11 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/batching/actions"] = NewWeaviateBatchingActionsCreate(o.context, o.WeaviateBatchingActionsCreateHandler)
+
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/batching/references"] = NewWeaviateBatchingReferencesCreate(o.context, o.WeaviateBatchingReferencesCreateHandler)
 
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
