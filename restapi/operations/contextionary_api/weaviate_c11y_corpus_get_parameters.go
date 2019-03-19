@@ -16,68 +16,70 @@ package contextionary_api
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"io"
 	"net/http"
 
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
-
-	strfmt "github.com/go-openapi/strfmt"
 )
 
-// NewWeaviateC11yContextParams creates a new WeaviateC11yContextParams object
+// NewWeaviateC11yCorpusGetParams creates a new WeaviateC11yCorpusGetParams object
 // no default values defined in spec.
-func NewWeaviateC11yContextParams() WeaviateC11yContextParams {
+func NewWeaviateC11yCorpusGetParams() WeaviateC11yCorpusGetParams {
 
-	return WeaviateC11yContextParams{}
+	return WeaviateC11yCorpusGetParams{}
 }
 
-// WeaviateC11yContextParams contains all the bound params for the weaviate c11y context operation
+// WeaviateC11yCorpusGetParams contains all the bound params for the weaviate c11y corpus get operation
 // typically these are obtained from a http.Request
 //
-// swagger:parameters weaviate.c11y.context
-type WeaviateC11yContextParams struct {
+// swagger:parameters weaviate.c11y.corpus.get
+type WeaviateC11yCorpusGetParams struct {
 
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*CamelCase list of words to validate.
+	/*A text corpus
 	  Required: true
-	  In: path
+	  In: body
 	*/
-	Words string
+	Corpus WeaviateC11yCorpusGetBody
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
 // for simple values it will use straight method calls.
 //
-// To ensure default values, the struct must have been initialized with NewWeaviateC11yContextParams() beforehand.
-func (o *WeaviateC11yContextParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
+// To ensure default values, the struct must have been initialized with NewWeaviateC11yCorpusGetParams() beforehand.
+func (o *WeaviateC11yCorpusGetParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
 	var res []error
 
 	o.HTTPRequest = r
 
-	rWords, rhkWords, _ := route.Params.GetOK("words")
-	if err := o.bindWords(rWords, rhkWords, route.Formats); err != nil {
-		res = append(res, err)
-	}
+	if runtime.HasBody(r) {
+		defer r.Body.Close()
+		var body WeaviateC11yCorpusGetBody
+		if err := route.Consumer.Consume(r.Body, &body); err != nil {
+			if err == io.EOF {
+				res = append(res, errors.Required("corpus", "body"))
+			} else {
+				res = append(res, errors.NewParseError("corpus", "body", "", err))
+			}
+		} else {
+			// validate body object
+			if err := body.Validate(route.Formats); err != nil {
+				res = append(res, err)
+			}
 
+			if len(res) == 0 {
+				o.Corpus = body
+			}
+		}
+	} else {
+		res = append(res, errors.Required("corpus", "body"))
+	}
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
-	return nil
-}
-
-// bindWords binds and validates parameter Words from path.
-func (o *WeaviateC11yContextParams) bindWords(rawData []string, hasKey bool, formats strfmt.Registry) error {
-	var raw string
-	if len(rawData) > 0 {
-		raw = rawData[len(rawData)-1]
-	}
-
-	// Required: true
-	// Parameter is provided by construction from the route
-
-	o.Words = raw
-
 	return nil
 }

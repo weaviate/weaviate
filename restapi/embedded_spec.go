@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/creativesoftwarefdn",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.12.68"
+    "version": "0.12.70"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -860,14 +860,52 @@ func init() {
         ]
       }
     },
-    "/c11y/context/{words}": {
+    "/c11y/corpus": {
+      "post": {
+        "description": "Analyzes a sentence based on the contextionary",
+        "tags": [
+          "contextionary-API"
+        ],
+        "summary": "Checks if a word or wordString is part of the contextionary.",
+        "operationId": "weaviate.c11y.corpus.get",
+        "parameters": [
+          {
+            "description": "A text corpus",
+            "name": "corpus",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "description": "The text corpus.",
+              "type": "object",
+              "properties": {
+                "corpus": {
+                  "type": "string",
+                  "example": "In certain latitudes there comes a span of time approaching and following the summer solstice, some weeks in all, when the twilights turn long and blue."
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.c11y.corpus.get"
+        ]
+      }
+    },
+    "/c11y/words/{words}": {
       "get": {
         "description": "Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/creativesoftwarefdn/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase",
         "tags": [
           "contextionary-API"
         ],
         "summary": "Checks if a word or wordString is part of the contextionary.",
-        "operationId": "weaviate.c11y.context",
+        "operationId": "weaviate.c11y.words",
         "parameters": [
           {
             "type": "string",
@@ -881,7 +919,7 @@ func init() {
           "200": {
             "description": "Successful response.",
             "schema": {
-              "$ref": "#/definitions/C11yContextResponse"
+              "$ref": "#/definitions/C11yWordsResponse"
             }
           },
           "400": {
@@ -909,7 +947,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.c11y.context.get"
+          "weaviate.c11y.words.get"
         ]
       }
     },
@@ -2556,36 +2594,6 @@ func init() {
         }
       }
     },
-    "C11yContextResponse": {
-      "description": "An array of available words and contexts.",
-      "properties": {
-        "results": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "inC11y": {
-                "type": "boolean"
-              },
-              "info": {
-                "type": "object",
-                "properties": {
-                  "nearestNeighbors": {
-                    "$ref": "#/definitions/C11yNearestNeighbors"
-                  },
-                  "vector": {
-                    "$ref": "#/definitions/C11yVector"
-                  }
-                }
-              },
-              "word": {
-                "type": "string"
-              }
-            }
-          }
-        }
-      }
-    },
     "C11yNearestNeighbors": {
       "description": "C11y function to show the nearest neighbors to a word.",
       "type": "array",
@@ -2648,6 +2656,58 @@ func init() {
             "items": {
               "type": "number",
               "format": "float"
+            }
+          }
+        }
+      }
+    },
+    "C11yWordsResponse": {
+      "description": "An array of available words and contexts.",
+      "properties": {
+        "concatenatedWord": {
+          "description": "Weighted results for all words",
+          "type": "object",
+          "properties": {
+            "concatenatedNearestNeighbors": {
+              "$ref": "#/definitions/C11yNearestNeighbors"
+            },
+            "concatenatedVector": {
+              "$ref": "#/definitions/C11yVector"
+            },
+            "concatenatedWord": {
+              "type": "string"
+            },
+            "singleWords": {
+              "type": "array",
+              "items": {
+                "format": "string"
+              }
+            }
+          }
+        },
+        "individualWords": {
+          "description": "Weighted results for per individual word",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "inC11y": {
+                "type": "boolean"
+              },
+              "info": {
+                "type": "object",
+                "properties": {
+                  "nearestNeighbors": {
+                    "$ref": "#/definitions/C11yNearestNeighbors"
+                  },
+                  "vector": {
+                    "$ref": "#/definitions/C11yVector"
+                  }
+                }
+              },
+              "word": {
+                "type": "string"
+              }
             }
           }
         }
@@ -3189,6 +3249,7 @@ func init() {
       "name": "things"
     },
     {
+      "description": "All functions related to the Contextionary.",
       "name": "contextionary-API"
     },
     {
@@ -3221,7 +3282,7 @@ func init() {
       "url": "https://github.com/creativesoftwarefdn",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.12.68"
+    "version": "0.12.70"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -4041,14 +4102,52 @@ func init() {
         ]
       }
     },
-    "/c11y/context/{words}": {
+    "/c11y/corpus": {
+      "post": {
+        "description": "Analyzes a sentence based on the contextionary",
+        "tags": [
+          "contextionary-API"
+        ],
+        "summary": "Checks if a word or wordString is part of the contextionary.",
+        "operationId": "weaviate.c11y.corpus.get",
+        "parameters": [
+          {
+            "description": "A text corpus",
+            "name": "corpus",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "description": "The text corpus.",
+              "type": "object",
+              "properties": {
+                "corpus": {
+                  "type": "string",
+                  "example": "In certain latitudes there comes a span of time approaching and following the summer solstice, some weeks in all, when the twilights turn long and blue."
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.c11y.corpus.get"
+        ]
+      }
+    },
+    "/c11y/words/{words}": {
       "get": {
         "description": "Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/creativesoftwarefdn/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase",
         "tags": [
           "contextionary-API"
         ],
         "summary": "Checks if a word or wordString is part of the contextionary.",
-        "operationId": "weaviate.c11y.context",
+        "operationId": "weaviate.c11y.words",
         "parameters": [
           {
             "type": "string",
@@ -4062,7 +4161,7 @@ func init() {
           "200": {
             "description": "Successful response.",
             "schema": {
-              "$ref": "#/definitions/C11yContextResponse"
+              "$ref": "#/definitions/C11yWordsResponse"
             }
           },
           "400": {
@@ -4090,7 +4189,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.c11y.context.get"
+          "weaviate.c11y.words.get"
         ]
       }
     },
@@ -5745,36 +5844,6 @@ func init() {
         }
       }
     },
-    "C11yContextResponse": {
-      "description": "An array of available words and contexts.",
-      "properties": {
-        "results": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "inC11y": {
-                "type": "boolean"
-              },
-              "info": {
-                "type": "object",
-                "properties": {
-                  "nearestNeighbors": {
-                    "$ref": "#/definitions/C11yNearestNeighbors"
-                  },
-                  "vector": {
-                    "$ref": "#/definitions/C11yVector"
-                  }
-                }
-              },
-              "word": {
-                "type": "string"
-              }
-            }
-          }
-        }
-      }
-    },
     "C11yNearestNeighbors": {
       "description": "C11y function to show the nearest neighbors to a word.",
       "type": "array",
@@ -5837,6 +5906,58 @@ func init() {
             "items": {
               "type": "number",
               "format": "float"
+            }
+          }
+        }
+      }
+    },
+    "C11yWordsResponse": {
+      "description": "An array of available words and contexts.",
+      "properties": {
+        "concatenatedWord": {
+          "description": "Weighted results for all words",
+          "type": "object",
+          "properties": {
+            "concatenatedNearestNeighbors": {
+              "$ref": "#/definitions/C11yNearestNeighbors"
+            },
+            "concatenatedVector": {
+              "$ref": "#/definitions/C11yVector"
+            },
+            "concatenatedWord": {
+              "type": "string"
+            },
+            "singleWords": {
+              "type": "array",
+              "items": {
+                "format": "string"
+              }
+            }
+          }
+        },
+        "individualWords": {
+          "description": "Weighted results for per individual word",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "inC11y": {
+                "type": "boolean"
+              },
+              "info": {
+                "type": "object",
+                "properties": {
+                  "nearestNeighbors": {
+                    "$ref": "#/definitions/C11yNearestNeighbors"
+                  },
+                  "vector": {
+                    "$ref": "#/definitions/C11yVector"
+                  }
+                }
+              },
+              "word": {
+                "type": "string"
+              }
             }
           }
         }
@@ -6378,6 +6499,7 @@ func init() {
       "name": "things"
     },
     {
+      "description": "All functions related to the Contextionary.",
       "name": "contextionary-API"
     },
     {

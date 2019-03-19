@@ -181,10 +181,32 @@
       },
       "type": "object"
     },
-    "C11yContextResponse": {
+    "C11yWordsResponse": {
       "description": "An array of available words and contexts.",
       "properties": {
-        "results": {
+        "concatenatedWord": {
+          "description": "Weighted results for all words",
+          "type": "object",
+          "properties": {
+            "concatenatedWord": {
+              "type": "string"
+            },
+            "singleWords": {
+              "type": "array",
+              "items": {
+                "format": "string"
+              }
+            },
+            "concatenatedVector": {
+              "$ref": "#/definitions/C11yVector"
+            },
+            "concatenatedNearestNeighbors": {
+              "$ref": "#/definitions/C11yNearestNeighbors"
+            }
+          }
+        },
+        "individualWords": {
+          "description": "Weighted results for per individual word",
           "type": "array",
           "items": {
             "type": "object",
@@ -788,7 +810,7 @@
     },
     "description": "Decentralised Knowledge Graph",
     "title": "Weaviate - Decentralised Knowledge Graph",
-    "version": "0.12.68"
+    "version": "0.12.70"
   },
   "parameters": {
     "CommonMaxResultsParameterQuery": {
@@ -3082,27 +3104,27 @@
         "x-available-in-websocket": false
       }
     },
-    "/c11y/context/{words}": {
+    "/c11y/words/{words}": {
       "get": {
         "description": "Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/creativesoftwarefdn/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase",
-        "operationId": "weaviate.c11y.context",
+        "operationId": "weaviate.c11y.words",
         "x-serviceIds": [
-          "weaviate.c11y.context.get"
+          "weaviate.c11y.words.get"
         ],
         "parameters": [
           {
             "description": "CamelCase list of words to validate.",
             "in": "path",
+            "type": "string",
             "name": "words",
-            "required": true,
-            "type": "string"
+            "required": true
           }
         ],
         "responses": {
           "200": {
             "description": "Successful response.",
             "schema": {
-              "$ref": "#/definitions/C11yContextResponse"
+              "$ref": "#/definitions/C11yWordsResponse"
             }
           },
           "400": {
@@ -3123,6 +3145,44 @@
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "summary": "Checks if a word or wordString is part of the contextionary.",
+        "tags": [
+          "contextionary-API"
+        ],
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
+    "/c11y/corpus": {
+      "post": {
+        "description": "Analyzes a sentence based on the contextionary",
+        "operationId": "weaviate.c11y.corpus.get",
+        "x-serviceIds": [
+          "weaviate.c11y.corpus.get"
+        ],
+        "parameters": [
+          {
+            "description": "A text corpus",
+            "in": "body",
+            "name": "corpus",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "description": "The text corpus.",
+              "properties": {
+                "corpus": {
+                  "type": "string",
+                  "example": "In certain latitudes there comes a span of time approaching and following the summer solstice, some weeks in all, when the twilights turn long and blue."
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
           "501": {
             "description": "Not (yet) implemented."
           }
@@ -3167,7 +3227,8 @@
       "name": "things"
     },
     {
-      "name": "contextionary-API"
+      "name": "contextionary-API",
+      "description": "All functions related to the Contextionary."
     },
     {
       "name": "schema",
