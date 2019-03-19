@@ -1,8 +1,8 @@
 {
   "basePath": "/weaviate/v1",
   "consumes": [
-    "application/json",
-    "application/yaml"
+    "application/yaml",
+    "application/json"
   ],
   "definitions": {
     "Action": {
@@ -3197,8 +3197,8 @@
     }
   },
   "produces": [
-    "application/json",
-    "application/yaml"
+    "application/yaml",
+    "application/json"
   ],
   "schemes": [
     "https"
