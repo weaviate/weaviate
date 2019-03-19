@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
@@ -24,7 +25,7 @@ import (
 )
 
 // Build the Aggreate Kinds schema
-func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
+func Build(dbSchema *schema.Schema, config config.Environment) (*graphql.Field, error) {
 	getKinds := graphql.Fields{}
 
 	if len(dbSchema.Actions.Classes) == 0 && len(dbSchema.Things.Classes) == 0 {
@@ -32,7 +33,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 	}
 
 	if len(dbSchema.Actions.Classes) > 0 {
-		localAggregateActions, err := classFields(dbSchema.Actions.Classes, kind.ACTION_KIND)
+		localAggregateActions, err := classFields(dbSchema.Actions.Classes, kind.ACTION_KIND, config)
 		if err != nil {
 			return nil, err
 		}
@@ -46,7 +47,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 	}
 
 	if len(dbSchema.Things.Classes) > 0 {
-		localAggregateThings, err := classFields(dbSchema.Things.Classes, kind.THING_KIND)
+		localAggregateThings, err := classFields(dbSchema.Things.Classes, kind.THING_KIND, config)
 		if err != nil {
 			return nil, err
 		}
@@ -73,11 +74,12 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 	return &field, nil
 }
 
-func classFields(databaseSchema []*models.SemanticSchemaClass, k kind.Kind) (*graphql.Object, error) {
+func classFields(databaseSchema []*models.SemanticSchemaClass, k kind.Kind,
+	config config.Environment) (*graphql.Object, error) {
 	fields := graphql.Fields{}
 
 	for _, class := range databaseSchema {
-		field, err := classField(k, class, class.Description)
+		field, err := classField(k, class, class.Description, config)
 		if err != nil {
 			return nil, err
 		}
@@ -92,7 +94,8 @@ func classFields(databaseSchema []*models.SemanticSchemaClass, k kind.Kind) (*gr
 	}), nil
 }
 
-func classField(k kind.Kind, class *models.SemanticSchemaClass, description string) (*graphql.Field, error) {
+func classField(k kind.Kind, class *models.SemanticSchemaClass, description string,
+	config config.Environment) (*graphql.Field, error) {
 
 	if len(class.Properties) == 0 {
 		// if we don't have class properties, we can't build this particular class,
@@ -150,7 +153,26 @@ func classField(k kind.Kind, class *models.SemanticSchemaClass, description stri
 		Resolve: makeResolveClass(k),
 	}
 
+	fieldsField = extendArgsWithAnalyticsConfig(fieldsField, config)
 	return fieldsField, nil
+}
+
+func extendArgsWithAnalyticsConfig(field *graphql.Field, config config.Environment) *graphql.Field {
+	if !config.AnalyticsEngine.Enabled {
+		return field
+	}
+
+	field.Args["useAnalyticsEngine"] = &graphql.ArgumentConfig{
+		DefaultValue: config.AnalyticsEngine.DefaultUseAnalyticsEngine,
+		Type:         graphql.Boolean,
+	}
+
+	field.Args["forceRecalculate"] = &graphql.ArgumentConfig{
+		DefaultValue: false,
+		Type:         graphql.Boolean,
+	}
+
+	return field
 }
 
 func classPropertyFields(class *models.SemanticSchemaClass) (graphql.Fields, error) {

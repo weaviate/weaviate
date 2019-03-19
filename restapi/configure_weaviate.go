@@ -675,7 +675,7 @@ func configureServer(s *http.Server, scheme, addr string) {
 	messaging.InfoMessage(fmt.Sprintf("connected to broker, time left is: %s", timeTillDeadline(ctx)))
 
 	// Create the database connector usint the config
-	err, dbConnector := dblisting.NewConnector(serverConfig.Environment.Database.Name, serverConfig.Environment.Database.DatabaseConfig)
+	err, dbConnector := dblisting.NewConnector(serverConfig.Environment.Database.Name, serverConfig.Environment.Database.DatabaseConfig, serverConfig.Environment)
 	// Could not find, or configure connector.
 	if err != nil {
 		messaging.ExitError(78, err.Error())
@@ -684,8 +684,9 @@ func configureServer(s *http.Server, scheme, addr string) {
 	messaging.InfoMessage(fmt.Sprintf("created db connector, time left is: %s", timeTillDeadline(ctx)))
 
 	// parse config store URL
-	configStore, err := url.Parse(serverConfig.Environment.ConfigStore.URL)
-	if err != nil {
+	configURL := serverConfig.Environment.ConfigurationStorage.URL
+	configStore, err := url.Parse(configURL)
+	if err != nil || configURL == "" {
 		messaging.ExitError(78, fmt.Sprintf("cannot parse config store URL: %s", err))
 	}
 
@@ -775,7 +776,7 @@ func rebuildGraphQL(updatedSchema schema.Schema) {
 
 	c11y := schemaContextionary.New(contextionary)
 	root := graphQLRoot{Database: db, Network: network, contextionary: c11y}
-	updatedGraphQL, err := graphqlapi.Build(&updatedSchema, peers, root, messaging)
+	updatedGraphQL, err := graphqlapi.Build(&updatedSchema, peers, root, messaging, serverConfig.Environment)
 	if err != nil {
 		// TODO: turn on safe mode gh-520
 		graphQL = nil

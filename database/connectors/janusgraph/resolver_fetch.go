@@ -18,7 +18,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/fetch"
 	graphqlfetch "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/fetch"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
-	"github.com/davecgh/go-spew/spew"
 )
 
 // LocalFetchKindClass based on GraphQL Query params
@@ -30,6 +29,5 @@ func (j *Janusgraph) LocalFetchKindClass(params *graphqlfetch.Params) (interface
 
 	res, err := fetch.NewProcessor(j.client, params.Kind, "localhost").
 		Process(gremlin.New().Raw(q))
-	spew.Dump(res)
 	return res, err
 }

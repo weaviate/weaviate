@@ -17,6 +17,7 @@ import (
 	"runtime/debug"
 	"testing"
 
+	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
@@ -341,7 +342,7 @@ type testCases []testCase
 func (tests testCases) AssertNoError(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			localSchema, err := Build(&test.localSchema, test.peers, nil)
+			localSchema, err := Build(&test.localSchema, test.peers, nil, config.Environment{})
 			require.Nil(t, err, test.name)
 
 			schemaObject := graphql.ObjectConfig{

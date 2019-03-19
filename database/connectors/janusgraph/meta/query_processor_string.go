@@ -66,9 +66,12 @@ func (p *Processor) postProcessStringTopOccurrences(m map[string]interface{}) (m
 
 	sort.Sort(sort.Reverse(occurrences))
 
-	return map[string]interface{}{
+	topOccMap := map[string]interface{}{
 		StringTopOccurrences: occurrences.stripTypes(),
-	}, nil
+	}
+
+	delete(m, StringTopOccurrences)
+	return mergeMaps(m, topOccMap), nil
 }
 
 func parseTopOccurrences(innerMap map[string]interface{}) (stringOccurrences, error) {
