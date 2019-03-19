@@ -18,13 +18,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 )
 
-const (
-	// BoolGroupCount is an intermediary structure that contains counts for
-	// boolean values. However, they need to be post-processed, thus they are
-	// referenced by a constant name
-	BoolGroupCount = "boolGroupCount"
-)
-
 func (b *Query) booleanProp(prop getmeta.MetaProperty) (*gremlin.Query, error) {
 	q := gremlin.New()
 
@@ -57,7 +50,7 @@ func (b *Query) booleanProp(prop getmeta.MetaProperty) (*gremlin.Query, error) {
 
 	}
 
-	q = q.Union(analysisQueries...).AsProjectBy(string(prop.Name))
+	q = q.Values([]string{b.mappedPropertyName(b.params.ClassName, prop.Name)}).Union(analysisQueries...)
 
 	return q, nil
 }
@@ -89,9 +82,7 @@ func (b *Query) booleanPropAnalysis(prop getmeta.MetaProperty,
 func (b *Query) booleanPropCount(prop getmeta.MetaProperty) (*gremlin.Query, error) {
 	q := gremlin.New()
 
-	q = q.HasProperty(b.mappedPropertyName(b.params.ClassName, prop.Name)).
-		Count().
-		AsProjectBy("count")
+	q = q.Count().Project("count").Project(string(prop.Name))
 
 	return q, nil
 }
@@ -99,8 +90,7 @@ func (b *Query) booleanPropCount(prop getmeta.MetaProperty) (*gremlin.Query, err
 func (b *Query) booleanPropTotals(prop getmeta.MetaProperty) (*gremlin.Query, error) {
 	q := gremlin.New()
 
-	q = q.GroupCount().By(b.mappedPropertyName(b.params.ClassName, prop.Name)).
-		AsProjectBy(BoolGroupCount)
+	q = q.GroupCount().Unfold().Project(string(prop.Name))
 
 	return q, nil
 }

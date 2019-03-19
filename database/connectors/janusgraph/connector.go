@@ -13,15 +13,17 @@ package janusgraph
 
 import (
 	"context"
-	errors_ "errors"
 	"fmt"
+	"net/url"
 
+	client "github.com/SeMI-network/janus-spark-analytics/clients/go"
+	"github.com/coreos/etcd/clientv3"
+	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/state"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/messages"
-	"github.com/mitchellh/mapstructure"
 
 	"github.com/creativesoftwarefdn/weaviate/gremlin/http_client"
 
@@ -39,57 +41,37 @@ type Janusgraph struct {
 
 	state state.JanusGraphConnectorState
 
-	config        Config
+	// config is the local connector-specific config, such as host:port discover
+	// information
+	config Config
+
+	// appConfig is the global app-wide config. appConfig can be used if the
+	// connectors behavior should depend on application-wide settings
+	appConfig config.Environment
+
 	serverAddress string
 	schema        schema.Schema
 	messaging     *messages.Messaging
+
+	// etcd can be used as an external cache for the analytics api
+	etcdClient *clientv3.Client
+
+	// analyticsClient for background analytical jobs
+	analyticsClient *client.Client
 }
 
-// Config represents the config outline for Janusgraph. The Database config shoud be of the following form:
-// "database_config" : {
-//     "Url": "http://127.0.0.1:8182"
-// }
-// Notice that the port is the GRPC-port.
-type Config struct {
-	Url string
-}
+// New Janusgraph Connector
+func New(config interface{}, appConfig config.Environment) (error, dbconnector.DatabaseConnector) {
+	j := &Janusgraph{
+		appConfig: appConfig,
+	}
 
-func New(config interface{}) (error, dbconnector.DatabaseConnector) {
-	j := &Janusgraph{}
 	err := j.setConfig(config)
-
 	if err != nil {
 		return err, nil
-	} else {
-		return nil, j
-	}
-}
-
-// setConfig sets variables, which can be placed in the config file section "database_config: {}"
-// can be custom for any connector, in the example below there is only host and port available.
-//
-// Important to bear in mind;
-// 1. You need to add these to the struct Config in this document.
-// 2. They will become available via f.config.[variable-name]
-//
-// 	"database": {
-// 		"name": "janusgraph",
-// 		"database_config" : {
-// 			"url": "http://127.0.0.1:8081"
-// 		}
-// 	},
-func (f *Janusgraph) setConfig(config interface{}) error {
-
-	// Mandatory: needed to add the JSON config represented as a map in f.config
-	err := mapstructure.Decode(config, &f.config)
-
-	// Example to: Validate if the essential  config is available, like host and port.
-	if err != nil || len(f.config.Url) == 0 {
-		return errors_.New("could not get Janusgraph url from config")
 	}
 
-	// If success return nil, otherwise return the error (see above)
-	return nil
+	return nil, j
 }
 
 // SetSchema takes actionSchema and thingsSchema as an input and makes them available globally at f.schema
@@ -121,6 +103,21 @@ func (f *Janusgraph) Init(ctx context.Context) error {
 		return err
 	}
 
+	if f.config.AnalyticsEngine.Enabled {
+		etcdCfg := clientv3.Config{Endpoints: []string{f.appConfig.ConfigurationStorage.URL}}
+		f.etcdClient, err = clientv3.New(etcdCfg)
+		if err != nil {
+			return fmt.Errorf("could not build etcd client: %v", err)
+		}
+
+		analyticsURL, err := url.Parse(f.config.AnalyticsEngine.URL)
+		if err != nil {
+			return fmt.Errorf("could not parse URL for analytics client: %v", err)
+		}
+
+		f.analyticsClient = client.New(analyticsURL)
+	}
+
 	f.initialized = true
 
 	return nil
@@ -128,7 +125,7 @@ func (f *Janusgraph) Init(ctx context.Context) error {
 
 // Connect connects to the Janusgraph websocket
 func (f *Janusgraph) Connect() error {
-	f.client = http_client.NewClient(f.config.Url)
+	f.client = http_client.NewClient(f.config.URL)
 	logger := logrus.New()
 	logger.Level = logrus.DebugLevel
 	f.client.SetLogger(logger)

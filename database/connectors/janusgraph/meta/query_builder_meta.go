@@ -39,15 +39,12 @@ func (b *Query) metaProp(prop getmeta.MetaProperty) (*gremlin.Query, error) {
 			"meta prop only supports statistical analysis prop 'count', but have '%s'", analysis)
 	}
 
-	q := gremlin.New().
-		Union(b.metaCountQuery()).
-		AsProjectBy(string(MetaProp))
-
-	return q, nil
+	return b.metaCountQuery(), nil
 }
 
 func (b *Query) metaCountQuery() *gremlin.Query {
 	return gremlin.New().
 		Count().
-		AsProjectBy("count")
+		Project("count").
+		Project("meta")
 }
