@@ -27,8 +27,8 @@ type FilterQuery struct {
 }
 
 type nameSource interface {
-	GetMappedPropertyName(className schema.ClassName, propName schema.PropertyName) state.MappedPropertyName
-	GetMappedClassName(className schema.ClassName) state.MappedClassName
+	MustGetMappedPropertyName(className schema.ClassName, propName schema.PropertyName) state.MappedPropertyName
+	MustGetMappedClassName(className schema.ClassName) state.MappedClassName
 }
 
 // New FilterQuery from local filter params
@@ -192,7 +192,7 @@ func (f *FilterQuery) mappedPropertyName(className schema.ClassName,
 		return string(propName)
 	}
 
-	return string(f.nameSource.GetMappedPropertyName(className, propName))
+	return string(f.nameSource.MustGetMappedPropertyName(className, propName))
 }
 
 func (f *FilterQuery) mappedClassName(className schema.ClassName) string {
@@ -200,5 +200,5 @@ func (f *FilterQuery) mappedClassName(className schema.ClassName) string {
 		return string(className)
 	}
 
-	return string(f.nameSource.GetMappedClassName(className))
+	return string(f.nameSource.MustGetMappedClassName(className))
 }
