@@ -548,9 +548,9 @@ Tools to inspect the knowledge graph or to get meta information about the local 
 
 (<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/meta/weaviate.c11y.words.get" target="_blank">Definition on Swaggerhub</a>)
 
-Gives information about a set of words. Words should be concatenated [CamelCase]().
+Gives information about a set of words like nearest neighbors, relations to other words and vector spaces. Words should be concatenated [CamelCase](ontology-schema.md#camelcase).
 
-_Note: When only a single word is provided, one `individualWords` is returned.
+_Note: When only a single word is provided, one `individualWords` is returned._
 
 ```bash
 $ curl http://localhost:8080/weaviate/v1/c11y/words/monkeyZooBanana -H "Content-Type: application/json"
