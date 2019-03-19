@@ -24,6 +24,7 @@ services:
     ports:
      - "8182:8182"
      - "8184:8184"
+    restart: on-failure:0
     environment:
      - DEV_MODE=true
     volumes:
