@@ -29,10 +29,12 @@ func Test_QueryBuilder_RefProps(t *testing.T) {
 			},
 			expectedQuery: `
 				.union(
-					union(
-						outE("inCountry").count().as("refcount").project("count").by(select("refcount"))
-					)
-					.as("InCountry").project("InCountry").by(select("InCountry"))
+						outE("inCountry").count().project("count").project("InCountry")
+				)
+				.group().by(select(keys).unfold()).by(
+					select(values).unfold().group()
+					.by( select(keys).unfold())
+					.by( select(values).unfold())
 				)
 			`,
 		},
@@ -47,10 +49,12 @@ func Test_QueryBuilder_RefProps(t *testing.T) {
 			},
 			expectedQuery: `
 				.union(
-					union(
-						outE("inCountry").count().as("refcount").project("count").by(select("refcount"))
-					)
-					.as("InCountry").project("InCountry").by(select("InCountry"))
+						outE("inCountry").count().project("count").project("InCountry")
+				)
+				.group().by(select(keys).unfold()).by(
+					select(values).unfold().group()
+					.by( select(keys).unfold())
+					.by( select(values).unfold())
 				)
 			`,
 		},
@@ -64,7 +68,11 @@ func Test_QueryBuilder_RefProps(t *testing.T) {
 				},
 			},
 			expectedQuery: `
-				.union()
+				.union().group().by(select(keys).unfold()).by(
+					select(values).unfold().group()
+					.by( select(keys).unfold())
+					.by( select(values).unfold())
+				)
 			`,
 		},
 	}

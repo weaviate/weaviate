@@ -29,12 +29,13 @@ func Test_QueryBuilder_DateProps(t *testing.T) {
 			},
 			expectedQuery: `
 				.union(
-					union(
 						groupCount().by("dateOfFirstApperance")
-							.order(local).by(values, decr).limit(local, 3)
-							.as("topOccurrences").project("topOccurrences").by(select("topOccurrences"))
-						)
-          .as("dateOfFirstApperance").project("dateOfFirstApperance").by(select("dateOfFirstApperance"))
+							.order(local).by(values, decr).limit(local, 3).project("topOccurrences").project("dateOfFirstApperance")
+				)
+				.group().by(select(keys).unfold()).by(
+					select(values).unfold().group()
+					.by( select(keys).unfold())
+					.by( select(values).unfold())
 				)
 			`,
 		},
@@ -49,12 +50,13 @@ func Test_QueryBuilder_DateProps(t *testing.T) {
 			},
 			expectedQuery: `
 				.union(
-					union(
 						groupCount().by("dateOfFirstApperance")
-							.order(local).by(values, decr).limit(local, 3)
-							.as("topOccurrences").project("topOccurrences").by(select("topOccurrences"))
-						)
-          .as("dateOfFirstApperance").project("dateOfFirstApperance").by(select("dateOfFirstApperance"))
+							.order(local).by(values, decr).limit(local, 3).project("topOccurrences").project("dateOfFirstApperance")
+				)
+				.group().by(select(keys).unfold()).by(
+					select(values).unfold().group()
+					.by( select(keys).unfold())
+					.by( select(values).unfold())
 				)
 			`,
 		},
@@ -63,22 +65,21 @@ func Test_QueryBuilder_DateProps(t *testing.T) {
 			name: "with only a string, with all possible props",
 			inputProps: []gm.MetaProperty{
 				gm.MetaProperty{
-					Name: "dateOfFirstApperance",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{
-						gm.Count, gm.Type, gm.TopOccurrencesValue, gm.TopOccurrencesOccurs},
+					Name:                "dateOfFirstApperance",
+					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.Type, gm.Count, gm.TopOccurrencesValue, gm.TopOccurrencesOccurs},
 				},
 			},
 			expectedQuery: `
 				.union(
-					union(
-						has("dateOfFirstApperance").count()
-							.as("count").project("count").by(select("count")),
+				    has("dateOfFirstApperance").count().project("count").project("dateOfFirstApperance"),
 						groupCount().by("dateOfFirstApperance")
-							.order(local).by(values, decr).limit(local, 3)
-							.as("topOccurrences").project("topOccurrences").by(select("topOccurrences"))
-						)
-				.as("dateOfFirstApperance").project("dateOfFirstApperance").by(select("dateOfFirstApperance"))
-					)
+							.order(local).by(values, decr).limit(local, 3).project("topOccurrences").project("dateOfFirstApperance")
+				)
+				.group().by(select(keys).unfold()).by(
+					select(values).unfold().group()
+					.by( select(keys).unfold())
+					.by( select(values).unfold())
+				)
 			`,
 		},
 	}

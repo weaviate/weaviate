@@ -22,11 +22,7 @@ func (b *Query) crefProp(prop getmeta.MetaProperty) (*gremlin.Query, error) {
 			continue
 		}
 
-		q := gremlin.New().
-			Union(b.crefCountQuery(prop)).
-			AsProjectBy(string(prop.Name))
-
-		return q, nil
+		return b.crefCountQuery(prop), nil
 	}
 	return nil, nil
 }
@@ -34,5 +30,5 @@ func (b *Query) crefProp(prop getmeta.MetaProperty) (*gremlin.Query, error) {
 func (b *Query) crefCountQuery(prop getmeta.MetaProperty) *gremlin.Query {
 	return gremlin.New().
 		OutEWithLabel(b.mappedPropertyName(b.params.ClassName, untitle(prop.Name))).Count().
-		AsProjectBy("refcount", "count")
+		Project("count").Project(string(prop.Name))
 }

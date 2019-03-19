@@ -29,10 +29,12 @@ func Test_QueryBuilder_MetaProps(t *testing.T) {
 			},
 			expectedQuery: `
 				.union(
-					union(
-						count().as("count").project("count").by(select("count"))
-					)
-					.as("meta").project("meta").by(select("meta"))
+						count().project("count").project("meta")
+				)
+				.group().by(select(keys).unfold()).by(
+					select(values).unfold().group()
+					.by( select(keys).unfold())
+					.by( select(values).unfold())
 				)
 			`,
 		},
