@@ -13,8 +13,9 @@ package contextionary
 
 import (
 	"fmt"
-	annoy "github.com/creativesoftwarefdn/weaviate/contextionary/annoyindex"
 	"sort"
+
+	annoy "github.com/creativesoftwarefdn/weaviate/contextionary/annoyindex"
 )
 
 type MemoryIndex struct {

@@ -25,13 +25,14 @@ import (
 	runtime "github.com/go-openapi/runtime"
 	middleware "github.com/go-openapi/runtime/middleware"
 	security "github.com/go-openapi/runtime/security"
+	"github.com/go-openapi/runtime/yamlpc"
 	spec "github.com/go-openapi/spec"
 	strfmt "github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/actions"
+	"github.com/creativesoftwarefdn/weaviate/restapi/operations/contextionary_api"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/graphql"
-	"github.com/creativesoftwarefdn/weaviate/restapi/operations/knowledge_tools"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/meta"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/p2_p"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/schema"
@@ -54,6 +55,7 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		APIKeyAuthenticator: security.APIKeyAuth,
 		BearerAuthenticator: security.BearerAuth,
 		JSONConsumer:        runtime.JSONConsumer(),
+		YamlConsumer:        yamlpc.YAMLConsumer(),
 		JSONProducer:        runtime.JSONProducer(),
 		ActionsWeaviateActionHistoryGetHandler: actions.WeaviateActionHistoryGetHandlerFunc(func(params actions.WeaviateActionHistoryGetParams) middleware.Responder {
 			return middleware.NotImplemented("operation ActionsWeaviateActionHistoryGet has not yet been implemented")
@@ -96,6 +98,12 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		WeaviateBatchingThingsCreateHandler: WeaviateBatchingThingsCreateHandlerFunc(func(params WeaviateBatchingThingsCreateParams) middleware.Responder {
 			return middleware.NotImplemented("operation WeaviateBatchingThingsCreate has not yet been implemented")
+		}),
+		ContextionaryAPIWeaviateC11yCorpusGetHandler: contextionary_api.WeaviateC11yCorpusGetHandlerFunc(func(params contextionary_api.WeaviateC11yCorpusGetParams) middleware.Responder {
+			return middleware.NotImplemented("operation ContextionaryAPIWeaviateC11yCorpusGet has not yet been implemented")
+		}),
+		ContextionaryAPIWeaviateC11yWordsHandler: contextionary_api.WeaviateC11yWordsHandlerFunc(func(params contextionary_api.WeaviateC11yWordsParams) middleware.Responder {
+			return middleware.NotImplemented("operation ContextionaryAPIWeaviateC11yWords has not yet been implemented")
 		}),
 		GraphqlWeaviateGraphqlBatchHandler: graphql.WeaviateGraphqlBatchHandlerFunc(func(params graphql.WeaviateGraphqlBatchParams) middleware.Responder {
 			return middleware.NotImplemented("operation GraphqlWeaviateGraphqlBatch has not yet been implemented")
@@ -184,9 +192,6 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		ThingsWeaviateThingsValidateHandler: things.WeaviateThingsValidateHandlerFunc(func(params things.WeaviateThingsValidateParams) middleware.Responder {
 			return middleware.NotImplemented("operation ThingsWeaviateThingsValidate has not yet been implemented")
 		}),
-		KnowledgeToolsWeaviateToolsMapHandler: knowledge_tools.WeaviateToolsMapHandlerFunc(func(params knowledge_tools.WeaviateToolsMapParams) middleware.Responder {
-			return middleware.NotImplemented("operation KnowledgeToolsWeaviateToolsMap has not yet been implemented")
-		}),
 	}
 }
 
@@ -214,6 +219,8 @@ type WeaviateAPI struct {
 
 	// JSONConsumer registers a consumer for a "application/json" mime type
 	JSONConsumer runtime.Consumer
+	// YamlConsumer registers a consumer for a "application/yaml" mime type
+	YamlConsumer runtime.Consumer
 
 	// JSONProducer registers a producer for a "application/json" mime type
 	JSONProducer runtime.Producer
@@ -246,6 +253,10 @@ type WeaviateAPI struct {
 	WeaviateBatchingReferencesCreateHandler WeaviateBatchingReferencesCreateHandler
 	// WeaviateBatchingThingsCreateHandler sets the operation handler for the weaviate batching things create operation
 	WeaviateBatchingThingsCreateHandler WeaviateBatchingThingsCreateHandler
+	// ContextionaryAPIWeaviateC11yCorpusGetHandler sets the operation handler for the weaviate c11y corpus get operation
+	ContextionaryAPIWeaviateC11yCorpusGetHandler contextionary_api.WeaviateC11yCorpusGetHandler
+	// ContextionaryAPIWeaviateC11yWordsHandler sets the operation handler for the weaviate c11y words operation
+	ContextionaryAPIWeaviateC11yWordsHandler contextionary_api.WeaviateC11yWordsHandler
 	// GraphqlWeaviateGraphqlBatchHandler sets the operation handler for the weaviate graphql batch operation
 	GraphqlWeaviateGraphqlBatchHandler graphql.WeaviateGraphqlBatchHandler
 	// GraphqlWeaviateGraphqlPostHandler sets the operation handler for the weaviate graphql post operation
@@ -304,8 +315,6 @@ type WeaviateAPI struct {
 	ThingsWeaviateThingsUpdateHandler things.WeaviateThingsUpdateHandler
 	// ThingsWeaviateThingsValidateHandler sets the operation handler for the weaviate things validate operation
 	ThingsWeaviateThingsValidateHandler things.WeaviateThingsValidateHandler
-	// KnowledgeToolsWeaviateToolsMapHandler sets the operation handler for the weaviate tools map operation
-	KnowledgeToolsWeaviateToolsMapHandler knowledge_tools.WeaviateToolsMapHandler
 
 	// ServeError is called when an error is received, there is a default handler
 	// but you can set your own with this
@@ -363,6 +372,10 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.JSONConsumer == nil {
 		unregistered = append(unregistered, "JSONConsumer")
+	}
+
+	if o.YamlConsumer == nil {
+		unregistered = append(unregistered, "YamlConsumer")
 	}
 
 	if o.JSONProducer == nil {
@@ -423,6 +436,14 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.WeaviateBatchingThingsCreateHandler == nil {
 		unregistered = append(unregistered, "WeaviateBatchingThingsCreateHandler")
+	}
+
+	if o.ContextionaryAPIWeaviateC11yCorpusGetHandler == nil {
+		unregistered = append(unregistered, "contextionary_api.WeaviateC11yCorpusGetHandler")
+	}
+
+	if o.ContextionaryAPIWeaviateC11yWordsHandler == nil {
+		unregistered = append(unregistered, "contextionary_api.WeaviateC11yWordsHandler")
 	}
 
 	if o.GraphqlWeaviateGraphqlBatchHandler == nil {
@@ -541,10 +562,6 @@ func (o *WeaviateAPI) Validate() error {
 		unregistered = append(unregistered, "things.WeaviateThingsValidateHandler")
 	}
 
-	if o.KnowledgeToolsWeaviateToolsMapHandler == nil {
-		unregistered = append(unregistered, "knowledge_tools.WeaviateToolsMapHandler")
-	}
-
 	if len(unregistered) > 0 {
 		return fmt.Errorf("missing registration: %s", strings.Join(unregistered, ", "))
 	}
@@ -580,6 +597,9 @@ func (o *WeaviateAPI) ConsumersFor(mediaTypes []string) map[string]runtime.Consu
 
 		case "application/json":
 			result["application/json"] = o.JSONConsumer
+
+		case "application/yaml":
+			result["application/yaml"] = o.YamlConsumer
 
 		}
 
@@ -712,6 +732,16 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/batching/things"] = NewWeaviateBatchingThingsCreate(o.context, o.WeaviateBatchingThingsCreateHandler)
+
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/c11y/corpus"] = contextionary_api.NewWeaviateC11yCorpusGet(o.context, o.ContextionaryAPIWeaviateC11yCorpusGetHandler)
+
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/c11y/words/{words}"] = contextionary_api.NewWeaviateC11yWords(o.context, o.ContextionaryAPIWeaviateC11yWordsHandler)
 
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
@@ -857,11 +887,6 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/things/validate"] = things.NewWeaviateThingsValidate(o.context, o.ThingsWeaviateThingsValidateHandler)
-
-	if o.handlers["POST"] == nil {
-		o.handlers["POST"] = make(map[string]http.Handler)
-	}
-	o.handlers["POST"]["/tools/map"] = knowledge_tools.NewWeaviateToolsMap(o.context, o.KnowledgeToolsWeaviateToolsMapHandler)
 
 }
 

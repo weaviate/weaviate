@@ -13,9 +13,7 @@ A complete Weaviate stack based on Janusgraph (with Elasticsearch and Cassandra)
 #### Running the latest version
 
 ```sh
-$ wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/docker-compose/runtime/docker-compose.yml && \
-  wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/docker-compose/runtime/config.json && \
-  wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/docker-compose/runtime/janusgraph.properties
+$ source <(curl -s https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/tools/download-docker-compose-deps.sh)
 $ docker-compose up
 ```
 
@@ -25,13 +23,12 @@ $ docker-compose up
 - Runs with the latest open source Contextionary. More in-depth information about the contextionary can be found [here](../contribute/contextionary.md).
 - Weaviate becomes available as an HTTP service on port 8080 on `://{IP}/weaviate/v1/{COMMAND}`.
 - The Weaviate Playground becomes available as an HTTP service on port 80 on `://{IP}`.
+- If you want to manually download the files, download all files from [here](https://github.com/creativesoftwarefdn/weaviate/tree/master/docker-compose/runtime) and run `docker-compose up`.
 
 #### Running a specific version
 
 ```sh
-$ wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/docker-compose/runtime/docker-compose.yml && \
-  wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/docker-compose/runtime/config.json && \
-  wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/docker-compose/runtime/janusgraph.properties
+$ source <(curl -s https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/tools/download-docker-compose-deps.sh)
 ```
 
 Open docker-compose.yml and replace `latest` in the image (`image: creativesoftwarefdn/weaviate:latest`) with the preferred version number. An overview can be found on [Dockerhub](https://hub.docker.com/r/creativesoftwarefdn/weaviate/tags).

@@ -26,7 +26,7 @@ func JSONNumberResolver(p graphql.ResolveParams) (interface{}, error) {
 
 	field, ok := sourceMap[p.Info.FieldName]
 	if !ok {
-		return nil, fmt.Errorf("sourcemap has no field '%s', got %#v", p.Info.FieldName, sourceMap)
+		return nil, nil
 	}
 
 	switch n := field.(type) {

@@ -22,3 +22,4 @@ rm -rf data connector_state.json schema_state.json
 
 docker-compose -f $DOCKER_COMPOSE_FILE up -d index janus db etcd genesis_fake weaviate_b_fake "${ADDITIONAL_SERVICES[@]}"
 
+echo "You can now run the dev version with: ./tools/dev/run_dev_server.sh or ./tools/dev/run_dev_server_no_network.sh"
