@@ -35,7 +35,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		err = schemaManager.AddClass(ctx, kind.ACTION_KIND, params.ActionClass)
 
 		if err == nil {
-			return schema.NewWeaviateSchemaActionsCreateOK()
+			return schema.NewWeaviateSchemaActionsCreateOK().WithPayload(params.ActionClass)
 		} else {
 			errorResponse := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{&models.ErrorResponseErrorItems0{Message: err.Error()}}}
 			return schema.NewWeaviateSchemaActionsCreateUnprocessableEntity().WithPayload(&errorResponse)
@@ -73,7 +73,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		err = schemaManager.AddProperty(ctx, kind.ACTION_KIND, params.ClassName, params.Body)
 
 		if err == nil {
-			return schema.NewWeaviateSchemaActionsPropertiesAddOK()
+			return schema.NewWeaviateSchemaActionsPropertiesAddOK().WithPayload(params.Body)
 		} else {
 			errorResponse := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{&models.ErrorResponseErrorItems0{Message: err.Error()}}}
 			return schema.NewWeaviateSchemaActionsPropertiesAddUnprocessableEntity().WithPayload(&errorResponse)
@@ -185,7 +185,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		err = schemaManager.AddClass(ctx, kind.THING_KIND, params.ThingClass)
 
 		if err == nil {
-			return schema.NewWeaviateSchemaThingsCreateOK()
+			return schema.NewWeaviateSchemaThingsCreateOK().WithPayload(params.ThingClass)
 		} else {
 			errorResponse := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{&models.ErrorResponseErrorItems0{Message: err.Error()}}}
 			return schema.NewWeaviateSchemaThingsCreateUnprocessableEntity().WithPayload(&errorResponse)
@@ -223,7 +223,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		err = schemaManager.AddProperty(ctx, kind.THING_KIND, params.ClassName, params.Body)
 
 		if err == nil {
-			return schema.NewWeaviateSchemaThingsPropertiesAddOK()
+			return schema.NewWeaviateSchemaThingsPropertiesAddOK().WithPayload(params.Body)
 		} else {
 			errorResponse := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{&models.ErrorResponseErrorItems0{Message: err.Error()}}}
 			return schema.NewWeaviateSchemaThingsPropertiesAddUnprocessableEntity().WithPayload(&errorResponse)
