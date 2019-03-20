@@ -810,7 +810,7 @@
     },
     "description": "Decentralised Knowledge Graph",
     "title": "Weaviate - Decentralised Knowledge Graph",
-    "version": "0.12.70"
+    "version": "0.12.71"
   },
   "parameters": {
     "CommonMaxResultsParameterQuery": {
@@ -1906,7 +1906,10 @@
         ],
         "responses": {
           "200": {
-            "description": "Added the new Action class to the ontology."
+            "description": "Added the new Action class to the ontology.",
+            "schema": {
+              "$ref": "#/definitions/SemanticSchemaClass"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -2052,7 +2055,10 @@
         ],
         "responses": {
           "200": {
-            "description": "Added the property."
+            "description": "Added the property.",
+            "schema": {
+              "$ref": "#/definitions/SemanticSchemaClassProperty"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -2204,7 +2210,10 @@
         ],
         "responses": {
           "200": {
-            "description": "Added the new Thing class to the ontology."
+            "description": "Added the new Thing class to the ontology.",
+            "schema": {
+              "$ref": "#/definitions/SemanticSchemaClass"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -2350,7 +2359,10 @@
         ],
         "responses": {
           "200": {
-            "description": "Added the property."
+            "description": "Added the property.",
+            "schema": {
+              "$ref": "#/definitions/SemanticSchemaClassProperty"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."

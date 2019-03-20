@@ -85,13 +85,21 @@ func NewWeaviateSchemaActionsPropertiesAddOK() *WeaviateSchemaActionsPropertiesA
 Added the property.
 */
 type WeaviateSchemaActionsPropertiesAddOK struct {
+	Payload *models.SemanticSchemaClassProperty
 }
 
 func (o *WeaviateSchemaActionsPropertiesAddOK) Error() string {
-	return fmt.Sprintf("[POST /schema/actions/{className}/properties][%d] weaviateSchemaActionsPropertiesAddOK ", 200)
+	return fmt.Sprintf("[POST /schema/actions/{className}/properties][%d] weaviateSchemaActionsPropertiesAddOK  %+v", 200, o.Payload)
 }
 
 func (o *WeaviateSchemaActionsPropertiesAddOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.SemanticSchemaClassProperty)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }
