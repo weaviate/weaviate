@@ -13,6 +13,6 @@ type RequestsLog interface {
 }
 
 func resolveClass(params graphql.ResolveParams) (interface{}, error) {
-	// do logging here after resolvers for different aggregators are implemented (RequestsLog.Register())
+	// do logging here after resolvers for different aggregators are implemented (RequestsLog.Register() in a go func)
 	return nil, fmt.Errorf("resolve network aggregate class field not yet supported")
 }

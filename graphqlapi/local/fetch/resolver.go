@@ -104,8 +104,9 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 				"the provided property name. Try using different search terms or lowering " +
 				"the desired certainty")
 		}
-
-		resources.requestsLog.Register(telemetry.TypeGQL, telemetry.LocalQuery)
+		go func() {
+			resources.requestsLog.Register(telemetry.TypeGQL, telemetry.LocalQuery)
+		}()
 
 		return func() (interface{}, error) {
 			return resources.resolver.LocalFetchKindClass(params)

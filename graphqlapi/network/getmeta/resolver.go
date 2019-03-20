@@ -80,12 +80,15 @@ func Resolve(p graphql.ResolveParams) (interface{}, error) {
 			graphQLResponse.Data["Local"])
 	}
 
-	requestslog, ok := source["RequestsLog"].(RequestsLog)
+	// Log the request
+	requestsLog, ok := source["RequestsLog"].(RequestsLog)
 	if !ok {
 		return nil, fmt.Errorf("expected source['RequestsLog'] to be a RequestsLog, but was \n%#v",
 			source["RequestsLog"])
 	}
-	requestslog.Register(telemetry.TypeGQL, telemetry.NetworkQueryMeta)
+	go func() {
+		requestsLog.Register(telemetry.TypeGQL, telemetry.NetworkQueryMeta)
+	}()
 
 	return local["GetMeta"], nil
 }

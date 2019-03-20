@@ -250,7 +250,9 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 		if !logOk {
 			return nil, fmt.Errorf("expected source map to have a usable RequestsLog, but got %#v", source["RequestsLog"])
 		}
-		requestsLog.Register(telemetry.TypeGQL, telemetry.LocalQuery)
+		go func() {
+			requestsLog.Register(telemetry.TypeGQL, telemetry.LocalQuery)
+		}()
 
 		return func() (interface{}, error) {
 			return resolver.LocalGetClass(&params)
