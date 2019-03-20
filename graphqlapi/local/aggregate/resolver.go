@@ -129,7 +129,10 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 		for _, property := range properties {
 			for _, aggregator := range property.Aggregators {
 				serviceID := fmt.Sprintf("%s[%s]", telemetry.LocalQuery, aggregator)
-				requestsLog.Register(telemetry.TypeGQL, serviceID)
+				go func() {
+					requestsLog.Register(telemetry.TypeGQL, serviceID)
+				}()
+
 			}
 		}
 

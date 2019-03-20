@@ -19,6 +19,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
@@ -143,8 +144,10 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 		}
 
 		// Log the request
-		// requestsLog := source["RequestsLog"].(RequestsLog)
-		// requestsLog.Register(telemetry.TypeGQL, telemetry.LocalQueryMeta)
+		requestsLog := source["RequestsLog"].(RequestsLog)
+		go func() {
+			requestsLog.Register(telemetry.TypeGQL, telemetry.LocalQueryMeta)
+		}()
 
 		return resolver.LocalGetMeta(params)
 	}
