@@ -1,10 +1,9 @@
 package telemetry
 
 import (
+	"bytes"
 	"encoding/json"
-	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/ugorji/go/codec"
@@ -87,7 +86,7 @@ func (r *Reporter) triggerCBORFailsafe(requests *map[string]*RequestLog) {
 }
 
 // TransformToOutputFormat transforms the logged function calls to a minimized output format to reduce network traffic.
-func (r *Reporter) TransformToOutputFormat(logs *map[string]*RequestLog) (*string, error) { // TODO: cover with test
+func (r *Reporter) TransformToOutputFormat(logs *map[string]*RequestLog) (*[]byte, error) { // TODO: cover with test
 	minimizedLogs := r.transformer.ConvertToMinimizedJSON(logs)
 
 	cborLogs, err := r.transformer.EncodeAsCBOR(minimizedLogs)
@@ -131,9 +130,8 @@ func (o *OutputTransformer) ConvertToMinimizedJSON(logs *map[string]*RequestLog)
 	return &minimizedJSON
 }
 
-// EncodeAsCBOR encodes logs in CBOR format and returns them as a base-16 string with two chars per byte.
-// Sample output: "816B48656C6C6F20776F726C64"
-func (o *OutputTransformer) EncodeAsCBOR(minimizedJSON *string) (*string, error) {
+// EncodeAsCBOR encodes logs in CBOR format and returns them as a byte array (format to base 16 to get the 'traditional' cbor format).
+func (o *OutputTransformer) EncodeAsCBOR(minimizedJSON *string) (*[]byte, error) {
 	encoded := make([]byte, 0, 64)
 	cborHandle := new(codec.CborHandle)
 	if o.testing {
@@ -147,9 +145,7 @@ func (o *OutputTransformer) EncodeAsCBOR(minimizedJSON *string) (*string, error)
 		return nil, err
 	}
 
-	byteString := fmt.Sprintf("%x", encoded)
-
-	return &byteString, nil
+	return &encoded, nil
 }
 
 // NewPoster creates a new
@@ -164,8 +160,8 @@ type Poster struct {
 }
 
 // ReportLoggedCalls sends the logs to a previously determined REST endpoint.
-func (p *Poster) ReportLoggedCalls(encoded *string) {
-	req, err := http.NewRequest("POST", p.url, strings.NewReader(*encoded))
+func (p *Poster) ReportLoggedCalls(encoded *[]byte) {
+	req, err := http.NewRequest("POST", p.url, bytes.NewReader(*encoded))
 	req.Header.Set("Content-Type", "application/cbor")
 
 	client := &http.Client{}
@@ -177,6 +173,6 @@ func (p *Poster) ReportLoggedCalls(encoded *string) {
 }
 
 // Should the REST endpoint be unreachable then the log is stored in the etcd key item store
-func (p *Poster) triggerPOSTFailsafe(encoded *string) {
+func (p *Poster) triggerPOSTFailsafe(encoded *[]byte) {
 
 }
