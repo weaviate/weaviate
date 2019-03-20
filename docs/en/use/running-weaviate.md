@@ -17,6 +17,10 @@ $ source <(curl -s https://raw.githubusercontent.com/creativesoftwarefdn/weaviat
 $ docker-compose up
 ```
 
+_Note I: This Docker compose setup uses the `:latest` tag to ensure you always have the latest version. For production usage always use [a fixed version number](#running-a-specific-version)_
+
+_Note II: You can always enforce the latest `:latest` version by running `$ docker-compose up --force-recreate`_
+
 - Releases can be found [here](https://github.com/creativesoftwarefdn/weaviate/releases).
 - Docker tags can be found [here](https://hub.docker.com/r/creativesoftwarefdn/weaviate/tags).
 - Based on `tree/master` on Github
