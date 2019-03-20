@@ -118,8 +118,9 @@ options are as follows:
 ### 1.1.4 Batch Cross-References
 
 *Warning: Using this endpoint can be dangerous. Make sure you understand the
-implications outlined in the "Caveats and Warnings about the Batch References
-importer" section below!*
+implications outlined in the [Caveats and Warnings about the Batch References
+importer](#1142-caveats-and-warnings-about-the-batch-references-importer)
+section below!*
 
 Cross-References in a graph can be circular. Imagine a class `Person` with a
 ref-property `Knowns`, which in turn points to a person. Since this scenario is
@@ -130,7 +131,7 @@ To do so, you can first import all Person class instances with only their
 primitive properties using the `batch/things` endpoint and then import all the
 relations (i.e. `knows` cross-references) using the `batch/references` endpoint. 
 
-### 1.1.4.1 Batch Reference Request and Response structure
+#### 1.1.4.1 Batch Reference Request and Response structure
 An excerpt from the swagger documentation about the request structure:
 ```
 [{
@@ -148,21 +149,36 @@ Please consult the swagger documentation at
 `weaviate.batching.references.create` for the full reference and all return
 types. 
 
-### 1.1.4.2 Caveats and Warnings about the Batch References importer
+#### 1.1.4.2 Caveats and Warnings about the Batch References importer
 
-As outlined in the beginning of this document all batch importers are designed
-for maximum speed. This enableds imports of large datasets. However, it also
-means batch importers have to skip all patterns which would slow imports down.
-For NoSQL-based database connectors, such as Janusgraph, this means that the
-importer must avoid "read before write" patterns.
+As outlined in the [introduction](#1-the-batch-request) all batch importers are
+designed for maximum speed. This enableds imports of large datasets. However,
+this also means that validation cannot be as thorough as on non-batched
+requests. In extreme cases this can lead to corrupting your dataset.
 
-This in turn means that the validation that is possible in weaviate is limited.
-Weaviate will validate the structure of your request and parse both the `from`
+##### General limitations
+Due to the focus on speed and throughput at large-scale batch importers have to
+skip all patterns which would slow imports down, such as "reading before
+writing". In general this means that validation is less strict, and you have to
+make sure that your data is logically consistent.
+
+Weaviate will be able validate the structure of your request and parse both the `from`
 and `to` beacons. For those the general structure is checked, e.g. does the
 beacon contain enough path segments and is the segment at the position of the
-ID a valid UUID? However, weaviate - since it must avoid reading from the
-database in this write operation - cannot validatate whether all properties the
+ID a valid UUID? However, weaviate cannot validatate whether all properties the
 user specified are valid in combination.
+
+If you are in doubt, send a representative request of your batching plan to a
+non-batched endpoint, such as `PATCH /weaviate/v1/things` first, where
+validation is very strict. If validation is passed there it can be considered
+safe to be used in a batch setting as well.
+
+##### Connector-specific consequences
+
+The exact consequences of (accidentally) bypassing validation, vary between
+connectors:
+
+**Janusgraph (with Cassandra)**
 
 As an example, consider the follwing `from` beacon when using the `Janusgraph`
 connector, which is based on NoSQL databases:
@@ -178,10 +194,6 @@ In this case weaviate cannot validate:
   specified class (identified by its uuid) is of a different type. This can
   potentially lead to a corrupted dataset.
 
-If you are in doubt, send a representative request of your batching plan to a
-non-batched endpoint, such as `PATCH /weaviate/v1/things` first, where
-validation is very strict. If validation is passed there it can be considered
-safe to be used in a batch setting as well.
 
 ### 1.2 Errors
 
