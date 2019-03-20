@@ -31,6 +31,11 @@ const WeaviateSchemaThingsCreateOKCode int = 200
 swagger:response weaviateSchemaThingsCreateOK
 */
 type WeaviateSchemaThingsCreateOK struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.SemanticSchemaClass `json:"body,omitempty"`
 }
 
 // NewWeaviateSchemaThingsCreateOK creates WeaviateSchemaThingsCreateOK with default headers values
@@ -39,12 +44,27 @@ func NewWeaviateSchemaThingsCreateOK() *WeaviateSchemaThingsCreateOK {
 	return &WeaviateSchemaThingsCreateOK{}
 }
 
+// WithPayload adds the payload to the weaviate schema things create o k response
+func (o *WeaviateSchemaThingsCreateOK) WithPayload(payload *models.SemanticSchemaClass) *WeaviateSchemaThingsCreateOK {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate schema things create o k response
+func (o *WeaviateSchemaThingsCreateOK) SetPayload(payload *models.SemanticSchemaClass) {
+	o.Payload = payload
+}
+
 // WriteResponse to the client
 func (o *WeaviateSchemaThingsCreateOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
 	rw.WriteHeader(200)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // WeaviateSchemaThingsCreateUnauthorizedCode is the HTTP code returned for type WeaviateSchemaThingsCreateUnauthorized

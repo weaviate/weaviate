@@ -47,7 +47,7 @@ func init() {
       "url": "https://github.com/creativesoftwarefdn",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.12.70"
+    "version": "0.12.71"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -1214,7 +1214,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added the new Action class to the ontology."
+            "description": "Added the new Action class to the ontology.",
+            "schema": {
+              "$ref": "#/definitions/SemanticSchemaClass"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -1360,7 +1363,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added the property."
+            "description": "Added the property.",
+            "schema": {
+              "$ref": "#/definitions/SemanticSchemaClassProperty"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -1512,7 +1518,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added the new Thing class to the ontology."
+            "description": "Added the new Thing class to the ontology.",
+            "schema": {
+              "$ref": "#/definitions/SemanticSchemaClass"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -1658,7 +1667,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added the property."
+            "description": "Added the property.",
+            "schema": {
+              "$ref": "#/definitions/SemanticSchemaClassProperty"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -3280,7 +3292,7 @@ func init() {
       "url": "https://github.com/creativesoftwarefdn",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.12.70"
+    "version": "0.12.71"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -4455,7 +4467,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added the new Action class to the ontology."
+            "description": "Added the new Action class to the ontology.",
+            "schema": {
+              "$ref": "#/definitions/SemanticSchemaClass"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -4601,7 +4616,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added the property."
+            "description": "Added the property.",
+            "schema": {
+              "$ref": "#/definitions/SemanticSchemaClassProperty"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -4753,7 +4771,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added the new Thing class to the ontology."
+            "description": "Added the new Thing class to the ontology.",
+            "schema": {
+              "$ref": "#/definitions/SemanticSchemaClass"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -4899,7 +4920,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added the property."
+            "description": "Added the property.",
+            "schema": {
+              "$ref": "#/definitions/SemanticSchemaClassProperty"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
