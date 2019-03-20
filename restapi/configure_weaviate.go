@@ -929,6 +929,7 @@ func connectToNetwork() {
 		genesis_url := strfmt.URI(serverConfig.Environment.Network.GenesisURL)
 		public_url := strfmt.URI(serverConfig.Environment.Network.PublicURL)
 		peer_name := serverConfig.Environment.Network.PeerName
+		
 
 		messaging.InfoMessage(fmt.Sprintf("Network configured, connecting to Genesis '%v'", genesis_url))
 		new_net, err := libnetworkP2P.BootstrapNetwork(messaging, genesis_url, public_url, peer_name)

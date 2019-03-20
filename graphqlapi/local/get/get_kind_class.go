@@ -24,8 +24,8 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get/refclasses"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
 
-	// "github.com/creativesoftwarefdn/weaviate/telemetry"
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
 )
@@ -246,18 +246,12 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 		}
 
 		// Log the request
-		// fmt.Println(9)
-		// source, ok := p.Source.(map[string]interface{})
-		// if !ok {
-		// 	fmt.Println(10)
-		// }
-		// requestsLog, logOk := source["RequestsLog"].(RequestsLog)
-		// if !logOk {
-		// 	fmt.Println(11)
-		// }
-		// requestsLog.Register("1", "2") //telemetry.TypeGQL, telemetry.LocalQuery)
-		// // filtersAndResolver.requestsLog.Register(telemetry.TypeGQL, telemetry.LocalQuery)
-		// fmt.Println(12)
+		requestsLog, logOk := source["RequestsLog"].(RequestsLog)
+		if !logOk {
+			return nil, fmt.Errorf("expected source map to have a usable RequestsLog, but got %#v", source["RequestsLog"])
+		}
+		requestsLog.Register(telemetry.TypeGQL, telemetry.LocalQuery)
+
 		return func() (interface{}, error) {
 			return resolver.LocalGetClass(&params)
 		}, nil

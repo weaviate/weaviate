@@ -33,7 +33,10 @@ func resolveKind(k kind.Kind) func(p graphql.ResolveParams) (interface{}, error)
 			return nil, fmt.Errorf("expected source to be map[string]map[string][]interface{}, was %#v", firstLevel[kindField])
 		}
 
-		requestsLog := firstLevel["RequestsLog"].(RequestsLog)
+		requestsLog, ok := firstLevel["RequestsLog"].(RequestsLog)
+		if !ok {
+			return nil, fmt.Errorf("expected source to contain a usable RequestsLog, but was %#v", firstLevel["RequestsLog"])
+		}
 		requestsLog.Register(telemetry.TypeGQL, telemetry.NetworkQuery)
 
 		return secondLevel[p.Info.FieldName], nil

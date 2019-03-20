@@ -18,7 +18,6 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/common"
 	"github.com/creativesoftwarefdn/weaviate/models"
-	"github.com/creativesoftwarefdn/weaviate/telemetry"
 	"github.com/graphql-go/graphql"
 )
 
@@ -45,10 +44,16 @@ type FiltersAndResolver struct {
 }
 
 func Resolve(p graphql.ResolveParams) (interface{}, error) {
-	resolver, ok := p.Source.(Resolver)
+	source, ok := p.Source.(map[string]interface{})
 	if !ok {
-		return nil, fmt.Errorf("expected source to be a Resolver, but was \n%#v",
+		return nil, fmt.Errorf("expected source to be a map[string]interface{}, but was \n%#v",
 			p.Source)
+	}
+
+	resolver, ok := source["NetworkResolver"].(Resolver)
+	if !ok {
+		return nil, fmt.Errorf("expected source to contain a NetworkResolver, but got \n%#v",
+			source["Resolver"])
 	}
 
 	astLoc := p.Info.FieldASTs[0].GetLoc()
@@ -75,9 +80,9 @@ func Resolve(p graphql.ResolveParams) (interface{}, error) {
 	}
 
 	// Log the request
-	source, _ := p.Source.(map[string]interface{})
-	requestsLog := source["RequestsLog"].(RequestsLog)
-	requestsLog.Register(telemetry.TypeGQL, telemetry.NetworkQueryMeta)
+	// source, _ := p.Source.(map[string]interface{})
+	// requestsLog := source["RequestsLog"].(RequestsLog)
+	// requestsLog.Register(telemetry.TypeGQL, telemetry.NetworkQueryMeta)
 
 	return local["GetMeta"], nil
 }
