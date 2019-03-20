@@ -48,7 +48,7 @@ func AssertGraphQL(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, query st
 		if !ok {
 			t.Fatalf("Expected the query to succeed, but failed due to: %#v", err)
 		}
-		t.Fatalf("Expected the query to succeed, but failed with unprocessable entity: %s", parsedErr.Payload.Error)
+		t.Fatalf("Expected the query to succeed, but failed with unprocessable entity: %v", parsedErr.Payload.Error)
 	}
 
 	if len(response.Errors) != 0 {

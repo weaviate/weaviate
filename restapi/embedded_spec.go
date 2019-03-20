@@ -490,14 +490,14 @@ func init() {
         ]
       }
     },
-    "/actions/{actionId}/properties/{propertyName}": {
+    "/actions/{actionId}/references/{propertyName}": {
       "put": {
         "description": "Replace all references to a class-property.",
         "tags": [
           "actions"
         ],
         "summary": "Replace all references to a class-property.",
-        "operationId": "weaviate.actions.properties.update",
+        "operationId": "weaviate.actions.references.update",
         "parameters": [
           {
             "type": "string",
@@ -558,7 +558,7 @@ func init() {
           "actions"
         ],
         "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
-        "operationId": "weaviate.actions.properties.create",
+        "operationId": "weaviate.actions.references.create",
         "parameters": [
           {
             "type": "string",
@@ -619,7 +619,7 @@ func init() {
           "actions"
         ],
         "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
-        "operationId": "weaviate.actions.properties.delete",
+        "operationId": "weaviate.actions.references.delete",
         "parameters": [
           {
             "type": "string",
@@ -698,10 +698,6 @@ func init() {
                     "$ref": "#/definitions/ActionCreate"
                   }
                 },
-                "async": {
-                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Action. You will receive this response before the persistence of the data is confirmed. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the persistence of the data is confirmed. The value of ` + "`" + `async` + "`" + ` defaults to false.",
-                  "type": "boolean"
-                },
                 "fields": {
                   "description": "Define which fields need to be returned. Default value is ALL",
                   "type": "array",
@@ -724,7 +720,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Actions created.",
+            "description": "Request succeeded, see response body to get detailed information about each batched item.",
             "schema": {
               "type": "array",
               "items": {
@@ -732,12 +728,62 @@ func init() {
               }
             }
           },
-          "202": {
-            "description": "Successfully received.",
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Insufficient permissions."
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.add"
+        ]
+      }
+    },
+    "/batching/references": {
+      "post": {
+        "description": "Register cross-references between any class items (things or actions) in bulk.",
+        "tags": [
+          "batching",
+          "references"
+        ],
+        "summary": "Creates new Cross-References between arbitrary classes in bulk.",
+        "operationId": "weaviate.batching.references.create",
+        "parameters": [
+          {
+            "description": "A list of references to be batched. The ideal size depends on the used database connector. Please see the documentation of the used connector for help",
+            "name": "body",
+            "in": "body",
+            "required": true,
             "schema": {
               "type": "array",
               "items": {
-                "$ref": "#/definitions/ActionsGetResponse"
+                "$ref": "#/definitions/BatchReference"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Request Successful. Warning: A successful request does not guarantuee that every batched reference was successfully created. Inspect the response body to see which references succeeded and which failed.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/BatchReferenceResponse"
               }
             }
           },
@@ -784,10 +830,6 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
-                "async": {
-                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Thing. You will receive this response before the persistence of the data is confirmed. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the persistence of the data is confirmed. The value of ` + "`" + `async` + "`" + ` defaults to false.",
-                  "type": "boolean"
-                },
                 "fields": {
                   "description": "Define which fields need to be returned. Default value is ALL",
                   "type": "array",
@@ -816,16 +858,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Things created.",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/ThingsGetResponse"
-              }
-            }
-          },
-          "202": {
-            "description": "Successfully received.",
+            "description": "Request succeeded, see response body to get detailed information about each batched item.",
             "schema": {
               "type": "array",
               "items": {
@@ -2230,14 +2263,14 @@ func init() {
         ]
       }
     },
-    "/things/{thingId}/properties/{propertyName}": {
+    "/things/{thingId}/references/{propertyName}": {
       "put": {
         "description": "Replace all references to a class-property.",
         "tags": [
           "things"
         ],
         "summary": "Replace all references to a class-property.",
-        "operationId": "weaviate.things.properties.update",
+        "operationId": "weaviate.things.references.update",
         "parameters": [
           {
             "type": "string",
@@ -2298,7 +2331,7 @@ func init() {
           "things"
         ],
         "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
-        "operationId": "weaviate.things.properties.create",
+        "operationId": "weaviate.things.references.create",
         "parameters": [
           {
             "type": "string",
@@ -2359,7 +2392,7 @@ func init() {
           "things"
         ],
         "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
-        "operationId": "weaviate.things.properties.delete",
+        "operationId": "weaviate.things.references.delete",
         "parameters": [
           {
             "type": "string",
@@ -2592,6 +2625,52 @@ func init() {
           "format": "int64"
         }
       }
+    },
+    "BatchReference": {
+      "properties": {
+        "from": {
+          "description": "Long-form beacon-style URI to identify the source of the cross-ref including the property name. Should be in the form of weaviate://localhost/\u003ckinds\u003e/\u003cuuid\u003e/\u003cclassName\u003e/\u003cpropertyName\u003e, where \u003ckinds\u003e must be one of 'actions', 'things' and \u003cclassName\u003e and \u003cpropertyName\u003e must represent the cross-ref property of source class to be used.",
+          "type": "string",
+          "format": "uri",
+          "example": "weaviate://localhost/things/Zoo/a5d09582-4239-4702-81c9-92a6e0122bb4/hasAnimals"
+        },
+        "to": {
+          "description": "Short-form URI to point to the cross-ref. Should be in the form of weaviate://localhost/things/\u003cuuid\u003e for the example of a local cross-ref to a thing",
+          "type": "string",
+          "format": "uri",
+          "example": "weaviate://localhost/things/97525810-a9a5-4eb0-858a-71449aeb007f"
+        }
+      }
+    },
+    "BatchReferenceResponse": {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/definitions/BatchReference"
+        },
+        {
+          "properties": {
+            "result": {
+              "description": "Results for this specific reference.",
+              "format": "object",
+              "properties": {
+                "errors": {
+                  "$ref": "#/definitions/ErrorResponse"
+                },
+                "status": {
+                  "type": "string",
+                  "default": "SUCCESS",
+                  "enum": [
+                    "SUCCESS",
+                    "PENDING",
+                    "FAILED"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
     },
     "C11yNearestNeighbors": {
       "description": "C11y function to show the nearest neighbors to a word.",
@@ -3731,14 +3810,14 @@ func init() {
         ]
       }
     },
-    "/actions/{actionId}/properties/{propertyName}": {
+    "/actions/{actionId}/references/{propertyName}": {
       "put": {
         "description": "Replace all references to a class-property.",
         "tags": [
           "actions"
         ],
         "summary": "Replace all references to a class-property.",
-        "operationId": "weaviate.actions.properties.update",
+        "operationId": "weaviate.actions.references.update",
         "parameters": [
           {
             "type": "string",
@@ -3799,7 +3878,7 @@ func init() {
           "actions"
         ],
         "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
-        "operationId": "weaviate.actions.properties.create",
+        "operationId": "weaviate.actions.references.create",
         "parameters": [
           {
             "type": "string",
@@ -3860,7 +3939,7 @@ func init() {
           "actions"
         ],
         "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
-        "operationId": "weaviate.actions.properties.delete",
+        "operationId": "weaviate.actions.references.delete",
         "parameters": [
           {
             "type": "string",
@@ -3939,10 +4018,6 @@ func init() {
                     "$ref": "#/definitions/ActionCreate"
                   }
                 },
-                "async": {
-                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Action. You will receive this response before the persistence of the data is confirmed. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the persistence of the data is confirmed. The value of ` + "`" + `async` + "`" + ` defaults to false.",
-                  "type": "boolean"
-                },
                 "fields": {
                   "description": "Define which fields need to be returned. Default value is ALL",
                   "type": "array",
@@ -3965,7 +4040,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Actions created.",
+            "description": "Request succeeded, see response body to get detailed information about each batched item.",
             "schema": {
               "type": "array",
               "items": {
@@ -3973,12 +4048,62 @@ func init() {
               }
             }
           },
-          "202": {
-            "description": "Successfully received.",
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Insufficient permissions."
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.add"
+        ]
+      }
+    },
+    "/batching/references": {
+      "post": {
+        "description": "Register cross-references between any class items (things or actions) in bulk.",
+        "tags": [
+          "batching",
+          "references"
+        ],
+        "summary": "Creates new Cross-References between arbitrary classes in bulk.",
+        "operationId": "weaviate.batching.references.create",
+        "parameters": [
+          {
+            "description": "A list of references to be batched. The ideal size depends on the used database connector. Please see the documentation of the used connector for help",
+            "name": "body",
+            "in": "body",
+            "required": true,
             "schema": {
               "type": "array",
               "items": {
-                "$ref": "#/definitions/ActionsGetResponse"
+                "$ref": "#/definitions/BatchReference"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Request Successful. Warning: A successful request does not guarantuee that every batched reference was successfully created. Inspect the response body to see which references succeeded and which failed.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/BatchReferenceResponse"
               }
             }
           },
@@ -4025,10 +4150,6 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
-                "async": {
-                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Thing. You will receive this response before the persistence of the data is confirmed. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the persistence of the data is confirmed. The value of ` + "`" + `async` + "`" + ` defaults to false.",
-                  "type": "boolean"
-                },
                 "fields": {
                   "description": "Define which fields need to be returned. Default value is ALL",
                   "type": "array",
@@ -4057,16 +4178,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Things created.",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/ThingsGetResponse"
-              }
-            }
-          },
-          "202": {
-            "description": "Successfully received.",
+            "description": "Request succeeded, see response body to get detailed information about each batched item.",
             "schema": {
               "type": "array",
               "items": {
@@ -5479,14 +5591,14 @@ func init() {
         ]
       }
     },
-    "/things/{thingId}/properties/{propertyName}": {
+    "/things/{thingId}/references/{propertyName}": {
       "put": {
         "description": "Replace all references to a class-property.",
         "tags": [
           "things"
         ],
         "summary": "Replace all references to a class-property.",
-        "operationId": "weaviate.things.properties.update",
+        "operationId": "weaviate.things.references.update",
         "parameters": [
           {
             "type": "string",
@@ -5547,7 +5659,7 @@ func init() {
           "things"
         ],
         "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
-        "operationId": "weaviate.things.properties.create",
+        "operationId": "weaviate.things.references.create",
         "parameters": [
           {
             "type": "string",
@@ -5608,7 +5720,7 @@ func init() {
           "things"
         ],
         "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
-        "operationId": "weaviate.things.properties.delete",
+        "operationId": "weaviate.things.references.delete",
         "parameters": [
           {
             "type": "string",
@@ -5841,6 +5953,52 @@ func init() {
           "format": "int64"
         }
       }
+    },
+    "BatchReference": {
+      "properties": {
+        "from": {
+          "description": "Long-form beacon-style URI to identify the source of the cross-ref including the property name. Should be in the form of weaviate://localhost/\u003ckinds\u003e/\u003cuuid\u003e/\u003cclassName\u003e/\u003cpropertyName\u003e, where \u003ckinds\u003e must be one of 'actions', 'things' and \u003cclassName\u003e and \u003cpropertyName\u003e must represent the cross-ref property of source class to be used.",
+          "type": "string",
+          "format": "uri",
+          "example": "weaviate://localhost/things/Zoo/a5d09582-4239-4702-81c9-92a6e0122bb4/hasAnimals"
+        },
+        "to": {
+          "description": "Short-form URI to point to the cross-ref. Should be in the form of weaviate://localhost/things/\u003cuuid\u003e for the example of a local cross-ref to a thing",
+          "type": "string",
+          "format": "uri",
+          "example": "weaviate://localhost/things/97525810-a9a5-4eb0-858a-71449aeb007f"
+        }
+      }
+    },
+    "BatchReferenceResponse": {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/definitions/BatchReference"
+        },
+        {
+          "properties": {
+            "result": {
+              "description": "Results for this specific reference.",
+              "format": "object",
+              "properties": {
+                "errors": {
+                  "$ref": "#/definitions/ErrorResponse"
+                },
+                "status": {
+                  "type": "string",
+                  "default": "SUCCESS",
+                  "enum": [
+                    "SUCCESS",
+                    "PENDING",
+                    "FAILED"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
     },
     "C11yNearestNeighbors": {
       "description": "C11y function to show the nearest neighbors to a word.",
