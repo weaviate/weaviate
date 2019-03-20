@@ -39,7 +39,7 @@ WeaviateBatchingActionsCreate creates new actions based on an action template as
 
 Register new Actions in bulk. Given meta-data and schema values are validated.
 */
-func (a *Client) WeaviateBatchingActionsCreate(params *WeaviateBatchingActionsCreateParams) (*WeaviateBatchingActionsCreateOK, *WeaviateBatchingActionsCreateAccepted, error) {
+func (a *Client) WeaviateBatchingActionsCreate(params *WeaviateBatchingActionsCreateParams) (*WeaviateBatchingActionsCreateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateBatchingActionsCreateParams()
@@ -58,15 +58,9 @@ func (a *Client) WeaviateBatchingActionsCreate(params *WeaviateBatchingActionsCr
 		Client:             params.HTTPClient,
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	switch value := result.(type) {
-	case *WeaviateBatchingActionsCreateOK:
-		return value, nil, nil
-	case *WeaviateBatchingActionsCreateAccepted:
-		return nil, value, nil
-	}
-	return nil, nil, nil
+	return result.(*WeaviateBatchingActionsCreateOK), nil
 
 }
 
@@ -105,7 +99,7 @@ WeaviateBatchingThingsCreate creates new things based on a thing template as a b
 
 Register new Things in bulk. Provided meta-data and schema values are validated.
 */
-func (a *Client) WeaviateBatchingThingsCreate(params *WeaviateBatchingThingsCreateParams) (*WeaviateBatchingThingsCreateOK, *WeaviateBatchingThingsCreateAccepted, error) {
+func (a *Client) WeaviateBatchingThingsCreate(params *WeaviateBatchingThingsCreateParams) (*WeaviateBatchingThingsCreateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateBatchingThingsCreateParams()
@@ -124,15 +118,9 @@ func (a *Client) WeaviateBatchingThingsCreate(params *WeaviateBatchingThingsCrea
 		Client:             params.HTTPClient,
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	switch value := result.(type) {
-	case *WeaviateBatchingThingsCreateOK:
-		return value, nil, nil
-	case *WeaviateBatchingThingsCreateAccepted:
-		return nil, value, nil
-	}
-	return nil, nil, nil
+	return result.(*WeaviateBatchingThingsCreateOK), nil
 
 }
 
