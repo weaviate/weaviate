@@ -78,13 +78,21 @@ func NewWeaviateSchemaActionsCreateOK() *WeaviateSchemaActionsCreateOK {
 Added the new Action class to the ontology.
 */
 type WeaviateSchemaActionsCreateOK struct {
+	Payload *models.SemanticSchemaClass
 }
 
 func (o *WeaviateSchemaActionsCreateOK) Error() string {
-	return fmt.Sprintf("[POST /schema/actions][%d] weaviateSchemaActionsCreateOK ", 200)
+	return fmt.Sprintf("[POST /schema/actions][%d] weaviateSchemaActionsCreateOK  %+v", 200, o.Payload)
 }
 
 func (o *WeaviateSchemaActionsCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.SemanticSchemaClass)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }
