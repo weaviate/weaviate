@@ -26,6 +26,7 @@ func (i *ItemIndex) IsPresent() bool {
 // Contextionary is the API to decouple the K-nn interface that is needed for
 // Weaviate from a concrete implementation.
 type Contextionary interface {
+
 	// Return the number of items that is stored in the index.
 	GetNumberOfItems() int
 

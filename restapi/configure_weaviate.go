@@ -25,14 +25,16 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/clientv3/concurrency"
 	"github.com/creativesoftwarefdn/weaviate/restapi/batch"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/graphql"
-	"github.com/creativesoftwarefdn/weaviate/restapi/operations/knowledge_tools"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/meta"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/p2_p"
 	"github.com/creativesoftwarefdn/weaviate/restapi/state"
@@ -133,6 +135,53 @@ func init() {
 	}
 }
 
+// Splits a CamelCase string to an array
+// Based on: https://github.com/fatih/camelcase
+func split(src string) (entries []string) {
+	// don't split invalid utf8
+	if !utf8.ValidString(src) {
+		return []string{src}
+	}
+	entries = []string{}
+	var runes [][]rune
+	lastClass := 0
+	class := 0
+	// split into fields based on class of unicode character
+	for _, r := range src {
+		switch true {
+		case unicode.IsLower(r):
+			class = 1
+		case unicode.IsUpper(r):
+			class = 2
+		case unicode.IsDigit(r):
+			class = 3
+		default:
+			class = 4
+		}
+		if class == lastClass {
+			runes[len(runes)-1] = append(runes[len(runes)-1], r)
+		} else {
+			runes = append(runes, []rune{r})
+		}
+		lastClass = class
+	}
+	// handle upper case -> lower case sequences, e.g.
+	// "PDFL", "oader" -> "PDF", "Loader"
+	for i := 0; i < len(runes)-1; i++ {
+		if unicode.IsUpper(runes[i][0]) && unicode.IsLower(runes[i+1][0]) {
+			runes[i+1] = append([]rune{runes[i][len(runes[i])-1]}, runes[i+1]...)
+			runes[i] = runes[i][:len(runes[i])-1]
+		}
+	}
+	// construct []string from results
+	for _, s := range runes {
+		if len(s) > 0 {
+			entries = append(entries, strings.ToLower(string(s)))
+		}
+	}
+	return
+}
+
 // getLimit returns the maximized limit
 func getLimit(paramMaxResults *int64) int {
 	maxResults := serverConfig.Environment.Limit
@@ -203,6 +252,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupThingsHandlers(api)
 	setupActionsHandlers(api)
 	setupBatchHandlers(api)
+	setupC11yHandlers(api)
 
 	api.MetaWeaviateMetaGetHandler = meta.WeaviateMetaGetHandlerFunc(func(params meta.WeaviateMetaGetParams) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
@@ -348,13 +398,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		return graphql.NewWeaviateGraphqlBatchOK().WithPayload(batchedRequestResponse)
-	})
-
-	/*
-	 * HANDLE KNOWLEDGE TOOLS
-	 */
-	api.KnowledgeToolsWeaviateToolsMapHandler = knowledge_tools.WeaviateToolsMapHandlerFunc(func(params knowledge_tools.WeaviateToolsMapParams) middleware.Responder {
-		return middleware.NotImplemented("operation knowledge_tools.WeaviateToolsMap has not yet been implemented")
 	})
 
 	api.ServerShutdown = func() {}
@@ -623,6 +666,11 @@ func configureTLS(tlsConfig *tls.Config) {
 	// Make all necessary changes to the TLS configuration here.
 }
 
+func timeTillDeadline(ctx context.Context) time.Duration {
+	dl, _ := ctx.Deadline()
+	return time.Until(dl)
+}
+
 // As soon as server is initialized but not run yet, this function will be called.
 // If you need to modify a config, store server instance to stop it individually later, this is the place.
 // This function can be called multiple times, depending on the number of serving schemes.
@@ -636,17 +684,20 @@ func configureServer(s *http.Server, scheme, addr string) {
 	ctx := context.Background()
 	// The timeout is arbitrary we have to adjust it as we go along, if we
 	// realize it is to big/small
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 
 	// Create message service
 	messaging = &messages.Messaging{}
 	appState.Messaging = messaging
 
+	messaging.InfoMessage(fmt.Sprintf("created the context, nothing done yet, time left is: %s", timeTillDeadline(ctx)))
+
 	// Load the config using the flags
 	serverConfig = &config.WeaviateConfig{}
 	appState.ServerConfig = serverConfig
 	err := serverConfig.LoadConfig(connectorOptionGroup, messaging)
+	messaging.InfoMessage(fmt.Sprintf("loaded the config, time left is: %s", timeTillDeadline(ctx)))
 
 	// Add properties to the config
 	serverConfig.Hostname = addr
@@ -658,11 +709,14 @@ func configureServer(s *http.Server, scheme, addr string) {
 	}
 
 	loadContextionary()
+	messaging.InfoMessage(fmt.Sprintf("loaded the contextionary, time left is: %s", timeTillDeadline(ctx)))
 
 	connectToNetwork()
+	messaging.InfoMessage(fmt.Sprintf("connected to network, time left is: %s", timeTillDeadline(ctx)))
 
 	// Connect to MQTT via Broker
 	weaviateBroker.ConnectToMqtt(serverConfig.Environment.Broker.Host, serverConfig.Environment.Broker.Port)
+	messaging.InfoMessage(fmt.Sprintf("connected to broker, time left is: %s", timeTillDeadline(ctx)))
 
 	// Create the database connector usint the config
 	err, dbConnector := dblisting.NewConnector(serverConfig.Environment.Database.Name, serverConfig.Environment.Database.DatabaseConfig, serverConfig.Environment)
@@ -670,6 +724,8 @@ func configureServer(s *http.Server, scheme, addr string) {
 	if err != nil {
 		messaging.ExitError(78, err.Error())
 	}
+
+	messaging.InfoMessage(fmt.Sprintf("created db connector, time left is: %s", timeTillDeadline(ctx)))
 
 	// parse config store URL
 	configURL := serverConfig.Environment.ConfigurationStorage.URL
@@ -684,15 +740,20 @@ func configureServer(s *http.Server, scheme, addr string) {
 		log.Fatal(err)
 	}
 
+	messaging.InfoMessage(fmt.Sprintf("created an etcd client, time left is: %s", timeTillDeadline(ctx)))
+
 	s1, err := concurrency.NewSession(etcdClient)
 	if err != nil {
 		log.Fatal(err)
 	}
+	messaging.InfoMessage(fmt.Sprintf("created an etcd session, time left is: %s", timeTillDeadline(ctx)))
 
 	manager, err := etcdSchemaManager.New(ctx, etcdClient, dbConnector, network)
 	if err != nil {
 		messaging.ExitError(78, fmt.Sprintf("Could not initialize local database state: %v", err))
 	}
+
+	messaging.InfoMessage(fmt.Sprintf("initialized the schema, time left is: %s", timeTillDeadline(ctx)))
 
 	manager.RegisterSchemaUpdateCallback(updateSchemaCallback)
 
@@ -788,19 +849,7 @@ func (s *schemaGetter) Schema() (schema.Schema, error) {
 // The middleware executes after routing but before authentication, binding and validation
 func setupMiddlewares(handler http.Handler) http.Handler {
 	// Rewrite / workaround because of issue with handling two API keys
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		kth := keyTokenHeader{
-			Key:   strfmt.UUID(r.Header.Get("X-API-KEY")),
-			Token: strfmt.UUID(r.Header.Get("X-API-TOKEN")),
-		}
-		jkth, _ := json.Marshal(kth)
-		r.Header.Set("X-API-KEY", string(jkth))
-		r.Header.Set("X-API-TOKEN", string(jkth))
-
-		messaging.InfoMessage("generated both headers X-API-KEY and X-API-TOKEN")
-
-		handler.ServeHTTP(w, r)
-	})
+	return handler
 }
 
 // The middleware configuration happens before anything, this middleware also applies to serving the swagger.json document.
