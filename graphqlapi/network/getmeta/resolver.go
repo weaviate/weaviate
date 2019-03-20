@@ -18,6 +18,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/common"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
 	"github.com/graphql-go/graphql"
 )
 
@@ -28,14 +29,14 @@ type Params struct {
 	TargetInstance string
 }
 
-type Resolver interface {
-	ProxyGetMetaInstance(info Params) (*models.GraphQLResponse, error)
-}
-
 // RequestsLog is a local abstraction on the RequestsLog that needs to be
-// provided to the graphQL API in order to log Network.GetMeta queries.
+// provided to the graphQL API in order to log Network.Get queries.
 type RequestsLog interface {
 	Register(requestType string, identifier string)
+}
+
+type Resolver interface {
+	ProxyGetMetaInstance(info Params) (*models.GraphQLResponse, error)
 }
 
 // FiltersAndResolver is a helper tuple to bubble data through the resolvers.
@@ -52,8 +53,8 @@ func Resolve(p graphql.ResolveParams) (interface{}, error) {
 
 	resolver, ok := source["NetworkResolver"].(Resolver)
 	if !ok {
-		return nil, fmt.Errorf("expected source to contain a NetworkResolver, but got \n%#v",
-			source["Resolver"])
+		return nil, fmt.Errorf("expected source['NetworkResolver'] to be a Resolver, but was \n%#v",
+			source["NetworkResolver"])
 	}
 
 	astLoc := p.Info.FieldASTs[0].GetLoc()
@@ -79,10 +80,12 @@ func Resolve(p graphql.ResolveParams) (interface{}, error) {
 			graphQLResponse.Data["Local"])
 	}
 
-	// Log the request
-	// source, _ := p.Source.(map[string]interface{})
-	// requestsLog := source["RequestsLog"].(RequestsLog)
-	// requestsLog.Register(telemetry.TypeGQL, telemetry.NetworkQueryMeta)
+	requestslog, ok := source["RequestsLog"].(RequestsLog)
+	if !ok {
+		return nil, fmt.Errorf("expected source['RequestsLog'] to be a RequestsLog, but was \n%#v",
+			source["RequestsLog"])
+	}
+	requestslog.Register(telemetry.TypeGQL, telemetry.NetworkQueryMeta)
 
 	return local["GetMeta"], nil
 }
