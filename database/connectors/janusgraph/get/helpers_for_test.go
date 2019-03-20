@@ -28,7 +28,7 @@ import (
 
 type fakeNameSource struct{}
 
-func (f *fakeNameSource) GetMappedPropertyName(className schema.ClassName,
+func (f *fakeNameSource) MustGetMappedPropertyName(className schema.ClassName,
 	propName schema.PropertyName) state.MappedPropertyName {
 	switch className {
 	case "City":
@@ -96,7 +96,7 @@ func (f *fakeNameSource) GetClassNameFromMapped(className state.MappedClassName)
 	panic(fmt.Sprintf("fake name source does not contain a fake for '%s'", className))
 }
 
-func (f *fakeNameSource) GetMappedClassName(className schema.ClassName) state.MappedClassName {
+func (f *fakeNameSource) MustGetMappedClassName(className schema.ClassName) state.MappedClassName {
 	switch className {
 	case schema.ClassName("City"):
 		return state.MappedClassName("class_18")

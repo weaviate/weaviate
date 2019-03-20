@@ -84,9 +84,6 @@ type WeaviateBatchingActionsCreateBody struct {
 	// actions
 	Actions []*models.ActionCreate `json:"actions"`
 
-	// If `async` is true, return a 202 with the new ID of the Action. You will receive this response before the persistence of the data is confirmed. If `async` is false, you will receive confirmation after the persistence of the data is confirmed. The value of `async` defaults to false.
-	Async bool `json:"async,omitempty"`
-
 	// Define which fields need to be returned. Default value is ALL
 	Fields []*string `json:"fields"`
 }

@@ -26,7 +26,7 @@ import (
 // WeaviateBatchingActionsCreateOKCode is the HTTP code returned for type WeaviateBatchingActionsCreateOK
 const WeaviateBatchingActionsCreateOKCode int = 200
 
-/*WeaviateBatchingActionsCreateOK Actions created.
+/*WeaviateBatchingActionsCreateOK Request succeeded, see response body to get detailed information about each batched item.
 
 swagger:response weaviateBatchingActionsCreateOK
 */
@@ -59,53 +59,6 @@ func (o *WeaviateBatchingActionsCreateOK) SetPayload(payload []*models.ActionsGe
 func (o *WeaviateBatchingActionsCreateOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(200)
-	payload := o.Payload
-	if payload == nil {
-		payload = make([]*models.ActionsGetResponse, 0, 50)
-	}
-
-	if err := producer.Produce(rw, payload); err != nil {
-		panic(err) // let the recovery middleware deal with this
-	}
-
-}
-
-// WeaviateBatchingActionsCreateAcceptedCode is the HTTP code returned for type WeaviateBatchingActionsCreateAccepted
-const WeaviateBatchingActionsCreateAcceptedCode int = 202
-
-/*WeaviateBatchingActionsCreateAccepted Successfully received.
-
-swagger:response weaviateBatchingActionsCreateAccepted
-*/
-type WeaviateBatchingActionsCreateAccepted struct {
-
-	/*
-	  In: Body
-	*/
-	Payload []*models.ActionsGetResponse `json:"body,omitempty"`
-}
-
-// NewWeaviateBatchingActionsCreateAccepted creates WeaviateBatchingActionsCreateAccepted with default headers values
-func NewWeaviateBatchingActionsCreateAccepted() *WeaviateBatchingActionsCreateAccepted {
-
-	return &WeaviateBatchingActionsCreateAccepted{}
-}
-
-// WithPayload adds the payload to the weaviate batching actions create accepted response
-func (o *WeaviateBatchingActionsCreateAccepted) WithPayload(payload []*models.ActionsGetResponse) *WeaviateBatchingActionsCreateAccepted {
-	o.Payload = payload
-	return o
-}
-
-// SetPayload sets the payload to the weaviate batching actions create accepted response
-func (o *WeaviateBatchingActionsCreateAccepted) SetPayload(payload []*models.ActionsGetResponse) {
-	o.Payload = payload
-}
-
-// WriteResponse to the client
-func (o *WeaviateBatchingActionsCreateAccepted) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.WriteHeader(202)
 	payload := o.Payload
 	if payload == nil {
 		payload = make([]*models.ActionsGetResponse, 0, 50)

@@ -42,8 +42,8 @@ func NewQuery(params *aggregate.Params, nameSource nameSource, typeSource typeSo
 }
 
 type nameSource interface {
-	GetMappedPropertyName(className schema.ClassName, propName schema.PropertyName) state.MappedPropertyName
-	GetMappedClassName(className schema.ClassName) state.MappedClassName
+	MustGetMappedPropertyName(className schema.ClassName, propName schema.PropertyName) state.MappedPropertyName
+	MustGetMappedClassName(className schema.ClassName) state.MappedClassName
 }
 
 type typeSource interface {
@@ -179,7 +179,7 @@ func (b *Query) mappedPropertyName(className schema.ClassName,
 		return string(propName)
 	}
 
-	return string(b.nameSource.GetMappedPropertyName(className, propName))
+	return string(b.nameSource.MustGetMappedPropertyName(className, propName))
 }
 
 func (b *Query) mappedClassName(className schema.ClassName) string {
@@ -187,7 +187,7 @@ func (b *Query) mappedClassName(className schema.ClassName) string {
 		return string(className)
 	}
 
-	return string(b.nameSource.GetMappedClassName(className))
+	return string(b.nameSource.MustGetMappedClassName(className))
 }
 
 func untitle(propName schema.PropertyName) schema.PropertyName {

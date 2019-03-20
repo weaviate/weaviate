@@ -47,13 +47,6 @@ func (o *WeaviateBatchingThingsCreateReader) ReadResponse(response runtime.Clien
 		}
 		return result, nil
 
-	case 202:
-		result := NewWeaviateBatchingThingsCreateAccepted()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return result, nil
-
 	case 401:
 		result := NewWeaviateBatchingThingsCreateUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -94,7 +87,7 @@ func NewWeaviateBatchingThingsCreateOK() *WeaviateBatchingThingsCreateOK {
 
 /*WeaviateBatchingThingsCreateOK handles this case with default header values.
 
-Things created.
+Request succeeded, see response body to get detailed information about each batched item.
 */
 type WeaviateBatchingThingsCreateOK struct {
 	Payload []*models.ThingsGetResponse
@@ -105,33 +98,6 @@ func (o *WeaviateBatchingThingsCreateOK) Error() string {
 }
 
 func (o *WeaviateBatchingThingsCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	// response payload
-	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
-		return err
-	}
-
-	return nil
-}
-
-// NewWeaviateBatchingThingsCreateAccepted creates a WeaviateBatchingThingsCreateAccepted with default headers values
-func NewWeaviateBatchingThingsCreateAccepted() *WeaviateBatchingThingsCreateAccepted {
-	return &WeaviateBatchingThingsCreateAccepted{}
-}
-
-/*WeaviateBatchingThingsCreateAccepted handles this case with default header values.
-
-Successfully received.
-*/
-type WeaviateBatchingThingsCreateAccepted struct {
-	Payload []*models.ThingsGetResponse
-}
-
-func (o *WeaviateBatchingThingsCreateAccepted) Error() string {
-	return fmt.Sprintf("[POST /batching/things][%d] weaviateBatchingThingsCreateAccepted  %+v", 202, o.Payload)
-}
-
-func (o *WeaviateBatchingThingsCreateAccepted) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
@@ -245,9 +211,6 @@ func (o *WeaviateBatchingThingsCreateInternalServerError) readResponse(response 
 swagger:model WeaviateBatchingThingsCreateBody
 */
 type WeaviateBatchingThingsCreateBody struct {
-
-	// If `async` is true, return a 202 with the new ID of the Thing. You will receive this response before the persistence of the data is confirmed. If `async` is false, you will receive confirmation after the persistence of the data is confirmed. The value of `async` defaults to false.
-	Async bool `json:"async,omitempty"`
 
 	// Define which fields need to be returned. Default value is ALL
 	Fields []*string `json:"fields"`

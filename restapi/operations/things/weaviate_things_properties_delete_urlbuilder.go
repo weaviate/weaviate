@@ -53,7 +53,7 @@ func (o *WeaviateThingsPropertiesDeleteURL) SetBasePath(bp string) {
 func (o *WeaviateThingsPropertiesDeleteURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/things/{thingId}/properties/{propertyName}"
+	var _path = "/things/{thingId}/references/{propertyName}"
 
 	propertyName := o.PropertyName
 	if propertyName != "" {

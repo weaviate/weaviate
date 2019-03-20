@@ -332,6 +332,12 @@ func (q *Query) FromRef(reference string) *Query {
 	return extend_query(q, `.from("%s")`, EscapeString(reference))
 }
 
+// FromQuery can be used to specify the source of an edge
+func (q *Query) FromQuery(query *Query) *Query {
+	return extend_query(q, `.from(%s)`, query.String())
+}
+
+// ToQuery can be used to specify the target of an edge
 func (q *Query) ToQuery(query *Query) *Query {
 	return extend_query(q, `.to(%s)`, query.String())
 }

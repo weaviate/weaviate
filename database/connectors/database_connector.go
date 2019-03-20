@@ -54,6 +54,8 @@ type BaseConnector interface {
 	DeleteAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error
 	HistoryAction(ctx context.Context, UUID strfmt.UUID, history *models.ActionHistory) error
 	MoveToHistoryAction(ctx context.Context, action *models.Action, UUID strfmt.UUID, deleted bool) error
+
+	AddBatchReferences(ctx context.Context, references batchmodels.References) error
 }
 
 // DatabaseConnector is the interface that all DB-connectors should have

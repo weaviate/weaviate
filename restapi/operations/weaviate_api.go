@@ -78,20 +78,23 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		ActionsWeaviateActionsPatchHandler: actions.WeaviateActionsPatchHandlerFunc(func(params actions.WeaviateActionsPatchParams) middleware.Responder {
 			return middleware.NotImplemented("operation ActionsWeaviateActionsPatch has not yet been implemented")
 		}),
-		ActionsWeaviateActionsPropertiesCreateHandler: actions.WeaviateActionsPropertiesCreateHandlerFunc(func(params actions.WeaviateActionsPropertiesCreateParams) middleware.Responder {
-			return middleware.NotImplemented("operation ActionsWeaviateActionsPropertiesCreate has not yet been implemented")
+		ActionsWeaviateActionsReferencesCreateHandler: actions.WeaviateActionsReferencesCreateHandlerFunc(func(params actions.WeaviateActionsReferencesCreateParams) middleware.Responder {
+			return middleware.NotImplemented("operation ActionsWeaviateActionsReferencesCreate has not yet been implemented")
 		}),
-		ActionsWeaviateActionsPropertiesDeleteHandler: actions.WeaviateActionsPropertiesDeleteHandlerFunc(func(params actions.WeaviateActionsPropertiesDeleteParams) middleware.Responder {
-			return middleware.NotImplemented("operation ActionsWeaviateActionsPropertiesDelete has not yet been implemented")
+		ActionsWeaviateActionsReferencesDeleteHandler: actions.WeaviateActionsReferencesDeleteHandlerFunc(func(params actions.WeaviateActionsReferencesDeleteParams) middleware.Responder {
+			return middleware.NotImplemented("operation ActionsWeaviateActionsReferencesDelete has not yet been implemented")
 		}),
-		ActionsWeaviateActionsPropertiesUpdateHandler: actions.WeaviateActionsPropertiesUpdateHandlerFunc(func(params actions.WeaviateActionsPropertiesUpdateParams) middleware.Responder {
-			return middleware.NotImplemented("operation ActionsWeaviateActionsPropertiesUpdate has not yet been implemented")
+		ActionsWeaviateActionsReferencesUpdateHandler: actions.WeaviateActionsReferencesUpdateHandlerFunc(func(params actions.WeaviateActionsReferencesUpdateParams) middleware.Responder {
+			return middleware.NotImplemented("operation ActionsWeaviateActionsReferencesUpdate has not yet been implemented")
 		}),
 		ActionsWeaviateActionsValidateHandler: actions.WeaviateActionsValidateHandlerFunc(func(params actions.WeaviateActionsValidateParams) middleware.Responder {
 			return middleware.NotImplemented("operation ActionsWeaviateActionsValidate has not yet been implemented")
 		}),
 		WeaviateBatchingActionsCreateHandler: WeaviateBatchingActionsCreateHandlerFunc(func(params WeaviateBatchingActionsCreateParams) middleware.Responder {
 			return middleware.NotImplemented("operation WeaviateBatchingActionsCreate has not yet been implemented")
+		}),
+		WeaviateBatchingReferencesCreateHandler: WeaviateBatchingReferencesCreateHandlerFunc(func(params WeaviateBatchingReferencesCreateParams) middleware.Responder {
+			return middleware.NotImplemented("operation WeaviateBatchingReferencesCreate has not yet been implemented")
 		}),
 		WeaviateBatchingThingsCreateHandler: WeaviateBatchingThingsCreateHandlerFunc(func(params WeaviateBatchingThingsCreateParams) middleware.Responder {
 			return middleware.NotImplemented("operation WeaviateBatchingThingsCreate has not yet been implemented")
@@ -174,14 +177,14 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		ThingsWeaviateThingsPatchHandler: things.WeaviateThingsPatchHandlerFunc(func(params things.WeaviateThingsPatchParams) middleware.Responder {
 			return middleware.NotImplemented("operation ThingsWeaviateThingsPatch has not yet been implemented")
 		}),
-		ThingsWeaviateThingsPropertiesCreateHandler: things.WeaviateThingsPropertiesCreateHandlerFunc(func(params things.WeaviateThingsPropertiesCreateParams) middleware.Responder {
-			return middleware.NotImplemented("operation ThingsWeaviateThingsPropertiesCreate has not yet been implemented")
+		ThingsWeaviateThingsReferencesCreateHandler: things.WeaviateThingsReferencesCreateHandlerFunc(func(params things.WeaviateThingsReferencesCreateParams) middleware.Responder {
+			return middleware.NotImplemented("operation ThingsWeaviateThingsReferencesCreate has not yet been implemented")
 		}),
-		ThingsWeaviateThingsPropertiesDeleteHandler: things.WeaviateThingsPropertiesDeleteHandlerFunc(func(params things.WeaviateThingsPropertiesDeleteParams) middleware.Responder {
-			return middleware.NotImplemented("operation ThingsWeaviateThingsPropertiesDelete has not yet been implemented")
+		ThingsWeaviateThingsReferencesDeleteHandler: things.WeaviateThingsReferencesDeleteHandlerFunc(func(params things.WeaviateThingsReferencesDeleteParams) middleware.Responder {
+			return middleware.NotImplemented("operation ThingsWeaviateThingsReferencesDelete has not yet been implemented")
 		}),
-		ThingsWeaviateThingsPropertiesUpdateHandler: things.WeaviateThingsPropertiesUpdateHandlerFunc(func(params things.WeaviateThingsPropertiesUpdateParams) middleware.Responder {
-			return middleware.NotImplemented("operation ThingsWeaviateThingsPropertiesUpdate has not yet been implemented")
+		ThingsWeaviateThingsReferencesUpdateHandler: things.WeaviateThingsReferencesUpdateHandlerFunc(func(params things.WeaviateThingsReferencesUpdateParams) middleware.Responder {
+			return middleware.NotImplemented("operation ThingsWeaviateThingsReferencesUpdate has not yet been implemented")
 		}),
 		ThingsWeaviateThingsUpdateHandler: things.WeaviateThingsUpdateHandlerFunc(func(params things.WeaviateThingsUpdateParams) middleware.Responder {
 			return middleware.NotImplemented("operation ThingsWeaviateThingsUpdate has not yet been implemented")
@@ -236,16 +239,18 @@ type WeaviateAPI struct {
 	ActionsWeaviateActionsListHandler actions.WeaviateActionsListHandler
 	// ActionsWeaviateActionsPatchHandler sets the operation handler for the weaviate actions patch operation
 	ActionsWeaviateActionsPatchHandler actions.WeaviateActionsPatchHandler
-	// ActionsWeaviateActionsPropertiesCreateHandler sets the operation handler for the weaviate actions properties create operation
-	ActionsWeaviateActionsPropertiesCreateHandler actions.WeaviateActionsPropertiesCreateHandler
-	// ActionsWeaviateActionsPropertiesDeleteHandler sets the operation handler for the weaviate actions properties delete operation
-	ActionsWeaviateActionsPropertiesDeleteHandler actions.WeaviateActionsPropertiesDeleteHandler
-	// ActionsWeaviateActionsPropertiesUpdateHandler sets the operation handler for the weaviate actions properties update operation
-	ActionsWeaviateActionsPropertiesUpdateHandler actions.WeaviateActionsPropertiesUpdateHandler
+	// ActionsWeaviateActionsReferencesCreateHandler sets the operation handler for the weaviate actions references create operation
+	ActionsWeaviateActionsReferencesCreateHandler actions.WeaviateActionsReferencesCreateHandler
+	// ActionsWeaviateActionsReferencesDeleteHandler sets the operation handler for the weaviate actions references delete operation
+	ActionsWeaviateActionsReferencesDeleteHandler actions.WeaviateActionsReferencesDeleteHandler
+	// ActionsWeaviateActionsReferencesUpdateHandler sets the operation handler for the weaviate actions references update operation
+	ActionsWeaviateActionsReferencesUpdateHandler actions.WeaviateActionsReferencesUpdateHandler
 	// ActionsWeaviateActionsValidateHandler sets the operation handler for the weaviate actions validate operation
 	ActionsWeaviateActionsValidateHandler actions.WeaviateActionsValidateHandler
 	// WeaviateBatchingActionsCreateHandler sets the operation handler for the weaviate batching actions create operation
 	WeaviateBatchingActionsCreateHandler WeaviateBatchingActionsCreateHandler
+	// WeaviateBatchingReferencesCreateHandler sets the operation handler for the weaviate batching references create operation
+	WeaviateBatchingReferencesCreateHandler WeaviateBatchingReferencesCreateHandler
 	// WeaviateBatchingThingsCreateHandler sets the operation handler for the weaviate batching things create operation
 	WeaviateBatchingThingsCreateHandler WeaviateBatchingThingsCreateHandler
 	// ContextionaryAPIWeaviateC11yCorpusGetHandler sets the operation handler for the weaviate c11y corpus get operation
@@ -300,12 +305,12 @@ type WeaviateAPI struct {
 	ThingsWeaviateThingsListHandler things.WeaviateThingsListHandler
 	// ThingsWeaviateThingsPatchHandler sets the operation handler for the weaviate things patch operation
 	ThingsWeaviateThingsPatchHandler things.WeaviateThingsPatchHandler
-	// ThingsWeaviateThingsPropertiesCreateHandler sets the operation handler for the weaviate things properties create operation
-	ThingsWeaviateThingsPropertiesCreateHandler things.WeaviateThingsPropertiesCreateHandler
-	// ThingsWeaviateThingsPropertiesDeleteHandler sets the operation handler for the weaviate things properties delete operation
-	ThingsWeaviateThingsPropertiesDeleteHandler things.WeaviateThingsPropertiesDeleteHandler
-	// ThingsWeaviateThingsPropertiesUpdateHandler sets the operation handler for the weaviate things properties update operation
-	ThingsWeaviateThingsPropertiesUpdateHandler things.WeaviateThingsPropertiesUpdateHandler
+	// ThingsWeaviateThingsReferencesCreateHandler sets the operation handler for the weaviate things references create operation
+	ThingsWeaviateThingsReferencesCreateHandler things.WeaviateThingsReferencesCreateHandler
+	// ThingsWeaviateThingsReferencesDeleteHandler sets the operation handler for the weaviate things references delete operation
+	ThingsWeaviateThingsReferencesDeleteHandler things.WeaviateThingsReferencesDeleteHandler
+	// ThingsWeaviateThingsReferencesUpdateHandler sets the operation handler for the weaviate things references update operation
+	ThingsWeaviateThingsReferencesUpdateHandler things.WeaviateThingsReferencesUpdateHandler
 	// ThingsWeaviateThingsUpdateHandler sets the operation handler for the weaviate things update operation
 	ThingsWeaviateThingsUpdateHandler things.WeaviateThingsUpdateHandler
 	// ThingsWeaviateThingsValidateHandler sets the operation handler for the weaviate things validate operation
@@ -405,16 +410,16 @@ func (o *WeaviateAPI) Validate() error {
 		unregistered = append(unregistered, "actions.WeaviateActionsPatchHandler")
 	}
 
-	if o.ActionsWeaviateActionsPropertiesCreateHandler == nil {
-		unregistered = append(unregistered, "actions.WeaviateActionsPropertiesCreateHandler")
+	if o.ActionsWeaviateActionsReferencesCreateHandler == nil {
+		unregistered = append(unregistered, "actions.WeaviateActionsReferencesCreateHandler")
 	}
 
-	if o.ActionsWeaviateActionsPropertiesDeleteHandler == nil {
-		unregistered = append(unregistered, "actions.WeaviateActionsPropertiesDeleteHandler")
+	if o.ActionsWeaviateActionsReferencesDeleteHandler == nil {
+		unregistered = append(unregistered, "actions.WeaviateActionsReferencesDeleteHandler")
 	}
 
-	if o.ActionsWeaviateActionsPropertiesUpdateHandler == nil {
-		unregistered = append(unregistered, "actions.WeaviateActionsPropertiesUpdateHandler")
+	if o.ActionsWeaviateActionsReferencesUpdateHandler == nil {
+		unregistered = append(unregistered, "actions.WeaviateActionsReferencesUpdateHandler")
 	}
 
 	if o.ActionsWeaviateActionsValidateHandler == nil {
@@ -423,6 +428,10 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.WeaviateBatchingActionsCreateHandler == nil {
 		unregistered = append(unregistered, "WeaviateBatchingActionsCreateHandler")
+	}
+
+	if o.WeaviateBatchingReferencesCreateHandler == nil {
+		unregistered = append(unregistered, "WeaviateBatchingReferencesCreateHandler")
 	}
 
 	if o.WeaviateBatchingThingsCreateHandler == nil {
@@ -533,16 +542,16 @@ func (o *WeaviateAPI) Validate() error {
 		unregistered = append(unregistered, "things.WeaviateThingsPatchHandler")
 	}
 
-	if o.ThingsWeaviateThingsPropertiesCreateHandler == nil {
-		unregistered = append(unregistered, "things.WeaviateThingsPropertiesCreateHandler")
+	if o.ThingsWeaviateThingsReferencesCreateHandler == nil {
+		unregistered = append(unregistered, "things.WeaviateThingsReferencesCreateHandler")
 	}
 
-	if o.ThingsWeaviateThingsPropertiesDeleteHandler == nil {
-		unregistered = append(unregistered, "things.WeaviateThingsPropertiesDeleteHandler")
+	if o.ThingsWeaviateThingsReferencesDeleteHandler == nil {
+		unregistered = append(unregistered, "things.WeaviateThingsReferencesDeleteHandler")
 	}
 
-	if o.ThingsWeaviateThingsPropertiesUpdateHandler == nil {
-		unregistered = append(unregistered, "things.WeaviateThingsPropertiesUpdateHandler")
+	if o.ThingsWeaviateThingsReferencesUpdateHandler == nil {
+		unregistered = append(unregistered, "things.WeaviateThingsReferencesUpdateHandler")
 	}
 
 	if o.ThingsWeaviateThingsUpdateHandler == nil {
@@ -692,17 +701,17 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/actions/{actionId}/properties/{propertyName}"] = actions.NewWeaviateActionsPropertiesCreate(o.context, o.ActionsWeaviateActionsPropertiesCreateHandler)
+	o.handlers["POST"]["/actions/{actionId}/references/{propertyName}"] = actions.NewWeaviateActionsReferencesCreate(o.context, o.ActionsWeaviateActionsReferencesCreateHandler)
 
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
-	o.handlers["DELETE"]["/actions/{actionId}/properties/{propertyName}"] = actions.NewWeaviateActionsPropertiesDelete(o.context, o.ActionsWeaviateActionsPropertiesDeleteHandler)
+	o.handlers["DELETE"]["/actions/{actionId}/references/{propertyName}"] = actions.NewWeaviateActionsReferencesDelete(o.context, o.ActionsWeaviateActionsReferencesDeleteHandler)
 
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
-	o.handlers["PUT"]["/actions/{actionId}/properties/{propertyName}"] = actions.NewWeaviateActionsPropertiesUpdate(o.context, o.ActionsWeaviateActionsPropertiesUpdateHandler)
+	o.handlers["PUT"]["/actions/{actionId}/references/{propertyName}"] = actions.NewWeaviateActionsReferencesUpdate(o.context, o.ActionsWeaviateActionsReferencesUpdateHandler)
 
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
@@ -713,6 +722,11 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/batching/actions"] = NewWeaviateBatchingActionsCreate(o.context, o.WeaviateBatchingActionsCreateHandler)
+
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/batching/references"] = NewWeaviateBatchingReferencesCreate(o.context, o.WeaviateBatchingReferencesCreateHandler)
 
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
@@ -852,17 +866,17 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/things/{thingId}/properties/{propertyName}"] = things.NewWeaviateThingsPropertiesCreate(o.context, o.ThingsWeaviateThingsPropertiesCreateHandler)
+	o.handlers["POST"]["/things/{thingId}/references/{propertyName}"] = things.NewWeaviateThingsReferencesCreate(o.context, o.ThingsWeaviateThingsReferencesCreateHandler)
 
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
-	o.handlers["DELETE"]["/things/{thingId}/properties/{propertyName}"] = things.NewWeaviateThingsPropertiesDelete(o.context, o.ThingsWeaviateThingsPropertiesDeleteHandler)
+	o.handlers["DELETE"]["/things/{thingId}/references/{propertyName}"] = things.NewWeaviateThingsReferencesDelete(o.context, o.ThingsWeaviateThingsReferencesDeleteHandler)
 
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
-	o.handlers["PUT"]["/things/{thingId}/properties/{propertyName}"] = things.NewWeaviateThingsPropertiesUpdate(o.context, o.ThingsWeaviateThingsPropertiesUpdateHandler)
+	o.handlers["PUT"]["/things/{thingId}/references/{propertyName}"] = things.NewWeaviateThingsReferencesUpdate(o.context, o.ThingsWeaviateThingsReferencesUpdateHandler)
 
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)

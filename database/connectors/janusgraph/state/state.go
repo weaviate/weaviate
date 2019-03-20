@@ -55,7 +55,7 @@ func (s *JanusGraphConnectorState) AddMappedClassName(className schema.ClassName
 }
 
 // Map a schema name to the internal janusgraph name
-func (s *JanusGraphConnectorState) GetMappedClassName(className schema.ClassName) MappedClassName {
+func (s *JanusGraphConnectorState) MustGetMappedClassName(className schema.ClassName) MappedClassName {
 	mappedName, exists := s.ClassMap[className]
 
 	if !exists {
@@ -101,20 +101,30 @@ func (s *JanusGraphConnectorState) AddMappedPropertyName(className schema.ClassN
 	return mappedName
 }
 
-// Map a schema name to the internal janusgraph name
-func (s *JanusGraphConnectorState) GetMappedPropertyName(className schema.ClassName, propName schema.PropertyName) MappedPropertyName {
+// GetMappedPropertyName or error
+func (s *JanusGraphConnectorState) GetMappedPropertyName(className schema.ClassName,
+	propName schema.PropertyName) (MappedPropertyName, error) {
 	propsOfClass, exists := s.PropertyMap[className]
-
 	if !exists {
-		panic(fmt.Sprintf("Fatal error; class name %v does not have mapped properties", className))
+		return "", fmt.Errorf("class name %v does not exist or does not have mapped properties", className)
 	}
 
 	mappedName, exists := propsOfClass[propName]
 	if !exists {
-		panic(fmt.Sprintf("Fatal error; property %v for class name %v is not mapped to a janus name", propName, className))
+		return "", fmt.Errorf("property %v for class name %v is not mapped to a janus name", propName, className)
 	}
 
-	return mappedName
+	return mappedName, nil
+}
+
+// MustGetMappedPropertyName panics if it can't get the name
+func (s *JanusGraphConnectorState) MustGetMappedPropertyName(className schema.ClassName, propName schema.PropertyName) MappedPropertyName {
+	name, err := s.GetMappedPropertyName(className, propName)
+	if err != nil {
+		panic(err)
+	}
+
+	return name
 }
 
 // Add mapping from class/property name to mapped property namej
