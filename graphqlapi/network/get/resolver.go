@@ -18,7 +18,6 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/common"
 	"github.com/creativesoftwarefdn/weaviate/models"
-	"github.com/creativesoftwarefdn/weaviate/telemetry"
 	"github.com/graphql-go/graphql"
 )
 
@@ -45,13 +44,17 @@ type FiltersAndResolver struct {
 }
 
 func NetworkGetInstanceResolve(p graphql.ResolveParams) (interface{}, error) {
-	filterAndResolver, ok := p.Source.(FiltersAndResolver)
+	source, ok := p.Source.(map[string]interface{})
 	if !ok {
-		return nil, fmt.Errorf("expected source to be a FilterAndResolver, but was \n%#v",
+		return nil, fmt.Errorf("expected source to be a map, but was \n%#v",
 			p.Source)
 	}
 
-	resolver := filterAndResolver.Resolver
+	resolver, ok := source["Resolver"].(Resolver)
+	if !ok {
+		return nil, fmt.Errorf("expected source map to have a usable Resolver, but got %#v", source["Resolver"])
+	}
+
 	astLoc := p.Info.FieldASTs[0].GetLoc()
 	rawSubQuery := astLoc.Source.Body[astLoc.Start:astLoc.End]
 	subQueryWithoutInstance, err := replaceInstanceName(p.Info.FieldName, rawSubQuery)
@@ -75,13 +78,12 @@ func NetworkGetInstanceResolve(p graphql.ResolveParams) (interface{}, error) {
 			graphQLResponse.Data["Local"])
 	}
 
-	// Log the request
-	source := p.Source.(map[string]interface{})
-	requestsLog, ok := source["RequestsLog"].(RequestsLog)
-	if !ok {
-		return nil, fmt.Errorf("expected source to contain a usable RequestsLog, but was %#v", source)
-	}
-	requestsLog.Register(telemetry.TypeGQL, telemetry.NetworkQuery)
+	// // Log the request
+	// requestsLog, ok := source["RequestsLog"].(RequestsLog)
+	// if !ok {
+	// 	return nil, fmt.Errorf("expected source to contain a usable RequestsLog, but was %#v", source)
+	// }
+	// requestsLog.Register(telemetry.TypeGQL, telemetry.NetworkQuery)
 
 	return local["Get"], nil
 }

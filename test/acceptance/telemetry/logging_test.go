@@ -16,6 +16,7 @@ package test
 import (
 	"testing"
 
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
 	"github.com/creativesoftwarefdn/weaviate/client/actions"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
@@ -68,40 +69,3 @@ func TestCanCreateAction(t *testing.T) {
 	})
 }
 
-func TestCanCreateAndGetAction(t *testing.T) {
-	t.Parallel()
-
-	actionTestString := "Test string"
-	actionTestInt := 1
-	actionTestBoolean := true
-	actionTestNumber := 1.337
-	actionTestDate := "2017-10-06T08:15:30+01:00"
-
-	actionID := assertCreateAction(t, "TestAction", map[string]interface{}{
-		"testString":   actionTestString,
-		"testInt":      actionTestInt,
-		"testBoolean":  actionTestBoolean,
-		"testNumber":   actionTestNumber,
-		"testDateTime": actionTestDate,
-	})
-	assertGetActionEventually(t, actionID)
-
-	// Now fetch the action
-	getResp, err := helper.Client(t).Actions.WeaviateActionsGet(actions.NewWeaviateActionsGetParams().WithActionID(actionID))
-
-	helper.AssertRequestOk(t, getResp, err, func() {
-		action := getResp.Payload
-
-		schema, ok := action.Schema.(map[string]interface{})
-		if !ok {
-			t.Fatal("The returned schema is not an JSON object")
-		}
-
-		// Check whether the returned information is the same as the data added
-		assert.Equal(t, actionTestString, schema["testString"])
-		assert.Equal(t, actionTestInt, int(schema["testInt"].(float64)))
-		assert.Equal(t, actionTestBoolean, schema["testBoolean"])
-		assert.Equal(t, actionTestNumber, schema["testNumber"])
-		assert.Equal(t, actionTestDate, schema["testDateTime"])
-	})
-}
