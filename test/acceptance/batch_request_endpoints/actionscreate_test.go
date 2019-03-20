@@ -58,12 +58,11 @@ func TestBatchActionsCreateResultsOrder(t *testing.T) {
 	// generate request body
 	params := operations.NewWeaviateBatchingActionsCreateParams().WithBody(operations.WeaviateBatchingActionsCreateBody{
 		Actions: []*models.ActionCreate{action1, action2},
-		Async:   true,
 		Fields:  []*string{&testFields},
 	})
 
 	// perform the request
-	resp, _, err := helper.OperationsClient(t).WeaviateBatchingActionsCreate(params)
+	resp, err := helper.OperationsClient(t).WeaviateBatchingActionsCreate(params)
 	// ensure that the response is OK
 	helper.AssertRequestOk(t, resp, err, func() {
 

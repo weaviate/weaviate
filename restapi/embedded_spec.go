@@ -697,10 +697,6 @@ func init() {
                     "$ref": "#/definitions/ActionCreate"
                   }
                 },
-                "async": {
-                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Action. You will receive this response before the persistence of the data is confirmed. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the persistence of the data is confirmed. The value of ` + "`" + `async` + "`" + ` defaults to false.",
-                  "type": "boolean"
-                },
                 "fields": {
                   "description": "Define which fields need to be returned. Default value is ALL",
                   "type": "array",
@@ -723,16 +719,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Actions created.",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/ActionsGetResponse"
-              }
-            }
-          },
-          "202": {
-            "description": "Successfully received.",
+            "description": "Request succeeded, see response body to get detailed information about each batched item.",
             "schema": {
               "type": "array",
               "items": {
@@ -842,10 +829,6 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
-                "async": {
-                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Thing. You will receive this response before the persistence of the data is confirmed. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the persistence of the data is confirmed. The value of ` + "`" + `async` + "`" + ` defaults to false.",
-                  "type": "boolean"
-                },
                 "fields": {
                   "description": "Define which fields need to be returned. Default value is ALL",
                   "type": "array",
@@ -874,16 +857,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Things created.",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/ThingsGetResponse"
-              }
-            }
-          },
-          "202": {
-            "description": "Successfully received.",
+            "description": "Request succeeded, see response body to get detailed information about each batched item.",
             "schema": {
               "type": "array",
               "items": {
@@ -4004,10 +3978,6 @@ func init() {
                     "$ref": "#/definitions/ActionCreate"
                   }
                 },
-                "async": {
-                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Action. You will receive this response before the persistence of the data is confirmed. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the persistence of the data is confirmed. The value of ` + "`" + `async` + "`" + ` defaults to false.",
-                  "type": "boolean"
-                },
                 "fields": {
                   "description": "Define which fields need to be returned. Default value is ALL",
                   "type": "array",
@@ -4030,16 +4000,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Actions created.",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/ActionsGetResponse"
-              }
-            }
-          },
-          "202": {
-            "description": "Successfully received.",
+            "description": "Request succeeded, see response body to get detailed information about each batched item.",
             "schema": {
               "type": "array",
               "items": {
@@ -4149,10 +4110,6 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
-                "async": {
-                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Thing. You will receive this response before the persistence of the data is confirmed. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the persistence of the data is confirmed. The value of ` + "`" + `async` + "`" + ` defaults to false.",
-                  "type": "boolean"
-                },
                 "fields": {
                   "description": "Define which fields need to be returned. Default value is ALL",
                   "type": "array",
@@ -4181,16 +4138,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Things created.",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/ThingsGetResponse"
-              }
-            }
-          },
-          "202": {
-            "description": "Successfully received.",
+            "description": "Request succeeded, see response body to get detailed information about each batched item.",
             "schema": {
               "type": "array",
               "items": {
