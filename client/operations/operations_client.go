@@ -35,11 +35,11 @@ type Client struct {
 }
 
 /*
-WeaviateBatchingActionsCreate creates new actions based on an action template related to this key as a batch
+WeaviateBatchingActionsCreate creates new actions based on an action template as a batch
 
 Register new Actions in bulk. Given meta-data and schema values are validated.
 */
-func (a *Client) WeaviateBatchingActionsCreate(params *WeaviateBatchingActionsCreateParams) (*WeaviateBatchingActionsCreateOK, *WeaviateBatchingActionsCreateAccepted, error) {
+func (a *Client) WeaviateBatchingActionsCreate(params *WeaviateBatchingActionsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateBatchingActionsCreateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateBatchingActionsCreateParams()
@@ -50,32 +50,58 @@ func (a *Client) WeaviateBatchingActionsCreate(params *WeaviateBatchingActionsCr
 		Method:             "POST",
 		PathPattern:        "/batching/actions",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateBatchingActionsCreateReader{formats: a.formats},
+		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	switch value := result.(type) {
-	case *WeaviateBatchingActionsCreateOK:
-		return value, nil, nil
-	case *WeaviateBatchingActionsCreateAccepted:
-		return nil, value, nil
-	}
-	return nil, nil, nil
+	return result.(*WeaviateBatchingActionsCreateOK), nil
 
 }
 
 /*
-WeaviateBatchingThingsCreate creates new things based on a thing template related to this key as a batch
+WeaviateBatchingReferencesCreate creates new cross references between arbitrary classes in bulk
+
+Register cross-references between any class items (things or actions) in bulk.
+*/
+func (a *Client) WeaviateBatchingReferencesCreate(params *WeaviateBatchingReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateBatchingReferencesCreateOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewWeaviateBatchingReferencesCreateParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "weaviate.batching.references.create",
+		Method:             "POST",
+		PathPattern:        "/batching/references",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &WeaviateBatchingReferencesCreateReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*WeaviateBatchingReferencesCreateOK), nil
+
+}
+
+/*
+WeaviateBatchingThingsCreate creates new things based on a thing template as a batch
 
 Register new Things in bulk. Provided meta-data and schema values are validated.
 */
-func (a *Client) WeaviateBatchingThingsCreate(params *WeaviateBatchingThingsCreateParams) (*WeaviateBatchingThingsCreateOK, *WeaviateBatchingThingsCreateAccepted, error) {
+func (a *Client) WeaviateBatchingThingsCreate(params *WeaviateBatchingThingsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateBatchingThingsCreateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateBatchingThingsCreateParams()
@@ -86,23 +112,18 @@ func (a *Client) WeaviateBatchingThingsCreate(params *WeaviateBatchingThingsCrea
 		Method:             "POST",
 		PathPattern:        "/batching/things",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateBatchingThingsCreateReader{formats: a.formats},
+		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	switch value := result.(type) {
-	case *WeaviateBatchingThingsCreateOK:
-		return value, nil, nil
-	case *WeaviateBatchingThingsCreateAccepted:
-		return nil, value, nil
-	}
-	return nil, nil, nil
+	return result.(*WeaviateBatchingThingsCreateOK), nil
 
 }
 

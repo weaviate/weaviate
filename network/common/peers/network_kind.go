@@ -52,7 +52,7 @@ func (p Peers) getRemoteThingOrAction(kind crossrefs.NetworkKind,
 		params := things.NewWeaviateThingsGetParams().
 			WithTimeout(1 * time.Second).
 			WithThingID(kind.ID)
-		ok, err := client.Things.WeaviateThingsGet(params)
+		ok, err := client.Things.WeaviateThingsGet(params, nil)
 		if err != nil {
 			return result, fmt.Errorf(
 				"could not get remote kind: could not GET things from peer: %s", err)
@@ -69,7 +69,7 @@ func (p Peers) getRemoteThingOrAction(kind crossrefs.NetworkKind,
 		params := actions.NewWeaviateActionsGetParams().
 			WithTimeout(1 * time.Second).
 			WithActionID(kind.ID)
-		ok, err := client.Actions.WeaviateActionsGet(params)
+		ok, err := client.Actions.WeaviateActionsGet(params, nil)
 		if err != nil {
 			return result, fmt.Errorf(
 				"could not get remote kind: could not GET things from peer: %s", err)

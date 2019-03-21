@@ -40,7 +40,7 @@ type actionsRequest struct {
 }
 
 // ActionsCreate is the (go-swagger style) http handler for BatchingActionsCreate
-func (b *Batch) ActionsCreate(params operations.WeaviateBatchingActionsCreateParams) middleware.Responder {
+func (b *Batch) ActionsCreate(params operations.WeaviateBatchingActionsCreateParams, principal *models.Principal) middleware.Responder {
 	defer b.appState.Messaging.TimeTrack(time.Now())
 
 	r := newActionsRequest(params.HTTPRequest, b.appState, b.requestsLog)

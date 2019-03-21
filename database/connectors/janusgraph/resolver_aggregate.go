@@ -21,7 +21,7 @@ import (
 
 // LocalAggregate based on GraphQL Query params
 func (j *Janusgraph) LocalAggregate(params *graphql_aggregate.Params) (interface{}, error) {
-	className := j.state.GetMappedClassName(params.ClassName)
+	className := j.state.MustGetMappedClassName(params.ClassName)
 	q := gremlin.New().Raw(`g.V()`).
 		HasString("kind", params.Kind.Name()).
 		HasString("classId", string(className))
@@ -35,5 +35,5 @@ func (j *Janusgraph) LocalAggregate(params *graphql_aggregate.Params) (interface
 
 	q = q.Raw(metaQuery)
 
-	return aggregate.NewProcessor(j.client).Process(q, params.GroupBy)
+	return aggregate.NewProcessor(j.client, j.etcdClient, j.analyticsClient).Process(q, params.GroupBy, params)
 }

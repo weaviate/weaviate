@@ -45,15 +45,15 @@ func (b *Query) intProp(prop getmeta.MetaProperty) (*gremlin.Query, error) {
 func (b *Query) intPropAnalysis(analysis getmeta.StatisticalAnalysis) (*intAnalysis, error) {
 	switch analysis {
 	case getmeta.Count:
-		return &intAnalysis{label: string(analysis), aggregation: gremlin.New().CountLocal()}, nil
+		return &intAnalysis{label: string(analysis), aggregation: gremlin.New().Count()}, nil
 	case getmeta.Mean:
-		return &intAnalysis{label: string(analysis), aggregation: gremlin.New().MeanLocal()}, nil
+		return &intAnalysis{label: string(analysis), aggregation: gremlin.New().Mean()}, nil
 	case getmeta.Sum:
-		return &intAnalysis{label: string(analysis), aggregation: gremlin.New().SumLocal()}, nil
+		return &intAnalysis{label: string(analysis), aggregation: gremlin.New().Sum()}, nil
 	case getmeta.Maximum:
-		return &intAnalysis{label: string(analysis), aggregation: gremlin.New().MaxLocal()}, nil
+		return &intAnalysis{label: string(analysis), aggregation: gremlin.New().Max()}, nil
 	case getmeta.Minimum:
-		return &intAnalysis{label: string(analysis), aggregation: gremlin.New().MinLocal()}, nil
+		return &intAnalysis{label: string(analysis), aggregation: gremlin.New().Min()}, nil
 	case getmeta.Type:
 		// skip type as it's handled by the type inspector
 		return nil, nil
@@ -64,41 +64,13 @@ func (b *Query) intPropAnalysis(analysis getmeta.StatisticalAnalysis) (*intAnaly
 
 func (b *Query) intPropMergeAnalyses(analyses []*intAnalysis,
 	prop getmeta.MetaProperty) (*gremlin.Query, error) {
-	q := gremlin.New().
-		Aggregate("aggregation").
-		By(b.mappedPropertyName(b.params.ClassName, prop.Name)).
-		Cap("aggregation").Limit(1)
 
-	labels := []string{}
 	aggregations := []*gremlin.Query{}
-
 	for _, a := range analyses {
-		labels = append(labels, a.label)
-		aggregations = append(aggregations, a.aggregation)
+		aggregations = append(aggregations, a.aggregation.Project(a.label).Project(string(prop.Name)))
 	}
 
-	q = q.As(labels...).Select(labels)
-
-	for _, a := range aggregations {
-		q = q.ByQuery(a)
-	}
-
-	if len(analyses) == 1 {
-		// just one analysis prop is a special case, because in multiple cases we
-		// are using select(<1>,<2>, ...<n>), this means we will receive a map that
-		// has the selections as keys. However, if we only ask for a single prop,
-		// Gremlin doesn't see a need to return a map and simply returns the
-		// primitive value. This will of course either break our post-processing or
-		// will not have the format the graphql API expects. We thus need to add an
-		// additional as().project().by() step to wrap the primtive prop in a map -
-		// but only if it's only a single analysis prop.
-		//
-		// Additionally we need to be careful that we don't reuse any labels in our
-		// as().project().by() step that already have specific aggregation meaning.
-		// Therefore we are renaming the as step to <analysisProp>_combined.
-		q = q.AsProjectBy(fmt.Sprintf("%s_combined", labels[0]), labels[0])
-	}
-
-	return q.AsProjectBy(string(prop.Name)), nil
-
+	return gremlin.New().
+		Values([]string{b.mappedPropertyName(b.params.ClassName, prop.Name)}).
+		Union(aggregations...), nil
 }

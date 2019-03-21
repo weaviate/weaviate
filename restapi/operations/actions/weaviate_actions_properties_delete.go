@@ -39,7 +39,7 @@ func NewWeaviateActionsPropertiesDelete(ctx *middleware.Context, handler Weaviat
 	return &WeaviateActionsPropertiesDelete{Context: ctx, Handler: handler}
 }
 
-/*WeaviateActionsPropertiesDelete swagger:route DELETE /actions/{actionId}/properties/{propertyName} actions weaviateActionsPropertiesDelete
+/*WeaviateActionsPropertiesDelete swagger:route DELETE /actions/{actionId}/references/{propertyName} actions weaviateActionsPropertiesDelete
 
 Delete the single reference that is given in the body from the list of references that this property has.
 

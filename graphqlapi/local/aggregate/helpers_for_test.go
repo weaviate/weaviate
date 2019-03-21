@@ -14,6 +14,7 @@ package aggregate
 import (
 	"fmt"
 
+	"github.com/creativesoftwarefdn/weaviate/config"
 	testhelper "github.com/creativesoftwarefdn/weaviate/graphqlapi/test/helper"
 )
 
@@ -27,8 +28,8 @@ type mockResolver struct {
 	testhelper.MockResolver
 }
 
-func newMockResolver() *mockResolver {
-	field, err := Build(&testhelper.CarSchema)
+func newMockResolver(cfg config.Environment) *mockResolver {
+	field, err := Build(&testhelper.CarSchema, cfg)
 	if err != nil {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
 	}
@@ -36,7 +37,11 @@ func newMockResolver() *mockResolver {
 	mocker := &mockResolver{}
 	mocker.RootFieldName = "Aggregate"
 	mocker.RootField = field
-	mocker.RootObject = map[string]interface{}{"Resolver": Resolver(mocker), "RequestsLog": mockLog}
+	mocker.RootObject = map[string]interface{}{
+		"Resolver":    Resolver(mocker),
+		"RequestsLog": mockLog,
+		"Config":      cfg,
+	}
 	return mocker
 }
 

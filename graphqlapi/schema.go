@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"runtime/debug"
 
+	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network"
@@ -38,11 +39,13 @@ type graphQL struct {
 	resolverProvider ResolverProvider
 	networkPeers     peers.Peers
 	requestsLog      *telemetry.RequestsLog
+	config           config.Environment
 }
 
 // Construct a GraphQL API from the database schema, and resolver interface.
-func Build(dbSchema *schema.Schema, peers peers.Peers, resolverProvider ResolverProvider, logger *messages.Messaging) (GraphQL, error) {
-	graphqlSchema, err := buildGraphqlSchema(dbSchema, peers, logger)
+func Build(dbSchema *schema.Schema, peers peers.Peers, resolverProvider ResolverProvider, logger *messages.Messaging,
+	config config.Environment) (GraphQL, error) {
+	graphqlSchema, err := buildGraphqlSchema(dbSchema, peers, logger, config)
 
 	if err != nil {
 		return nil, err
@@ -52,6 +55,7 @@ func Build(dbSchema *schema.Schema, peers peers.Peers, resolverProvider Resolver
 		schema:           graphqlSchema,
 		resolverProvider: resolverProvider,
 		networkPeers:     peers,
+		config:           config,
 	}, nil
 }
 
@@ -80,6 +84,7 @@ func (g *graphQL) Resolve(query string, operationName string, variables map[stri
 			"NetworkPeers":    g.networkPeers,
 			"Contextionary":   contextionary,
 			"RequestsLog":     requestsLog,
+			"Config":          g.config,
 		},
 		RequestString:  query,
 		OperationName:  operationName,
@@ -88,13 +93,14 @@ func (g *graphQL) Resolve(query string, operationName string, variables map[stri
 	})
 }
 
-func buildGraphqlSchema(dbSchema *schema.Schema, peers peers.Peers, logger *messages.Messaging) (graphql.Schema, error) {
-	localSchema, err := local.Build(dbSchema, peers, logger)
+func buildGraphqlSchema(dbSchema *schema.Schema, peers peers.Peers, logger *messages.Messaging,
+	config config.Environment) (graphql.Schema, error) {
+	localSchema, err := local.Build(dbSchema, peers, logger, config)
 	if err != nil {
 		return graphql.Schema{}, err
 	}
 
-	networkSchema, err := network.Build(peers)
+	networkSchema, err := network.Build(peers, config)
 	if err != nil {
 		return graphql.Schema{}, err
 	}

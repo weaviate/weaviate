@@ -124,7 +124,7 @@ func (j *Janusgraph) DropClass(ctx context.Context, kind kind.Kind, name string)
 	log.Debugf("Removing class '%v' in JanusGraph", name)
 	sanitizedClassName := schema.AssertValidClassName(name)
 
-	vertexLabel := j.state.GetMappedClassName(sanitizedClassName)
+	vertexLabel := j.state.MustGetMappedClassName(sanitizedClassName)
 
 	query := gremlin.G.V().HasLabel(string(vertexLabel)).
 		HasString(PROP_KIND, kind.Name()).
@@ -246,8 +246,8 @@ func (j *Janusgraph) DropProperty(ctx context.Context, kind kind.Kind, className
 	sanitizedClassName := schema.AssertValidClassName(className)
 	sanitizedPropName := schema.AssertValidPropertyName(propName)
 
-	vertexLabel := j.state.GetMappedClassName(sanitizedClassName)
-	mappedPropertyName := j.state.GetMappedPropertyName(sanitizedClassName, sanitizedPropName)
+	vertexLabel := j.state.MustGetMappedClassName(sanitizedClassName)
+	mappedPropertyName := j.state.MustGetMappedPropertyName(sanitizedClassName, sanitizedPropName)
 
 	err, prop := j.schema.GetProperty(kind, sanitizedClassName, sanitizedPropName)
 	if err != nil {

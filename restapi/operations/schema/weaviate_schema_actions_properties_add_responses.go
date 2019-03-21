@@ -31,6 +31,11 @@ const WeaviateSchemaActionsPropertiesAddOKCode int = 200
 swagger:response weaviateSchemaActionsPropertiesAddOK
 */
 type WeaviateSchemaActionsPropertiesAddOK struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.SemanticSchemaClassProperty `json:"body,omitempty"`
 }
 
 // NewWeaviateSchemaActionsPropertiesAddOK creates WeaviateSchemaActionsPropertiesAddOK with default headers values
@@ -39,12 +44,27 @@ func NewWeaviateSchemaActionsPropertiesAddOK() *WeaviateSchemaActionsPropertiesA
 	return &WeaviateSchemaActionsPropertiesAddOK{}
 }
 
+// WithPayload adds the payload to the weaviate schema actions properties add o k response
+func (o *WeaviateSchemaActionsPropertiesAddOK) WithPayload(payload *models.SemanticSchemaClassProperty) *WeaviateSchemaActionsPropertiesAddOK {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate schema actions properties add o k response
+func (o *WeaviateSchemaActionsPropertiesAddOK) SetPayload(payload *models.SemanticSchemaClassProperty) {
+	o.Payload = payload
+}
+
 // WriteResponse to the client
 func (o *WeaviateSchemaActionsPropertiesAddOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
 	rw.WriteHeader(200)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // WeaviateSchemaActionsPropertiesAddUnauthorizedCode is the HTTP code returned for type WeaviateSchemaActionsPropertiesAddUnauthorized

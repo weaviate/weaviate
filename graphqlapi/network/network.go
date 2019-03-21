@@ -16,6 +16,7 @@ package network
 import (
 	"fmt"
 
+	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	network_aggregate "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/aggregate"
 	network_fetch "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/fetch"
@@ -34,7 +35,7 @@ type schemaDependentObjects struct {
 }
 
 // Build the network queries from the database schema.
-func Build(peers peers.Peers) (*graphql.Field, error) {
+func Build(peers peers.Peers, config config.Environment) (*graphql.Field, error) {
 
 	filterContainer := &utils.FilterContainer{}
 

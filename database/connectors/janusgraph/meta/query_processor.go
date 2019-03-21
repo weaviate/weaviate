@@ -12,33 +12,51 @@
 package meta
 
 import (
+	"context"
 	"fmt"
 
+	analytics "github.com/SeMI-network/janus-spark-analytics/clients/go"
+	"github.com/coreos/etcd/clientv3"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 )
+
+const AnalyticsAPICachePrefix = "/weaviate/janusgraph-connector/analytics-cache/"
 
 // Processor is a simple Gremlin-Query Executor that is specific to GetMeta in
 // that it merges the results into the expected format and applies
 // post-processing where necessary
 type Processor struct {
-	executor executor
+	executor  executor
+	cache     etcdClient
+	analytics analyticsClient
+}
+
+type etcdClient interface {
+	Get(ctx context.Context, key string, opts ...clientv3.OpOption) (*clientv3.GetResponse, error)
+}
+
+type analyticsClient interface {
+	Schedule(ctx context.Context, params analytics.QueryParams) error
 }
 
 type executor interface {
 	Execute(query gremlin.Gremlin) (*gremlin.Response, error)
 }
 
-func NewProcessor(executor executor) *Processor {
-	return &Processor{executor: executor}
+func NewProcessor(executor executor, cache etcdClient, analytics analyticsClient) *Processor {
+	return &Processor{executor: executor, cache: cache, analytics: analytics}
 }
 
-func (p *Processor) Process(query *gremlin.Query, typeInfo map[string]interface{}) (interface{}, error) {
-	result, err := p.executor.Execute(query)
+func (p *Processor) Process(query *gremlin.Query, typeInfo map[string]interface{},
+	params *getmeta.Params) (interface{}, error) {
+
+	result, err := p.getResult(query, params)
 	if err != nil {
-		return nil, fmt.Errorf("could not process meta query: executing the query failed: %s", err)
+		return nil, fmt.Errorf("could not process meta query: %v", err)
 	}
 
-	merged, err := p.mergeResults(result, typeInfo)
+	merged, err := p.mergeResults(result, typeInfo, params)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"got a successful response from janus, but could not merge the results: %s", err)
@@ -47,14 +65,27 @@ func (p *Processor) Process(query *gremlin.Query, typeInfo map[string]interface{
 	return merged, nil
 }
 
-func (p *Processor) mergeResults(input *gremlin.Response,
-	typeInfo map[string]interface{}) (interface{}, error) {
+func (p *Processor) getResult(query *gremlin.Query, params *getmeta.Params) ([]interface{}, error) {
+	if params.Analytics.UseAnaltyicsEngine == false {
+		result, err := p.executor.Execute(query)
+		if err != nil {
+			return nil, fmt.Errorf("executing query against janusgraph failed: %s", err)
+		}
+
+		return datumsToSlice(result), nil
+	}
+
+	return p.getResultFromAnalyticsEngine(query, params)
+}
+
+func (p *Processor) mergeResults(input []interface{},
+	typeInfo map[string]interface{}, params *getmeta.Params) (interface{}, error) {
 	result := map[string]interface{}{}
 
-	for _, datum := range input.Data {
-		datumAsMap, ok := datum.Datum.(map[string]interface{})
+	for _, datum := range input {
+		datumAsMap, ok := datum.(map[string]interface{})
 		if !ok {
-			return nil, fmt.Errorf("expected datum to be map, but was %#v", datum.Datum)
+			return nil, fmt.Errorf("expected datum to be map, but was %#v", datum)
 		}
 
 		// merge datums from janus
@@ -64,7 +95,7 @@ func (p *Processor) mergeResults(input *gremlin.Response,
 				return nil, fmt.Errorf("expected property to be map, but was %#v", v)
 			}
 
-			processed, err := p.postProcess(vAsMap)
+			processed, err := p.postProcess(k, vAsMap, params)
 			if err != nil {
 				return nil, fmt.Errorf("could not postprocess '%#v': %s", v, err)
 			}
@@ -98,11 +129,15 @@ func (p *Processor) mergeResults(input *gremlin.Response,
 	return map[string]interface{}(result), nil
 }
 
-func (p *Processor) postProcess(m map[string]interface{}) (map[string]interface{}, error) {
+func (p *Processor) postProcess(propName string, m map[string]interface{},
+	params *getmeta.Params) (map[string]interface{}, error) {
+
+	if hasBoolAnalyses(propName, params) {
+		return p.postProcessBoolGroupCount(m)
+	}
+
 	for k := range m {
 		switch k {
-		case BoolGroupCount:
-			return p.postProcessBoolGroupCount(m)
 		case StringTopOccurrences:
 			return p.postProcessStringTopOccurrences(m)
 		}
@@ -118,4 +153,40 @@ func mergeMaps(m1, m2 map[string]interface{}) map[string]interface{} {
 	}
 
 	return m1
+}
+
+func keyFromHash(hash string) string {
+	return fmt.Sprintf("%s%s", AnalyticsAPICachePrefix, hash)
+}
+
+func datumsToSlice(g *gremlin.Response) []interface{} {
+	res := make([]interface{}, len(g.Data), len(g.Data))
+	for i, datum := range g.Data {
+		res[i] = datum.Datum
+	}
+
+	return res
+}
+
+func hasBoolAnalyses(propName string, params *getmeta.Params) bool {
+	for _, prop := range params.Properties {
+		if string(prop.Name) == propName && hasAtLeastOneBooleanAnalysis(prop.StatisticalAnalyses) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func hasAtLeastOneBooleanAnalysis(analyses []getmeta.StatisticalAnalysis) bool {
+	for _, analysis := range analyses {
+		if analysis == getmeta.PercentageTrue ||
+			analysis == getmeta.PercentageFalse ||
+			analysis == getmeta.TotalTrue ||
+			analysis == getmeta.TotalFalse {
+			return true
+		}
+	}
+
+	return false
 }

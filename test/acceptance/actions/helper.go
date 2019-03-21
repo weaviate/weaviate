@@ -34,7 +34,7 @@ func assertCreateAction(t *testing.T, className string, schema map[string]interf
 		Async: false,
 	})
 
-	resp, _, err := helper.Client(t).Actions.WeaviateActionsCreate(params)
+	resp, _, err := helper.Client(t).Actions.WeaviateActionsCreate(params, nil)
 
 	var actionID strfmt.UUID
 
@@ -47,7 +47,7 @@ func assertCreateAction(t *testing.T, className string, schema map[string]interf
 }
 
 func assertGetAction(t *testing.T, uuid strfmt.UUID) *models.ActionGetResponse {
-	getResp, err := helper.Client(t).Actions.WeaviateActionsGet(actions.NewWeaviateActionsGetParams().WithActionID(uuid))
+	getResp, err := helper.Client(t).Actions.WeaviateActionsGet(actions.NewWeaviateActionsGetParams().WithActionID(uuid), nil)
 
 	var action *models.ActionGetResponse
 
@@ -65,7 +65,7 @@ func assertGetActionEventually(t *testing.T, uuid strfmt.UUID) *models.ActionGet
 	)
 
 	checkThunk := func() interface{} {
-		resp, err = helper.Client(t).Actions.WeaviateActionsGet(actions.NewWeaviateActionsGetParams().WithActionID(uuid))
+		resp, err = helper.Client(t).Actions.WeaviateActionsGet(actions.NewWeaviateActionsGetParams().WithActionID(uuid), nil)
 		return err == nil
 	}
 
@@ -87,7 +87,7 @@ func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.ThingGetRe
 	)
 
 	checkThunk := func() interface{} {
-		resp, err = helper.Client(t).Things.WeaviateThingsGet(things.NewWeaviateThingsGetParams().WithThingID(uuid))
+		resp, err = helper.Client(t).Things.WeaviateThingsGet(things.NewWeaviateThingsGetParams().WithThingID(uuid), nil)
 		return err == nil
 	}
 
@@ -112,7 +112,7 @@ func assertCreateThing(t *testing.T, className string, schema map[string]interfa
 		Async: false,
 	})
 
-	resp, _, err := helper.Client(t).Things.WeaviateThingsCreate(params)
+	resp, _, err := helper.Client(t).Things.WeaviateThingsCreate(params, nil)
 
 	var thingID strfmt.UUID
 
@@ -125,7 +125,7 @@ func assertCreateThing(t *testing.T, className string, schema map[string]interfa
 }
 
 func assertGetSchema(t *testing.T) *schema.WeaviateSchemaDumpOKBody {
-	getResp, err := helper.Client(t).Schema.WeaviateSchemaDump(schema.NewWeaviateSchemaDumpParams())
+	getResp, err := helper.Client(t).Schema.WeaviateSchemaDump(schema.NewWeaviateSchemaDumpParams(), nil)
 	var schema *schema.WeaviateSchemaDumpOKBody
 	helper.AssertRequestOk(t, getResp, err, func() {
 		schema = getResp.Payload

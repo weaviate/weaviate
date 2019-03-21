@@ -26,7 +26,7 @@ import (
 // WeaviateBatchingActionsCreateOKCode is the HTTP code returned for type WeaviateBatchingActionsCreateOK
 const WeaviateBatchingActionsCreateOKCode int = 200
 
-/*WeaviateBatchingActionsCreateOK Actions created.
+/*WeaviateBatchingActionsCreateOK Request succeeded, see response body to get detailed information about each batched item.
 
 swagger:response weaviateBatchingActionsCreateOK
 */
@@ -70,53 +70,6 @@ func (o *WeaviateBatchingActionsCreateOK) WriteResponse(rw http.ResponseWriter, 
 
 }
 
-// WeaviateBatchingActionsCreateAcceptedCode is the HTTP code returned for type WeaviateBatchingActionsCreateAccepted
-const WeaviateBatchingActionsCreateAcceptedCode int = 202
-
-/*WeaviateBatchingActionsCreateAccepted Successfully received.
-
-swagger:response weaviateBatchingActionsCreateAccepted
-*/
-type WeaviateBatchingActionsCreateAccepted struct {
-
-	/*
-	  In: Body
-	*/
-	Payload []*models.ActionsGetResponse `json:"body,omitempty"`
-}
-
-// NewWeaviateBatchingActionsCreateAccepted creates WeaviateBatchingActionsCreateAccepted with default headers values
-func NewWeaviateBatchingActionsCreateAccepted() *WeaviateBatchingActionsCreateAccepted {
-
-	return &WeaviateBatchingActionsCreateAccepted{}
-}
-
-// WithPayload adds the payload to the weaviate batching actions create accepted response
-func (o *WeaviateBatchingActionsCreateAccepted) WithPayload(payload []*models.ActionsGetResponse) *WeaviateBatchingActionsCreateAccepted {
-	o.Payload = payload
-	return o
-}
-
-// SetPayload sets the payload to the weaviate batching actions create accepted response
-func (o *WeaviateBatchingActionsCreateAccepted) SetPayload(payload []*models.ActionsGetResponse) {
-	o.Payload = payload
-}
-
-// WriteResponse to the client
-func (o *WeaviateBatchingActionsCreateAccepted) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.WriteHeader(202)
-	payload := o.Payload
-	if payload == nil {
-		payload = make([]*models.ActionsGetResponse, 0, 50)
-	}
-
-	if err := producer.Produce(rw, payload); err != nil {
-		panic(err) // let the recovery middleware deal with this
-	}
-
-}
-
 // WeaviateBatchingActionsCreateUnauthorizedCode is the HTTP code returned for type WeaviateBatchingActionsCreateUnauthorized
 const WeaviateBatchingActionsCreateUnauthorizedCode int = 401
 
@@ -144,7 +97,7 @@ func (o *WeaviateBatchingActionsCreateUnauthorized) WriteResponse(rw http.Respon
 // WeaviateBatchingActionsCreateForbiddenCode is the HTTP code returned for type WeaviateBatchingActionsCreateForbidden
 const WeaviateBatchingActionsCreateForbiddenCode int = 403
 
-/*WeaviateBatchingActionsCreateForbidden The used API-key has insufficient permissions.
+/*WeaviateBatchingActionsCreateForbidden Insufficient permissions.
 
 swagger:response weaviateBatchingActionsCreateForbidden
 */

@@ -15,8 +15,9 @@ package schema
 
 import (
 	"fmt"
-	"github.com/fatih/camelcase"
 	"strings"
+
+	"github.com/fatih/camelcase"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"

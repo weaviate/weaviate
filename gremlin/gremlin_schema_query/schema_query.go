@@ -76,14 +76,14 @@ func (s *schemaQuery) extend(format string, vals ...interface{}) SchemaQuery {
 func (s *schemaQuery) MakePropertyKey(name string, datatype DataType, cardinality Cardinality) SchemaQuery {
 	escapedName := gremlin.EscapeString(name)
 	return s.extend(`
-		newProp = mgmt.makePropertyKey("%s").dataType(%s.class).cardinality(Cardinality.%s).make()
+		newProp = mgmt.makePropertyKey("%s").dataType(%s.class).cardinality(org.janusgraph.core.Cardinality.%s).make()
 	`, escapedName, datatype, cardinality)
 }
 
 func (s *schemaQuery) MakeIndexedPropertyKey(name string, datatype DataType, cardinality Cardinality, index string) SchemaQuery {
 	escapedName := gremlin.EscapeString(name)
 	return s.extend(`
-		newProp = mgmt.makePropertyKey("%s").dataType(%s.class).cardinality(Cardinality.%s).make()
+		newProp = mgmt.makePropertyKey("%s").dataType(%s.class).cardinality(org.janusgraph.core.Cardinality.%s).make()
 		existingIndex = mgmt.getGraphIndex("%s")
 		mgmt.addIndexKey(existingIndex, newProp)
 	`, escapedName, datatype, cardinality, index)
@@ -92,7 +92,7 @@ func (s *schemaQuery) MakeIndexedPropertyKey(name string, datatype DataType, car
 func (s *schemaQuery) MakeIndexedPropertyKeyTextString(name string, datatype DataType, cardinality Cardinality, index string) SchemaQuery {
 	escapedName := gremlin.EscapeString(name)
 	return s.extend(`
-		newProp = mgmt.makePropertyKey("%s").dataType(%s.class).cardinality(Cardinality.%s).make()
+		newProp = mgmt.makePropertyKey("%s").dataType(%s.class).cardinality(org.janusgraph.core.Cardinality.%s).make()
 		existingIndex = mgmt.getGraphIndex("%s")
 		mgmt.addIndexKey(existingIndex, newProp, Mapping.TEXTSTRING.asParameter())
 	`, escapedName, datatype, cardinality, index)

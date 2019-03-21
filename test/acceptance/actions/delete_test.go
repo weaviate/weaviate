@@ -28,7 +28,7 @@ func TestCanAddAndRemoveAction(t *testing.T) {
 	_ = assertGetActionEventually(t, actionId)
 
 	// Now perorm the the deletion
-	delResp, err := helper.Client(t).Actions.WeaviateActionsDelete(actions.NewWeaviateActionsDeleteParams().WithActionID(actionId))
+	delResp, err := helper.Client(t).Actions.WeaviateActionsDelete(actions.NewWeaviateActionsDeleteParams().WithActionID(actionId), nil)
 	helper.AssertRequestOk(t, delResp, err, nil)
 
 	// This should be improved by polling rather then sleeping, but since it's a
@@ -38,6 +38,6 @@ func TestCanAddAndRemoveAction(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// And verify that the action is gone
-	getResp, err := helper.Client(t).Actions.WeaviateActionsGet(actions.NewWeaviateActionsGetParams().WithActionID(actionId))
+	getResp, err := helper.Client(t).Actions.WeaviateActionsGet(actions.NewWeaviateActionsGetParams().WithActionID(actionId), nil)
 	helper.AssertRequestFail(t, getResp, err, nil)
 }

@@ -41,6 +41,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/mitchellh/mapstructure"
 
+	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
@@ -61,14 +62,17 @@ type Foobar struct {
 	client *websocket.Conn
 	kind   string
 
+	appConfig     config.Environment
 	config        Config
 	serverAddress string
 	schema        schema.Schema
 	messaging     *messages.Messaging
 }
 
-func New(config interface{}) (error, dbconnector.DatabaseConnector) {
-	f := &Foobar{}
+func New(config interface{}, appConfig config.Environment) (error, dbconnector.DatabaseConnector) {
+	f := &Foobar{
+		appConfig: appConfig,
+	}
 	err := f.setConfig(config)
 
 	if err != nil {
@@ -383,6 +387,34 @@ func (f *Foobar) HistoryAction(ctx context.Context, UUID strfmt.UUID, history *m
 
 // MoveToHistoryAction moves an action to history
 func (f *Foobar) MoveToHistoryAction(ctx context.Context, action *models.Action, UUID strfmt.UUID, deleted bool) error {
+	return nil
+}
+
+// AddBatchReferences can be used for imports of a large number of references
+// in bulk. There is no fixed batch size, each connector can decide for
+// themselves to split up the incoming batch into smaller chunks. For example
+// the Janusgraph connector makes this cut at 50 items as this has proven to be
+// a good threshold for that particular connector.
+//
+// Note that every thing in the batchmodels.References list also has an error
+// field. The connector must check whether there already is an error in one of
+// the items. This error could for example indicate a failed validation. Items
+// that have failed prior to making it to the connector are not removed on
+// purpose, so that the return result to the user matches their original
+// request in both length and order.
+//
+// The connector can decide - based on the batching consistency promises it
+// makes to the user - whether to fail (and not import) the entire batch or only
+// to skip the ones which failed validation
+//
+// WARNING: The validation that occurs prior to calling this is absolutely
+// minimal. This is to avoid "read before write" queries as this batch
+// importing is meant for maximum speed and thus avoids potentially slow
+// patterns, such as "read before write". This means that we have no guarantuee
+// that the source uuid exists and/or matches the specified class name and
+// property.
+func (f *Foobar) AddBatchReferences(ctx context.Context, refs batchmodels.References) error {
+	// If success return nil, otherwise return the error
 	return nil
 }
 

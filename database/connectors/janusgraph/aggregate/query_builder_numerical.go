@@ -70,14 +70,21 @@ func (b *Query) mergeAggregators(aggregationQueries []*aggregation,
 	selections := []string{}
 	matchFragments := []string{}
 
+	var possibleProjectStep string
+
 	for _, a := range aggregationQueries {
 		mappedPropName := b.mappedPropertyName(b.params.ClassName, prop.Name)
 		selection := fmt.Sprintf("%s__%s", mappedPropName, a.label)
+		if len(aggregationQueries) == 1 {
+			possibleProjectStep = "." + gremlin.New().Project(selection).String()
+		}
+
 		q := gremlin.New().
 			As("a").
 			Unfold().
 			Values([]string{mappedPropName}).
 			Raw("." + a.aggregation.String()).
+			Raw(possibleProjectStep).
 			As(selection)
 
 		matchFragments = append(matchFragments, q.String())
