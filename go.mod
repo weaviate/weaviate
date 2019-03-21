@@ -4,7 +4,9 @@ require (
 	github.com/SeMI-network/janus-spark-analytics v0.0.0-20190311154421-9a5188468325
 	github.com/TylerBrock/colorjson v0.0.0-20180527164720-95ec53f28296
 	github.com/coreos/etcd v3.3.11+incompatible
+	github.com/coreos/go-oidc v2.0.0+incompatible
 	github.com/davecgh/go-spew v1.1.1
+	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/eclipse/paho.mqtt.golang v1.1.1
 	github.com/etcd-io/etcd v3.3.11+incompatible
 	github.com/evanphx/json-patch v3.0.0+incompatible
@@ -27,14 +29,17 @@ require (
 	github.com/mattn/go-colorable v0.1.1 // indirect
 	github.com/mattn/go-isatty v0.0.7 // indirect
 	github.com/mitchellh/mapstructure v1.1.2
+	github.com/pquerna/cachecontrol v0.0.0-20180517163645-1555304b9b35 // indirect
 	github.com/prometheus/common v0.0.0-20190107103113-2998b132700a
 	github.com/rs/cors v1.5.0
 	github.com/satori/go.uuid v0.0.0-20180103174451-36e9d2ebbde5
 	github.com/sirupsen/logrus v1.2.0
+	github.com/square/go-jose v2.3.0+incompatible
 	github.com/stretchr/testify v1.2.2
 	github.com/syndtr/goleveldb v0.0.0-20180708030551-c4c61651e9e3
 	github.com/ugorji/go/codec v0.0.0-20190309163734-c4a1c341dc93 // indirect
 	golang.org/x/net v0.0.0-20181114220301-adae6a3d119a
 	google.golang.org/grpc v1.16.0
+	gopkg.in/square/go-jose.v2 v2.3.0 // indirect
 	gopkg.in/yaml.v2 v2.2.1
 )
