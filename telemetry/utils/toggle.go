@@ -1,9 +1,9 @@
 package utils
 
 // TODO: determine the best place for these settings. This works, but reading a json file might be a better solution
-var Enabled bool = false
-var Interval int = 300
-var URL string = "https://d70572bd-96fe-4eba-8edb-8c8f6b24ecf8.mock.pstmn.io/"
+var Enabled bool = true
+var Interval int = 1
+var URL string = "127.0.0.1:8087/mock/new"
 
 // check whether the feature toggle is set to 'enabled' (default) or disabled.
 // TODO: perform flag error handling in this func, use messaging for non true/false states and assume false

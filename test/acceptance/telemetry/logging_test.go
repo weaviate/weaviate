@@ -14,18 +14,34 @@ package test
 // Acceptance tests for logging. Sets up a small fake endpoint that logs are sent to.
 
 import (
+	"net/http"
 	"testing"
+	"time"
 
 	"github.com/creativesoftwarefdn/weaviate/client/actions"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
-	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestCanCreateAction(t *testing.T) {
+func TestCreateActionLogging(t *testing.T) {
 	t.Parallel()
 
+	// send a request
+	sendCreateActionRequest(t)
+
+	// wait for the log to be posted
+	time.Sleep(3 * time.Second)
+
+	result := retrieveLogFromMockEndpoint()
+
+	count, ok := result.(int)
+
+	assert.Equal(t, true, ok)
+	assert.Equal(t, 1, count)
+}
+
+func sendCreateActionRequest(t *testing.T) {
 	// Set all action values to compare
 	actionTestString := "Test string"
 	actionTestInt := 1
@@ -47,23 +63,15 @@ func TestCanCreateAction(t *testing.T) {
 		},
 	})
 
-	resp, _, err := helper.Client(t).Actions.WeaviateActionsCreate(params)
+	helper.Client(t).Actions.WeaviateActionsCreate(params, nil)
+}
 
-	// Ensure that the response is OK
-	helper.AssertRequestOk(t, resp, err, func() {
-		action := resp.Payload
-		assert.Regexp(t, strfmt.UUIDPattern, action.ActionID)
+func retrieveLogFromMockEndpoint() interface{} {
+	req, _ := http.NewRequest("GET", "127.0.0.1:8087/mock/count", nil)
+	client := &http.Client{}
+	resp, _ := client.Do(req)
 
-		schema, ok := action.Schema.(map[string]interface{})
-		if !ok {
-			t.Fatal("The returned schema is not an JSON object")
-		}
+	defer resp.Body.Close()
 
-		// Check whether the returned information is the same as the data added
-		assert.Equal(t, actionTestString, schema["testString"])
-		assert.Equal(t, actionTestInt, int(schema["testInt"].(float64)))
-		assert.Equal(t, actionTestBoolean, schema["testBoolean"])
-		assert.Equal(t, actionTestNumber, schema["testNumber"])
-		assert.Equal(t, actionTestDate, schema["testDateTime"])
-	})
+	return resp
 }
