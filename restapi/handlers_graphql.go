@@ -22,12 +22,13 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/graphql"
 	"github.com/creativesoftwarefdn/weaviate/restapi/rest_api_utils"
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
 const error422 string = "The request is well-formed but was unable to be followed due to semantic errors."
 
-func setupGraphQLHandlers(api *operations.WeaviateAPI) {
+func setupGraphQLHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog) {
 	api.GraphqlWeaviateGraphqlPostHandler = graphql.WeaviateGraphqlPostHandlerFunc(func(params graphql.WeaviateGraphqlPostParams, principal *models.Principal) middleware.Responder {
 		defer messaging.TimeTrack(time.Now())
 		messaging.DebugMessage("Starting GraphQL resolving")
