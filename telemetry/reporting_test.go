@@ -138,7 +138,7 @@ func TestCborEncode(t *testing.T) {
 func TestReporting(t *testing.T) {
 	t.Parallel()
 
-	URL := "https://4b24d4c9-e0cc-4629-ae42-8c3573484961.mock.pstmn.io/test"
+	URL := "localhost:8087/new"
 
 	minimizedLog := `[{"n": "upbeat-aquatic-pen", "t": "REST", "i": "weaviate.something.or.other", "a": 1, "w": 1550745544}]`
 
