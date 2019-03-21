@@ -117,7 +117,7 @@ func TestAddTimestamps(t *testing.T) {
 	assert.Equal(t, true, notFromTheFuture)
 }
 
-// Create a minimized request log, encode it to CBOR and decode it again, then assert whether the result matches the expected value.
+// Create a minimized request log and encode it to CBOR then assert whether the result matches the expected value.
 func TestCborEncode(t *testing.T) {
 	t.Parallel()
 
@@ -137,6 +137,17 @@ func TestCborEncode(t *testing.T) {
 
 func TestReporting(t *testing.T) {
 	t.Parallel()
+
+	URL := "https://4b24d4c9-e0cc-4629-ae42-8c3573484961.mock.pstmn.io/test"
+
+	minimizedLog := `[{"n": "upbeat-aquatic-pen", "t": "REST", "i": "weaviate.something.or.other", "a": 1, "w": 1550745544}]`
+
+	outputTransformer := NewOutputTransformer(true)
+
+	encoded, _ := outputTransformer.EncodeAsCBOR(&minimizedLog)
+
+	poster := NewPoster(URL)
+	poster.ReportLoggedCalls(encoded)
 
 	// setup
 	// a := []byte{165, 97, 120, 10, 97, 121, 15, 97, 122, 24, 100, 101, 114, 97, 110, 103, 101, 132, 162, 102, 108, 101, 110, 103, 116, 104, 1, 101, 97, 108, 105, 103, 110, 250, 65, 32, 0, 0, 162, 102, 108, 101, 110, 103, 116, 104, 26, 13, 81, 78, 231, 101, 97, 108, 105, 103, 110, 250, 65, 240, 0, 0, 162, 102, 108, 101, 110, 103, 116, 104, 3, 101, 97, 108, 105, 103, 110, 250, 66, 38, 0, 0, 162, 102, 108, 101, 110, 103, 116, 104, 24, 174, 101, 97, 108, 105, 103, 110, 250, 71, 89, 3, 51, 101, 108, 97, 98, 101, 108, 102, 72, 111, 72, 111, 72, 111}
