@@ -42,6 +42,14 @@ type File struct {
 	Environments []Environment `json:"environments"`
 }
 
+// Logging gives the outline of the logging parameters in the config file
+type Logging struct {
+	Url      string `json:"url" yaml:"url"`
+	DebugUrl string `json:"debugurl" yaml:"debugurl"`
+	Interval int    `json:"interval" yaml:"interval"`
+	Enabled  bool   `json:"enabled" yaml:"enabled"`
+}
+
 // Environment outline of the environment inside the config file
 type Environment struct {
 	Name                 string          `json:"name" yaml:"name"`
@@ -55,6 +63,7 @@ type Environment struct {
 	Contextionary        Contextionary   `json:"contextionary" yaml:"contextionary"`
 	ConfigurationStorage ConfigStore     `json:"configuration_storage" yaml:"configuration_storage"`
 	Authentication       Authentication  `json:"authentication" yaml:"authentication"`
+	Logging              Logging         `json:"logging" yaml:"logging"`
 }
 
 type Contextionary struct {

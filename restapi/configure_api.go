@@ -16,7 +16,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/restapi/batch"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations"
 	"github.com/creativesoftwarefdn/weaviate/telemetry"
-	telemutils "github.com/creativesoftwarefdn/weaviate/telemetry/utils"
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 )
@@ -30,14 +29,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.JSONConsumer = runtime.JSONConsumer()
 
 	api.OidcAuth = appState.OIDC.ValidateAndExtract
-
-	enabled := telemutils.IsEnabled()
-	interval := telemutils.GetInterval()
-	url := telemutils.GetURL()
-
-	requestsLog = telemetry.NewLog(enabled)
-
-	reporter = telemetry.NewReporter(requestsLog, interval, url, enabled, false)
 
 	setupSchemaHandlers(api, requestsLog)
 	setupThingsHandlers(api, requestsLog)
