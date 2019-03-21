@@ -19,19 +19,21 @@ import (
 	"net/http"
 
 	middleware "github.com/go-openapi/runtime/middleware"
+
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // WeaviateBatchingReferencesCreateHandlerFunc turns a function with the right signature into a weaviate batching references create handler
-type WeaviateBatchingReferencesCreateHandlerFunc func(WeaviateBatchingReferencesCreateParams) middleware.Responder
+type WeaviateBatchingReferencesCreateHandlerFunc func(WeaviateBatchingReferencesCreateParams, *models.Principal) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateBatchingReferencesCreateHandlerFunc) Handle(params WeaviateBatchingReferencesCreateParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateBatchingReferencesCreateHandlerFunc) Handle(params WeaviateBatchingReferencesCreateParams, principal *models.Principal) middleware.Responder {
+	return fn(params, principal)
 }
 
 // WeaviateBatchingReferencesCreateHandler interface for that can handle valid weaviate batching references create params
 type WeaviateBatchingReferencesCreateHandler interface {
-	Handle(WeaviateBatchingReferencesCreateParams) middleware.Responder
+	Handle(WeaviateBatchingReferencesCreateParams, *models.Principal) middleware.Responder
 }
 
 // NewWeaviateBatchingReferencesCreate creates a new http.Handler for the weaviate batching references create operation
@@ -58,12 +60,25 @@ func (o *WeaviateBatchingReferencesCreate) ServeHTTP(rw http.ResponseWriter, r *
 	}
 	var Params = NewWeaviateBatchingReferencesCreateParams()
 
+	uprinc, aCtx, err := o.Context.Authorize(r, route)
+	if err != nil {
+		o.Context.Respond(rw, r, route.Produces, route, err)
+		return
+	}
+	if aCtx != nil {
+		r = aCtx
+	}
+	var principal *models.Principal
+	if uprinc != nil {
+		principal = uprinc.(*models.Principal) // this is really a models.Principal, I promise
+	}
+
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

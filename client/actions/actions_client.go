@@ -39,7 +39,7 @@ WeaviateActionHistoryGet gets an action s history based on its UUID
 
 Returns a particular Action history.
 */
-func (a *Client) WeaviateActionHistoryGet(params *WeaviateActionHistoryGetParams) (*WeaviateActionHistoryGetOK, error) {
+func (a *Client) WeaviateActionHistoryGet(params *WeaviateActionHistoryGetParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionHistoryGetOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateActionHistoryGetParams()
@@ -54,6 +54,7 @@ func (a *Client) WeaviateActionHistoryGet(params *WeaviateActionHistoryGetParams
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateActionHistoryGetReader{formats: a.formats},
+		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -69,7 +70,7 @@ WeaviateActionUpdate updates an action based on its UUID
 
 Updates an Action's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
-func (a *Client) WeaviateActionUpdate(params *WeaviateActionUpdateParams) (*WeaviateActionUpdateAccepted, error) {
+func (a *Client) WeaviateActionUpdate(params *WeaviateActionUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionUpdateAccepted, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateActionUpdateParams()
@@ -84,6 +85,7 @@ func (a *Client) WeaviateActionUpdate(params *WeaviateActionUpdateParams) (*Weav
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateActionUpdateReader{formats: a.formats},
+		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -99,7 +101,7 @@ WeaviateActionsCreate creates actions between two things object and subject
 
 Registers a new Action. Provided meta-data and schema values are validated.
 */
-func (a *Client) WeaviateActionsCreate(params *WeaviateActionsCreateParams) (*WeaviateActionsCreateOK, *WeaviateActionsCreateAccepted, error) {
+func (a *Client) WeaviateActionsCreate(params *WeaviateActionsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsCreateOK, *WeaviateActionsCreateAccepted, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateActionsCreateParams()
@@ -114,6 +116,7 @@ func (a *Client) WeaviateActionsCreate(params *WeaviateActionsCreateParams) (*We
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateActionsCreateReader{formats: a.formats},
+		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -135,7 +138,7 @@ WeaviateActionsDelete deletes an action based on its UUID
 
 Deletes an Action from the system.
 */
-func (a *Client) WeaviateActionsDelete(params *WeaviateActionsDeleteParams) (*WeaviateActionsDeleteNoContent, error) {
+func (a *Client) WeaviateActionsDelete(params *WeaviateActionsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsDeleteNoContent, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateActionsDeleteParams()
@@ -150,6 +153,7 @@ func (a *Client) WeaviateActionsDelete(params *WeaviateActionsDeleteParams) (*We
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateActionsDeleteReader{formats: a.formats},
+		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -165,7 +169,7 @@ WeaviateActionsGet gets a specific action based on its UUID and a thing UUID als
 
 Lists Actions.
 */
-func (a *Client) WeaviateActionsGet(params *WeaviateActionsGetParams) (*WeaviateActionsGetOK, error) {
+func (a *Client) WeaviateActionsGet(params *WeaviateActionsGetParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsGetOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateActionsGetParams()
@@ -180,6 +184,7 @@ func (a *Client) WeaviateActionsGet(params *WeaviateActionsGetParams) (*Weaviate
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateActionsGetReader{formats: a.formats},
+		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -195,7 +200,7 @@ WeaviateActionsList gets a list of actions
 
 Lists all Actions in reverse order of creation, owned by the user that belongs to the used token.
 */
-func (a *Client) WeaviateActionsList(params *WeaviateActionsListParams) (*WeaviateActionsListOK, error) {
+func (a *Client) WeaviateActionsList(params *WeaviateActionsListParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsListOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateActionsListParams()
@@ -210,6 +215,7 @@ func (a *Client) WeaviateActionsList(params *WeaviateActionsListParams) (*Weavia
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateActionsListReader{formats: a.formats},
+		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -225,7 +231,7 @@ WeaviateActionsPatch updates an action based on its UUID using patch semantics
 
 Updates an Action. This method supports patch semantics. Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
-func (a *Client) WeaviateActionsPatch(params *WeaviateActionsPatchParams) (*WeaviateActionsPatchOK, *WeaviateActionsPatchAccepted, error) {
+func (a *Client) WeaviateActionsPatch(params *WeaviateActionsPatchParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsPatchOK, *WeaviateActionsPatchAccepted, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateActionsPatchParams()
@@ -240,6 +246,7 @@ func (a *Client) WeaviateActionsPatch(params *WeaviateActionsPatchParams) (*Weav
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateActionsPatchReader{formats: a.formats},
+		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -261,7 +268,7 @@ WeaviateActionsReferencesCreate adds a single reference to a class property when
 
 Add a single reference to a class-property when cardinality is set to 'hasMany'.
 */
-func (a *Client) WeaviateActionsReferencesCreate(params *WeaviateActionsReferencesCreateParams) (*WeaviateActionsReferencesCreateOK, error) {
+func (a *Client) WeaviateActionsReferencesCreate(params *WeaviateActionsReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsReferencesCreateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateActionsReferencesCreateParams()
@@ -276,6 +283,7 @@ func (a *Client) WeaviateActionsReferencesCreate(params *WeaviateActionsReferenc
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateActionsReferencesCreateReader{formats: a.formats},
+		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -291,7 +299,7 @@ WeaviateActionsReferencesDelete deletes the single reference that is given in th
 
 Delete the single reference that is given in the body from the list of references that this property has.
 */
-func (a *Client) WeaviateActionsReferencesDelete(params *WeaviateActionsReferencesDeleteParams) (*WeaviateActionsReferencesDeleteNoContent, error) {
+func (a *Client) WeaviateActionsReferencesDelete(params *WeaviateActionsReferencesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsReferencesDeleteNoContent, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateActionsReferencesDeleteParams()
@@ -306,6 +314,7 @@ func (a *Client) WeaviateActionsReferencesDelete(params *WeaviateActionsReferenc
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateActionsReferencesDeleteReader{formats: a.formats},
+		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -321,7 +330,7 @@ WeaviateActionsReferencesUpdate replaces all references to a class property
 
 Replace all references to a class-property.
 */
-func (a *Client) WeaviateActionsReferencesUpdate(params *WeaviateActionsReferencesUpdateParams) (*WeaviateActionsReferencesUpdateOK, error) {
+func (a *Client) WeaviateActionsReferencesUpdate(params *WeaviateActionsReferencesUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsReferencesUpdateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateActionsReferencesUpdateParams()
@@ -336,6 +345,7 @@ func (a *Client) WeaviateActionsReferencesUpdate(params *WeaviateActionsReferenc
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateActionsReferencesUpdateReader{formats: a.formats},
+		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -351,7 +361,7 @@ WeaviateActionsValidate validates an action based on a schema
 
 Validate an Action's schema and meta-data. It has to be based on a schema, which is related to the given Action to be accepted by this validation.
 */
-func (a *Client) WeaviateActionsValidate(params *WeaviateActionsValidateParams) (*WeaviateActionsValidateOK, error) {
+func (a *Client) WeaviateActionsValidate(params *WeaviateActionsValidateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsValidateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateActionsValidateParams()
@@ -366,6 +376,7 @@ func (a *Client) WeaviateActionsValidate(params *WeaviateActionsValidateParams) 
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateActionsValidateReader{formats: a.formats},
+		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})

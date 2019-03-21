@@ -27,16 +27,16 @@ import (
 )
 
 // WeaviateSchemaActionsPropertiesUpdateHandlerFunc turns a function with the right signature into a weaviate schema actions properties update handler
-type WeaviateSchemaActionsPropertiesUpdateHandlerFunc func(WeaviateSchemaActionsPropertiesUpdateParams) middleware.Responder
+type WeaviateSchemaActionsPropertiesUpdateHandlerFunc func(WeaviateSchemaActionsPropertiesUpdateParams, *models.Principal) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateSchemaActionsPropertiesUpdateHandlerFunc) Handle(params WeaviateSchemaActionsPropertiesUpdateParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateSchemaActionsPropertiesUpdateHandlerFunc) Handle(params WeaviateSchemaActionsPropertiesUpdateParams, principal *models.Principal) middleware.Responder {
+	return fn(params, principal)
 }
 
 // WeaviateSchemaActionsPropertiesUpdateHandler interface for that can handle valid weaviate schema actions properties update params
 type WeaviateSchemaActionsPropertiesUpdateHandler interface {
-	Handle(WeaviateSchemaActionsPropertiesUpdateParams) middleware.Responder
+	Handle(WeaviateSchemaActionsPropertiesUpdateParams, *models.Principal) middleware.Responder
 }
 
 // NewWeaviateSchemaActionsPropertiesUpdate creates a new http.Handler for the weaviate schema actions properties update operation
@@ -61,12 +61,25 @@ func (o *WeaviateSchemaActionsPropertiesUpdate) ServeHTTP(rw http.ResponseWriter
 	}
 	var Params = NewWeaviateSchemaActionsPropertiesUpdateParams()
 
+	uprinc, aCtx, err := o.Context.Authorize(r, route)
+	if err != nil {
+		o.Context.Respond(rw, r, route.Produces, route, err)
+		return
+	}
+	if aCtx != nil {
+		r = aCtx
+	}
+	var principal *models.Principal
+	if uprinc != nil {
+		principal = uprinc.(*models.Principal) // this is really a models.Principal, I promise
+	}
+
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

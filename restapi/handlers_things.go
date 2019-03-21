@@ -33,7 +33,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 	/*
 	 * HANDLE THINGS
 	 */
-	api.ThingsWeaviateThingsCreateHandler = things.WeaviateThingsCreateHandlerFunc(func(params things.WeaviateThingsCreateParams) middleware.Responder {
+	api.ThingsWeaviateThingsCreateHandler = things.WeaviateThingsCreateHandlerFunc(func(params things.WeaviateThingsCreateParams, principal *models.Principal) middleware.Responder {
 		schemaLock, err := db.SchemaLock()
 		if err != nil {
 			return things.NewWeaviateThingsCreateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -86,7 +86,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		}
 		return things.NewWeaviateThingsCreateOK().WithPayload(responseObject)
 	})
-	api.ThingsWeaviateThingsDeleteHandler = things.WeaviateThingsDeleteHandlerFunc(func(params things.WeaviateThingsDeleteParams) middleware.Responder {
+	api.ThingsWeaviateThingsDeleteHandler = things.WeaviateThingsDeleteHandlerFunc(func(params things.WeaviateThingsDeleteParams, principal *models.Principal) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
 			return things.NewWeaviateThingsDeleteInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -131,7 +131,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		// Return 'No Content'
 		return things.NewWeaviateThingsDeleteNoContent()
 	})
-	api.ThingsWeaviateThingsGetHandler = things.WeaviateThingsGetHandlerFunc(func(params things.WeaviateThingsGetParams) middleware.Responder {
+	api.ThingsWeaviateThingsGetHandler = things.WeaviateThingsGetHandlerFunc(func(params things.WeaviateThingsGetParams, principal *models.Principal) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
 			return things.NewWeaviateThingsGetInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -157,7 +157,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		return things.NewWeaviateThingsGetOK().WithPayload(&responseObject)
 	})
 
-	api.ThingsWeaviateThingHistoryGetHandler = things.WeaviateThingHistoryGetHandlerFunc(func(params things.WeaviateThingHistoryGetParams) middleware.Responder {
+	api.ThingsWeaviateThingHistoryGetHandler = things.WeaviateThingHistoryGetHandlerFunc(func(params things.WeaviateThingHistoryGetParams, principal *models.Principal) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
 			return things.NewWeaviateThingHistoryGetInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -197,7 +197,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		return things.NewWeaviateThingHistoryGetOK().WithPayload(historyResponse)
 	})
 
-	api.ThingsWeaviateThingsListHandler = things.WeaviateThingsListHandlerFunc(func(params things.WeaviateThingsListParams) middleware.Responder {
+	api.ThingsWeaviateThingsListHandler = things.WeaviateThingsListHandlerFunc(func(params things.WeaviateThingsListParams, principal *models.Principal) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
 			return things.NewWeaviateThingsListInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -222,7 +222,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 
 		return things.NewWeaviateThingsListOK().WithPayload(&thingsResponse)
 	})
-	api.ThingsWeaviateThingsPatchHandler = things.WeaviateThingsPatchHandlerFunc(func(params things.WeaviateThingsPatchParams) middleware.Responder {
+	api.ThingsWeaviateThingsPatchHandler = things.WeaviateThingsPatchHandlerFunc(func(params things.WeaviateThingsPatchParams, principal *models.Principal) middleware.Responder {
 		schemaLock, err := db.SchemaLock()
 		if err != nil {
 			return things.NewWeaviateThingsPatchInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -333,7 +333,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		// Returns accepted so a Go routine can process in the background
 		return things.NewWeaviateThingsPatchOK().WithPayload(&thingGetResponse)
 	})
-	api.ThingsWeaviateThingsReferencesCreateHandler = things.WeaviateThingsReferencesCreateHandlerFunc(func(params things.WeaviateThingsReferencesCreateParams) middleware.Responder {
+	api.ThingsWeaviateThingsReferencesCreateHandler = things.WeaviateThingsReferencesCreateHandlerFunc(func(params things.WeaviateThingsReferencesCreateParams, principal *models.Principal) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
 			return things.NewWeaviateThingsReferencesCreateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -419,7 +419,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		// Returns accepted so a Go routine can process in the background
 		return things.NewWeaviateThingsReferencesCreateOK()
 	})
-	api.ThingsWeaviateThingsReferencesDeleteHandler = things.WeaviateThingsReferencesDeleteHandlerFunc(func(params things.WeaviateThingsReferencesDeleteParams) middleware.Responder {
+	api.ThingsWeaviateThingsReferencesDeleteHandler = things.WeaviateThingsReferencesDeleteHandlerFunc(func(params things.WeaviateThingsReferencesDeleteParams, principal *models.Principal) middleware.Responder {
 		if params.Body == nil {
 			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' has a no valid reference", params.PropertyName)))
@@ -517,7 +517,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		// Returns accepted so a Go routine can process in the background
 		return things.NewWeaviateThingsReferencesDeleteNoContent()
 	})
-	api.ThingsWeaviateThingsReferencesUpdateHandler = things.WeaviateThingsReferencesUpdateHandlerFunc(func(params things.WeaviateThingsReferencesUpdateParams) middleware.Responder {
+	api.ThingsWeaviateThingsReferencesUpdateHandler = things.WeaviateThingsReferencesUpdateHandlerFunc(func(params things.WeaviateThingsReferencesUpdateParams, principal *models.Principal) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
 			return things.NewWeaviateThingsReferencesUpdateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -589,7 +589,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		// Returns accepted so a Go routine can process in the background
 		return things.NewWeaviateThingsReferencesCreateOK()
 	})
-	api.ThingsWeaviateThingsUpdateHandler = things.WeaviateThingsUpdateHandlerFunc(func(params things.WeaviateThingsUpdateParams) middleware.Responder {
+	api.ThingsWeaviateThingsUpdateHandler = things.WeaviateThingsUpdateHandlerFunc(func(params things.WeaviateThingsUpdateParams, principal *models.Principal) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
 			return things.NewWeaviateThingsUpdateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -654,7 +654,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the dbConnector.Add should have a go routine)
 		return things.NewWeaviateThingsUpdateAccepted().WithPayload(responseObject)
 	})
-	api.ThingsWeaviateThingsValidateHandler = things.WeaviateThingsValidateHandlerFunc(func(params things.WeaviateThingsValidateParams) middleware.Responder {
+	api.ThingsWeaviateThingsValidateHandler = things.WeaviateThingsValidateHandlerFunc(func(params things.WeaviateThingsValidateParams, principal *models.Principal) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
 			return things.NewWeaviateThingsValidateInternalServerError().WithPayload(errPayloadFromSingleErr(err))

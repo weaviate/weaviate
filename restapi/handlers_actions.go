@@ -30,7 +30,7 @@ import (
 )
 
 func setupActionsHandlers(api *operations.WeaviateAPI) {
-	api.ActionsWeaviateActionsGetHandler = actions.WeaviateActionsGetHandlerFunc(func(params actions.WeaviateActionsGetParams) middleware.Responder {
+	api.ActionsWeaviateActionsGetHandler = actions.WeaviateActionsGetHandlerFunc(func(params actions.WeaviateActionsGetParams, principal *models.Principal) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
 			return actions.NewWeaviateActionsGetInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -54,7 +54,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		// Get is successful
 		return actions.NewWeaviateActionsGetOK().WithPayload(&actionGetResponse)
 	})
-	api.ActionsWeaviateActionHistoryGetHandler = actions.WeaviateActionHistoryGetHandlerFunc(func(params actions.WeaviateActionHistoryGetParams) middleware.Responder {
+	api.ActionsWeaviateActionHistoryGetHandler = actions.WeaviateActionHistoryGetHandlerFunc(func(params actions.WeaviateActionHistoryGetParams, principal *models.Principal) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
 			return actions.NewWeaviateActionHistoryGetInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -93,7 +93,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 
 		return actions.NewWeaviateActionHistoryGetOK().WithPayload(historyResponse)
 	})
-	api.ActionsWeaviateActionsPatchHandler = actions.WeaviateActionsPatchHandlerFunc(func(params actions.WeaviateActionsPatchParams) middleware.Responder {
+	api.ActionsWeaviateActionsPatchHandler = actions.WeaviateActionsPatchHandlerFunc(func(params actions.WeaviateActionsPatchParams, principal *models.Principal) middleware.Responder {
 		schemaLock, err := db.SchemaLock()
 		if err != nil {
 			return actions.NewWeaviateActionsPatchInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -200,7 +200,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 			return actions.NewWeaviateActionsPatchOK().WithPayload(&actionGetResponse)
 		}
 	})
-	api.ActionsWeaviateActionsReferencesCreateHandler = actions.WeaviateActionsReferencesCreateHandlerFunc(func(params actions.WeaviateActionsReferencesCreateParams) middleware.Responder {
+	api.ActionsWeaviateActionsReferencesCreateHandler = actions.WeaviateActionsReferencesCreateHandlerFunc(func(params actions.WeaviateActionsReferencesCreateParams, principal *models.Principal) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
 			return actions.NewWeaviateActionsReferencesCreateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -286,7 +286,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		// Returns accepted so a Go routine can process in the background
 		return actions.NewWeaviateActionsReferencesCreateOK()
 	})
-	api.ActionsWeaviateActionsReferencesDeleteHandler = actions.WeaviateActionsReferencesDeleteHandlerFunc(func(params actions.WeaviateActionsReferencesDeleteParams) middleware.Responder {
+	api.ActionsWeaviateActionsReferencesDeleteHandler = actions.WeaviateActionsReferencesDeleteHandlerFunc(func(params actions.WeaviateActionsReferencesDeleteParams, principal *models.Principal) middleware.Responder {
 		if params.Body == nil {
 			return actions.NewWeaviateActionsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' has a no valid reference", params.PropertyName)))
@@ -384,7 +384,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		// Returns accepted so a Go routine can process in the background
 		return actions.NewWeaviateActionsReferencesDeleteNoContent()
 	})
-	api.ActionsWeaviateActionsReferencesUpdateHandler = actions.WeaviateActionsReferencesUpdateHandlerFunc(func(params actions.WeaviateActionsReferencesUpdateParams) middleware.Responder {
+	api.ActionsWeaviateActionsReferencesUpdateHandler = actions.WeaviateActionsReferencesUpdateHandlerFunc(func(params actions.WeaviateActionsReferencesUpdateParams, principal *models.Principal) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
 			return actions.NewWeaviateActionsReferencesUpdateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -457,7 +457,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		// Returns accepted so a Go routine can process in the background
 		return actions.NewWeaviateActionsReferencesCreateOK()
 	})
-	api.ActionsWeaviateActionUpdateHandler = actions.WeaviateActionUpdateHandlerFunc(func(params actions.WeaviateActionUpdateParams) middleware.Responder {
+	api.ActionsWeaviateActionUpdateHandler = actions.WeaviateActionUpdateHandlerFunc(func(params actions.WeaviateActionUpdateParams, principal *models.Principal) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
 			return actions.NewWeaviateActionUpdateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -521,7 +521,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the dbConnector.Add should have a go routine)
 		return actions.NewWeaviateActionUpdateAccepted().WithPayload(responseObject)
 	})
-	api.ActionsWeaviateActionsValidateHandler = actions.WeaviateActionsValidateHandlerFunc(func(params actions.WeaviateActionsValidateParams) middleware.Responder {
+	api.ActionsWeaviateActionsValidateHandler = actions.WeaviateActionsValidateHandlerFunc(func(params actions.WeaviateActionsValidateParams, principal *models.Principal) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
 			return actions.NewWeaviateActionsValidateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -540,7 +540,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 
 		return actions.NewWeaviateActionsValidateOK()
 	})
-	api.ActionsWeaviateActionsCreateHandler = actions.WeaviateActionsCreateHandlerFunc(func(params actions.WeaviateActionsCreateParams) middleware.Responder {
+	api.ActionsWeaviateActionsCreateHandler = actions.WeaviateActionsCreateHandlerFunc(func(params actions.WeaviateActionsCreateParams, principal *models.Principal) middleware.Responder {
 		schemaLock, err := db.SchemaLock()
 		if err != nil {
 			return actions.NewWeaviateActionsCreateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -595,7 +595,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 			return actions.NewWeaviateActionsCreateOK().WithPayload(responseObject)
 		}
 	})
-	api.ActionsWeaviateActionsDeleteHandler = actions.WeaviateActionsDeleteHandlerFunc(func(params actions.WeaviateActionsDeleteParams) middleware.Responder {
+	api.ActionsWeaviateActionsDeleteHandler = actions.WeaviateActionsDeleteHandlerFunc(func(params actions.WeaviateActionsDeleteParams, principal *models.Principal) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
 			return actions.NewWeaviateActionsDeleteInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -641,7 +641,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		return actions.NewWeaviateActionsDeleteNoContent()
 	})
 
-	api.ActionsWeaviateActionsListHandler = actions.WeaviateActionsListHandlerFunc(func(params actions.WeaviateActionsListParams) middleware.Responder {
+	api.ActionsWeaviateActionsListHandler = actions.WeaviateActionsListHandlerFunc(func(params actions.WeaviateActionsListParams, principal *models.Principal) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
 			return actions.NewWeaviateActionsListInternalServerError().WithPayload(errPayloadFromSingleErr(err))

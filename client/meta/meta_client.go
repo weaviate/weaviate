@@ -39,7 +39,7 @@ WeaviateMetaGet returns meta information of the current weaviate instance
 
 Gives meta information about the server and can be used to provide information to another Weaviate instance that wants to interact with the current instance.
 */
-func (a *Client) WeaviateMetaGet(params *WeaviateMetaGetParams) (*WeaviateMetaGetOK, error) {
+func (a *Client) WeaviateMetaGet(params *WeaviateMetaGetParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateMetaGetOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateMetaGetParams()
@@ -54,6 +54,7 @@ func (a *Client) WeaviateMetaGet(params *WeaviateMetaGetParams) (*WeaviateMetaGe
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateMetaGetReader{formats: a.formats},
+		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})

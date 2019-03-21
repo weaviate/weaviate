@@ -37,6 +37,8 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/p2_p"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/schema"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/things"
+
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // NewWeaviateAPI creates a new Weaviate instance
@@ -57,61 +59,61 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		JSONConsumer:        runtime.JSONConsumer(),
 		YamlConsumer:        yamlpc.YAMLConsumer(),
 		JSONProducer:        runtime.JSONProducer(),
-		ActionsWeaviateActionHistoryGetHandler: actions.WeaviateActionHistoryGetHandlerFunc(func(params actions.WeaviateActionHistoryGetParams) middleware.Responder {
+		ActionsWeaviateActionHistoryGetHandler: actions.WeaviateActionHistoryGetHandlerFunc(func(params actions.WeaviateActionHistoryGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ActionsWeaviateActionHistoryGet has not yet been implemented")
 		}),
-		ActionsWeaviateActionUpdateHandler: actions.WeaviateActionUpdateHandlerFunc(func(params actions.WeaviateActionUpdateParams) middleware.Responder {
+		ActionsWeaviateActionUpdateHandler: actions.WeaviateActionUpdateHandlerFunc(func(params actions.WeaviateActionUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ActionsWeaviateActionUpdate has not yet been implemented")
 		}),
-		ActionsWeaviateActionsCreateHandler: actions.WeaviateActionsCreateHandlerFunc(func(params actions.WeaviateActionsCreateParams) middleware.Responder {
+		ActionsWeaviateActionsCreateHandler: actions.WeaviateActionsCreateHandlerFunc(func(params actions.WeaviateActionsCreateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ActionsWeaviateActionsCreate has not yet been implemented")
 		}),
-		ActionsWeaviateActionsDeleteHandler: actions.WeaviateActionsDeleteHandlerFunc(func(params actions.WeaviateActionsDeleteParams) middleware.Responder {
+		ActionsWeaviateActionsDeleteHandler: actions.WeaviateActionsDeleteHandlerFunc(func(params actions.WeaviateActionsDeleteParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ActionsWeaviateActionsDelete has not yet been implemented")
 		}),
-		ActionsWeaviateActionsGetHandler: actions.WeaviateActionsGetHandlerFunc(func(params actions.WeaviateActionsGetParams) middleware.Responder {
+		ActionsWeaviateActionsGetHandler: actions.WeaviateActionsGetHandlerFunc(func(params actions.WeaviateActionsGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ActionsWeaviateActionsGet has not yet been implemented")
 		}),
-		ActionsWeaviateActionsListHandler: actions.WeaviateActionsListHandlerFunc(func(params actions.WeaviateActionsListParams) middleware.Responder {
+		ActionsWeaviateActionsListHandler: actions.WeaviateActionsListHandlerFunc(func(params actions.WeaviateActionsListParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ActionsWeaviateActionsList has not yet been implemented")
 		}),
-		ActionsWeaviateActionsPatchHandler: actions.WeaviateActionsPatchHandlerFunc(func(params actions.WeaviateActionsPatchParams) middleware.Responder {
+		ActionsWeaviateActionsPatchHandler: actions.WeaviateActionsPatchHandlerFunc(func(params actions.WeaviateActionsPatchParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ActionsWeaviateActionsPatch has not yet been implemented")
 		}),
-		ActionsWeaviateActionsReferencesCreateHandler: actions.WeaviateActionsReferencesCreateHandlerFunc(func(params actions.WeaviateActionsReferencesCreateParams) middleware.Responder {
+		ActionsWeaviateActionsReferencesCreateHandler: actions.WeaviateActionsReferencesCreateHandlerFunc(func(params actions.WeaviateActionsReferencesCreateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ActionsWeaviateActionsReferencesCreate has not yet been implemented")
 		}),
-		ActionsWeaviateActionsReferencesDeleteHandler: actions.WeaviateActionsReferencesDeleteHandlerFunc(func(params actions.WeaviateActionsReferencesDeleteParams) middleware.Responder {
+		ActionsWeaviateActionsReferencesDeleteHandler: actions.WeaviateActionsReferencesDeleteHandlerFunc(func(params actions.WeaviateActionsReferencesDeleteParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ActionsWeaviateActionsReferencesDelete has not yet been implemented")
 		}),
-		ActionsWeaviateActionsReferencesUpdateHandler: actions.WeaviateActionsReferencesUpdateHandlerFunc(func(params actions.WeaviateActionsReferencesUpdateParams) middleware.Responder {
+		ActionsWeaviateActionsReferencesUpdateHandler: actions.WeaviateActionsReferencesUpdateHandlerFunc(func(params actions.WeaviateActionsReferencesUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ActionsWeaviateActionsReferencesUpdate has not yet been implemented")
 		}),
-		ActionsWeaviateActionsValidateHandler: actions.WeaviateActionsValidateHandlerFunc(func(params actions.WeaviateActionsValidateParams) middleware.Responder {
+		ActionsWeaviateActionsValidateHandler: actions.WeaviateActionsValidateHandlerFunc(func(params actions.WeaviateActionsValidateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ActionsWeaviateActionsValidate has not yet been implemented")
 		}),
-		WeaviateBatchingActionsCreateHandler: WeaviateBatchingActionsCreateHandlerFunc(func(params WeaviateBatchingActionsCreateParams) middleware.Responder {
+		WeaviateBatchingActionsCreateHandler: WeaviateBatchingActionsCreateHandlerFunc(func(params WeaviateBatchingActionsCreateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation WeaviateBatchingActionsCreate has not yet been implemented")
 		}),
-		WeaviateBatchingReferencesCreateHandler: WeaviateBatchingReferencesCreateHandlerFunc(func(params WeaviateBatchingReferencesCreateParams) middleware.Responder {
+		WeaviateBatchingReferencesCreateHandler: WeaviateBatchingReferencesCreateHandlerFunc(func(params WeaviateBatchingReferencesCreateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation WeaviateBatchingReferencesCreate has not yet been implemented")
 		}),
-		WeaviateBatchingThingsCreateHandler: WeaviateBatchingThingsCreateHandlerFunc(func(params WeaviateBatchingThingsCreateParams) middleware.Responder {
+		WeaviateBatchingThingsCreateHandler: WeaviateBatchingThingsCreateHandlerFunc(func(params WeaviateBatchingThingsCreateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation WeaviateBatchingThingsCreate has not yet been implemented")
 		}),
-		ContextionaryAPIWeaviateC11yCorpusGetHandler: contextionary_api.WeaviateC11yCorpusGetHandlerFunc(func(params contextionary_api.WeaviateC11yCorpusGetParams) middleware.Responder {
+		ContextionaryAPIWeaviateC11yCorpusGetHandler: contextionary_api.WeaviateC11yCorpusGetHandlerFunc(func(params contextionary_api.WeaviateC11yCorpusGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ContextionaryAPIWeaviateC11yCorpusGet has not yet been implemented")
 		}),
-		ContextionaryAPIWeaviateC11yWordsHandler: contextionary_api.WeaviateC11yWordsHandlerFunc(func(params contextionary_api.WeaviateC11yWordsParams) middleware.Responder {
+		ContextionaryAPIWeaviateC11yWordsHandler: contextionary_api.WeaviateC11yWordsHandlerFunc(func(params contextionary_api.WeaviateC11yWordsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ContextionaryAPIWeaviateC11yWords has not yet been implemented")
 		}),
-		GraphqlWeaviateGraphqlBatchHandler: graphql.WeaviateGraphqlBatchHandlerFunc(func(params graphql.WeaviateGraphqlBatchParams) middleware.Responder {
+		GraphqlWeaviateGraphqlBatchHandler: graphql.WeaviateGraphqlBatchHandlerFunc(func(params graphql.WeaviateGraphqlBatchParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation GraphqlWeaviateGraphqlBatch has not yet been implemented")
 		}),
-		GraphqlWeaviateGraphqlPostHandler: graphql.WeaviateGraphqlPostHandlerFunc(func(params graphql.WeaviateGraphqlPostParams) middleware.Responder {
+		GraphqlWeaviateGraphqlPostHandler: graphql.WeaviateGraphqlPostHandlerFunc(func(params graphql.WeaviateGraphqlPostParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation GraphqlWeaviateGraphqlPost has not yet been implemented")
 		}),
-		MetaWeaviateMetaGetHandler: meta.WeaviateMetaGetHandlerFunc(func(params meta.WeaviateMetaGetParams) middleware.Responder {
+		MetaWeaviateMetaGetHandler: meta.WeaviateMetaGetHandlerFunc(func(params meta.WeaviateMetaGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation MetaWeaviateMetaGet has not yet been implemented")
 		}),
 		P2PWeaviateP2pGenesisUpdateHandler: p2_p.WeaviateP2pGenesisUpdateHandlerFunc(func(params p2_p.WeaviateP2pGenesisUpdateParams) middleware.Responder {
@@ -120,78 +122,85 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		P2PWeaviateP2pHealthHandler: p2_p.WeaviateP2pHealthHandlerFunc(func(params p2_p.WeaviateP2pHealthParams) middleware.Responder {
 			return middleware.NotImplemented("operation P2PWeaviateP2pHealth has not yet been implemented")
 		}),
-		SchemaWeaviateSchemaActionsCreateHandler: schema.WeaviateSchemaActionsCreateHandlerFunc(func(params schema.WeaviateSchemaActionsCreateParams) middleware.Responder {
+		SchemaWeaviateSchemaActionsCreateHandler: schema.WeaviateSchemaActionsCreateHandlerFunc(func(params schema.WeaviateSchemaActionsCreateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation SchemaWeaviateSchemaActionsCreate has not yet been implemented")
 		}),
-		SchemaWeaviateSchemaActionsDeleteHandler: schema.WeaviateSchemaActionsDeleteHandlerFunc(func(params schema.WeaviateSchemaActionsDeleteParams) middleware.Responder {
+		SchemaWeaviateSchemaActionsDeleteHandler: schema.WeaviateSchemaActionsDeleteHandlerFunc(func(params schema.WeaviateSchemaActionsDeleteParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation SchemaWeaviateSchemaActionsDelete has not yet been implemented")
 		}),
-		SchemaWeaviateSchemaActionsPropertiesAddHandler: schema.WeaviateSchemaActionsPropertiesAddHandlerFunc(func(params schema.WeaviateSchemaActionsPropertiesAddParams) middleware.Responder {
+		SchemaWeaviateSchemaActionsPropertiesAddHandler: schema.WeaviateSchemaActionsPropertiesAddHandlerFunc(func(params schema.WeaviateSchemaActionsPropertiesAddParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation SchemaWeaviateSchemaActionsPropertiesAdd has not yet been implemented")
 		}),
-		SchemaWeaviateSchemaActionsPropertiesDeleteHandler: schema.WeaviateSchemaActionsPropertiesDeleteHandlerFunc(func(params schema.WeaviateSchemaActionsPropertiesDeleteParams) middleware.Responder {
+		SchemaWeaviateSchemaActionsPropertiesDeleteHandler: schema.WeaviateSchemaActionsPropertiesDeleteHandlerFunc(func(params schema.WeaviateSchemaActionsPropertiesDeleteParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation SchemaWeaviateSchemaActionsPropertiesDelete has not yet been implemented")
 		}),
-		SchemaWeaviateSchemaActionsPropertiesUpdateHandler: schema.WeaviateSchemaActionsPropertiesUpdateHandlerFunc(func(params schema.WeaviateSchemaActionsPropertiesUpdateParams) middleware.Responder {
+		SchemaWeaviateSchemaActionsPropertiesUpdateHandler: schema.WeaviateSchemaActionsPropertiesUpdateHandlerFunc(func(params schema.WeaviateSchemaActionsPropertiesUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation SchemaWeaviateSchemaActionsPropertiesUpdate has not yet been implemented")
 		}),
-		SchemaWeaviateSchemaActionsUpdateHandler: schema.WeaviateSchemaActionsUpdateHandlerFunc(func(params schema.WeaviateSchemaActionsUpdateParams) middleware.Responder {
+		SchemaWeaviateSchemaActionsUpdateHandler: schema.WeaviateSchemaActionsUpdateHandlerFunc(func(params schema.WeaviateSchemaActionsUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation SchemaWeaviateSchemaActionsUpdate has not yet been implemented")
 		}),
-		SchemaWeaviateSchemaDumpHandler: schema.WeaviateSchemaDumpHandlerFunc(func(params schema.WeaviateSchemaDumpParams) middleware.Responder {
+		SchemaWeaviateSchemaDumpHandler: schema.WeaviateSchemaDumpHandlerFunc(func(params schema.WeaviateSchemaDumpParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation SchemaWeaviateSchemaDump has not yet been implemented")
 		}),
-		SchemaWeaviateSchemaThingsCreateHandler: schema.WeaviateSchemaThingsCreateHandlerFunc(func(params schema.WeaviateSchemaThingsCreateParams) middleware.Responder {
+		SchemaWeaviateSchemaThingsCreateHandler: schema.WeaviateSchemaThingsCreateHandlerFunc(func(params schema.WeaviateSchemaThingsCreateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation SchemaWeaviateSchemaThingsCreate has not yet been implemented")
 		}),
-		SchemaWeaviateSchemaThingsDeleteHandler: schema.WeaviateSchemaThingsDeleteHandlerFunc(func(params schema.WeaviateSchemaThingsDeleteParams) middleware.Responder {
+		SchemaWeaviateSchemaThingsDeleteHandler: schema.WeaviateSchemaThingsDeleteHandlerFunc(func(params schema.WeaviateSchemaThingsDeleteParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation SchemaWeaviateSchemaThingsDelete has not yet been implemented")
 		}),
-		SchemaWeaviateSchemaThingsPropertiesAddHandler: schema.WeaviateSchemaThingsPropertiesAddHandlerFunc(func(params schema.WeaviateSchemaThingsPropertiesAddParams) middleware.Responder {
+		SchemaWeaviateSchemaThingsPropertiesAddHandler: schema.WeaviateSchemaThingsPropertiesAddHandlerFunc(func(params schema.WeaviateSchemaThingsPropertiesAddParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation SchemaWeaviateSchemaThingsPropertiesAdd has not yet been implemented")
 		}),
-		SchemaWeaviateSchemaThingsPropertiesDeleteHandler: schema.WeaviateSchemaThingsPropertiesDeleteHandlerFunc(func(params schema.WeaviateSchemaThingsPropertiesDeleteParams) middleware.Responder {
+		SchemaWeaviateSchemaThingsPropertiesDeleteHandler: schema.WeaviateSchemaThingsPropertiesDeleteHandlerFunc(func(params schema.WeaviateSchemaThingsPropertiesDeleteParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation SchemaWeaviateSchemaThingsPropertiesDelete has not yet been implemented")
 		}),
-		SchemaWeaviateSchemaThingsPropertiesUpdateHandler: schema.WeaviateSchemaThingsPropertiesUpdateHandlerFunc(func(params schema.WeaviateSchemaThingsPropertiesUpdateParams) middleware.Responder {
+		SchemaWeaviateSchemaThingsPropertiesUpdateHandler: schema.WeaviateSchemaThingsPropertiesUpdateHandlerFunc(func(params schema.WeaviateSchemaThingsPropertiesUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation SchemaWeaviateSchemaThingsPropertiesUpdate has not yet been implemented")
 		}),
-		SchemaWeaviateSchemaThingsUpdateHandler: schema.WeaviateSchemaThingsUpdateHandlerFunc(func(params schema.WeaviateSchemaThingsUpdateParams) middleware.Responder {
+		SchemaWeaviateSchemaThingsUpdateHandler: schema.WeaviateSchemaThingsUpdateHandlerFunc(func(params schema.WeaviateSchemaThingsUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation SchemaWeaviateSchemaThingsUpdate has not yet been implemented")
 		}),
-		ThingsWeaviateThingHistoryGetHandler: things.WeaviateThingHistoryGetHandlerFunc(func(params things.WeaviateThingHistoryGetParams) middleware.Responder {
+		ThingsWeaviateThingHistoryGetHandler: things.WeaviateThingHistoryGetHandlerFunc(func(params things.WeaviateThingHistoryGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ThingsWeaviateThingHistoryGet has not yet been implemented")
 		}),
-		ThingsWeaviateThingsCreateHandler: things.WeaviateThingsCreateHandlerFunc(func(params things.WeaviateThingsCreateParams) middleware.Responder {
+		ThingsWeaviateThingsCreateHandler: things.WeaviateThingsCreateHandlerFunc(func(params things.WeaviateThingsCreateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ThingsWeaviateThingsCreate has not yet been implemented")
 		}),
-		ThingsWeaviateThingsDeleteHandler: things.WeaviateThingsDeleteHandlerFunc(func(params things.WeaviateThingsDeleteParams) middleware.Responder {
+		ThingsWeaviateThingsDeleteHandler: things.WeaviateThingsDeleteHandlerFunc(func(params things.WeaviateThingsDeleteParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ThingsWeaviateThingsDelete has not yet been implemented")
 		}),
-		ThingsWeaviateThingsGetHandler: things.WeaviateThingsGetHandlerFunc(func(params things.WeaviateThingsGetParams) middleware.Responder {
+		ThingsWeaviateThingsGetHandler: things.WeaviateThingsGetHandlerFunc(func(params things.WeaviateThingsGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ThingsWeaviateThingsGet has not yet been implemented")
 		}),
-		ThingsWeaviateThingsListHandler: things.WeaviateThingsListHandlerFunc(func(params things.WeaviateThingsListParams) middleware.Responder {
+		ThingsWeaviateThingsListHandler: things.WeaviateThingsListHandlerFunc(func(params things.WeaviateThingsListParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ThingsWeaviateThingsList has not yet been implemented")
 		}),
-		ThingsWeaviateThingsPatchHandler: things.WeaviateThingsPatchHandlerFunc(func(params things.WeaviateThingsPatchParams) middleware.Responder {
+		ThingsWeaviateThingsPatchHandler: things.WeaviateThingsPatchHandlerFunc(func(params things.WeaviateThingsPatchParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ThingsWeaviateThingsPatch has not yet been implemented")
 		}),
-		ThingsWeaviateThingsReferencesCreateHandler: things.WeaviateThingsReferencesCreateHandlerFunc(func(params things.WeaviateThingsReferencesCreateParams) middleware.Responder {
+		ThingsWeaviateThingsReferencesCreateHandler: things.WeaviateThingsReferencesCreateHandlerFunc(func(params things.WeaviateThingsReferencesCreateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ThingsWeaviateThingsReferencesCreate has not yet been implemented")
 		}),
-		ThingsWeaviateThingsReferencesDeleteHandler: things.WeaviateThingsReferencesDeleteHandlerFunc(func(params things.WeaviateThingsReferencesDeleteParams) middleware.Responder {
+		ThingsWeaviateThingsReferencesDeleteHandler: things.WeaviateThingsReferencesDeleteHandlerFunc(func(params things.WeaviateThingsReferencesDeleteParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ThingsWeaviateThingsReferencesDelete has not yet been implemented")
 		}),
-		ThingsWeaviateThingsReferencesUpdateHandler: things.WeaviateThingsReferencesUpdateHandlerFunc(func(params things.WeaviateThingsReferencesUpdateParams) middleware.Responder {
+		ThingsWeaviateThingsReferencesUpdateHandler: things.WeaviateThingsReferencesUpdateHandlerFunc(func(params things.WeaviateThingsReferencesUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ThingsWeaviateThingsReferencesUpdate has not yet been implemented")
 		}),
-		ThingsWeaviateThingsUpdateHandler: things.WeaviateThingsUpdateHandlerFunc(func(params things.WeaviateThingsUpdateParams) middleware.Responder {
+		ThingsWeaviateThingsUpdateHandler: things.WeaviateThingsUpdateHandlerFunc(func(params things.WeaviateThingsUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ThingsWeaviateThingsUpdate has not yet been implemented")
 		}),
-		ThingsWeaviateThingsValidateHandler: things.WeaviateThingsValidateHandlerFunc(func(params things.WeaviateThingsValidateParams) middleware.Responder {
+		ThingsWeaviateThingsValidateHandler: things.WeaviateThingsValidateHandlerFunc(func(params things.WeaviateThingsValidateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ThingsWeaviateThingsValidate has not yet been implemented")
 		}),
+
+		OidcAuth: func(token string, scopes []string) (*models.Principal, error) {
+			return nil, errors.NotImplemented("oauth2 bearer auth (oidc) has not yet been implemented")
+		},
+
+		// default authorizer is authorized meaning no requests are blocked
+		APIAuthorizer: security.Authorized(),
 	}
 }
 
@@ -224,6 +233,13 @@ type WeaviateAPI struct {
 
 	// JSONProducer registers a producer for a "application/json" mime type
 	JSONProducer runtime.Producer
+
+	// OidcAuth registers a function that takes an access token and a collection of required scopes and returns a principal
+	// it performs authentication based on an oauth2 bearer token provided in the request
+	OidcAuth func(string, []string) (*models.Principal, error)
+
+	// APIAuthorizer provides access control (ACL/RBAC/ABAC) by providing access to the request and authenticated principal
+	APIAuthorizer runtime.Authorizer
 
 	// ActionsWeaviateActionHistoryGetHandler sets the operation handler for the weaviate action history get operation
 	ActionsWeaviateActionHistoryGetHandler actions.WeaviateActionHistoryGetHandler
@@ -380,6 +396,10 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.JSONProducer == nil {
 		unregistered = append(unregistered, "JSONProducer")
+	}
+
+	if o.OidcAuth == nil {
+		unregistered = append(unregistered, "OidcAuth")
 	}
 
 	if o.ActionsWeaviateActionHistoryGetHandler == nil {
@@ -577,14 +597,26 @@ func (o *WeaviateAPI) ServeErrorFor(operationID string) func(http.ResponseWriter
 // AuthenticatorsFor gets the authenticators for the specified security schemes
 func (o *WeaviateAPI) AuthenticatorsFor(schemes map[string]spec.SecurityScheme) map[string]runtime.Authenticator {
 
-	return nil
+	result := make(map[string]runtime.Authenticator)
+	for name, scheme := range schemes {
+		switch name {
+
+		case "oidc":
+
+			result[name] = o.BearerAuthenticator(scheme.Name, func(token string, scopes []string) (interface{}, error) {
+				return o.OidcAuth(token, scopes)
+			})
+
+		}
+	}
+	return result
 
 }
 
 // Authorizer returns the registered authorizer
 func (o *WeaviateAPI) Authorizer() runtime.Authorizer {
 
-	return nil
+	return o.APIAuthorizer
 
 }
 

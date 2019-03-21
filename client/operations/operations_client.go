@@ -39,7 +39,7 @@ WeaviateBatchingActionsCreate creates new actions based on an action template as
 
 Register new Actions in bulk. Given meta-data and schema values are validated.
 */
-func (a *Client) WeaviateBatchingActionsCreate(params *WeaviateBatchingActionsCreateParams) (*WeaviateBatchingActionsCreateOK, error) {
+func (a *Client) WeaviateBatchingActionsCreate(params *WeaviateBatchingActionsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateBatchingActionsCreateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateBatchingActionsCreateParams()
@@ -54,6 +54,7 @@ func (a *Client) WeaviateBatchingActionsCreate(params *WeaviateBatchingActionsCr
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateBatchingActionsCreateReader{formats: a.formats},
+		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -69,7 +70,7 @@ WeaviateBatchingReferencesCreate creates new cross references between arbitrary 
 
 Register cross-references between any class items (things or actions) in bulk.
 */
-func (a *Client) WeaviateBatchingReferencesCreate(params *WeaviateBatchingReferencesCreateParams) (*WeaviateBatchingReferencesCreateOK, error) {
+func (a *Client) WeaviateBatchingReferencesCreate(params *WeaviateBatchingReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateBatchingReferencesCreateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateBatchingReferencesCreateParams()
@@ -84,6 +85,7 @@ func (a *Client) WeaviateBatchingReferencesCreate(params *WeaviateBatchingRefere
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateBatchingReferencesCreateReader{formats: a.formats},
+		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -99,7 +101,7 @@ WeaviateBatchingThingsCreate creates new things based on a thing template as a b
 
 Register new Things in bulk. Provided meta-data and schema values are validated.
 */
-func (a *Client) WeaviateBatchingThingsCreate(params *WeaviateBatchingThingsCreateParams) (*WeaviateBatchingThingsCreateOK, error) {
+func (a *Client) WeaviateBatchingThingsCreate(params *WeaviateBatchingThingsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateBatchingThingsCreateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateBatchingThingsCreateParams()
@@ -114,6 +116,7 @@ func (a *Client) WeaviateBatchingThingsCreate(params *WeaviateBatchingThingsCrea
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateBatchingThingsCreateReader{formats: a.formats},
+		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
