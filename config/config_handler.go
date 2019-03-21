@@ -54,6 +54,7 @@ type Environment struct {
 	Development          Development     `json:"development" yaml:"development"`
 	Contextionary        Contextionary   `json:"contextionary" yaml:"contextionary"`
 	ConfigurationStorage ConfigStore     `json:"configuration_storage" yaml:"configuration_storage"`
+	Authentication       Authentication  `json:"authentication" yaml:"authentication"`
 }
 
 type Contextionary struct {

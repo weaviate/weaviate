@@ -11,6 +11,7 @@
  */package state
 
 import (
+	"github.com/creativesoftwarefdn/weaviate/auth/authentication/oidc"
 	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/database"
 	"github.com/creativesoftwarefdn/weaviate/messages"
@@ -23,5 +24,6 @@ type State struct {
 	Database     database.Database
 	Network      network.Network
 	Messaging    *messages.Messaging
+	OIDC         *oidc.Client
 	ServerConfig *config.WeaviateConfig
 }
