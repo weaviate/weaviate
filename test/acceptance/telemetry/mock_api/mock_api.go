@@ -9,7 +9,7 @@
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
  * CONTACT: hello@creativesoftwarefdn.org
  */
-package mock_api
+package main
 
 // Acceptance tests for logging. Sets up a small fake endpoint that logs are sent to.
 
