@@ -32,6 +32,3 @@ const TypeGQL string = "GQL"
 
 // TypeREST contains the serviceID for a local query
 const TypeREST string = "REST"
-
-// TargetURL contains the serviceID for a local query
-const TargetURL string = "http://webhook.site/73641e3c-6d28-4875-aa5e-b0e66abd3b00"

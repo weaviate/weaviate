@@ -77,12 +77,3 @@ type RequestLog struct {
 	Amount     int    // how often the function was called
 	When       int64  // timestamp in epoch
 }
-
-// // Note `Name` and `When` attributes are not set here; they are provided separately when logged requests are prepared to be posted
-// func NewRequestTypeLog(requestType string, identifier string) *RequestLog {
-// 	return &RequestLog{
-// 		Type:       requestType,
-// 		Identifier: identifier,
-// 		Amount:     1,
-// 	}
-// }
