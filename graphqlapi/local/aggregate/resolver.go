@@ -141,6 +141,7 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 				}()
 
 			}
+		}
 		analytics, err := common_filters.ExtractAnalyticsProps(p.Args, cfg.AnalyticsEngine)
 		if err != nil {
 			return nil, fmt.Errorf("could not extract filters: %s", err)
