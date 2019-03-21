@@ -24,13 +24,6 @@ const Amount string = "a"
 // When contains the minimized string value of the When field.
 const When string = "w"
 
-// TODO:
-// make new outputTransformer
-// minimize logs
-// cborize logs
-// send + retry
-// failsafe
-
 // NewReporter creates a new Reporter struct and returns a pointer to it.
 func NewReporter(requestsLog *RequestsLog, reportInterval int, reportURL string, telemetryEnabled bool, testing bool) *Reporter {
 	return &Reporter{
@@ -66,8 +59,8 @@ func (r *Reporter) Start() {
 				r.poster.ReportLoggedCalls(transformedLog)
 			} else {
 				// TODO: error logging in etcd
+				r.triggerCBORFailsafe(extractedLog)
 			}
-
 		}
 	}
 }
@@ -81,7 +74,7 @@ func (r *Reporter) AddTimeStamps(extractedLog *map[string]*RequestLog) {
 	}
 }
 
-func (r *Reporter) triggerCBORFailsafe(requests *map[string]*RequestLog) {
+func (r *Reporter) triggerCBORFailsafe(extractedLog *map[string]*RequestLog) {
 	// TODO fill in failsafe etcd handling
 }
 
@@ -148,13 +141,12 @@ func (o *OutputTransformer) EncodeAsCBOR(minimizedJSON *string) (*[]byte, error)
 	return &encoded, nil
 }
 
-// NewPoster creates a new
+// NewPoster creates a new poster struct, which is responsible for sending logs to the specified endpoint.
 func NewPoster(url string) *Poster {
 	return &Poster{url: url}
 }
 
-// Poster is a class responsible for sending the converted log to the desired location.
-// Tries to send the log to a REST endpoint. If the endpoint is unreachable then the logs are stored in the etcd store.
+// Poster is a class responsible for sending the converted log to the logging endpoint. If the endpoint is unreachable then the logs are stored in the etcd store.
 type Poster struct {
 	url string
 }
@@ -172,7 +164,7 @@ func (p *Poster) ReportLoggedCalls(encoded *[]byte) {
 	defer resp.Body.Close()
 }
 
-// Should the REST endpoint be unreachable then the log is stored in the etcd key item store
+// triggerPOSTFailsafe stores the log in the etcd key item store if the POST fails.
 func (p *Poster) triggerPOSTFailsafe(encoded *[]byte) {
 
 }

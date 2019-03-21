@@ -11,12 +11,11 @@
  */
 package test
 
-// Acceptance tests for logging
+// Acceptance tests for logging. Sets up a small fake endpoint that logs are sent to.
 
 import (
 	"testing"
 
-	"github.com/creativesoftwarefdn/weaviate/telemetry"
 	"github.com/creativesoftwarefdn/weaviate/client/actions"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
@@ -68,4 +67,3 @@ func TestCanCreateAction(t *testing.T) {
 		assert.Equal(t, actionTestDate, schema["testDateTime"])
 	})
 }
-
