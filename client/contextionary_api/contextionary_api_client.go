@@ -39,7 +39,7 @@ WeaviateC11yCorpusGet checks if a word or word string is part of the contextiona
 
 Analyzes a sentence based on the contextionary
 */
-func (a *Client) WeaviateC11yCorpusGet(params *WeaviateC11yCorpusGetParams) error {
+func (a *Client) WeaviateC11yCorpusGet(params *WeaviateC11yCorpusGetParams, authInfo runtime.ClientAuthInfoWriter) error {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateC11yCorpusGetParams()
@@ -54,6 +54,7 @@ func (a *Client) WeaviateC11yCorpusGet(params *WeaviateC11yCorpusGetParams) erro
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateC11yCorpusGetReader{formats: a.formats},
+		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -69,7 +70,7 @@ WeaviateC11yWords checks if a word or word string is part of the contextionary
 
 Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/creativesoftwarefdn/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase
 */
-func (a *Client) WeaviateC11yWords(params *WeaviateC11yWordsParams) (*WeaviateC11yWordsOK, error) {
+func (a *Client) WeaviateC11yWords(params *WeaviateC11yWordsParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateC11yWordsOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateC11yWordsParams()
@@ -84,6 +85,7 @@ func (a *Client) WeaviateC11yWords(params *WeaviateC11yWordsParams) (*WeaviateC1
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateC11yWordsReader{formats: a.formats},
+		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})

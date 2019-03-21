@@ -28,7 +28,7 @@ func setupC11yHandlers(api *operations.WeaviateAPI) {
 	 * HANDLE C11Y
 	 */
 
-	api.ContextionaryAPIWeaviateC11yWordsHandler = contextionary_api.WeaviateC11yWordsHandlerFunc(func(params contextionary_api.WeaviateC11yWordsParams) middleware.Responder {
+	api.ContextionaryAPIWeaviateC11yWordsHandler = contextionary_api.WeaviateC11yWordsHandlerFunc(func(params contextionary_api.WeaviateC11yWordsParams, principal *models.Principal) middleware.Responder {
 
 		// the word(s) from the request
 		words := params.Words
@@ -158,7 +158,7 @@ func setupC11yHandlers(api *operations.WeaviateAPI) {
 		return contextionary_api.NewWeaviateC11yWordsOK().WithPayload(returnObject)
 	})
 
-	api.ContextionaryAPIWeaviateC11yCorpusGetHandler = contextionary_api.WeaviateC11yCorpusGetHandlerFunc(func(params contextionary_api.WeaviateC11yCorpusGetParams) middleware.Responder {
+	api.ContextionaryAPIWeaviateC11yCorpusGetHandler = contextionary_api.WeaviateC11yCorpusGetHandlerFunc(func(params contextionary_api.WeaviateC11yCorpusGetParams, principal *models.Principal) middleware.Responder {
 		return middleware.NotImplemented("operation contextionary_api.WeaviateC11yCorpusGet has not yet been implemented")
 	})
 

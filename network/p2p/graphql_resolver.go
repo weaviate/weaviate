@@ -82,7 +82,7 @@ func postToPeer(client *client.WeaviateDecentralisedKnowledgeGraph, subQuery com
 		// re-enable once we have auth again
 		// HTTPClient: clientWithTokenInjectorRoundTripper(principal),
 	}
-	return client.Graphql.WeaviateGraphqlPost(requestParams)
+	return client.Graphql.WeaviateGraphqlPost(requestParams, nil)
 }
 
 type tokenInjectorRoundTripper struct {

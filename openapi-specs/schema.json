@@ -5,6 +5,21 @@
     "application/json"
   ],
   "definitions": {
+    "Principal": {
+        "type": "object",
+        "properties": {
+            "username": {
+                "type": "string",
+                "description": "The username that was extracted either from the authentication information"
+            },
+            "groups": {
+                "type": "array",
+                "items": {
+                    "type": "string"
+                }
+            }
+        }
+    },
     "Action": {
       "allOf": [
         {
@@ -3294,8 +3309,20 @@
   "schemes": [
     "https"
   ],
-  "security": [],
-  "securityDefinitions": {},
+  "security": [
+    {},
+    {
+      "oidc": []
+    }
+  ],
+  "securityDefinitions": {
+    "oidc": {
+        "type": "oauth2",
+        "description": "OIDC (OpenConnect ID - based on OAuth2)",
+        "flow": "implicit",
+        "authorizationUrl": "http://to-be-configured-in-the-application-config"
+      }
+  },
   "swagger": "2.0",
   "tags": [
     {

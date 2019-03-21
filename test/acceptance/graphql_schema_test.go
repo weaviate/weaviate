@@ -366,7 +366,7 @@ type GraphQLResult struct {
 func queryGraphql(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, operation string, query string, variables map[string]interface{}) (*models.GraphQLResponse, error) {
 	var vars interface{} = variables
 	params := graphql_client.NewWeaviateGraphqlPostParams().WithBody(&models.GraphQLQuery{OperationName: operation, Query: query, Variables: vars})
-	response, err := helper.Client(t).Graphql.WeaviateGraphqlPost(params)
+	response, err := helper.Client(t).Graphql.WeaviateGraphqlPost(params, nil)
 
 	if err != nil {
 		return nil, err

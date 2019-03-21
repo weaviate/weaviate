@@ -19,19 +19,21 @@ import (
 	"net/http"
 
 	middleware "github.com/go-openapi/runtime/middleware"
+
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // WeaviateC11yWordsHandlerFunc turns a function with the right signature into a weaviate c11y words handler
-type WeaviateC11yWordsHandlerFunc func(WeaviateC11yWordsParams) middleware.Responder
+type WeaviateC11yWordsHandlerFunc func(WeaviateC11yWordsParams, *models.Principal) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateC11yWordsHandlerFunc) Handle(params WeaviateC11yWordsParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateC11yWordsHandlerFunc) Handle(params WeaviateC11yWordsParams, principal *models.Principal) middleware.Responder {
+	return fn(params, principal)
 }
 
 // WeaviateC11yWordsHandler interface for that can handle valid weaviate c11y words params
 type WeaviateC11yWordsHandler interface {
-	Handle(WeaviateC11yWordsParams) middleware.Responder
+	Handle(WeaviateC11yWordsParams, *models.Principal) middleware.Responder
 }
 
 // NewWeaviateC11yWords creates a new http.Handler for the weaviate c11y words operation
@@ -58,12 +60,25 @@ func (o *WeaviateC11yWords) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	}
 	var Params = NewWeaviateC11yWordsParams()
 
+	uprinc, aCtx, err := o.Context.Authorize(r, route)
+	if err != nil {
+		o.Context.Respond(rw, r, route.Produces, route, err)
+		return
+	}
+	if aCtx != nil {
+		r = aCtx
+	}
+	var principal *models.Principal
+	if uprinc != nil {
+		principal = uprinc.(*models.Principal) // this is really a models.Principal, I promise
+	}
+
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

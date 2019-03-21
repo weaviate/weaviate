@@ -39,7 +39,7 @@ WeaviateThingHistoryGet gets a thing s history based on its UUID
 
 Returns a particular Thing's history.
 */
-func (a *Client) WeaviateThingHistoryGet(params *WeaviateThingHistoryGetParams) (*WeaviateThingHistoryGetOK, error) {
+func (a *Client) WeaviateThingHistoryGet(params *WeaviateThingHistoryGetParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingHistoryGetOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateThingHistoryGetParams()
@@ -54,6 +54,7 @@ func (a *Client) WeaviateThingHistoryGet(params *WeaviateThingHistoryGetParams) 
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateThingHistoryGetReader{formats: a.formats},
+		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -69,7 +70,7 @@ WeaviateThingsCreate creates a new thing based on a thing template
 
 Registers a new Thing. Given meta-data and schema values are validated.
 */
-func (a *Client) WeaviateThingsCreate(params *WeaviateThingsCreateParams) (*WeaviateThingsCreateOK, *WeaviateThingsCreateAccepted, error) {
+func (a *Client) WeaviateThingsCreate(params *WeaviateThingsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsCreateOK, *WeaviateThingsCreateAccepted, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateThingsCreateParams()
@@ -84,6 +85,7 @@ func (a *Client) WeaviateThingsCreate(params *WeaviateThingsCreateParams) (*Weav
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateThingsCreateReader{formats: a.formats},
+		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -105,7 +107,7 @@ WeaviateThingsDelete deletes a thing based on its UUID
 
 Deletes a Thing from the system. All Actions pointing to this Thing, where the Thing is the object of the Action, are also being deleted.
 */
-func (a *Client) WeaviateThingsDelete(params *WeaviateThingsDeleteParams) (*WeaviateThingsDeleteNoContent, error) {
+func (a *Client) WeaviateThingsDelete(params *WeaviateThingsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsDeleteNoContent, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateThingsDeleteParams()
@@ -120,6 +122,7 @@ func (a *Client) WeaviateThingsDelete(params *WeaviateThingsDeleteParams) (*Weav
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateThingsDeleteReader{formats: a.formats},
+		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -135,7 +138,7 @@ WeaviateThingsGet gets a thing based on its UUID
 
 Returns a particular Thing data.
 */
-func (a *Client) WeaviateThingsGet(params *WeaviateThingsGetParams) (*WeaviateThingsGetOK, error) {
+func (a *Client) WeaviateThingsGet(params *WeaviateThingsGetParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsGetOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateThingsGetParams()
@@ -150,6 +153,7 @@ func (a *Client) WeaviateThingsGet(params *WeaviateThingsGetParams) (*WeaviateTh
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateThingsGetReader{formats: a.formats},
+		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -165,7 +169,7 @@ WeaviateThingsList gets a list of things
 
 Lists all Things in reverse order of creation, owned by the user that belongs to the used token.
 */
-func (a *Client) WeaviateThingsList(params *WeaviateThingsListParams) (*WeaviateThingsListOK, error) {
+func (a *Client) WeaviateThingsList(params *WeaviateThingsListParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsListOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateThingsListParams()
@@ -180,6 +184,7 @@ func (a *Client) WeaviateThingsList(params *WeaviateThingsListParams) (*Weaviate
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateThingsListReader{formats: a.formats},
+		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -195,7 +200,7 @@ WeaviateThingsPatch updates a thing based on its UUID using patch semantics
 
 Updates a Thing's data. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
-func (a *Client) WeaviateThingsPatch(params *WeaviateThingsPatchParams) (*WeaviateThingsPatchOK, *WeaviateThingsPatchAccepted, error) {
+func (a *Client) WeaviateThingsPatch(params *WeaviateThingsPatchParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsPatchOK, *WeaviateThingsPatchAccepted, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateThingsPatchParams()
@@ -210,6 +215,7 @@ func (a *Client) WeaviateThingsPatch(params *WeaviateThingsPatchParams) (*Weavia
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateThingsPatchReader{formats: a.formats},
+		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -231,7 +237,7 @@ WeaviateThingsReferencesCreate adds a single reference to a class property when 
 
 Add a single reference to a class-property when cardinality is set to 'hasMany'.
 */
-func (a *Client) WeaviateThingsReferencesCreate(params *WeaviateThingsReferencesCreateParams) (*WeaviateThingsReferencesCreateOK, error) {
+func (a *Client) WeaviateThingsReferencesCreate(params *WeaviateThingsReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsReferencesCreateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateThingsReferencesCreateParams()
@@ -246,6 +252,7 @@ func (a *Client) WeaviateThingsReferencesCreate(params *WeaviateThingsReferences
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateThingsReferencesCreateReader{formats: a.formats},
+		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -261,7 +268,7 @@ WeaviateThingsReferencesDelete deletes the single reference that is given in the
 
 Delete the single reference that is given in the body from the list of references that this property has.
 */
-func (a *Client) WeaviateThingsReferencesDelete(params *WeaviateThingsReferencesDeleteParams) (*WeaviateThingsReferencesDeleteNoContent, error) {
+func (a *Client) WeaviateThingsReferencesDelete(params *WeaviateThingsReferencesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsReferencesDeleteNoContent, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateThingsReferencesDeleteParams()
@@ -276,6 +283,7 @@ func (a *Client) WeaviateThingsReferencesDelete(params *WeaviateThingsReferences
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateThingsReferencesDeleteReader{formats: a.formats},
+		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -291,7 +299,7 @@ WeaviateThingsReferencesUpdate replaces all references to a class property
 
 Replace all references to a class-property.
 */
-func (a *Client) WeaviateThingsReferencesUpdate(params *WeaviateThingsReferencesUpdateParams) (*WeaviateThingsReferencesUpdateOK, error) {
+func (a *Client) WeaviateThingsReferencesUpdate(params *WeaviateThingsReferencesUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsReferencesUpdateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateThingsReferencesUpdateParams()
@@ -306,6 +314,7 @@ func (a *Client) WeaviateThingsReferencesUpdate(params *WeaviateThingsReferences
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateThingsReferencesUpdateReader{formats: a.formats},
+		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -321,7 +330,7 @@ WeaviateThingsUpdate updates a thing based on its UUID
 
 Updates a Thing's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
-func (a *Client) WeaviateThingsUpdate(params *WeaviateThingsUpdateParams) (*WeaviateThingsUpdateAccepted, error) {
+func (a *Client) WeaviateThingsUpdate(params *WeaviateThingsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsUpdateAccepted, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateThingsUpdateParams()
@@ -336,6 +345,7 @@ func (a *Client) WeaviateThingsUpdate(params *WeaviateThingsUpdateParams) (*Weav
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateThingsUpdateReader{formats: a.formats},
+		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -351,7 +361,7 @@ WeaviateThingsValidate validates things schema
 
 Validate a Thing's schema and meta-data. It has to be based on a schema, which is related to the given Thing to be accepted by this validation.
 */
-func (a *Client) WeaviateThingsValidate(params *WeaviateThingsValidateParams) (*WeaviateThingsValidateOK, error) {
+func (a *Client) WeaviateThingsValidate(params *WeaviateThingsValidateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsValidateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateThingsValidateParams()
@@ -366,6 +376,7 @@ func (a *Client) WeaviateThingsValidate(params *WeaviateThingsValidateParams) (*
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateThingsValidateReader{formats: a.formats},
+		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})

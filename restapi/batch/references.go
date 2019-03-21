@@ -33,7 +33,7 @@ type referencesRequest struct {
 }
 
 // References adds cross-references between classes in batch
-func (b *Batch) References(params operations.WeaviateBatchingReferencesCreateParams) middleware.Responder {
+func (b *Batch) References(params operations.WeaviateBatchingReferencesCreateParams, principal *models.Principal) middleware.Responder {
 	defer b.appState.Messaging.TimeTrack(time.Now())
 
 	r := newReferencesRequest(params.HTTPRequest, b.appState)

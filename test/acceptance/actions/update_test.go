@@ -38,7 +38,7 @@ func TestCanUpdateActionSetNumber(t *testing.T) {
 	update.AtContext = "blurgh"
 
 	params := actions.NewWeaviateActionUpdateParams().WithActionID(uuid).WithBody(&update)
-	updateResp, err := helper.Client(t).Actions.WeaviateActionUpdate(params)
+	updateResp, err := helper.Client(t).Actions.WeaviateActionUpdate(params, nil)
 	helper.AssertRequestOk(t, updateResp, err, nil)
 
 	actualThunk := func() interface{} {
@@ -65,7 +65,7 @@ func TestCanUpdateActionSetString(t *testing.T) {
 	update.AtContext = "blurgh"
 
 	params := actions.NewWeaviateActionUpdateParams().WithActionID(uuid).WithBody(&update)
-	updateResp, err := helper.Client(t).Actions.WeaviateActionUpdate(params)
+	updateResp, err := helper.Client(t).Actions.WeaviateActionUpdate(params, nil)
 	helper.AssertRequestOk(t, updateResp, err, nil)
 
 	actualThunk := func() interface{} {
@@ -91,7 +91,7 @@ func TestCanUpdateActionSetBool(t *testing.T) {
 	update.AtContext = "blurgh"
 
 	params := actions.NewWeaviateActionUpdateParams().WithActionID(uuid).WithBody(&update)
-	updateResp, err := helper.Client(t).Actions.WeaviateActionUpdate(params)
+	updateResp, err := helper.Client(t).Actions.WeaviateActionUpdate(params, nil)
 
 	helper.AssertRequestOk(t, updateResp, err, nil)
 
@@ -126,7 +126,7 @@ func TestCanPatchActionsSetCref(t *testing.T) {
 	params := actions.NewWeaviateActionsPatchParams().
 		WithBody([]*models.PatchDocument{patch}).
 		WithActionID(actionID)
-	patchResp, _, err := helper.Client(t).Actions.WeaviateActionsPatch(params)
+	patchResp, _, err := helper.Client(t).Actions.WeaviateActionsPatch(params, nil)
 	helper.AssertRequestOk(t, patchResp, err, nil)
 
 	actualThunk := func() interface{} {

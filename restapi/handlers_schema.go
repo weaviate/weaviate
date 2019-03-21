@@ -23,7 +23,7 @@ import (
 )
 
 func setupSchemaHandlers(api *operations.WeaviateAPI) {
-	api.SchemaWeaviateSchemaActionsCreateHandler = schema.WeaviateSchemaActionsCreateHandlerFunc(func(params schema.WeaviateSchemaActionsCreateParams) middleware.Responder {
+	api.SchemaWeaviateSchemaActionsCreateHandler = schema.WeaviateSchemaActionsCreateHandlerFunc(func(params schema.WeaviateSchemaActionsCreateParams, principal *models.Principal) middleware.Responder {
 		schemaLock, err := db.SchemaLock()
 		if err != nil {
 			return schema.NewWeaviateSchemaActionsCreateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -42,7 +42,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		}
 	})
 
-	api.SchemaWeaviateSchemaActionsDeleteHandler = schema.WeaviateSchemaActionsDeleteHandlerFunc(func(params schema.WeaviateSchemaActionsDeleteParams) middleware.Responder {
+	api.SchemaWeaviateSchemaActionsDeleteHandler = schema.WeaviateSchemaActionsDeleteHandlerFunc(func(params schema.WeaviateSchemaActionsDeleteParams, principal *models.Principal) middleware.Responder {
 		schemaLock, err := db.SchemaLock()
 		if err != nil {
 			return schema.NewWeaviateSchemaActionsDeleteInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -61,7 +61,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		}
 	})
 
-	api.SchemaWeaviateSchemaActionsPropertiesAddHandler = schema.WeaviateSchemaActionsPropertiesAddHandlerFunc(func(params schema.WeaviateSchemaActionsPropertiesAddParams) middleware.Responder {
+	api.SchemaWeaviateSchemaActionsPropertiesAddHandler = schema.WeaviateSchemaActionsPropertiesAddHandlerFunc(func(params schema.WeaviateSchemaActionsPropertiesAddParams, principal *models.Principal) middleware.Responder {
 		schemaLock, err := db.SchemaLock()
 		if err != nil {
 			return schema.NewWeaviateSchemaActionsPropertiesAddInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -80,7 +80,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		}
 	})
 
-	api.SchemaWeaviateSchemaActionsPropertiesDeleteHandler = schema.WeaviateSchemaActionsPropertiesDeleteHandlerFunc(func(params schema.WeaviateSchemaActionsPropertiesDeleteParams) middleware.Responder {
+	api.SchemaWeaviateSchemaActionsPropertiesDeleteHandler = schema.WeaviateSchemaActionsPropertiesDeleteHandlerFunc(func(params schema.WeaviateSchemaActionsPropertiesDeleteParams, principal *models.Principal) middleware.Responder {
 		schemaLock, err := db.SchemaLock()
 		if err != nil {
 			return schema.NewWeaviateSchemaActionsPropertiesDeleteInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -94,7 +94,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		return schema.NewWeaviateSchemaActionsPropertiesDeleteOK()
 	})
 
-	api.SchemaWeaviateSchemaActionsPropertiesUpdateHandler = schema.WeaviateSchemaActionsPropertiesUpdateHandlerFunc(func(params schema.WeaviateSchemaActionsPropertiesUpdateParams) middleware.Responder {
+	api.SchemaWeaviateSchemaActionsPropertiesUpdateHandler = schema.WeaviateSchemaActionsPropertiesUpdateHandlerFunc(func(params schema.WeaviateSchemaActionsPropertiesUpdateParams, principal *models.Principal) middleware.Responder {
 		schemaLock, err := db.SchemaLock()
 		if err != nil {
 			return schema.NewWeaviateSchemaActionsPropertiesUpdateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -125,7 +125,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		}
 	})
 
-	api.SchemaWeaviateSchemaActionsUpdateHandler = schema.WeaviateSchemaActionsUpdateHandlerFunc(func(params schema.WeaviateSchemaActionsUpdateParams) middleware.Responder {
+	api.SchemaWeaviateSchemaActionsUpdateHandler = schema.WeaviateSchemaActionsUpdateHandlerFunc(func(params schema.WeaviateSchemaActionsUpdateParams, principal *models.Principal) middleware.Responder {
 		schemaLock, err := db.SchemaLock()
 		if err != nil {
 			return schema.NewWeaviateSchemaActionsUpdateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -155,7 +155,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 			return schema.NewWeaviateSchemaActionsUpdateUnprocessableEntity().WithPayload(&errorResponse)
 		}
 	})
-	api.SchemaWeaviateSchemaDumpHandler = schema.WeaviateSchemaDumpHandlerFunc(func(params schema.WeaviateSchemaDumpParams) middleware.Responder {
+	api.SchemaWeaviateSchemaDumpHandler = schema.WeaviateSchemaDumpHandlerFunc(func(params schema.WeaviateSchemaDumpParams, principal *models.Principal) middleware.Responder {
 		connectorLock, err := db.ConnectorLock()
 		if err != nil {
 			return schema.NewWeaviateSchemaDumpInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -173,7 +173,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		return schema.NewWeaviateSchemaDumpOK().WithPayload(payload)
 	})
 
-	api.SchemaWeaviateSchemaThingsCreateHandler = schema.WeaviateSchemaThingsCreateHandlerFunc(func(params schema.WeaviateSchemaThingsCreateParams) middleware.Responder {
+	api.SchemaWeaviateSchemaThingsCreateHandler = schema.WeaviateSchemaThingsCreateHandlerFunc(func(params schema.WeaviateSchemaThingsCreateParams, principal *models.Principal) middleware.Responder {
 		schemaLock, err := db.SchemaLock()
 		if err != nil {
 			return schema.NewWeaviateSchemaThingsCreateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -192,7 +192,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		}
 	})
 
-	api.SchemaWeaviateSchemaThingsDeleteHandler = schema.WeaviateSchemaThingsDeleteHandlerFunc(func(params schema.WeaviateSchemaThingsDeleteParams) middleware.Responder {
+	api.SchemaWeaviateSchemaThingsDeleteHandler = schema.WeaviateSchemaThingsDeleteHandlerFunc(func(params schema.WeaviateSchemaThingsDeleteParams, principal *models.Principal) middleware.Responder {
 		schemaLock, err := db.SchemaLock()
 		if err != nil {
 			return schema.NewWeaviateSchemaThingsDeleteInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -211,7 +211,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		}
 	})
 
-	api.SchemaWeaviateSchemaThingsPropertiesAddHandler = schema.WeaviateSchemaThingsPropertiesAddHandlerFunc(func(params schema.WeaviateSchemaThingsPropertiesAddParams) middleware.Responder {
+	api.SchemaWeaviateSchemaThingsPropertiesAddHandler = schema.WeaviateSchemaThingsPropertiesAddHandlerFunc(func(params schema.WeaviateSchemaThingsPropertiesAddParams, principal *models.Principal) middleware.Responder {
 		schemaLock, err := db.SchemaLock()
 		if err != nil {
 			return schema.NewWeaviateSchemaThingsPropertiesAddInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -230,7 +230,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		}
 	})
 
-	api.SchemaWeaviateSchemaThingsPropertiesDeleteHandler = schema.WeaviateSchemaThingsPropertiesDeleteHandlerFunc(func(params schema.WeaviateSchemaThingsPropertiesDeleteParams) middleware.Responder {
+	api.SchemaWeaviateSchemaThingsPropertiesDeleteHandler = schema.WeaviateSchemaThingsPropertiesDeleteHandlerFunc(func(params schema.WeaviateSchemaThingsPropertiesDeleteParams, principal *models.Principal) middleware.Responder {
 		schemaLock, err := db.SchemaLock()
 		if err != nil {
 			return schema.NewWeaviateSchemaThingsPropertiesDeleteInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -244,7 +244,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		return schema.NewWeaviateSchemaThingsPropertiesDeleteOK()
 	})
 
-	api.SchemaWeaviateSchemaThingsPropertiesUpdateHandler = schema.WeaviateSchemaThingsPropertiesUpdateHandlerFunc(func(params schema.WeaviateSchemaThingsPropertiesUpdateParams) middleware.Responder {
+	api.SchemaWeaviateSchemaThingsPropertiesUpdateHandler = schema.WeaviateSchemaThingsPropertiesUpdateHandlerFunc(func(params schema.WeaviateSchemaThingsPropertiesUpdateParams, principal *models.Principal) middleware.Responder {
 		schemaLock, err := db.SchemaLock()
 		if err != nil {
 			return schema.NewWeaviateSchemaThingsPropertiesUpdateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -275,7 +275,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		}
 	})
 
-	api.SchemaWeaviateSchemaThingsUpdateHandler = schema.WeaviateSchemaThingsUpdateHandlerFunc(func(params schema.WeaviateSchemaThingsUpdateParams) middleware.Responder {
+	api.SchemaWeaviateSchemaThingsUpdateHandler = schema.WeaviateSchemaThingsUpdateHandlerFunc(func(params schema.WeaviateSchemaThingsUpdateParams, principal *models.Principal) middleware.Responder {
 		schemaLock, err := db.SchemaLock()
 		if err != nil {
 			return schema.NewWeaviateSchemaThingsUpdateInternalServerError().WithPayload(errPayloadFromSingleErr(err))

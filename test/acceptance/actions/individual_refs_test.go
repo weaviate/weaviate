@@ -43,7 +43,7 @@ func TestCanAddAPropertyIndividually(t *testing.T) {
 		WithPropertyName("testCrefs").
 		WithBody(crossref.New("localhost", toPointToUuid, kind.ACTION_KIND).SingleRef())
 
-	updateResp, err := helper.Client(t).Actions.WeaviateActionsReferencesCreate(params)
+	updateResp, err := helper.Client(t).Actions.WeaviateActionsReferencesCreate(params, nil)
 	helper.AssertRequestOk(t, updateResp, err, nil)
 
 	// Get the property again.
@@ -79,7 +79,7 @@ func TestCanReplaceAllProperties(t *testing.T) {
 			crossref.New("localhost", toPointToUuidLater, kind.ACTION_KIND).SingleRef(),
 		})
 
-	updateResp, err := helper.Client(t).Actions.WeaviateActionsReferencesUpdate(params)
+	updateResp, err := helper.Client(t).Actions.WeaviateActionsReferencesUpdate(params, nil)
 	helper.AssertRequestOk(t, updateResp, err, nil)
 
 	// Get the property again.
@@ -113,7 +113,7 @@ func TestRemovePropertyIndividually(t *testing.T) {
 			crossref.New("localhost", toPointToUuid, kind.ACTION_KIND).SingleRef(),
 		)
 
-	updateResp, err := helper.Client(t).Actions.WeaviateActionsReferencesDelete(params)
+	updateResp, err := helper.Client(t).Actions.WeaviateActionsReferencesDelete(params, nil)
 	helper.AssertRequestOk(t, updateResp, err, nil)
 
 	// Get the property again.

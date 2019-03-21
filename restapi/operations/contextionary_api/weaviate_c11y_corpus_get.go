@@ -21,19 +21,21 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 	strfmt "github.com/go-openapi/strfmt"
 	swag "github.com/go-openapi/swag"
+
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // WeaviateC11yCorpusGetHandlerFunc turns a function with the right signature into a weaviate c11y corpus get handler
-type WeaviateC11yCorpusGetHandlerFunc func(WeaviateC11yCorpusGetParams) middleware.Responder
+type WeaviateC11yCorpusGetHandlerFunc func(WeaviateC11yCorpusGetParams, *models.Principal) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateC11yCorpusGetHandlerFunc) Handle(params WeaviateC11yCorpusGetParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateC11yCorpusGetHandlerFunc) Handle(params WeaviateC11yCorpusGetParams, principal *models.Principal) middleware.Responder {
+	return fn(params, principal)
 }
 
 // WeaviateC11yCorpusGetHandler interface for that can handle valid weaviate c11y corpus get params
 type WeaviateC11yCorpusGetHandler interface {
-	Handle(WeaviateC11yCorpusGetParams) middleware.Responder
+	Handle(WeaviateC11yCorpusGetParams, *models.Principal) middleware.Responder
 }
 
 // NewWeaviateC11yCorpusGet creates a new http.Handler for the weaviate c11y corpus get operation
@@ -60,12 +62,25 @@ func (o *WeaviateC11yCorpusGet) ServeHTTP(rw http.ResponseWriter, r *http.Reques
 	}
 	var Params = NewWeaviateC11yCorpusGetParams()
 
+	uprinc, aCtx, err := o.Context.Authorize(r, route)
+	if err != nil {
+		o.Context.Respond(rw, r, route.Produces, route, err)
+		return
+	}
+	if aCtx != nil {
+		r = aCtx
+	}
+	var principal *models.Principal
+	if uprinc != nil {
+		principal = uprinc.(*models.Principal) // this is really a models.Principal, I promise
+	}
+
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

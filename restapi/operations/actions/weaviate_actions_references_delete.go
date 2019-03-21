@@ -19,19 +19,21 @@ import (
 	"net/http"
 
 	middleware "github.com/go-openapi/runtime/middleware"
+
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // WeaviateActionsReferencesDeleteHandlerFunc turns a function with the right signature into a weaviate actions references delete handler
-type WeaviateActionsReferencesDeleteHandlerFunc func(WeaviateActionsReferencesDeleteParams) middleware.Responder
+type WeaviateActionsReferencesDeleteHandlerFunc func(WeaviateActionsReferencesDeleteParams, *models.Principal) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateActionsReferencesDeleteHandlerFunc) Handle(params WeaviateActionsReferencesDeleteParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateActionsReferencesDeleteHandlerFunc) Handle(params WeaviateActionsReferencesDeleteParams, principal *models.Principal) middleware.Responder {
+	return fn(params, principal)
 }
 
 // WeaviateActionsReferencesDeleteHandler interface for that can handle valid weaviate actions references delete params
 type WeaviateActionsReferencesDeleteHandler interface {
-	Handle(WeaviateActionsReferencesDeleteParams) middleware.Responder
+	Handle(WeaviateActionsReferencesDeleteParams, *models.Principal) middleware.Responder
 }
 
 // NewWeaviateActionsReferencesDelete creates a new http.Handler for the weaviate actions references delete operation
@@ -58,12 +60,25 @@ func (o *WeaviateActionsReferencesDelete) ServeHTTP(rw http.ResponseWriter, r *h
 	}
 	var Params = NewWeaviateActionsReferencesDeleteParams()
 
+	uprinc, aCtx, err := o.Context.Authorize(r, route)
+	if err != nil {
+		o.Context.Respond(rw, r, route.Produces, route, err)
+		return
+	}
+	if aCtx != nil {
+		r = aCtx
+	}
+	var principal *models.Principal
+	if uprinc != nil {
+		principal = uprinc.(*models.Principal) // this is really a models.Principal, I promise
+	}
+
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

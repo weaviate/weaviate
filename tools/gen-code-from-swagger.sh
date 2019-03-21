@@ -17,8 +17,8 @@ fi
 # Remove old stuff.
 (cd $DIR/; rm -rf models restapi/operations/)
 
-(cd $DIR/..; $SWAGGER generate server --name=weaviate --spec=openapi-specs/schema.json --default-scheme=https)
-(cd $DIR/..; $SWAGGER generate client --spec=openapi-specs/schema.json --default-scheme=https)
+(cd $DIR/..; $SWAGGER generate server --name=weaviate --spec=openapi-specs/schema.json -P models.Principal --default-scheme=https)
+(cd $DIR/..; $SWAGGER generate client --spec=openapi-specs/schema.json -P models.Principal --default-scheme=https)
 
 echo Now add the header to the generated code too.
 $DIR/add_header.py

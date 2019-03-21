@@ -3006,6 +3006,21 @@ func init() {
         "$ref": "#/definitions/PeerUpdate"
       }
     },
+    "Principal": {
+      "type": "object",
+      "properties": {
+        "groups": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "username": {
+          "description": "The username that was extracted either from the authentication information",
+          "type": "string"
+        }
+      }
+    },
     "Schema": {
       "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
@@ -3318,6 +3333,20 @@ func init() {
       "in": "query"
     }
   },
+  "securityDefinitions": {
+    "oidc": {
+      "description": "OIDC (OpenConnect ID - based on OAuth2)",
+      "type": "oauth2",
+      "flow": "implicit",
+      "authorizationUrl": "http://to-be-configured-in-the-application-config"
+    }
+  },
+  "security": [
+    {},
+    {
+      "oidc": null
+    }
+  ],
   "tags": [
     {
       "name": "actions"
@@ -6346,6 +6375,21 @@ func init() {
         "$ref": "#/definitions/PeerUpdate"
       }
     },
+    "Principal": {
+      "type": "object",
+      "properties": {
+        "groups": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "username": {
+          "description": "The username that was extracted either from the authentication information",
+          "type": "string"
+        }
+      }
+    },
     "Schema": {
       "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
@@ -6658,6 +6702,20 @@ func init() {
       "in": "query"
     }
   },
+  "securityDefinitions": {
+    "oidc": {
+      "description": "OIDC (OpenConnect ID - based on OAuth2)",
+      "type": "oauth2",
+      "flow": "implicit",
+      "authorizationUrl": "http://to-be-configured-in-the-application-config"
+    }
+  },
+  "security": [
+    {},
+    {
+      "oidc": []
+    }
+  ],
   "tags": [
     {
       "name": "actions"
