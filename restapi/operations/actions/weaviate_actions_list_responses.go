@@ -94,7 +94,7 @@ func (o *WeaviateActionsListUnauthorized) WriteResponse(rw http.ResponseWriter, 
 // WeaviateActionsListForbiddenCode is the HTTP code returned for type WeaviateActionsListForbidden
 const WeaviateActionsListForbiddenCode int = 403
 
-/*WeaviateActionsListForbidden The used API-key has insufficient permissions.
+/*WeaviateActionsListForbidden Insufficient permissions.
 
 swagger:response weaviateActionsListForbidden
 */

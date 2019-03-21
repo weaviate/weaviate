@@ -69,12 +69,23 @@ func (v *Vector) ToString() string {
 			str += ", "
 		}
 
-		str += fmt.Sprintf("%.3f", i)
+		str += fmt.Sprintf("%.6f", i)
 	}
 
 	str += "]"
 
 	return str
+}
+
+func (v *Vector) ToArray() []float32 {
+
+	var returner []float32
+
+	for _, i := range v.vector {
+		returner = append(returner, i)
+	}
+
+	return returner
 }
 
 func (v *Vector) Distance(other *Vector) (float32, error) {

@@ -139,7 +139,7 @@ func NewWeaviateThingHistoryGetForbidden() *WeaviateThingHistoryGetForbidden {
 
 /*WeaviateThingHistoryGetForbidden handles this case with default header values.
 
-The used API-key has insufficient permissions.
+Insufficient permissions.
 */
 type WeaviateThingHistoryGetForbidden struct {
 }

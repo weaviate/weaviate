@@ -29,6 +29,7 @@ var (
 func init() {
 	SwaggerJSON = json.RawMessage([]byte(`{
   "consumes": [
+    "application/yaml",
     "application/json"
   ],
   "produces": [
@@ -46,7 +47,7 @@ func init() {
       "url": "https://github.com/creativesoftwarefdn",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.12.64"
+    "version": "0.12.71"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -56,7 +57,7 @@ func init() {
         "tags": [
           "actions"
         ],
-        "summary": "Get a list of Actions related to this key.",
+        "summary": "Get a list of Actions.",
         "operationId": "weaviate.actions.list",
         "parameters": [
           {
@@ -77,7 +78,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -92,8 +93,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       },
       "post": {
@@ -139,7 +139,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -187,7 +187,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -205,8 +205,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query.meta",
-          "weaviate.network.query.meta"
+          "weaviate.local.query.meta"
         ]
       }
     },
@@ -216,7 +215,7 @@ func init() {
         "tags": [
           "actions"
         ],
-        "summary": "Get a specific Action based on its UUID and a Thing UUID related to this key. Also available as Websocket bus.",
+        "summary": "Get a specific Action based on its UUID and a Thing UUID. Also available as Websocket bus.",
         "operationId": "weaviate.actions.get",
         "parameters": [
           {
@@ -239,7 +238,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -254,8 +253,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       },
       "put": {
@@ -263,7 +261,7 @@ func init() {
         "tags": [
           "actions"
         ],
-        "summary": "Update an Action based on its UUID related to this key.",
+        "summary": "Update an Action based on its UUID.",
         "operationId": "weaviate.action.update",
         "parameters": [
           {
@@ -294,7 +292,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -323,7 +321,7 @@ func init() {
         "tags": [
           "actions"
         ],
-        "summary": "Delete an Action based on its UUID related to this key.",
+        "summary": "Delete an Action based on its UUID.",
         "operationId": "weaviate.actions.delete",
         "parameters": [
           {
@@ -343,7 +341,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -366,7 +364,7 @@ func init() {
         "tags": [
           "actions"
         ],
-        "summary": "Update an Action based on its UUID (using patch semantics) related to this key.",
+        "summary": "Update an Action based on its UUID (using patch semantics).",
         "operationId": "weaviate.actions.patch",
         "parameters": [
           {
@@ -416,7 +414,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -447,7 +445,7 @@ func init() {
         "tags": [
           "actions"
         ],
-        "summary": "Get an Action's history based on its UUID related to this key.",
+        "summary": "Get an Action's history based on its UUID.",
         "operationId": "weaviate.action.history.get",
         "parameters": [
           {
@@ -470,7 +468,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -488,19 +486,18 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       }
     },
-    "/actions/{actionId}/properties/{propertyName}": {
+    "/actions/{actionId}/references/{propertyName}": {
       "put": {
         "description": "Replace all references to a class-property.",
         "tags": [
           "actions"
         ],
         "summary": "Replace all references to a class-property.",
-        "operationId": "weaviate.actions.properties.update",
+        "operationId": "weaviate.actions.references.update",
         "parameters": [
           {
             "type": "string",
@@ -534,7 +531,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
@@ -561,7 +558,7 @@ func init() {
           "actions"
         ],
         "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
-        "operationId": "weaviate.actions.properties.create",
+        "operationId": "weaviate.actions.references.create",
         "parameters": [
           {
             "type": "string",
@@ -595,7 +592,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
@@ -622,7 +619,7 @@ func init() {
           "actions"
         ],
         "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
-        "operationId": "weaviate.actions.properties.delete",
+        "operationId": "weaviate.actions.references.delete",
         "parameters": [
           {
             "type": "string",
@@ -656,7 +653,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found.",
@@ -685,7 +682,7 @@ func init() {
           "batching",
           "actions"
         ],
-        "summary": "Creates new Actions based on an Action template related to this key as a batch.",
+        "summary": "Creates new Actions based on an Action template as a batch.",
         "operationId": "weaviate.batching.actions.create",
         "parameters": [
           {
@@ -700,10 +697,6 @@ func init() {
                   "items": {
                     "$ref": "#/definitions/ActionCreate"
                   }
-                },
-                "async": {
-                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Action. You will receive this response before the persistence of the data is confirmed. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the persistence of the data is confirmed. The value of ` + "`" + `async` + "`" + ` defaults to false.",
-                  "type": "boolean"
                 },
                 "fields": {
                   "description": "Define which fields need to be returned. Default value is ALL",
@@ -727,16 +720,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Actions created.",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/ActionsGetResponse"
-              }
-            }
-          },
-          "202": {
-            "description": "Successfully received.",
+            "description": "Request succeeded, see response body to get detailed information about each batched item.",
             "schema": {
               "type": "array",
               "items": {
@@ -748,7 +732,66 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.add"
+        ]
+      }
+    },
+    "/batching/references": {
+      "post": {
+        "description": "Register cross-references between any class items (things or actions) in bulk.",
+        "tags": [
+          "batching",
+          "references"
+        ],
+        "summary": "Creates new Cross-References between arbitrary classes in bulk.",
+        "operationId": "weaviate.batching.references.create",
+        "parameters": [
+          {
+            "description": "A list of references to be batched. The ideal size depends on the used database connector. Please see the documentation of the used connector for help",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/BatchReference"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Request Successful. Warning: A successful request does not guarantuee that every batched reference was successfully created. Inspect the response body to see which references succeeded and which failed.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/BatchReferenceResponse"
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -777,7 +820,7 @@ func init() {
           "batching",
           "things"
         ],
-        "summary": "Creates new Things based on a Thing template related to this key as a batch.",
+        "summary": "Creates new Things based on a Thing template as a batch.",
         "operationId": "weaviate.batching.things.create",
         "parameters": [
           {
@@ -787,10 +830,6 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
-                "async": {
-                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Thing. You will receive this response before the persistence of the data is confirmed. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the persistence of the data is confirmed. The value of ` + "`" + `async` + "`" + ` defaults to false.",
-                  "type": "boolean"
-                },
                 "fields": {
                   "description": "Define which fields need to be returned. Default value is ALL",
                   "type": "array",
@@ -819,16 +858,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Things created.",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/ThingsGetResponse"
-              }
-            }
-          },
-          "202": {
-            "description": "Successfully received.",
+            "description": "Request succeeded, see response body to get detailed information about each batched item.",
             "schema": {
               "type": "array",
               "items": {
@@ -840,7 +870,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -859,6 +889,97 @@ func init() {
         "x-available-in-websocket": false,
         "x-serviceIds": [
           "weaviate.local.add"
+        ]
+      }
+    },
+    "/c11y/corpus": {
+      "post": {
+        "description": "Analyzes a sentence based on the contextionary",
+        "tags": [
+          "contextionary-API"
+        ],
+        "summary": "Checks if a word or wordString is part of the contextionary.",
+        "operationId": "weaviate.c11y.corpus.get",
+        "parameters": [
+          {
+            "description": "A text corpus",
+            "name": "corpus",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "description": "The text corpus.",
+              "type": "object",
+              "properties": {
+                "corpus": {
+                  "type": "string",
+                  "example": "In certain latitudes there comes a span of time approaching and following the summer solstice, some weeks in all, when the twilights turn long and blue."
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.c11y.corpus.get"
+        ]
+      }
+    },
+    "/c11y/words/{words}": {
+      "get": {
+        "description": "Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/creativesoftwarefdn/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase",
+        "tags": [
+          "contextionary-API"
+        ],
+        "summary": "Checks if a word or wordString is part of the contextionary.",
+        "operationId": "weaviate.c11y.words",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "CamelCase list of words to validate.",
+            "name": "words",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/C11yWordsResponse"
+            }
+          },
+          "400": {
+            "description": "Incorrect request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Insufficient permissions."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.c11y.words.get"
         ]
       }
     },
@@ -892,7 +1013,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -947,7 +1068,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -975,9 +1096,6 @@ func init() {
     "/meta": {
       "get": {
         "description": "Gives meta information about the server and can be used to provide information to another Weaviate instance that wants to interact with the current instance.",
-        "produces": [
-          "application/json"
-        ],
         "tags": [
           "meta"
         ],
@@ -1003,8 +1121,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query.meta",
-          "weaviate.network.query.meta"
+          "weaviate.local.query.meta"
         ]
       }
     },
@@ -1107,8 +1224,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.local.query.meta",
-          "weaviate.network.query.meta"
+          "weaviate.local.query.meta"
         ]
       }
     },
@@ -1131,7 +1247,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added the new Action class to the ontology."
+            "description": "Added the new Action class to the ontology.",
+            "schema": {
+              "$ref": "#/definitions/SemanticSchemaClass"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -1277,7 +1396,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added the property."
+            "description": "Added the property.",
+            "schema": {
+              "$ref": "#/definitions/SemanticSchemaClassProperty"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -1429,7 +1551,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added the new Thing class to the ontology."
+            "description": "Added the new Thing class to the ontology.",
+            "schema": {
+              "$ref": "#/definitions/SemanticSchemaClass"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -1575,7 +1700,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added the property."
+            "description": "Added the property.",
+            "schema": {
+              "$ref": "#/definitions/SemanticSchemaClassProperty"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -1714,7 +1842,7 @@ func init() {
         "tags": [
           "things"
         ],
-        "summary": "Get a list of Things related to this key.",
+        "summary": "Get a list of Things.",
         "operationId": "weaviate.things.list",
         "parameters": [
           {
@@ -1735,7 +1863,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -1750,8 +1878,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       },
       "post": {
@@ -1759,7 +1886,7 @@ func init() {
         "tags": [
           "things"
         ],
-        "summary": "Create a new Thing based on a Thing template related to this key.",
+        "summary": "Create a new Thing based on a Thing template.",
         "operationId": "weaviate.things.create",
         "parameters": [
           {
@@ -1797,7 +1924,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -1845,7 +1972,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -1863,8 +1990,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query.meta",
-          "weaviate.network.query.meta"
+          "weaviate.local.query.meta"
         ]
       }
     },
@@ -1874,7 +2000,7 @@ func init() {
         "tags": [
           "things"
         ],
-        "summary": "Get a Thing based on its UUID related to this key.",
+        "summary": "Get a Thing based on its UUID.",
         "operationId": "weaviate.things.get",
         "parameters": [
           {
@@ -1897,7 +2023,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -1912,8 +2038,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       },
       "put": {
@@ -1921,7 +2046,7 @@ func init() {
         "tags": [
           "things"
         ],
-        "summary": "Update a Thing based on its UUID related to this key.",
+        "summary": "Update a Thing based on its UUID.",
         "operationId": "weaviate.things.update",
         "parameters": [
           {
@@ -1952,7 +2077,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -1981,7 +2106,7 @@ func init() {
         "tags": [
           "things"
         ],
-        "summary": "Delete a Thing based on its UUID related to this key.",
+        "summary": "Delete a Thing based on its UUID.",
         "operationId": "weaviate.things.delete",
         "parameters": [
           {
@@ -2001,7 +2126,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -2024,7 +2149,7 @@ func init() {
         "tags": [
           "things"
         ],
-        "summary": "Update a Thing based on its UUID (using patch semantics) related to this key.",
+        "summary": "Update a Thing based on its UUID (using patch semantics).",
         "operationId": "weaviate.things.patch",
         "parameters": [
           {
@@ -2074,7 +2199,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -2105,7 +2230,7 @@ func init() {
         "tags": [
           "things"
         ],
-        "summary": "Get a Thing's history based on its UUID related to this key.",
+        "summary": "Get a Thing's history based on its UUID.",
         "operationId": "weaviate.thing.history.get",
         "parameters": [
           {
@@ -2128,7 +2253,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -2146,19 +2271,18 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       }
     },
-    "/things/{thingId}/properties/{propertyName}": {
+    "/things/{thingId}/references/{propertyName}": {
       "put": {
         "description": "Replace all references to a class-property.",
         "tags": [
           "things"
         ],
         "summary": "Replace all references to a class-property.",
-        "operationId": "weaviate.things.properties.update",
+        "operationId": "weaviate.things.references.update",
         "parameters": [
           {
             "type": "string",
@@ -2192,7 +2316,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
@@ -2219,7 +2343,7 @@ func init() {
           "things"
         ],
         "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
-        "operationId": "weaviate.things.properties.create",
+        "operationId": "weaviate.things.references.create",
         "parameters": [
           {
             "type": "string",
@@ -2253,7 +2377,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
@@ -2280,7 +2404,7 @@ func init() {
           "things"
         ],
         "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
-        "operationId": "weaviate.things.properties.delete",
+        "operationId": "weaviate.things.references.delete",
         "parameters": [
           {
             "type": "string",
@@ -2314,7 +2438,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found.",
@@ -2333,57 +2457,6 @@ func init() {
         "x-available-in-websocket": false,
         "x-serviceIds": [
           "weaviate.local.manipulate"
-        ]
-      }
-    },
-    "/tools/map": {
-      "post": {
-        "description": "Tool to render a map of concepts, based on ontologies available over the network.",
-        "tags": [
-          "knowledge tools"
-        ],
-        "summary": "Tool to render a map of concepts, based on ontologies available over the network.",
-        "operationId": "weaviate.tools.map",
-        "parameters": [
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/ToolsMapRequest"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/ToolsMapRequestResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "The used API-key has insufficient permissions."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false,
-        "x-serviceIds": [
-          "weaviate.network.tools.map"
         ]
       }
     }
@@ -2562,6 +2635,171 @@ func init() {
           "description": "The total number of Actions for the query. The number of items in a response may be smaller due to paging.",
           "type": "integer",
           "format": "int64"
+        }
+      }
+    },
+    "BatchReference": {
+      "properties": {
+        "from": {
+          "description": "Long-form beacon-style URI to identify the source of the cross-ref including the property name. Should be in the form of weaviate://localhost/\u003ckinds\u003e/\u003cuuid\u003e/\u003cclassName\u003e/\u003cpropertyName\u003e, where \u003ckinds\u003e must be one of 'actions', 'things' and \u003cclassName\u003e and \u003cpropertyName\u003e must represent the cross-ref property of source class to be used.",
+          "type": "string",
+          "format": "uri",
+          "example": "weaviate://localhost/things/Zoo/a5d09582-4239-4702-81c9-92a6e0122bb4/hasAnimals"
+        },
+        "to": {
+          "description": "Short-form URI to point to the cross-ref. Should be in the form of weaviate://localhost/things/\u003cuuid\u003e for the example of a local cross-ref to a thing",
+          "type": "string",
+          "format": "uri",
+          "example": "weaviate://localhost/things/97525810-a9a5-4eb0-858a-71449aeb007f"
+        }
+      }
+    },
+    "BatchReferenceResponse": {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/definitions/BatchReference"
+        },
+        {
+          "properties": {
+            "result": {
+              "description": "Results for this specific reference.",
+              "format": "object",
+              "properties": {
+                "errors": {
+                  "$ref": "#/definitions/ErrorResponse"
+                },
+                "status": {
+                  "type": "string",
+                  "default": "SUCCESS",
+                  "enum": [
+                    "SUCCESS",
+                    "PENDING",
+                    "FAILED"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "C11yNearestNeighbors": {
+      "description": "C11y function to show the nearest neighbors to a word.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "distance": {
+            "type": "number",
+            "format": "float"
+          },
+          "word": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "C11yVector": {
+      "description": "A Vector in the Contextionary",
+      "type": "array",
+      "items": {
+        "type": "number",
+        "format": "float",
+        "maximum": 300,
+        "minimum": 300
+      }
+    },
+    "C11yVectorBasedQuestion": {
+      "description": "Receive question based on array of classes, properties and values.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "classProps": {
+            "description": "Vectorized properties.",
+            "type": "array",
+            "maxItems": 300,
+            "minItems": 300,
+            "items": {
+              "type": "object",
+              "properties": {
+                "propsVectors": {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "format": "float"
+                  }
+                },
+                "value": {
+                  "description": "String with valuename.",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "classVectors": {
+            "description": "Vectorized classname.",
+            "type": "array",
+            "maxItems": 300,
+            "minItems": 300,
+            "items": {
+              "type": "number",
+              "format": "float"
+            }
+          }
+        }
+      }
+    },
+    "C11yWordsResponse": {
+      "description": "An array of available words and contexts.",
+      "properties": {
+        "concatenatedWord": {
+          "description": "Weighted results for all words",
+          "type": "object",
+          "properties": {
+            "concatenatedNearestNeighbors": {
+              "$ref": "#/definitions/C11yNearestNeighbors"
+            },
+            "concatenatedVector": {
+              "$ref": "#/definitions/C11yVector"
+            },
+            "concatenatedWord": {
+              "type": "string"
+            },
+            "singleWords": {
+              "type": "array",
+              "items": {
+                "format": "string"
+              }
+            }
+          }
+        },
+        "individualWords": {
+          "description": "Weighted results for per individual word",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "inC11y": {
+                "type": "boolean"
+              },
+              "info": {
+                "type": "object",
+                "properties": {
+                  "nearestNeighbors": {
+                    "$ref": "#/definitions/C11yNearestNeighbors"
+                  },
+                  "vector": {
+                    "$ref": "#/definitions/C11yVector"
+                  }
+                }
+              },
+              "word": {
+                "type": "string"
+              }
+            }
+          }
         }
       }
     },
@@ -2766,6 +3004,21 @@ func init() {
       "type": "array",
       "items": {
         "$ref": "#/definitions/PeerUpdate"
+      }
+    },
+    "Principal": {
+      "type": "object",
+      "properties": {
+        "groups": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "username": {
+          "description": "The username that was extracted either from the authentication information",
+          "type": "string"
+        }
       }
     },
     "Schema": {
@@ -3062,125 +3315,6 @@ func init() {
           "format": "int64"
         }
       }
-    },
-    "ToolsMapRequest": {
-      "type": "object",
-      "properties": {
-        "conceptCenter": {
-          "description": "Concept that should function as center. Should be one concept (e.g., car) or CamelCased (e.g, MovedTo)",
-          "type": "string"
-        },
-        "networkCenter": {
-          "description": "Only needs to be set when type is centerOfNetwork and should contain the name of the Weaviate that is taken as center.",
-          "type": "string"
-        },
-        "type": {
-          "description": "What type of map should be generated?",
-          "type": "string",
-          "enum": [
-            "zeroPointPosition",
-            "centerOfSelf",
-            "centerOfNetwork",
-            "centerOfConcept"
-          ]
-        }
-      }
-    },
-    "ToolsMapRequestResponse": {
-      "description": "Map of concepts.",
-      "type": "object",
-      "properties": {
-        "results": {
-          "description": "Results of the map request",
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "concept": {
-                "$ref": "#/definitions/SemanticSchemaClass"
-              },
-              "distance": {
-                "description": "Distance to original vector concept",
-                "type": "number",
-                "format": "float"
-              },
-              "location": {
-                "description": "On which Weaviate is this concept located?",
-                "type": "string"
-              },
-              "type": {
-                "description": "Thing or Action",
-                "type": "string",
-                "enum": [
-                  "thing",
-                  "action"
-                ]
-              }
-            }
-          }
-        },
-        "startVector": {
-          "description": "Startpoint in the Contextionary expressed as 300-dimensional space",
-          "type": "array",
-          "items": {
-            "type": "number",
-            "format": "float",
-            "maximum": 300,
-            "minimum": 300
-          }
-        },
-        "type": {
-          "description": "What type of map should be generated?",
-          "type": "string",
-          "enum": [
-            "zeroPointPosition",
-            "centerOfSelf",
-            "centerOfNetwork",
-            "centerOfConcept"
-          ]
-        }
-      }
-    },
-    "VectorBasedQuestion": {
-      "description": "Receive question based on array of classes, properties and values.",
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "classProps": {
-            "description": "Vectorized properties.",
-            "type": "array",
-            "maxItems": 300,
-            "minItems": 300,
-            "items": {
-              "type": "object",
-              "properties": {
-                "propsVectors": {
-                  "type": "array",
-                  "items": {
-                    "type": "number",
-                    "format": "float"
-                  }
-                },
-                "value": {
-                  "description": "String with valuename.",
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "classVectors": {
-            "description": "Vectorized classname.",
-            "type": "array",
-            "maxItems": 300,
-            "minItems": 300,
-            "items": {
-              "type": "number",
-              "format": "float"
-            }
-          }
-        }
-      }
     }
   },
   "parameters": {
@@ -3199,6 +3333,20 @@ func init() {
       "in": "query"
     }
   },
+  "securityDefinitions": {
+    "oidc": {
+      "description": "OIDC (OpenConnect ID - based on OAuth2)",
+      "type": "oauth2",
+      "flow": "implicit",
+      "authorizationUrl": "http://to-be-configured-in-the-application-config"
+    }
+  },
+  "security": [
+    {},
+    {
+      "oidc": null
+    }
+  ],
   "tags": [
     {
       "name": "actions"
@@ -3220,7 +3368,8 @@ func init() {
       "name": "things"
     },
     {
-      "name": "knowledge tools"
+      "description": "All functions related to the Contextionary.",
+      "name": "contextionary-API"
     },
     {
       "description": "These operations enable manipulation of the schema in Weaviate schema.",
@@ -3233,6 +3382,7 @@ func init() {
 }`))
 	FlatSwaggerJSON = json.RawMessage([]byte(`{
   "consumes": [
+    "application/yaml",
     "application/json"
   ],
   "produces": [
@@ -3250,7 +3400,7 @@ func init() {
       "url": "https://github.com/creativesoftwarefdn",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.12.64"
+    "version": "0.12.71"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -3260,7 +3410,7 @@ func init() {
         "tags": [
           "actions"
         ],
-        "summary": "Get a list of Actions related to this key.",
+        "summary": "Get a list of Actions.",
         "operationId": "weaviate.actions.list",
         "parameters": [
           {
@@ -3289,7 +3439,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -3304,8 +3454,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       },
       "post": {
@@ -3351,7 +3500,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -3399,7 +3548,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -3417,8 +3566,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query.meta",
-          "weaviate.network.query.meta"
+          "weaviate.local.query.meta"
         ]
       }
     },
@@ -3428,7 +3576,7 @@ func init() {
         "tags": [
           "actions"
         ],
-        "summary": "Get a specific Action based on its UUID and a Thing UUID related to this key. Also available as Websocket bus.",
+        "summary": "Get a specific Action based on its UUID and a Thing UUID. Also available as Websocket bus.",
         "operationId": "weaviate.actions.get",
         "parameters": [
           {
@@ -3451,7 +3599,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -3466,8 +3614,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       },
       "put": {
@@ -3475,7 +3622,7 @@ func init() {
         "tags": [
           "actions"
         ],
-        "summary": "Update an Action based on its UUID related to this key.",
+        "summary": "Update an Action based on its UUID.",
         "operationId": "weaviate.action.update",
         "parameters": [
           {
@@ -3506,7 +3653,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -3535,7 +3682,7 @@ func init() {
         "tags": [
           "actions"
         ],
-        "summary": "Delete an Action based on its UUID related to this key.",
+        "summary": "Delete an Action based on its UUID.",
         "operationId": "weaviate.actions.delete",
         "parameters": [
           {
@@ -3555,7 +3702,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -3578,7 +3725,7 @@ func init() {
         "tags": [
           "actions"
         ],
-        "summary": "Update an Action based on its UUID (using patch semantics) related to this key.",
+        "summary": "Update an Action based on its UUID (using patch semantics).",
         "operationId": "weaviate.actions.patch",
         "parameters": [
           {
@@ -3628,7 +3775,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -3659,7 +3806,7 @@ func init() {
         "tags": [
           "actions"
         ],
-        "summary": "Get an Action's history based on its UUID related to this key.",
+        "summary": "Get an Action's history based on its UUID.",
         "operationId": "weaviate.action.history.get",
         "parameters": [
           {
@@ -3682,7 +3829,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -3700,19 +3847,18 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       }
     },
-    "/actions/{actionId}/properties/{propertyName}": {
+    "/actions/{actionId}/references/{propertyName}": {
       "put": {
         "description": "Replace all references to a class-property.",
         "tags": [
           "actions"
         ],
         "summary": "Replace all references to a class-property.",
-        "operationId": "weaviate.actions.properties.update",
+        "operationId": "weaviate.actions.references.update",
         "parameters": [
           {
             "type": "string",
@@ -3746,7 +3892,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
@@ -3773,7 +3919,7 @@ func init() {
           "actions"
         ],
         "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
-        "operationId": "weaviate.actions.properties.create",
+        "operationId": "weaviate.actions.references.create",
         "parameters": [
           {
             "type": "string",
@@ -3807,7 +3953,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
@@ -3834,7 +3980,7 @@ func init() {
           "actions"
         ],
         "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
-        "operationId": "weaviate.actions.properties.delete",
+        "operationId": "weaviate.actions.references.delete",
         "parameters": [
           {
             "type": "string",
@@ -3868,7 +4014,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found.",
@@ -3897,7 +4043,7 @@ func init() {
           "batching",
           "actions"
         ],
-        "summary": "Creates new Actions based on an Action template related to this key as a batch.",
+        "summary": "Creates new Actions based on an Action template as a batch.",
         "operationId": "weaviate.batching.actions.create",
         "parameters": [
           {
@@ -3912,10 +4058,6 @@ func init() {
                   "items": {
                     "$ref": "#/definitions/ActionCreate"
                   }
-                },
-                "async": {
-                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Action. You will receive this response before the persistence of the data is confirmed. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the persistence of the data is confirmed. The value of ` + "`" + `async` + "`" + ` defaults to false.",
-                  "type": "boolean"
                 },
                 "fields": {
                   "description": "Define which fields need to be returned. Default value is ALL",
@@ -3939,16 +4081,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Actions created.",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/ActionsGetResponse"
-              }
-            }
-          },
-          "202": {
-            "description": "Successfully received.",
+            "description": "Request succeeded, see response body to get detailed information about each batched item.",
             "schema": {
               "type": "array",
               "items": {
@@ -3960,7 +4093,66 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.add"
+        ]
+      }
+    },
+    "/batching/references": {
+      "post": {
+        "description": "Register cross-references between any class items (things or actions) in bulk.",
+        "tags": [
+          "batching",
+          "references"
+        ],
+        "summary": "Creates new Cross-References between arbitrary classes in bulk.",
+        "operationId": "weaviate.batching.references.create",
+        "parameters": [
+          {
+            "description": "A list of references to be batched. The ideal size depends on the used database connector. Please see the documentation of the used connector for help",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/BatchReference"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Request Successful. Warning: A successful request does not guarantuee that every batched reference was successfully created. Inspect the response body to see which references succeeded and which failed.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/BatchReferenceResponse"
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -3989,7 +4181,7 @@ func init() {
           "batching",
           "things"
         ],
-        "summary": "Creates new Things based on a Thing template related to this key as a batch.",
+        "summary": "Creates new Things based on a Thing template as a batch.",
         "operationId": "weaviate.batching.things.create",
         "parameters": [
           {
@@ -3999,10 +4191,6 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
-                "async": {
-                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Thing. You will receive this response before the persistence of the data is confirmed. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the persistence of the data is confirmed. The value of ` + "`" + `async` + "`" + ` defaults to false.",
-                  "type": "boolean"
-                },
                 "fields": {
                   "description": "Define which fields need to be returned. Default value is ALL",
                   "type": "array",
@@ -4031,16 +4219,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Things created.",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/ThingsGetResponse"
-              }
-            }
-          },
-          "202": {
-            "description": "Successfully received.",
+            "description": "Request succeeded, see response body to get detailed information about each batched item.",
             "schema": {
               "type": "array",
               "items": {
@@ -4052,7 +4231,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -4071,6 +4250,97 @@ func init() {
         "x-available-in-websocket": false,
         "x-serviceIds": [
           "weaviate.local.add"
+        ]
+      }
+    },
+    "/c11y/corpus": {
+      "post": {
+        "description": "Analyzes a sentence based on the contextionary",
+        "tags": [
+          "contextionary-API"
+        ],
+        "summary": "Checks if a word or wordString is part of the contextionary.",
+        "operationId": "weaviate.c11y.corpus.get",
+        "parameters": [
+          {
+            "description": "A text corpus",
+            "name": "corpus",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "description": "The text corpus.",
+              "type": "object",
+              "properties": {
+                "corpus": {
+                  "type": "string",
+                  "example": "In certain latitudes there comes a span of time approaching and following the summer solstice, some weeks in all, when the twilights turn long and blue."
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.c11y.corpus.get"
+        ]
+      }
+    },
+    "/c11y/words/{words}": {
+      "get": {
+        "description": "Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/creativesoftwarefdn/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase",
+        "tags": [
+          "contextionary-API"
+        ],
+        "summary": "Checks if a word or wordString is part of the contextionary.",
+        "operationId": "weaviate.c11y.words",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "CamelCase list of words to validate.",
+            "name": "words",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/C11yWordsResponse"
+            }
+          },
+          "400": {
+            "description": "Incorrect request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Insufficient permissions."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.c11y.words.get"
         ]
       }
     },
@@ -4104,7 +4374,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -4159,7 +4429,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -4187,9 +4457,6 @@ func init() {
     "/meta": {
       "get": {
         "description": "Gives meta information about the server and can be used to provide information to another Weaviate instance that wants to interact with the current instance.",
-        "produces": [
-          "application/json"
-        ],
         "tags": [
           "meta"
         ],
@@ -4215,8 +4482,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query.meta",
-          "weaviate.network.query.meta"
+          "weaviate.local.query.meta"
         ]
       }
     },
@@ -4319,8 +4585,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.local.query.meta",
-          "weaviate.network.query.meta"
+          "weaviate.local.query.meta"
         ]
       }
     },
@@ -4343,7 +4608,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added the new Action class to the ontology."
+            "description": "Added the new Action class to the ontology.",
+            "schema": {
+              "$ref": "#/definitions/SemanticSchemaClass"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -4489,7 +4757,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added the property."
+            "description": "Added the property.",
+            "schema": {
+              "$ref": "#/definitions/SemanticSchemaClassProperty"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -4641,7 +4912,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added the new Thing class to the ontology."
+            "description": "Added the new Thing class to the ontology.",
+            "schema": {
+              "$ref": "#/definitions/SemanticSchemaClass"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -4787,7 +5061,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added the property."
+            "description": "Added the property.",
+            "schema": {
+              "$ref": "#/definitions/SemanticSchemaClassProperty"
+            }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -4926,7 +5203,7 @@ func init() {
         "tags": [
           "things"
         ],
-        "summary": "Get a list of Things related to this key.",
+        "summary": "Get a list of Things.",
         "operationId": "weaviate.things.list",
         "parameters": [
           {
@@ -4955,7 +5232,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -4970,8 +5247,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       },
       "post": {
@@ -4979,7 +5255,7 @@ func init() {
         "tags": [
           "things"
         ],
-        "summary": "Create a new Thing based on a Thing template related to this key.",
+        "summary": "Create a new Thing based on a Thing template.",
         "operationId": "weaviate.things.create",
         "parameters": [
           {
@@ -5017,7 +5293,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -5065,7 +5341,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -5083,8 +5359,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query.meta",
-          "weaviate.network.query.meta"
+          "weaviate.local.query.meta"
         ]
       }
     },
@@ -5094,7 +5369,7 @@ func init() {
         "tags": [
           "things"
         ],
-        "summary": "Get a Thing based on its UUID related to this key.",
+        "summary": "Get a Thing based on its UUID.",
         "operationId": "weaviate.things.get",
         "parameters": [
           {
@@ -5117,7 +5392,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -5132,8 +5407,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       },
       "put": {
@@ -5141,7 +5415,7 @@ func init() {
         "tags": [
           "things"
         ],
-        "summary": "Update a Thing based on its UUID related to this key.",
+        "summary": "Update a Thing based on its UUID.",
         "operationId": "weaviate.things.update",
         "parameters": [
           {
@@ -5172,7 +5446,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -5201,7 +5475,7 @@ func init() {
         "tags": [
           "things"
         ],
-        "summary": "Delete a Thing based on its UUID related to this key.",
+        "summary": "Delete a Thing based on its UUID.",
         "operationId": "weaviate.things.delete",
         "parameters": [
           {
@@ -5221,7 +5495,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -5244,7 +5518,7 @@ func init() {
         "tags": [
           "things"
         ],
-        "summary": "Update a Thing based on its UUID (using patch semantics) related to this key.",
+        "summary": "Update a Thing based on its UUID (using patch semantics).",
         "operationId": "weaviate.things.patch",
         "parameters": [
           {
@@ -5294,7 +5568,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -5325,7 +5599,7 @@ func init() {
         "tags": [
           "things"
         ],
-        "summary": "Get a Thing's history based on its UUID related to this key.",
+        "summary": "Get a Thing's history based on its UUID.",
         "operationId": "weaviate.thing.history.get",
         "parameters": [
           {
@@ -5348,7 +5622,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -5366,19 +5640,18 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       }
     },
-    "/things/{thingId}/properties/{propertyName}": {
+    "/things/{thingId}/references/{propertyName}": {
       "put": {
         "description": "Replace all references to a class-property.",
         "tags": [
           "things"
         ],
         "summary": "Replace all references to a class-property.",
-        "operationId": "weaviate.things.properties.update",
+        "operationId": "weaviate.things.references.update",
         "parameters": [
           {
             "type": "string",
@@ -5412,7 +5685,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
@@ -5439,7 +5712,7 @@ func init() {
           "things"
         ],
         "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
-        "operationId": "weaviate.things.properties.create",
+        "operationId": "weaviate.things.references.create",
         "parameters": [
           {
             "type": "string",
@@ -5473,7 +5746,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
@@ -5500,7 +5773,7 @@ func init() {
           "things"
         ],
         "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
-        "operationId": "weaviate.things.properties.delete",
+        "operationId": "weaviate.things.references.delete",
         "parameters": [
           {
             "type": "string",
@@ -5534,7 +5807,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found.",
@@ -5553,57 +5826,6 @@ func init() {
         "x-available-in-websocket": false,
         "x-serviceIds": [
           "weaviate.local.manipulate"
-        ]
-      }
-    },
-    "/tools/map": {
-      "post": {
-        "description": "Tool to render a map of concepts, based on ontologies available over the network.",
-        "tags": [
-          "knowledge tools"
-        ],
-        "summary": "Tool to render a map of concepts, based on ontologies available over the network.",
-        "operationId": "weaviate.tools.map",
-        "parameters": [
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/ToolsMapRequest"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/ToolsMapRequestResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "The used API-key has insufficient permissions."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false,
-        "x-serviceIds": [
-          "weaviate.network.tools.map"
         ]
       }
     }
@@ -5782,6 +6004,171 @@ func init() {
           "description": "The total number of Actions for the query. The number of items in a response may be smaller due to paging.",
           "type": "integer",
           "format": "int64"
+        }
+      }
+    },
+    "BatchReference": {
+      "properties": {
+        "from": {
+          "description": "Long-form beacon-style URI to identify the source of the cross-ref including the property name. Should be in the form of weaviate://localhost/\u003ckinds\u003e/\u003cuuid\u003e/\u003cclassName\u003e/\u003cpropertyName\u003e, where \u003ckinds\u003e must be one of 'actions', 'things' and \u003cclassName\u003e and \u003cpropertyName\u003e must represent the cross-ref property of source class to be used.",
+          "type": "string",
+          "format": "uri",
+          "example": "weaviate://localhost/things/Zoo/a5d09582-4239-4702-81c9-92a6e0122bb4/hasAnimals"
+        },
+        "to": {
+          "description": "Short-form URI to point to the cross-ref. Should be in the form of weaviate://localhost/things/\u003cuuid\u003e for the example of a local cross-ref to a thing",
+          "type": "string",
+          "format": "uri",
+          "example": "weaviate://localhost/things/97525810-a9a5-4eb0-858a-71449aeb007f"
+        }
+      }
+    },
+    "BatchReferenceResponse": {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/definitions/BatchReference"
+        },
+        {
+          "properties": {
+            "result": {
+              "description": "Results for this specific reference.",
+              "format": "object",
+              "properties": {
+                "errors": {
+                  "$ref": "#/definitions/ErrorResponse"
+                },
+                "status": {
+                  "type": "string",
+                  "default": "SUCCESS",
+                  "enum": [
+                    "SUCCESS",
+                    "PENDING",
+                    "FAILED"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "C11yNearestNeighbors": {
+      "description": "C11y function to show the nearest neighbors to a word.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "distance": {
+            "type": "number",
+            "format": "float"
+          },
+          "word": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "C11yVector": {
+      "description": "A Vector in the Contextionary",
+      "type": "array",
+      "items": {
+        "type": "number",
+        "format": "float",
+        "maximum": 300,
+        "minimum": 300
+      }
+    },
+    "C11yVectorBasedQuestion": {
+      "description": "Receive question based on array of classes, properties and values.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "classProps": {
+            "description": "Vectorized properties.",
+            "type": "array",
+            "maxItems": 300,
+            "minItems": 300,
+            "items": {
+              "type": "object",
+              "properties": {
+                "propsVectors": {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "format": "float"
+                  }
+                },
+                "value": {
+                  "description": "String with valuename.",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "classVectors": {
+            "description": "Vectorized classname.",
+            "type": "array",
+            "maxItems": 300,
+            "minItems": 300,
+            "items": {
+              "type": "number",
+              "format": "float"
+            }
+          }
+        }
+      }
+    },
+    "C11yWordsResponse": {
+      "description": "An array of available words and contexts.",
+      "properties": {
+        "concatenatedWord": {
+          "description": "Weighted results for all words",
+          "type": "object",
+          "properties": {
+            "concatenatedNearestNeighbors": {
+              "$ref": "#/definitions/C11yNearestNeighbors"
+            },
+            "concatenatedVector": {
+              "$ref": "#/definitions/C11yVector"
+            },
+            "concatenatedWord": {
+              "type": "string"
+            },
+            "singleWords": {
+              "type": "array",
+              "items": {
+                "format": "string"
+              }
+            }
+          }
+        },
+        "individualWords": {
+          "description": "Weighted results for per individual word",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "inC11y": {
+                "type": "boolean"
+              },
+              "info": {
+                "type": "object",
+                "properties": {
+                  "nearestNeighbors": {
+                    "$ref": "#/definitions/C11yNearestNeighbors"
+                  },
+                  "vector": {
+                    "$ref": "#/definitions/C11yVector"
+                  }
+                }
+              },
+              "word": {
+                "type": "string"
+              }
+            }
+          }
         }
       }
     },
@@ -5986,6 +6373,21 @@ func init() {
       "type": "array",
       "items": {
         "$ref": "#/definitions/PeerUpdate"
+      }
+    },
+    "Principal": {
+      "type": "object",
+      "properties": {
+        "groups": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "username": {
+          "description": "The username that was extracted either from the authentication information",
+          "type": "string"
+        }
       }
     },
     "Schema": {
@@ -6282,125 +6684,6 @@ func init() {
           "format": "int64"
         }
       }
-    },
-    "ToolsMapRequest": {
-      "type": "object",
-      "properties": {
-        "conceptCenter": {
-          "description": "Concept that should function as center. Should be one concept (e.g., car) or CamelCased (e.g, MovedTo)",
-          "type": "string"
-        },
-        "networkCenter": {
-          "description": "Only needs to be set when type is centerOfNetwork and should contain the name of the Weaviate that is taken as center.",
-          "type": "string"
-        },
-        "type": {
-          "description": "What type of map should be generated?",
-          "type": "string",
-          "enum": [
-            "zeroPointPosition",
-            "centerOfSelf",
-            "centerOfNetwork",
-            "centerOfConcept"
-          ]
-        }
-      }
-    },
-    "ToolsMapRequestResponse": {
-      "description": "Map of concepts.",
-      "type": "object",
-      "properties": {
-        "results": {
-          "description": "Results of the map request",
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "concept": {
-                "$ref": "#/definitions/SemanticSchemaClass"
-              },
-              "distance": {
-                "description": "Distance to original vector concept",
-                "type": "number",
-                "format": "float"
-              },
-              "location": {
-                "description": "On which Weaviate is this concept located?",
-                "type": "string"
-              },
-              "type": {
-                "description": "Thing or Action",
-                "type": "string",
-                "enum": [
-                  "thing",
-                  "action"
-                ]
-              }
-            }
-          }
-        },
-        "startVector": {
-          "description": "Startpoint in the Contextionary expressed as 300-dimensional space",
-          "type": "array",
-          "items": {
-            "type": "number",
-            "format": "float",
-            "maximum": 300,
-            "minimum": 300
-          }
-        },
-        "type": {
-          "description": "What type of map should be generated?",
-          "type": "string",
-          "enum": [
-            "zeroPointPosition",
-            "centerOfSelf",
-            "centerOfNetwork",
-            "centerOfConcept"
-          ]
-        }
-      }
-    },
-    "VectorBasedQuestion": {
-      "description": "Receive question based on array of classes, properties and values.",
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "classProps": {
-            "description": "Vectorized properties.",
-            "type": "array",
-            "maxItems": 300,
-            "minItems": 300,
-            "items": {
-              "type": "object",
-              "properties": {
-                "propsVectors": {
-                  "type": "array",
-                  "items": {
-                    "type": "number",
-                    "format": "float"
-                  }
-                },
-                "value": {
-                  "description": "String with valuename.",
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "classVectors": {
-            "description": "Vectorized classname.",
-            "type": "array",
-            "maxItems": 300,
-            "minItems": 300,
-            "items": {
-              "type": "number",
-              "format": "float"
-            }
-          }
-        }
-      }
     }
   },
   "parameters": {
@@ -6419,6 +6702,20 @@ func init() {
       "in": "query"
     }
   },
+  "securityDefinitions": {
+    "oidc": {
+      "description": "OIDC (OpenConnect ID - based on OAuth2)",
+      "type": "oauth2",
+      "flow": "implicit",
+      "authorizationUrl": "http://to-be-configured-in-the-application-config"
+    }
+  },
+  "security": [
+    {},
+    {
+      "oidc": []
+    }
+  ],
   "tags": [
     {
       "name": "actions"
@@ -6440,7 +6737,8 @@ func init() {
       "name": "things"
     },
     {
-      "name": "knowledge tools"
+      "description": "All functions related to the Contextionary.",
+      "name": "contextionary-API"
     },
     {
       "description": "These operations enable manipulation of the schema in Weaviate schema.",

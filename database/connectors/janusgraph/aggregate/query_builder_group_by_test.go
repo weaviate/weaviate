@@ -38,11 +38,11 @@ func Test_QueryBuilder_VariousGroupingStrategies_WithNameSource(t *testing.T) {
 		return `.by(
 					fold()
 						.match(
-							__.as("a").unfold().values("prop_1").count().as("prop_1__count"),
-							__.as("a").unfold().values("prop_2").count().as("prop_2__count")
+							__.as("a").unfold().values("prop_1").count().project("prop_1__count").as("prop_1__count"),
+							__.as("a").unfold().values("prop_2").count().project("prop_2__count").as("prop_2__count")
 						)
-						.select("prop_1__count").by(project("prop_1__count")).as("name")
-						.select("prop_2__count").by(project("prop_2__count")).as("population")
+						.select("prop_1__count").as("name")
+						.select("prop_2__count").as("population")
 						.select("name", "population")
 					)`
 	}

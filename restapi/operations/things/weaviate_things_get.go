@@ -19,19 +19,21 @@ import (
 	"net/http"
 
 	middleware "github.com/go-openapi/runtime/middleware"
+
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // WeaviateThingsGetHandlerFunc turns a function with the right signature into a weaviate things get handler
-type WeaviateThingsGetHandlerFunc func(WeaviateThingsGetParams) middleware.Responder
+type WeaviateThingsGetHandlerFunc func(WeaviateThingsGetParams, *models.Principal) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateThingsGetHandlerFunc) Handle(params WeaviateThingsGetParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateThingsGetHandlerFunc) Handle(params WeaviateThingsGetParams, principal *models.Principal) middleware.Responder {
+	return fn(params, principal)
 }
 
 // WeaviateThingsGetHandler interface for that can handle valid weaviate things get params
 type WeaviateThingsGetHandler interface {
-	Handle(WeaviateThingsGetParams) middleware.Responder
+	Handle(WeaviateThingsGetParams, *models.Principal) middleware.Responder
 }
 
 // NewWeaviateThingsGet creates a new http.Handler for the weaviate things get operation
@@ -41,7 +43,7 @@ func NewWeaviateThingsGet(ctx *middleware.Context, handler WeaviateThingsGetHand
 
 /*WeaviateThingsGet swagger:route GET /things/{thingId} things weaviateThingsGet
 
-Get a Thing based on its UUID related to this key.
+Get a Thing based on its UUID.
 
 Returns a particular Thing data.
 
@@ -58,12 +60,25 @@ func (o *WeaviateThingsGet) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	}
 	var Params = NewWeaviateThingsGetParams()
 
+	uprinc, aCtx, err := o.Context.Authorize(r, route)
+	if err != nil {
+		o.Context.Respond(rw, r, route.Produces, route, err)
+		return
+	}
+	if aCtx != nil {
+		r = aCtx
+	}
+	var principal *models.Principal
+	if uprinc != nil {
+		principal = uprinc.(*models.Principal) // this is really a models.Principal, I promise
+	}
+
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

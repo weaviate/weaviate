@@ -41,7 +41,7 @@ func NewQuery(params *getmeta.Params, nameSource nameSource, typeSource typeSour
 }
 
 type nameSource interface {
-	GetMappedPropertyName(className schema.ClassName, propName schema.PropertyName) state.MappedPropertyName
+	MustGetMappedPropertyName(className schema.ClassName, propName schema.PropertyName) state.MappedPropertyName
 }
 
 type typeSource interface {
@@ -77,7 +77,12 @@ func (b *Query) String() (string, error) {
 	}
 
 	q = q.Raw(filterQuery)
-	q = q.Union(propQueries...)
+	q = q.Union(propQueries...).
+		Group().ByQuery(gremlin.New().SelectKeys().Unfold()).ByQuery(
+		gremlin.New().SelectValues().Unfold().Group().
+			ByQuery(gremlin.New().SelectKeys().Unfold()).
+			ByQuery(gremlin.New().SelectValues().Unfold()),
+	)
 	return idempotentLeadWithDot(q), nil
 }
 
@@ -127,7 +132,7 @@ func (b *Query) mappedPropertyName(className schema.ClassName,
 		return string(propName)
 	}
 
-	return string(b.nameSource.GetMappedPropertyName(className, propName))
+	return string(b.nameSource.MustGetMappedPropertyName(className, propName))
 }
 
 func untitle(propName schema.PropertyName) schema.PropertyName {

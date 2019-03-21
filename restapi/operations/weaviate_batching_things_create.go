@@ -30,16 +30,16 @@ import (
 )
 
 // WeaviateBatchingThingsCreateHandlerFunc turns a function with the right signature into a weaviate batching things create handler
-type WeaviateBatchingThingsCreateHandlerFunc func(WeaviateBatchingThingsCreateParams) middleware.Responder
+type WeaviateBatchingThingsCreateHandlerFunc func(WeaviateBatchingThingsCreateParams, *models.Principal) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateBatchingThingsCreateHandlerFunc) Handle(params WeaviateBatchingThingsCreateParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateBatchingThingsCreateHandlerFunc) Handle(params WeaviateBatchingThingsCreateParams, principal *models.Principal) middleware.Responder {
+	return fn(params, principal)
 }
 
 // WeaviateBatchingThingsCreateHandler interface for that can handle valid weaviate batching things create params
 type WeaviateBatchingThingsCreateHandler interface {
-	Handle(WeaviateBatchingThingsCreateParams) middleware.Responder
+	Handle(WeaviateBatchingThingsCreateParams, *models.Principal) middleware.Responder
 }
 
 // NewWeaviateBatchingThingsCreate creates a new http.Handler for the weaviate batching things create operation
@@ -49,7 +49,7 @@ func NewWeaviateBatchingThingsCreate(ctx *middleware.Context, handler WeaviateBa
 
 /*WeaviateBatchingThingsCreate swagger:route POST /batching/things batching things weaviateBatchingThingsCreate
 
-Creates new Things based on a Thing template related to this key as a batch.
+Creates new Things based on a Thing template as a batch.
 
 Register new Things in bulk. Provided meta-data and schema values are validated.
 
@@ -66,12 +66,25 @@ func (o *WeaviateBatchingThingsCreate) ServeHTTP(rw http.ResponseWriter, r *http
 	}
 	var Params = NewWeaviateBatchingThingsCreateParams()
 
+	uprinc, aCtx, err := o.Context.Authorize(r, route)
+	if err != nil {
+		o.Context.Respond(rw, r, route.Produces, route, err)
+		return
+	}
+	if aCtx != nil {
+		r = aCtx
+	}
+	var principal *models.Principal
+	if uprinc != nil {
+		principal = uprinc.(*models.Principal) // this is really a models.Principal, I promise
+	}
+
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 
@@ -80,9 +93,6 @@ func (o *WeaviateBatchingThingsCreate) ServeHTTP(rw http.ResponseWriter, r *http
 // WeaviateBatchingThingsCreateBody weaviate batching things create body
 // swagger:model WeaviateBatchingThingsCreateBody
 type WeaviateBatchingThingsCreateBody struct {
-
-	// If `async` is true, return a 202 with the new ID of the Thing. You will receive this response before the persistence of the data is confirmed. If `async` is false, you will receive confirmation after the persistence of the data is confirmed. The value of `async` defaults to false.
-	Async bool `json:"async,omitempty"`
 
 	// Define which fields need to be returned. Default value is ALL
 	Fields []*string `json:"fields"`

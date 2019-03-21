@@ -14,34 +14,28 @@ package meta
 import "fmt"
 
 func (p *Processor) postProcessBoolGroupCount(m map[string]interface{}) (map[string]interface{}, error) {
-	// we can safely ignore the check, as this method is only ever called if we
-	// can be sure that we have this prop
-	boolProps, _ := m[BoolGroupCount]
-
-	boolPropsMap, ok := boolProps.(map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf(
-			"could not post-process boolean totals, expected result to be a map, but was '%#v'", boolProps)
-	}
-
-	totalTrue, err := getTotal(boolPropsMap, "true")
+	totalTrue, err := getTotal(m, "true")
 	if err != nil {
 		return nil, err
 	}
 
-	totalFalse, err := getTotal(boolPropsMap, "false")
+	totalFalse, err := getTotal(m, "false")
 	if err != nil {
 		return nil, err
 	}
 
 	total := totalTrue + totalFalse
 
-	return map[string]interface{}{
+	boolAnalysis := map[string]interface{}{
 		"totalTrue":       totalTrue,
 		"totalFalse":      totalFalse,
 		"percentageTrue":  totalTrue / total,
 		"percentageFalse": totalFalse / total,
-	}, nil
+	}
+
+	delete(m, "true")
+	delete(m, "false")
+	return mergeMaps(m, boolAnalysis), nil
 }
 
 func getTotal(m map[string]interface{}, key string) (float64, error) {

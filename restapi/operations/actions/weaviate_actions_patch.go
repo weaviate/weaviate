@@ -19,19 +19,21 @@ import (
 	"net/http"
 
 	middleware "github.com/go-openapi/runtime/middleware"
+
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // WeaviateActionsPatchHandlerFunc turns a function with the right signature into a weaviate actions patch handler
-type WeaviateActionsPatchHandlerFunc func(WeaviateActionsPatchParams) middleware.Responder
+type WeaviateActionsPatchHandlerFunc func(WeaviateActionsPatchParams, *models.Principal) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateActionsPatchHandlerFunc) Handle(params WeaviateActionsPatchParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateActionsPatchHandlerFunc) Handle(params WeaviateActionsPatchParams, principal *models.Principal) middleware.Responder {
+	return fn(params, principal)
 }
 
 // WeaviateActionsPatchHandler interface for that can handle valid weaviate actions patch params
 type WeaviateActionsPatchHandler interface {
-	Handle(WeaviateActionsPatchParams) middleware.Responder
+	Handle(WeaviateActionsPatchParams, *models.Principal) middleware.Responder
 }
 
 // NewWeaviateActionsPatch creates a new http.Handler for the weaviate actions patch operation
@@ -41,7 +43,7 @@ func NewWeaviateActionsPatch(ctx *middleware.Context, handler WeaviateActionsPat
 
 /*WeaviateActionsPatch swagger:route PATCH /actions/{actionId} actions weaviateActionsPatch
 
-Update an Action based on its UUID (using patch semantics) related to this key.
+Update an Action based on its UUID (using patch semantics).
 
 Updates an Action. This method supports patch semantics. Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 
@@ -58,12 +60,25 @@ func (o *WeaviateActionsPatch) ServeHTTP(rw http.ResponseWriter, r *http.Request
 	}
 	var Params = NewWeaviateActionsPatchParams()
 
+	uprinc, aCtx, err := o.Context.Authorize(r, route)
+	if err != nil {
+		o.Context.Respond(rw, r, route.Produces, route, err)
+		return
+	}
+	if aCtx != nil {
+		r = aCtx
+	}
+	var principal *models.Principal
+	if uprinc != nil {
+		principal = uprinc.(*models.Principal) // this is really a models.Principal, I promise
+	}
+
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

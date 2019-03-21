@@ -42,8 +42,8 @@ func NewQuery(params *aggregate.Params, nameSource nameSource, typeSource typeSo
 }
 
 type nameSource interface {
-	GetMappedPropertyName(className schema.ClassName, propName schema.PropertyName) state.MappedPropertyName
-	GetMappedClassName(className schema.ClassName) state.MappedClassName
+	MustGetMappedPropertyName(className schema.ClassName, propName schema.PropertyName) state.MappedPropertyName
+	MustGetMappedClassName(className schema.ClassName) state.MappedClassName
 }
 
 type typeSource interface {
@@ -94,22 +94,7 @@ func (b *Query) aggregationProperties() (*gremlin.Query, error) {
 			matchQueries = append(matchQueries, propAggregation.matchQueryFragment)
 
 			// Inner selection per aggregation
-			selectQueries = selectQueries.Select(propAggregation.selections)
-			if len(propAggregation.selections) == 1 {
-				// just one selection/aggregation prop is a special case, because in
-				// multiple cases we are using select(<1>,<2>, ...<n>), this means we
-				// will receive a map that has the selections as keys. However, if we
-				// only ask for a single prop, Gremlin doesn't see a need to return a
-				// map and simply returns the primitive value. This will of course
-				// either break our post-processing or will not have the format the
-				// graphql API expects. We thus need to add an additional
-				// .by(project("label")) step to wrap the primtive prop in a map - but
-				// only if it's only a single analysis prop.
-				selectQueries = selectQueries.ByQuery(gremlin.New().Project(propAggregation.selections[0]))
-			}
-
-			// Group and select inner props into outer selection per Class Property
-			selectQueries = selectQueries.
+			selectQueries = selectQueries.Select(propAggregation.selections).
 				As(string(prop.Name))
 
 			// Save the prop name for use in the final selection query
@@ -117,13 +102,13 @@ func (b *Query) aggregationProperties() (*gremlin.Query, error) {
 		}
 	}
 
-	// One final select to group all props together
-	selectQueries = selectQueries.Select(propNames)
-
 	if len(propNames) == 1 {
 		// similarly to what we did on the inner selection we must add an
 		// additional projection if there is only a single property
-		selectQueries = selectQueries.ByQuery(gremlin.New().Project(string(props[0].Name)))
+		selectQueries = selectQueries.Project(string(props[0].Name))
+	} else {
+		// One final select to group all props together
+		selectQueries = selectQueries.Select(propNames)
 	}
 
 	return gremlin.New().ByQuery(
@@ -194,7 +179,7 @@ func (b *Query) mappedPropertyName(className schema.ClassName,
 		return string(propName)
 	}
 
-	return string(b.nameSource.GetMappedPropertyName(className, propName))
+	return string(b.nameSource.MustGetMappedPropertyName(className, propName))
 }
 
 func (b *Query) mappedClassName(className schema.ClassName) string {
@@ -202,7 +187,7 @@ func (b *Query) mappedClassName(className schema.ClassName) string {
 		return string(className)
 	}
 
-	return string(b.nameSource.GetMappedClassName(className))
+	return string(b.nameSource.MustGetMappedClassName(className))
 }
 
 func untitle(propName schema.PropertyName) schema.PropertyName {

@@ -20,7 +20,7 @@ import (
 )
 
 func (j *Janusgraph) addClass(k kind.Kind, className schema.ClassName, UUID strfmt.UUID, atContext string, creationTimeUnix int64, lastUpdateTimeUnix int64, rawProperties interface{}) error {
-	vertexLabel := j.state.GetMappedClassName(className)
+	vertexLabel := j.state.MustGetMappedClassName(className)
 	sourceClassAlias := "classToBeAdded"
 
 	q := gremlin.G.AddV(string(vertexLabel)).
@@ -88,7 +88,7 @@ func (j *Janusgraph) addThingsBatch(things batchmodels.Things) error {
 
 			q = q.Raw("\n")
 			className := schema.AssertValidClassName(thing.Thing.AtClass)
-			vertexLabel := j.state.GetMappedClassName(className)
+			vertexLabel := j.state.MustGetMappedClassName(className)
 			sourceClassAlias := "classToBeAdded"
 
 			q = q.AddV(string(vertexLabel)).
@@ -165,7 +165,7 @@ func (j *Janusgraph) addActionsBatch(actions batchmodels.Actions) error {
 
 			q = q.Raw("\n")
 			className := schema.AssertValidClassName(action.Action.AtClass)
-			vertexLabel := j.state.GetMappedClassName(className)
+			vertexLabel := j.state.MustGetMappedClassName(className)
 			sourceClassAlias := "classToBeAdded"
 
 			q = q.AddV(string(vertexLabel)).

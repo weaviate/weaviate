@@ -40,7 +40,7 @@ type thingsRequest struct {
 }
 
 // ThingsCreate is the (go-swagger style) http handler for BatchingThingsCreate
-func (b *Batch) ThingsCreate(params operations.WeaviateBatchingThingsCreateParams) middleware.Responder {
+func (b *Batch) ThingsCreate(params operations.WeaviateBatchingThingsCreateParams, principal *models.Principal) middleware.Responder {
 	defer b.appState.Messaging.TimeTrack(time.Now())
 
 	r := newThingsRequest(params.HTTPRequest, b.appState, b.requestsLog)

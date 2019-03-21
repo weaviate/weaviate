@@ -39,7 +39,7 @@ WeaviateGraphqlBatch gets a response based on graph q l
 
 Perform a batched GraphQL query
 */
-func (a *Client) WeaviateGraphqlBatch(params *WeaviateGraphqlBatchParams) (*WeaviateGraphqlBatchOK, error) {
+func (a *Client) WeaviateGraphqlBatch(params *WeaviateGraphqlBatchParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateGraphqlBatchOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateGraphqlBatchParams()
@@ -50,10 +50,11 @@ func (a *Client) WeaviateGraphqlBatch(params *WeaviateGraphqlBatchParams) (*Weav
 		Method:             "POST",
 		PathPattern:        "/graphql/batch",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateGraphqlBatchReader{formats: a.formats},
+		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -69,7 +70,7 @@ WeaviateGraphqlPost gets a response based on graph q l
 
 Get an object based on GraphQL
 */
-func (a *Client) WeaviateGraphqlPost(params *WeaviateGraphqlPostParams) (*WeaviateGraphqlPostOK, error) {
+func (a *Client) WeaviateGraphqlPost(params *WeaviateGraphqlPostParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateGraphqlPostOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateGraphqlPostParams()
@@ -80,10 +81,11 @@ func (a *Client) WeaviateGraphqlPost(params *WeaviateGraphqlPostParams) (*Weavia
 		Method:             "POST",
 		PathPattern:        "/graphql",
 		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateGraphqlPostReader{formats: a.formats},
+		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})

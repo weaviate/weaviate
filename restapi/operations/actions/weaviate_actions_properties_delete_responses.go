@@ -74,7 +74,7 @@ func (o *WeaviateActionsPropertiesDeleteUnauthorized) WriteResponse(rw http.Resp
 // WeaviateActionsPropertiesDeleteForbiddenCode is the HTTP code returned for type WeaviateActionsPropertiesDeleteForbidden
 const WeaviateActionsPropertiesDeleteForbiddenCode int = 403
 
-/*WeaviateActionsPropertiesDeleteForbidden The used API-key has insufficient permissions.
+/*WeaviateActionsPropertiesDeleteForbidden Insufficient permissions.
 
 swagger:response weaviateActionsPropertiesDeleteForbidden
 */

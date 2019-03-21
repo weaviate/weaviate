@@ -19,19 +19,21 @@ import (
 	"net/http"
 
 	middleware "github.com/go-openapi/runtime/middleware"
+
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // WeaviateThingsPatchHandlerFunc turns a function with the right signature into a weaviate things patch handler
-type WeaviateThingsPatchHandlerFunc func(WeaviateThingsPatchParams) middleware.Responder
+type WeaviateThingsPatchHandlerFunc func(WeaviateThingsPatchParams, *models.Principal) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateThingsPatchHandlerFunc) Handle(params WeaviateThingsPatchParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateThingsPatchHandlerFunc) Handle(params WeaviateThingsPatchParams, principal *models.Principal) middleware.Responder {
+	return fn(params, principal)
 }
 
 // WeaviateThingsPatchHandler interface for that can handle valid weaviate things patch params
 type WeaviateThingsPatchHandler interface {
-	Handle(WeaviateThingsPatchParams) middleware.Responder
+	Handle(WeaviateThingsPatchParams, *models.Principal) middleware.Responder
 }
 
 // NewWeaviateThingsPatch creates a new http.Handler for the weaviate things patch operation
@@ -41,7 +43,7 @@ func NewWeaviateThingsPatch(ctx *middleware.Context, handler WeaviateThingsPatch
 
 /*WeaviateThingsPatch swagger:route PATCH /things/{thingId} things weaviateThingsPatch
 
-Update a Thing based on its UUID (using patch semantics) related to this key.
+Update a Thing based on its UUID (using patch semantics).
 
 Updates a Thing's data. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 
@@ -58,12 +60,25 @@ func (o *WeaviateThingsPatch) ServeHTTP(rw http.ResponseWriter, r *http.Request)
 	}
 	var Params = NewWeaviateThingsPatchParams()
 
+	uprinc, aCtx, err := o.Context.Authorize(r, route)
+	if err != nil {
+		o.Context.Respond(rw, r, route.Produces, route, err)
+		return
+	}
+	if aCtx != nil {
+		r = aCtx
+	}
+	var principal *models.Principal
+	if uprinc != nil {
+		principal = uprinc.(*models.Principal) // this is really a models.Principal, I promise
+	}
+
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

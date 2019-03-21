@@ -20,7 +20,7 @@ import (
 
 // LocalGetMeta based on GraphQL Query params
 func (j *Janusgraph) LocalGetMeta(params *getmeta.Params) (interface{}, error) {
-	className := j.state.GetMappedClassName(params.ClassName)
+	className := j.state.MustGetMappedClassName(params.ClassName)
 	q := gremlin.New().Raw(`g.V()`).
 		HasString("kind", params.Kind.Name()).
 		HasString("classId", string(className))
@@ -39,5 +39,5 @@ func (j *Janusgraph) LocalGetMeta(params *getmeta.Params) (interface{}, error) {
 		return nil, err
 	}
 
-	return meta.NewProcessor(j.client).Process(q, typeInfo)
+	return meta.NewProcessor(j.client, j.etcdClient, j.analyticsClient).Process(q, typeInfo, params)
 }

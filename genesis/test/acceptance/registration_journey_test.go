@@ -28,7 +28,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/genesis/client"
 	"github.com/creativesoftwarefdn/weaviate/genesis/client/operations"
 	"github.com/creativesoftwarefdn/weaviate/genesis/models"
-	"github.com/davecgh/go-spew/spew"
 	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -156,7 +155,6 @@ func TestPeerRegistrationJourney(t *testing.T) {
 		assert.Equal(t, 1, len(peers), "expected exactly one peer in request")
 		assert.Equal(t, string(newPeerID), peers[0]["id"], "expected correct peer id")
 		assert.Equal(t, "myFavoritePeer", peers[0]["name"], "expected correct peer name")
-		spew.Dump(peers[0])
 		assert.Equal(t, "some-new-schema-hash", peers[0]["schemaHash"], "expected correct schema_hash")
 	})
 

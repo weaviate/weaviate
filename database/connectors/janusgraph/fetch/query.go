@@ -43,8 +43,8 @@ func NewQuery(p fetch.Params, ns nameSource, ts typeSource) *Query {
 // nameSource can only be used after verifying that the property exists, if in
 // doubt use typeSource first
 type nameSource interface {
-	GetMappedPropertyName(className schema.ClassName, propName schema.PropertyName) state.MappedPropertyName
-	GetMappedClassName(className schema.ClassName) state.MappedClassName
+	MustGetMappedPropertyName(className schema.ClassName, propName schema.PropertyName) state.MappedPropertyName
+	MustGetMappedClassName(className schema.ClassName) state.MappedClassName
 }
 
 type typeSource interface {
@@ -168,8 +168,8 @@ func (b *Query) combineClassWithPropName(className string, propName string,
 		return nil
 	}
 
-	mappedClass := b.nameSource.GetMappedClassName(class)
-	mappedProp := b.nameSource.GetMappedPropertyName(class, prop)
+	mappedClass := b.nameSource.MustGetMappedClassName(class)
+	mappedProp := b.nameSource.MustGetMappedPropertyName(class, prop)
 
 	condition, err := b.conditionQuery(match)
 	if err != nil {

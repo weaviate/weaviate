@@ -13,18 +13,20 @@ package listing
 
 import (
 	"fmt"
+
+	"github.com/creativesoftwarefdn/weaviate/config"
 	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/foobar"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph"
 )
 
 // Build a new connector based on it's name. Returns nil if the connector is unknown.
-func NewConnector(name string, config interface{}) (err error, conn dbconnector.DatabaseConnector) {
+func NewConnector(name string, config interface{}, appConfig config.Environment) (err error, conn dbconnector.DatabaseConnector) {
 	switch name {
 	case "janusgraph":
-		err, conn = janusgraph.New(config)
+		err, conn = janusgraph.New(config, appConfig)
 	case "foobar":
-		err, conn = foobar.New(config)
+		err, conn = foobar.New(config, appConfig)
 	default:
 		err = fmt.Errorf("No connector with the name '%s' exists!", name)
 	}

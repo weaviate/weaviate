@@ -42,18 +42,22 @@ func Test_QueryBuilder_MultipleProps(t *testing.T) {
 			},
 			expectedQuery: `
 				.union(
-					union(
-						has("isCapital").count()
-							.as("count").project("count").by(select("count")),
-						groupCount().by("isCapital")
-							.as("boolGroupCount").project("boolGroupCount").by(select("boolGroupCount"))
+					values("isCapital").union(
+						count().project("count").project("isCapital"),
+						groupCount().unfold().project("isCapital")
+					),
+				  values("population").union(
+					  mean().project("mean").project("population"),
+					  sum().project("sum").project("population"),
+					  max().project("maximum").project("population"),
+					  min().project("minimum").project("population"),
+					  count().project("count").project("population")
 					)
-						.as("isCapital").project("isCapital").by(select("isCapital")),
-					aggregate("aggregation").by("population").cap("aggregation").limit(1)
-						.as("mean", "sum", "maximum", "minimum", "count")
-						.select("mean", "sum", "maximum", "minimum", "count")
-						.by(mean(local)).by(sum(local)).by(max(local)).by(min(local)).by(count(local))
-						.as("population").project("population").by(select("population"))
+				)
+				.group().by(select(keys).unfold()).by(
+					select(values).unfold().group()
+					.by( select(keys).unfold())
+					.by( select(values).unfold())
 				)
 			`,
 		},
@@ -83,18 +87,22 @@ func Test_QueryBuilder_MultiplePropsWithFilter(t *testing.T) {
 			expectedQuery: `
 			  .has("foo", eq("bar"))
 				.union(
-					union(
-						has("isCapital").count()
-							.as("count").project("count").by(select("count")),
-						groupCount().by("isCapital")
-							.as("boolGroupCount").project("boolGroupCount").by(select("boolGroupCount"))
+					values("isCapital").union(
+						count().project("count").project("isCapital"),
+						groupCount().unfold().project("isCapital")
+					),
+				  values("population").union(
+					  mean().project("mean").project("population"),
+					  sum().project("sum").project("population"),
+					  max().project("maximum").project("population"),
+					  min().project("minimum").project("population"),
+					  count().project("count").project("population")
 					)
-						.as("isCapital").project("isCapital").by(select("isCapital")),
-					aggregate("aggregation").by("population").cap("aggregation").limit(1)
-						.as("mean", "sum", "maximum", "minimum", "count")
-						.select("mean", "sum", "maximum", "minimum", "count")
-						.by(mean(local)).by(sum(local)).by(max(local)).by(min(local)).by(count(local))
-						.as("population").project("population").by(select("population"))
+				)
+				.group().by(select(keys).unfold()).by(
+					select(values).unfold().group()
+					.by( select(keys).unfold())
+					.by( select(values).unfold())
 				)
 			`,
 		},
