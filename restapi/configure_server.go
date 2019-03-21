@@ -39,6 +39,7 @@ import (
 	libnetworkFake "github.com/creativesoftwarefdn/weaviate/network/fake"
 	libnetworkP2P "github.com/creativesoftwarefdn/weaviate/network/p2p"
 	"github.com/creativesoftwarefdn/weaviate/restapi/state"
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
 	"github.com/go-openapi/strfmt"
 )
 
@@ -197,7 +198,7 @@ func rebuildGraphQL(updatedSchema schema.Schema) {
 
 	c11y := schemaContextionary.New(contextionary)
 	root := graphQLRoot{Database: db, Network: network, contextionary: c11y, log: requestsLog}
-	updatedGraphQL, err := graphqlapi.Build(&updatedSchema, peers, root, messaging, serverConfig.Environment, )
+	updatedGraphQL, err := graphqlapi.Build(&updatedSchema, peers, root, messaging, serverConfig.Environment)
 	if err != nil {
 		// TODO: turn on safe mode gh-520
 		graphQL = nil
@@ -226,7 +227,7 @@ type graphQLRoot struct {
 	database.Database
 	libnetwork.Network
 	contextionary *schemaContextionary.Contextionary
-	log           *telemetry.RequestsLog	
+	log           *telemetry.RequestsLog
 }
 
 func (r graphQLRoot) GetNetworkResolver() graphqlnetwork.Resolver {

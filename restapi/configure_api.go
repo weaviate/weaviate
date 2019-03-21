@@ -15,6 +15,8 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/restapi/batch"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations"
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
+	telemutils "github.com/creativesoftwarefdn/weaviate/telemetry/utils"
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 )
@@ -38,11 +40,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	reporter = telemetry.NewReporter(requestsLog, interval, url, enabled, false)
 
 	setupSchemaHandlers(api, requestsLog)
-	setupThingsHandlers(api,requestsLog)
-	setupActionsHandlers(api,requestsLog)
-	setupBatchHandlers(api,requestsLog)
+	setupThingsHandlers(api, requestsLog)
+	setupActionsHandlers(api, requestsLog)
+	setupBatchHandlers(api, requestsLog)
 	setupC11yHandlers(api)
-	setupGraphQLHandlers(api,requestsLog)
+	setupGraphQLHandlers(api, requestsLog)
 	setupMiscHandlers(api, requestsLog)
 
 	api.ServerShutdown = func() {}
@@ -50,8 +52,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
 }
 
-func setupBatchHandlers(api *operations.WeaviateAPI) {
-	batchAPI := batch.New(appState)
+func setupBatchHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog) {
+	batchAPI := batch.New(appState, requestsLog)
 
 	api.WeaviateBatchingThingsCreateHandler = operations.
 		WeaviateBatchingThingsCreateHandlerFunc(batchAPI.ThingsCreate)

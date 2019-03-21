@@ -17,6 +17,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/meta"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/p2_p"
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
