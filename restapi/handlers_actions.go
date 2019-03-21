@@ -30,7 +30,7 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-func setupActionsHandlers(api *operations.WeaviateAPI) {
+func setupActionsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog) {
 	api.ActionsWeaviateActionsGetHandler = actions.WeaviateActionsGetHandlerFunc(func(params actions.WeaviateActionsGetParams, principal *models.Principal) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {

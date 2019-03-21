@@ -23,7 +23,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/telemetry"
 )
 
-func setupSchemaHandlers(api *operations.WeaviateAPI) {
+func setupSchemaHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog) {
 	api.SchemaWeaviateSchemaActionsCreateHandler = schema.WeaviateSchemaActionsCreateHandlerFunc(func(params schema.WeaviateSchemaActionsCreateParams, principal *models.Principal) middleware.Responder {
 		schemaLock, err := db.SchemaLock()
 		if err != nil {

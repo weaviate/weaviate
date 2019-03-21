@@ -2,8 +2,6 @@ module github.com/creativesoftwarefdn/weaviate
 
 require (
 	github.com/2tvenom/cbor v0.0.0-20171016170723-384e799bd841
-	github.com/PuerkitoBio/purell v1.1.0 // indirect
-	github.com/PuerkitoBio/urlesc v0.0.0-20170810143723-de5bf2ad4578 // indirect
 	github.com/SeMI-network/janus-spark-analytics v0.0.0-20190311154421-9a5188468325
 	github.com/TylerBrock/colorjson v0.0.0-20180527164720-95ec53f28296
 	github.com/coreos/etcd v3.3.11+incompatible
@@ -36,14 +34,7 @@ require (
 	github.com/sirupsen/logrus v1.2.0
 	github.com/stretchr/testify v1.2.2
 	github.com/syndtr/goleveldb v0.0.0-20180708030551-c4c61651e9e3
-	github.com/tmc/grpc-websocket-proxy v0.0.0-20190109142713-0ad062ec5ee5 // indirect
-	github.com/ugorji/go/codec v0.0.0-20181209151446-772ced7fd4c2
-	github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 // indirect
-	go.uber.org/atomic v1.3.2 // indirect
-	go.uber.org/multierr v1.1.0 // indirect
-	go.uber.org/zap v1.9.1 // indirect
-	golang.org/x/arch v0.0.0-20181203225421-5a4828bb7045 // indirect
-	github.com/ugorji/go/codec v0.0.0-20190309163734-c4a1c341dc93 // indirect
+	github.com/ugorji/go/codec v0.0.0-20190309163734-c4a1c341dc93
 	golang.org/x/net v0.0.0-20181114220301-adae6a3d119a
 	google.golang.org/grpc v1.16.0
 	gopkg.in/yaml.v2 v2.2.1
