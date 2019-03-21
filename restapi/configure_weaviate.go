@@ -33,6 +33,7 @@ import (
 
 	"github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/clientv3/concurrency"
+	"github.com/creativesoftwarefdn/weaviate/auth/authentication/oidc"
 	"github.com/creativesoftwarefdn/weaviate/restapi/batch"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/graphql"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/meta"
@@ -247,6 +248,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.ServeError = errors.ServeError
 
 	api.JSONConsumer = runtime.JSONConsumer()
+
+	api.OidcAuth = appState.OIDC.ValidateAndExtract
 
 	setupSchemaHandlers(api)
 	setupThingsHandlers(api)
@@ -699,6 +702,9 @@ func configureServer(s *http.Server, scheme, addr string) {
 	err := serverConfig.LoadConfig(connectorOptionGroup, messaging)
 	messaging.InfoMessage(fmt.Sprintf("loaded the config, time left is: %s", timeTillDeadline(ctx)))
 
+	appState.OIDC = configureOIDC(appState)
+	messaging.InfoMessage(fmt.Sprintf("configured OIDC client, time left is: %s", timeTillDeadline(ctx)))
+
 	// Add properties to the config
 	serverConfig.Hostname = addr
 	serverConfig.Scheme = scheme
@@ -843,6 +849,18 @@ func (s *schemaGetter) Schema() (schema.Schema, error) {
 
 	defer dbLock.Unlock()
 	return dbLock.GetSchema(), nil
+}
+
+// configureOIDC will always be called, even if OIDC is disabled, this way the
+// middleware will still be able to provide the user with a valuable error
+// message, even when OIDC is globally disabled.
+func configureOIDC(appState *state.State) *oidc.Client {
+	c, err := oidc.New(appState.ServerConfig.Environment)
+	if err != nil {
+		appState.Messaging.ExitError(1, fmt.Sprintf("oidc client couldn't start up: %v", err))
+	}
+
+	return c
 }
 
 // The middleware configuration is for the handler executors. These do not apply to the swagger.json document.
