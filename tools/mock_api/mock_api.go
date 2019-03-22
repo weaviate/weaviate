@@ -40,11 +40,14 @@ var counter int
 // AddLog stores a POSTed log.
 func AddLog(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("received POST")
+
 	buf := new(bytes.Buffer)
 	buf.ReadFrom(r.Body)
 	content := buf.Bytes()
 
 	if len(content) > 0 {
+		fmt.Println(content)
+		fmt.Println("Non-null requests received: %s", counter)
 		counter++
 		receivedLogs = append(receivedLogs, content)
 		mostRecentLog = content

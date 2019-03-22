@@ -14,15 +14,15 @@ func TestLoop(t *testing.T) {
 	t.Parallel()
 
 	// setup
-	telemetryEnabled := true
-	calledFunctions := NewLog(telemetryEnabled)
+	calledFunctions := NewLog()
+	calledFunctions.Enabled = true
 	calledFunctions.PeerName = "soggy-whale-bread"
 	calledFunctions.Register("REST", "weaviate.something.or.other")
 
 	interval := 1
 	url := "http://webhook.site/73641e3c-6d28-4875-aa5e-b0e66abd3b00"
 
-	reporter := NewReporter(calledFunctions, interval, url, telemetryEnabled, true)
+	reporter := NewReporter(calledFunctions, interval, url, true, true)
 
 	go reporter.Start()
 
@@ -39,8 +39,8 @@ func TestConvertToMinimizedJSON(t *testing.T) {
 	t.Parallel()
 
 	// setup
-	telemetryEnabled := true
-	calledFunctions := NewLog(telemetryEnabled)
+	calledFunctions := NewLog()
+	calledFunctions.Enabled = true
 	calledFunctions.PeerName = "tiny-grey-chainsword"
 	calledFunctions.Register("REST", "weaviate.something.or.other")
 
@@ -76,7 +76,6 @@ func TestConvertToMinimizedJSON(t *testing.T) {
 		assert.Equal(t, "weaviate.something.or.other", identifier)
 		assert.Equal(t, 1, int(amount))
 		assert.Equal(t, int64(1550745544), int64(when))
-
 	}
 }
 
@@ -86,8 +85,8 @@ func TestAddTimestamps(t *testing.T) {
 	t.Parallel()
 
 	// setup
-	telemetryEnabled := true
-	calledFunctions := NewLog(telemetryEnabled)
+	calledFunctions := NewLog()
+	calledFunctions.Enabled = true
 	calledFunctions.PeerName = "iridiscent-damp-bagel"
 	calledFunctions.Register("REST", "weaviate.something.or.other1")
 	calledFunctions.Register("REST", "weaviate.something.or.other2")

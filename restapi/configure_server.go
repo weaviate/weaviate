@@ -79,13 +79,23 @@ func configureServer(s *http.Server, scheme, addr string) {
 	loggingUrl := appState.ServerConfig.Environment.Logging.Url
 	loggingEnabled := appState.ServerConfig.Environment.Logging.Enabled
 	loggingDebug := appState.ServerConfig.Environment.Debug
+
+	if loggingEnabled != true && loggingEnabled != false {
+		loggingEnabled = true
+	}
+
+	// Propagate the peer name (if any), debug toggle and the enabled toggle to the requestsLog
+	mainLog.PeerName = appState.ServerConfig.Environment.Network.PeerName
+	mainLog.Debug = loggingDebug
+	mainLog.Enabled = loggingEnabled
+
 	// Initialize the reporter
-	reporter = telemetry.NewReporter(requestsLog, loggingInterval, loggingUrl, loggingEnabled, loggingDebug)
-	// Initialize the requestslog
-	requestsLog = telemetry.NewLog(loggingEnabled)
-	// Propagate the peer name (if any) to the requestsLog
-	requestsLog.PeerName = appState.ServerConfig.Environment.Network.PeerName
-	requestsLog.Debug = loggingDebug
+	reporter = telemetry.NewReporter(mainLog, loggingInterval, loggingUrl, loggingEnabled, loggingDebug)
+
+	// Start reporting
+	go func() {
+		reporter.Start()
+	}()
 
 	// Add properties to the config
 	serverConfig.Hostname = addr
@@ -207,7 +217,7 @@ func rebuildGraphQL(updatedSchema schema.Schema) {
 	}
 
 	c11y := schemaContextionary.New(contextionary)
-	root := graphQLRoot{Database: db, Network: network, contextionary: c11y, log: requestsLog}
+	root := graphQLRoot{Database: db, Network: network, contextionary: c11y, log: mainLog}
 	updatedGraphQL, err := graphqlapi.Build(&updatedSchema, peers, root, messaging, serverConfig.Environment)
 	if err != nil {
 		// TODO: turn on safe mode gh-520
