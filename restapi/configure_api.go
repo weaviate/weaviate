@@ -3,6 +3,7 @@ package restapi
 import (
 	"net/http"
 
+	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/restapi/batch"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations"
 	"github.com/go-openapi/errors"
@@ -14,7 +15,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	api.JSONConsumer = runtime.JSONConsumer()
 
-	api.OidcAuth = appState.OIDC.ValidateAndExtract
+	api.OidcAuth = func(token string, scopes []string) (*models.Principal, error) {
+		return appState.OIDC.ValidateAndExtract(token, scopes)
+	}
 
 	setupSchemaHandlers(api)
 	setupThingsHandlers(api)
