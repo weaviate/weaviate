@@ -1,6 +1,7 @@
 package oidc
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -29,6 +30,21 @@ func Test_Middleware_NotConfigured(t *testing.T) {
 	assert.Equal(t, expectedErr, err)
 }
 
+func Test_Middleware_IncompleteConfiguration(t *testing.T) {
+	cfg := config.Environment{
+		Authentication: config.Authentication{
+			OIDC: config.OIDC{
+				Enabled: true,
+			},
+		},
+	}
+	expectedErr := fmt.Errorf("oidc init: invalid config: missing required field 'issuer', " +
+		"missing required field 'username_claim'")
+
+	_, err := New(cfg)
+	assert.Equal(t, expectedErr, err)
+}
+
 type claims struct {
 	jwt.StandardClaims
 	Email  string   `json:"email"`
@@ -48,7 +64,6 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 					ClientID:               "best_client",
 					SkipAudienceValidation: false,
 					UsernameClaim:          "sub",
-					GroupsClaim:            "groups",
 				},
 			},
 		}

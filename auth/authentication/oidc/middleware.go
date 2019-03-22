@@ -3,6 +3,7 @@ package oidc
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/coreos/go-oidc"
 	"github.com/creativesoftwarefdn/weaviate/config"
@@ -41,6 +42,10 @@ func New(cfg config.Environment) (*Client, error) {
 }
 
 func (c *Client) init() error {
+	if err := c.validateConfig(); err != nil {
+		return fmt.Errorf("invalid config: %v", err)
+	}
+
 	provider, err := oidc.NewProvider(context.Background(), c.config.Issuer)
 	if err != nil {
 		return fmt.Errorf("could not setup provider: %v", err)
@@ -53,6 +58,24 @@ func (c *Client) init() error {
 	c.verifier = verifier
 
 	return nil
+}
+
+func (c *Client) validateConfig() error {
+	var msgs []string
+
+	if c.config.Issuer == "" {
+		msgs = append(msgs, "missing required field 'issuer'")
+	}
+
+	if c.config.UsernameClaim == "" {
+		msgs = append(msgs, "missing required field 'username_claim'")
+	}
+
+	if len(msgs) == 0 {
+		return nil
+	}
+
+	return fmt.Errorf(strings.Join(msgs, ", "))
 }
 
 // ValidateAndExtract can be used as a middleware for go-swagger
