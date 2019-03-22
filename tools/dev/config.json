@@ -2,6 +2,11 @@
 	"environments": [
     {
       "name": "janusgraph",
+      "authentication": {
+        "anonymous_access": {
+          "enabled": true
+        }
+      },
       "database": {
         "name": "janusgraph",
         "database_config": {
@@ -39,6 +44,11 @@
     },
     {
       "name": "janusgraph_test",
+      "authentication": {
+        "anonymous_access": {
+          "enabled": true
+        }
+      },
       "database": {
         "name": "janusgraph",
         "database_config": {
@@ -62,6 +72,11 @@
     },
     {
       "name": "janusgraph_docker",
+      "authentication": {
+        "anonymous_access": {
+          "enabled": true
+        }
+      },
       "database": {
         "name": "janusgraph",
         "database_config": {
@@ -99,6 +114,11 @@
     },
     {
       "name": "janusgraph_kubernetes",
+      "authentication": {
+        "anonymous_access": {
+          "enabled": true
+        }
+      },
       "database": {
         "name": "janusgraph",
         "database_config": {

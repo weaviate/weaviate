@@ -1,6 +1,9 @@
 ---
 environments:
 - name: janusgraph
+  authentication:
+    anonymous_access:
+      enabled: true
   database:
     name: janusgraph
     database_config:
@@ -28,7 +31,11 @@ environments:
     genesis_url: http://localhost:8090
     public_url: http://localhost:8080
     peer_name: bestWeaviate
+
 - name: janusgraph_test
+  authentication:
+    anonymous_access:
+      enabled: true
   database:
     name: janusgraph
     database_config:
@@ -41,7 +48,11 @@ environments:
     idx_file: contextionary/contextionary.idx
   limit: 100
   debug: true
+
 - name: janusgraph_docker
+  authentication:
+    anonymous_access:
+      enabled: true
   database:
     name: janusgraph
     database_config:

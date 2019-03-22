@@ -184,6 +184,10 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, m *mess
 		return errors.New("no environment found with name '" + configEnvironment + "'")
 	}
 
+	if err := f.Environment.Authentication.Validate(); err != nil {
+		return fmt.Errorf("invalid config: %v", err)
+	}
+
 	m.InfoMessage("Config file found, loading environment..")
 
 	// Check the debug mode
