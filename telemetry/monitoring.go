@@ -5,9 +5,9 @@ import (
 	"sync"
 )
 
-// RequestsLog is a struct used to log the type and amount of POST and GQL Requests this Weaviate receives.
+// RequestsLog is a struct used to log the type and amount of POST and GQL requests this Weaviate receives.
 // Contains a map and a mutex used to control access to this map.
-type RequestsLog struct { // TODO: RENAME
+type RequestsLog struct {
 	Mutex    *sync.Mutex
 	Log      map[string]*RequestLog
 	PeerName string
@@ -25,7 +25,7 @@ func NewLog(enabled bool) *RequestsLog {
 	}
 }
 
-// Register a performed Request. Either creates a new entry or updates an existing one,
+// Register a performed request. Either creates a new entry or updates an existing one,
 // depending on whether a request of that type has already been logged.
 func (r *RequestsLog) Register(requestType string, identifier string) {
 	if r.Enabled {
@@ -49,7 +49,7 @@ func (r *RequestsLog) Register(requestType string, identifier string) {
 	}
 }
 
-// ExtractLoggedRequests extracts the hashmap used to log performed Requests and reset it to its default state.
+// ExtractLoggedRequests extracts the hashmap used to log performed requests and reset it to its default state.
 func (r *RequestsLog) ExtractLoggedRequests() *map[string]*RequestLog {
 	if r.Enabled {
 		r.Mutex.Lock()
@@ -68,12 +68,12 @@ func (r *RequestsLog) ExtractLoggedRequests() *map[string]*RequestLog {
 	return nil
 }
 
-// RequestLog is a struct used both for logging new Request type calls and for counting the total amount of calls per
-// Request type in a RequestsLog. Contains all relevant details of an individual Request type.
+// RequestLog is a struct used both for logging new request type calls and for counting the total amount of calls per
+// request type in a RequestsLog. Contains all relevant details of an individual request type.
 type RequestLog struct {
 	Name       string // name of the Weaviate instance. Is `a-b-c` where a, b, and c are random words from the contextionary.
 	Type       string // "GQL" or "POST"
-	Identifier string // name of the Request; "weaviate.x.y.z"
+	Identifier string // id of the request; "weaviate.x.y.z"
 	Amount     int    // how often the function was called
 	When       int64  // timestamp in epoch
 }

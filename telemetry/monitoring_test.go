@@ -8,7 +8,7 @@ import (
 )
 
 // Register a single request, then assert whether all fields have been stored correctly.
-func TestBasics(t *testing.T) {
+func TestRegistering(t *testing.T) {
 	t.Parallel()
 
 	// setup
