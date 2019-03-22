@@ -13,8 +13,9 @@ import (
 // The middleware configuration is for the handler executors. These do not apply to the swagger.json document.
 // The middleware executes after routing but before authentication, binding and validation
 func setupMiddlewares(handler http.Handler) http.Handler {
-	// Rewrite / workaround because of issue with handling two API keys
-	return handler
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		appState.AnonymousAccess.Middleware(handler).ServeHTTP(w, r)
+	})
 }
 
 // The middleware configuration happens before anything, this middleware also applies to serving the swagger.json document.
