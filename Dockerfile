@@ -59,6 +59,12 @@ COPY . .
 ENTRYPOINT ["./tools/dev/remote_weaviate_fake.sh"]
 
 ###############################################################################
+# This creates an image that can be used to fake an api for telemetry acceptance test purposes
+FROM build_base AS mock_api
+COPY . .
+ENTRYPOINT ["./tools/dev/mock_api.sh"]
+
+###############################################################################
 # This image builds the contextionary fixtures FOR DEV OR TEST.
 FROM build_base AS contextionary_fixture_builder
 COPY . .
