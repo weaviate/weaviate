@@ -14,7 +14,6 @@ package test
 // Acceptance tests for logging. Sets up a small fake endpoint that logs are sent to.
 
 import (
-	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -27,8 +26,10 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
 	"github.com/stretchr/testify/assert"
+	"github.com/ugorji/go/codec"
 )
 
+// Ensure a request should be logged, get the most recently received log from the mock api, interpret it
 func TestCreateActionLogging(t *testing.T) {
 	t.Parallel()
 
@@ -38,14 +39,28 @@ func TestCreateActionLogging(t *testing.T) {
 	// wait for the log to be posted
 	time.Sleep(3 * time.Second)
 
-	result := retrieveLogFromMockEndpoint()
+	result := retrieveLogFromMockEndpoint(t)
 
-	count, ok := result.(int)
+	if result != nil {
+		interpretedResult := interpretResult(t, result)
+		if interpretedResult != nil {
+			_, namePresent := interpretedResult["n"]
+			_, typePresent := interpretedResult["t"]
+			_, identifierPresent := interpretedResult["i"]
+			_, amountPresent := interpretedResult["a"]
+			_, whenPresent := interpretedResult["w"]
 
-	assert.Equal(t, true, ok)
-	assert.Equal(t, 1, count)
+			assert.Equal(t, true, namePresent)
+			assert.Equal(t, true, typePresent)
+			assert.Equal(t, true, identifierPresent)
+			assert.Equal(t, true, amountPresent)
+			assert.Equal(t, true, whenPresent)
+
+		}
+	}
 }
 
+// sendCreateActionRequest is copied here to ensure at least one request should be logged when we check the mock api's most recently received request
 func sendCreateActionRequest(t *testing.T) {
 	// Set all action values to compare
 	actionTestString := "Test string"
@@ -89,23 +104,35 @@ func sendCreateActionRequest(t *testing.T) {
 	})
 }
 
-func retrieveLogFromMockEndpoint() interface{} {
-	// placeholder := []byte{0}
-	testURL, err := url.Parse("http://127.0.0.1:8087/mock/count")
-	if err != nil {
-		panic(err)
-	}
-	//req, _ := http.NewRequest("GET", url, bytes.NewReader(placeholder))
+// retrieveLogFromMockEndpoint retrieves the most recently received log from the mock api
+func retrieveLogFromMockEndpoint(t *testing.T) []byte {
+	testURL, err := url.Parse("http://127.0.0.1:8087/mock/last")
+	assert.Equal(t, nil, err)
+
 	client := &http.Client{}
-	resp, err := client.Get(testURL.String()) //client.Do(req)
+	resp, err := client.Get(testURL.String())
 	if err == nil {
 		body, _ := ioutil.ReadAll(resp.Body)
-		bodyString := string(body)
-		fmt.Println(bodyString)
 		defer resp.Body.Close()
-	} else {
-		panic(fmt.Sprintf("%s%s", err, testURL.String()))
+		return body
 	}
 
-	return resp
+	assert.Equal(t, nil, err)
+
+	return nil
+}
+
+// interpretResult converts the received cbor-encoded log to a map[string]interface
+func interpretResult(t *testing.T, resultBody []byte) map[string]interface{} {
+	decoded := make(map[string]interface{}, 0)
+	cborHandle := new(codec.CborHandle)
+	encoder := codec.NewDecoderBytes(resultBody, cborHandle)
+	err := encoder.Decode(decoded)
+
+	assert.Equal(t, nil, err)
+
+	if err == nil {
+		return decoded
+	}
+	return nil
 }
