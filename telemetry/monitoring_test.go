@@ -12,8 +12,8 @@ func TestRegistering(t *testing.T) {
 	t.Parallel()
 
 	// setup
-	telemetryEnabled := true
-	calledFunctions := NewLog(telemetryEnabled)
+	calledFunctions := NewLog()
+	calledFunctions.Enabled = true
 	calledFunctions.PeerName = "ginormous-thunder-apple"
 	calledFunctions.Register("REST", "weaviate.something.or.other")
 
@@ -41,8 +41,8 @@ func TestEnabled(t *testing.T) {
 	t.Parallel()
 
 	// setup
-	telemetryEnabled := true
-	calledFunctions := NewLog(telemetryEnabled)
+	calledFunctions := NewLog()
+	calledFunctions.Enabled = true
 	calledFunctions.PeerName = "unimpressed-rice-sofa"
 	calledFunctions.Register("REST", "weaviate.something.or.other")
 
@@ -55,8 +55,8 @@ func TestDisabled(t *testing.T) {
 	t.Parallel()
 
 	// setup
-	telemetryEnabled := false
-	calledFunctions := NewLog(telemetryEnabled)
+	calledFunctions := NewLog()
+	calledFunctions.Enabled = true
 	calledFunctions.PeerName = "aquatic-pineapple-home"
 	calledFunctions.Register("REST", "weaviate.something.or.other")
 
@@ -69,8 +69,8 @@ func TestRequestIncrementing(t *testing.T) {
 	t.Parallel()
 
 	// setup
-	telemetryEnabled := true
-	calledFunctions := NewLog(telemetryEnabled)
+	calledFunctions := NewLog()
+	calledFunctions.Enabled = true
 	calledFunctions.PeerName = "awkward-handshake-guy"
 	calledFunctions.Register("REST", "weaviate.something.or.other")
 	calledFunctions.Register("REST", "weaviate.something.or.other")
@@ -87,8 +87,8 @@ func TestMultipleRequestTypes(t *testing.T) {
 	t.Parallel()
 
 	// setup
-	telemetryEnabled := true
-	calledFunctions := NewLog(telemetryEnabled)
+	calledFunctions := NewLog()
+	calledFunctions.Enabled = true
 	calledFunctions.PeerName = "insert-ridiculous-name"
 	calledFunctions.Register("GQL", "weaviate.something.or.other1")
 	calledFunctions.Register("REST", "weaviate.something.or.other2")
@@ -111,8 +111,8 @@ func TestExtractLoggedRequests(t *testing.T) {
 	t.Parallel()
 
 	// setup
-	telemetryEnabled := true
-	calledFunctions := NewLog(telemetryEnabled)
+	calledFunctions := NewLog()
+	calledFunctions.Enabled = true
 	calledFunctions.PeerName = "apologetic-thermonuclear-blunderbuss"
 	calledFunctions.Register("GQL", "weaviate.something.or.other")
 
@@ -146,8 +146,8 @@ func TestConcurrentRequests(t *testing.T) {
 	// setup
 	var wg sync.WaitGroup
 
-	telemetryEnabled := true
-	calledFunctions := NewLog(telemetryEnabled)
+	calledFunctions := NewLog()
+	calledFunctions.Enabled = true
 	calledFunctions.PeerName = "forgetful-seal-cooker"
 
 	type1 := "GQL"

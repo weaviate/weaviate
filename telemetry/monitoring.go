@@ -16,11 +16,11 @@ type RequestsLog struct {
 }
 
 // NewLog creates a new Requestslog and returns a pointer to it.
-func NewLog(enabled bool) *RequestsLog {
+func NewLog() *RequestsLog {
 	return &RequestsLog{
 		Mutex:   &sync.Mutex{},
 		Log:     make(map[string]*RequestLog),
-		Enabled: enabled,
+		Enabled: true,
 		Debug:   false,
 	}
 }
@@ -55,8 +55,10 @@ func (r *RequestsLog) ExtractLoggedRequests() *map[string]*RequestLog {
 		r.Mutex.Lock()
 		logState := make(map[string]*RequestLog)
 
-		for key, value := range r.Log {
-			logState[key] = value
+		if len(r.Log) > 0 {
+			for key, value := range r.Log {
+				logState[key] = value
+			}
 		}
 
 		r.Log = make(map[string]*RequestLog)

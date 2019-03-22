@@ -160,8 +160,9 @@ func (p *Poster) ReportLoggedCalls(encoded *[]byte) {
 	resp, err := client.Do(req)
 	if err != nil || resp.Status != "200" {
 		p.triggerPOSTFailsafe(encoded)
+	} else {
+		defer resp.Body.Close()
 	}
-	defer resp.Body.Close()
 }
 
 // triggerPOSTFailsafe stores the log in the etcd key item store if the POST fails.

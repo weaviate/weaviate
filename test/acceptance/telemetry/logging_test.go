@@ -14,9 +14,14 @@ package test
 // Acceptance tests for logging. Sets up a small fake endpoint that logs are sent to.
 
 import (
+	"fmt"
+	"io/ioutil"
 	"net/http"
+	"net/url"
 	"testing"
 	"time"
+
+	"github.com/go-openapi/strfmt"
 
 	"github.com/creativesoftwarefdn/weaviate/client/actions"
 	"github.com/creativesoftwarefdn/weaviate/models"
@@ -63,15 +68,44 @@ func sendCreateActionRequest(t *testing.T) {
 		},
 	})
 
-	helper.Client(t).Actions.WeaviateActionsCreate(params, nil)
+	resp, _, err := helper.Client(t).Actions.WeaviateActionsCreate(params, nil)
+
+	// Ensure that the response is OK
+	helper.AssertRequestOk(t, resp, err, func() {
+		action := resp.Payload
+		assert.Regexp(t, strfmt.UUIDPattern, action.ActionID)
+
+		schema, ok := action.Schema.(map[string]interface{})
+		if !ok {
+			t.Fatal("The returned schema is not an JSON object")
+		}
+
+		// Check whether the returned information is the same as the data added
+		assert.Equal(t, actionTestString, schema["testString"])
+		assert.Equal(t, actionTestInt, int(schema["testInt"].(float64)))
+		assert.Equal(t, actionTestBoolean, schema["testBoolean"])
+		assert.Equal(t, actionTestNumber, schema["testNumber"])
+		assert.Equal(t, actionTestDate, schema["testDateTime"])
+	})
 }
 
 func retrieveLogFromMockEndpoint() interface{} {
-	req, _ := http.NewRequest("GET", "127.0.0.1:8087/mock/count", nil)
+	// placeholder := []byte{0}
+	testURL, err := url.Parse("http://127.0.0.1:8087/mock/count")
+	if err != nil {
+		panic(err)
+	}
+	//req, _ := http.NewRequest("GET", url, bytes.NewReader(placeholder))
 	client := &http.Client{}
-	resp, _ := client.Do(req)
-
-	defer resp.Body.Close()
+	resp, err := client.Get(testURL.String()) //client.Do(req)
+	if err == nil {
+		body, _ := ioutil.ReadAll(resp.Body)
+		bodyString := string(body)
+		fmt.Println(bodyString)
+		defer resp.Body.Close()
+	} else {
+		panic(fmt.Sprintf("%s%s", err, testURL.String()))
+	}
 
 	return resp
 }
