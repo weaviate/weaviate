@@ -2,7 +2,6 @@ package telemetry
 
 import (
 	"bytes"
-	"encoding/json"
 	"net/http"
 	"time"
 
@@ -80,7 +79,7 @@ func (r *Reporter) triggerCBORFailsafe(extractedLog *map[string]*RequestLog) {
 
 // TransformToOutputFormat transforms the logged function calls to a minimized output format to reduce network traffic.
 func (r *Reporter) TransformToOutputFormat(logs *map[string]*RequestLog) (*[]byte, error) { // TODO: cover with test
-	minimizedLogs := r.transformer.ConvertToMinimizedJSON(logs)
+	minimizedLogs := r.transformer.Minimize(logs)
 
 	cborLogs, err := r.transformer.EncodeAsCBOR(minimizedLogs)
 	if err != nil {
@@ -100,8 +99,8 @@ func NewOutputTransformer(testing bool) *OutputTransformer {
 	return &OutputTransformer{testing}
 }
 
-// ConvertToMinimizedJSON converts the request logs to minimized JSON
-func (o *OutputTransformer) ConvertToMinimizedJSON(logs *map[string]*RequestLog) *string {
+// Minimize converts the request logs to a minimized format
+func (o *OutputTransformer) Minimize(logs *map[string]*RequestLog) *[]map[string]interface{} {
 	minimizedLogs := make([]map[string]interface{}, len(*logs))
 
 	iterations := 0
@@ -118,13 +117,11 @@ func (o *OutputTransformer) ConvertToMinimizedJSON(logs *map[string]*RequestLog)
 		iterations++
 	}
 
-	rawMinimizedJSON, _ := json.Marshal(minimizedLogs)
-	minimizedJSON := string(rawMinimizedJSON)
-	return &minimizedJSON
+	return &minimizedLogs
 }
 
 // EncodeAsCBOR encodes logs in CBOR format and returns them as a byte array (format to base 16 to get the 'traditional' cbor format).
-func (o *OutputTransformer) EncodeAsCBOR(minimizedJSON *string) (*[]byte, error) {
+func (o *OutputTransformer) EncodeAsCBOR(minimizedLogs *[]map[string]interface{}) (*[]byte, error) {
 	encoded := make([]byte, 0, 64)
 	cborHandle := new(codec.CborHandle)
 	if o.testing {
@@ -132,7 +129,7 @@ func (o *OutputTransformer) EncodeAsCBOR(minimizedJSON *string) (*[]byte, error)
 	}
 
 	encoder := codec.NewEncoderBytes(&encoded, cborHandle)
-	err := encoder.Encode(minimizedJSON)
+	err := encoder.Encode(minimizedLogs)
 
 	if err != nil {
 		return nil, err
