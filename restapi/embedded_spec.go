@@ -45,7 +45,7 @@ func init() {
     "contact": {
       "name": "Weaviate",
       "url": "https://github.com/creativesoftwarefdn",
-      "email": "hello@creativesoftwarefdn.org"
+      "email": "hello@semi.technology"
     },
     "version": "0.12.71"
   },
@@ -2933,6 +2933,12 @@ func init() {
         },
         "thingsSchema": {
           "$ref": "#/definitions/SemanticSchema"
+        },
+        "weaviateVersion": {
+          "description": "The current Weaviate version",
+          "type": "string",
+          "format": "semver",
+          "example": "0.0.0"
         }
       }
     },
@@ -3398,7 +3404,7 @@ func init() {
     "contact": {
       "name": "Weaviate",
       "url": "https://github.com/creativesoftwarefdn",
-      "email": "hello@creativesoftwarefdn.org"
+      "email": "hello@semi.technology"
     },
     "version": "0.12.71"
   },
@@ -6302,6 +6308,12 @@ func init() {
         },
         "thingsSchema": {
           "$ref": "#/definitions/SemanticSchema"
+        },
+        "weaviateVersion": {
+          "description": "The current Weaviate version",
+          "type": "string",
+          "format": "semver",
+          "example": "0.0.0"
         }
       }
     },

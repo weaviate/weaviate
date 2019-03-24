@@ -14,9 +14,6 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/graphiql"
-	"github.com/creativesoftwarefdn/weaviate/lib/feature_flags"
-	"github.com/creativesoftwarefdn/weaviate/restapi/swagger_middleware"
 	"github.com/rs/cors"
 )
 
@@ -36,12 +33,6 @@ func setupGlobalMiddleware(handler http.Handler) http.Handler {
 		AllowedHeaders:     []string{"*"},
 	}).Handler
 	handler = handleCORS(handler)
-
-	if feature_flags.EnableDevUI {
-		handler = graphiql.AddMiddleware(handler)
-		handler = swagger_middleware.AddMiddleware([]byte(SwaggerJSON), handler)
-	}
-
 	handler = addLogging(handler)
 	handler = addPreflight(handler)
 

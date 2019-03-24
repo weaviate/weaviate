@@ -34,6 +34,9 @@ type Meta struct {
 
 	// things schema
 	ThingsSchema *SemanticSchema `json:"thingsSchema,omitempty"`
+
+	// The current Weaviate version
+	WeaviateVersion string `json:"weaviateVersion,omitempty"`
 }
 
 // Validate validates this meta
