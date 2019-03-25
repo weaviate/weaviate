@@ -90,7 +90,7 @@ func (r *Reporter) triggerCBORFailsafe(extractedLog *map[string]*RequestLog) {
 
 	_, err := r.client.Put(nil, key, value)
 	if err != nil {
-		return fmt.Errorf("could not send raw log to etcd: %s", err)
+		fmt.Errorf("could not send raw log to etcd: %s", err)
 	}
 }
 
@@ -190,6 +190,6 @@ func (p *Poster) triggerPOSTFailsafe(encoded *[]byte) {
 
 	_, err := p.client.Put(nil, key, string(encoded))
 	if err != nil {
-		return fmt.Errorf("could not send encoded log to etcd: %s", err)
+		fmt.Errorf("could not send encoded log to etcd: %s", err)
 	}
 }
