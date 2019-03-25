@@ -148,7 +148,7 @@ func configureServer(s *http.Server, scheme, addr string) {
 	manager.RegisterSchemaUpdateCallback(updateSchemaCallback)
 
 	// Initialize the reporter
-	reporter = telemetry.NewReporter(mainLog, loggingInterval, loggingUrl, loggingEnabled, loggingDebug, etcdClient)
+	reporter = telemetry.NewReporter(mainLog, loggingInterval, loggingUrl, loggingEnabled, loggingDebug, etcdClient, ctx)
 
 	// Start reporting
 	go func() {
