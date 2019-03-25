@@ -24,8 +24,8 @@ const LocalManipulate string = "weaviate.local.manipulate"
 // LocalManipulateMeta contains the serviceID for a local manipulate meta query
 const LocalManipulateMeta string = "weaviate.local.manipulate.meta"
 
-// LocalToolsMap contains the serviceID for a local tools query
-const LocalToolsMap string = "weaviate.local.tools.map"
+// LocalTools contains the serviceID for a local tools query
+const LocalTools string = "weaviate.local.tools"
 
 // NetworkToolsMap contains the serviceID for a network tools query
 const NetworkToolsMap string = "weaviate.network.tools.map"
