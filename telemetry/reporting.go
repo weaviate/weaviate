@@ -32,15 +32,16 @@ type etcdClient interface {
 }
 
 // NewReporter creates a new Reporter struct and returns a pointer to it.
-func NewReporter(requestsLog *RequestsLog, reportInterval int, reportURL string, telemetryEnabled bool, testing bool, client etcdClient) *Reporter {
+func NewReporter(requestsLog *RequestsLog, reportInterval int, reportURL string, telemetryEnabled bool, testing bool, client etcdClient, ctx context.Context) *Reporter {
 	return &Reporter{
 		log:         requestsLog,
 		interval:    reportInterval,
 		url:         reportURL,
 		enabled:     telemetryEnabled,
 		transformer: NewOutputTransformer(testing),
-		poster:      NewPoster(reportURL, client),
+		poster:      NewPoster(reportURL, client, ctx),
 		client:      client,
+		context:     ctx,
 	}
 }
 
@@ -53,6 +54,7 @@ type Reporter struct {
 	transformer *OutputTransformer
 	poster      *Poster
 	client      etcdClient
+	context     context.Context
 }
 
 // Start posts logged function calls in CBOR format to the provided url every <provided interval> seconds.
@@ -88,7 +90,7 @@ func (r *Reporter) triggerCBORFailsafe(extractedLog *map[string]*RequestLog) {
 	key := fmt.Sprintf("%s %d-%02d-%02d %02d:%02d:%02d", ReportCBORFail, currentTime.Year(), currentTime.Month(), currentTime.Day(), currentTime.Hour(), currentTime.Minute(), currentTime.Second())
 	value := fmt.Sprintf("%v", *extractedLog)
 
-	_, err := r.client.Put(nil, key, value)
+	_, err := r.client.Put(r.context, key, value)
 	if err != nil {
 		fmt.Errorf("could not send raw log to etcd: %s", err)
 	}
@@ -156,10 +158,11 @@ func (o *OutputTransformer) EncodeAsCBOR(minimizedLogs *[]map[string]interface{}
 }
 
 // NewPoster creates a new poster struct, which is responsible for sending logs to the specified endpoint.
-func NewPoster(url string, client etcdClient) *Poster {
+func NewPoster(url string, client etcdClient, ctx context.Context) *Poster {
 	return &Poster{
-		url:    url,
-		client: client,
+		url:     url,
+		client:  client,
+		context: ctx,
 	}
 }
 
@@ -188,7 +191,7 @@ func (p *Poster) triggerPOSTFailsafe(encoded *[]byte) {
 	currentTime := time.Now()
 	key := fmt.Sprintf("%s %d-%02d-%02d %02d:%02d:%02d", ReportPostFail, currentTime.Year(), currentTime.Month(), currentTime.Day(), currentTime.Hour(), currentTime.Minute(), currentTime.Second())
 
-	_, err := p.client.Put(nil, key, string(*encoded))
+	_, err := p.client.Put(p.context, key, string(*encoded))
 	if err != nil {
 		fmt.Errorf("could not send encoded log to etcd: %s", err)
 	}
