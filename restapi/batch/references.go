@@ -38,7 +38,7 @@ type referencesRequest struct {
 func (b *Batch) References(params operations.WeaviateBatchingReferencesCreateParams, principal *models.Principal) middleware.Responder {
 	defer b.appState.Messaging.TimeTrack(time.Now())
 
-	r := newReferencesRequest(params.HTTPRequest, b.appState)
+	r := newReferencesRequest(params.HTTPRequest, b.appState, b.requestsLog)
 	if errResponder := r.lock(); errResponder != nil {
 		return errResponder
 	}
