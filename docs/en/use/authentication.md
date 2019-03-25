@@ -1,6 +1,8 @@
 # Authentication
 
-> About authentication in Weaviate
+> Authentication in weaviate is modular and can be configured to suit your
+> needs. Popular Authentication mechanisms, such as OpenID Connect (based on
+> OAuth 2.0), are supported.
 
 ## Philosophy
 
