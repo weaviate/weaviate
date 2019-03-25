@@ -10,11 +10,11 @@ enterprise environment.
 
 We want to make sure that Authentication reflects this. Thus, different
 authentication schemes can be selected and even combined. This allows scenarios
-such as "Anonymous users, can read some resources, but not all. Authenticated
+such as "Anonymous users can read some resources, but not all. Authenticated
 users can read all resources. Only a special group can write or delete
 resources."
 
-## Available Authentication schemes
+## Available Authentication Schemes
 
 Currently [Anonymous Access](#anonymous-access) and [OpenID
 Connect](#openid-connect-oidc) are supported. Other Authentication schemes
@@ -30,14 +30,15 @@ authenticated as `user: anyonmous, group: anonymous`.
 
 It is up to the [Authorization module](./authorization.md) to decide which
 permissions anonymous users have. By disabling anonymous access alltogether,
-any request without an allowed authentication scheme, will return 401.
+any request without an allowed authentication scheme, will return `401
+Unauthorized`.
 
 #### Configuration
 Anonymous Access can be configured like so in the respective environment in the
 `configuration.yaml`:
 
 *Note that this example uses yaml, however configuration can also be written as
-json*
+json.*
 
 ```yaml
   authentication:
@@ -73,32 +74,34 @@ the subject mentioned in the token.
 
 - By default, weaviate will try to extract groups from a claim of your choice.
   Groups are a helpful tool to implement authorization roles for groups rather
-  than single people. However, groups are not a requied OpenID spec. Therefore
-  this extraction is option and will not fail authentication if no groups could
-  be found.
+  than single subjects. However, groups are not a requied OpenID spec.
+  Therefore this extraction is optional and will not fail authentication if no
+  groups could be found.
 
 #### Configuration
 
 OpenID Connect (OIDC) can be configured like so in the respective environment in the
-`configuration.yaml`. Please see the inline yaml-comments for details around the respective fields:
+`configuration.yaml`. Please see the inline-yaml comments for details around
+the respective fields:
 
 *Note that this example uses yaml, however configuration can also be written as
-json*
+json.*
 
 ```yaml
     oidc:
-      # enabled turns on OIDC auth 
+      # enabled (optional - defaults to false) turns OIDC auth on. All other fields in
+      # this section will only be validated if enabled is set to true.
       enabled: true
 
       # issuer (required) tells weaviate how to discover the token issuer. This
-      # endpoint must implement the OpenID Connect Disovery spec, so that weaviate
-      # can retrieve the Issuer's public key.
+      # endpoint must implement the OpenID Connect Discovery spec, so that weaviate
+      # can retrieve the issuer's public key.
       #
       # The example URL below uses the path structure commonly found with keycloak
       # where an example realm 'my-weaviate-usecase' was created. The exact
-      # path structure, will depend on the token issuer of your choice. Please
-      # see the respective documentation about which endpoint implements OIDC
-      # Discovery.
+      # path structure will depend on the token issuer of your choice. Please
+      # see the respective documentation of your issuer about which endpoint
+      # implements OIDC Discovery.
       issuer: http://my-token-issuer/auth/realms/my-weaviate-usecase
 
       # username_claim (required) tells weaviate which claim to use for extracting
@@ -112,7 +115,7 @@ json*
       groups_claim: groups
 
       # client_id (required unless skip_client_id_check is set to true) tells 
-      # weaviate to check for a particular OAuth 2.0 client id in the audience claim.
+      # weaviate to check for a particular OAuth 2.0 client_id in the audience claim.
       # This is to prevent that a token which was signed by the correct issuer
       # but never intended to be used with weaviate can be used for authentication.
       #
@@ -123,7 +126,14 @@ json*
       # skip_client_id_check (optional, defaults to false) skips the client_id
       # validation in the audience claim as outlined in the section above.
       # Not recommended to set this option as it reduces security, only set this
-      # if your token issuer is enable to provide a correct audience claim
+      # if your token issuer is unable to provide a correct audience claim
       skip_client_id_check: false
 ```
+
+#### How to use?
+
+1. Obtain a valid token from the token issuer you configured.
+
+1. Send this token along any REST request in Header like so: `Authorization:
+   Bearer <token>`. Make sure to replace `<token>` with your actual token.
 
