@@ -32,6 +32,44 @@ environments:
     public_url: http://localhost:8080
     peer_name: bestWeaviate
 
+- name: janusgraph-with-oidc
+  authentication:
+    anonymous_access:
+      enabled: false
+    oidc:
+      enabled: true
+      issuer: http://localhost:9090/auth/realms/weaviate
+      username_claim: email
+      groups_claim: groups
+      # client_id: demo
+  database:
+    name: janusgraph
+    database_config:
+      url: http://localhost:8182
+      analytics_engine:
+        enabled: true
+        type: spark-analytics-api
+        url: http://localhost:8100
+  analytics_engine:
+    enabled: true
+    defaultUseAnalyticsEngine: false
+  configuration_storage:
+    type: etcd
+    url: http://localhost:2379
+  contextionary:
+    knn_file: test/contextionary/example.knn
+    idx_file: test/contextionary/example.idx
+  limit: 100
+  debug: true
+  development:
+    external_instances:
+    - url: http://localhost:8080
+    - url: http://127.0.0.1:8080
+  network:
+    genesis_url: http://localhost:8090
+    public_url: http://localhost:8080
+    peer_name: bestWeaviate
+
 - name: janusgraph_test
   authentication:
     anonymous_access:
