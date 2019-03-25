@@ -18,6 +18,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
 
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations"
@@ -25,7 +26,7 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
-func setupC11yHandlers(api *operations.WeaviateAPI) {
+func setupC11yHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog) {
 	/*
 	 * HANDLE C11Y
 	 */

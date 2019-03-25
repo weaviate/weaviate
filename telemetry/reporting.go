@@ -2,9 +2,11 @@ package telemetry
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"time"
 
+	"github.com/coreos/etcd/clientv3"
 	"github.com/ugorji/go/codec"
 )
 
@@ -23,15 +25,20 @@ const Amount string = "a"
 // When contains the minimized string value of the When field.
 const When string = "w"
 
+// Local interface for an etcd client.
+type etcdClient interface {
+	Put(ctx context.Context, key, val string, opts ...clientv3.OpOption) (*clientv3.PutResponse, error)
+}
+
 // NewReporter creates a new Reporter struct and returns a pointer to it.
-func NewReporter(requestsLog *RequestsLog, reportInterval int, reportURL string, telemetryEnabled bool, testing bool) *Reporter {
+func NewReporter(requestsLog *RequestsLog, reportInterval int, reportURL string, telemetryEnabled bool, testing bool, client etcdClient) *Reporter {
 	return &Reporter{
 		log:         requestsLog,
 		interval:    reportInterval,
 		url:         reportURL,
 		enabled:     telemetryEnabled,
 		transformer: NewOutputTransformer(testing),
-		poster:      NewPoster(reportURL),
+		poster:      NewPoster(reportURL, client),
 	}
 }
 
@@ -57,7 +64,6 @@ func (r *Reporter) Start() {
 			if err == nil {
 				r.poster.ReportLoggedCalls(transformedLog)
 			} else {
-				// TODO: error logging in etcd
 				r.triggerCBORFailsafe(extractedLog)
 			}
 		}
@@ -73,8 +79,16 @@ func (r *Reporter) AddTimeStamps(extractedLog *map[string]*RequestLog) {
 	}
 }
 
+// triggerPOSTFailsafe stores the raw log in the etcd key item store if CBOR conversion fails.
 func (r *Reporter) triggerCBORFailsafe(extractedLog *map[string]*RequestLog) {
-	// TODO fill in failsafe etcd handling
+	currentTime := time.Now()
+	key := fmt.Sprintf("%s %d-%02d-%02d %02d:%02d:%02d",  ReportCBORFail, t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second())
+	value := fmt.Sprintf("%v", *extractedLog)
+
+	_, err = p.client.Put(nil, key, value)
+	if err != nil {
+		return fmt.Errorf("could not send raw log to etcd: %s", err)
+	}	
 }
 
 // TransformToOutputFormat transforms the logged function calls to a minimized output format to reduce network traffic.
@@ -139,13 +153,17 @@ func (o *OutputTransformer) EncodeAsCBOR(minimizedLogs *[]map[string]interface{}
 }
 
 // NewPoster creates a new poster struct, which is responsible for sending logs to the specified endpoint.
-func NewPoster(url string) *Poster {
-	return &Poster{url: url}
+func NewPoster(url string, client etcdClient) *Poster {
+	return &Poster{
+		url: url, 
+		client: client,
+	}
 }
 
 // Poster is a class responsible for sending the converted log to the logging endpoint. If the endpoint is unreachable then the logs are stored in the etcd store.
 type Poster struct {
 	url string
+	client etcdClient
 }
 
 // ReportLoggedCalls sends the logs to a previously determined REST endpoint.
@@ -164,5 +182,11 @@ func (p *Poster) ReportLoggedCalls(encoded *[]byte) {
 
 // triggerPOSTFailsafe stores the log in the etcd key item store if the POST fails.
 func (p *Poster) triggerPOSTFailsafe(encoded *[]byte) {
-
+	currentTime := time.Now()
+	key := fmt.Sprintf("%s %d-%02d-%02d %02d:%02d:%02d",  ReportPostFail, t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second())
+	
+	_, err = p.client.Put(nil, key, string(encoded))
+	if err != nil {
+		return fmt.Errorf("could not send encoded log to etcd: %s", err)
+	}	
 }
