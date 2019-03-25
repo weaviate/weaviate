@@ -37,7 +37,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupThingsHandlers(api, mainLog)
 	setupActionsHandlers(api, mainLog)
 	setupBatchHandlers(api, mainLog)
-	setupC11yHandlers(api)
+	setupC11yHandlers(api, mainLog)
 	setupGraphQLHandlers(api, mainLog)
 	setupMiscHandlers(api, mainLog)
 

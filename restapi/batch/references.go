@@ -23,6 +23,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations"
 	rest_api_utils "github.com/creativesoftwarefdn/weaviate/restapi/rest_api_utils"
 	"github.com/creativesoftwarefdn/weaviate/restapi/state"
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
@@ -30,6 +31,7 @@ type referencesRequest struct {
 	*http.Request
 	*state.State
 	locks *rest_api_utils.RequestLocks
+	log   *telemetry.RequestsLog
 }
 
 // References adds cross-references between classes in batch
@@ -56,10 +58,11 @@ func (b *Batch) References(params operations.WeaviateBatchingReferencesCreatePar
 		WithPayload(batchReferences.Response())
 }
 
-func newReferencesRequest(r *http.Request, deps *state.State) *referencesRequest {
+func newReferencesRequest(r *http.Request, deps *state.State, log *telemetry.RequestsLog) *referencesRequest {
 	return &referencesRequest{
 		Request: r,
 		State:   deps,
+		log:     log,
 	}
 }
 
@@ -130,6 +133,13 @@ func (r *referencesRequest) validateReference(wg *sync.WaitGroup, ref *models.Ba
 		err = nil
 	} else {
 		err = joinErrors(errors)
+	}
+
+	if err == nil {
+		// Register the request
+		go func() {
+			r.log.Register(telemetry.TypeREST, telemetry.LocalManipulate)
+		}()
 	}
 
 	*resultsC <- batchmodels.Reference{
