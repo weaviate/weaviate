@@ -188,7 +188,7 @@ func (p *Poster) triggerPOSTFailsafe(encoded *[]byte) {
 	currentTime := time.Now()
 	key := fmt.Sprintf("%s %d-%02d-%02d %02d:%02d:%02d", ReportPostFail, currentTime.Year(), currentTime.Month(), currentTime.Day(), currentTime.Hour(), currentTime.Minute(), currentTime.Second())
 
-	_, err := p.client.Put(nil, key, string(encoded))
+	_, err := p.client.Put(nil, key, string(*encoded))
 	if err != nil {
 		fmt.Errorf("could not send encoded log to etcd: %s", err)
 	}
