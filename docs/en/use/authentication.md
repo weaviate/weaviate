@@ -16,10 +16,11 @@ resources."
 
 ## Available Authentication schemes
 
-Currently Anonymous Access and OpenID Connect are supported. Other
-Authentication schemes might become available in the near future.
+Currently [Anonymous Access](#anonymous-access) and [OpenID
+Connect](#openid-connect-oidc) are supported. Other Authentication schemes
+might become available in the near future.
 
-If all authentication schemes - including anonymous access - are disabled,
+If all authentication schemes - including anonymous access - are disabled
 weaviate will fail to start up and ask you to configure at least one.
 
 ### Anonymous Access
@@ -36,7 +37,7 @@ Anonymous Access can be configured like so in the respective environment in the
 `configuration.yaml`:
 
 *Note that this example uses yaml, however configuration can also be written as
-JSON*
+json*
 
 ```yaml
   authentication:
@@ -82,7 +83,7 @@ OpenID Connect (OIDC) can be configured like so in the respective environment in
 `configuration.yaml`. Please see the inline yaml-comments for details around the respective fields:
 
 *Note that this example uses yaml, however configuration can also be written as
-JSON*
+json*
 
 ```yaml
     oidc:
