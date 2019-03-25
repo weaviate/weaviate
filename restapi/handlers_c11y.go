@@ -101,7 +101,6 @@ func setupC11yHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Reque
 				nearestNeighborsItem.Distance = ConcatenatedNearestNeighborsDistance[index]
 				returnObject.ConcatenatedWord.ConcatenatedNearestNeighbors = append(returnObject.ConcatenatedWord.ConcatenatedNearestNeighbors, &nearestNeighborsItem)
 			}
-
 		}
 
 		// loop over the words and populate the return response for single words
@@ -157,6 +156,11 @@ func setupC11yHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Reque
 			}
 
 		}
+
+		// Register the request
+		go func() {
+			requestsLog.Register(telemetry.TypeREST, telemetry.LocalTools)
+		}()
 
 		return contextionary_api.NewWeaviateC11yWordsOK().WithPayload(returnObject)
 	})
