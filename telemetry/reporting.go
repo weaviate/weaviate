@@ -170,6 +170,7 @@ func NewPoster(url string, client etcdClient, ctx context.Context) *Poster {
 type Poster struct {
 	url    string
 	client etcdClient
+	context context.Context
 }
 
 // ReportLoggedCalls sends the logs to a previously determined REST endpoint.
