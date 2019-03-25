@@ -41,7 +41,8 @@ environments:
       issuer: http://localhost:9090/auth/realms/weaviate
       username_claim: email
       groups_claim: groups
-      # client_id: demo
+      client_id: demo
+      skip_client_id_check: false
   database:
     name: janusgraph
     database_config:

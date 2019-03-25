@@ -39,7 +39,7 @@ func Test_Middleware_IncompleteConfiguration(t *testing.T) {
 		},
 	}
 	expectedErr := fmt.Errorf("oidc init: invalid config: missing required field 'issuer', " +
-		"missing required field 'username_claim'")
+		"missing required field 'username_claim', missing required field 'client_id': either set a client_id or explicitly disable the check with 'skip_client_id_check: true'")
 
 	_, err := New(cfg)
 	assert.Equal(t, expectedErr, err)
@@ -59,11 +59,11 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 		cfg := config.Environment{
 			Authentication: config.Authentication{
 				OIDC: config.OIDC{
-					Enabled:                true,
-					Issuer:                 server.URL,
-					ClientID:               "best_client",
-					SkipAudienceValidation: false,
-					UsernameClaim:          "sub",
+					Enabled:           true,
+					Issuer:            server.URL,
+					ClientID:          "best_client",
+					SkipClientIDCheck: false,
+					UsernameClaim:     "sub",
 				},
 			},
 		}
@@ -84,12 +84,12 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 		cfg := config.Environment{
 			Authentication: config.Authentication{
 				OIDC: config.OIDC{
-					Enabled:                true,
-					Issuer:                 server.URL,
-					ClientID:               "best_client",
-					SkipAudienceValidation: false,
-					UsernameClaim:          "email",
-					GroupsClaim:            "groups",
+					Enabled:           true,
+					Issuer:            server.URL,
+					ClientID:          "best_client",
+					SkipClientIDCheck: false,
+					UsernameClaim:     "email",
+					GroupsClaim:       "groups",
 				},
 			},
 		}
@@ -110,12 +110,12 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 		cfg := config.Environment{
 			Authentication: config.Authentication{
 				OIDC: config.OIDC{
-					Enabled:                true,
-					Issuer:                 server.URL,
-					ClientID:               "best_client",
-					SkipAudienceValidation: false,
-					UsernameClaim:          "sub",
-					GroupsClaim:            "groups",
+					Enabled:           true,
+					Issuer:            server.URL,
+					ClientID:          "best_client",
+					SkipClientIDCheck: false,
+					UsernameClaim:     "sub",
+					GroupsClaim:       "groups",
 				},
 			},
 		}

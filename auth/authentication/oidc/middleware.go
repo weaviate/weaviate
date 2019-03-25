@@ -53,7 +53,8 @@ func (c *Client) init() error {
 	c.provider = provider
 
 	verifier := provider.Verifier(&oidc.Config{
-		ClientID: c.config.ClientID,
+		ClientID:          c.config.ClientID,
+		SkipClientIDCheck: c.config.SkipClientIDCheck,
 	})
 	c.verifier = verifier
 
@@ -69,6 +70,11 @@ func (c *Client) validateConfig() error {
 
 	if c.config.UsernameClaim == "" {
 		msgs = append(msgs, "missing required field 'username_claim'")
+	}
+
+	if !c.config.SkipClientIDCheck && c.config.ClientID == "" {
+		msgs = append(msgs, "missing required field 'client_id': "+
+			"either set a client_id or explicitly disable the check with 'skip_client_id_check: true'")
 	}
 
 	if len(msgs) == 0 {
