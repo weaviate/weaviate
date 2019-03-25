@@ -32,3 +32,9 @@ const TypeGQL string = "GQL"
 
 // TypeREST contains the serviceID for a local query
 const TypeREST string = "REST"
+
+// ReportPostFail contains the value used when a report is unable to be sent to the specified URL
+const ReportPostFail string = "[POST failed]"
+
+// ReportCBORFail contains the value used when a report fails to be converted to CBOR
+const ReportCBORFail string = "[CBOR conversion failed]"

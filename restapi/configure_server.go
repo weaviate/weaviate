@@ -89,14 +89,6 @@ func configureServer(s *http.Server, scheme, addr string) {
 	mainLog.Debug = loggingDebug
 	mainLog.Enabled = loggingEnabled
 
-	// Initialize the reporter
-	reporter = telemetry.NewReporter(mainLog, loggingInterval, loggingUrl, loggingEnabled, loggingDebug)
-
-	// Start reporting
-	go func() {
-		reporter.Start()
-	}()
-
 	// Add properties to the config
 	serverConfig.Hostname = addr
 	serverConfig.Scheme = scheme
@@ -116,7 +108,7 @@ func configureServer(s *http.Server, scheme, addr string) {
 	weaviateBroker.ConnectToMqtt(serverConfig.Environment.Broker.Host, serverConfig.Environment.Broker.Port)
 	messaging.InfoMessage(fmt.Sprintf("connected to broker, time left is: %s", timeTillDeadline(ctx)))
 
-	// Create the database connector usint the config
+	// Create the database connector using the config
 	err, dbConnector := dblisting.NewConnector(serverConfig.Environment.Database.Name, serverConfig.Environment.Database.DatabaseConfig, serverConfig.Environment)
 	// Could not find, or configure connector.
 	if err != nil {
@@ -154,6 +146,14 @@ func configureServer(s *http.Server, scheme, addr string) {
 	messaging.InfoMessage(fmt.Sprintf("initialized the schema, time left is: %s", timeTillDeadline(ctx)))
 
 	manager.RegisterSchemaUpdateCallback(updateSchemaCallback)
+
+	// Initialize the reporter
+	reporter = telemetry.NewReporter(mainLog, loggingInterval, loggingUrl, loggingEnabled, loggingDebug, etcdClient)
+
+	// Start reporting
+	go func() {
+		reporter.Start()
+	}()
 
 	// initialize the contextinoary with the rawContextionary, it will get updated on each schema update
 	contextionary = rawContextionary

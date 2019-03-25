@@ -199,10 +199,6 @@ func handleUnbatchedGraphQLRequest(wg *sync.WaitGroup, ctx context.Context, unba
 					&graphQLResponse,
 				}
 			} else {
-				// Register the request
-				go func() {
-					requestsLog.Register(telemetry.TypeGQL, telemetry.LocalAdd)
-				}()
 				// Return the GraphQL response
 				*requestResults <- rest_api_utils.UnbatchedRequestResponse{
 					requestIndex,
