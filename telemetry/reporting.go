@@ -40,6 +40,7 @@ func NewReporter(requestsLog *RequestsLog, reportInterval int, reportURL string,
 		enabled:     telemetryEnabled,
 		transformer: NewOutputTransformer(testing),
 		poster:      NewPoster(reportURL, client),
+		client:      client,
 	}
 }
 
@@ -51,6 +52,7 @@ type Reporter struct {
 	enabled     bool
 	transformer *OutputTransformer
 	poster      *Poster
+	client      etcdClient
 }
 
 // Start posts logged function calls in CBOR format to the provided url every <provided interval> seconds.
@@ -83,10 +85,10 @@ func (r *Reporter) AddTimeStamps(extractedLog *map[string]*RequestLog) {
 // triggerPOSTFailsafe stores the raw log in the etcd key item store if CBOR conversion fails.
 func (r *Reporter) triggerCBORFailsafe(extractedLog *map[string]*RequestLog) {
 	currentTime := time.Now()
-	key := fmt.Sprintf("%s %d-%02d-%02d %02d:%02d:%02d", ReportCBORFail, time.Year(), time.Month(), time.Day(), time.Hour(), time.Minute(), time.Second())
+	key := fmt.Sprintf("%s %d-%02d-%02d %02d:%02d:%02d", ReportCBORFail, currentTime.Year(), currentTime.Month(), currentTime.Day(), currentTime.Hour(), currentTime.Minute(), currentTime.Second())
 	value := fmt.Sprintf("%v", *extractedLog)
 
-	_, err = p.client.Put(nil, key, value)
+	_, err := r.client.Put(nil, key, value)
 	if err != nil {
 		return fmt.Errorf("could not send raw log to etcd: %s", err)
 	}
@@ -184,9 +186,9 @@ func (p *Poster) ReportLoggedCalls(encoded *[]byte) {
 // triggerPOSTFailsafe stores the log in the etcd key item store if the POST fails.
 func (p *Poster) triggerPOSTFailsafe(encoded *[]byte) {
 	currentTime := time.Now()
-	key := fmt.Sprintf("%s %d-%02d-%02d %02d:%02d:%02d", ReportPostFail, time.Year(), time.Month(), time.Day(), time.Hour(), time.Minute(), time.Second())
+	key := fmt.Sprintf("%s %d-%02d-%02d %02d:%02d:%02d", ReportPostFail, currentTime.Year(), currentTime.Month(), currentTime.Day(), currentTime.Hour(), currentTime.Minute(), currentTime.Second())
 
-	_, err = p.client.Put(nil, key, string(encoded))
+	_, err := p.client.Put(nil, key, string(encoded))
 	if err != nil {
 		return fmt.Errorf("could not send encoded log to etcd: %s", err)
 	}
