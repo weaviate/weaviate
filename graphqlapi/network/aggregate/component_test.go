@@ -13,6 +13,7 @@
 package aggregate
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -51,7 +52,7 @@ func TestNetworkAggregate(t *testing.T) {
 					"Car": []interface{}{
 						map[string]interface{}{
 							"horsepower": map[string]interface{}{
-								"mean": 275.7773,
+								"mean": json.Number("275.7773"),
 							},
 						},
 					},

@@ -59,7 +59,7 @@ func (n *network) proxy(params common.Params) (*models.GraphQLResponse, error) {
 
 	result, err := postToPeer(peerClient, params.SubQuery, nil)
 	if err != nil {
-		return nil, fmt.Errorf("could post to peer %s: %s", peer.Name, err)
+		return nil, fmt.Errorf("could not post to peer %s: %s", peer.Name, err)
 	}
 
 	return result.Payload, nil
