@@ -65,5 +65,5 @@ func replaceInstanceName(instanceName string, query []byte) ([]byte, error) {
 		return []byte{}, err
 	}
 
-	return r.ReplaceAll(query, []byte("GetMeta ")), nil
+	return r.ReplaceAll(query, []byte("Aggregate ")), nil
 }
