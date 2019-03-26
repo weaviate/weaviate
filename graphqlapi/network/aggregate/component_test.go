@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/common"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/test/helper"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/graphql-go/graphql"
@@ -130,7 +131,7 @@ func newMockResolver() *mockResolver {
 	return mocker
 }
 
-func (m *mockResolver) ProxyAggregateInstance(params Params) (*models.GraphQLResponse, error) {
+func (m *mockResolver) ProxyAggregateInstance(params common.Params) (*models.GraphQLResponse, error) {
 	args := m.Called(params)
 	return args.Get(0).(*models.GraphQLResponse), args.Error(1)
 }
