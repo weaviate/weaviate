@@ -13,7 +13,7 @@ A complete Weaviate stack based on Janusgraph (with Elasticsearch and Cassandra)
 #### Running the latest version
 
 ```sh
-$ source <(curl -s https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/tools/download-docker-compose-deps.sh)
+$ curl -s https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/tools/download-docker-compose-deps.sh | bash
 $ docker-compose up
 ```
 
@@ -32,7 +32,7 @@ _Note II: You can always enforce the latest `:latest` version by running `$ dock
 #### Running a specific version
 
 ```sh
-$ source <(curl -s https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/tools/download-docker-compose-deps.sh)
+$ curl -s https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/tools/download-docker-compose-deps.sh | bash
 ```
 
 Open docker-compose.yml and replace `latest` in the image (`image: creativesoftwarefdn/weaviate:latest`) with the preferred version number. An overview can be found on [Dockerhub](https://hub.docker.com/r/creativesoftwarefdn/weaviate/tags).
