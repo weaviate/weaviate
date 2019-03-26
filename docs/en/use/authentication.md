@@ -90,6 +90,7 @@ the respective fields:
 json.*
 
 ```yaml
+  authentication:
     oidc:
       # enabled (optional - defaults to false) turns OIDC auth on. All other fields in
       # this section will only be validated if enabled is set to true.
