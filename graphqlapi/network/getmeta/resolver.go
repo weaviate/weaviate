@@ -21,16 +21,9 @@ import (
 	"github.com/graphql-go/graphql"
 )
 
-// Params ties a SubQuery and a single instance
-// together
-type Params struct {
-	SubQuery       common.SubQuery
-	TargetInstance string
-}
-
 // Resolver describes the requirements of this package
 type Resolver interface {
-	ProxyGetMetaInstance(info Params) (*models.GraphQLResponse, error)
+	ProxyGetMetaInstance(info common.Params) (*models.GraphQLResponse, error)
 }
 
 // FiltersAndResolver is a helper tuple to bubble data through the resolvers.
@@ -52,7 +45,7 @@ func resolve(p graphql.ResolveParams) (interface{}, error) {
 		return nil, fmt.Errorf("could not replace instance name in sub-query: %s", err)
 	}
 
-	params := Params{
+	params := common.Params{
 		SubQuery:       common.ParseSubQuery(subQueryWithoutInstance),
 		TargetInstance: p.Info.FieldName,
 	}

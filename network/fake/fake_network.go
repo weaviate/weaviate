@@ -15,8 +15,7 @@ import (
 	"fmt"
 
 	graphqlnetwork "github.com/creativesoftwarefdn/weaviate/graphqlapi/network"
-	graphqlnetworkGet "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/get"
-	graphqlnetworkGetMeta "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/getmeta"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/common"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	network "github.com/creativesoftwarefdn/weaviate/network"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
@@ -43,11 +42,15 @@ func (fn FakeNetwork) UpdatePeers(new_peers peers.Peers) error {
 	return fmt.Errorf("Cannot update peers, because there is no network configured")
 }
 
-func (fn FakeNetwork) ProxyGetInstance(graphqlnetworkGet.Params) (*models.GraphQLResponse, error) {
+func (fn FakeNetwork) ProxyGetInstance(common.Params) (*models.GraphQLResponse, error) {
 	return nil, fmt.Errorf("Cannot proxy get instance, because there is no network configured")
 }
 
-func (fn FakeNetwork) ProxyGetMetaInstance(graphqlnetworkGetMeta.Params) (*models.GraphQLResponse, error) {
+func (fn FakeNetwork) ProxyGetMetaInstance(common.Params) (*models.GraphQLResponse, error) {
+	return nil, fmt.Errorf("Cannot proxy get instance, because there is no network configured")
+}
+
+func (fn FakeNetwork) ProxyAggregateInstance(common.Params) (*models.GraphQLResponse, error) {
 	return nil, fmt.Errorf("Cannot proxy get instance, because there is no network configured")
 }
 
