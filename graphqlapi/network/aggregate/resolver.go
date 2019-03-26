@@ -10,7 +10,7 @@
  * CONTACT: hello@creativesoftwarefdn.org
  */
 
-package getmeta
+package aggregate
 
 import (
 	"fmt"
@@ -28,14 +28,9 @@ type Params struct {
 	TargetInstance string
 }
 
-// Resolver describes the requirements of this package
+// Resolver describes the dependencies of this package
 type Resolver interface {
-	ProxyGetMetaInstance(info Params) (*models.GraphQLResponse, error)
-}
-
-// FiltersAndResolver is a helper tuple to bubble data through the resolvers.
-type FiltersAndResolver struct {
-	Resolver Resolver
+	ProxyAggregateInstance(info Params) (*models.GraphQLResponse, error)
 }
 
 func resolve(p graphql.ResolveParams) (interface{}, error) {
@@ -57,7 +52,7 @@ func resolve(p graphql.ResolveParams) (interface{}, error) {
 		TargetInstance: p.Info.FieldName,
 	}
 
-	graphQLResponse, err := resolver.ProxyGetMetaInstance(params)
+	graphQLResponse, err := resolver.ProxyAggregateInstance(params)
 	if err != nil {
 		return nil, fmt.Errorf("could not proxy to remote instance: %s", err)
 	}
@@ -68,7 +63,7 @@ func resolve(p graphql.ResolveParams) (interface{}, error) {
 			graphQLResponse.Data["Local"])
 	}
 
-	return local["GetMeta"], nil
+	return local["Aggregate"], nil
 }
 
 func replaceInstanceName(instanceName string, query []byte) ([]byte, error) {
