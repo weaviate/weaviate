@@ -20,9 +20,10 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
 )
 
-func setupSchemaHandlers(api *operations.WeaviateAPI) {
+func setupSchemaHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog) {
 	api.SchemaWeaviateSchemaActionsCreateHandler = schema.WeaviateSchemaActionsCreateHandlerFunc(func(params schema.WeaviateSchemaActionsCreateParams, principal *models.Principal) middleware.Responder {
 		schemaLock, err := db.SchemaLock()
 		if err != nil {
@@ -35,6 +36,12 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		err = schemaManager.AddClass(ctx, kind.ACTION_KIND, params.ActionClass)
 
 		if err == nil {
+
+			// Register the function call
+			go func() {
+				requestsLog.Register(telemetry.TypeREST, telemetry.LocalAddMeta)
+			}()
+
 			return schema.NewWeaviateSchemaActionsCreateOK().WithPayload(params.ActionClass)
 		} else {
 			errorResponse := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{&models.ErrorResponseErrorItems0{Message: err.Error()}}}
@@ -54,6 +61,11 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		err = schemaManager.DropClass(ctx, kind.ACTION_KIND, params.ClassName)
 
 		if err == nil {
+
+			// Register the function call
+			go func() {
+				requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulateMeta)
+			}()
 			return schema.NewWeaviateSchemaActionsDeleteOK()
 		} else {
 			errorResponse := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{&models.ErrorResponseErrorItems0{Message: err.Error()}}}
@@ -73,6 +85,11 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		err = schemaManager.AddProperty(ctx, kind.ACTION_KIND, params.ClassName, params.Body)
 
 		if err == nil {
+			// Register the function call
+			go func() {
+				requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulateMeta)
+			}()
+
 			return schema.NewWeaviateSchemaActionsPropertiesAddOK().WithPayload(params.Body)
 		} else {
 			errorResponse := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{&models.ErrorResponseErrorItems0{Message: err.Error()}}}
@@ -90,6 +107,11 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		schemaManager := schemaLock.SchemaManager()
 		ctx := params.HTTPRequest.Context()
 		_ = schemaManager.DropProperty(ctx, kind.ACTION_KIND, params.ClassName, params.PropertyName)
+
+		// Register the function call
+		go func() {
+			requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulateMeta)
+		}()
 
 		return schema.NewWeaviateSchemaActionsPropertiesDeleteOK()
 	})
@@ -118,6 +140,11 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		err = schemaManager.UpdateProperty(ctx, kind.ACTION_KIND, params.ClassName, params.PropertyName, newName, newKeywords)
 
 		if err == nil {
+			// Register the function call
+			go func() {
+				requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulateMeta)
+			}()
+
 			return schema.NewWeaviateSchemaActionsPropertiesUpdateOK()
 		} else {
 			errorResponse := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{&models.ErrorResponseErrorItems0{Message: err.Error()}}}
@@ -149,6 +176,10 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		err = schemaManager.UpdateClass(ctx, kind.ACTION_KIND, params.ClassName, newName, newKeywords)
 
 		if err == nil {
+			// Register the function call
+			go func() {
+				requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulateMeta)
+			}()
 			return schema.NewWeaviateSchemaActionsUpdateOK()
 		} else {
 			errorResponse := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{&models.ErrorResponseErrorItems0{Message: err.Error()}}}
@@ -169,7 +200,11 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 			Actions: dbSchema.Actions,
 			Things:  dbSchema.Things,
 		}
-
+		// TODO: validate this serviceID
+		// Register the function call
+		go func() {
+			requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulateMeta)
+		}()
 		return schema.NewWeaviateSchemaDumpOK().WithPayload(payload)
 	})
 
@@ -185,6 +220,10 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		err = schemaManager.AddClass(ctx, kind.THING_KIND, params.ThingClass)
 
 		if err == nil {
+			// Register the function call
+			go func() {
+				requestsLog.Register(telemetry.TypeREST, telemetry.LocalAddMeta)
+			}()
 			return schema.NewWeaviateSchemaThingsCreateOK().WithPayload(params.ThingClass)
 		} else {
 			errorResponse := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{&models.ErrorResponseErrorItems0{Message: err.Error()}}}
@@ -204,6 +243,10 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		err = schemaManager.DropClass(ctx, kind.THING_KIND, params.ClassName)
 
 		if err == nil {
+			// Register the function call
+			go func() {
+				requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulateMeta)
+			}()
 			return schema.NewWeaviateSchemaThingsDeleteOK()
 		} else {
 			errorResponse := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{&models.ErrorResponseErrorItems0{Message: err.Error()}}}
@@ -223,6 +266,10 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		err = schemaManager.AddProperty(ctx, kind.THING_KIND, params.ClassName, params.Body)
 
 		if err == nil {
+			// Register the function call
+			go func() {
+				requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulateMeta)
+			}()
 			return schema.NewWeaviateSchemaThingsPropertiesAddOK().WithPayload(params.Body)
 		} else {
 			errorResponse := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{&models.ErrorResponseErrorItems0{Message: err.Error()}}}
@@ -241,6 +288,10 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		ctx := params.HTTPRequest.Context()
 		_ = schemaManager.DropProperty(ctx, kind.THING_KIND, params.ClassName, params.PropertyName)
 
+		// Register the function call
+		go func() {
+			requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulateMeta)
+		}()
 		return schema.NewWeaviateSchemaThingsPropertiesDeleteOK()
 	})
 
@@ -268,6 +319,10 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		err = schemaManager.UpdateProperty(ctx, kind.THING_KIND, params.ClassName, params.PropertyName, newName, newKeywords)
 
 		if err == nil {
+			// Register the function call
+			go func() {
+				requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulateMeta)
+			}()
 			return schema.NewWeaviateSchemaThingsPropertiesUpdateOK()
 		} else {
 			errorResponse := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{&models.ErrorResponseErrorItems0{Message: err.Error()}}}
@@ -299,6 +354,10 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		err = schemaManager.UpdateClass(ctx, kind.THING_KIND, params.ClassName, newName, newKeywords)
 
 		if err == nil {
+			// Register the function call
+			go func() {
+				requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulateMeta)
+			}()
 			return schema.NewWeaviateSchemaThingsUpdateOK()
 		} else {
 			errorResponse := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{&models.ErrorResponseErrorItems0{Message: err.Error()}}}

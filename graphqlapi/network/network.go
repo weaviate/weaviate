@@ -203,21 +203,23 @@ func buildSchemaDependentObjects(peers peers.Peers) (*schemaDependentObjects, er
 }
 
 func passThroughGetFiltersAndResolvers(p graphql.ResolveParams) (interface{}, error) {
-	resolver, ok := p.Source.(map[string]interface{})["NetworkResolver"].(network_get.Resolver)
-	if !ok {
-		return nil, fmt.Errorf("source does not contain a NetworkResolver, but \n%#v", p.Source)
-	}
+	// resolver, ok := p.Source.(map[string]interface{})["NetworkResolver"].(network_get.Resolver)
+	// if !ok {
+	// 	return nil, fmt.Errorf("source does not contain a NetworkResolver, but \n%#v", p.Source)
+	// }
 
-	return network_get.FiltersAndResolver{
-		Resolver: resolver,
-	}, nil
+	// return network_get.FiltersAndResolver{
+	// 	Resolver: resolver,
+	// }, nil
+	return p, nil
 }
 
 func passThroughGetMetaResolvers(p graphql.ResolveParams) (interface{}, error) {
-	resolver, ok := p.Source.(map[string]interface{})["NetworkResolver"].(network_getmeta.Resolver)
-	if !ok {
-		return nil, fmt.Errorf("source does not contain a NetworkResolver, but \n%#v", p.Source)
-	}
+	// resolver, ok := p.Source.(map[string]interface{})["NetworkResolver"].(network_getmeta.Resolver)
+	// if !ok {
+	// 	return nil, fmt.Errorf("source does not contain a NetworkResolver, but \n%#v", p.Source)
+	// }
 
-	return resolver, nil
+	// return resolver, nil
+	return p, nil
 }

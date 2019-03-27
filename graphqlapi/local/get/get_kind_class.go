@@ -25,6 +25,8 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get/refclasses"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
+
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
 )
@@ -205,7 +207,15 @@ func buildGetClassField(classObject *graphql.Object, k kind.Kind,
 
 func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 	return func(p graphql.ResolveParams) (interface{}, error) {
-		filtersAndResolver := p.Source.(*filtersAndResolver)
+		source, ok := p.Source.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("expected graphql root to be a map, but was %T", p.Source)
+		}
+
+		resolver, ok := source["Resolver"].(Resolver)
+		if !ok {
+			return nil, fmt.Errorf("expected source map to have a usable Resolver, but got %#v", source["Resolver"])
+		}
 
 		pagination, err := common.ExtractPaginationFromArgs(p.Args)
 		if err != nil {
@@ -236,8 +246,17 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 			Properties: properties,
 		}
 
+		// Log the request
+		requestsLog, logOk := source["RequestsLog"].(RequestsLog)
+		if !logOk {
+			return nil, fmt.Errorf("expected source map to have a usable RequestsLog, but got %#v", source["RequestsLog"])
+		}
+		go func() {
+			requestsLog.Register(telemetry.TypeGQL, telemetry.LocalQuery)
+		}()
+
 		return func() (interface{}, error) {
-			return filtersAndResolver.resolver.LocalGetClass(&params)
+			return resolver.LocalGetClass(&params)
 		}, nil
 	}
 }
