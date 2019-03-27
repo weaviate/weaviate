@@ -45,7 +45,6 @@ type File struct {
 // Logging gives the outline of the logging parameters in the config file
 type Logging struct {
 	Url      string `json:"url" yaml:"url"`
-	DebugUrl string `json:"debugurl" yaml:"debugurl"`
 	Interval int    `json:"interval" yaml:"interval"`
 	Enabled  bool   `json:"enabled" yaml:"enabled"`
 }

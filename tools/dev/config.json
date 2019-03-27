@@ -26,7 +26,6 @@
         "interval": 1,
         "enabled": true,
         "url": "http://127.0.0.1:8087/mock/new",
-        "debugurl":"http://127.0.0.1:8087/mock/new"
 		  },
       "development": {
         "external_instances": [{
@@ -69,7 +68,6 @@
         "interval": 1,
         "enabled": true,
         "url": "http://127.0.0.1:8087/mock/new",
-        "debugurl":"http://127.0.0.1:8087/mock/new"
 		  }
     },
     {
@@ -103,7 +101,6 @@
         "interval": 1,
         "enabled": true,
         "url": "http://127.0.0.1:8087/mock/new",
-        "debugurl":"http://127.0.0.1:8087/mock/new"
 		  },
       "development": {
         "external_instances": [{
@@ -137,7 +134,6 @@
         "interval": 1,
         "enabled": true,
         "url": "http://127.0.0.1:8087/mock/new",
-        "debugurl":"http://127.0.0.1:8087/mock/new"
 		  },
       "development": {
         "external_instances": [{

@@ -22,7 +22,6 @@
 			"interval": 1,
 			"enabled": true,
 			"url": "http://127.0.0.1:8087/mock/new",
-			"debugurl":"http://127.0.0.1:8087/mock/new"
 
 		}
 	}, {
@@ -53,7 +52,6 @@
 			"interval": 1,
 			"enabled": true,
 			"url": "http://127.0.0.1:8087/mock/new",
-			"debugurl":"http://127.0.0.1:8087/mock/new"
 		}
 	}, {
 		"name": "dummy_net_2",
@@ -83,7 +81,6 @@
 			"interval": 1,
 			"enabled": true,
 			"url": "http://127.0.0.1:8087/mock/new",
-			"debugurl":"http://127.0.0.1:8087/mock/new"
 		}
 	}]
 }
