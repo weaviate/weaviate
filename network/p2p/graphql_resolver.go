@@ -15,12 +15,14 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/creativesoftwarefdn/weaviate/client"
 	"github.com/creativesoftwarefdn/weaviate/client/graphql"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/common"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 )
 
 // ProxyGetInstance proxies a single SubQuery to a single Target Instance. It
@@ -52,12 +54,52 @@ func (n *network) proxy(params common.Params) (*models.GraphQLResponse, error) {
 			params.TargetInstance, err, knownPeers)
 	}
 
+	return n.sendQueryToPeer(params.SubQuery, peer)
+}
+
+type peerResponse struct {
+	res *models.GraphQLResponse
+	err error
+}
+
+func (n *network) ProxyFetch(q common.SubQuery) ([]*models.GraphQLResponse, error) {
+	var results []*models.GraphQLResponse
+	knownPeers, err := n.ListPeers()
+	if err != nil {
+		return nil, err
+	}
+
+	wg := &sync.WaitGroup{}
+	resultsC := make(chan peerResponse, len(knownPeers))
+	for _, peer := range knownPeers {
+		wg.Add(1)
+		go func(peer peers.Peer) {
+			defer wg.Done()
+			res, err := n.sendQueryToPeer(q, peer)
+			resultsC <- peerResponse{res, err}
+		}(peer)
+	}
+
+	wg.Wait()
+	close(resultsC)
+	for res := range resultsC {
+		if res.err != nil {
+			return nil, err
+		}
+
+		results = append(results, res.res)
+	}
+
+	return results, nil
+}
+
+func (n *network) sendQueryToPeer(q common.SubQuery, peer peers.Peer) (*models.GraphQLResponse, error) {
 	peerClient, err := peer.CreateClient()
 	if err != nil {
 		return nil, fmt.Errorf("could not build client for peer %s: %s", peer.Name, err)
 	}
 
-	result, err := postToPeer(peerClient, params.SubQuery, nil)
+	result, err := postToPeer(peerClient, q, nil)
 	if err != nil {
 		return nil, fmt.Errorf("could not post to peer %s: %s", peer.Name, err)
 	}
