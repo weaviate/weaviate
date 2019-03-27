@@ -13,6 +13,7 @@ This page explains by an example how the Network fetch works. The design of the 
 - [Network Fetch](#network-fetch)
 - [Network Introspect](#network-introspect)
 - [Network GetMeta](#network-getmeta)
+- [Network Aggregate](#network-aggragate)
 
 
 ## Network Get
@@ -199,3 +200,38 @@ Just like querying a local Weaviate, meta data about instances in the Network ca
   }
 }
 ```
+
+## Network Aggregate
+Grouping is associated with aggregation. The GraphQL query function is called `Aggregate`, which returns aggregations of data groups. The data can be grouped by a specific property, which can be specified on the class level in the query. The `minimum`, `maximum`, `median`, `sum`, `mode`, and the `mean` of numeric property values can be queried, as well as the number of specific property values by `count`. The returned data is a list of groups, indicated by `groupedBy` `path` (same as the filter), and the actual `value`. 
+
+### Example
+``` graphql
+{
+  Network{
+    Aggregate{
+      WeaviateB {
+        Things {
+          Airline(groupBy: ["label"]) {
+            hasNumberOfPlanes {
+            minimum
+            maximum
+            median
+            mean
+            sum
+            mode
+            count
+          }
+          label { # This property has no numeric values, but 'string' values instead. Only 'count' can be queried for non-numeric propertie
+            count
+          }
+            groupedBy { #indicates the groups
+              path #the path as shown in the filter, will be ["label"]
+              value #the property value of the path's property key of the group
+            }
+          }
+        }
+      }
+    }
+  }
+}
+``` 
