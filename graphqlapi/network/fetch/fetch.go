@@ -9,21 +9,24 @@
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
  * CONTACT: hello@creativesoftwarefdn.org
  */
-package network_fetch
+package fetch
 
 import (
 	"fmt"
 
+	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/common"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/common/fetch"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/utils"
 	"github.com/graphql-go/graphql"
 )
 
-func FieldsObj(filterContainer *utils.FilterContainer) *graphql.Object {
+// New Network Fetch Object
+func New() *graphql.Object {
 	actionsFields := actionsFieldsObj()
 	thingsFields := thingsFieldsObj()
 	fuzzyFields := fuzzyFieldsObj()
-	whereFilterFields := thingsActionsWhereFilterFields(filterContainer)
 
 	fields := graphql.Fields{
 		"Actions": &graphql.Field{
@@ -31,11 +34,9 @@ func FieldsObj(filterContainer *utils.FilterContainer) *graphql.Object {
 			Description: descriptions.NetworkFetchActions,
 			Type:        graphql.NewList(actionsFields),
 			Args: graphql.FieldConfigArgument{
-				"where": whereFilterFields,
+				"where": fetch.NewFilterBuilder(kind.ACTION_KIND, "WeaviateNetwork").Build(),
 			},
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve: makeResolve(kind.ACTION_KIND),
 		},
 
 		"Things": &graphql.Field{
@@ -43,11 +44,9 @@ func FieldsObj(filterContainer *utils.FilterContainer) *graphql.Object {
 			Description: descriptions.NetworkFetchThings,
 			Type:        graphql.NewList(thingsFields),
 			Args: graphql.FieldConfigArgument{
-				"where": whereFilterFields,
+				"where": fetch.NewFilterBuilder(kind.THING_KIND, "WeaviateNetwork").Build(),
 			},
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve: makeResolve(kind.THING_KIND),
 		},
 
 		"Fuzzy": &graphql.Field{
@@ -86,18 +85,13 @@ func actionsFieldsObj() *graphql.Object {
 			Name:        "WeaviateNetworkFetchActionsBeacon",
 			Description: descriptions.NetworkFetchActionBeacon,
 			Type:        graphql.String,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		},
 
 		"certainty": &graphql.Field{
 			Name:        "WeaviateNetworkFetchActionsCertainty",
 			Description: descriptions.NetworkFetchActionCertainty,
 			Type:        graphql.Float,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     common.JSONNumberResolver,
 		},
 	}
 
@@ -117,18 +111,13 @@ func thingsFieldsObj() *graphql.Object {
 			Name:        "WeaviateNetworkFetchThingsBeacon",
 			Description: descriptions.NetworkFetchThingBeacon,
 			Type:        graphql.String,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		},
 
 		"certainty": &graphql.Field{
 			Name:        "WeaviateNetworkFetchThingsCertainty",
 			Description: descriptions.NetworkFetchThingCertainty,
 			Type:        graphql.Float,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     common.JSONNumberResolver,
 		},
 	}
 
@@ -157,9 +146,7 @@ func fuzzyFieldsObj() *graphql.Object {
 			Name:        "WeaviateNetworkFetchFuzzyCertainty",
 			Description: descriptions.NetworkFetchFuzzyCertainty,
 			Type:        graphql.Float,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     common.JSONNumberResolver,
 		},
 	}
 
