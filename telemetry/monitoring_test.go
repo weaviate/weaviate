@@ -56,7 +56,7 @@ func TestDisabled(t *testing.T) {
 
 	// setup
 	calledFunctions := NewLog()
-	calledFunctions.Enabled = true
+	calledFunctions.Enabled = false
 	calledFunctions.PeerName = "aquatic-pineapple-home"
 	calledFunctions.Register("REST", "weaviate.something.or.other")
 

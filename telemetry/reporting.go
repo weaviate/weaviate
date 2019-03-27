@@ -32,16 +32,17 @@ type etcdClient interface {
 }
 
 // NewReporter creates a new Reporter struct and returns a pointer to it.
-func NewReporter(requestsLog *RequestsLog, reportInterval int, reportURL string, telemetryEnabled bool, testing bool, client etcdClient, ctx context.Context) *Reporter {
+func NewReporter(ctx context.Context, requestsLog *RequestsLog, reportInterval int, reportURL string, telemetryEnabled bool, testing bool, client etcdClient) *Reporter {
 	return &Reporter{
 		log:         requestsLog,
 		interval:    reportInterval,
 		url:         reportURL,
 		enabled:     telemetryEnabled,
 		transformer: NewOutputTransformer(testing),
-		poster:      NewPoster(reportURL, client, ctx),
+		poster:      NewPoster(ctx, reportURL, client),
 		client:      client,
 		context:     ctx,
+		UnitTest:    false,
 	}
 }
 
@@ -55,6 +56,7 @@ type Reporter struct {
 	poster      *Poster
 	client      etcdClient
 	context     context.Context
+	UnitTest    bool // Indicates if the Reporter is being run from a unit test, disables log POSTing/etcd storage if true
 }
 
 // Start posts logged function calls in CBOR format to the provided url every <provided interval> seconds.
@@ -66,10 +68,12 @@ func (r *Reporter) Start() {
 			extractedLog := r.log.ExtractLoggedRequests()
 			r.AddTimeStamps(extractedLog)
 			transformedLog, err := r.TransformToOutputFormat(extractedLog)
-			if err == nil {
-				r.poster.ReportLoggedCalls(transformedLog)
-			} else {
-				r.triggerCBORFailsafe(extractedLog)
+			if !r.UnitTest {
+				if err == nil {
+					r.poster.ReportLoggedCalls(transformedLog)
+				} else {
+					r.triggerCBORFailsafe(extractedLog)
+				}
 			}
 		}
 	}
@@ -158,18 +162,18 @@ func (o *OutputTransformer) EncodeAsCBOR(minimizedLogs *[]map[string]interface{}
 }
 
 // NewPoster creates a new poster struct, which is responsible for sending logs to the specified endpoint.
-func NewPoster(url string, client etcdClient, ctx context.Context) *Poster {
+func NewPoster(ctx context.Context, url string, client etcdClient) *Poster {
 	return &Poster{
+		context: ctx,
 		url:     url,
 		client:  client,
-		context: ctx,
 	}
 }
 
 // Poster is a class responsible for sending the converted log to the logging endpoint. If the endpoint is unreachable then the logs are stored in the etcd store.
 type Poster struct {
-	url    string
-	client etcdClient
+	url     string
+	client  etcdClient
 	context context.Context
 }
 
