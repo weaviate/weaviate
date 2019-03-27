@@ -33,7 +33,7 @@ func setupMiddlewares(handler http.Handler) http.Handler {
 func setupGlobalMiddleware(handler http.Handler) http.Handler {
 	handleCORS := cors.New(cors.Options{
 		OptionsPassthrough: true,
-		AllowedHeaders:     []string{"*"},
+		AllowedMethods:     []string{"POST", "PUT", "DELETE", "GET", "PATCH"},
 	}).Handler
 	handler = handleCORS(handler)
 

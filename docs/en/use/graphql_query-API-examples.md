@@ -83,7 +83,7 @@ The query below returns information about all airports which lie in a city with 
 ```
 
 ##### Get Things on a local Weaviate instance with arbitratry AND an OR filters
-For the filter design, look [here](https://github.com/bobvanluijt/weaviate-graphql-prototype/wiki/Filter-design-pattern-for-Local-queries)
+For the filter design, look [here](graphql_filters_local.md).
 The query below returns all cities where either (at least one of the following conditions should hold):
 - The population is between 1,000,000 and 10,000,000
 - The city is a capital

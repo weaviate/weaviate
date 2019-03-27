@@ -111,7 +111,9 @@ func (l *etcdSchemaManager) UpdateClass(ctx context.Context, kind kind.Kind, cla
 	}
 
 	// Validate name / keywords in contextionary
-	l.validateClassNameOrKeywordsCorrect(kind, classNameAfterUpdate, keywordsAfterUpdate)
+	if err = l.validateClassNameOrKeywordsCorrect(kind, classNameAfterUpdate, keywordsAfterUpdate); err != nil {
+		return err
+	}
 
 	// Validated! Now apply the changes.
 	class.Class = classNameAfterUpdate
