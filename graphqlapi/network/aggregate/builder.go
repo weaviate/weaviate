@@ -60,9 +60,7 @@ func (b *Builder) PeerField() (*graphql.Field, error) {
 		Name:        fmt.Sprintf("%s%s", "Meta", b.peerName),
 		Description: fmt.Sprintf("%s%s", descriptions.NetworkWeaviate, b.peerName),
 		Type:        object,
-		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			return nil, fmt.Errorf("Network.Aggregate.<Peer> Resolver not implemented yet")
-		},
+		Resolve:     resolve,
 	}
 	return field, nil
 }
@@ -96,7 +94,6 @@ func newActionsField(actions *graphql.Object) *graphql.Field {
 		Name:        "WeaviateNetworkAggregateActions",
 		Description: descriptions.NetworkAggregateActions,
 		Type:        actions,
-		Resolve:     passThroughResolver,
 	}
 }
 
@@ -105,7 +102,6 @@ func newThingsField(things *graphql.Object) *graphql.Field {
 		Name:        "WeaviateNetworkAggregateThings",
 		Description: descriptions.NetworkAggregateThings,
 		Type:        things,
-		Resolve:     passThroughResolver,
 	}
 }
 

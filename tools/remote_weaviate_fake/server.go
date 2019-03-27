@@ -50,6 +50,7 @@ func main() {
 
 		getQuery := fmt.Sprintf("%s", `{ Local { Get { Things { Instruments { name } } } } }`)
 		getMetaQuery := fmt.Sprintf("%s", `{ Local { GetMeta { Things { Instruments { volume { maximum minimum mean } } } } } }`)
+		aggregateQuery := fmt.Sprintf("%s", ` { Local { Aggregate { Things { Instruments(groupBy:["name"]) { volume { count } } } } } }`)
 		switch parsed {
 		case removeAllWhiteSpace(getQuery):
 			w.Header().Set("Content-Type", "application/json")
@@ -59,10 +60,14 @@ func main() {
 			w.Header().Set("Content-Type", "application/json")
 			fmt.Fprintf(w, "%s", graphQLGetMetaResponse)
 			return
+		case removeAllWhiteSpace(aggregateQuery):
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, "%s", graphQLAggregateResponse)
+			return
 		default:
 			w.WriteHeader(422)
-			w.Write([]byte(fmt.Sprintf("unrecognized body, got \n%#v\nwanted\n%#v\nor\n%#v",
-				parsed, removeAllWhiteSpace(getQuery), removeAllWhiteSpace(getMetaQuery))))
+			w.Write([]byte(fmt.Sprintf("unrecognized body, got \n%#v\nwanted\n%#v\nor\n%#v\nor\n%#v",
+				parsed, removeAllWhiteSpace(aggregateQuery), removeAllWhiteSpace(getQuery), removeAllWhiteSpace(getMetaQuery))))
 			return
 		}
 	})
@@ -104,6 +109,22 @@ var graphQLGetMetaResponse = `{
               "mean": 82
             }
           }
+        }
+      }
+    }
+  }
+}`
+
+var graphQLAggregateResponse = `{
+  "data": {
+    "Local": {
+      "Aggregate": {
+        "Things": {
+          "Instruments": [{
+            "volume": {
+              "count": 82
+            }
+          }]
         }
       }
     }

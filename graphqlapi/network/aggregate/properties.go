@@ -14,6 +14,7 @@ package aggregate
 import (
 	"fmt"
 
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/common"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/graphql-go/graphql"
@@ -25,36 +26,43 @@ func numericPropertyFields(class *models.SemanticSchemaClass, property *models.S
 			Name:        fmt.Sprintf("%s%s%sSum", prefix, class.Class, property.Name),
 			Description: descriptions.NetworkAggregateSum,
 			Type:        graphql.Float,
+			Resolve:     common.JSONNumberResolver,
 		},
 		"minimum": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sMinimum", prefix, class.Class, property.Name),
 			Description: descriptions.NetworkAggregateMin,
 			Type:        graphql.Float,
+			Resolve:     common.JSONNumberResolver,
 		},
 		"maximum": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sMaximum", prefix, class.Class, property.Name),
 			Description: descriptions.NetworkAggregateMax,
 			Type:        graphql.Float,
+			Resolve:     common.JSONNumberResolver,
 		},
 		"mean": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sMean", prefix, class.Class, property.Name),
 			Description: descriptions.NetworkAggregateMean,
 			Type:        graphql.Float,
+			Resolve:     common.JSONNumberResolver,
 		},
 		"mode": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sMode", prefix, class.Class, property.Name),
 			Description: descriptions.NetworkAggregateMode,
 			Type:        graphql.Float,
+			Resolve:     common.JSONNumberResolver,
 		},
 		"median": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sMedian", prefix, class.Class, property.Name),
 			Description: descriptions.NetworkAggregateMedian,
 			Type:        graphql.Float,
+			Resolve:     common.JSONNumberResolver,
 		},
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sCount", prefix, class.Class, property.Name),
 			Description: descriptions.NetworkAggregateCount,
 			Type:        graphql.Int,
+			Resolve:     common.JSONNumberResolver,
 		},
 	}
 
@@ -72,6 +80,7 @@ func nonNumericPropertyFields(class *models.SemanticSchemaClass,
 			Name:        fmt.Sprintf("%s%sCount", prefix, class.Class),
 			Description: descriptions.NetworkAggregateCount,
 			Type:        graphql.Int,
+			Resolve:     common.JSONNumberResolver,
 		},
 	}
 

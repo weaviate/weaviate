@@ -10,7 +10,7 @@
  * CONTACT: hello@creativesoftwarefdn.org
  */
 
-package network_get
+package aggregate
 
 import (
 	"fmt"
@@ -21,23 +21,18 @@ import (
 	"github.com/graphql-go/graphql"
 )
 
+// Resolver describes the dependencies of this package
 type Resolver interface {
-	ProxyGetInstance(info common.Params) (*models.GraphQLResponse, error)
+	ProxyAggregateInstance(info common.Params) (*models.GraphQLResponse, error)
 }
 
-// FiltersAndResolver is a helper tuple to bubble data through the resolvers.
-type FiltersAndResolver struct {
-	Resolver Resolver
-}
-
-func NetworkGetInstanceResolve(p graphql.ResolveParams) (interface{}, error) {
-	filterAndResolver, ok := p.Source.(FiltersAndResolver)
+func resolve(p graphql.ResolveParams) (interface{}, error) {
+	resolver, ok := p.Source.(Resolver)
 	if !ok {
-		return nil, fmt.Errorf("expected source to be a FilterAndResolver, but was \n%#v",
+		return nil, fmt.Errorf("expected source to be a Resolver, but was \n%#v",
 			p.Source)
 	}
 
-	resolver := filterAndResolver.Resolver
 	astLoc := p.Info.FieldASTs[0].GetLoc()
 	rawSubQuery := astLoc.Source.Body[astLoc.Start:astLoc.End]
 	subQueryWithoutInstance, err := replaceInstanceName(p.Info.FieldName, rawSubQuery)
@@ -50,7 +45,7 @@ func NetworkGetInstanceResolve(p graphql.ResolveParams) (interface{}, error) {
 		TargetInstance: p.Info.FieldName,
 	}
 
-	graphQLResponse, err := resolver.ProxyGetInstance(params)
+	graphQLResponse, err := resolver.ProxyAggregateInstance(params)
 	if err != nil {
 		return nil, fmt.Errorf("could not proxy to remote instance: %s", err)
 	}
@@ -61,7 +56,7 @@ func NetworkGetInstanceResolve(p graphql.ResolveParams) (interface{}, error) {
 			graphQLResponse.Data["Local"])
 	}
 
-	return local["Get"], nil
+	return local["Aggregate"], nil
 }
 
 func replaceInstanceName(instanceName string, query []byte) ([]byte, error) {
@@ -70,5 +65,5 @@ func replaceInstanceName(instanceName string, query []byte) ([]byte, error) {
 		return []byte{}, err
 	}
 
-	return r.ReplaceAll(query, []byte("Get ")), nil
+	return r.ReplaceAll(query, []byte("Aggregate ")), nil
 }

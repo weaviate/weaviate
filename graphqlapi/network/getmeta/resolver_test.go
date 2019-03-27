@@ -18,6 +18,7 @@ package getmeta
 import (
 	"testing"
 
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/common"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
@@ -39,7 +40,7 @@ func TestNetworkGetInstanceQueryWithoutFilters(t *testing.T) {
 	// in a real life scenario graphql will set the start and end
 	// correctly. We just need to manually specify them in the test
 	params := paramsFromQueryWithStartAndEnd(query, 22, 70, "weaviateA", resolver, nil)
-	result, err := Resolve(params)
+	result, err := resolve(params)
 
 	if err != nil {
 		t.Errorf("Expected no error, but got: %s", err)
@@ -90,10 +91,10 @@ func paramsFromQueryWithStartAndEnd(query []byte, start int, end int,
 
 type fakeNetworkResolver struct {
 	Called     bool
-	CalledWith Params
+	CalledWith common.Params
 }
 
-func (r *fakeNetworkResolver) ProxyGetMetaInstance(info Params) (*models.GraphQLResponse, error) {
+func (r *fakeNetworkResolver) ProxyGetMetaInstance(info common.Params) (*models.GraphQLResponse, error) {
 	r.Called = true
 	r.CalledWith = info
 	return &models.GraphQLResponse{
