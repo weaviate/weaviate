@@ -39,11 +39,6 @@ type Resolver interface {
 	ProxyGetMetaInstance(info Params) (*models.GraphQLResponse, error)
 }
 
-// FiltersAndResolver is a helper tuple to bubble data through the resolvers.
-type FiltersAndResolver struct {
-	Resolver Resolver
-}
-
 func Resolve(p graphql.ResolveParams) (interface{}, error) {
 	source, ok := p.Source.(map[string]interface{})
 	if !ok {
