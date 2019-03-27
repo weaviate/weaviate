@@ -18,13 +18,12 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/common"
 	"github.com/creativesoftwarefdn/weaviate/models"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/graphql-go/graphql"
 )
 
 // Resolver describes the dependencies of this package
 type Resolver interface {
-	ProxyFetch(query common.SubQuery) (*models.GraphQLResponse, error)
+	ProxyFetch(query common.SubQuery) ([]*models.GraphQLResponse, error)
 }
 
 func makeResolve(k kind.Kind) func(p graphql.ResolveParams) (interface{}, error) {
@@ -39,24 +38,40 @@ func makeResolve(k kind.Kind) func(p graphql.ResolveParams) (interface{}, error)
 		rawSubQuery := astLoc.Source.Body[astLoc.Start:astLoc.End]
 		subquery := common.ParseSubQuery(rawSubQuery)
 
-		graphQLResponse, err := resolver.ProxyFetch(subquery)
+		graphQLResponses, err := resolver.ProxyFetch(subquery)
 		if err != nil {
 			return nil, fmt.Errorf("could not proxy to remote instance: %s", err)
 		}
 
-		local, ok := graphQLResponse.Data["Local"].(map[string]interface{})
+		return extractResults(k, graphQLResponses)
+	}
+}
+
+func extractResults(k kind.Kind, responses []*models.GraphQLResponse) ([]interface{}, error) {
+	kind := fmt.Sprintf("%ss", k.TitleizedName())
+	results := []interface{}{}
+
+	for _, response := range responses {
+		local, ok := response.Data["Local"].(map[string]interface{})
 		if !ok {
 			return nil, fmt.Errorf("expected response.data.Local to be map[string]interface{}, but response was %#v",
-				graphQLResponse.Data["Local"])
+				response.Data["Local"])
 		}
 
 		fetch, ok := local["Fetch"].(map[string]interface{})
 		if !ok {
 			return nil, fmt.Errorf("expected response.data.Local.Fetch to be map[string]interface{}, but response was %#v",
-				graphQLResponse.Data["Local"])
+				local["Fetch"])
 		}
 
-		spew.Dump(subquery)
-		return fetch[fmt.Sprintf("%ss", k.TitleizedName())], nil
+		peerResults, ok := fetch[kind].([]interface{})
+		if !ok {
+			return nil, fmt.Errorf("expected response.data.Local.Fetch.%s to be a slice, but response was %#v",
+				kind, fetch[kind])
+		}
+
+		results = append(results, peerResults...)
 	}
+
+	return results, nil
 }
