@@ -39,11 +39,6 @@ type RequestsLog interface {
 	Register(requestType string, identifier string)
 }
 
-// FiltersAndResolver is a helper tuple to bubble data through the resolvers.
-type FiltersAndResolver struct {
-	Resolver Resolver
-}
-
 func NetworkGetInstanceResolve(p graphql.ResolveParams) (interface{}, error) {
 	source, ok := p.Source.(map[string]interface{})
 	if !ok {
