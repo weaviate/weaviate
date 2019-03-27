@@ -29,7 +29,7 @@ import (
 	"github.com/ugorji/go/codec"
 )
 
-// Ensure a request should be logged, get the most recently received log from the mock api, interpret it
+// Ensure a request should be logged and get the most recently received log from the mock api, then assert the structure of the log
 func TestCreateActionLogging(t *testing.T) {
 	t.Parallel()
 
