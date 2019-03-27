@@ -25,7 +25,7 @@
       "logging": {
         "interval": 1,
         "enabled": true,
-        "url": "http://127.0.0.1:8087/mock/new",
+        "url": "http://127.0.0.1:8087/mock/new"
 		  },
       "development": {
         "external_instances": [{
@@ -67,7 +67,7 @@
       "logging": {
         "interval": 1,
         "enabled": true,
-        "url": "http://127.0.0.1:8087/mock/new",
+        "url": "http://127.0.0.1:8087/mock/new"
 		  }
     },
     {
@@ -100,7 +100,7 @@
       "logging": {
         "interval": 1,
         "enabled": true,
-        "url": "http://127.0.0.1:8087/mock/new",
+        "url": "http://127.0.0.1:8087/mock/new"
 		  },
       "development": {
         "external_instances": [{
@@ -133,7 +133,7 @@
       "logging": {
         "interval": 1,
         "enabled": true,
-        "url": "http://127.0.0.1:8087/mock/new",
+        "url": "http://127.0.0.1:8087/mock/new"
 		  },
       "development": {
         "external_instances": [{

@@ -21,8 +21,7 @@
 		"logging": {
 			"interval": 1,
 			"enabled": true,
-			"url": "http://127.0.0.1:8087/mock/new",
-
+			"url": "http://127.0.0.1:8087/mock/new"
 		}
 	}, {
 		"name": "dummy_net_1",
@@ -51,7 +50,7 @@
 		"logging": {
 			"interval": 1,
 			"enabled": true,
-			"url": "http://127.0.0.1:8087/mock/new",
+			"url": "http://127.0.0.1:8087/mock/new"
 		}
 	}, {
 		"name": "dummy_net_2",
@@ -80,7 +79,7 @@
 		"logging": {
 			"interval": 1,
 			"enabled": true,
-			"url": "http://127.0.0.1:8087/mock/new",
+			"url": "http://127.0.0.1:8087/mock/new"
 		}
 	}]
 }
