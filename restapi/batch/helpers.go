@@ -53,4 +53,3 @@ func errPayloadFromSingleErr(err error) *models.ErrorResponse {
 		Message: fmt.Sprintf("%s", err),
 	}}}
 }
-
