@@ -9,7 +9,7 @@
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
  * CONTACT: hello@creativesoftwarefdn.org
  */
-package network_fetch
+package fetch
 
 import (
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"

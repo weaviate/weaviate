@@ -63,14 +63,12 @@ func Build(peers peers.Peers, config config.Environment) (*graphql.Field, error)
 
 	genGlobalNetworkFilterElements(filterContainer)
 
-	networkFetchObject := network_fetch.FieldsObj(filterContainer)
-
 	networkIntrospectObject := network_introspect.FieldsObj(filterContainer)
 
 	graphQLNetworkFieldContents := utils.GraphQLNetworkFieldContents{
 		NetworkGetObject:        schemaObjects.get,
 		NetworkGetMetaObject:    schemaObjects.getMeta,
-		NetworkFetchObject:      networkFetchObject,
+		NetworkFetchObject:      network_fetch.New(),
 		NetworkIntrospectObject: networkIntrospectObject,
 		NetworkAggregateObject:  schemaObjects.aggregate,
 	}
