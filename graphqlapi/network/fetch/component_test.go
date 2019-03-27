@@ -93,10 +93,12 @@ func (tests testCases) Assert(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			resolver := newMockResolver()
 
-			resolverReturn := &models.GraphQLResponse{
-				Data: map[string]models.JSONObject{
-					"Local": map[string]interface{}{
-						"Fetch": testCase.resolverReturn,
+			resolverReturn := []*models.GraphQLResponse{
+				&models.GraphQLResponse{
+					Data: map[string]models.JSONObject{
+						"Local": map[string]interface{}{
+							"Fetch": testCase.resolverReturn,
+						},
 					},
 				},
 			}
@@ -142,7 +144,7 @@ func newMockResolver() *mockResolver {
 	return mocker
 }
 
-func (m *mockResolver) ProxyFetch(query common.SubQuery) (*models.GraphQLResponse, error) {
+func (m *mockResolver) ProxyFetch(query common.SubQuery) ([]*models.GraphQLResponse, error) {
 	args := m.Called(query)
-	return args.Get(0).(*models.GraphQLResponse), args.Error(1)
+	return args.Get(0).([]*models.GraphQLResponse), args.Error(1)
 }
