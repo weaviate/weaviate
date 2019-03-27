@@ -18,6 +18,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
 
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations"
@@ -25,7 +26,7 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
-func setupC11yHandlers(api *operations.WeaviateAPI) {
+func setupC11yHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog) {
 	/*
 	 * HANDLE C11Y
 	 */
@@ -100,7 +101,6 @@ func setupC11yHandlers(api *operations.WeaviateAPI) {
 				nearestNeighborsItem.Distance = ConcatenatedNearestNeighborsDistance[index]
 				returnObject.ConcatenatedWord.ConcatenatedNearestNeighbors = append(returnObject.ConcatenatedWord.ConcatenatedNearestNeighbors, &nearestNeighborsItem)
 			}
-
 		}
 
 		// loop over the words and populate the return response for single words
@@ -156,6 +156,11 @@ func setupC11yHandlers(api *operations.WeaviateAPI) {
 			}
 
 		}
+
+		// Register the request
+		go func() {
+			requestsLog.Register(telemetry.TypeREST, telemetry.LocalTools)
+		}()
 
 		return contextionary_api.NewWeaviateC11yWordsOK().WithPayload(returnObject)
 	})

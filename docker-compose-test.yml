@@ -28,6 +28,14 @@ services:
       REMOTE_PEER_URI: http://remote_weaviate_fake:8081
       LOCAL_PEER_URI: http://weaviate:8080
       ACCEPTANCE_TEST: "on"
+  mock_api: # used for telemetry logging acceptance testing
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: mock_api
+    restart: on-failure:0
+    ports:
+      - "8087:8087"
   remote_weaviate_fake: # used for testing the Network.Get functionality
     build:
       context: .

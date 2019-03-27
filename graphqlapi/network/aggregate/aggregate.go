@@ -99,9 +99,7 @@ func classField(peerName string, k kind.Kind, class *models.SemanticSchemaClass,
 				Type:        graphql.NewNonNull(graphql.NewList(graphql.String)),
 			},
 		},
-		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			return nil, fmt.Errorf("resolve network aggregate class field not yet supported")
-		},
+		Resolve: resolveClass,
 	}
 
 	return fieldsField, nil

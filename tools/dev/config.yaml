@@ -20,6 +20,10 @@ environments:
     idx_file: test/contextionary/example.idx
   limit: 100
   debug: true
+  logging:
+    interval: 1
+    enabled: true
+    url: http://127.0.0.1:8087/mock/new
   development:
     external_instances:
     - url: http://localhost:8080
@@ -41,6 +45,10 @@ environments:
     idx_file: contextionary/contextionary.idx
   limit: 100
   debug: true
+  logging:
+    interval: 1
+    enabled: true
+    url: http://127.0.0.1:8087/mock/new
 - name: janusgraph_docker
   database:
     name: janusgraph
@@ -58,6 +66,10 @@ environments:
     peer_name: bestWeaviate
   limit: 100
   debug: true
+  logging:
+    interval: 1
+    enabled: true
+    url: http://127.0.0.1:8087/mock/new
   development:
     external_instances:
     - url: http://localhost:8080

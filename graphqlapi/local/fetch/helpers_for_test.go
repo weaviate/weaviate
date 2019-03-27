@@ -17,6 +17,12 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
+type mockRequestsLog struct{}
+
+func (m *mockRequestsLog) Register(first string, second string) {
+
+}
+
 type mockResolver struct {
 	testhelper.MockResolver
 }
@@ -24,11 +30,13 @@ type mockResolver struct {
 func newMockResolver(c11y Contextionary) *mockResolver {
 	field := Build()
 	mocker := &mockResolver{}
+	mockLog := &mockRequestsLog{}
 	mocker.RootFieldName = "Fetch"
 	mocker.RootField = field
 	mocker.RootObject = map[string]interface{}{
 		"Resolver":      Resolver(mocker),
 		"Contextionary": c11y,
+		"RequestsLog":   mockLog,
 	}
 	return mocker
 }

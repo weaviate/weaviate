@@ -24,6 +24,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
 	"github.com/graphql-go/graphql"
 )
 
@@ -37,6 +38,7 @@ type graphQL struct {
 	schema           graphql.Schema
 	resolverProvider ResolverProvider
 	networkPeers     peers.Peers
+	requestsLog      *telemetry.RequestsLog
 	config           config.Environment
 }
 
@@ -72,6 +74,8 @@ func (g *graphQL) Resolve(query string, operationName string, variables map[stri
 
 	contextionary := g.resolverProvider.GetContextionary()
 
+	requestsLog := g.resolverProvider.GetRequestsLog()
+
 	return graphql.Do(graphql.Params{
 		Schema: g.schema,
 		RootObject: map[string]interface{}{
@@ -79,6 +83,7 @@ func (g *graphQL) Resolve(query string, operationName string, variables map[stri
 			"NetworkResolver": networkResolver,
 			"NetworkPeers":    g.networkPeers,
 			"Contextionary":   contextionary,
+			"RequestsLog":     requestsLog,
 			"Config":          g.config,
 		},
 		RequestString:  query,
