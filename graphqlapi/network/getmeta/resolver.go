@@ -33,14 +33,11 @@ type Params struct {
 // provided to the graphQL API in order to log Network.Get queries.
 type RequestsLog interface {
 	Register(requestType string, identifier string)
-	
+}
+
 // Resolver describes the requirements of this package
 type Resolver interface {
 	ProxyGetMetaInstance(info common.Params) (*models.GraphQLResponse, error)
-}
-
-type Resolver interface {
-	ProxyGetMetaInstance(info Params) (*models.GraphQLResponse, error)
 }
 
 func Resolve(p graphql.ResolveParams) (interface{}, error) {
