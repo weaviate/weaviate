@@ -84,7 +84,7 @@ func (n *network) ProxyFetch(q common.SubQuery) ([]*models.GraphQLResponse, erro
 	close(resultsC)
 	for res := range resultsC {
 		if res.err != nil {
-			return nil, err
+			return nil, res.err
 		}
 
 		results = append(results, res.res)

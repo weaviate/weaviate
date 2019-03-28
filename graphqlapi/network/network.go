@@ -113,9 +113,7 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 			Name:        "WeaviateNetworkFetch",
 			Type:        graphQLNetworkFieldContents.NetworkFetchObject,
 			Description: descriptions.NetworkFetch,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     passThroughFetchResolvers,
 		},
 
 		"Introspect": &graphql.Field{
@@ -220,6 +218,15 @@ func passThroughGetMetaResolvers(p graphql.ResolveParams) (interface{}, error) {
 
 func passThroughAggregateResolvers(p graphql.ResolveParams) (interface{}, error) {
 	resolver, ok := p.Source.(map[string]interface{})["NetworkResolver"].(network_aggregate.Resolver)
+	if !ok {
+		return nil, fmt.Errorf("source does not contain a NetworkResolver, but \n%#v", p.Source)
+	}
+
+	return resolver, nil
+}
+
+func passThroughFetchResolvers(p graphql.ResolveParams) (interface{}, error) {
+	resolver, ok := p.Source.(map[string]interface{})["NetworkResolver"].(network_fetch.Resolver)
 	if !ok {
 		return nil, fmt.Errorf("source does not contain a NetworkResolver, but \n%#v", p.Source)
 	}
