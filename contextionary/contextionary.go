@@ -48,9 +48,24 @@ type Contextionary interface {
 
 	// Get the n nearest neighbours of item, examining k trees.
 	// Returns an array of indices, and of distances between item and the n-nearest neighbors.
-	GetNnsByItem(item ItemIndex, n int, k int) ([]ItemIndex, []float32, error)
+	GetNnsByItem(item ItemIndex, n, k int) ([]ItemIndex, []float32, error)
 
 	// Get the n nearest neighbours of item, examining k trees.
 	// Returns an array of indices, and of distances between item and the n-nearest neighbors.
-	GetNnsByVector(vector Vector, n int, k int) ([]ItemIndex, []float32, error)
+	GetNnsByVector(vector Vector, n, k int) ([]ItemIndex, []float32, error)
+
+	// SafeGetSimliarWords returns n similar words in the contextionary,
+	// examining k trees. It is guaratueed to have results, even if the word is
+	// not in the contextionary. In this case the list only contains the word
+	// itself. It can then still be used for exact match or levensthein-based
+	// searches against db backends.
+	SafeGetSimilarWords(word string, n, k int) ([]string, []float32)
+
+	// SafeGetSimliarWordsWithCertainty returns  similar words in the
+	// contextionary, if they are close enough to match the required certainty.
+	// It is guaratueed to have results, even if the word is not in the
+	// contextionary. In this case the list only contains the word itself. It can
+	// then still be used for exact match or levensthein-based searches against
+	// db backends.
+	SafeGetSimilarWordsWithCertainty(word string, certainty float32) []string
 }
