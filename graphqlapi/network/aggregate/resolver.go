@@ -18,6 +18,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/common"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
 	"github.com/graphql-go/graphql"
 )
 
@@ -33,9 +34,14 @@ type RequestsLog interface {
 }
 
 func resolve(p graphql.ResolveParams) (interface{}, error) {
-	resolver, ok := p.Source.(Resolver)
+	source, ok := p.Source.(map[string]interface{})
 	if !ok {
-		return nil, fmt.Errorf("expected source to be a Resolver, but was \n%#v",
+		return nil, fmt.Errorf("expected source to be a map[string]interface{}, but was \n%#v",
+			p.Source)
+	}
+	resolver, ok := source["NetworkResolver"].(Resolver)
+	if !ok {
+		return nil, fmt.Errorf("expected source['NetworkResolver'] to be a Resolver, but was \n%#v",
 			p.Source)
 	}
 

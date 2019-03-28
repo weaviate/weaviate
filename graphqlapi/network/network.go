@@ -205,10 +205,5 @@ func passThroughResolver(p graphql.ResolveParams) (interface{}, error) {
 }
 
 func passThroughAggregateResolvers(p graphql.ResolveParams) (interface{}, error) {
-	resolver, ok := p.Source.(map[string]interface{})["NetworkResolver"].(network_aggregate.Resolver)
-	if !ok {
-		return nil, fmt.Errorf("source does not contain a NetworkResolver, but \n%#v", p.Source)
-	}
-
-	return resolver, nil
+	return p.Source, nil
 }
