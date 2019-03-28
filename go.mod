@@ -21,6 +21,7 @@ require (
 	github.com/go-openapi/swag v0.17.0
 	github.com/go-openapi/validate v0.0.0-20180703152151-9a6e517cddf1
 	github.com/golang/snappy v0.0.1 // indirect
+	github.com/gorilla/mux v1.7.0
 	github.com/gorilla/websocket v1.2.0
 	github.com/graphql-go/graphql v0.7.7
 	github.com/jessevdk/go-flags v1.4.0
