@@ -113,7 +113,7 @@ func postToPeer(client *client.WeaviateDecentralisedKnowledgeGraph, subQuery com
 	localContext, cancel := context.WithTimeout(localContext, 1*time.Second)
 	defer cancel()
 	requestParams := &graphql.WeaviateGraphqlPostParams{
-		Body:    &models.GraphQLQuery{Query: subQuery.WrapInLocalQuery()},
+		Body:    &models.GraphQLQuery{Query: subQuery.String()},
 		Context: localContext,
 		// re-enable once we have auth again
 		// HTTPClient: clientWithTokenInjectorRoundTripper(principal),
