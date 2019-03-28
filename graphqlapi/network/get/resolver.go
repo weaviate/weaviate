@@ -22,15 +22,8 @@ import (
 	"github.com/graphql-go/graphql"
 )
 
-// Params ties a SubQuery and a single instance
-// together
-type Params struct {
-	SubQuery       common.SubQuery
-	TargetInstance string
-}
-
 type Resolver interface {
-	ProxyGetInstance(info Params) (*models.GraphQLResponse, error)
+	ProxyGetInstance(info common.Params) (*models.GraphQLResponse, error)
 }
 
 // RequestsLog is a local abstraction on the RequestsLog that needs to be
@@ -58,7 +51,7 @@ func NetworkGetInstanceResolve(p graphql.ResolveParams) (interface{}, error) {
 		return nil, fmt.Errorf("could not replace instance name in sub-query: %s", err)
 	}
 
-	params := Params{
+	params := common.Params{
 		SubQuery:       common.ParseSubQuery(subQueryWithoutInstance),
 		TargetInstance: p.Info.FieldName,
 	}

@@ -33,6 +33,10 @@ type Params struct {
 // provided to the graphQL API in order to log Network.Get queries.
 type RequestsLog interface {
 	Register(requestType string, identifier string)
+	
+// Resolver describes the requirements of this package
+type Resolver interface {
+	ProxyGetMetaInstance(info common.Params) (*models.GraphQLResponse, error)
 }
 
 type Resolver interface {
@@ -59,7 +63,7 @@ func Resolve(p graphql.ResolveParams) (interface{}, error) {
 		return nil, fmt.Errorf("could not replace instance name in sub-query: %s", err)
 	}
 
-	params := Params{
+	params := common.Params{
 		SubQuery:       common.ParseSubQuery(subQueryWithoutInstance),
 		TargetInstance: p.Info.FieldName,
 	}
