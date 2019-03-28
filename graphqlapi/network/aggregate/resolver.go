@@ -62,6 +62,15 @@ func resolve(p graphql.ResolveParams) (interface{}, error) {
 			graphQLResponse.Data["Local"])
 	}
 
+	// Log the request
+	requestsLog, ok := source["RequestsLog"].(RequestsLog)
+	if !ok {
+		return nil, fmt.Errorf("expected source to contain a usable RequestsLog, but was %#v", source)
+	}
+	go func() {
+		requestsLog.Register(telemetry.TypeGQL, telemetry.NetworkQuery)
+	}()
+
 	return local["Aggregate"], nil
 }
 
