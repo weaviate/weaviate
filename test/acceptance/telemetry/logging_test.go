@@ -116,8 +116,12 @@ func retrieveLogFromMockEndpoint(t *testing.T) []byte {
 		defer resp.Body.Close()
 		return body
 	}
-
-	assert.Equal(t, nil, err)
+	if err != nil {
+		urlError, ok := err.(*url.Error)
+		if ok {
+			assert.Equal(t, nil, urlError.Op)
+		}
+	}
 
 	return nil
 }
