@@ -14,6 +14,7 @@ package network_get
 import (
 	"testing"
 
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/common"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
@@ -97,10 +98,10 @@ func paramsFromQueryWithStartAndEnd(query []byte, start int, end int,
 
 type fakeNetworkResolver struct {
 	Called     bool
-	CalledWith Params
+	CalledWith common.Params
 }
 
-func (r *fakeNetworkResolver) ProxyGetInstance(info Params) (*models.GraphQLResponse, error) {
+func (r *fakeNetworkResolver) ProxyGetInstance(info common.Params) (*models.GraphQLResponse, error) {
 	r.Called = true
 	r.CalledWith = info
 	return &models.GraphQLResponse{

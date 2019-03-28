@@ -71,7 +71,7 @@ func classField(peerName string, k kind.Kind, class *models.SemanticSchemaClass,
 
 	fieldsObject := graphql.NewObject(fields)
 	fieldsField := &graphql.Field{
-		Type:        fieldsObject,
+		Type:        graphql.NewList(fieldsObject),
 		Description: description,
 		Args: graphql.FieldConfigArgument{
 			"first": &graphql.ArgumentConfig{
@@ -99,7 +99,6 @@ func classField(peerName string, k kind.Kind, class *models.SemanticSchemaClass,
 				Type:        graphql.NewNonNull(graphql.NewList(graphql.String)),
 			},
 		},
-		Resolve: resolveClass,
 	}
 
 	return fieldsField, nil

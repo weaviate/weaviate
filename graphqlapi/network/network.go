@@ -132,9 +132,7 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 			Name:        "WeaviateNetworkAggregate",
 			Type:        graphQLNetworkFieldContents.NetworkAggregateObject,
 			Description: descriptions.NetworkAggregate,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     passThroughAggregateResolvers,
 		},
 	}
 
@@ -204,4 +202,13 @@ func buildSchemaDependentObjects(peers peers.Peers) (*schemaDependentObjects, er
 
 func passThroughResolver(p graphql.ResolveParams) (interface{}, error) {
 	return p.Source, nil
+}
+
+func passThroughAggregateResolvers(p graphql.ResolveParams) (interface{}, error) {
+	resolver, ok := p.Source.(map[string]interface{})["NetworkResolver"].(network_aggregate.Resolver)
+	if !ok {
+		return nil, fmt.Errorf("source does not contain a NetworkResolver, but \n%#v", p.Source)
+	}
+
+	return resolver, nil
 }
