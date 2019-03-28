@@ -37,6 +37,7 @@ func makeResolve(k kind.Kind) func(p graphql.ResolveParams) (interface{}, error)
 		astLoc := p.Info.FieldASTs[0].GetLoc()
 		rawSubQuery := astLoc.Source.Body[astLoc.Start:astLoc.End]
 		subquery := common.ParseSubQuery(rawSubQuery)
+		subquery = subquery.WrapInFetchQuery()
 
 		graphQLResponses, err := resolver.ProxyFetch(subquery)
 		if err != nil {
