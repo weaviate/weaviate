@@ -46,7 +46,7 @@ func TestProxyGetInstance(t *testing.T) {
 
 	act := func() {
 		_, err = subject.ProxyGetInstance(common.Params{
-			SubQuery:       common.SubQuery(`Get { Things { City { name } } }`),
+			SubQuery:       common.SubQuery(`{ Local { Get { Things { City { name } } } } }`),
 			TargetInstance: "best-instance",
 		})
 	}
@@ -165,7 +165,7 @@ func TestProxyGetMetaInstance(t *testing.T) {
 
 	act := func() {
 		_, err = subject.ProxyGetMetaInstance(common.Params{
-			SubQuery:       common.SubQuery(`GetMeta { WeaviateB { Things { City { meta { count } } } }`),
+			SubQuery:       common.SubQuery(`{ Local { GetMeta { WeaviateB { Things { City { meta { count } } } } } }`),
 			TargetInstance: "best-instance",
 		})
 	}
@@ -284,7 +284,7 @@ func TestProxyAggregateInstance(t *testing.T) {
 
 	act := func() {
 		_, err = subject.ProxyAggregateInstance(common.Params{
-			SubQuery:       common.SubQuery(`Aggregate { WeaviateB { Things { City { population { count } } } }`),
+			SubQuery:       common.SubQuery(`{ Local { Aggregate { WeaviateB { Things { City { population { count } } } } } }`),
 			TargetInstance: "best-instance",
 		})
 	}
@@ -410,7 +410,7 @@ func TestProxyFetch(t *testing.T) {
 
 	act := func() {
 		results, err = subject.ProxyFetch(
-			common.SubQuery(`Aggregate { WeaviateB { Things { City { population { count } } } }`),
+			common.SubQuery(`{ Local { Aggregate { WeaviateB { Things { City { population { count } } } } } }`),
 		)
 	}
 
