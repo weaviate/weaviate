@@ -46,9 +46,9 @@ func NetworkGetInstanceResolve(p graphql.ResolveParams) (interface{}, error) {
 			p.Source)
 	}
 
-	resolver, ok := source["Resolver"].(Resolver)
+	resolver, ok := source["NetworkResolver"].(Resolver)
 	if !ok {
-		return nil, fmt.Errorf("expected source map to have a usable Resolver, but got %#v", source["Resolver"])
+		return nil, fmt.Errorf("expected source map to have a usable Resolver, but got %#v", source["NetworkResolver"])
 	}
 
 	astLoc := p.Info.FieldASTs[0].GetLoc()

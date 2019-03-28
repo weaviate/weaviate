@@ -71,9 +71,11 @@ func TestNetworkGetInstanceQueryWithoutFilters(t *testing.T) {
 
 func paramsFromQueryWithStartAndEnd(query []byte, start int, end int,
 	instanceName string, resolver Resolver, principal interface{}) graphql.ResolveParams {
-	paramSource := make(map[string]interface{})
-	paramSource["Resolver"] = resolver
-	paramSource["RequestsLog"] = &mockRequestsLog{}
+	paramSource := map[string]interface{}{
+		"NetworkResolver": resolver,
+		"RequestsLog":     &mockRequestsLog{},
+	}
+
 	return graphql.ResolveParams{
 		Source: paramSource,
 		Info: graphql.ResolveInfo{
