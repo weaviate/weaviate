@@ -46,7 +46,7 @@ func TestNetworkGetInstanceQueryWithoutFilters(t *testing.T) {
 	// in a real life scenario graphql will set the start and end
 	// correctly. We just need to manually specify them in the test
 	params := paramsFromQueryWithStartAndEnd(query, 22, 70, "weaviateA", resolver, nil)
-	result, err := resolve(params)
+	result, err := Resolve(params)
 
 	if err != nil {
 		t.Errorf("Expected no error, but got: %s", err)
