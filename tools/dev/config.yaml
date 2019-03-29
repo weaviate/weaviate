@@ -23,7 +23,7 @@ environments:
   logging:
     interval: 1
     enabled: true
-    url: http://127.0.0.1:8087/mock/new
+    url: http://mock_api:8087/mock/new
   development:
     external_instances:
     - url: http://localhost:8080
@@ -48,7 +48,7 @@ environments:
   logging:
     interval: 1
     enabled: true
-    url: http://127.0.0.1:8087/mock/new
+    url: http://mock_api:8087/mock/new
 - name: janusgraph_docker
   database:
     name: janusgraph
@@ -69,7 +69,7 @@ environments:
   logging:
     interval: 1
     enabled: true
-    url: http://127.0.0.1:8087/mock/new
+    url: http://mock_api:8087/mock/new
   development:
     external_instances:
     - url: http://localhost:8080
