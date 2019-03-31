@@ -35,7 +35,8 @@
         "genesis_url": "http://localhost:8090",
         "public_url": "http://localhost:8080",
         "peer_name": "bestWeaviate"
-      }
+      },
+      "forceC11yValidation": false
     },
     {
       "name": "janusgraph_test",
@@ -58,7 +59,8 @@
         "Action": "test/schema/test-action-schema.json"
       },
       "limit": 100,
-      "debug": true
+      "debug": true,
+      "forceC11yValidation": false
     },
     {
       "name": "janusgraph_docker",
@@ -74,7 +76,7 @@
       },
       "contextionary": {
         "knn_file" : "contextionary/contextionary.knn",
-	"idx_file" : "contextionary/contextionary.idx"
+	      "idx_file" : "contextionary/contextionary.idx"
       },
       "schemas": {
         "Thing": "/schema/things_schema.json",
@@ -87,6 +89,7 @@
       },
       "limit": 100,
       "debug": true,
+      "forceC11yValidation": false,
       "development": {
         "external_instances": [{
             "url": "http://localhost:8080"

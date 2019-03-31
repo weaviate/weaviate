@@ -6,19 +6,19 @@
   ],
   "definitions": {
     "Principal": {
-        "type": "object",
-        "properties": {
-            "username": {
-                "type": "string",
-                "description": "The username that was extracted either from the authentication information"
-            },
-            "groups": {
-                "type": "array",
-                "items": {
-                    "type": "string"
-                }
-            }
+      "type": "object",
+      "properties": {
+        "username": {
+          "type": "string",
+          "description": "The username that was extracted either from the authentication information"
+        },
+        "groups": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
+      }
     },
     "Action": {
       "allOf": [
@@ -195,6 +195,32 @@
         }
       },
       "type": "object"
+    },
+    "C11yCorpusResponse": {
+      "description": "An array of available words and contexts.",
+      "properties": {
+        "corpus": {
+          "description": "Weighted results for all words",
+          "type": "object",
+          "properties": {
+            "corpus": {
+              "type": "string"
+            },
+            "singleWords": {
+              "type": "array",
+              "items": {
+                "format": "string"
+              }
+            },
+            "corpusVector": {
+              "$ref": "#/definitions/C11yVector"
+            },
+            "corpusNearestNeighbors": {
+              "$ref": "#/definitions/C11yNearestNeighbors"
+            }
+          }
+        }
+      }
     },
     "C11yWordsResponse": {
       "description": "An array of available words and contexts.",
@@ -430,6 +456,17 @@
         },
         "thingsSchema": {
           "$ref": "#/definitions/SemanticSchema"
+        },
+        "weaviateVersion": {
+          "description": "The current Weaviate version",
+          "type": "string",
+          "format": "semver",
+          "example": "0.0.0"
+        },
+        "forceC11yValidation": {
+          "description": "Should a string of a Thing or Action always validate against the contextionary?",
+          "type": "boolean",
+          "default": false
         }
       },
       "type": "object"
@@ -638,7 +675,6 @@
         "to": {
           "description": "Short-form URI to point to the cross-ref. Should be in the form of weaviate://localhost/things/<uuid> for the example of a local cross-ref to a thing",
           "example": "weaviate://localhost/things/97525810-a9a5-4eb0-858a-71449aeb007f",
-
           "format": "uri",
           "type": "string"
         }
@@ -866,7 +902,7 @@
   },
   "info": {
     "contact": {
-      "email": "hello@creativesoftwarefdn.org",
+      "email": "hello@semi.technology",
       "name": "Weaviate",
       "url": "https://github.com/creativesoftwarefdn"
     },
@@ -3266,7 +3302,7 @@
     },
     "/c11y/corpus": {
       "post": {
-        "description": "Analyzes a sentence based on the contextionary",
+        "description": "Analyzes a corpus based on the contextionary",
         "operationId": "weaviate.c11y.corpus.get",
         "x-serviceIds": [
           "weaviate.c11y.corpus.get"
@@ -3290,6 +3326,30 @@
           }
         ],
         "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/C11yCorpusResponse"
+            }
+          },
+          "400": {
+            "description": "Incorrect request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Insufficient permissions."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "501": {
             "description": "Not (yet) implemented."
           }
@@ -3317,11 +3377,11 @@
   ],
   "securityDefinitions": {
     "oidc": {
-        "type": "oauth2",
-        "description": "OIDC (OpenConnect ID - based on OAuth2)",
-        "flow": "implicit",
-        "authorizationUrl": "http://to-be-configured-in-the-application-config"
-      }
+      "type": "oauth2",
+      "description": "OIDC (OpenConnect ID - based on OAuth2)",
+      "flow": "implicit",
+      "authorizationUrl": "http://to-be-configured-in-the-application-config"
+    }
   },
   "swagger": "2.0",
   "tags": [

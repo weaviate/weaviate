@@ -11,12 +11,15 @@
  */package restapi
 
 import (
+	"log"
+
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/meta"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/p2_p"
+	"github.com/go-openapi/loads"
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
@@ -32,9 +35,16 @@ func setupMiscHandlers(api *operations.WeaviateAPI) {
 		metaResponse := &models.Meta{}
 
 		// Set the response object's values
+		swaggerSpec, err := loads.Embedded(SwaggerJSON, FlatSwaggerJSON)
+		if err != nil {
+			log.Fatal("The openAPI specs seems corrupted.")
+			return meta.NewWeaviateMetaGetInternalServerError()
+		}
+
 		metaResponse.Hostname = serverConfig.GetHostAddress()
 		metaResponse.ActionsSchema = databaseSchema.ActionSchema.Schema
 		metaResponse.ThingsSchema = databaseSchema.ThingSchema.Schema
+		metaResponse.WeaviateVersion = swaggerSpec.OrigSpec().Info.Version
 
 		return meta.NewWeaviateMetaGetOK().WithPayload(metaResponse)
 	})

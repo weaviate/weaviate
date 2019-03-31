@@ -16,6 +16,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/coreos/etcd/clientv3"
@@ -72,6 +73,14 @@ func configureServer(s *http.Server, scheme, addr string) {
 
 	appState.OIDC = configureOIDC(appState)
 	messaging.InfoMessage(fmt.Sprintf("configured OIDC client, time left is: %s", timeTillDeadline(ctx)))
+
+	// validate the ForceC11yValidation settings.
+	if serverConfig.Environment.ForceC11yValidation != false && serverConfig.Environment.ForceC11yValidation != true {
+		messaging.InfoMessage("No ForceC11yValidation is set, default to false")
+		serverConfig.Environment.ForceC11yValidation == false
+	} else {
+		messaging.InfoMessage("ForceC11yValidation is set to: ", strconv.FormatBool(serverConfig.Environment.ForceC11yValidation))
+	}
 
 	// Add properties to the config
 	serverConfig.Hostname = addr

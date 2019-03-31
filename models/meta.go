@@ -29,11 +29,17 @@ type Meta struct {
 	// actions schema
 	ActionsSchema *SemanticSchema `json:"actionsSchema,omitempty"`
 
+	// Should a string of a Thing or Action always validate against the contextionary?
+	ForceC11yValidation *bool `json:"forceC11yValidation,omitempty"`
+
 	// The url of the host.
 	Hostname string `json:"hostname,omitempty"`
 
 	// things schema
 	ThingsSchema *SemanticSchema `json:"thingsSchema,omitempty"`
+
+	// The current Weaviate version
+	WeaviateVersion string `json:"weaviateVersion,omitempty"`
 }
 
 // Validate validates this meta

@@ -37,15 +37,15 @@ type Client struct {
 /*
 WeaviateC11yCorpusGet checks if a word or word string is part of the contextionary
 
-Analyzes a sentence based on the contextionary
+Analyzes a corpus based on the contextionary
 */
-func (a *Client) WeaviateC11yCorpusGet(params *WeaviateC11yCorpusGetParams, authInfo runtime.ClientAuthInfoWriter) error {
+func (a *Client) WeaviateC11yCorpusGet(params *WeaviateC11yCorpusGetParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateC11yCorpusGetOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateC11yCorpusGetParams()
 	}
 
-	_, err := a.transport.Submit(&runtime.ClientOperation{
+	result, err := a.transport.Submit(&runtime.ClientOperation{
 		ID:                 "weaviate.c11y.corpus.get",
 		Method:             "POST",
 		PathPattern:        "/c11y/corpus",
@@ -59,9 +59,9 @@ func (a *Client) WeaviateC11yCorpusGet(params *WeaviateC11yCorpusGetParams, auth
 		Client:             params.HTTPClient,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+	return result.(*WeaviateC11yCorpusGetOK), nil
 
 }
 

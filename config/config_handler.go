@@ -55,6 +55,7 @@ type Environment struct {
 	Contextionary        Contextionary   `json:"contextionary" yaml:"contextionary"`
 	ConfigurationStorage ConfigStore     `json:"configuration_storage" yaml:"configuration_storage"`
 	Authentication       Authentication  `json:"authentication" yaml:"authentication"`
+	ForceC11yValidation  bool            `json:"forceC11yValidation" yaml:"forceC11yValidation"`
 }
 
 type Contextionary struct {

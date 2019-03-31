@@ -17,11 +17,14 @@ package contextionary_api
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/swag"
 
 	strfmt "github.com/go-openapi/strfmt"
+
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // WeaviateC11yCorpusGetReader is a Reader for the WeaviateC11yCorpusGet structure.
@@ -33,6 +36,41 @@ type WeaviateC11yCorpusGetReader struct {
 func (o *WeaviateC11yCorpusGetReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
 
+	case 200:
+		result := NewWeaviateC11yCorpusGetOK()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return result, nil
+
+	case 400:
+		result := NewWeaviateC11yCorpusGetBadRequest()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+
+	case 401:
+		result := NewWeaviateC11yCorpusGetUnauthorized()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+
+	case 403:
+		result := NewWeaviateC11yCorpusGetForbidden()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+
+	case 500:
+		result := NewWeaviateC11yCorpusGetInternalServerError()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+
 	case 501:
 		result := NewWeaviateC11yCorpusGetNotImplemented()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -43,6 +81,135 @@ func (o *WeaviateC11yCorpusGetReader) ReadResponse(response runtime.ClientRespon
 	default:
 		return nil, runtime.NewAPIError("unknown error", response, response.Code())
 	}
+}
+
+// NewWeaviateC11yCorpusGetOK creates a WeaviateC11yCorpusGetOK with default headers values
+func NewWeaviateC11yCorpusGetOK() *WeaviateC11yCorpusGetOK {
+	return &WeaviateC11yCorpusGetOK{}
+}
+
+/*WeaviateC11yCorpusGetOK handles this case with default header values.
+
+Successful response.
+*/
+type WeaviateC11yCorpusGetOK struct {
+	Payload *models.C11yCorpusResponse
+}
+
+func (o *WeaviateC11yCorpusGetOK) Error() string {
+	return fmt.Sprintf("[POST /c11y/corpus][%d] weaviateC11yCorpusGetOK  %+v", 200, o.Payload)
+}
+
+func (o *WeaviateC11yCorpusGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.C11yCorpusResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewWeaviateC11yCorpusGetBadRequest creates a WeaviateC11yCorpusGetBadRequest with default headers values
+func NewWeaviateC11yCorpusGetBadRequest() *WeaviateC11yCorpusGetBadRequest {
+	return &WeaviateC11yCorpusGetBadRequest{}
+}
+
+/*WeaviateC11yCorpusGetBadRequest handles this case with default header values.
+
+Incorrect request
+*/
+type WeaviateC11yCorpusGetBadRequest struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *WeaviateC11yCorpusGetBadRequest) Error() string {
+	return fmt.Sprintf("[POST /c11y/corpus][%d] weaviateC11yCorpusGetBadRequest  %+v", 400, o.Payload)
+}
+
+func (o *WeaviateC11yCorpusGetBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewWeaviateC11yCorpusGetUnauthorized creates a WeaviateC11yCorpusGetUnauthorized with default headers values
+func NewWeaviateC11yCorpusGetUnauthorized() *WeaviateC11yCorpusGetUnauthorized {
+	return &WeaviateC11yCorpusGetUnauthorized{}
+}
+
+/*WeaviateC11yCorpusGetUnauthorized handles this case with default header values.
+
+Unauthorized or invalid credentials.
+*/
+type WeaviateC11yCorpusGetUnauthorized struct {
+}
+
+func (o *WeaviateC11yCorpusGetUnauthorized) Error() string {
+	return fmt.Sprintf("[POST /c11y/corpus][%d] weaviateC11yCorpusGetUnauthorized ", 401)
+}
+
+func (o *WeaviateC11yCorpusGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewWeaviateC11yCorpusGetForbidden creates a WeaviateC11yCorpusGetForbidden with default headers values
+func NewWeaviateC11yCorpusGetForbidden() *WeaviateC11yCorpusGetForbidden {
+	return &WeaviateC11yCorpusGetForbidden{}
+}
+
+/*WeaviateC11yCorpusGetForbidden handles this case with default header values.
+
+Insufficient permissions.
+*/
+type WeaviateC11yCorpusGetForbidden struct {
+}
+
+func (o *WeaviateC11yCorpusGetForbidden) Error() string {
+	return fmt.Sprintf("[POST /c11y/corpus][%d] weaviateC11yCorpusGetForbidden ", 403)
+}
+
+func (o *WeaviateC11yCorpusGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewWeaviateC11yCorpusGetInternalServerError creates a WeaviateC11yCorpusGetInternalServerError with default headers values
+func NewWeaviateC11yCorpusGetInternalServerError() *WeaviateC11yCorpusGetInternalServerError {
+	return &WeaviateC11yCorpusGetInternalServerError{}
+}
+
+/*WeaviateC11yCorpusGetInternalServerError handles this case with default header values.
+
+An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+*/
+type WeaviateC11yCorpusGetInternalServerError struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *WeaviateC11yCorpusGetInternalServerError) Error() string {
+	return fmt.Sprintf("[POST /c11y/corpus][%d] weaviateC11yCorpusGetInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *WeaviateC11yCorpusGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
 }
 
 // NewWeaviateC11yCorpusGetNotImplemented creates a WeaviateC11yCorpusGetNotImplemented with default headers values

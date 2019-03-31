@@ -18,7 +18,6 @@ import (
 
 // Flags and their default value
 var (
-	EnableDevUI   bool = false
 	EnableGetMeta bool = false
 )
 
@@ -26,10 +25,6 @@ var flags = []struct {
 	toggleVar *bool
 	envVar    string
 }{
-	{
-		toggleVar: &EnableDevUI,
-		envVar:    "DEVELOPMENT_UI",
-	},
 	{
 		toggleVar: &EnableGetMeta,
 		envVar:    "FEATURE_GET_META",
