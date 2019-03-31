@@ -47,11 +47,15 @@ func (fn FakeNetwork) ProxyGetInstance(common.Params) (*models.GraphQLResponse, 
 }
 
 func (fn FakeNetwork) ProxyGetMetaInstance(common.Params) (*models.GraphQLResponse, error) {
-	return nil, fmt.Errorf("Cannot proxy get instance, because there is no network configured")
+	return nil, fmt.Errorf("Cannot proxy get meta, because there is no network configured")
 }
 
 func (fn FakeNetwork) ProxyAggregateInstance(common.Params) (*models.GraphQLResponse, error) {
-	return nil, fmt.Errorf("Cannot proxy get instance, because there is no network configured")
+	return nil, fmt.Errorf("Cannot proxy aggregate, because there is no network configured")
+}
+
+func (fn FakeNetwork) ProxyFetch(common.SubQuery) ([]*models.GraphQLResponse, error) {
+	return nil, fmt.Errorf("Cannot proxy fetch, because there is no network configured")
 }
 
 func (fn FakeNetwork) RegisterUpdatePeerCallback(callbackFn network.PeerUpdateCallback) {
