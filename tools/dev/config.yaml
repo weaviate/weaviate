@@ -3,6 +3,7 @@ environments:
 - name: janusgraph
   database:
     name: janusgraph
+    forceC11yValidation: false
     database_config:
       url: http://localhost:8182
       analytics_engine:
@@ -29,6 +30,7 @@ environments:
     public_url: http://localhost:8080
     peer_name: bestWeaviate
 - name: janusgraph_test
+  forceC11yValidation: false
   database:
     name: janusgraph
     database_config:
@@ -53,6 +55,7 @@ environments:
     - url: http://localhost:8080
     - url: http://127.0.0.1:8080
 - name: janusgraph_docker
+  forceC11yValidation: false
   database:
     name: janusgraph
     database_config:
