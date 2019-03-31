@@ -17,8 +17,8 @@ import (
 	"fmt"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/common/fetch"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/utils"
 	"github.com/graphql-go/graphql"
 )
 
@@ -27,12 +27,12 @@ func Build() *graphql.Field {
 	return &graphql.Field{
 		Name:        "WeaviateLocalFetch",
 		Description: descriptions.LocalFetch,
-		Type:        fetchObj(nil),
+		Type:        fetchObj(),
 		Resolve:     bubbleUpResolver,
 	}
 }
 
-func fetchObj(filterContainer *utils.FilterContainer) *graphql.Object {
+func fetchObj() *graphql.Object {
 
 	fields := graphql.Fields{
 		"Actions": &graphql.Field{
@@ -40,7 +40,7 @@ func fetchObj(filterContainer *utils.FilterContainer) *graphql.Object {
 			Description: descriptions.LocalFetchActions,
 			Type:        graphql.NewList(kindFieldsObj(kind.ACTION_KIND)),
 			Args: graphql.FieldConfigArgument{
-				"where": whereFilterField(kind.ACTION_KIND),
+				"where": fetch.NewFilterBuilder(kind.ACTION_KIND, "WeaviateLocal").Build(),
 			},
 			Resolve: makeResolveClass(kind.ACTION_KIND),
 		},
@@ -50,7 +50,7 @@ func fetchObj(filterContainer *utils.FilterContainer) *graphql.Object {
 			Description: descriptions.LocalFetchThings,
 			Type:        graphql.NewList(kindFieldsObj(kind.THING_KIND)),
 			Args: graphql.FieldConfigArgument{
-				"where": whereFilterField(kind.THING_KIND),
+				"where": fetch.NewFilterBuilder(kind.THING_KIND, "WeaviateLocal").Build(),
 			},
 			Resolve: makeResolveClass(kind.THING_KIND),
 		},
@@ -91,21 +91,6 @@ func kindFieldsObj(k kind.Kind) *graphql.Object {
 		Fields:      fields,
 		Description: desc,
 	})
-}
-
-func whereFilterField(k kind.Kind) *graphql.ArgumentConfig {
-	whereFilterFields := &graphql.ArgumentConfig{
-		Description: descriptions.FetchWhereFilterFields,
-		Type: graphql.NewNonNull(graphql.NewInputObject(
-			graphql.InputObjectConfig{
-				Name:        fmt.Sprintf("WeaviateLocalFetch%sWhereInpObj", k.TitleizedName()),
-				Fields:      whereFilterFields(k),
-				Description: descriptions.FetchWhereFilterFieldsInpObj,
-			},
-		)),
-	}
-
-	return whereFilterFields
 }
 
 func bubbleUpResolver(p graphql.ResolveParams) (interface{}, error) {

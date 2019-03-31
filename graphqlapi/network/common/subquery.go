@@ -28,6 +28,23 @@ func ParseSubQuery(subQuery []byte) SubQuery {
 
 // WrapInLocalQuery assumes the subquery can be sent as part of a
 // Local-Query, i.e. it should start with `Get{ ... }`
-func (s SubQuery) WrapInLocalQuery() string {
-	return fmt.Sprintf("{ Local { %s } }", s)
+func (s SubQuery) WrapInLocalQuery() SubQuery {
+	return SubQuery(fmt.Sprintf("Local { %s }", s))
+}
+
+// WrapInFetchQuery is helpful for network fetch operations where we extract
+// the query at the Things/Action level to distuingish it from Fuzzy. We
+// therefore need to re-add the Fetch part.
+func (s SubQuery) WrapInFetchQuery() SubQuery {
+	return SubQuery(fmt.Sprintf("Fetch { %s }", s))
+}
+
+// WrapInBraces can be used to turn the subquery fragments into a root query
+func (s SubQuery) WrapInBraces() SubQuery {
+	return SubQuery(fmt.Sprintf("{ %s }", s))
+}
+
+// String representation of the query
+func (s SubQuery) String() string {
+	return string(s)
 }

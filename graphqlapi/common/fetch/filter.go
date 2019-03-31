@@ -21,14 +21,42 @@ import (
 	"github.com/graphql-go/graphql"
 )
 
-func whereFilterFields(k kind.Kind) graphql.InputObjectConfigFieldMap {
+// FilterBuilder can build where filters for both local and
+type FilterBuilder struct {
+	kind   kind.Kind
+	prefix string
+}
+
+// NewFilterBuilder with kind and prefix
+func NewFilterBuilder(kind kind.Kind, prefix string) *FilterBuilder {
+	return &FilterBuilder{
+		kind:   kind,
+		prefix: prefix,
+	}
+}
+
+// Build a where filter ArgumentConfig
+func (b *FilterBuilder) Build() *graphql.ArgumentConfig {
+	return &graphql.ArgumentConfig{
+		Description: descriptions.FetchWhereFilterFields,
+		Type: graphql.NewNonNull(graphql.NewInputObject(
+			graphql.InputObjectConfig{
+				Name:        fmt.Sprintf("%sFetch%sWhereInpObj", b.prefix, b.kind.TitleizedName()),
+				Fields:      b.fields(),
+				Description: descriptions.FetchWhereFilterFieldsInpObj,
+			},
+		)),
+	}
+}
+
+func (b *FilterBuilder) fields() graphql.InputObjectConfigFieldMap {
 	return graphql.InputObjectConfigFieldMap{
 		"class": &graphql.InputObjectFieldConfig{
-			Type:        graphql.NewNonNull(whereInpObjClassInpObj(k)),
+			Type:        graphql.NewNonNull(b.class()),
 			Description: descriptions.WhereClass,
 		},
 		"properties": &graphql.InputObjectFieldConfig{
-			Type:        graphql.NewNonNull(graphql.NewList(whereInpObjPropertiesObj(k))),
+			Type:        graphql.NewNonNull(graphql.NewList(b.properties())),
 			Description: descriptions.WhereProperties,
 		},
 		"first": &graphql.InputObjectFieldConfig{
@@ -38,8 +66,8 @@ func whereFilterFields(k kind.Kind) graphql.InputObjectConfigFieldMap {
 	}
 }
 
-func whereInpObjPropertiesObj(k kind.Kind) *graphql.InputObject {
-	filterPropertiesElements := common_filters.BuildNew(fmt.Sprintf("WeaviateLocalFetch%s", k.TitleizedName()))
+func (b *FilterBuilder) properties() *graphql.InputObject {
+	filterPropertiesElements := common_filters.BuildNew(fmt.Sprintf("%sFetch%s", b.prefix, b.kind.TitleizedName()))
 
 	// Remove path and operands fields as they are not required here
 	delete(filterPropertiesElements, "path")
@@ -54,13 +82,13 @@ func whereInpObjPropertiesObj(k kind.Kind) *graphql.InputObject {
 		Description: descriptions.WhereName,
 	}
 	filterPropertiesElements["keywords"] = &graphql.InputObjectFieldConfig{
-		Type:        graphql.NewList(keywordInpObj(fmt.Sprintf("LocalFetch%sWhereProperties", k.TitleizedName()))),
+		Type:        graphql.NewList(b.keywordInpObj(fmt.Sprintf("%sFetch%sWhereProperties", b.prefix, b.kind.TitleizedName()))),
 		Description: descriptions.WhereKeywords,
 	}
 
 	networkFetchWhereInpObjPropertiesObj := graphql.NewInputObject(
 		graphql.InputObjectConfig{
-			Name:        fmt.Sprintf("WeaviateLocalFetch%sWhereInpObjProperties", k.TitleizedName()),
+			Name:        fmt.Sprintf("%sFetch%sWhereInpObjProperties", b.prefix, b.kind.TitleizedName()),
 			Fields:      filterPropertiesElements,
 			Description: descriptions.WhereProperties,
 		},
@@ -69,8 +97,8 @@ func whereInpObjPropertiesObj(k kind.Kind) *graphql.InputObject {
 	return networkFetchWhereInpObjPropertiesObj
 }
 
-func keywordInpObj(prefix string) *graphql.InputObject {
-	outputObject := graphql.NewInputObject(
+func (b *FilterBuilder) keywordInpObj(prefix string) *graphql.InputObject {
+	return graphql.NewInputObject(
 		graphql.InputObjectConfig{
 			Name: fmt.Sprintf("%sKeywordsInpObj", prefix),
 			Fields: graphql.InputObjectConfigFieldMap{
@@ -86,10 +114,9 @@ func keywordInpObj(prefix string) *graphql.InputObject {
 			Description: descriptions.WhereKeywordsInpObj,
 		},
 	)
-	return outputObject
 }
 
-func whereInpObjClassInpObj(k kind.Kind) *graphql.InputObject {
+func (b *FilterBuilder) class() *graphql.InputObject {
 	filterClassElements := graphql.InputObjectConfigFieldMap{
 		"name": &graphql.InputObjectFieldConfig{
 			Type:        graphql.String,
@@ -100,7 +127,7 @@ func whereInpObjClassInpObj(k kind.Kind) *graphql.InputObject {
 			Description: descriptions.WhereCertainty,
 		},
 		"keywords": &graphql.InputObjectFieldConfig{
-			Type:        graphql.NewList(keywordInpObj(fmt.Sprintf("LocalFetch%sWhereClass", k.TitleizedName()))),
+			Type:        graphql.NewList(b.keywordInpObj(fmt.Sprintf("%sFetch%sWhereClass", b.prefix, b.kind.TitleizedName()))),
 			Description: descriptions.WhereKeywords,
 		},
 		"first": &graphql.InputObjectFieldConfig{
@@ -111,7 +138,7 @@ func whereInpObjClassInpObj(k kind.Kind) *graphql.InputObject {
 
 	networkFetchWhereInpObjClassInpObj := graphql.NewInputObject(
 		graphql.InputObjectConfig{
-			Name:        fmt.Sprintf("WeaviateLocalFetch%sWhereInpObjClassInpObj", k.TitleizedName()),
+			Name:        fmt.Sprintf("%sFetch%sWhereInpObjClassInpObj", b.prefix, b.kind.TitleizedName()),
 			Fields:      filterClassElements,
 			Description: descriptions.WhereClass,
 		},
