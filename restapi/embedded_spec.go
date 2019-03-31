@@ -894,7 +894,7 @@ func init() {
     },
     "/c11y/corpus": {
       "post": {
-        "description": "Analyzes a sentence based on the contextionary",
+        "description": "Analyzes a corpus based on the contextionary",
         "tags": [
           "contextionary-API"
         ],
@@ -919,6 +919,30 @@ func init() {
           }
         ],
         "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/C11yCorpusResponse"
+            }
+          },
+          "400": {
+            "description": "Incorrect request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Insufficient permissions."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "501": {
             "description": "Not (yet) implemented."
           }
@@ -2684,6 +2708,32 @@ func init() {
         }
       ]
     },
+    "C11yCorpusResponse": {
+      "description": "An array of available words and contexts.",
+      "properties": {
+        "corpus": {
+          "description": "Weighted results for all words",
+          "type": "object",
+          "properties": {
+            "corpus": {
+              "type": "string"
+            },
+            "corpusNearestNeighbors": {
+              "$ref": "#/definitions/C11yNearestNeighbors"
+            },
+            "corpusVector": {
+              "$ref": "#/definitions/C11yVector"
+            },
+            "singleWords": {
+              "type": "array",
+              "items": {
+                "format": "string"
+              }
+            }
+          }
+        }
+      }
+    },
     "C11yNearestNeighbors": {
       "description": "C11y function to show the nearest neighbors to a word.",
       "type": "array",
@@ -2925,6 +2975,11 @@ func init() {
       "properties": {
         "actionsSchema": {
           "$ref": "#/definitions/SemanticSchema"
+        },
+        "forceC11yValidation": {
+          "description": "Should a string of a Thing or Action always validate against the contextionary?",
+          "type": "boolean",
+          "default": false
         },
         "hostname": {
           "description": "The url of the host.",
@@ -4261,7 +4316,7 @@ func init() {
     },
     "/c11y/corpus": {
       "post": {
-        "description": "Analyzes a sentence based on the contextionary",
+        "description": "Analyzes a corpus based on the contextionary",
         "tags": [
           "contextionary-API"
         ],
@@ -4286,6 +4341,30 @@ func init() {
           }
         ],
         "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/C11yCorpusResponse"
+            }
+          },
+          "400": {
+            "description": "Incorrect request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Insufficient permissions."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "501": {
             "description": "Not (yet) implemented."
           }
@@ -6059,6 +6138,32 @@ func init() {
         }
       ]
     },
+    "C11yCorpusResponse": {
+      "description": "An array of available words and contexts.",
+      "properties": {
+        "corpus": {
+          "description": "Weighted results for all words",
+          "type": "object",
+          "properties": {
+            "corpus": {
+              "type": "string"
+            },
+            "corpusNearestNeighbors": {
+              "$ref": "#/definitions/C11yNearestNeighbors"
+            },
+            "corpusVector": {
+              "$ref": "#/definitions/C11yVector"
+            },
+            "singleWords": {
+              "type": "array",
+              "items": {
+                "format": "string"
+              }
+            }
+          }
+        }
+      }
+    },
     "C11yNearestNeighbors": {
       "description": "C11y function to show the nearest neighbors to a word.",
       "type": "array",
@@ -6300,6 +6405,11 @@ func init() {
       "properties": {
         "actionsSchema": {
           "$ref": "#/definitions/SemanticSchema"
+        },
+        "forceC11yValidation": {
+          "description": "Should a string of a Thing or Action always validate against the contextionary?",
+          "type": "boolean",
+          "default": false
         },
         "hostname": {
           "description": "The url of the host.",

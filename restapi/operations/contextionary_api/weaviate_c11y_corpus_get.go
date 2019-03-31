@@ -47,7 +47,7 @@ func NewWeaviateC11yCorpusGet(ctx *middleware.Context, handler WeaviateC11yCorpu
 
 Checks if a word or wordString is part of the contextionary.
 
-Analyzes a sentence based on the contextionary
+Analyzes a corpus based on the contextionary
 
 */
 type WeaviateC11yCorpusGet struct {

@@ -19,7 +19,189 @@ import (
 	"net/http"
 
 	"github.com/go-openapi/runtime"
+
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
+
+// WeaviateC11yCorpusGetOKCode is the HTTP code returned for type WeaviateC11yCorpusGetOK
+const WeaviateC11yCorpusGetOKCode int = 200
+
+/*WeaviateC11yCorpusGetOK Successful response.
+
+swagger:response weaviateC11yCorpusGetOK
+*/
+type WeaviateC11yCorpusGetOK struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.C11yCorpusResponse `json:"body,omitempty"`
+}
+
+// NewWeaviateC11yCorpusGetOK creates WeaviateC11yCorpusGetOK with default headers values
+func NewWeaviateC11yCorpusGetOK() *WeaviateC11yCorpusGetOK {
+
+	return &WeaviateC11yCorpusGetOK{}
+}
+
+// WithPayload adds the payload to the weaviate c11y corpus get o k response
+func (o *WeaviateC11yCorpusGetOK) WithPayload(payload *models.C11yCorpusResponse) *WeaviateC11yCorpusGetOK {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate c11y corpus get o k response
+func (o *WeaviateC11yCorpusGetOK) SetPayload(payload *models.C11yCorpusResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *WeaviateC11yCorpusGetOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(200)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
+// WeaviateC11yCorpusGetBadRequestCode is the HTTP code returned for type WeaviateC11yCorpusGetBadRequest
+const WeaviateC11yCorpusGetBadRequestCode int = 400
+
+/*WeaviateC11yCorpusGetBadRequest Incorrect request
+
+swagger:response weaviateC11yCorpusGetBadRequest
+*/
+type WeaviateC11yCorpusGetBadRequest struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewWeaviateC11yCorpusGetBadRequest creates WeaviateC11yCorpusGetBadRequest with default headers values
+func NewWeaviateC11yCorpusGetBadRequest() *WeaviateC11yCorpusGetBadRequest {
+
+	return &WeaviateC11yCorpusGetBadRequest{}
+}
+
+// WithPayload adds the payload to the weaviate c11y corpus get bad request response
+func (o *WeaviateC11yCorpusGetBadRequest) WithPayload(payload *models.ErrorResponse) *WeaviateC11yCorpusGetBadRequest {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate c11y corpus get bad request response
+func (o *WeaviateC11yCorpusGetBadRequest) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *WeaviateC11yCorpusGetBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(400)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
+// WeaviateC11yCorpusGetUnauthorizedCode is the HTTP code returned for type WeaviateC11yCorpusGetUnauthorized
+const WeaviateC11yCorpusGetUnauthorizedCode int = 401
+
+/*WeaviateC11yCorpusGetUnauthorized Unauthorized or invalid credentials.
+
+swagger:response weaviateC11yCorpusGetUnauthorized
+*/
+type WeaviateC11yCorpusGetUnauthorized struct {
+}
+
+// NewWeaviateC11yCorpusGetUnauthorized creates WeaviateC11yCorpusGetUnauthorized with default headers values
+func NewWeaviateC11yCorpusGetUnauthorized() *WeaviateC11yCorpusGetUnauthorized {
+
+	return &WeaviateC11yCorpusGetUnauthorized{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateC11yCorpusGetUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+
+	rw.WriteHeader(401)
+}
+
+// WeaviateC11yCorpusGetForbiddenCode is the HTTP code returned for type WeaviateC11yCorpusGetForbidden
+const WeaviateC11yCorpusGetForbiddenCode int = 403
+
+/*WeaviateC11yCorpusGetForbidden Insufficient permissions.
+
+swagger:response weaviateC11yCorpusGetForbidden
+*/
+type WeaviateC11yCorpusGetForbidden struct {
+}
+
+// NewWeaviateC11yCorpusGetForbidden creates WeaviateC11yCorpusGetForbidden with default headers values
+func NewWeaviateC11yCorpusGetForbidden() *WeaviateC11yCorpusGetForbidden {
+
+	return &WeaviateC11yCorpusGetForbidden{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateC11yCorpusGetForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+
+	rw.WriteHeader(403)
+}
+
+// WeaviateC11yCorpusGetInternalServerErrorCode is the HTTP code returned for type WeaviateC11yCorpusGetInternalServerError
+const WeaviateC11yCorpusGetInternalServerErrorCode int = 500
+
+/*WeaviateC11yCorpusGetInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+
+swagger:response weaviateC11yCorpusGetInternalServerError
+*/
+type WeaviateC11yCorpusGetInternalServerError struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewWeaviateC11yCorpusGetInternalServerError creates WeaviateC11yCorpusGetInternalServerError with default headers values
+func NewWeaviateC11yCorpusGetInternalServerError() *WeaviateC11yCorpusGetInternalServerError {
+
+	return &WeaviateC11yCorpusGetInternalServerError{}
+}
+
+// WithPayload adds the payload to the weaviate c11y corpus get internal server error response
+func (o *WeaviateC11yCorpusGetInternalServerError) WithPayload(payload *models.ErrorResponse) *WeaviateC11yCorpusGetInternalServerError {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate c11y corpus get internal server error response
+func (o *WeaviateC11yCorpusGetInternalServerError) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *WeaviateC11yCorpusGetInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(500)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
 
 // WeaviateC11yCorpusGetNotImplementedCode is the HTTP code returned for type WeaviateC11yCorpusGetNotImplemented
 const WeaviateC11yCorpusGetNotImplementedCode int = 501
