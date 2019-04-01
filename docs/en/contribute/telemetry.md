@@ -23,8 +23,8 @@ Note that Weaviate only logs requests that do not result in an error.
   {
     "n": "name", 							// the name of the Weaviate instance
     "t": "REST", 							// the type of request
-    "i": "weaviate.local.manipulate.meta", 	// the ServiceID of the request
-    "a": 1 									// the amount of times a request with this type and ServiceID occurred since previous log was sent to the logging endpoint
+    "i": "weaviate.local.manipulate.meta", 				// the ServiceID of the request
+    "a": 1 								// the amount of times a request with this type and ServiceID occurred since previous log was sent to the logging endpoint
     "w": 1553683026							// timestamp in epoch of when this log is sent to the logging endpoint (this is set when the log is sent)
   },
   {
@@ -58,4 +58,4 @@ If a POST to the logging endpoint does not return a `200` status code then Weavi
 	The interval variable determines the amount of time separating Weaviate's attempts to send logs to the logging endpoint. It is measured in seconds.
 	
 	### 3.3 URL
-	The URL variable holds the address of the logging endpoint.
+	The URL variable holds the address of the logging endpoint. If this address is invalid and Telemetry is enabled then Weaviate will store its logs in its etcd key store.
