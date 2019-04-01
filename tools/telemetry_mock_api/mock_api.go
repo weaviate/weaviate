@@ -23,7 +23,7 @@ import (
 )
 
 func main() {
-	fmt.Println("Hello world")
+	fmt.Println("Listening on Port 8087")
 
 	router := mux.NewRouter()
 

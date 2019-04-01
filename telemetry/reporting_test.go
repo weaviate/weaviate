@@ -30,6 +30,8 @@ func TestLoop(t *testing.T) {
 	calledFunctions.PeerName = "soggy-whale-bread"
 	calledFunctions.Register("REST", "weaviate.something.or.other")
 
+	messaging := &messages.Messaging{}
+
 	interval := 1
 	url := "http://www.example.com"
 
