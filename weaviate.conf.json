@@ -21,7 +21,7 @@
 		"logging": {
 			"interval": 1,
 			"enabled": true,
-			"url": "http://telemetry_mock_api:8087/mock/new"
+			"url": "http://mock_api:8087/mock/new"
 		}
 	}, {
 		"name": "dummy_net_1",
@@ -50,7 +50,7 @@
 		"logging": {
 			"interval": 1,
 			"enabled": true,
-			"url": "http://telemetry_mock_api:8087/mock/new"
+			"url": "http://mock_api:8087/mock/new"
 		}
 	}, {
 		"name": "dummy_net_2",
@@ -79,7 +79,7 @@
 		"logging": {
 			"interval": 1,
 			"enabled": true,
-			"url": "http://telemetry_mock_api:8087/mock/new"
+			"url": "http://mock_api:8087/mock/new"
 		}
 	}]
 }
