@@ -26,6 +26,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/ugorji/go/codec"
 )
 
@@ -106,7 +107,7 @@ func sendCreateActionRequest(t *testing.T) {
 
 // retrieveLogFromMockEndpoint retrieves the most recently received log from the mock api
 func retrieveLogFromMockEndpoint(t *testing.T) []byte {
-	testURL, err := url.Parse("http://mock_api:8087/mock/last")
+	testURL, err := url.Parse("http://localhost:8087/mock/last")
 	assert.Equal(t, nil, err)
 
 	client := &http.Client{}
@@ -133,10 +134,6 @@ func interpretResult(t *testing.T, resultBody []byte) map[string]interface{} {
 	encoder := codec.NewDecoderBytes(resultBody, cborHandle)
 	err := encoder.Decode(decoded)
 
-	assert.Equal(t, nil, err)
-
-	if err == nil {
-		return decoded
-	}
-	return nil
+	require.Equal(t, nil, err)
+	return decoded
 }
