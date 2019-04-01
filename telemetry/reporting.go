@@ -178,18 +178,18 @@ func (o *OutputTransformer) EncodeAsCBOR(minimizedLogs *[]map[string]interface{}
 // NewPoster creates a new poster struct, which is responsible for sending logs to the specified endpoint.
 func NewPoster(ctx context.Context, url string, client etcdClient, messaging *messages.Messaging) *Poster {
 	return &Poster{
-		context: ctx,
-		url:     url,
-		client:  client,
-		messaging: messaging
+		context:   ctx,
+		url:       url,
+		client:    client,
+		messaging: messaging,
 	}
 }
 
 // Poster is a class responsible for sending the converted log to the logging endpoint. If the endpoint is unreachable then the logs are stored in the etcd store.
 type Poster struct {
-	url     string
-	client  etcdClient
-	context context.Context
+	url       string
+	client    etcdClient
+	context   context.Context
 	messaging *messages.Messaging
 }
 
