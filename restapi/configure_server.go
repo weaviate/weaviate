@@ -147,8 +147,10 @@ func configureServer(s *http.Server, scheme, addr string) {
 
 	manager.RegisterSchemaUpdateCallback(updateSchemaCallback)
 
+	// Initialize a non-expiring context for the reporter
+	reportingContext := context.Background()
 	// Initialize the reporter
-	reporter = telemetry.NewReporter(ctx, mainLog, loggingInterval, loggingUrl, loggingEnabled, loggingDebug, etcdClient, messaging)
+	reporter = telemetry.NewReporter(reportingContext, mainLog, loggingInterval, loggingUrl, loggingEnabled, loggingDebug, etcdClient, messaging)
 
 	// Start reporting
 	go func() {
