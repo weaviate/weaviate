@@ -115,7 +115,7 @@ func (r *Reporter) triggerCBORFailsafe(extractedLog *map[string]*RequestLog) {
 }
 
 // TransformToOutputFormat transforms the logged function calls to a minimized output format to reduce network traffic.
-func (r *Reporter) TransformToOutputFormat(logs *map[string]*RequestLog) (*[]byte, error) { // TODO: cover with test
+func (r *Reporter) TransformToOutputFormat(logs *map[string]*RequestLog) (*[]byte, error) {
 	minimizedLogs := r.transformer.Minimize(logs)
 
 	cborLogs, err := r.transformer.EncodeAsCBOR(minimizedLogs)
