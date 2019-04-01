@@ -38,6 +38,11 @@ func (m *mockResolver) LocalFetchKindClass(params *Params) (interface{}, error) 
 	return args.Get(0), args.Error(1)
 }
 
+func (m *mockResolver) LocalFetchFuzzy(words []string) (interface{}, error) {
+	args := m.Called(words)
+	return args.Get(0), args.Error(1)
+}
+
 func newMockContextionary() *mockContextionary {
 	return &mockContextionary{}
 }
@@ -65,6 +70,11 @@ func (m *mockContextionary) SchemaSearch(p contextionary.SearchParams) (contexti
 	}, nil
 }
 
+func (m *mockContextionary) SafeGetSimilarWordsWithCertainty(word string, certainty float32) []string {
+	m.Called(word, certainty)
+	return []string{word, word + "alt1", word + "alt2"}
+}
+
 func newEmptyContextionary() *emptyContextionary {
 	return &emptyContextionary{}
 }
@@ -79,4 +89,8 @@ func (m *emptyContextionary) SchemaSearch(p contextionary.SearchParams) (context
 		Type:    p.SearchType,
 		Results: []contextionary.SearchResult{},
 	}, nil
+}
+
+func (m *emptyContextionary) SafeGetSimilarWordsWithCertainty(word string, certainty float32) []string {
+	panic("not implemented")
 }
