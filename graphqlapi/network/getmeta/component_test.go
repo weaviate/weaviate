@@ -231,19 +231,20 @@ func newMockResolver() *mockResolver {
 			Fields: graphql.Fields{"PeerA": peerA},
 		}),
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			resolver, ok := p.Source.(map[string]interface{})["NetworkResolver"].(Resolver)
+			source, ok := p.Source.(map[string]interface{})
 			if !ok {
-				return nil, fmt.Errorf("source does not contain a NetworkResolver, but \n%#v", p.Source)
+				return nil, fmt.Errorf("source is not a map[string]interface{}, but a \n%#v", p.Source)
 			}
 
-			return resolver, nil
+			return source, nil
 		},
 	}
 
 	mocker := &mockResolver{}
+	mockLog := &mockRequestsLog{}
 	mocker.RootFieldName = "GetMeta"
 	mocker.RootField = peerField
-	mocker.RootObject = map[string]interface{}{"NetworkResolver": Resolver(mocker)}
+	mocker.RootObject = map[string]interface{}{"NetworkResolver": Resolver(mocker), "RequestsLog": mockLog}
 	return mocker
 }
 

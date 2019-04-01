@@ -22,6 +22,11 @@
       },
       "limit": 100,
       "debug": true,
+      "logging": {
+        "interval": 1,
+        "enabled": true,
+        "url": "http://mock_api:8087/mock/new"
+		  },
       "development": {
         "external_instances": [{
             "url": "http://localhost:8080"
@@ -58,7 +63,12 @@
         "Action": "test/schema/test-action-schema.json"
       },
       "limit": 100,
-      "debug": true
+      "debug": true,
+      "logging": {
+        "interval": 1,
+        "enabled": true,
+        "url": "http://mock_api:8087/mock/new"
+		  }
     },
     {
       "name": "janusgraph_docker",
@@ -87,6 +97,11 @@
       },
       "limit": 100,
       "debug": true,
+      "logging": {
+        "interval": 1,
+        "enabled": true,
+        "url": "http://mock_api:8087/mock/new"
+		  },
       "development": {
         "external_instances": [{
             "url": "http://localhost:8080"
@@ -115,6 +130,11 @@
       },
       "limit": 100,
       "debug": true,
+      "logging": {
+        "interval": 1,
+        "enabled": true,
+        "url": "http://mock_api:8087/mock/new"
+		  },
       "development": {
         "external_instances": [{
             "url": "http://localhost:8080"

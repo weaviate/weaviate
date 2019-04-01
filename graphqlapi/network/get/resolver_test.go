@@ -21,6 +21,12 @@ import (
 	"github.com/graphql-go/graphql/language/source"
 )
 
+type mockRequestsLog struct{}
+
+func (m *mockRequestsLog) Register(first string, second string) {
+
+}
+
 func TestNetworkGetInstanceQueryWithoutFilters(t *testing.T) {
 	t.Parallel()
 	resolver := &fakeNetworkResolver{}
@@ -66,10 +72,13 @@ func TestNetworkGetInstanceQueryWithoutFilters(t *testing.T) {
 
 func paramsFromQueryWithStartAndEnd(query []byte, start int, end int,
 	instanceName string, resolver Resolver, principal interface{}) graphql.ResolveParams {
+	paramSource := map[string]interface{}{
+		"NetworkResolver": resolver,
+		"RequestsLog":     &mockRequestsLog{},
+	}
+
 	return graphql.ResolveParams{
-		Source: FiltersAndResolver{
-			Resolver: resolver,
-		},
+		Source: paramSource,
 		Info: graphql.ResolveInfo{
 			FieldName: instanceName,
 			FieldASTs: []*ast.Field{
