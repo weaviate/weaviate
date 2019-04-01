@@ -85,7 +85,7 @@ func (r *Reporter) Start() {
 				if err == nil {
 					r.poster.ReportLoggedCalls(transformedLog)
 				} else {
-					r.messaging.ErrorMessage(fmt.Sprintf("Storing log in the etcd key store because CBOR conversion failed:", err))
+					r.messaging.ErrorMessage(fmt.Sprintf("Storing log in the etcd key store because CBOR conversion failed: %s", err))
 					r.triggerCBORFailsafe(extractedLog)
 				}
 			}
@@ -110,7 +110,7 @@ func (r *Reporter) triggerCBORFailsafe(extractedLog *map[string]*RequestLog) {
 
 	_, err := r.client.Put(r.context, key, value)
 	if err != nil {
-		r.messaging.ErrorMessage(fmt.Sprintf("Failed to store log in the etcd key store:", err))
+		r.messaging.ErrorMessage(fmt.Sprintf("Failed to store log in the etcd key store: %s", err))
 	}
 }
 
@@ -201,7 +201,7 @@ func (p *Poster) ReportLoggedCalls(encoded *[]byte) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil || resp.Status != "200" {
-		p.messaging.ErrorMessage(fmt.Sprintf("Storing log in the etcd key store because posting to endpoint failed:", err))
+		p.messaging.ErrorMessage(fmt.Sprintf("Storing log in the etcd key store because posting to endpoint failed: %s", err))
 		p.triggerPOSTFailsafe(encoded)
 	} else {
 		defer resp.Body.Close()
@@ -215,6 +215,6 @@ func (p *Poster) triggerPOSTFailsafe(encoded *[]byte) {
 
 	_, err := p.client.Put(p.context, key, string(*encoded))
 	if err != nil {
-		p.messaging.ErrorMessage(fmt.Sprintf("Failed to store log in the etcd key store:", err))
+		p.messaging.ErrorMessage(fmt.Sprintf("Failed to store log in the etcd key store: %s", err))
 	}
 }
