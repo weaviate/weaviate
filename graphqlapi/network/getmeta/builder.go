@@ -56,7 +56,7 @@ func (b *Builder) PeerField() (*graphql.Field, error) {
 		Name:        fmt.Sprintf("%s%s", "Meta", b.peerName),
 		Description: fmt.Sprintf("%s%s", descriptions.NetworkWeaviate, b.peerName),
 		Type:        object,
-		Resolve:     resolve,
+		Resolve:     Resolve,
 	}
 	return field, nil
 }

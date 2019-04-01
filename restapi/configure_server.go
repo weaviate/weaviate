@@ -39,6 +39,7 @@ import (
 	libnetworkFake "github.com/creativesoftwarefdn/weaviate/network/fake"
 	libnetworkP2P "github.com/creativesoftwarefdn/weaviate/network/p2p"
 	"github.com/creativesoftwarefdn/weaviate/restapi/state"
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
 	"github.com/go-openapi/strfmt"
 )
 
@@ -73,6 +74,21 @@ func configureServer(s *http.Server, scheme, addr string) {
 	appState.OIDC = configureOIDC(appState)
 	messaging.InfoMessage(fmt.Sprintf("configured OIDC client, time left is: %s", timeTillDeadline(ctx)))
 
+	// Extract environment variables needed for logging
+	loggingInterval := appState.ServerConfig.Environment.Logging.Interval
+	loggingUrl := appState.ServerConfig.Environment.Logging.Url
+	loggingEnabled := appState.ServerConfig.Environment.Logging.Enabled
+	loggingDebug := appState.ServerConfig.Environment.Debug
+
+	if loggingEnabled != true && loggingEnabled != false {
+		loggingEnabled = true
+	}
+
+	// Propagate the peer name (if any), debug toggle and the enabled toggle to the requestsLog
+	mainLog.PeerName = appState.ServerConfig.Environment.Network.PeerName
+	mainLog.Debug = loggingDebug
+	mainLog.Enabled = loggingEnabled
+
 	// Add properties to the config
 	serverConfig.Hostname = addr
 	serverConfig.Scheme = scheme
@@ -92,7 +108,7 @@ func configureServer(s *http.Server, scheme, addr string) {
 	weaviateBroker.ConnectToMqtt(serverConfig.Environment.Broker.Host, serverConfig.Environment.Broker.Port)
 	messaging.InfoMessage(fmt.Sprintf("connected to broker, time left is: %s", timeTillDeadline(ctx)))
 
-	// Create the database connector usint the config
+	// Create the database connector using the config
 	err, dbConnector := dblisting.NewConnector(serverConfig.Environment.Database.Name, serverConfig.Environment.Database.DatabaseConfig, serverConfig.Environment)
 	// Could not find, or configure connector.
 	if err != nil {
@@ -130,6 +146,16 @@ func configureServer(s *http.Server, scheme, addr string) {
 	messaging.InfoMessage(fmt.Sprintf("initialized the schema, time left is: %s", timeTillDeadline(ctx)))
 
 	manager.RegisterSchemaUpdateCallback(updateSchemaCallback)
+
+	// Initialize a non-expiring context for the reporter
+	reportingContext := context.Background()
+	// Initialize the reporter
+	reporter = telemetry.NewReporter(reportingContext, mainLog, loggingInterval, loggingUrl, loggingEnabled, loggingDebug, etcdClient, messaging)
+
+	// Start reporting
+	go func() {
+		reporter.Start()
+	}()
 
 	// initialize the contextinoary with the rawContextionary, it will get updated on each schema update
 	contextionary = rawContextionary
@@ -193,7 +219,7 @@ func rebuildGraphQL(updatedSchema schema.Schema) {
 	}
 
 	c11y := schemaContextionary.New(contextionary)
-	root := graphQLRoot{Database: db, Network: network, contextionary: c11y}
+	root := graphQLRoot{Database: db, Network: network, contextionary: c11y, log: mainLog}
 	updatedGraphQL, err := graphqlapi.Build(&updatedSchema, peers, root, messaging, serverConfig.Environment)
 	if err != nil {
 		// TODO: turn on safe mode gh-520
@@ -223,6 +249,7 @@ type graphQLRoot struct {
 	database.Database
 	libnetwork.Network
 	contextionary *schemaContextionary.Contextionary
+	log           *telemetry.RequestsLog
 }
 
 func (r graphQLRoot) GetNetworkResolver() graphqlnetwork.Resolver {
@@ -231,6 +258,10 @@ func (r graphQLRoot) GetNetworkResolver() graphqlnetwork.Resolver {
 
 func (r graphQLRoot) GetContextionary() fetch.Contextionary {
 	return r.contextionary
+}
+
+func (r graphQLRoot) GetRequestsLog() fetch.RequestsLog {
+	return r.log
 }
 
 // configureOIDC will always be called, even if OIDC is disabled, this way the

@@ -88,11 +88,7 @@ func Build(dbSchema *schema.Schema, peers peers.Peers, logger *messages.Messagin
 			Description: descriptions.LocalGetObj,
 		}),
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			resolver := p.Source.(map[string]interface{})["Resolver"].(Resolver)
-
-			return &filtersAndResolver{
-				resolver: resolver,
-			}, nil
+			return p.Source, nil
 		},
 	}
 
