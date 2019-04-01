@@ -59,7 +59,7 @@ func (r *RequestsLog) Register(requestType string, identifier string) {
 	}
 }
 
-// ExtractLoggedRequests extracts the hashmap used to log performed requests and reset it to its default state.
+// ExtractLoggedRequests copies the map used to log performed requests and resets the map to its default (empty) state.
 func (r *RequestsLog) ExtractLoggedRequests() *map[string]*RequestLog {
 	if r.Enabled {
 		r.Mutex.Lock()

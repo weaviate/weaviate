@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/coreos/etcd/clientv3"
+	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/ugorji/go/codec"
 )
 
@@ -42,17 +43,18 @@ type etcdClient interface {
 }
 
 // NewReporter creates a new Reporter struct and returns a pointer to it.
-func NewReporter(ctx context.Context, requestsLog *RequestsLog, reportInterval int, reportURL string, telemetryEnabled bool, testing bool, client etcdClient) *Reporter {
+func NewReporter(ctx context.Context, requestsLog *RequestsLog, reportInterval int, reportURL string, telemetryEnabled bool, testing bool, client etcdClient, messaging *messages.Messaging) *Reporter {
 	return &Reporter{
 		log:         requestsLog,
 		interval:    reportInterval,
 		url:         reportURL,
 		enabled:     telemetryEnabled,
 		transformer: NewOutputTransformer(testing),
-		poster:      NewPoster(ctx, reportURL, client),
+		poster:      NewPoster(ctx, reportURL, client, messaging),
 		client:      client,
 		context:     ctx,
 		UnitTest:    false,
+		messaging:   messaging,
 	}
 }
 
@@ -67,6 +69,7 @@ type Reporter struct {
 	client      etcdClient
 	context     context.Context
 	UnitTest    bool // Indicates if the Reporter is being run from a unit test, disables log POSTing/etcd storage if true
+	messaging   *messages.Messaging
 }
 
 // Start posts logged function calls in CBOR format to the provided url every <provided interval> seconds.
@@ -82,6 +85,7 @@ func (r *Reporter) Start() {
 				if err == nil {
 					r.poster.ReportLoggedCalls(transformedLog)
 				} else {
+					r.messaging.ErrorMessage(fmt.Sprintf("Storing log in etcd key store because conversion to CBOR format failed: %s", err))
 					r.triggerCBORFailsafe(extractedLog)
 				}
 			}
@@ -106,12 +110,12 @@ func (r *Reporter) triggerCBORFailsafe(extractedLog *map[string]*RequestLog) {
 
 	_, err := r.client.Put(r.context, key, value)
 	if err != nil {
-		fmt.Errorf("could not send raw log to etcd: %s", err)
+		r.messaging.ErrorMessage(fmt.Sprintf("Storing log in etcd key store failed: %s", err))
 	}
 }
 
 // TransformToOutputFormat transforms the logged function calls to a minimized output format to reduce network traffic.
-func (r *Reporter) TransformToOutputFormat(logs *map[string]*RequestLog) (*[]byte, error) { // TODO: cover with test
+func (r *Reporter) TransformToOutputFormat(logs *map[string]*RequestLog) (*[]byte, error) {
 	minimizedLogs := r.transformer.Minimize(logs)
 
 	cborLogs, err := r.transformer.EncodeAsCBOR(minimizedLogs)
@@ -172,19 +176,21 @@ func (o *OutputTransformer) EncodeAsCBOR(minimizedLogs *[]map[string]interface{}
 }
 
 // NewPoster creates a new poster struct, which is responsible for sending logs to the specified endpoint.
-func NewPoster(ctx context.Context, url string, client etcdClient) *Poster {
+func NewPoster(ctx context.Context, url string, client etcdClient, messaging *messages.Messaging) *Poster {
 	return &Poster{
-		context: ctx,
-		url:     url,
-		client:  client,
+		context:   ctx,
+		url:       url,
+		client:    client,
+		messaging: messaging,
 	}
 }
 
 // Poster is a class responsible for sending the converted log to the logging endpoint. If the endpoint is unreachable then the logs are stored in the etcd store.
 type Poster struct {
-	url     string
-	client  etcdClient
-	context context.Context
+	url       string
+	client    etcdClient
+	context   context.Context
+	messaging *messages.Messaging
 }
 
 // ReportLoggedCalls sends the logs to a previously determined REST endpoint.
@@ -195,6 +201,7 @@ func (p *Poster) ReportLoggedCalls(encoded *[]byte) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil || resp.Status != "200" {
+		p.messaging.ErrorMessage(fmt.Sprintf("Storing log in etcd key store because post to telemetry endpoint failed: %s", err))
 		p.triggerPOSTFailsafe(encoded)
 	} else {
 		defer resp.Body.Close()
@@ -208,6 +215,6 @@ func (p *Poster) triggerPOSTFailsafe(encoded *[]byte) {
 
 	_, err := p.client.Put(p.context, key, string(*encoded))
 	if err != nil {
-		fmt.Errorf("could not send encoded log to etcd: %s", err)
+		p.messaging.ErrorMessage(fmt.Sprintf("Storing log in etcd key store failed: %s", err))
 	}
 }
