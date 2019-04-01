@@ -41,6 +41,7 @@ type Network interface {
 	ProxyGetInstance(common.Params) (*models.GraphQLResponse, error)
 	ProxyGetMetaInstance(common.Params) (*models.GraphQLResponse, error)
 	ProxyAggregateInstance(common.Params) (*models.GraphQLResponse, error)
+	ProxyFetch(query common.SubQuery) ([]*models.GraphQLResponse, error)
 
 	// UpdatePeers is Invoked by the Genesis server via an HTTP endpoint.
 	UpdatePeers(newPeers peers.Peers) error

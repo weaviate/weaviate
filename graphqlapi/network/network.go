@@ -63,14 +63,12 @@ func Build(peers peers.Peers, config config.Environment) (*graphql.Field, error)
 
 	genGlobalNetworkFilterElements(filterContainer)
 
-	networkFetchObject := network_fetch.FieldsObj(filterContainer)
-
 	networkIntrospectObject := network_introspect.FieldsObj(filterContainer)
 
 	graphQLNetworkFieldContents := utils.GraphQLNetworkFieldContents{
 		NetworkGetObject:        schemaObjects.get,
 		NetworkGetMetaObject:    schemaObjects.getMeta,
-		NetworkFetchObject:      networkFetchObject,
+		NetworkFetchObject:      network_fetch.New(),
 		NetworkIntrospectObject: networkIntrospectObject,
 		NetworkAggregateObject:  schemaObjects.aggregate,
 	}
@@ -115,9 +113,7 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 			Name:        "WeaviateNetworkFetch",
 			Type:        graphQLNetworkFieldContents.NetworkFetchObject,
 			Description: descriptions.NetworkFetch,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     passThroughFetchResolvers,
 		},
 
 		"Introspect": &graphql.Field{
@@ -206,4 +202,13 @@ func passThroughResolver(p graphql.ResolveParams) (interface{}, error) {
 
 func passThroughAggregateResolvers(p graphql.ResolveParams) (interface{}, error) {
 	return p.Source, nil
+}
+
+func passThroughFetchResolvers(p graphql.ResolveParams) (interface{}, error) {
+	resolver, ok := p.Source.(map[string]interface{})["NetworkResolver"].(network_fetch.Resolver)
+	if !ok {
+		return nil, fmt.Errorf("source does not contain a NetworkResolver, but \n%#v", p.Source)
+	}
+
+	return resolver, nil
 }

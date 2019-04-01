@@ -35,7 +35,7 @@ func TestNetworkGetInstanceQueryWithoutFilters(t *testing.T) {
 		`{ Network { Get { weaviateA { Things { City { name } } } } } } `,
 	)
 
-	expectedSubQuery := `Get { Things { City { name } } }`
+	expectedSubQuery := `{ Local { Get { Things { City { name } } } } }`
 	expectedTarget := "weaviateA"
 	expectedResultString := "placeholder for result from Local.Get"
 

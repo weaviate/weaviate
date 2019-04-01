@@ -61,7 +61,9 @@ func Resolve(p graphql.ResolveParams) (interface{}, error) {
 	}
 
 	params := common.Params{
-		SubQuery:       common.ParseSubQuery(subQueryWithoutInstance),
+		SubQuery: common.ParseSubQuery(subQueryWithoutInstance).
+			WrapInLocalQuery().
+			WrapInBraces(),
 		TargetInstance: p.Info.FieldName,
 	}
 
