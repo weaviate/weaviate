@@ -11,8 +11,6 @@
  */
 package test
 
-// Acceptance tests for logging. Sets up a small fake endpoint that logs are sent to.
-
 import (
 	"io/ioutil"
 	"net/http"
@@ -30,7 +28,12 @@ import (
 	"github.com/ugorji/go/codec"
 )
 
-// Ensure a request should be logged and get the most recently received log from the mock api, then assert the structure of the log
+// This test covers the Telemetry process. Weaviate should log each time its endpoints are accessed,
+// and it should send these logs to an endpoint. In the testing config environment this endpoint is
+// the mock api's address. This test sends a request to Weaviate to ensure at least one log *should*
+// exist, waits a few seconds to ensure the log *should* be sent to the mock endpoint and then retrieves
+// the most recently received log from the mock endpoint. The test then decodes the response and
+// validates its structure.
 func TestCreateActionLogging(t *testing.T) {
 	t.Parallel()
 
@@ -61,7 +64,9 @@ func TestCreateActionLogging(t *testing.T) {
 	}
 }
 
-// sendCreateActionRequest is copied here to ensure at least one request should be logged when we check the mock api's most recently received request
+// The sendCreateActionRequest acceptance test is copied here to ensure at least one request should be
+// logged when we check the mock api's most recently received request. These assertions should pass
+// regardless of the rest of the Telemetry test passing.
 func sendCreateActionRequest(t *testing.T) {
 	// Set all action values to compare
 	actionTestString := "Test string"
@@ -86,7 +91,7 @@ func sendCreateActionRequest(t *testing.T) {
 
 	resp, _, err := helper.Client(t).Actions.WeaviateActionsCreate(params, nil)
 
-	// Ensure that the response is OK
+	// Ensure that the response is OK.
 	helper.AssertRequestOk(t, resp, err, func() {
 		action := resp.Payload
 		assert.Regexp(t, strfmt.UUIDPattern, action.ActionID)
@@ -96,7 +101,7 @@ func sendCreateActionRequest(t *testing.T) {
 			t.Fatal("The returned schema is not an JSON object")
 		}
 
-		// Check whether the returned information is the same as the data added
+		// Check whether the returned information is the same as the data added.
 		assert.Equal(t, actionTestString, schema["testString"])
 		assert.Equal(t, actionTestInt, int(schema["testInt"].(float64)))
 		assert.Equal(t, actionTestBoolean, schema["testBoolean"])
@@ -105,7 +110,7 @@ func sendCreateActionRequest(t *testing.T) {
 	})
 }
 
-// retrieveLogFromMockEndpoint retrieves the most recently received log from the mock api
+// retrieveLogFromMockEndpoint retrieves the most recently received log from the mock api.
 func retrieveLogFromMockEndpoint(t *testing.T) []byte {
 	testURL, err := url.Parse("http://localhost:8087/mock/last")
 	assert.Equal(t, nil, err)
@@ -127,7 +132,7 @@ func retrieveLogFromMockEndpoint(t *testing.T) []byte {
 	return nil
 }
 
-// interpretResult converts the received cbor-encoded log to a []map[string]interface
+// interpretResult converts the received cbor-encoded log to a []map[string]interface.
 func interpretResult(t *testing.T, resultBody []byte) map[string]interface{} {
 	decoded := make([]map[string]interface{}, 1)
 	cborHandle := new(codec.CborHandle)

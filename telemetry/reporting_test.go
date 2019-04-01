@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/coreos/etcd/clientv3"
+	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -29,13 +30,15 @@ func TestLoop(t *testing.T) {
 	calledFunctions.PeerName = "soggy-whale-bread"
 	calledFunctions.Register("REST", "weaviate.something.or.other")
 
+	messaging := &messages.Messaging{}
+
 	interval := 1
 	url := "http://www.example.com"
 
 	clientConf := clientv3.Config{}
 	client, _ := clientv3.New(clientConf)
 	ctx := context.Background()
-	reporter := NewReporter(ctx, calledFunctions, interval, url, true, true, client)
+	reporter := NewReporter(ctx, calledFunctions, interval, url, true, true, client, messaging)
 	reporter.UnitTest = true
 
 	go reporter.Start()
@@ -102,7 +105,8 @@ func TestAddTimestamps(t *testing.T) {
 	clientConf := clientv3.Config{}
 	client, _ := clientv3.New(clientConf)
 	ctx := context.Background()
-	reporter := NewReporter(ctx, nil, 0, "", true, true, client)
+	messaging := &messages.Messaging{}
+	reporter := NewReporter(ctx, nil, 0, "", true, true, client, messaging)
 	reporter.UnitTest = true
 
 	reporter.AddTimeStamps(&calledFunctions.Log)
