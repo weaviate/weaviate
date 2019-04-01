@@ -127,13 +127,13 @@ func retrieveLogFromMockEndpoint(t *testing.T) []byte {
 	return nil
 }
 
-// interpretResult converts the received cbor-encoded log to a map[string]interface
+// interpretResult converts the received cbor-encoded log to a []map[string]interface
 func interpretResult(t *testing.T, resultBody []byte) map[string]interface{} {
-	decoded := make(map[string]interface{}, 0)
+	decoded := make([]map[string]interface{}, 1)
 	cborHandle := new(codec.CborHandle)
 	encoder := codec.NewDecoderBytes(resultBody, cborHandle)
 	err := encoder.Decode(decoded)
 
 	require.Equal(t, nil, err)
-	return decoded
+	return decoded[0]
 }
