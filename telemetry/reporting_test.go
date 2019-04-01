@@ -38,7 +38,6 @@ func TestLoop(t *testing.T) {
 	clientConf := clientv3.Config{}
 	client, _ := clientv3.New(clientConf)
 	ctx := context.Background()
-	messaging := &messages.Messaging{}
 	reporter := NewReporter(ctx, calledFunctions, interval, url, true, true, client, messaging)
 	reporter.UnitTest = true
 
