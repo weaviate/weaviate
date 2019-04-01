@@ -99,7 +99,7 @@ func (m *mmappedIndex) GetNnsByVector(vector Vector, n int, k int) ([]ItemIndex,
 	}
 }
 
-// SafeGetSimliarWords returns n similar words in the contextionary,
+// SafeGetSimilarWords returns n similar words in the contextionary,
 // examining k trees. It is guaratueed to have results, even if the word is
 // not in the contextionary. In this case the list only contains the word
 // itself. It can then still be used for exact match or levensthein-based
@@ -108,7 +108,7 @@ func (m *mmappedIndex) SafeGetSimilarWords(word string, n, k int) ([]string, []f
 	return safeGetSimilarWordsFromAny(m, word, n, k)
 }
 
-// SafeGetSimliarWordsWithCertainty returns  similar words in the
+// SafeGetSimilarWordsWithCertainty returns  similar words in the
 // contextionary, if they are close enough to match the required certainty.
 // It is guaratueed to have results, even if the word is not in the
 // contextionary. In this case the list only contains the word itself. It can
