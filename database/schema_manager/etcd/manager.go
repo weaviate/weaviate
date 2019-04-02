@@ -261,30 +261,3 @@ func (l *etcdSchemaManager) DropProperty(ctx context.Context, kind kind.Kind, cl
 
 	return l.connectorMigrator.DropProperty(ctx, kind, className, propName)
 }
-
-func (l *etcdSchemaManager) GetPropsOfType(propType string) []schema.ClassAndProperty {
-	var result []schema.ClassAndProperty
-
-	result = append(
-		extractAllOfPropType(l.schemaState.ActionSchema.Classes, propType),
-		extractAllOfPropType(l.schemaState.ThingSchema.Classes, propType)...,
-	)
-
-	return result
-}
-
-func extractAllOfPropType(classes []*models.SemanticSchemaClass, propType string) []schema.ClassAndProperty {
-	var result []schema.ClassAndProperty
-	for _, class := range classes {
-		for _, prop := range class.Properties {
-			if prop.AtDataType[0] == propType {
-				result = append(result, schema.ClassAndProperty{
-					ClassName:    schema.ClassName(class.Class),
-					PropertyName: schema.PropertyName(prop.Name),
-				})
-			}
-		}
-	}
-
-	return result
-}
