@@ -69,11 +69,23 @@ func (b *Query) predicates() ([]*gremlin.Query, error) {
 		return nil, fmt.Errorf("could not get mapped names: %v", err)
 	}
 
+	// janusgraph does not allow more than 253 arguments, so we must abort once
+	// we hit too many
+	argsCounter := 0
+	limit := 253
+
+outer:
 	for _, prop := range mappedProps {
 		for _, searchterm := range b.params {
+			if argsCounter >= limit {
+				break outer
+			}
+
 			result = append(result,
 				gremlin.New().Has(string(prop), gremlin.New().TextContainsFuzzy(searchterm)),
 			)
+
+			argsCounter++
 		}
 	}
 
