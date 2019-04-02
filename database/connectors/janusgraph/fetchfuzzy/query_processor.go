@@ -15,16 +15,14 @@ package fetchfuzzy
 import (
 	"fmt"
 
-	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 )
 
-// Processor is a simple Gremlin-Query Executor that is specific to Fetch. It
+// Processor is a simple Gremlin-Query Executor that is specific to Fetch Fuzzy. It
 // transforms the return value into a usable beacon structure and calculates
 // the final certainty.
 type Processor struct {
 	executor executor
-	kind     kind.Kind
 	peerName string
 }
 
@@ -33,8 +31,8 @@ type executor interface {
 }
 
 //NewProcessor from a gremlin executer. See Processor for details.
-func NewProcessor(executor executor, k kind.Kind, peer string) *Processor {
-	return &Processor{executor: executor, kind: k, peerName: peer}
+func NewProcessor(executor executor, peer string) *Processor {
+	return &Processor{executor: executor, peerName: peer}
 }
 
 // Process the query by executing it and then transforming the results to
@@ -42,7 +40,8 @@ func NewProcessor(executor executor, k kind.Kind, peer string) *Processor {
 func (p *Processor) Process(query *gremlin.Query) (interface{}, error) {
 	result, err := p.executor.Execute(query)
 	if err != nil {
-		return nil, fmt.Errorf("could not process fetch query: executing the query failed: %s", err)
+		return nil, fmt.Errorf(
+			"could not process fetch fuzzy query: executing the query failed: %s", err)
 	}
 
 	results := make([]interface{}, len(result.Data), len(result.Data))
@@ -66,33 +65,47 @@ func (p *Processor) extractBeacon(data interface{}) (string, error) {
 		return "", fmt.Errorf("expected datum to be a map, but was %T", data)
 	}
 
-	uuid, ok := dataMap["uuid"]
-	if !ok {
-		return "", fmt.Errorf("expected datum map to have a prop 'uuid', but got '%#v'",
-			dataMap)
+	uuid, err := p.getProperty(dataMap, "uuid")
+	if err != nil {
+		return "", err
 	}
 
-	uuidSlice, ok := uuid.([]interface{})
-	if !ok {
-		return "", fmt.Errorf("expected prop 'uuid' to be a slice, but got '%#v'",
-			uuid)
+	kind, err := p.getProperty(dataMap, "kind")
+	if err != nil {
+		return "", err
 	}
 
-	if len(uuidSlice) != 1 {
-		return "", fmt.Errorf("expected prop 'uuid' have len of 1, but got '%#v'",
-			uuidSlice)
-	}
-
-	uuidString, ok := uuidSlice[0].(string)
-	if !ok {
-		return "", fmt.Errorf("expected uuid[0] to be a string, but got '%#v'",
-			uuidSlice[0])
-	}
-
-	return p.beaconFromUUID(uuidString)
+	return p.beaconFromUUID(uuid, kind)
 }
 
-func (p *Processor) beaconFromUUID(uuid string) (string, error) {
+func (p *Processor) getProperty(dataMap map[string]interface{}, propName string) (string, error) {
+	prop, ok := dataMap[propName]
+	if !ok {
+		return "", fmt.Errorf("expected datum map to have a prop '%s', but got '%#v'",
+			propName, dataMap)
+	}
+
+	propSlice, ok := prop.([]interface{})
+	if !ok {
+		return "", fmt.Errorf("expected prop 'uuid' to be a slice, but got '%#v'",
+			prop)
+	}
+
+	if len(propSlice) != 1 {
+		return "", fmt.Errorf("expected prop 'prop' have len of 1, but got '%#v'",
+			propSlice)
+	}
+
+	propString, ok := propSlice[0].(string)
+	if !ok {
+		return "", fmt.Errorf("expected prop[0] to be a string, but got '%#v'",
+			propSlice[0])
+	}
+
+	return propString, nil
+}
+
+func (p *Processor) beaconFromUUID(uuid string, kind string) (string, error) {
 	return fmt.Sprintf("weaviate://%s/%ss/%s",
-		p.peerName, p.kind.Name(), uuid), nil
+		p.peerName, kind, uuid), nil
 }
