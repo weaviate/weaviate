@@ -1,2 +1,2 @@
 
-g.V().has("kind", "thing").has("prop_16", textContainsFuzzy("belin")).valueMap()
+g.V().has("prop_16", textContainsFuzzy("belin")).valueMap()
