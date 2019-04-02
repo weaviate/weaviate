@@ -31,3 +31,8 @@ func (j *Janusgraph) LocalFetchKindClass(params *graphqlfetch.Params) (interface
 		Process(gremlin.New().Raw(q))
 	return res, err
 }
+
+// LocalFetchFuzzy based on GraphQL Query params
+func (j *Janusgraph) LocalFetchFuzzy(words []string) (interface{}, error) {
+	return nil, nil
+}
