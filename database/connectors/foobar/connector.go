@@ -529,3 +529,8 @@ func (f *Foobar) LocalAggregate(info *aggregate.Params) (interface{}, error) {
 func (f *Foobar) LocalFetchKindClass(info *fetch.Params) (interface{}, error) {
 	return nil, nil
 }
+
+// LocalFetchFuzzy TODO: Add docs
+func (f *Foobar) LocalFetchFuzzy(words []string) (interface{}, error) {
+	return nil, nil
+}
