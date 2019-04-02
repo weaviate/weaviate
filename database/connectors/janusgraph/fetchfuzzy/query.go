@@ -72,7 +72,7 @@ func (b *Query) predicates() ([]*gremlin.Query, error) {
 	// janusgraph does not allow more than 253 arguments, so we must abort once
 	// we hit too many
 	argsCounter := 0
-	limit := 253
+	limit := 120
 
 outer:
 	for _, prop := range mappedProps {
