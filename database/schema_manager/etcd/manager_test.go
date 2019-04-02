@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/creativesoftwarefdn/weaviate/database"
+	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/go-openapi/strfmt"
@@ -74,6 +75,7 @@ var schemaTests = []struct {
 	{name: "UpdatePropertyKeywords", fn: testUpdatePropertyKeywords},
 	{name: "UpdatePropertyAddDataTypeNew", fn: testUpdatePropertyAddDataTypeNew},
 	{name: "UpdatePropertyAddDataTypeExisting", fn: testUpdatePropertyAddDataTypeExisting},
+	{name: "GetAllStringProps", fn: testGetAllStringProps},
 }
 
 func testUpdateMeta(t *testing.T, lsm database.SchemaManager) {
@@ -458,6 +460,46 @@ func testUpdatePropertyAddDataTypeExisting(t *testing.T, lsm database.SchemaMana
 	assert.Equal(t, thingClasses[0].Properties[0].Name, "madeBy")
 	require.Len(t, thingClasses[0].Properties[0].AtDataType, 1)
 	assert.Equal(t, thingClasses[0].Properties[0].AtDataType[0], "RemoteInstance/Manufacturer")
+}
+
+func testGetAllStringProps(t *testing.T, lsm database.SchemaManager) {
+	err := lsm.AddClass(context.TODO(), kind.THING_KIND, &models.SemanticSchemaClass{
+		Class: "Car",
+		Properties: []*models.SemanticSchemaClassProperty{
+			{Name: "modelName", AtDataType: []string{"string"}},
+			{Name: "manufacturerName", AtDataType: []string{"string"}},
+			{Name: "horsepower", AtDataType: []string{"int"}},
+		},
+	})
+	require.Nil(t, err)
+
+	err = lsm.AddClass(context.TODO(), kind.THING_KIND, &models.SemanticSchemaClass{
+		Class: "Train",
+		Properties: []*models.SemanticSchemaClassProperty{
+			{Name: "capacity", AtDataType: []string{"int"}},
+			{Name: "trainCompany", AtDataType: []string{"string"}},
+		},
+	})
+	require.Nil(t, err)
+
+	props := lsm.GetPropsOfType("string")
+
+	expectedProps := []schema.ClassAndProperty{
+		{
+			ClassName:    "Car",
+			PropertyName: "modelName",
+		},
+		{
+			ClassName:    "Car",
+			PropertyName: "manufacturerName",
+		},
+		{
+			ClassName:    "Train",
+			PropertyName: "trainCompany",
+		},
+	}
+
+	assert.ElementsMatch(t, expectedProps, props)
 }
 
 // This grant parent test setups up the temporary directory needed for the tests.
