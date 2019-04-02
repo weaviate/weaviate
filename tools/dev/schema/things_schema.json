@@ -24,6 +24,13 @@
                     "description": "Official name of the city."
                 },
                 {
+                  "name": "reviews",
+                    "@dataType": [
+                        "string"
+                    ],
+                    "description": "Reviews by people who have visited the city"
+                },
+                {
                     "name": "coordinates",
                     "@dataType": [
                         "string"

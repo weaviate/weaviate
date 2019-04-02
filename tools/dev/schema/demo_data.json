@@ -15,7 +15,8 @@
 			"uuid": "005",
 			"name": "Netherlands",
 			"population": "17000000"
-			}]
+			}],
+      "reviews": "What a nice city, it's almost perfect"
 	}, {
 		"class": "City",
 		"uuid": "002",
@@ -41,7 +42,8 @@
 			"uuid": "006",
 			"name": "Germany",
 			"population": "83000000"
-			}]
+			}],
+      "reviews": "Quite a bad city."
 	}, {
 		"class": "City",
 		"uuid": "021",
