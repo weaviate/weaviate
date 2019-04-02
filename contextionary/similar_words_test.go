@@ -53,6 +53,7 @@ func newC11y() Contextionary {
 	builder.AddWord("automobile", NewVector([]float32{0.9, 0, 0}))
 	builder.AddWord("airplane", NewVector([]float32{0.3, 0, 0}))
 	builder.AddWord("cabernetsauvignon", NewVector([]float32{0, 0, 10}))
+	builder.AddWord("$THING[Car]", NewVector([]float32{1, 0, 0}))
 
 	return Contextionary(builder.Build(3))
 }
