@@ -1,5 +1,7 @@
 package contextionary
 
+import "regexp"
+
 func safeGetSimilarWordsFromAny(c11y Contextionary, word string, n, k int) ([]string, []float32) {
 	i := c11y.WordToItemIndex(word)
 	if !i.IsPresent() {
@@ -16,6 +18,10 @@ func safeGetSimilarWordsFromAny(c11y Contextionary, word string, n, k int) ([]st
 	for i, index := range indices {
 		word, err := c11y.ItemIndexToWord(index)
 		if err != nil {
+			continue
+		}
+
+		if wordHasIllegalCharacters(word) {
 			continue
 		}
 
@@ -43,4 +49,10 @@ func safeGetSimilarWordsWithCertaintyFromAny(c11y Contextionary, word string, ce
 
 	return matchingWords
 
+}
+
+func wordHasIllegalCharacters(word string) bool {
+	// we know that the schema based contextionary uses a leading dollar sign for
+	// the class and property centroids, so we can easily filter them out
+	return regexp.MustCompile("^\\$").MatchString(word)
 }

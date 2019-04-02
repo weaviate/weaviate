@@ -38,6 +38,7 @@ func NewProcessor(executor executor, peer string) *Processor {
 // Process the query by executing it and then transforming the results to
 // include the beacon structure
 func (p *Processor) Process(query *gremlin.Query) (interface{}, error) {
+	fmt.Printf("\n\n\n%s\n\n\n", query)
 	result, err := p.executor.Execute(query)
 	if err != nil {
 		return nil, fmt.Errorf(
