@@ -16,6 +16,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/contextionary"
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
+	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	db_schema "github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/database/schema_migrator"
@@ -44,4 +45,6 @@ type SchemaManager interface {
 
 	// Sets a contextionary to be used for future correctness checks of the schema.
 	SetContextionary(context contextionary.Contextionary)
+
+	GetPropsOfType(string) []schema.ClassAndProperty
 }
