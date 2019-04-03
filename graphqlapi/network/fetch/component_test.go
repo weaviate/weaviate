@@ -29,6 +29,7 @@ type testCase struct {
 	name            string
 	query           string
 	resolverReturn  interface{}
+	resolverMethod  string
 	expectedResults []result
 }
 
@@ -43,7 +44,7 @@ func TestNetworkFetch(t *testing.T) {
 
 	tests := testCases{
 		testCase{
-			name: "network fetch happy path",
+			name: "network fetch things happy path",
 			query: `
 			{
 				Fetch {
@@ -65,6 +66,7 @@ func TestNetworkFetch(t *testing.T) {
 					}
 				}
 			}`,
+			resolverMethod: "ProxyFetch",
 			resolverReturn: map[string]interface{}{
 				"Things": []interface{}{
 					map[string]interface{}{
@@ -78,6 +80,36 @@ func TestNetworkFetch(t *testing.T) {
 				expectedValue: []interface{}{
 					map[string]interface{}{
 						"beacon":    "foobar",
+						"certainty": 0.5,
+					},
+				},
+			}},
+		},
+
+		testCase{
+			name: "network fetch fuzzy happy path",
+			query: `
+			{
+				Fetch {
+					Fuzzy(value:"mysearchterm", certainty: 0.5) {
+						beacon certainty
+					}
+				}
+			}`,
+			resolverMethod: "ProxyFetch",
+			resolverReturn: map[string]interface{}{
+				"Fuzzy": []interface{}{
+					map[string]interface{}{
+						"beacon":    "weaviate://localhost/things/c74621ea-049b-410a-813f-bd93a3ba9a68",
+						"certainty": json.Number("0.5"),
+					},
+				},
+			},
+			expectedResults: []result{{
+				pathToField: []string{"Fetch", "Fuzzy"},
+				expectedValue: []interface{}{
+					map[string]interface{}{
+						"beacon":    "weaviate://localhost/things/c74621ea-049b-410a-813f-bd93a3ba9a68",
 						"certainty": 0.5,
 					},
 				},
@@ -103,7 +135,7 @@ func (tests testCases) Assert(t *testing.T) {
 				},
 			}
 
-			resolver.On("ProxyFetch", mock.AnythingOfType("SubQuery")).
+			resolver.On(testCase.resolverMethod, mock.AnythingOfType("SubQuery")).
 				Return(resolverReturn, nil).Once()
 
 			result := resolver.AssertResolve(t, testCase.query)

@@ -26,7 +26,7 @@ type Resolver interface {
 	ProxyFetch(query common.SubQuery) ([]*models.GraphQLResponse, error)
 }
 
-func makeResolve(k kind.Kind) func(p graphql.ResolveParams) (interface{}, error) {
+func makeResolveKind(k kind.Kind) func(p graphql.ResolveParams) (interface{}, error) {
 	return func(p graphql.ResolveParams) (interface{}, error) {
 		resolver, ok := p.Source.(Resolver)
 		if !ok {
@@ -46,11 +46,11 @@ func makeResolve(k kind.Kind) func(p graphql.ResolveParams) (interface{}, error)
 			return nil, fmt.Errorf("could not proxy to remote instance: %s", err)
 		}
 
-		return extractResults(k, graphQLResponses)
+		return extractKindsResults(k, graphQLResponses)
 	}
 }
 
-func extractResults(k kind.Kind, responses []*models.GraphQLResponse) ([]interface{}, error) {
+func extractKindsResults(k kind.Kind, responses []*models.GraphQLResponse) ([]interface{}, error) {
 	kind := fmt.Sprintf("%ss", k.TitleizedName())
 	results := []interface{}{}
 
@@ -71,6 +71,56 @@ func extractResults(k kind.Kind, responses []*models.GraphQLResponse) ([]interfa
 		if !ok {
 			return nil, fmt.Errorf("expected response.data.Local.Fetch.%s to be a slice, but response was %#v",
 				kind, fetch[kind])
+		}
+
+		results = append(results, peerResults...)
+	}
+
+	return results, nil
+}
+
+func resolveFuzzy(p graphql.ResolveParams) (interface{}, error) {
+	resolver, ok := p.Source.(Resolver)
+	if !ok {
+		return nil, fmt.Errorf("expected source to be a Resolver, but was \n%#v",
+			p.Source)
+	}
+
+	astLoc := p.Info.FieldASTs[0].GetLoc()
+	rawSubQuery := astLoc.Source.Body[astLoc.Start:astLoc.End]
+	subquery := common.ParseSubQuery(rawSubQuery).
+		WrapInFetchQuery().
+		WrapInLocalQuery().
+		WrapInBraces()
+
+	graphQLResponses, err := resolver.ProxyFetch(subquery)
+	if err != nil {
+		return nil, fmt.Errorf("could not proxy to remote instance: %s", err)
+	}
+
+	return extractFuzzyResults(graphQLResponses)
+}
+
+func extractFuzzyResults(responses []*models.GraphQLResponse) ([]interface{}, error) {
+	results := []interface{}{}
+
+	for _, response := range responses {
+		local, ok := response.Data["Local"].(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("expected response.data.Local to be map[string]interface{}, but response was %#v",
+				response.Data["Local"])
+		}
+
+		fetch, ok := local["Fetch"].(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("expected response.data.Local.Fetch to be map[string]interface{}, but response was %#v",
+				local["Fetch"])
+		}
+
+		peerResults, ok := fetch["Fuzzy"].([]interface{})
+		if !ok {
+			return nil, fmt.Errorf("expected response.data.Local.Fetch.Fuzzy to be a slice, but response was %#v",
+				fetch["Fuzzy"])
 		}
 
 		results = append(results, peerResults...)
