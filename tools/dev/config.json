@@ -23,7 +23,7 @@
       "limit": 100,
       "debug": true,
       "telemetry": {
-        "interval": 1,
+        "interval": 300,
         "enabled": true,
         "remoteURL": "http://logs.semi.technology"
 		  },
@@ -62,7 +62,7 @@
         "Thing": "test/schema/test-thing-schema.json",
         "Action": "test/schema/test-action-schema.json"
       },
-      "limit": 100,
+      "limit": 300,
       "debug": true,
       "telemetry": {
         "interval": 1,
@@ -98,7 +98,7 @@
       "limit": 100,
       "debug": true,
       "telemetry": {
-        "interval": 1,
+        "interval": 10,
         "enabled": true,
         "remoteURL": "http://mock_api:8087/mock/new"
 		  },
@@ -131,7 +131,7 @@
       "limit": 100,
       "debug": true,
       "telemetry": {
-        "interval": 1,
+        "interval": 300,
         "enabled": true,
         "remoteURL": "http://logs.semi.technology"
 		  },
