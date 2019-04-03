@@ -1,5 +1,5 @@
 {
-	"environments": [
+  "environments": [
     {
       "name": "janusgraph",
       "database": {
@@ -13,8 +13,8 @@
         "url": "http://localhost:2379"
       },
       "contextionary": {
-        "knn_file" : "test/contextionary/example.knn",
-        "idx_file" : "test/contextionary/example.idx"
+        "knn_file": "test/contextionary/example.knn",
+        "idx_file": "test/contextionary/example.idx"
       },
       "schemas": {
         "Thing": "tools/dev//schema/things_schema.json",
@@ -23,7 +23,8 @@
       "limit": 100,
       "debug": true,
       "development": {
-        "external_instances": [{
+        "external_instances": [
+          {
             "url": "http://localhost:8080"
           },
           {
@@ -50,8 +51,8 @@
         "url": "http://localhost:2379"
       },
       "contextionary": {
-        "knn_file" : "contextionary/contextionary.knn",
-	"idx_file" : "contextionary/contextionary.idx"
+        "knn_file": "contextionary/contextionary.knn",
+        "idx_file": "contextionary/contextionary.idx"
       },
       "schemas": {
         "Thing": "test/schema/test-thing-schema.json",
@@ -73,8 +74,8 @@
         "url": "http://etcd:2379"
       },
       "contextionary": {
-        "knn_file" : "contextionary/contextionary.knn",
-	"idx_file" : "contextionary/contextionary.idx"
+        "knn_file": "contextionary/contextionary.knn",
+        "idx_file": "contextionary/contextionary.idx"
       },
       "schemas": {
         "Thing": "/schema/things_schema.json",
@@ -88,7 +89,8 @@
       "limit": 100,
       "debug": true,
       "development": {
-        "external_instances": [{
+        "external_instances": [
+          {
             "url": "http://localhost:8080"
           },
           {
@@ -106,8 +108,8 @@
         }
       },
       "contextionary": {
-        "knn_file" : "contextionary/contextionary.knn",
-	"idx_file" : "contextionary/contextionary.idx"
+        "knn_file": "contextionary/contextionary.knn",
+        "idx_file": "contextionary/contextionary.idx"
       },
       "schemas": {
         "Thing": "/schema/things_schema.json",
@@ -116,7 +118,8 @@
       "limit": 100,
       "debug": true,
       "development": {
-        "external_instances": [{
+        "external_instances": [
+          {
             "url": "http://localhost:8080"
           },
           {
