@@ -21,7 +21,7 @@ environments:
   limit: 100
   debug: true
   telemetry:
-    interval: 1
+    interval: 300
     enabled: true
     remoteURL: http://logs.semi.technology
   development:
@@ -46,7 +46,7 @@ environments:
   limit: 100
   debug: true
   telemetry:
-    interval: 1
+    interval: 300
     enabled: true
     remoteURL: http://logs.semi.technology
 - name: janusgraph_docker
@@ -67,7 +67,7 @@ environments:
   limit: 100
   debug: true
   telemetry:
-    interval: 1
+    interval: 10
     enabled: true
     remoteURL: http://telemetry_mock_api:8087/mock/new
   development:
