@@ -1,414 +1,437 @@
 {
-	"Things": [{
-		"class": "City",
-		"uuid": "001",
-		"name": "Amsterdam",
-		"coordinates": "N52, E004",
-		"population": 1800000,
-		"isCapital": true,
-		"inCountry": {
-			"class": "Country",
-			"uuid": "005",
-			"name": "Netherlands",
-			"population": 17000000
+  "Things": [
+    {
+      "class": "City",
+      "uuid": "001",
+      "name": "Amsterdam",
+      "coordinates": "N52, E004",
+      "population": 1800000,
+      "isCapital": true,
+      "inCountry": {
+        "class": "Country",
+        "uuid": "005",
+        "name": "Netherlands",
+        "population": 17000000
+      },
+      "reviews": "A perfect city",
+      "geolocation": {
+        "latitude": 52.366667,
+        "longitude": 4.9
+      }
     },
-    "geolocation": {
-      "latitude": 52.366667,
-      "longitude": 4.9
-    }
-	}, {
-		"class": "City",
-		"uuid": "002",
-		"name": "Rotterdam",
-		"coordinates": "N50, E004",
-		"population": 1800000,
-		"isCapital": false,
-		"inCountry": {
-			"class": "Country",
-			"uuid": "005",
-			"name": "Netherlands",
-			"population": 17000000
-			}
-	}, {
-		"class": "City",
-		"uuid": "003",
-		"name": "Berlin",
-		"coordinates": "N52, E007",
-		"population": 3470000,
-		"isCapital": true,
-		"inCountry": {
-			"class": "Country",
-			"uuid": "006",
-			"name": "Germany",
-			"population": 83000000
-			}
-	}, {
-		"class": "City",
-		"uuid": "004",
-		"name": "Dusseldorf",
-		"coordinates": "N48, E005",
-		"population": 600000,
-		"isCapital": false,
-		"inCountry": {
-			"class": "Country",
-			"uuid": "006",
-			"name": "Germany",
-			"population": 83000000
+    {
+      "class": "City",
+      "uuid": "002",
+      "name": "Rotterdam",
+      "coordinates": "N50, E004",
+      "population": 1800000,
+      "isCapital": false,
+      "inCountry": {
+        "class": "Country",
+        "uuid": "005",
+        "name": "Netherlands",
+        "population": 17000000
+      }
     },
-    "geolocation": {
-      "latitude": 51.225556,
-      "longitude": 6.782778
+    {
+      "class": "City",
+      "uuid": "003",
+      "name": "Berlin",
+      "coordinates": "N52, E007",
+      "population": 3470000,
+      "isCapital": true,
+      "reviews": "I had a bad time here",
+      "inCountry": {
+        "class": "Country",
+        "uuid": "006",
+        "name": "Germany",
+        "population": 83000000
+      }
+    },
+    {
+      "class": "City",
+      "uuid": "004",
+      "name": "Dusseldorf",
+      "coordinates": "N48, E005",
+      "population": 600000,
+      "isCapital": false,
+      "inCountry": {
+        "class": "Country",
+        "uuid": "006",
+        "name": "Germany",
+        "population": 83000000
+      },
+      "geolocation": {
+        "latitude": 51.225556,
+        "longitude": 6.782778
+      }
+    },
+    {
+      "class": "Country",
+      "uuid": "005",
+      "name": "Netherlands",
+      "population": 17000000
+    },
+    {
+      "class": "Country",
+      "uuid": "006",
+      "name": "Germany",
+      "population": 83000000
+    },
+    {
+      "class": "Person",
+      "uuid": "007",
+      "livesIn": {
+        "class": "City",
+        "uuid": "004",
+        "name": "Dusseldorf",
+        "coordinates": "N48, E005",
+        "population": 600000,
+        "isCapital": false,
+        "inCountry": {
+          "class": "Country",
+          "uuid": "006",
+          "name": "Germany",
+          "population": 83000000
+        }
+      },
+      "nationality": {
+        "class": "Country",
+        "uuid": "006",
+        "name": "Germany",
+        "population": 83000000
+      }
+    },
+    {
+      "class": "Person",
+      "uuid": "008",
+      "livesIn": {
+        "class": "City",
+        "uuid": "001",
+        "name": "Amsterdam",
+        "coordinates": "N52, E004",
+        "population": 1800000,
+        "isCapital": true,
+        "inCountry": {
+          "class": "Country",
+          "uuid": "005",
+          "name": "Netherlands",
+          "population": 17000000
+        }
+      },
+      "nationality": {
+        "class": "Country",
+        "uuid": "005",
+        "name": "Netherlands",
+        "population": 17000000
+      }
+    },
+    {
+      "class": "Airport",
+      "uuid": "009",
+      "inCity": {
+        "class": "City",
+        "uuid": "001",
+        "name": "Amsterdam",
+        "coordinates": "N52, E004",
+        "population": 1800000,
+        "isCapital": true,
+        "inCountry": {
+          "class": "Country",
+          "uuid": "005",
+          "name": "Netherlands",
+          "population": 17000000
+        }
+      },
+      "code": "10000"
+    },
+    {
+      "class": "Airport",
+      "uuid": "010",
+      "inCity": {
+        "class": "City",
+        "uuid": "002",
+        "name": "Rotterdam",
+        "coordinates": "N50, E004",
+        "population": 1800000,
+        "isCapital": false,
+        "inCountry": {
+          "class": "Country",
+          "uuid": "005",
+          "name": "Netherlands",
+          "population": 17000000
+        }
+      },
+      "code": "20000"
+    },
+    {
+      "class": "Airport",
+      "uuid": "011",
+      "inCity": {
+        "class": "City",
+        "uuid": "004",
+        "name": "Dusseldorf",
+        "coordinates": "N48, E005",
+        "population": 600000,
+        "isCapital": false,
+        "inCountry": {
+          "class": "Country",
+          "uuid": "006",
+          "name": "Germany",
+          "population": 83000000
+        }
+      },
+      "code": "30000"
+    },
+    {
+      "class": "Airport",
+      "uuid": "012",
+      "inCity": {
+        "class": "City",
+        "uuid": "003",
+        "name": "Berlin",
+        "coordinates": "N52, E007",
+        "population": 3470000,
+        "isCapital": true,
+        "inCountry": {
+          "class": "Country",
+          "uuid": "006",
+          "name": "Germany",
+          "population": 83000000
+        }
+      },
+      "code": "40000"
+    },
+    {
+      "class": "Airline",
+      "uuid": "013",
+      "name": "Lufthansa",
+      "basedIn": {
+        "class": "City",
+        "uuid": "003",
+        "name": "Berlin",
+        "coordinates": "N52, E007",
+        "population": 3470000,
+        "isCapital": true,
+        "inCountry": {
+          "class": "Country",
+          "uuid": "006",
+          "name": "Germany",
+          "population": 83000000
+        }
+      },
+      "code": "123"
+    },
+    {
+      "class": "Airline",
+      "uuid": "014",
+      "name": "KLM",
+      "basedIn": {
+        "class": "City",
+        "uuid": "001",
+        "name": "Amsterdam",
+        "coordinates": "N52, E004",
+        "population": 1800000,
+        "isCapital": true,
+        "inCountry": {
+          "class": "Country",
+          "uuid": "005",
+          "name": "Netherlands",
+          "population": 17000000
+        }
+      },
+      "code": "321"
+    },
+    {
+      "class": "Aircraft",
+      "uuid": "015",
+      "name": "Boeing 747",
+      "numberOfSeats": 366
+    },
+    {
+      "class": "Aircraft",
+      "uuid": "016",
+      "name": "Airbus A380",
+      "numberOfSeats": 853
+    },
+    {
+      "class": "Plane",
+      "uuid": "017",
+      "code": "AB123",
+      "aircraft": {
+        "class": "Aircraft",
+        "uuid": "015",
+        "name": "Boeing 747",
+        "numberOfSeats": 366
+      },
+      "ofAirline": {
+        "class": "Airline",
+        "uuid": "013",
+        "name": "Lufthansa",
+        "basedIn": {
+          "class": "City",
+          "uuid": "003",
+          "name": "Berlin",
+          "coordinates": "N52, E007",
+          "population": 3470000,
+          "isCapital": true,
+          "inCountry": {
+            "class": "Country",
+            "uuid": "006",
+            "name": "Germany",
+            "population": 83000000
+          }
+        },
+        "code": "123"
+      }
+    },
+    {
+      "class": "Plane",
+      "uuid": "018",
+      "code": "AB456",
+      "aircraft": {
+        "class": "Aircraft",
+        "uuid": "016",
+        "name": "Airbus A380",
+        "numberOfSeats": 853
+      },
+      "ofAirline": {
+        "class": "Airline",
+        "uuid": "014",
+        "name": "KLM",
+        "basedIn": {
+          "class": "City",
+          "uuid": "001",
+          "name": "Amsterdam",
+          "coordinates": "N52, E004",
+          "population": 1800000,
+          "isCapital": true,
+          "inCountry": {
+            "class": "Country",
+            "uuid": "005",
+            "name": "Netherlands",
+            "population": 17000000
+          }
+        },
+        "code": "321"
+      }
+    },
+    {
+      "class": "Plane",
+      "uuid": "019",
+      "code": "AB457",
+      "aircraft": {
+        "class": "Aircraft",
+        "uuid": "015",
+        "name": "Boeing 747",
+        "numberOfSeats": 366
+      },
+      "ofAirline": {
+        "class": "Airline",
+        "uuid": "014",
+        "name": "KLM",
+        "basedIn": {
+          "class": "City",
+          "uuid": "001",
+          "name": "Amsterdam",
+          "coordinates": "N52, E004",
+          "population": 1800000,
+          "isCapital": true,
+          "inCountry": {
+            "class": "Country",
+            "uuid": "005",
+            "name": "Netherlands",
+            "population": 17000000
+          }
+        },
+        "code": "321"
+      }
+    },
+    {
+      "class": "Plane",
+      "uuid": "020",
+      "code": "AB456",
+      "aircraft": {
+        "class": "Aircraft",
+        "uuid": "016",
+        "name": "Airbus A380",
+        "numberOfSeats": 853
+      },
+      "ofAirline": {
+        "class": "Airline",
+        "uuid": "013",
+        "name": "Lufthansa",
+        "basedIn": {
+          "class": "City",
+          "uuid": "003",
+          "name": "Berlin",
+          "coordinates": "N52, E007",
+          "population": 3470000,
+          "isCapital": true,
+          "inCountry": {
+            "class": "Country",
+            "uuid": "006",
+            "name": "Germany",
+            "population": 83000000
+          }
+        },
+        "code": "123"
+      }
     }
-	}, {
-		"class": "Country",
-		"uuid": "005",
-		"name": "Netherlands",
-		"population": 17000000
-	}, {
-		"class": "Country",
-		"uuid": "006",
-		"name": "Germany",
-		"population": 83000000
-	}, {
-		"class": "Person",
-		"uuid": "007",
-		"livesIn": {
-			"class": "City",
-			"uuid": "004",
-			"name": "Dusseldorf",
-			"coordinates": "N48, E005",
-			"population": 600000,
-			"isCapital": false,
-			"inCountry": {
-				"class": "Country",
-				"uuid": "006",
-				"name": "Germany",
-				"population": 83000000
-				}
-		},
-		"nationality": {
-			"class": "Country",
-			"uuid": "006",
-			"name": "Germany",
-			"population": 83000000
-			}
-	}, {
-		"class": "Person",
-		"uuid": "008",
-		"livesIn": {
-			"class": "City",
-			"uuid": "001",
-			"name": "Amsterdam",
-			"coordinates": "N52, E004",
-			"population": 1800000,
-			"isCapital": true,
-			"inCountry": {
-				"class": "Country",
-				"uuid": "005",
-				"name": "Netherlands",
-				"population": 17000000
-				}
-		},
-		"nationality": {
-			"class": "Country",
-			"uuid": "005",
-			"name": "Netherlands",
-			"population": 17000000
-			}
-	}, {
-		"class": "Airport",
-		"uuid": "009",
-		"inCity": {
-			"class": "City",
-			"uuid": "001",
-			"name": "Amsterdam",
-			"coordinates": "N52, E004",
-			"population": 1800000,
-			"isCapital": true,
-			"inCountry": {
-				"class": "Country",
-				"uuid": "005",
-				"name": "Netherlands",
-				"population": 17000000
-				}
-		},
-		"code": "10000"
-	}, {
-		"class": "Airport",
-		"uuid": "010",
-		"inCity": {
-			"class": "City",
-			"uuid": "002",
-			"name": "Rotterdam",
-			"coordinates": "N50, E004",
-			"population": 1800000,
-			"isCapital": false,
-			"inCountry": {
-				"class": "Country",
-				"uuid": "005",
-				"name": "Netherlands",
-				"population": 17000000
-				}
-		},
-		"code": "20000"
-	}, {
-		"class": "Airport",
-		"uuid": "011",
-		"inCity": {
-			"class": "City",
-			"uuid": "004",
-			"name": "Dusseldorf",
-			"coordinates": "N48, E005",
-			"population": 600000,
-			"isCapital": false,
-			"inCountry": {
-				"class": "Country",
-				"uuid": "006",
-				"name": "Germany",
-				"population": 83000000
-				}
-		},
-		"code": "30000"
-	}, {
-		"class": "Airport",
-		"uuid": "012",
-		"inCity": {
-			"class": "City",
-			"uuid": "003",
-			"name": "Berlin",
-			"coordinates": "N52, E007",
-			"population": 3470000,
-			"isCapital": true,
-			"inCountry": {
-				"class": "Country",
-				"uuid": "006",
-				"name": "Germany",
-				"population": 83000000
-				}
-		},
-		"code": "40000"
-	}, {
-		"class": "Airline",
-		"uuid": "013",
-		"name": "Lufthansa",
-		"basedIn": {
-			"class": "City",
-			"uuid": "003",
-			"name": "Berlin",
-			"coordinates": "N52, E007",
-			"population": 3470000,
-			"isCapital": true,
-			"inCountry": {
-				"class": "Country",
-				"uuid": "006",
-				"name": "Germany",
-				"population": 83000000
-				}
-		},
-		"code": "123"
-	}, {
-		"class": "Airline",
-		"uuid": "014",
-		"name": "KLM",
-		"basedIn": {
-			"class": "City",
-			"uuid": "001",
-			"name": "Amsterdam",
-			"coordinates": "N52, E004",
-			"population": 1800000,
-			"isCapital": true,
-			"inCountry": {
-				"class": "Country",
-				"uuid": "005",
-				"name": "Netherlands",
-				"population": 17000000
-				}
-		},
-		"code": "321"
-	}, {
-		"class": "Aircraft",
-		"uuid": "015",
-		"name": "Boeing 747",
-		"numberOfSeats": 366
-	}, {
-		"class": "Aircraft",
-		"uuid": "016",
-		"name": "Airbus A380",
-		"numberOfSeats": 853
-	}, {
-		"class": "Plane",
-		"uuid": "017",
-		"code": "AB123",
-		"aircraft": {
-			"class": "Aircraft",
-			"uuid": "015",
-			"name": "Boeing 747",
-			"numberOfSeats": 366
-		},
-		"ofAirline": {
-			"class": "Airline",
-			"uuid": "013",
-			"name": "Lufthansa",
-			"basedIn": {
-				"class": "City",
-				"uuid": "003",
-				"name": "Berlin",
-				"coordinates": "N52, E007",
-				"population": 3470000,
-				"isCapital": true,
-				"inCountry": {
-					"class": "Country",
-					"uuid": "006",
-					"name": "Germany",
-					"population": 83000000
-					}
-			},
-			"code": "123"
-		}
-	}, {
-		"class": "Plane",
-		"uuid": "018",
-		"code": "AB456",
-		"aircraft": {
-			"class": "Aircraft",
-			"uuid": "016",
-			"name": "Airbus A380",
-			"numberOfSeats": 853
-		},
-		"ofAirline": {
-			"class": "Airline",
-			"uuid": "014",
-			"name": "KLM",
-			"basedIn": {
-				"class": "City",
-				"uuid": "001",
-				"name": "Amsterdam",
-				"coordinates": "N52, E004",
-				"population": 1800000,
-				"isCapital": true,
-				"inCountry": {
-					"class": "Country",
-					"uuid": "005",
-					"name": "Netherlands",
-					"population": 17000000
-					}
-			},
-			"code": "321"
-		}
-	}, {
-		"class": "Plane",
-		"uuid": "019",
-		"code": "AB457",
-		"aircraft": {
-			"class": "Aircraft",
-			"uuid": "015",
-			"name": "Boeing 747",
-			"numberOfSeats": 366
-		},
-		"ofAirline": {
-			"class": "Airline",
-			"uuid": "014",
-			"name": "KLM",
-			"basedIn": {
-				"class": "City",
-				"uuid": "001",
-				"name": "Amsterdam",
-				"coordinates": "N52, E004",
-				"population": 1800000,
-				"isCapital": true,
-				"inCountry": {
-					"class": "Country",
-					"uuid": "005",
-					"name": "Netherlands",
-					"population": 17000000
-					}
-			},
-			"code": "321"
-		}
-	}, {
-		"class": "Plane",
-		"uuid": "020",
-		"code": "AB456",
-		"aircraft": {
-			"class": "Aircraft",
-			"uuid": "016",
-			"name": "Airbus A380",
-			"numberOfSeats": 853
-		},
-		"ofAirline": {
-			"class": "Airline",
-			"uuid": "013",
-			"name": "Lufthansa",
-			"basedIn": {
-				"class": "City",
-				"uuid": "003",
-				"name": "Berlin",
-				"coordinates": "N52, E007",
-				"population": 3470000,
-				"isCapital": true,
-				"inCountry": {
-					"class": "Country",
-					"uuid": "006",
-					"name": "Germany",
-					"population": 83000000
-					}
-			},
-			"code": "123"
-		}
-	}
-	],
-	"Actions": [{
-		"class": "Flight",
-		"uuid": "100",
-		"aircraft": {
-			"class": "Aircraft",
-			"uuid": "016",
-			"name": "Airbus A380",
-			"numberOfSeats": 853
-		},
-		"arrivalAirport": {
-			"class": "Airport",
-			"uuid": "011",
-			"inCity": {
-				"class": "City",
-				"uuid": "004",
-				"name": "Dusseldorf",
-				"coordinates": "N48, E005",
-				"population": 600000,
-				"isCapital": false,
-				"inCountry": {
-					"class": "Country",
-					"uuid": "006",
-					"name": "Germany",
-					"population": 83000000
-					}
-			},
-			"code": "30000"
-		},
-		"departureAirport": {
-			"class": "Airport",
-			"uuid": "012",
-			"inCity": {
-				"class": "City",
-				"uuid": "003",
-				"name": "Berlin",
-				"coordinates": "N52, E007",
-				"population": 3470000,
-				"isCapital": true,
-				"inCountry": {
-					"class": "Country",
-					"uuid": "006",
-					"name": "Germany",
-					"population": 83000000
-					}
-			},
-			"code": "40000"
-		},
-		"flightNumber": "LH987",
-		"date": "2017-08-17T12:47:00+02:00",
-		"estimatedFlightDuration": 50,
-		"numberOfPassengers": 300,
-		"isDelayed": false
-	}
-]
+  ],
+  "Actions": [
+    {
+      "class": "Flight",
+      "uuid": "100",
+      "aircraft": {
+        "class": "Aircraft",
+        "uuid": "016",
+        "name": "Airbus A380",
+        "numberOfSeats": 853
+      },
+      "arrivalAirport": {
+        "class": "Airport",
+        "uuid": "011",
+        "inCity": {
+          "class": "City",
+          "uuid": "004",
+          "name": "Dusseldorf",
+          "coordinates": "N48, E005",
+          "population": 600000,
+          "isCapital": false,
+          "inCountry": {
+            "class": "Country",
+            "uuid": "006",
+            "name": "Germany",
+            "population": 83000000
+          }
+        },
+        "code": "30000"
+      },
+      "departureAirport": {
+        "class": "Airport",
+        "uuid": "012",
+        "inCity": {
+          "class": "City",
+          "uuid": "003",
+          "name": "Berlin",
+          "coordinates": "N52, E007",
+          "population": 3470000,
+          "isCapital": true,
+          "inCountry": {
+            "class": "Country",
+            "uuid": "006",
+            "name": "Germany",
+            "population": 83000000
+          }
+        },
+        "code": "40000"
+      },
+      "flightNumber": "LH987",
+      "date": "2017-08-17T12:47:00+02:00",
+      "estimatedFlightDuration": 50,
+      "numberOfPassengers": 300,
+      "isDelayed": false
+    }
+  ]
 }
