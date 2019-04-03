@@ -200,7 +200,7 @@ func (p *Poster) ReportLoggedCalls(encoded *[]byte) {
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
-	if err != nil || resp.Status != "200" {
+	if err != nil || !(resp.StatusCode >= 200 && resp.StatusCode <= 299) {
 		p.messaging.ErrorMessage(fmt.Sprintf("Storing log in the etcd key store because posting to endpoint failed: %s", err))
 		p.triggerPOSTFailsafe(encoded)
 	} else {

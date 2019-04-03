@@ -75,9 +75,9 @@ func configureServer(s *http.Server, scheme, addr string) {
 	messaging.InfoMessage(fmt.Sprintf("configured OIDC client, time left is: %s", timeTillDeadline(ctx)))
 
 	// Extract environment variables needed for logging
-	loggingInterval := appState.ServerConfig.Environment.Logging.Interval
-	loggingUrl := appState.ServerConfig.Environment.Logging.Url
-	loggingEnabled := appState.ServerConfig.Environment.Logging.Enabled
+	loggingInterval := appState.ServerConfig.Environment.Telemetry.Interval
+	loggingUrl := appState.ServerConfig.Environment.Telemetry.RemoteURL
+	loggingEnabled := appState.ServerConfig.Environment.Telemetry.Enabled
 	loggingDebug := appState.ServerConfig.Environment.Debug
 
 	if loggingEnabled != true && loggingEnabled != false {

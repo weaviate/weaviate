@@ -18,10 +18,10 @@
 		},
 		"limit": 100,
 		"debug": true,
-		"logging": {
+		"telemetry": {
 			"interval": 1,
 			"enabled": true,
-			"url": "http://mock_api:8087/mock/new"
+			"remoteURL": "http://logs.semi.technology"
 		}
 	}, {
 		"name": "dummy_net_1",
@@ -47,10 +47,10 @@
 		},
 		"limit": 100,
 		"debug": true,
-		"logging": {
+		"telemetry": {
 			"interval": 1,
 			"enabled": true,
-			"url": "http://mock_api:8087/mock/new"
+			"remoteURL": "http://logs.semi.technology"
 		}
 	}, {
 		"name": "dummy_net_2",
@@ -76,10 +76,10 @@
 		},
 		"limit": 100,
 		"debug": true,
-		"logging": {
+		"telemetry": {
 			"interval": 1,
 			"enabled": true,
-			"url": "http://mock_api:8087/mock/new"
+			"remoteURL": "http://logs.semi.technology"
 		}
 	}]
 }
