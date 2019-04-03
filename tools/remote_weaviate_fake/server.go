@@ -52,6 +52,7 @@ func main() {
 		getMetaQuery := fmt.Sprintf("%s", `{ Local { GetMeta { Things { Instruments { volume { maximum minimum mean } } } } } }`)
 		aggregateQuery := fmt.Sprintf("%s", ` { Local { Aggregate { Things { Instruments(groupBy:["name"]) { volume { count } } } } } }`)
 		fetchQuery := fmt.Sprintf("%s", ` { Local { Fetch { Things(where: { class: { name: "bestclass" certainty: 0.8 keywords: [{value: "foo", weight: 0.9}] }, properties: { name: "bestproperty" certainty: 0.8 keywords: [{value: "bar", weight: 0.9}] operator: Equal valueString: "some-value" }, }) { beacon certainty } } } }`)
+		fetchFuzzyQuery := fmt.Sprintf("%s", ` { Local { Fetch { Fuzzy(value:"something", certainty:0.5) { beacon certainty } } } }`)
 		switch parsed {
 		case removeAllWhiteSpace(getQuery):
 			w.Header().Set("Content-Type", "application/json")
@@ -68,6 +69,10 @@ func main() {
 		case removeAllWhiteSpace(fetchQuery):
 			w.Header().Set("Content-Type", "application/json")
 			fmt.Fprintf(w, "%s", graphQLFetchResponse)
+			return
+		case removeAllWhiteSpace(fetchFuzzyQuery):
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, "%s", graphQLFetchFuzzyResponse)
 			return
 		default:
 			w.WriteHeader(422)
@@ -149,6 +154,21 @@ var graphQLFetchResponse = `{
 					{
 						"beacon": "weaviate://localhost/things/32fc9b12-00b8-46b2-962d-63c1f352e090",
 						"certainty": 0.7
+					}
+				]
+      }
+    }
+  }
+}`
+
+var graphQLFetchFuzzyResponse = `{
+  "data": {
+    "Local": {
+      "Fetch": {
+        "Fuzzy": [
+					{
+						"beacon": "weaviate://localhost/things/61c21951-3460-4189-86ad-884a17b70c16",
+						"certainty": 0.5
 					}
 				]
       }
