@@ -19,13 +19,7 @@ func safeGetSimilarWordsFromAny(c11y Contextionary, word string, n, k int) ([]st
 
 	var words []string
 	var certainties []float32
-	count := 0
 	for i, index := range indices {
-		if count >= simliarWordsLimit {
-			break
-		}
-
-		count++
 		word, err := c11y.ItemIndexToWord(index)
 		if err != nil {
 			continue
@@ -46,13 +40,19 @@ func safeGetSimilarWordsWithCertaintyFromAny(c11y Contextionary, word string, ce
 	var matchingWords []string
 	var matchtingCertainties []float32
 
+	count := 0
 	words, certainties := c11y.SafeGetSimilarWords(word, 100, 32)
 	for i, word := range words {
+		if count >= simliarWordsLimit {
+			break
+		}
+
 		var dist float32
 		if dist = DistanceToCertainty(certainties[i]); dist < certainty {
 			continue
 		}
 
+		count++
 		matchingWords = append(matchingWords, alphanumeric(word))
 		matchtingCertainties = append(matchtingCertainties, dist)
 	}

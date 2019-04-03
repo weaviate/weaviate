@@ -69,14 +69,23 @@ func (b *Query) predicates() ([]*gremlin.Query, error) {
 		return nil, fmt.Errorf("could not get mapped names: %v", err)
 	}
 
-	// janusgraph does not allow more than 253 arguments, so we must abort once
-	// we hit too many
+	// janusgraph does not allow safely allow more than aroudn 120 arguments, so
+	// we must abort once we hit too many
 	argsCounter := 0
 	limit := 120
 
 outer:
-	for _, prop := range mappedProps {
-		for _, searchterm := range b.params {
+	for _, searchterm := range b.params {
+		// Note that we are first iterating over the term, then over the prop. This
+		// is because the terms are already an ordered list where the match with
+		// the highest certainty is the first item. Janus also imposes a limit, so
+		// we need to abort if we get too many predicates. Assuming we have 20 props
+		// and 20 matches, by iterating over the matches first, this way, we'll be
+		// able to cover about the 6 best matches on all props. If we split the
+		// order of iteration, we would cover all matches, but completely ignore 14
+		// out of 20 props.
+
+		for _, prop := range mappedProps {
 			if argsCounter >= limit {
 				break outer
 			}
