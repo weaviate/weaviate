@@ -137,7 +137,7 @@ func interpretResult(t *testing.T, resultBody []byte) map[string]interface{} {
 	decoded := make([]map[string]interface{}, 1)
 	cborHandle := new(codec.CborHandle)
 	encoder := codec.NewDecoderBytes(resultBody, cborHandle)
-	err := encoder.Decode(decoded)
+	err := encoder.Decode(&decoded)
 
 	require.Equal(t, nil, err)
 	return decoded[0]
