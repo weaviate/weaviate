@@ -26,11 +26,12 @@ import (
 )
 
 type testCase struct {
-	name            string
-	query           string
-	resolverReturn  interface{}
-	resolverMethod  string
-	expectedResults []result
+	name                   string
+	query                  string
+	resolverReturnData     interface{}
+	resolverReturnPeerName string
+	resolverMethod         string
+	expectedResults        []result
 }
 
 type testCases []testCase
@@ -66,11 +67,12 @@ func TestNetworkFetch(t *testing.T) {
 					}
 				}
 			}`,
-			resolverMethod: "ProxyFetch",
-			resolverReturn: map[string]interface{}{
+			resolverMethod:         "ProxyFetch",
+			resolverReturnPeerName: "bestpeer",
+			resolverReturnData: map[string]interface{}{
 				"Things": []interface{}{
 					map[string]interface{}{
-						"beacon":    "foobar",
+						"beacon":    "weaviate://localhost/things/0d0551d8-a27b-4d52-91ac-e0006553039e",
 						"certainty": json.Number("0.5"),
 					},
 				},
@@ -79,7 +81,7 @@ func TestNetworkFetch(t *testing.T) {
 				pathToField: []string{"Fetch", "Things"},
 				expectedValue: []interface{}{
 					map[string]interface{}{
-						"beacon":    "foobar",
+						"beacon":    "weaviate://bestpeer/things/0d0551d8-a27b-4d52-91ac-e0006553039e",
 						"certainty": 0.5,
 					},
 				},
@@ -96,8 +98,9 @@ func TestNetworkFetch(t *testing.T) {
 					}
 				}
 			}`,
-			resolverMethod: "ProxyFetch",
-			resolverReturn: map[string]interface{}{
+			resolverMethod:         "ProxyFetch",
+			resolverReturnPeerName: "bestpeer",
+			resolverReturnData: map[string]interface{}{
 				"Fuzzy": []interface{}{
 					map[string]interface{}{
 						"beacon":    "weaviate://localhost/things/c74621ea-049b-410a-813f-bd93a3ba9a68",
@@ -109,7 +112,7 @@ func TestNetworkFetch(t *testing.T) {
 				pathToField: []string{"Fetch", "Fuzzy"},
 				expectedValue: []interface{}{
 					map[string]interface{}{
-						"beacon":    "weaviate://localhost/things/c74621ea-049b-410a-813f-bd93a3ba9a68",
+						"beacon":    "weaviate://bestpeer/things/c74621ea-049b-410a-813f-bd93a3ba9a68",
 						"certainty": 0.5,
 					},
 				},
@@ -125,13 +128,16 @@ func (tests testCases) Assert(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			resolver := newMockResolver()
 
-			resolverReturn := []*models.GraphQLResponse{
-				&models.GraphQLResponse{
-					Data: map[string]models.JSONObject{
-						"Local": map[string]interface{}{
-							"Fetch": testCase.resolverReturn,
+			resolverReturn := []Response{
+				Response{
+					GraphQL: &models.GraphQLResponse{
+						Data: map[string]models.JSONObject{
+							"Local": map[string]interface{}{
+								"Fetch": testCase.resolverReturnData,
+							},
 						},
 					},
+					PeerName: testCase.resolverReturnPeerName,
 				},
 			}
 
@@ -176,7 +182,7 @@ func newMockResolver() *mockResolver {
 	return mocker
 }
 
-func (m *mockResolver) ProxyFetch(query common.SubQuery) ([]*models.GraphQLResponse, error) {
+func (m *mockResolver) ProxyFetch(query common.SubQuery) ([]Response, error) {
 	args := m.Called(query)
-	return args.Get(0).([]*models.GraphQLResponse), args.Error(1)
+	return args.Get(0).([]Response), args.Error(1)
 }

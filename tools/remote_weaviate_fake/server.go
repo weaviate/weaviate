@@ -143,11 +143,11 @@ var graphQLFetchResponse = `{
       "Fetch": {
         "Things": [
 					{
-						"beacon": "weaviate://RemoteWeaviateForAcceptanceTest/things/c2b94c9a-fea2-4f9a-ae40-6d63534633f7",
+						"beacon": "weaviate://localhost/things/c2b94c9a-fea2-4f9a-ae40-6d63534633f7",
 						"certainty": 0.5
 					},
 					{
-						"beacon": "weaviate://RemoteWeaviateForAcceptanceTest/things/32fc9b12-00b8-46b2-962d-63c1f352e090",
+						"beacon": "weaviate://localhost/things/32fc9b12-00b8-46b2-962d-63c1f352e090",
 						"certainty": 0.7
 					}
 				]

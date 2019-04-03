@@ -21,6 +21,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/client"
 	"github.com/creativesoftwarefdn/weaviate/client/graphql"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/common"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/fetch"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 )
@@ -58,12 +59,13 @@ func (n *network) proxy(params common.Params) (*models.GraphQLResponse, error) {
 }
 
 type peerResponse struct {
-	res *models.GraphQLResponse
-	err error
+	res  *models.GraphQLResponse
+	err  error
+	name string
 }
 
-func (n *network) ProxyFetch(q common.SubQuery) ([]*models.GraphQLResponse, error) {
-	var results []*models.GraphQLResponse
+func (n *network) ProxyFetch(q common.SubQuery) ([]fetch.Response, error) {
+	var results []fetch.Response
 	knownPeers, err := n.ListPeers()
 	if err != nil {
 		return nil, err
@@ -76,7 +78,7 @@ func (n *network) ProxyFetch(q common.SubQuery) ([]*models.GraphQLResponse, erro
 		go func(peer peers.Peer) {
 			defer wg.Done()
 			res, err := n.sendQueryToPeer(q, peer)
-			resultsC <- peerResponse{res, err}
+			resultsC <- peerResponse{res, err, peer.Name}
 		}(peer)
 	}
 
@@ -87,7 +89,10 @@ func (n *network) ProxyFetch(q common.SubQuery) ([]*models.GraphQLResponse, erro
 			return nil, res.err
 		}
 
-		results = append(results, res.res)
+		results = append(results, fetch.Response{
+			GraphQL:  res.res,
+			PeerName: res.name,
+		})
 	}
 
 	return results, nil

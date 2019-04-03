@@ -20,7 +20,7 @@ import (
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/common"
-	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/fetch"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -389,7 +389,7 @@ func TestProxyFetch(t *testing.T) {
 		remote1 *httptest.Server
 		remote2 *httptest.Server
 		err     error
-		results []*models.GraphQLResponse
+		results []fetch.Response
 	)
 
 	arrange := func(matchers ...requestMatcher) {

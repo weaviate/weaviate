@@ -14,6 +14,7 @@ package fetch
 
 import (
 	"fmt"
+	"net/url"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/common"
@@ -23,7 +24,13 @@ import (
 
 // Resolver describes the dependencies of this package
 type Resolver interface {
-	ProxyFetch(query common.SubQuery) ([]*models.GraphQLResponse, error)
+	ProxyFetch(query common.SubQuery) ([]Response, error)
+}
+
+// Response is a helper tuple that groups a response with the peer it came from
+type Response struct {
+	PeerName string
+	GraphQL  *models.GraphQLResponse
 }
 
 func makeResolveKind(k kind.Kind) func(p graphql.ResolveParams) (interface{}, error) {
@@ -50,15 +57,15 @@ func makeResolveKind(k kind.Kind) func(p graphql.ResolveParams) (interface{}, er
 	}
 }
 
-func extractKindsResults(k kind.Kind, responses []*models.GraphQLResponse) ([]interface{}, error) {
+func extractKindsResults(k kind.Kind, responses []Response) ([]interface{}, error) {
 	kind := fmt.Sprintf("%ss", k.TitleizedName())
 	results := []interface{}{}
 
 	for _, response := range responses {
-		local, ok := response.Data["Local"].(map[string]interface{})
+		local, ok := response.GraphQL.Data["Local"].(map[string]interface{})
 		if !ok {
 			return nil, fmt.Errorf("expected response.data.Local to be map[string]interface{}, but response was %#v",
-				response.Data["Local"])
+				response.GraphQL.Data["Local"])
 		}
 
 		fetch, ok := local["Fetch"].(map[string]interface{})
@@ -71,6 +78,11 @@ func extractKindsResults(k kind.Kind, responses []*models.GraphQLResponse) ([]in
 		if !ok {
 			return nil, fmt.Errorf("expected response.data.Local.Fetch.%s to be a slice, but response was %#v",
 				kind, fetch[kind])
+		}
+
+		peerResults, err := replacePeerName(peerResults, response.PeerName)
+		if err != nil {
+			return nil, fmt.Errorf("could not replace peer name in response: %v", err)
 		}
 
 		results = append(results, peerResults...)
@@ -101,14 +113,14 @@ func resolveFuzzy(p graphql.ResolveParams) (interface{}, error) {
 	return extractFuzzyResults(graphQLResponses)
 }
 
-func extractFuzzyResults(responses []*models.GraphQLResponse) ([]interface{}, error) {
+func extractFuzzyResults(responses []Response) ([]interface{}, error) {
 	results := []interface{}{}
 
 	for _, response := range responses {
-		local, ok := response.Data["Local"].(map[string]interface{})
+		local, ok := response.GraphQL.Data["Local"].(map[string]interface{})
 		if !ok {
 			return nil, fmt.Errorf("expected response.data.Local to be map[string]interface{}, but response was %#v",
-				response.Data["Local"])
+				response.GraphQL.Data["Local"])
 		}
 
 		fetch, ok := local["Fetch"].(map[string]interface{})
@@ -123,8 +135,42 @@ func extractFuzzyResults(responses []*models.GraphQLResponse) ([]interface{}, er
 				fetch["Fuzzy"])
 		}
 
+		peerResults, err := replacePeerName(peerResults, response.PeerName)
+		if err != nil {
+			return nil, fmt.Errorf("could not replace peer name in response: %v", err)
+		}
+
 		results = append(results, peerResults...)
 	}
 
 	return results, nil
+}
+
+func replacePeerName(input []interface{}, peerName string) ([]interface{}, error) {
+	for i, item := range input {
+		itemMap, ok := item.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("expected a slice of maps, but got %T", item)
+		}
+
+		beacon, ok := itemMap["beacon"]
+		if !ok {
+			return nil, fmt.Errorf("expected map to have a key 'beacon', but got %+v", itemMap)
+		}
+
+		beaconString, ok := beacon.(string)
+		if !ok {
+			return nil, fmt.Errorf("expected beacon to be a string, but got %T", beacon)
+		}
+
+		beaconURL, err := url.Parse(beaconString)
+		if err != nil {
+			return nil, fmt.Errorf("could not parse beacon: %v", err)
+		}
+
+		beaconURL.Host = peerName
+		input[i].(map[string]interface{})["beacon"] = beaconURL.String()
+	}
+
+	return input, nil
 }
