@@ -32,6 +32,9 @@ func Test_QueryProcessor(t *testing.T) {
 						"uuid": []interface{}{
 							"some-uuid",
 						},
+						"classId": []interface{}{
+							"class_18",
+						},
 					},
 				},
 				gremlin.Datum{
@@ -42,6 +45,9 @@ func Test_QueryProcessor(t *testing.T) {
 						"uuid": []interface{}{
 							"some-other-uuid",
 						},
+						"classId": []interface{}{
+							"class_18",
+						},
 					},
 				},
 			},
@@ -49,16 +55,18 @@ func Test_QueryProcessor(t *testing.T) {
 		executor := &fakeExecutor{result: janusResponse}
 		expectedResult := []interface{}{
 			map[string]interface{}{
-				"beacon": "weaviate://my-super-peer/things/some-uuid",
+				"beacon":    "weaviate://my-super-peer/things/some-uuid",
+				"className": "City",
 			},
 			map[string]interface{}{
-				"beacon": "weaviate://my-super-peer/actions/some-other-uuid",
+				"beacon":    "weaviate://my-super-peer/actions/some-other-uuid",
+				"className": "City",
 			},
 		}
 
 		peerName := "my-super-peer"
 
-		result, err := NewProcessor(executor, peerName).Process(gremlin.New())
+		result, err := NewProcessor(executor, peerName, &fakeNameSource{}).Process(gremlin.New())
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")

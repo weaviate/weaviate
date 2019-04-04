@@ -80,6 +80,15 @@ func (f *fakeNameSource) MustGetMappedClassName(className schema.ClassName) stat
 	}
 }
 
+func (f *fakeNameSource) GetClassNameFromMapped(className state.MappedClassName) schema.ClassName {
+	switch className {
+	case "class_18":
+		return schema.ClassName("City")
+	default:
+		panic(fmt.Sprintf("fake name source does not contain a class for mapped id '%s'", className))
+	}
+}
+
 type fakeTypeSource struct{}
 
 func (f *fakeTypeSource) GetProperty(kind kind.Kind, className schema.ClassName,

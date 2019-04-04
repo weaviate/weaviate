@@ -63,7 +63,7 @@ func Test_ResolveKinds(t *testing.T) {
 							valueString: "some-value"
 						},
 					}) {
-						beacon certainty
+						beacon certainty className
 					}
 				}
 			}`,
@@ -130,6 +130,7 @@ func Test_ResolveKinds(t *testing.T) {
 			resolverReturn: []interface{}{
 				map[string]interface{}{
 					"beacon":    "weaviate://peerName/things/uuid1",
+					"className": "Superclass",
 					"certainty": 0.7,
 				},
 			},
@@ -138,6 +139,7 @@ func Test_ResolveKinds(t *testing.T) {
 				expectedValue: []interface{}{
 					map[string]interface{}{
 						"beacon":    "weaviate://peerName/things/uuid1",
+						"className": "Superclass",
 						"certainty": 0.7,
 					},
 				},
@@ -214,19 +216,21 @@ func Test__ResolveFuzzy_HappyPath(t *testing.T) {
 			{
 				Fetch {
 					Fuzzy(value:"steak", certainty: 0.7) {
-						beacon certainty
+						beacon certainty className
 					}
 				}
 			}`
 	resolverReturn := []interface{}{
 		map[string]interface{}{
 			"beacon":    "weaviate://localhost/things/foobar",
+			"className": "Superclass",
 			"certainty": 0.7,
 		},
 	}
 	expectedResult := []interface{}{
 		map[string]interface{}{
 			"beacon":    "weaviate://localhost/things/foobar",
+			"className": "Superclass",
 			"certainty": 0.7,
 		},
 	}

@@ -15,6 +15,7 @@ package fetchfuzzy
 import (
 	"fmt"
 
+	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/state"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 )
 
@@ -22,8 +23,9 @@ import (
 // transforms the return value into a usable beacon structure and calculates
 // the final certainty.
 type Processor struct {
-	executor executor
-	peerName string
+	executor   executor
+	peerName   string
+	nameSource nameSource
 }
 
 type executor interface {
@@ -31,8 +33,8 @@ type executor interface {
 }
 
 //NewProcessor from a gremlin executer. See Processor for details.
-func NewProcessor(executor executor, peer string) *Processor {
-	return &Processor{executor: executor, peerName: peer}
+func NewProcessor(executor executor, peer string, ns nameSource) *Processor {
+	return &Processor{executor: executor, peerName: peer, nameSource: ns}
 }
 
 // Process the query by executing it and then transforming the results to
@@ -51,8 +53,14 @@ func (p *Processor) Process(query *gremlin.Query) (interface{}, error) {
 			return nil, fmt.Errorf("could not extract beacon: %s", err)
 		}
 
+		className, err := p.extractClassName(datum.Datum)
+		if err != nil {
+			return nil, fmt.Errorf("could not extract beacon: %s", err)
+		}
+
 		results[i] = map[string]interface{}{
-			"beacon": beacon,
+			"beacon":    beacon,
+			"className": className,
 		}
 	}
 
@@ -76,6 +84,20 @@ func (p *Processor) extractBeacon(data interface{}) (string, error) {
 	}
 
 	return p.beaconFromUUID(uuid, kind)
+}
+
+func (p *Processor) extractClassName(data interface{}) (string, error) {
+	dataMap, ok := data.(map[string]interface{})
+	if !ok {
+		return "", fmt.Errorf("expected datum to be a map, but was %T", data)
+	}
+
+	id, err := p.getProperty(dataMap, "classId")
+	if err != nil {
+		return "", err
+	}
+
+	return p.classNameFromID(id)
 }
 
 func (p *Processor) getProperty(dataMap map[string]interface{}, propName string) (string, error) {
@@ -108,4 +130,8 @@ func (p *Processor) getProperty(dataMap map[string]interface{}, propName string)
 func (p *Processor) beaconFromUUID(uuid string, kind string) (string, error) {
 	return fmt.Sprintf("weaviate://%s/%ss/%s",
 		p.peerName, kind, uuid), nil
+}
+
+func (p *Processor) classNameFromID(id string) (string, error) {
+	return string(p.nameSource.GetClassNameFromMapped(state.MappedClassName(id))), nil
 }

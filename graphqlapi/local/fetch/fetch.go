@@ -83,6 +83,12 @@ func fetchObj() *graphql.Object {
 
 func kindFieldsObj(k kind.Kind) *graphql.Object {
 	fields := graphql.Fields{
+		"className": &graphql.Field{
+			Name:        fmt.Sprintf("WeaviateLocalFetch%sClassName", k.TitleizedName()),
+			Description: descriptions.LocalFetchClassName,
+			Type:        graphql.String,
+		},
+
 		"beacon": &graphql.Field{
 			Name:        fmt.Sprintf("WeaviateLocalFetch%sBeacon", k.TitleizedName()),
 			Description: descriptions.LocalFetchBeacon,
@@ -113,6 +119,11 @@ func kindFieldsObj(k kind.Kind) *graphql.Object {
 
 func fuzzyFieldsObj() *graphql.Object {
 	getLocalFetchFuzzyFields := graphql.Fields{
+		"className": &graphql.Field{
+			Name:        "WeaviateLocalFetchFuzzyClassName",
+			Description: descriptions.LocalFetchFuzzyClassName,
+			Type:        graphql.String,
+		},
 
 		"beacon": &graphql.Field{
 			Name:        "WeaviateLocalFetchFuzzyBeacon",
