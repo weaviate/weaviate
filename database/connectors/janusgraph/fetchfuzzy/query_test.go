@@ -25,7 +25,7 @@ func Test_QueryBuilder(t *testing.T) {
 				g.V().or(
 					has("prop_1", textContainsFuzzy("searchterm")),
 					has("prop_11", textContainsFuzzy("searchterm"))
-				).limit(20).valueMap("uuid", "kind")
+				).limit(20).valueMap("uuid", "kind", "classId")
 			`,
 		},
 	}
@@ -46,7 +46,7 @@ func Test_QueryBuilder_Many(t *testing.T) {
 					has("prop_11", textContainsFuzzy("two")),
 					has("prop_1", textContainsFuzzy("three")),
 					has("prop_11", textContainsFuzzy("three"))
-				).limit(20).valueMap("uuid", "kind")
+				).limit(20).valueMap("uuid", "kind", "classId")
 			`,
 		},
 	}

@@ -28,7 +28,7 @@ func (j *Janusgraph) LocalFetchKindClass(params *graphqlfetch.Params) (interface
 		return nil, fmt.Errorf("could not build query: %s", err)
 	}
 
-	res, err := fetch.NewProcessor(j.client, params.Kind, "localhost").
+	res, err := fetch.NewProcessor(j.client, params.Kind, "localhost", &j.state).
 		Process(gremlin.New().Raw(q))
 	return res, err
 }
@@ -40,7 +40,7 @@ func (j *Janusgraph) LocalFetchFuzzy(words []string) (interface{}, error) {
 		return nil, fmt.Errorf("could not build query: %s", err)
 	}
 
-	res, err := fetchfuzzy.NewProcessor(j.client, "localhost").
+	res, err := fetchfuzzy.NewProcessor(j.client, "localhost", &j.state).
 		Process(gremlin.New().Raw(q))
 	return res, err
 }

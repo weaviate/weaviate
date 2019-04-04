@@ -76,6 +76,11 @@ func New() *graphql.Object {
 
 func actionsFieldsObj() *graphql.Object {
 	getNetworkFetchActionsFields := graphql.Fields{
+		"className": &graphql.Field{
+			Name:        "WeaviateNetworkFetchActionsClassName",
+			Description: descriptions.NetworkFetchActionClassName,
+			Type:        graphql.String,
+		},
 
 		"beacon": &graphql.Field{
 			Name:        "WeaviateNetworkFetchActionsBeacon",
@@ -102,6 +107,11 @@ func actionsFieldsObj() *graphql.Object {
 
 func thingsFieldsObj() *graphql.Object {
 	getNetworkFetchThingsFields := graphql.Fields{
+		"className": &graphql.Field{
+			Name:        "WeaviateNetworkFetchThingsClassName",
+			Description: descriptions.NetworkFetchThingClassName,
+			Type:        graphql.String,
+		},
 
 		"beacon": &graphql.Field{
 			Name:        "WeaviateNetworkFetchThingsBeacon",
@@ -128,6 +138,11 @@ func thingsFieldsObj() *graphql.Object {
 
 func fuzzyFieldsObj() *graphql.Object {
 	getNetworkFetchFuzzyFields := graphql.Fields{
+		"className": &graphql.Field{
+			Name:        "WeaviateNetworkFetchFuzzyClassName",
+			Description: descriptions.NetworkFetchFuzzyClassName,
+			Type:        graphql.String,
+		},
 
 		"beacon": &graphql.Field{
 			Name:        "WeaviateNetworkFetchFuzzyBeacon",

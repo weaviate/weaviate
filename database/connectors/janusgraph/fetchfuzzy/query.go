@@ -37,6 +37,7 @@ func NewQuery(p []string, ns nameSource, ts typeSource) *Query {
 
 type nameSource interface {
 	GetMappedPropertyNames(rawProps []schema.ClassAndProperty) ([]state.MappedPropertyName, error)
+	GetClassNameFromMapped(className state.MappedClassName) schema.ClassName
 }
 
 type typeSource interface {
@@ -55,7 +56,7 @@ func (b *Query) String() (string, error) {
 		Raw("g.V()").
 		Or(predicates...).
 		Limit(20).
-		Raw(`.valueMap("uuid", "kind")`)
+		Raw(`.valueMap("uuid", "kind", "classId")`)
 
 	return q.String(), nil
 }

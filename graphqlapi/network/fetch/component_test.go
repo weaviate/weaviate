@@ -63,7 +63,7 @@ func TestNetworkFetch(t *testing.T) {
 							valueString: "some-value"
 						},
 					}) {
-						beacon certainty
+						beacon certainty className
 					}
 				}
 			}`,
@@ -73,6 +73,7 @@ func TestNetworkFetch(t *testing.T) {
 				"Things": []interface{}{
 					map[string]interface{}{
 						"beacon":    "weaviate://localhost/things/0d0551d8-a27b-4d52-91ac-e0006553039e",
+						"className": "Superclass",
 						"certainty": json.Number("0.5"),
 					},
 				},
@@ -82,6 +83,7 @@ func TestNetworkFetch(t *testing.T) {
 				expectedValue: []interface{}{
 					map[string]interface{}{
 						"beacon":    "weaviate://bestpeer/things/0d0551d8-a27b-4d52-91ac-e0006553039e",
+						"className": "Superclass",
 						"certainty": 0.5,
 					},
 				},
@@ -94,7 +96,7 @@ func TestNetworkFetch(t *testing.T) {
 			{
 				Fetch {
 					Fuzzy(value:"mysearchterm", certainty: 0.5) {
-						beacon certainty
+						beacon certainty className
 					}
 				}
 			}`,
@@ -104,6 +106,7 @@ func TestNetworkFetch(t *testing.T) {
 				"Fuzzy": []interface{}{
 					map[string]interface{}{
 						"beacon":    "weaviate://localhost/things/c74621ea-049b-410a-813f-bd93a3ba9a68",
+						"className": "Superclass",
 						"certainty": json.Number("0.5"),
 					},
 				},
@@ -113,6 +116,7 @@ func TestNetworkFetch(t *testing.T) {
 				expectedValue: []interface{}{
 					map[string]interface{}{
 						"beacon":    "weaviate://bestpeer/things/c74621ea-049b-410a-813f-bd93a3ba9a68",
+						"className": "Superclass",
 						"certainty": 0.5,
 					},
 				},
