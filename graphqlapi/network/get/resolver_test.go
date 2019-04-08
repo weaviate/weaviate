@@ -14,11 +14,18 @@ package network_get
 import (
 	"testing"
 
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/common"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
 	"github.com/graphql-go/graphql/language/source"
 )
+
+type mockRequestsLog struct{}
+
+func (m *mockRequestsLog) Register(first string, second string) {
+
+}
 
 func TestNetworkGetInstanceQueryWithoutFilters(t *testing.T) {
 	t.Parallel()
@@ -28,7 +35,7 @@ func TestNetworkGetInstanceQueryWithoutFilters(t *testing.T) {
 		`{ Network { Get { weaviateA { Things { City { name } } } } } } `,
 	)
 
-	expectedSubQuery := `Get { Things { City { name } } }`
+	expectedSubQuery := `{ Local { Get { Things { City { name } } } } }`
 	expectedTarget := "weaviateA"
 	expectedResultString := "placeholder for result from Local.Get"
 
@@ -65,10 +72,13 @@ func TestNetworkGetInstanceQueryWithoutFilters(t *testing.T) {
 
 func paramsFromQueryWithStartAndEnd(query []byte, start int, end int,
 	instanceName string, resolver Resolver, principal interface{}) graphql.ResolveParams {
+	paramSource := map[string]interface{}{
+		"NetworkResolver": resolver,
+		"RequestsLog":     &mockRequestsLog{},
+	}
+
 	return graphql.ResolveParams{
-		Source: FiltersAndResolver{
-			Resolver: resolver,
-		},
+		Source: paramSource,
 		Info: graphql.ResolveInfo{
 			FieldName: instanceName,
 			FieldASTs: []*ast.Field{
@@ -88,10 +98,10 @@ func paramsFromQueryWithStartAndEnd(query []byte, start int, end int,
 
 type fakeNetworkResolver struct {
 	Called     bool
-	CalledWith Params
+	CalledWith common.Params
 }
 
-func (r *fakeNetworkResolver) ProxyGetInstance(info Params) (*models.GraphQLResponse, error) {
+func (r *fakeNetworkResolver) ProxyGetInstance(info common.Params) (*models.GraphQLResponse, error) {
 	r.Called = true
 	r.CalledWith = info
 	return &models.GraphQLResponse{

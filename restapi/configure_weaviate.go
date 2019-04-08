@@ -70,7 +70,7 @@ func init() {
 
 // configureAPI -> see configure_api.go
 
-// configureServer -> see configures_server.go
+// configureServer -> see configure_server.go
 
 func configureFlags(api *operations.WeaviateAPI) {
 	connectorOptionGroup = config.GetConfigOptionGroup()

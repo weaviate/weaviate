@@ -18,11 +18,18 @@ package getmeta
 import (
 	"testing"
 
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/common"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
 	"github.com/graphql-go/graphql/language/source"
 )
+
+type mockRequestsLog struct{}
+
+func (m *mockRequestsLog) Register(first string, second string) {
+
+}
 
 func TestNetworkGetInstanceQueryWithoutFilters(t *testing.T) {
 	t.Parallel()
@@ -32,7 +39,7 @@ func TestNetworkGetInstanceQueryWithoutFilters(t *testing.T) {
 		`{ Network { GetMeta { weaviateA { Things { City { meta { count } } } } } } } `,
 	)
 
-	expectedSubQuery := `GetMeta { Things { City { meta { count } } } }`
+	expectedSubQuery := `{ Local { GetMeta { Things { City { meta { count } } } } } }`
 	expectedTarget := "weaviateA"
 	expectedResultString := "placeholder for result from Local.GetMeta"
 
@@ -69,8 +76,11 @@ func TestNetworkGetInstanceQueryWithoutFilters(t *testing.T) {
 
 func paramsFromQueryWithStartAndEnd(query []byte, start int, end int,
 	instanceName string, resolver Resolver, principal interface{}) graphql.ResolveParams {
+	paramSource := make(map[string]interface{})
+	paramSource["NetworkResolver"] = resolver
+	paramSource["RequestsLog"] = &mockRequestsLog{}
 	return graphql.ResolveParams{
-		Source: resolver,
+		Source: paramSource,
 		Info: graphql.ResolveInfo{
 			FieldName: instanceName,
 			FieldASTs: []*ast.Field{
@@ -90,10 +100,10 @@ func paramsFromQueryWithStartAndEnd(query []byte, start int, end int,
 
 type fakeNetworkResolver struct {
 	Called     bool
-	CalledWith Params
+	CalledWith common.Params
 }
 
-func (r *fakeNetworkResolver) ProxyGetMetaInstance(info Params) (*models.GraphQLResponse, error) {
+func (r *fakeNetworkResolver) ProxyGetMetaInstance(info common.Params) (*models.GraphQLResponse, error) {
 	r.Called = true
 	r.CalledWith = info
 	return &models.GraphQLResponse{

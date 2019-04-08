@@ -16,6 +16,8 @@ package aggregate
 import (
 	"fmt"
 
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
+
 	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
@@ -34,6 +36,12 @@ const GroupedByFieldName = "groupedBy"
 // want to support the GetMeta feature must implement this interface.
 type Resolver interface {
 	LocalAggregate(info *Params) (interface{}, error)
+}
+
+// RequestsLog is a local abstraction on the RequestsLog that needs to be
+// provided to the graphQL API in order to log Local.Get queries.
+type RequestsLog interface {
+	Register(requestType string, identifier string)
 }
 
 // Params to describe the Local->GetMeta->Kind->Class query. Will be passed to
@@ -121,6 +129,19 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 			return nil, fmt.Errorf("could not extract filters: %s", err)
 		}
 
+		requestsLog, ok := source["RequestsLog"].(RequestsLog)
+		if !ok {
+			return nil, fmt.Errorf("expected source to contain a usable RequestsLog, but was %t", p.Source)
+		}
+		for _, property := range properties {
+			for _, aggregator := range property.Aggregators {
+				serviceID := fmt.Sprintf("%s[%s]", telemetry.LocalQuery, aggregator)
+				go func() {
+					requestsLog.Register(telemetry.TypeGQL, serviceID)
+				}()
+
+			}
+		}
 		analytics, err := common_filters.ExtractAnalyticsProps(p.Args, cfg.AnalyticsEngine)
 		if err != nil {
 			return nil, fmt.Errorf("could not extract filters: %s", err)
@@ -134,6 +155,7 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 			GroupBy:    groupBy,
 			Analytics:  analytics,
 		}
+
 		return resolver.LocalAggregate(params)
 	}
 }

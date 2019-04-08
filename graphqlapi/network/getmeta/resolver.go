@@ -18,6 +18,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/common"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
 	"github.com/graphql-go/graphql"
 )
 
@@ -28,20 +29,28 @@ type Params struct {
 	TargetInstance string
 }
 
-type Resolver interface {
-	ProxyGetMetaInstance(info Params) (*models.GraphQLResponse, error)
+// RequestsLog is a local abstraction on the RequestsLog that needs to be
+// provided to the graphQL API in order to log Network.Get queries.
+type RequestsLog interface {
+	Register(requestType string, identifier string)
 }
 
-// FiltersAndResolver is a helper tuple to bubble data through the resolvers.
-type FiltersAndResolver struct {
-	Resolver Resolver
+// Resolver describes the requirements of this package
+type Resolver interface {
+	ProxyGetMetaInstance(info common.Params) (*models.GraphQLResponse, error)
 }
 
 func Resolve(p graphql.ResolveParams) (interface{}, error) {
-	resolver, ok := p.Source.(Resolver)
+	source, ok := p.Source.(map[string]interface{})
 	if !ok {
-		return nil, fmt.Errorf("expected source to be a Resolver, but was \n%#v",
+		return nil, fmt.Errorf("expected source to be a map[string]interface{}, but was \n%#v",
 			p.Source)
+	}
+
+	resolver, ok := source["NetworkResolver"].(Resolver)
+	if !ok {
+		return nil, fmt.Errorf("expected source['NetworkResolver'] to be a Resolver, but was \n%#v",
+			source["NetworkResolver"])
 	}
 
 	astLoc := p.Info.FieldASTs[0].GetLoc()
@@ -51,8 +60,10 @@ func Resolve(p graphql.ResolveParams) (interface{}, error) {
 		return nil, fmt.Errorf("could not replace instance name in sub-query: %s", err)
 	}
 
-	params := Params{
-		SubQuery:       common.ParseSubQuery(subQueryWithoutInstance),
+	params := common.Params{
+		SubQuery: common.ParseSubQuery(subQueryWithoutInstance).
+			WrapInLocalQuery().
+			WrapInBraces(),
 		TargetInstance: p.Info.FieldName,
 	}
 
@@ -66,6 +77,16 @@ func Resolve(p graphql.ResolveParams) (interface{}, error) {
 		return nil, fmt.Errorf("expected response.data.Local to be map[string]interface{}, but response was %#v",
 			graphQLResponse.Data["Local"])
 	}
+
+	// Log the request
+	requestsLog, ok := source["RequestsLog"].(RequestsLog)
+	if !ok {
+		return nil, fmt.Errorf("expected source['RequestsLog'] to be a RequestsLog, but was \n%#v",
+			source["RequestsLog"])
+	}
+	go func() {
+		requestsLog.Register(telemetry.TypeGQL, telemetry.NetworkQueryMeta)
+	}()
 
 	return local["GetMeta"], nil
 }

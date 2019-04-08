@@ -50,6 +50,8 @@ func main() {
 
 		getQuery := fmt.Sprintf("%s", `{ Local { Get { Things { Instruments { name } } } } }`)
 		getMetaQuery := fmt.Sprintf("%s", `{ Local { GetMeta { Things { Instruments { volume { maximum minimum mean } } } } } }`)
+		aggregateQuery := fmt.Sprintf("%s", ` { Local { Aggregate { Things { Instruments(groupBy:["name"]) { volume { count } } } } } }`)
+		fetchQuery := fmt.Sprintf("%s", ` { Local { Fetch { Things(where: { class: { name: "bestclass" certainty: 0.8 keywords: [{value: "foo", weight: 0.9}] }, properties: { name: "bestproperty" certainty: 0.8 keywords: [{value: "bar", weight: 0.9}] operator: Equal valueString: "some-value" }, }) { beacon certainty } } } }`)
 		switch parsed {
 		case removeAllWhiteSpace(getQuery):
 			w.Header().Set("Content-Type", "application/json")
@@ -59,10 +61,19 @@ func main() {
 			w.Header().Set("Content-Type", "application/json")
 			fmt.Fprintf(w, "%s", graphQLGetMetaResponse)
 			return
+		case removeAllWhiteSpace(aggregateQuery):
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, "%s", graphQLAggregateResponse)
+			return
+		case removeAllWhiteSpace(fetchQuery):
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, "%s", graphQLFetchResponse)
+			return
 		default:
 			w.WriteHeader(422)
-			w.Write([]byte(fmt.Sprintf("unrecognized body, got \n%#v\nwanted\n%#v\nor\n%#v",
-				parsed, removeAllWhiteSpace(getQuery), removeAllWhiteSpace(getMetaQuery))))
+			w.Write([]byte(fmt.Sprintf("unrecognized body, got \n%#v\nwanted\n%#v\nor\n%#v\nor\n%#v\nor\n%#v",
+				parsed, removeAllWhiteSpace(fetchQuery), removeAllWhiteSpace(aggregateQuery),
+				removeAllWhiteSpace(getQuery), removeAllWhiteSpace(getMetaQuery))))
 			return
 		}
 	})
@@ -105,6 +116,41 @@ var graphQLGetMetaResponse = `{
             }
           }
         }
+      }
+    }
+  }
+}`
+
+var graphQLAggregateResponse = `{
+  "data": {
+    "Local": {
+      "Aggregate": {
+        "Things": {
+          "Instruments": [{
+            "volume": {
+              "count": 82
+            }
+          }]
+        }
+      }
+    }
+  }
+}`
+
+var graphQLFetchResponse = `{
+  "data": {
+    "Local": {
+      "Fetch": {
+        "Things": [
+					{
+						"beacon": "weaviate://RemoteWeaviateForAcceptanceTest/things/c2b94c9a-fea2-4f9a-ae40-6d63534633f7",
+						"certainty": 0.5
+					},
+					{
+						"beacon": "weaviate://RemoteWeaviateForAcceptanceTest/things/32fc9b12-00b8-46b2-962d-63c1f352e090",
+						"certainty": 0.7
+					}
+				]
       }
     }
   }
