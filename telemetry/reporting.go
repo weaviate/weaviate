@@ -197,6 +197,7 @@ type Poster struct {
 func (p *Poster) ReportLoggedCalls(encoded *[]byte) {
 	req, err := http.NewRequest("POST", p.url, bytes.NewReader(*encoded))
 	req.Header.Set("Content-Type", "application/cbor")
+	req.Close = true
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
