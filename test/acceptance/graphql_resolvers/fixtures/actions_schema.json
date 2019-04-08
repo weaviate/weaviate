@@ -91,7 +91,7 @@
         },
         {
           "name": "description",
-          "@dataType": ["string"],
+          "@dataType": ["text"],
           "description": "The description of the event"
         }
       ]
