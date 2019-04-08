@@ -52,7 +52,7 @@ func createActions() {
 				dataType := property.AtDataType[0]
 
 				switch dataType {
-				case "string", "date":
+				case "string", "date", "text":
 					properties[key] = value
 				case "int":
 					// Attempt to parse as float64 first.
