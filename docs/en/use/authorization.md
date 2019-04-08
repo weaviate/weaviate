@@ -1,8 +1,6 @@
 # Authorization
 
-> Purpose: about authorization in Weaviate.
+> Authorization in weaviate
 
-Authorization is currently being reworked, we want to be as flexible as
-possible while supporting standard auth schemes out-of-the-box. You can read
-more about the current [Authentication and Authorization
-proposal](https://github.com/creativesoftwarefdn/weaviate/issues/628) here.
+Full Role-Based Access Control (RBAC) coming soon. As of now any authenticated
+user is fully authorized to read, write, modify or delete any resource.
