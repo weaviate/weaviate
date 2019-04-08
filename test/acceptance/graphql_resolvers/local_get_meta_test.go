@@ -242,3 +242,27 @@ func TestLocalGetMetaWithFilters(t *testing.T) {
 		assert.ElementsMatch(t, expectedTopOccurrences, topOccurrences)
 	})
 }
+
+// This test prevents a regression on the fix for
+// https://github.com/creativesoftwarefdn/weaviate/issues/824
+func TestLocalGetMeta_StringPropsNotSetEverywhere(t *testing.T) {
+	AssertGraphQL(t, helper.RootAuth, `
+		{
+			Local {
+				GetMeta{
+					Actions {
+						Event {
+							name {
+								topOccurrences {
+									occurs
+									value
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	`)
+
+}
