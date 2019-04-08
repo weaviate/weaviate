@@ -266,3 +266,27 @@ func TestLocalGetMeta_StringPropsNotSetEverywhere(t *testing.T) {
 	`)
 
 }
+
+// This test prevents a regression on the fix for
+// https://github.com/creativesoftwarefdn/weaviate/issues/824
+func TestLocalGetMeta_TextPropsNotSetEverywhere(t *testing.T) {
+	AssertGraphQL(t, helper.RootAuth, `
+		{
+			Local {
+				GetMeta{
+					Actions {
+						Event {
+							description {
+								topOccurrences {
+									occurs
+									value
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	`)
+
+}
