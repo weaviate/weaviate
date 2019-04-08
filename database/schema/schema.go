@@ -32,6 +32,11 @@ func (p PropertyName) String() string {
 	return string(p)
 }
 
+type ClassAndProperty struct {
+	ClassName    ClassName
+	PropertyName PropertyName
+}
+
 // Describes the schema that is used in Weaviate.
 type Schema struct {
 	Actions *models.SemanticSchema

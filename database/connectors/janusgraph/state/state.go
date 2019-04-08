@@ -127,6 +127,21 @@ func (s *JanusGraphConnectorState) MustGetMappedPropertyName(className schema.Cl
 	return name
 }
 
+// GetMappedPropertyNames can retrieve the mapped names for many properties in bulk
+func (s *JanusGraphConnectorState) GetMappedPropertyNames(rawProps []schema.ClassAndProperty) ([]MappedPropertyName, error) {
+	result := make([]MappedPropertyName, len(rawProps), len(rawProps))
+
+	for i, rawProp := range rawProps {
+		mapped, err := s.GetMappedPropertyName(rawProp.ClassName, rawProp.PropertyName)
+		if err != nil {
+			return nil, err
+		}
+		result[i] = mapped
+	}
+
+	return result, nil
+}
+
 // Add mapping from class/property name to mapped property namej
 func (s *JanusGraphConnectorState) GetPropertyNameFromMapped(className schema.ClassName, mappedPropName MappedPropertyName) schema.PropertyName {
 	propsOfClass, exists := s.PropertyMap[className]

@@ -13,7 +13,7 @@
 For filtering data in the query, specific filters are designed. For `Local` queries, look [here](graphql_filters_local.md). For `Network` queries, look [here](graphql_filters_network.md).
 
 ## Limit
-This is similar to a pagination option, although the difference is that there are no pages with data returned. `limit`, instead, is the maximum number of data instances to be returned. It can be used on all levels that will be resolved in a list. For example:
+This is similar to a pagination option, although the difference is that there are no pages with data returned. `limit`, instead, is the maximum number of data instances to be returned. It can be used on all levels that will be resolved in a list. This parameter may be used in both `Local` and `Network` queries. For example:
 
 ```graphql
 {

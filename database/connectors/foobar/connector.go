@@ -525,7 +525,50 @@ func (f *Foobar) LocalAggregate(info *aggregate.Params) (interface{}, error) {
 	return nil, nil
 }
 
-// LocalFetchKindClass TODO: Add proper docs
+// LocalFetchKindClass allows for a contextionary-aided search and will find
+// any classes that match the params outlined in the users request. By the time
+// the connector is called, the contextionary-related work has already been
+// completed and the connector is presented with a list of possible class
+// names, as well as a list of possible property names. In additional a filter
+// criterium (to be applied on those classes/properties) is present. For
+// details on the input parameteres, see fetch.Params
+//
+// The connector must respond with a list of short-form beacon and certainty
+// tuples as maps. Note that the concept of how to calculate certainity has not
+// been finalized yet:
+// https://github.com/creativesoftwarefdn/weaviate/issues/710
+//
+// An example return value could look like this:
+//	[]interface{}{
+//		map[string]interface{}{
+//			"certainty": 0.5,
+//			"beacon": "weaviate://localhost/things/4f2aa50a-82c4-40f9-998c-55957cdc4b74",
+//			},
+//		},
+//	}
 func (f *Foobar) LocalFetchKindClass(info *fetch.Params) (interface{}, error) {
+	return nil, nil
+}
+
+// LocalFetchFuzzy allows for a contextionary-aided search and will find
+// any classes that contain the outlined words. If the connector supports
+// searching by levensthein-edit distance it should perform such as a search,
+// otherwise it can go for exact match of the tokenized words in the string
+// properties.
+//
+// The connector must respond with a list of short-form beacon and certainty
+// tuples as maps. Note that the concept of how to calculate certainity has not
+// been finalized yet:
+// https://github.com/creativesoftwarefdn/weaviate/issues/710
+//
+// An example return value could look like this:
+//	[]interface{}{
+//		map[string]interface{}{
+//			"certainty": 0.5,
+//			"beacon": "weaviate://localhost/things/4f2aa50a-82c4-40f9-998c-55957cdc4b74",
+//			},
+//		},
+//	}
+func (f *Foobar) LocalFetchFuzzy(words []string) (interface{}, error) {
 	return nil, nil
 }

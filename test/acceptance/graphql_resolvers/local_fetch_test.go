@@ -12,13 +12,17 @@
 package test
 
 import (
+	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestLocalFetchLargeCities(t *testing.T) {
+func TestLocal_Fetch_LargeCities(t *testing.T) {
 	result := AssertGraphQL(t, helper.RootAuth, `
 		{
 			Local {
@@ -49,7 +53,7 @@ func TestLocalFetchLargeCities(t *testing.T) {
 	})
 }
 
-func TestLocalFetchSmallCities(t *testing.T) {
+func TestLocal_Fetch_SmallCities(t *testing.T) {
 	result := AssertGraphQL(t, helper.RootAuth, `
 		{
 			Local {
@@ -78,4 +82,72 @@ func TestLocalFetchSmallCities(t *testing.T) {
 		expectedLen := 3 // Amsterdam, Rotterdam, Dusselsorf
 		assert.Len(t, beacons, expectedLen)
 	})
+}
+
+func TestLocal_FetchFuzzy_FavorableCities(t *testing.T) {
+	result := AssertGraphQL(t, helper.RootAuth, `
+		{
+			Local {
+				Fetch {
+					Fuzzy (value:"favorable", certainty: 0.4) {
+						beacon
+					}
+				}
+			}
+		}
+	`)
+
+	t.Run("finds exactly one result", func(t *testing.T) {
+		results := result.Get("Local", "Fetch", "Fuzzy").Result
+		expectedLen := 1
+		require.Len(t, results, expectedLen)
+
+		entry := results.([]interface{})[0]
+		beacon := entry.(map[string]interface{})["beacon"].(string)
+		pathSegments := strings.Split(assertParseURL(t, beacon).Path, "/")
+		require.Len(t, pathSegments, 3)
+
+		kind, uuid := pathSegments[1], pathSegments[2]
+		require.Equal(t, "things", kind)
+		thing := assertGetThing(t, strfmt.UUID(uuid))
+		name := thing.Schema.(map[string]interface{})["name"].(string)
+		assert.Equal(t, "Amsterdam", name)
+	})
+}
+
+func TestLocal_FetchFuzzy_UnfavorableCities(t *testing.T) {
+	result := AssertGraphQL(t, helper.RootAuth, `
+		{
+			Local {
+				Fetch {
+					Fuzzy (value:"negative", certainty: 0.4) {
+						beacon
+					}
+				}
+			}
+		}
+	`)
+
+	t.Run("finds exactly one result", func(t *testing.T) {
+		results := result.Get("Local", "Fetch", "Fuzzy").Result
+		expectedLen := 1
+		require.Len(t, results, expectedLen)
+
+		entry := results.([]interface{})[0]
+		beacon := entry.(map[string]interface{})["beacon"].(string)
+		pathSegments := strings.Split(assertParseURL(t, beacon).Path, "/")
+		require.Len(t, pathSegments, 3)
+
+		kind, uuid := pathSegments[1], pathSegments[2]
+		require.Equal(t, "things", kind)
+		thing := assertGetThing(t, strfmt.UUID(uuid))
+		name := thing.Schema.(map[string]interface{})["name"].(string)
+		assert.Equal(t, "Berlin", name)
+	})
+}
+
+func assertParseURL(t *testing.T, input string) *url.URL {
+	res, err := url.Parse(input)
+	require.Nil(t, err, "url parsing should not error")
+	return res
 }
