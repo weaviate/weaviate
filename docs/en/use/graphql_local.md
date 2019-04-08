@@ -10,6 +10,9 @@
 - [Query structure](#query-structure)
 - [Get function](#get-function)
 - [GetMeta function](#getmeta-function)
+- [Fetch function](#fetch-function)
+  - [Fetch Things and Actions](#fetch-things-and-actions)
+  - [Fuzzy Fetch](#fuzzy-fetch)
 - [Aggregation function](#aggregation-function)
 - [Parameters](#parameters)
   - [Where filter](#where-filter)
@@ -36,6 +39,11 @@ Data for Weaviate is devided into `Things` and `Actions`, this distinction is al
     GetMeta {
       Things
       Actions
+    }
+    Fetch {
+      Things
+      Actions
+      Fuzzy
     }
     Aggregate {
       Things
@@ -170,10 +178,76 @@ The query below returns metadata of the nodes in the class `Animal`.
 }
 ```
 
+## Fetch function
+
+The goal of the `Fetch` function is to find a class instance in the Weaviate with a class- or property name of which you are not sure. This function actually fetches data, which is different from exploring ontologies schemas. Returned beacons can be used to get actual data from the network or to search what kind of information is available around this beacon. Beacons have the following format in the Local network: `weaviate://localhost/things/<uuid>` or `weaviate://localhost/actions/<uuid>`. 
+With the `Fetch` function Things and Actions can be fetched using a `where` filter. In addition, a `Fuzzy` fetch can be performed to do look for nodes when less information is provided.
+
+
+### Fetch Things and Actions
+Example request:
+```graphql
+{
+  Local {
+    Fetch {
+      Things(where: {
+        class: {
+          name: "Animal",
+          keywords: [{
+            value: "Mammal",
+            weight: 0.9
+          }],
+          certainty: 0.8
+        },
+        properties: [{
+          name: "name",
+          keywords: [{
+            value: "identifier",
+            weight: 0.9
+          }],
+          certainty: 0.8,
+          operator: Equal,
+          valueString: "Bella"
+        }]
+      }) {
+        className
+        beacon
+        certainty
+      }
+    }
+  }
+}
+```
+
+With this request, class names and beacons that match the queried information are returned. In this case, we are looking for Animals with the name 'Bella', where we give the additional naming context information of that we mean to find classes that may also match the context of `Mammal`, and that the property `name` may also be called something in the context of `identifier` with 0.8 on the scale of 0.0-1.0 certainty. 
+The `certainty` of the classes found will also be returned. This value is calculated by a model combining weighted distances of the queried and found information. 
+
+
+### Fuzzy Fetch
+Next to the above introduced `Things` and `Actions` search where at least the class name, property name and property value should be provided to fetch nodes, a `Fuzzy` `Fetch` is provided which gives the option to to a search only based on a property value. A search could look like this:
+
+```graphql
+{
+  Local{
+    Fetch{
+      Fuzzy(value:"Amsterdam", certainty:0.95){ // value is always a string
+        className
+        beacon
+        certainty
+      }
+    }
+  }
+}
+```
+
+Where the property value `Amsterdam` and the minimal certainty of `0.95` are provided in the query. Note that the property value is always a `string`, one word. To get the best results, the value should be present in the Contextionary. If not, the search still works, but searched through the data with a different approach (in the data directly). Moreover, the strings will be matched with data values on "contains" and ["Levenshtein distance"](https://en.wikipedia.org/wiki/Levenshtein_distance) basis. This implies that classes with a property `NotAmsterdam` will be returned if the query contains `Amsterdam`, and that the class with property `Amsterdam` will be returned if the query contains a typo like `Amstedram`. 
+The result will be, like the `Fetch` for `Things` and `Actions`, a list of class names, beacons and corresponding certainty levels. With this information, more information could be requested by using the `Introspect` function. To get the data of the result, the beacon can be used in a REST API Get Things or Actions query.
+
+
 ## Aggregation function
 To aggregate and group results, you can use the `Aggregation` function. 
 
-data can be grouped by a specific property, which can be specified on the class level in the query. The `minimum`, `maximum`, `median`, `sum`, `mode`, and the `mean` of numeric property values can be queried, as well as the number of specific property values by `count`. The returned data is a list of groups, indicated by `groupedBy` `path` (same as the filter), and the actual `value`. 
+Data can be grouped by a specific property, which can be specified on the class level in the query. The `minimum`, `maximum`, `median`, `sum`, `mode`, and the `mean` of numeric property values can be queried, as well as the number of specific property values by `count`. The returned data is a list of groups, indicated by `groupedBy` `path` (same as the filter), and the actual `value`. 
 
 ### Example
 The query below groups all the cities in a local Weaviate on the name of the country, and should return the aggregated data values of the specified functions.
@@ -207,7 +281,7 @@ The query below groups all the cities in a local Weaviate on the name of the cou
 }
 ```
 
-## Filters
+## Parameters
 
 ## Where filter
 For both functions `Get` and `GetMeta` in the Local Query filtering is possible. In the query introducted in the [Get function](#get-function) section, the result will contain the name and age of all the animals, and in which zoo they are. If you only want to `Get` all the Animals younger than 5 years old and living in the London Zoo, this can be specified in the `where` filter of the class in the `Get` function:

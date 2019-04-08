@@ -12,10 +12,8 @@
 - [Fetch function](#fetch-function)
   - [Fetch Things and Actions](#fetch-things-and-actions)
   - [Fuzzy Fetch](#fuzzy-fetch)
-- [Introspect function](#introspect-function)
-	- [Introspect Things and Actions](#introspect-things-and-actions)
-	- [Introspect a beacon](#introspect-a-beacon)
 - [GetMeta function](#getmeta-function)
+- [Aggregate function](#aggregate-function)
 - [Filters](#filters)
 
 
@@ -26,7 +24,8 @@ The networked fetch allows fetching graph data over the network. These fetches w
 
 ### Beacons
 
-Beacons are contractions of singleRefs into a single string. For example: `weaviate://zoo/8569c0aa-3e8a-4de4-86a7-89d010152ad6`. They are used to pin-point nodes in the networked graph.
+Beacons are contractions of singleRefs into a single string. For example: `weaviate://zoo/things/<uuid>`. They are used to pin-point nodes in the networked graph.
+
 
 ## Query structure
 
@@ -44,11 +43,19 @@ The overall query structure of the networked query is:
     Fetch {
       Things
       Actions
+      Fuzzy
     }
-    Introspection {
-      Things
-      Actions
-      Beacon
+    GetMeta {
+      <weaviate_instance> {
+        Things
+        Actions
+      }
+    }
+    Aggregate {
+      <weaviate_instance> {
+        Things
+        Actions
+      }
     }
   }
 }
@@ -91,8 +98,8 @@ Via the P2P network, it will be possible to request ontologies of the Weaviate i
 
 ## Fetch function
 
-The goal of the `Fetch` function is to find a beacon in the network. This function actually fetches data, which is different from exploring ontologies with the `Introspection` query. Returned beacons can be used to get actual data from the network or to search what kind of information is avaiable around this beacon. 
-With the `Fetch` function Things and Actions can be fetched using a `where` filter. In addition, a `Fuzzy` fetch can be performed to do look for nodes with less information provided.
+The goal of the `Fetch` function is to find a beacon in the network. This function actually fetches data, which is different from exploring ontologies schemas. Returned beacons can be used to get actual data from the network or to search what kind of information is available around this beacon. 
+With the `Fetch` function Things and Actions can be fetched using a `where` filter. In addition, a `Fuzzy` fetch can be performed to do look for nodes when less information is provided.
 
 
 ### Fetch Things and Actions
@@ -121,6 +128,7 @@ Example request:
           valueString: "Bella"
         }]
       }) {
+        className
         beacon
         certainty
       }
@@ -129,7 +137,8 @@ Example request:
 }
 ```
 
-With this request, beacons that match the queried information are returned. In this case, we are looking for Animals with the name 'Bella', where we give the additional naming context information of that we mean to find classes that may also match the context of `Mammal`, and that the property `name` may also be called something in the context of `identifier` with 0.8 on the scale of 0.0-1.0 certainty.
+With this request, class names and beacons that match the queried information are returned. In this case, we are looking for Animals with the name 'Bella', where we give the additional naming context information of that we mean to find classes that may also match the context of `Mammal`, and that the property `name` may also be called something in the context of `identifier` with 0.8 on the scale of 0.0-1.0 certainty. 
+The `certainty` of the classes found will also be returned. This value is calculated by a model combining weighted distances of the queried and found information. 
 
 
 ### Fuzzy Fetch
@@ -139,7 +148,8 @@ Next to the above introduced `Things` and `Actions` search where at least the cl
 {
   Network{
     Fetch{
-      Fuzzy(value:"Amsterdam", certainty:0.95){ // value is always a string, because needs to be in contextionary
+      Fuzzy(value:"Amsterdam", certainty:0.95){ // value is always a string
+        className
         beacon
         certainty
       }
@@ -147,93 +157,13 @@ Next to the above introduced `Things` and `Actions` search where at least the cl
   }
 }
 ```
-Where the property value `Amsterdam` and the minimal certainty of `0.95` are provided in the query. Note that the property value is always a `string`, and needs to exists in the Contextionary. The result will be, like the Fetch for Things and Actions, a list of beacons and corresponding certainty levels. With this information, more information could be requested by using the `Introspect` function.
 
-## Introspect function
-
-The goal of the Introspection query is to discover what is in the network. The query results show what is the likelihood that something is available. The introspection query is designed for fetching data schema infomation based on the own ontology, and for fetching data schema information about beacons. The introspection query is thus not designed for fetching (meta) data of actual data values and nodes in the network.
-
-### Introspect Things and Actions
-
-If you want to introspect `Things` or `Actions` in the network, you need to specify this in the query. This function can be used to discover, based on the local ontology, a clear map of what is available in the network.
-
-```graphql
-{
-  Network {
-    Introspect {
-      Things(where: {
-        class: {
-          name: "Animal",
-          keywords: [{
-            value: "Mammal",
-            weight: 0.9
-          }],
-          certainty: 0.9
-        },
-        properties: [{
-          name: "name",
-          keywords: [{
-            value: "identifier",
-            weight: 0.9
-          }],
-          certainty: 0.8
-        }]
-      }) {
-        weaviate
-        className
-        certainty
-        properties{
-          propertyName
-          certainty
-        }
-      }
-    }
-  }
-}
-```
-
-Which returns a list of nodes that are 'close' (in contextionary) to the requested information.
-Where
-- `weaviate` is the name of the weavaite instance the node is found in.
-- `className` is a string of the name of the class of the node in the other ontology.
-- `certainty` is the certainty (0.0-1.0) that indicates the certainty to which the found class (or property) is similar to the provided information in the filter.
-- `properties` is a list of properties of the node that is found.
-- `propertyName` is the name of the property in the class in the pointed ontology.
-
-This will return a list of `weaviate` (the name of the Weaviate instance) `classNames`s, `properties` and the `certainty` that they match with the context of the queried `Thing` or `Action`. 
-
-
-### Introspect a Beacon
-
-If the location (i.e. beacon) of a `Thing` or `Action` in the network is known, it is possible to introspect the context of this node in terms of what the class and properties are.
-
-The following example request returns a list of possible classes and properties.
-
-```graphql
-{
-  Network {
-    Introspect {
-      Beacon(id:"weaviate://zoo/8569c0aa-3e8a-4de4-86a7-89d010152ad6") {
-        className
-        properties {
-          propertyName
-        }
-      }
-    }
-  }
-}
-```
- 
-Where
-- `className` is a string of the name of the class in the other ontology.
-- `properties` is a list of properties.
-- `propertyName` is the name of the property in the class in the pointed ontology.
-
-Note that this query does not resolve in a list, but returns only one class name with a list of its properties.
+Where the property value `Amsterdam` and the minimal certainty of `0.95` are provided in the query. Note that the property value is always a `string`, one word. To get the best results, the value should be present in the Contextionary. If not, the search still works, but searched through the data with a different approach (in the data directly). Moreover, the strings will be matched with data values on "contains" and ["Levenshtein distance"](https://en.wikipedia.org/wiki/Levenshtein_distance) basis. This implies that classes with a property `NotAmsterdam` will be returned if the query contains `Amsterdam`, and that the class with property `Amsterdam` will be returned if the query contains a typo like `Amstedram`. 
+The result will be, like the `Fetch` for `Things` and `Actions`, a list of class names, beacons and corresponding certainty levels. With this information, more information could be requested by using the `Introspect` function. To get the data of the result, the beacon can be used in a REST API Get Things or Actions query.
 
 
 ## GetMeta function
-For nodes in the network, meta information can be queried just like for nodes in a local Weaviate. 
+For nodes in the network, meta information can be queried just like for nodes in a [local Weaviate](graphql_local#getmeta-function). 
 
 ``` graphql
 {
@@ -265,6 +195,48 @@ For nodes in the network, meta information can be queried just like for nodes in
 }
 ```
 
+
+## Aggregate function
+
+To aggregate and group results, you can use the `Aggregation` function. 
+
+Data can be grouped by a specific property, which can be specified on the class level in the query. The `minimum`, `maximum`, `median`, `sum`, `mode`, and the `mean` of numeric property values can be queried, as well as the number of specific property values by `count`. The returned data is a list of groups, indicated by `groupedBy` `path` (same as the filter), and the actual `value`. 
+
+### Example
+The query below groups all the cities in a local Weaviate on the name of the country, and should return the aggregated data values of the specified functions.
+
+``` graphql
+{
+  Network{
+    Aggregate{
+      WeaviateB {
+        Things {
+          Airline(groupBy: ["label"]) {
+            hasNumberOfPlanes {
+            minimum
+            maximum
+            median
+            mean
+            sum
+            mode
+            count
+          }
+          label { # This property has no numeric values, but 'string' values instead. Only 'count' can be queried for non-numeric propertie
+            count
+          }
+            groupedBy { #indicates the groups
+              path #the path as shown in the filter, will be ["label"]
+              value #the property value of the path's property key of the group
+            }
+          }
+        }
+      }
+    }
+  }
+}
+``` 
+
+
 ## Filters
 
-Different from the `Local` queries is that the filter arguments in the `Network` search are required to get results. 
+See [this page](graphql_filters_network) for more information on how to use and format filters in Network queries.

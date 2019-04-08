@@ -27,12 +27,14 @@ import (
 // want to support the GetMeta feature must implement this interface.
 type Resolver interface {
 	LocalFetchKindClass(info *Params) (interface{}, error)
+	LocalFetchFuzzy(info []string) (interface{}, error)
 }
 
 // Contextionary is a local abstraction on the contextionary that needs to be
 // provided to the graphQL API in order to resolve Local.Fetch queries.
 type Contextionary interface {
 	SchemaSearch(p contextionary.SearchParams) (contextionary.SearchResults, error)
+	SafeGetSimilarWordsWithCertainty(word string, certainty float32) []string
 }
 
 // RequestsLog is a local abstraction on the RequestsLog that needs to be
@@ -163,4 +165,37 @@ func addPossibleNamesToProperties(whereProperties []whereProperty,
 	}
 
 	return properties, nil
+}
+
+func resolveFuzzy(p graphql.ResolveParams) (interface{}, error) {
+	resources, err := newResources(p.Source)
+	if err != nil {
+		return nil, err
+	}
+
+	args := extractFuzzyArgs(p)
+
+	words := resources.contextionary.SafeGetSimilarWordsWithCertainty(args.value, args.certainty)
+
+	res, err := resources.resolver.LocalFetchFuzzy(words)
+	if err != nil {
+		return nil, fmt.Errorf("could not perform fuzzy search in connector: %v", err)
+	}
+
+	return res, nil
+}
+
+type fuzzyArgs struct {
+	value     string
+	certainty float32
+}
+
+func extractFuzzyArgs(p graphql.ResolveParams) fuzzyArgs {
+	var args fuzzyArgs
+
+	// all args are required, so we don't need to check their existance
+	args.value = p.Args["value"].(string)
+	args.certainty = float32(p.Args["certainty"].(float64))
+
+	return args
 }
