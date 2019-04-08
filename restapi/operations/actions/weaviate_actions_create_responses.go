@@ -67,50 +67,6 @@ func (o *WeaviateActionsCreateOK) WriteResponse(rw http.ResponseWriter, producer
 	}
 }
 
-// WeaviateActionsCreateAcceptedCode is the HTTP code returned for type WeaviateActionsCreateAccepted
-const WeaviateActionsCreateAcceptedCode int = 202
-
-/*WeaviateActionsCreateAccepted Successfully received. No guarantees are made that the Action persists.
-
-swagger:response weaviateActionsCreateAccepted
-*/
-type WeaviateActionsCreateAccepted struct {
-
-	/*
-	  In: Body
-	*/
-	Payload *models.ActionGetResponse `json:"body,omitempty"`
-}
-
-// NewWeaviateActionsCreateAccepted creates WeaviateActionsCreateAccepted with default headers values
-func NewWeaviateActionsCreateAccepted() *WeaviateActionsCreateAccepted {
-
-	return &WeaviateActionsCreateAccepted{}
-}
-
-// WithPayload adds the payload to the weaviate actions create accepted response
-func (o *WeaviateActionsCreateAccepted) WithPayload(payload *models.ActionGetResponse) *WeaviateActionsCreateAccepted {
-	o.Payload = payload
-	return o
-}
-
-// SetPayload sets the payload to the weaviate actions create accepted response
-func (o *WeaviateActionsCreateAccepted) SetPayload(payload *models.ActionGetResponse) {
-	o.Payload = payload
-}
-
-// WriteResponse to the client
-func (o *WeaviateActionsCreateAccepted) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.WriteHeader(202)
-	if o.Payload != nil {
-		payload := o.Payload
-		if err := producer.Produce(rw, payload); err != nil {
-			panic(err) // let the recovery middleware deal with this
-		}
-	}
-}
-
 // WeaviateActionsCreateUnauthorizedCode is the HTTP code returned for type WeaviateActionsCreateUnauthorized
 const WeaviateActionsCreateUnauthorizedCode int = 401
 

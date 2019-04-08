@@ -67,50 +67,6 @@ func (o *WeaviateThingsPatchOK) WriteResponse(rw http.ResponseWriter, producer r
 	}
 }
 
-// WeaviateThingsPatchAcceptedCode is the HTTP code returned for type WeaviateThingsPatchAccepted
-const WeaviateThingsPatchAcceptedCode int = 202
-
-/*WeaviateThingsPatchAccepted Successfully received.
-
-swagger:response weaviateThingsPatchAccepted
-*/
-type WeaviateThingsPatchAccepted struct {
-
-	/*
-	  In: Body
-	*/
-	Payload *models.ThingGetResponse `json:"body,omitempty"`
-}
-
-// NewWeaviateThingsPatchAccepted creates WeaviateThingsPatchAccepted with default headers values
-func NewWeaviateThingsPatchAccepted() *WeaviateThingsPatchAccepted {
-
-	return &WeaviateThingsPatchAccepted{}
-}
-
-// WithPayload adds the payload to the weaviate things patch accepted response
-func (o *WeaviateThingsPatchAccepted) WithPayload(payload *models.ThingGetResponse) *WeaviateThingsPatchAccepted {
-	o.Payload = payload
-	return o
-}
-
-// SetPayload sets the payload to the weaviate things patch accepted response
-func (o *WeaviateThingsPatchAccepted) SetPayload(payload *models.ThingGetResponse) {
-	o.Payload = payload
-}
-
-// WriteResponse to the client
-func (o *WeaviateThingsPatchAccepted) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.WriteHeader(202)
-	if o.Payload != nil {
-		payload := o.Payload
-		if err := producer.Produce(rw, payload); err != nil {
-			panic(err) // let the recovery middleware deal with this
-		}
-	}
-}
-
 // WeaviateThingsPatchBadRequestCode is the HTTP code returned for type WeaviateThingsPatchBadRequest
 const WeaviateThingsPatchBadRequestCode int = 400
 

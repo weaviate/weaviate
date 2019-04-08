@@ -70,7 +70,7 @@ WeaviateActionUpdate updates an action based on its UUID
 
 Updates an Action's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
-func (a *Client) WeaviateActionUpdate(params *WeaviateActionUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionUpdateAccepted, error) {
+func (a *Client) WeaviateActionUpdate(params *WeaviateActionUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionUpdateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateActionUpdateParams()
@@ -92,7 +92,7 @@ func (a *Client) WeaviateActionUpdate(params *WeaviateActionUpdateParams, authIn
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateActionUpdateAccepted), nil
+	return result.(*WeaviateActionUpdateOK), nil
 
 }
 
@@ -101,7 +101,7 @@ WeaviateActionsCreate creates actions between two things object and subject
 
 Registers a new Action. Provided meta-data and schema values are validated.
 */
-func (a *Client) WeaviateActionsCreate(params *WeaviateActionsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsCreateOK, *WeaviateActionsCreateAccepted, error) {
+func (a *Client) WeaviateActionsCreate(params *WeaviateActionsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsCreateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateActionsCreateParams()
@@ -121,15 +121,9 @@ func (a *Client) WeaviateActionsCreate(params *WeaviateActionsCreateParams, auth
 		Client:             params.HTTPClient,
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	switch value := result.(type) {
-	case *WeaviateActionsCreateOK:
-		return value, nil, nil
-	case *WeaviateActionsCreateAccepted:
-		return nil, value, nil
-	}
-	return nil, nil, nil
+	return result.(*WeaviateActionsCreateOK), nil
 
 }
 
@@ -231,7 +225,7 @@ WeaviateActionsPatch updates an action based on its UUID using patch semantics
 
 Updates an Action. This method supports patch semantics. Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
-func (a *Client) WeaviateActionsPatch(params *WeaviateActionsPatchParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsPatchOK, *WeaviateActionsPatchAccepted, error) {
+func (a *Client) WeaviateActionsPatch(params *WeaviateActionsPatchParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsPatchOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateActionsPatchParams()
@@ -251,15 +245,9 @@ func (a *Client) WeaviateActionsPatch(params *WeaviateActionsPatchParams, authIn
 		Client:             params.HTTPClient,
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	switch value := result.(type) {
-	case *WeaviateActionsPatchOK:
-		return value, nil, nil
-	case *WeaviateActionsPatchAccepted:
-		return nil, value, nil
-	}
-	return nil, nil, nil
+	return result.(*WeaviateActionsPatchOK), nil
 
 }
 

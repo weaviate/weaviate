@@ -36,7 +36,7 @@ func TestListAll(t *testing.T) {
 			Schema:    map[string]interface{}{},
 		},
 	})
-	resp1, _, err := helper.Client(t).Things.WeaviateThingsCreate(params1, nil)
+	resp1, err := helper.Client(t).Things.WeaviateThingsCreate(params1, nil)
 	assert.Nil(t, err, "creation should succeed")
 	thing1ID := resp1.Payload.ThingID
 
@@ -47,7 +47,7 @@ func TestListAll(t *testing.T) {
 			Schema:    map[string]interface{}{},
 		},
 	})
-	resp2, _, err := helper.Client(t).Things.WeaviateThingsCreate(params2, nil)
+	resp2, err := helper.Client(t).Things.WeaviateThingsCreate(params2, nil)
 	assert.Nil(t, err, "creation should succeed")
 	thing2ID := resp2.Payload.ThingID
 

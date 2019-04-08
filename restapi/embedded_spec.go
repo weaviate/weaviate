@@ -113,10 +113,6 @@ func init() {
               "properties": {
                 "action": {
                   "$ref": "#/definitions/ActionCreate"
-                },
-                "async": {
-                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Action. You will receive this response before the data is made persistent. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the value is made persistent. The value of ` + "`" + `async` + "`" + ` defaults to false.",
-                  "type": "boolean"
                 }
               }
             }
@@ -125,12 +121,6 @@ func init() {
         "responses": {
           "200": {
             "description": "Action created.",
-            "schema": {
-              "$ref": "#/definitions/ActionGetResponse"
-            }
-          },
-          "202": {
-            "description": "Successfully received. No guarantees are made that the Action persists.",
             "schema": {
               "$ref": "#/definitions/ActionGetResponse"
             }
@@ -282,7 +272,7 @@ func init() {
           }
         ],
         "responses": {
-          "202": {
+          "200": {
             "description": "Successfully received.",
             "schema": {
               "$ref": "#/definitions/ActionGetResponse"
@@ -376,12 +366,6 @@ func init() {
             "required": true
           },
           {
-            "type": "boolean",
-            "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 if the patch is accepted. You will receive this response before the data is made persistent. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the update is made persistent. The value of ` + "`" + `async` + "`" + ` defaults to false.",
-            "name": "async",
-            "in": "query"
-          },
-          {
             "description": "JSONPatch document as defined by RFC 6902.",
             "name": "body",
             "in": "body",
@@ -397,12 +381,6 @@ func init() {
         "responses": {
           "200": {
             "description": "Successfully applied.",
-            "schema": {
-              "$ref": "#/definitions/ActionGetResponse"
-            }
-          },
-          "202": {
-            "description": "Successfully received.",
             "schema": {
               "$ref": "#/definitions/ActionGetResponse"
             }
@@ -1896,10 +1874,6 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
-                "async": {
-                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Thing. You will receive this response before the data is made persistent. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the value is made persistent. The value of ` + "`" + `async` + "`" + ` defaults to false.",
-                  "type": "boolean"
-                },
                 "thing": {
                   "$ref": "#/definitions/ThingCreate"
                 }
@@ -1910,12 +1884,6 @@ func init() {
         "responses": {
           "200": {
             "description": "Thing created.",
-            "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
-            }
-          },
-          "202": {
-            "description": "Successfully received.",
             "schema": {
               "$ref": "#/definitions/ThingGetResponse"
             }
@@ -2067,7 +2035,7 @@ func init() {
           }
         ],
         "responses": {
-          "202": {
+          "200": {
             "description": "Successfully received.",
             "schema": {
               "$ref": "#/definitions/ThingGetResponse"
@@ -2161,12 +2129,6 @@ func init() {
             "required": true
           },
           {
-            "type": "boolean",
-            "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 if the patch is accepted. You will receive this response before the data is made persistent. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the update is made persistent. The value of ` + "`" + `async` + "`" + ` defaults to false.",
-            "name": "async",
-            "in": "query"
-          },
-          {
             "description": "JSONPatch document as defined by RFC 6902.",
             "name": "body",
             "in": "body",
@@ -2182,12 +2144,6 @@ func init() {
         "responses": {
           "200": {
             "description": "Successfully applied.",
-            "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
-            }
-          },
-          "202": {
-            "description": "Successfully received.",
             "schema": {
               "$ref": "#/definitions/ThingGetResponse"
             }
@@ -3474,10 +3430,6 @@ func init() {
               "properties": {
                 "action": {
                   "$ref": "#/definitions/ActionCreate"
-                },
-                "async": {
-                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Action. You will receive this response before the data is made persistent. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the value is made persistent. The value of ` + "`" + `async` + "`" + ` defaults to false.",
-                  "type": "boolean"
                 }
               }
             }
@@ -3486,12 +3438,6 @@ func init() {
         "responses": {
           "200": {
             "description": "Action created.",
-            "schema": {
-              "$ref": "#/definitions/ActionGetResponse"
-            }
-          },
-          "202": {
-            "description": "Successfully received. No guarantees are made that the Action persists.",
             "schema": {
               "$ref": "#/definitions/ActionGetResponse"
             }
@@ -3643,7 +3589,7 @@ func init() {
           }
         ],
         "responses": {
-          "202": {
+          "200": {
             "description": "Successfully received.",
             "schema": {
               "$ref": "#/definitions/ActionGetResponse"
@@ -3737,12 +3683,6 @@ func init() {
             "required": true
           },
           {
-            "type": "boolean",
-            "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 if the patch is accepted. You will receive this response before the data is made persistent. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the update is made persistent. The value of ` + "`" + `async` + "`" + ` defaults to false.",
-            "name": "async",
-            "in": "query"
-          },
-          {
             "description": "JSONPatch document as defined by RFC 6902.",
             "name": "body",
             "in": "body",
@@ -3758,12 +3698,6 @@ func init() {
         "responses": {
           "200": {
             "description": "Successfully applied.",
-            "schema": {
-              "$ref": "#/definitions/ActionGetResponse"
-            }
-          },
-          "202": {
-            "description": "Successfully received.",
             "schema": {
               "$ref": "#/definitions/ActionGetResponse"
             }
@@ -5265,10 +5199,6 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
-                "async": {
-                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Thing. You will receive this response before the data is made persistent. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the value is made persistent. The value of ` + "`" + `async` + "`" + ` defaults to false.",
-                  "type": "boolean"
-                },
                 "thing": {
                   "$ref": "#/definitions/ThingCreate"
                 }
@@ -5279,12 +5209,6 @@ func init() {
         "responses": {
           "200": {
             "description": "Thing created.",
-            "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
-            }
-          },
-          "202": {
-            "description": "Successfully received.",
             "schema": {
               "$ref": "#/definitions/ThingGetResponse"
             }
@@ -5436,7 +5360,7 @@ func init() {
           }
         ],
         "responses": {
-          "202": {
+          "200": {
             "description": "Successfully received.",
             "schema": {
               "$ref": "#/definitions/ThingGetResponse"
@@ -5530,12 +5454,6 @@ func init() {
             "required": true
           },
           {
-            "type": "boolean",
-            "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 if the patch is accepted. You will receive this response before the data is made persistent. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the update is made persistent. The value of ` + "`" + `async` + "`" + ` defaults to false.",
-            "name": "async",
-            "in": "query"
-          },
-          {
             "description": "JSONPatch document as defined by RFC 6902.",
             "name": "body",
             "in": "body",
@@ -5551,12 +5469,6 @@ func init() {
         "responses": {
           "200": {
             "description": "Successfully applied.",
-            "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
-            }
-          },
-          "202": {
-            "description": "Successfully received.",
             "schema": {
               "$ref": "#/definitions/ThingGetResponse"
             }

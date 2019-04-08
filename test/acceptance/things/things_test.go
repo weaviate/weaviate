@@ -54,7 +54,7 @@ func TestCreateThingWorks(t *testing.T) {
 		},
 	})
 
-	resp, _, err := helper.Client(t).Things.WeaviateThingsCreate(params, nil)
+	resp, err := helper.Client(t).Things.WeaviateThingsCreate(params, nil)
 
 	// Ensure that the response is OK
 	helper.AssertRequestOk(t, resp, err, func() {
@@ -86,7 +86,7 @@ func TestCannotCreateInvalidThings(t *testing.T) {
 			t.Parallel()
 
 			params := things.NewWeaviateThingsCreateParams().WithBody(things.WeaviateThingsCreateBody{Thing: example.thing()})
-			resp, _, err := helper.Client(t).Things.WeaviateThingsCreate(params, nil)
+			resp, err := helper.Client(t).Things.WeaviateThingsCreate(params, nil)
 			helper.AssertRequestFail(t, resp, err, func() {
 				errResponse, ok := err.(*things.WeaviateThingsCreateUnprocessableEntity)
 				if !ok {

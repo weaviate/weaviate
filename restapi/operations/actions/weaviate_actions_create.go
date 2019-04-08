@@ -93,9 +93,6 @@ type WeaviateActionsCreateBody struct {
 
 	// action
 	Action *models.ActionCreate `json:"action,omitempty"`
-
-	// If `async` is true, return a 202 with the new ID of the Action. You will receive this response before the data is made persistent. If `async` is false, you will receive confirmation after the value is made persistent. The value of `async` defaults to false.
-	Async bool `json:"async,omitempty"`
 }
 
 // Validate validates this weaviate actions create body

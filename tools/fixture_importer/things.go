@@ -272,7 +272,7 @@ func checkThingExists(id string) bool {
 func assertCreateThing(t *models.ThingCreate) *models.ThingGetResponse {
 	params := things.NewWeaviateThingsCreateParams().WithBody(things.WeaviateThingsCreateBody{Thing: t})
 
-	resp, _, err := client.Things.WeaviateThingsCreate(params, nil)
+	resp, err := client.Things.WeaviateThingsCreate(params, nil)
 
 	if err != nil {
 		switch v := err.(type) {
@@ -309,7 +309,7 @@ func assertUpdateThing(id string, update *models.ThingUpdate) *models.ThingGetRe
 func assertPatchThing(id string, p *models.PatchDocument) *models.ThingGetResponse {
 	params := things.NewWeaviateThingsPatchParams().WithBody([]*models.PatchDocument{p}).WithThingID(strfmt.UUID(id))
 
-	resp, _, err := client.Things.WeaviateThingsPatch(params, nil)
+	resp, err := client.Things.WeaviateThingsPatch(params, nil)
 
 	if err != nil {
 		switch v := err.(type) {

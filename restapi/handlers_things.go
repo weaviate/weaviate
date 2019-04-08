@@ -70,22 +70,6 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		ctx := params.HTTPRequest.Context()
 		refSchemaUpdater := newReferenceSchemaUpdater(ctx, schemaLock.SchemaManager(), network, params.Body.Thing.AtClass, kind.THING_KIND)
 
-		if params.Body.Async {
-			delayedLock.IncSteps()
-			go func() {
-				defer unlock(delayedLock)
-				dbConnector.AddThing(ctx, thing, UUID)
-				refSchemaUpdater.addNetworkDataTypes(params.Body.Thing.Schema)
-			}()
-
-			// Register the function call
-			go func() {
-				requestsLog.Register(telemetry.TypeREST, telemetry.LocalAdd)
-			}()
-
-			return things.NewWeaviateThingsCreateAccepted().WithPayload(responseObject)
-		}
-
 		dbConnector.AddThing(ctx, thing, UUID)
 		err = refSchemaUpdater.addNetworkDataTypes(params.Body.Thing.Schema)
 		if err != nil {
@@ -326,33 +310,6 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 			return things.NewWeaviateThingsPatchUnprocessableEntity().WithPayload(
 				createErrorResponseObject(err.Error()),
 			)
-		}
-
-		if params.Async != nil && *params.Async == true {
-			// Move the current properties to the history
-			delayedLock.IncSteps()
-			go func() {
-				delayedLock.Unlock()
-				dbConnector.MoveToHistoryThing(ctx, &oldThing.Thing, UUID, false)
-			}()
-
-			// Update the database
-			delayedLock.IncSteps()
-			go func() {
-				delayedLock.Unlock()
-				dbConnector.UpdateThing(ctx, thing, UUID)
-			}()
-
-			// Create return Object
-			thingGetResponse.Thing = *thing
-
-			// Register the function call
-			go func() {
-				requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulate)
-			}()
-
-			// Returns accepted so a Go routine can process in the background
-			return things.NewWeaviateThingsPatchAccepted().WithPayload(&thingGetResponse)
 		}
 
 		// Move the current properties to the history
@@ -714,8 +671,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 			requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulate)
 		}()
 
-		// Return SUCCESS (NOTE: this is ACCEPTED, so the dbConnector.Add should have a go routine)
-		return things.NewWeaviateThingsUpdateAccepted().WithPayload(responseObject)
+		return things.NewWeaviateThingsUpdateOK().WithPayload(responseObject)
 	})
 	api.ThingsWeaviateThingsValidateHandler = things.WeaviateThingsValidateHandlerFunc(func(params things.WeaviateThingsValidateParams, principal *models.Principal) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
