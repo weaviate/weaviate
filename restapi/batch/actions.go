@@ -25,6 +25,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations"
 	rest_api_utils "github.com/creativesoftwarefdn/weaviate/restapi/rest_api_utils"
 	"github.com/creativesoftwarefdn/weaviate/restapi/state"
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
 	"github.com/creativesoftwarefdn/weaviate/validation"
 	middleware "github.com/go-openapi/runtime/middleware"
 )
@@ -35,13 +36,14 @@ type actionsRequest struct {
 	*http.Request
 	*state.State
 	locks *rest_api_utils.RequestLocks
+	log   *telemetry.RequestsLog
 }
 
 // ActionsCreate is the (go-swagger style) http handler for BatchingActionsCreate
 func (b *Batch) ActionsCreate(params operations.WeaviateBatchingActionsCreateParams, principal *models.Principal) middleware.Responder {
 	defer b.appState.Messaging.TimeTrack(time.Now())
 
-	r := newActionsRequest(params.HTTPRequest, b.appState)
+	r := newActionsRequest(params.HTTPRequest, b.appState, b.requestsLog)
 	if errResponder := r.lock(); errResponder != nil {
 		return errResponder
 	}
@@ -61,10 +63,11 @@ func (b *Batch) ActionsCreate(params operations.WeaviateBatchingActionsCreatePar
 		WithPayload(batchActions.Response())
 }
 
-func newActionsRequest(r *http.Request, deps *state.State) *actionsRequest {
+func newActionsRequest(r *http.Request, deps *state.State, log *telemetry.RequestsLog) *actionsRequest {
 	return &actionsRequest{
 		Request: r,
 		State:   deps,
+		log:     log,
 	}
 }
 
@@ -140,6 +143,13 @@ func (r *actionsRequest) validateAction(wg *sync.WaitGroup, actionCreate *models
 
 	err := validation.ValidateActionBody(r.Context(), actionCreate, databaseSchema, r.locks.DBConnector,
 		r.Network, r.ServerConfig)
+
+	if err == nil {
+		// Register the request
+		go func() {
+			r.log.Register(telemetry.TypeREST, telemetry.LocalAdd)
+		}()
+	}
 
 	*resultsC <- batchmodels.Action{
 		UUID:          uuid,

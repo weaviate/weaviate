@@ -25,6 +25,12 @@ import (
 	"github.com/graphql-go/graphql/language/source"
 )
 
+type mockRequestsLog struct{}
+
+func (m *mockRequestsLog) Register(first string, second string) {
+
+}
+
 func TestNetworkGetInstanceQueryWithoutFilters(t *testing.T) {
 	t.Parallel()
 	resolver := &fakeNetworkResolver{}
@@ -40,7 +46,7 @@ func TestNetworkGetInstanceQueryWithoutFilters(t *testing.T) {
 	// in a real life scenario graphql will set the start and end
 	// correctly. We just need to manually specify them in the test
 	params := paramsFromQueryWithStartAndEnd(query, 22, 70, "weaviateA", resolver, nil)
-	result, err := resolve(params)
+	result, err := Resolve(params)
 
 	if err != nil {
 		t.Errorf("Expected no error, but got: %s", err)
@@ -70,8 +76,11 @@ func TestNetworkGetInstanceQueryWithoutFilters(t *testing.T) {
 
 func paramsFromQueryWithStartAndEnd(query []byte, start int, end int,
 	instanceName string, resolver Resolver, principal interface{}) graphql.ResolveParams {
+	paramSource := make(map[string]interface{})
+	paramSource["NetworkResolver"] = resolver
+	paramSource["RequestsLog"] = &mockRequestsLog{}
 	return graphql.ResolveParams{
-		Source: resolver,
+		Source: paramSource,
 		Info: graphql.ResolveInfo{
 			FieldName: instanceName,
 			FieldASTs: []*ast.Field{

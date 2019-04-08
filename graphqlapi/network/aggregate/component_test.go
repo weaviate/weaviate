@@ -99,6 +99,12 @@ func (tests testCases) Assert(t *testing.T) {
 	}
 }
 
+type mockRequestsLog struct{}
+
+func (m *mockRequestsLog) Register(first string, second string) {
+
+}
+
 type mockResolver struct {
 	helper.MockResolver
 }
@@ -116,19 +122,14 @@ func newMockResolver() *mockResolver {
 			Fields: graphql.Fields{"PeerA": peerA},
 		}),
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			resolver, ok := p.Source.(map[string]interface{})["NetworkResolver"].(Resolver)
-			if !ok {
-				return nil, fmt.Errorf("source does not contain a NetworkResolver, but \n%#v", p.Source)
-			}
-
-			return resolver, nil
+			return p.Source, nil
 		},
 	}
 
 	mocker := &mockResolver{}
 	mocker.RootFieldName = "Aggregate"
 	mocker.RootField = peerField
-	mocker.RootObject = map[string]interface{}{"NetworkResolver": Resolver(mocker)}
+	mocker.RootObject = map[string]interface{}{"NetworkResolver": Resolver(mocker), "RequestsLog": &mockRequestsLog{}}
 	return mocker
 }
 

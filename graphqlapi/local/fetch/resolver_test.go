@@ -246,3 +246,37 @@ func Test__ResolveFuzzy_HappyPath(t *testing.T) {
 	result := res.Get("Fetch", "Fuzzy").Result
 	assert.Equal(t, expectedResult, result)
 }
+
+func Test__Resolve_MissingOperator(t *testing.T) {
+	query := `
+			{
+				Fetch {
+					Things(where: {
+						class: {
+							name: "bestclass"
+							certainty: 0.8
+							keywords: [{value: "foo", weight: 0.9}]
+						},
+						properties: {
+							name: "bestproperty"
+							certainty: 0.8
+							keywords: [{value: "bar", weight: 0.9}]
+							valueString: "some-value"
+						},
+					}) {
+						beacon certainty
+					}
+				}
+			}`
+	c11y := newEmptyContextionary()
+	c11y.On("SchemaSearch", mock.Anything).Twice()
+	resolver := newMockResolver(c11y)
+	res := resolver.Resolve(query)
+	require.Len(t, res.Errors, 1)
+	assert.Equal(t,
+		`Argument "where" has invalid value {class: {name: "bestclass", certainty: 0.8, keywords: `+
+			`[{value: "foo", weight: 0.9}]}, properties: {name: "bestproperty", certainty: 0.8, keywords: `+
+			`[{value: "bar", weight: 0.9}], valueString: "some-value"}}.`+"\n"+
+			`In field "properties": In field "operator": Expected "WeaviateLocalFetchThingWhereOperatorEnum!", found null.`,
+		res.Errors[0].Message)
+}

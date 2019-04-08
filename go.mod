@@ -1,6 +1,7 @@
 module github.com/creativesoftwarefdn/weaviate
 
 require (
+	github.com/2tvenom/cbor v0.0.0-20171016170723-384e799bd841
 	github.com/SeMI-network/janus-spark-analytics v0.0.0-20190311154421-9a5188468325
 	github.com/TylerBrock/colorjson v0.0.0-20180527164720-95ec53f28296
 	github.com/coreos/etcd v3.3.11+incompatible
@@ -20,6 +21,7 @@ require (
 	github.com/go-openapi/swag v0.17.0
 	github.com/go-openapi/validate v0.0.0-20180703152151-9a6e517cddf1
 	github.com/golang/snappy v0.0.1 // indirect
+	github.com/gorilla/mux v1.7.0
 	github.com/gorilla/websocket v1.2.0
 	github.com/graphql-go/graphql v0.7.7
 	github.com/jessevdk/go-flags v1.4.0
@@ -33,7 +35,7 @@ require (
 	github.com/sirupsen/logrus v1.2.0
 	github.com/stretchr/testify v1.2.2
 	github.com/syndtr/goleveldb v0.0.0-20180708030551-c4c61651e9e3
-	github.com/ugorji/go/codec v0.0.0-20190309163734-c4a1c341dc93 // indirect
+	github.com/ugorji/go/codec v0.0.0-20190309163734-c4a1c341dc93
 	golang.org/x/net v0.0.0-20181114220301-adae6a3d119a
 	google.golang.org/grpc v1.16.0
 	gopkg.in/yaml.v2 v2.2.1

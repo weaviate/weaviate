@@ -15,9 +15,13 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/restapi/batch"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations"
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 )
+
+var mainLog *telemetry.RequestsLog
+var reporter *telemetry.Reporter
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.ServeError = errors.ServeError
@@ -26,21 +30,24 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	api.OidcAuth = appState.OIDC.ValidateAndExtract
 
-	setupSchemaHandlers(api)
-	setupThingsHandlers(api)
-	setupActionsHandlers(api)
-	setupBatchHandlers(api)
-	setupC11yHandlers(api)
-	setupGraphQLHandlers(api)
-	setupMiscHandlers(api)
+	// Initialize the requestslog
+	mainLog = telemetry.NewLog()
+
+	setupSchemaHandlers(api, mainLog)
+	setupThingsHandlers(api, mainLog)
+	setupActionsHandlers(api, mainLog)
+	setupBatchHandlers(api, mainLog)
+	setupC11yHandlers(api, mainLog)
+	setupGraphQLHandlers(api, mainLog)
+	setupMiscHandlers(api, mainLog)
 
 	api.ServerShutdown = func() {}
 
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
 }
 
-func setupBatchHandlers(api *operations.WeaviateAPI) {
-	batchAPI := batch.New(appState)
+func setupBatchHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog) {
+	batchAPI := batch.New(appState, requestsLog)
 
 	api.WeaviateBatchingThingsCreateHandler = operations.
 		WeaviateBatchingThingsCreateHandlerFunc(batchAPI.ThingsCreate)

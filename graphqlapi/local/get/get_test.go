@@ -25,9 +25,7 @@ import (
 
 func TestSimpleFieldParamsOK(t *testing.T) {
 	t.Parallel()
-
 	resolver := newMockResolver(emptyPeers())
-
 	expectedParams := &Params{
 		Kind:       kind.ACTION_KIND,
 		ClassName:  "SomeAction",
