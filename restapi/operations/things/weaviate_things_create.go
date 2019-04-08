@@ -92,7 +92,7 @@ func (o *WeaviateThingsCreate) ServeHTTP(rw http.ResponseWriter, r *http.Request
 type WeaviateThingsCreateBody struct {
 
 	// thing
-	Thing *models.ThingCreate `json:"thing,omitempty"`
+	Thing *models.Thing `json:"thing,omitempty"`
 }
 
 // Validate validates this weaviate things create body

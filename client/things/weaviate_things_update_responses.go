@@ -92,7 +92,7 @@ func NewWeaviateThingsUpdateOK() *WeaviateThingsUpdateOK {
 Successfully received.
 */
 type WeaviateThingsUpdateOK struct {
-	Payload *models.ThingGetResponse
+	Payload *models.Thing
 }
 
 func (o *WeaviateThingsUpdateOK) Error() string {
@@ -101,7 +101,7 @@ func (o *WeaviateThingsUpdateOK) Error() string {
 
 func (o *WeaviateThingsUpdateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.ThingGetResponse)
+	o.Payload = new(models.Thing)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {

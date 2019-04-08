@@ -662,31 +662,6 @@
       }
     },
     "Thing": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/ThingCreate"
-        },
-        {
-          "properties": {
-            "creationTimeUnix": {
-              "description": "Timestamp of creation of this Thing in milliseconds since epoch UTC.",
-              "format": "int64",
-              "type": "integer"
-            },
-            "key": {
-              "$ref": "#/definitions/SingleRef"
-            },
-            "lastUpdateTimeUnix": {
-              "description": "Timestamp of the last Thing update in milliseconds since epoch UTC.",
-              "format": "int64",
-              "type": "integer"
-            }
-          },
-          "type": "object"
-        }
-      ]
-    },
-    "ThingCreate": {
       "properties": {
         "@class": {
           "description": "Class of the Thing, defined in the schema.",
@@ -698,41 +673,27 @@
         },
         "schema": {
           "$ref": "#/definitions/Schema"
+        },
+        "id": {
+          "description": "ID of the Thing.",
+          "format": "uuid",
+          "type": "string"
+        },
+        "creationTimeUnix": {
+          "description": "Timestamp of creation of this Thing in milliseconds since epoch UTC.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "key": {
+          "$ref": "#/definitions/SingleRef"
+        },
+        "lastUpdateTimeUnix": {
+          "description": "Timestamp of the last Thing update in milliseconds since epoch UTC.",
+          "format": "int64",
+          "type": "integer"
         }
       },
       "type": "object"
-    },
-    "ThingGetHistoryResponse": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/ThingHistory"
-        },
-        {
-          "properties": {
-            "thingId": {
-              "format": "uuid",
-              "type": "string"
-            }
-          },
-          "type": "object"
-        }
-      ]
-    },
-    "ThingGetResponse": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/Thing"
-        },
-        {
-          "properties": {
-            "thingId": {
-              "format": "uuid",
-              "type": "string"
-            }
-          },
-          "type": "object"
-        }
-      ]
     },
     "ThingsGetResponse": {
       "allOf": [
@@ -765,59 +726,13 @@
       ],
       "type": "object"
     },
-    "ThingHistory": {
-      "properties": {
-        "deleted": {
-          "description": "Indication whether the Action is deleted.",
-          "type": "boolean"
-        },
-        "key": {
-          "$ref": "#/definitions/SingleRef"
-        },
-        "propertyHistory": {
-          "description": "An array with the history of the Things.",
-          "items": {
-            "$ref": "#/definitions/ThingHistoryObject"
-          },
-          "type": "array"
-        }
-      },
-      "type": "object"
-    },
-    "ThingHistoryObject": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/ThingCreate"
-        },
-        {
-          "properties": {
-            "creationTimeUnix": {
-              "description": "Timestamp of creation of this Thing history in milliseconds since epoch UTC.",
-              "format": "int64",
-              "type": "integer"
-            }
-          },
-          "type": "object"
-        }
-      ]
-    },
-    "ThingUpdate": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/Thing"
-        },
-        {
-          "type": "object"
-        }
-      ]
-    },
     "ThingsListResponse": {
       "description": "List of Things.",
       "properties": {
         "things": {
           "description": "The actual list of Things.",
           "items": {
-            "$ref": "#/definitions/ThingGetResponse"
+            "$ref": "#/definitions/Thing"
           },
           "type": "array"
         },
@@ -1452,7 +1367,7 @@
                 "things": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/definitions/ThingCreate"
+                    "$ref": "#/definitions/Thing"
                   }
                 }
               }
@@ -2461,7 +2376,7 @@
               "type": "object",
               "properties": {
                 "thing": {
-                  "$ref": "#/definitions/ThingCreate"
+                  "$ref": "#/definitions/Thing"
                 }
               }
             }
@@ -2471,7 +2386,7 @@
           "200": {
             "description": "Thing created.",
             "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
+              "$ref": "#/definitions/Thing"
             }
           },
           "401": {
@@ -2510,7 +2425,7 @@
             "name": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/ThingCreate"
+              "$ref": "#/definitions/Thing"
             }
           }
         ],
@@ -2601,7 +2516,7 @@
           "200": {
             "description": "Successful response.",
             "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
+              "$ref": "#/definitions/Thing"
             }
           },
           "401": {
@@ -2655,7 +2570,7 @@
           "200": {
             "description": "Successfully applied.",
             "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
+              "$ref": "#/definitions/Thing"
             }
           },
           "400": {
@@ -2706,7 +2621,7 @@
             "name": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/ThingUpdate"
+              "$ref": "#/definitions/Thing"
             }
           }
         ],
@@ -2714,7 +2629,7 @@
           "200": {
             "description": "Successfully received.",
             "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
+              "$ref": "#/definitions/Thing"
             }
           },
           "401": {
@@ -2740,53 +2655,6 @@
           }
         },
         "summary": "Update a Thing based on its UUID.",
-        "tags": ["things"],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
-      }
-    },
-    "/things/{thingId}/history": {
-      "get": {
-        "description": "Returns a particular Thing's history.",
-        "operationId": "weaviate.thing.history.get",
-        "x-serviceIds": ["weaviate.local.query"],
-        "parameters": [
-          {
-            "description": "Unique ID of the Thing.",
-            "format": "uuid",
-            "in": "path",
-            "name": "thingId",
-            "required": true,
-            "type": "string"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/ThingGetHistoryResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Insufficient permissions."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "summary": "Get a Thing's history based on its UUID.",
         "tags": ["things"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false

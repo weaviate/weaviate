@@ -252,9 +252,9 @@ func (f *Foobar) AddThingsBatch(ctx context.Context, things batchmodels.Things) 
 	return nil
 }
 
-// GetThing fills the given ThingGetResponse with the values from the database,
+// GetThing fills the given Thing with the values from the database,
 // based on the given UUID.
-func (f *Foobar) GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error {
+func (f *Foobar) GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.Thing) error {
 
 	// thingResponse should be populated with the response that comes from the DB.
 	// thingResponse = based on the ontology
@@ -298,11 +298,6 @@ func (f *Foobar) DeleteThing(ctx context.Context, thing *models.Thing, UUID strf
 	// Run the query to delete the thing based on its UUID.
 
 	// If success return nil, otherwise return the error
-	return nil
-}
-
-// HistoryThing fills the history of a thing based on its UUID
-func (f *Foobar) HistoryThing(ctx context.Context, UUID strfmt.UUID, history *models.ThingHistory) error {
 	return nil
 }
 

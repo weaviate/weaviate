@@ -189,13 +189,9 @@ func (f *fakeServer) handle(w http.ResponseWriter, r *http.Request) {
 var happyPathHandler = func(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	body := models.ThingGetResponse{
-		ThingID: "best-reference",
-		Thing: models.Thing{
-			ThingCreate: models.ThingCreate{
-				AtClass: "BestThing",
-			},
-		},
+	body := models.Thing{
+		ID:      "best-reference",
+		AtClass: "BestThing",
 	}
 	json.NewEncoder(w).Encode(body)
 }

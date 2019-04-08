@@ -74,7 +74,7 @@ for the weaviate things update operation typically these are written to a http.R
 type WeaviateThingsUpdateParams struct {
 
 	/*Body*/
-	Body *models.ThingUpdate
+	Body *models.Thing
 	/*ThingID
 	  Unique ID of the Thing.
 
@@ -120,13 +120,13 @@ func (o *WeaviateThingsUpdateParams) SetHTTPClient(client *http.Client) {
 }
 
 // WithBody adds the body to the weaviate things update params
-func (o *WeaviateThingsUpdateParams) WithBody(body *models.ThingUpdate) *WeaviateThingsUpdateParams {
+func (o *WeaviateThingsUpdateParams) WithBody(body *models.Thing) *WeaviateThingsUpdateParams {
 	o.SetBody(body)
 	return o
 }
 
 // SetBody adds the body to the weaviate things update params
-func (o *WeaviateThingsUpdateParams) SetBody(body *models.ThingUpdate) {
+func (o *WeaviateThingsUpdateParams) SetBody(body *models.Thing) {
 	o.Body = body
 }
 

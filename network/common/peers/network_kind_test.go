@@ -66,13 +66,9 @@ func TestGetKindHappyPathWithThings(t *testing.T) {
 	happyPathHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		body := models.ThingGetResponse{
-			ThingID: "best-uuid",
-			Thing: models.Thing{
-				ThingCreate: models.ThingCreate{
-					AtClass: "Instrument",
-				},
-			},
+		body := models.Thing{
+			ID:      "best-uuid",
+			AtClass: "Instrument",
 		}
 		json.NewEncoder(w).Encode(body)
 	}
@@ -86,7 +82,7 @@ func TestGetKindHappyPathWithThings(t *testing.T) {
 	t.Run("matches the specified schema", func(t *testing.T) {
 		server.matchers = []http.HandlerFunc{happyPathHandler}
 		result, _ := peers.RemoteKind(thing)
-		assert.Equal(t, "Instrument", result.(models.Thing).AtClass, "found thing's schema should match")
+		assert.Equal(t, "Instrument", result.(*models.Thing).AtClass, "found thing's schema should match")
 	})
 
 	t.Run("queries the correct path", func(t *testing.T) {

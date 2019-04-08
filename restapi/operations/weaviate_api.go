@@ -161,9 +161,6 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		SchemaWeaviateSchemaThingsUpdateHandler: schema.WeaviateSchemaThingsUpdateHandlerFunc(func(params schema.WeaviateSchemaThingsUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation SchemaWeaviateSchemaThingsUpdate has not yet been implemented")
 		}),
-		ThingsWeaviateThingHistoryGetHandler: things.WeaviateThingHistoryGetHandlerFunc(func(params things.WeaviateThingHistoryGetParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation ThingsWeaviateThingHistoryGet has not yet been implemented")
-		}),
 		ThingsWeaviateThingsCreateHandler: things.WeaviateThingsCreateHandlerFunc(func(params things.WeaviateThingsCreateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ThingsWeaviateThingsCreate has not yet been implemented")
 		}),
@@ -309,8 +306,6 @@ type WeaviateAPI struct {
 	SchemaWeaviateSchemaThingsPropertiesUpdateHandler schema.WeaviateSchemaThingsPropertiesUpdateHandler
 	// SchemaWeaviateSchemaThingsUpdateHandler sets the operation handler for the weaviate schema things update operation
 	SchemaWeaviateSchemaThingsUpdateHandler schema.WeaviateSchemaThingsUpdateHandler
-	// ThingsWeaviateThingHistoryGetHandler sets the operation handler for the weaviate thing history get operation
-	ThingsWeaviateThingHistoryGetHandler things.WeaviateThingHistoryGetHandler
 	// ThingsWeaviateThingsCreateHandler sets the operation handler for the weaviate things create operation
 	ThingsWeaviateThingsCreateHandler things.WeaviateThingsCreateHandler
 	// ThingsWeaviateThingsDeleteHandler sets the operation handler for the weaviate things delete operation
@@ -536,10 +531,6 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.SchemaWeaviateSchemaThingsUpdateHandler == nil {
 		unregistered = append(unregistered, "schema.WeaviateSchemaThingsUpdateHandler")
-	}
-
-	if o.ThingsWeaviateThingHistoryGetHandler == nil {
-		unregistered = append(unregistered, "things.WeaviateThingHistoryGetHandler")
 	}
 
 	if o.ThingsWeaviateThingsCreateHandler == nil {
@@ -864,11 +855,6 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
 	o.handlers["PUT"]["/schema/things/{className}"] = schema.NewWeaviateSchemaThingsUpdate(o.context, o.SchemaWeaviateSchemaThingsUpdateHandler)
-
-	if o.handlers["GET"] == nil {
-		o.handlers["GET"] = make(map[string]http.Handler)
-	}
-	o.handlers["GET"]["/things/{thingId}/history"] = things.NewWeaviateThingHistoryGet(o.context, o.ThingsWeaviateThingHistoryGetHandler)
 
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)

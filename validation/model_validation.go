@@ -60,8 +60,8 @@ const (
 	ErrorNotFoundInDatabase string = "error finding the '%s' in the database: '%s' at %s"
 )
 
-// ValidateThingBody Validates a thing body using the 'ThingCreate' object.
-func ValidateThingBody(ctx context.Context, thing *models.ThingCreate, databaseSchema schema.WeaviateSchema,
+// ValidateThingBody Validates a thing body using the 'Thing' object.
+func ValidateThingBody(ctx context.Context, thing *models.Thing, databaseSchema schema.WeaviateSchema,
 	dbConnector dbconnector.DatabaseConnector, network network.Network, serverConfig *config.WeaviateConfig) error {
 	// Validate the body
 	bve := validateBody(thing.AtClass, thing.AtContext)
@@ -138,7 +138,7 @@ func validateLocalRef(ctx context.Context, dbConnector dbconnector.DatabaseConne
 	var err error
 	switch ref.Kind {
 	case kind.THING_KIND:
-		obj := &models.ThingGetResponse{}
+		obj := &models.Thing{}
 		err = dbConnector.GetThing(ctx, ref.TargetID, obj)
 	case kind.ACTION_KIND:
 		obj := &models.ActionGetResponse{}

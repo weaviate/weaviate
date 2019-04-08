@@ -79,7 +79,7 @@ func assertGetActionEventually(t *testing.T, uuid strfmt.UUID) *models.ActionGet
 	return action
 }
 
-func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.ThingGetResponse {
+func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.Thing {
 	var (
 		resp *things.WeaviateThingsGetOK
 		err  error
@@ -92,7 +92,7 @@ func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.ThingGetRe
 
 	helper.AssertEventuallyEqual(t, true, checkThunk)
 
-	var thing *models.ThingGetResponse
+	var thing *models.Thing
 
 	helper.AssertRequestOk(t, resp, err, func() {
 		thing = resp.Payload
@@ -103,7 +103,7 @@ func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.ThingGetRe
 
 func assertCreateThing(t *testing.T, className string, schema map[string]interface{}) strfmt.UUID {
 	params := things.NewWeaviateThingsCreateParams().WithBody(things.WeaviateThingsCreateBody{
-		Thing: &models.ThingCreate{
+		Thing: &models.Thing{
 			AtContext: "http://example.org",
 			AtClass:   className,
 			Schema:    schema,
@@ -116,7 +116,7 @@ func assertCreateThing(t *testing.T, className string, schema map[string]interfa
 
 	// Ensure that the response is OK
 	helper.AssertRequestOk(t, resp, err, func() {
-		thingID = resp.Payload.ThingID
+		thingID = resp.Payload.ID
 	})
 
 	return thingID

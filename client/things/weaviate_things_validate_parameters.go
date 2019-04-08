@@ -74,7 +74,7 @@ for the weaviate things validate operation typically these are written to a http
 type WeaviateThingsValidateParams struct {
 
 	/*Body*/
-	Body *models.ThingCreate
+	Body *models.Thing
 
 	timeout    time.Duration
 	Context    context.Context
@@ -115,13 +115,13 @@ func (o *WeaviateThingsValidateParams) SetHTTPClient(client *http.Client) {
 }
 
 // WithBody adds the body to the weaviate things validate params
-func (o *WeaviateThingsValidateParams) WithBody(body *models.ThingCreate) *WeaviateThingsValidateParams {
+func (o *WeaviateThingsValidateParams) WithBody(body *models.Thing) *WeaviateThingsValidateParams {
 	o.SetBody(body)
 	return o
 }
 
 // SetBody adds the body to the weaviate things validate params
-func (o *WeaviateThingsValidateParams) SetBody(body *models.ThingCreate) {
+func (o *WeaviateThingsValidateParams) SetBody(body *models.Thing) {
 	o.Body = body
 }
 
