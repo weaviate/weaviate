@@ -112,11 +112,12 @@ func sendCreateActionRequest(t *testing.T) {
 
 // retrieveLogFromMockEndpoint retrieves the most recently received log from the mock api.
 func retrieveLogFromMockEndpoint(t *testing.T) []byte {
-	testURL, err := url.Parse("http://localhost:8087/mock/last")
+	req, err := http.NewRequest("GET", "http://localhost:8087/mock/last", nil)
+	req.Close = true
 	assert.Equal(t, nil, err)
 
 	client := &http.Client{}
-	resp, err := client.Get(testURL.String())
+	resp, err := client.Do(req)
 	if err == nil {
 		body, _ := ioutil.ReadAll(resp.Body)
 		defer resp.Body.Close()
