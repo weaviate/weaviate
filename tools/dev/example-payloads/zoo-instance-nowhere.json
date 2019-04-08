@@ -1,0 +1,14 @@
+{
+  "async": false,
+  "thing": {
+    "@class": "Zoo",
+    "@context": "none",
+    "schema": {
+      "name": "NowhereZoo",
+      "location": {
+        "latitude": 0.1,
+        "longitude": 0
+      }
+    }
+  }
+}
