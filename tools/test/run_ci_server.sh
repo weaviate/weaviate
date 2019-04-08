@@ -7,11 +7,11 @@ function main() {
   echo "Pull images..."
   surpress_on_success docker pull golang:1.11-alpine
   echo "Build containers (this will take the longest)..."
-  docker-compose -f docker-compose-test.yml build weaviate janus index db \
+  docker-compose -f docker-compose-test.yml build weaviate janus index db telemetry_mock_api \
     genesis_fake remote_weaviate_fake remote_weaviate_fakes_with_test_schema genesis
   echo "Start up docker-compose setup..."
   surpress_on_success docker-compose -f docker-compose-test.yml up --force-recreate -d weaviate \
-    janus index db genesis_fake remote_weaviate_fake remote_weaviate_fakes_with_test_schema genesis
+    janus index db genesis_fake remote_weaviate_fake remote_weaviate_fakes_with_test_schema genesis telemetry_mock_api
 
   MAX_WAIT_SECONDS=60
   ALREADY_WAITING=0

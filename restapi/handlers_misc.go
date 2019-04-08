@@ -1,4 +1,14 @@
-package restapi
+/*                          _       _
+ *__      _____  __ ___   ___  __ _| |_ ___
+ *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+ * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+ *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+ *
+ * Copyright © 2016 - 2019 Weaviate. All rights reserved.
+ * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+ * CONTACT: hello@creativesoftwarefdn.org
+ */package restapi
 
 import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
@@ -7,10 +17,11 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/meta"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/p2_p"
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
-func setupMiscHandlers(api *operations.WeaviateAPI) {
+func setupMiscHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog) {
 	api.MetaWeaviateMetaGetHandler = meta.WeaviateMetaGetHandlerFunc(func(params meta.WeaviateMetaGetParams, principal *models.Principal) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
@@ -26,6 +37,10 @@ func setupMiscHandlers(api *operations.WeaviateAPI) {
 		metaResponse.ActionsSchema = databaseSchema.ActionSchema.Schema
 		metaResponse.ThingsSchema = databaseSchema.ThingSchema.Schema
 
+		// Register the request
+		go func() {
+			requestsLog.Register(telemetry.TypeREST, telemetry.LocalQueryMeta)
+		}()
 		return meta.NewWeaviateMetaGetOK().WithPayload(metaResponse)
 	})
 
@@ -46,6 +61,10 @@ func setupMiscHandlers(api *operations.WeaviateAPI) {
 		err := network.UpdatePeers(newPeers)
 
 		if err == nil {
+			// Register the request
+			go func() {
+				requestsLog.Register(telemetry.TypeREST, telemetry.NetworkQueryMeta)
+			}()
 			return p2_p.NewWeaviateP2pGenesisUpdateOK()
 		}
 		return p2_p.NewWeaviateP2pGenesisUpdateInternalServerError()

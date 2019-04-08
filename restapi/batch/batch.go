@@ -10,16 +10,21 @@
  * CONTACT: hello@creativesoftwarefdn.org
  */package batch
 
-import "github.com/creativesoftwarefdn/weaviate/restapi/state"
+import (
+	"github.com/creativesoftwarefdn/weaviate/restapi/state"
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
+)
 
 // New creates all REST api handlers for batching things and actions
-func New(appState *state.State) *Batch {
+func New(appState *state.State, requestsLog *telemetry.RequestsLog) *Batch {
 	return &Batch{
-		appState: appState,
+		appState:    appState,
+		requestsLog: requestsLog,
 	}
 }
 
 // Batch provides various Handlers around batching things and actions
 type Batch struct {
-	appState *state.State
+	appState    *state.State
+	requestsLog *telemetry.RequestsLog
 }

@@ -25,6 +25,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations"
 	rest_api_utils "github.com/creativesoftwarefdn/weaviate/restapi/rest_api_utils"
 	"github.com/creativesoftwarefdn/weaviate/restapi/state"
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
 	"github.com/creativesoftwarefdn/weaviate/validation"
 	middleware "github.com/go-openapi/runtime/middleware"
 )
@@ -35,13 +36,14 @@ type thingsRequest struct {
 	*http.Request
 	*state.State
 	locks *rest_api_utils.RequestLocks
+	log   *telemetry.RequestsLog
 }
 
 // ThingsCreate is the (go-swagger style) http handler for BatchingThingsCreate
 func (b *Batch) ThingsCreate(params operations.WeaviateBatchingThingsCreateParams, principal *models.Principal) middleware.Responder {
 	defer b.appState.Messaging.TimeTrack(time.Now())
 
-	r := newThingsRequest(params.HTTPRequest, b.appState)
+	r := newThingsRequest(params.HTTPRequest, b.appState, b.requestsLog)
 	if errResponder := r.lock(); errResponder != nil {
 		return errResponder
 	}
@@ -61,10 +63,11 @@ func (b *Batch) ThingsCreate(params operations.WeaviateBatchingThingsCreateParam
 		WithPayload(batchThings.Response())
 }
 
-func newThingsRequest(r *http.Request, deps *state.State) *thingsRequest {
+func newThingsRequest(r *http.Request, deps *state.State, requestsLog *telemetry.RequestsLog) *thingsRequest {
 	return &thingsRequest{
 		Request: r,
 		State:   deps,
+		log:     requestsLog,
 	}
 }
 
@@ -140,6 +143,13 @@ func (r *thingsRequest) validateThing(wg *sync.WaitGroup, thingCreate *models.Th
 
 	err := validation.ValidateThingBody(r.Context(), thingCreate, databaseSchema, r.locks.DBConnector,
 		r.Network, r.ServerConfig)
+
+	if err == nil {
+		// Register the request
+		go func() {
+			r.log.Register(telemetry.TypeREST, telemetry.LocalAdd)
+		}()
+	}
 
 	*resultsC <- batchmodels.Thing{
 		UUID:          uuid,

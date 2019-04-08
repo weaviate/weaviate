@@ -13,8 +13,7 @@ package network
 
 import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
-	network_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/get"
-	network_getmeta "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/getmeta"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/common"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 )
@@ -39,8 +38,10 @@ type Network interface {
 	ListPeers() (peers.Peers, error)
 	// GetNetworkResolver() Network
 
-	ProxyGetInstance(network_get.Params) (*models.GraphQLResponse, error)
-	ProxyGetMetaInstance(network_getmeta.Params) (*models.GraphQLResponse, error)
+	ProxyGetInstance(common.Params) (*models.GraphQLResponse, error)
+	ProxyGetMetaInstance(common.Params) (*models.GraphQLResponse, error)
+	ProxyAggregateInstance(common.Params) (*models.GraphQLResponse, error)
+	ProxyFetch(query common.SubQuery) ([]*models.GraphQLResponse, error)
 
 	// UpdatePeers is Invoked by the Genesis server via an HTTP endpoint.
 	UpdatePeers(newPeers peers.Peers) error

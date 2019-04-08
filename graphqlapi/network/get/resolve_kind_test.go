@@ -29,6 +29,7 @@ func TestResolveThingProperInput(t *testing.T) {
 				{foo: "baz"},
 			},
 		},
+		"RequestsLog": &mockRequestsLog{},
 	}
 
 	params := graphql.ResolveParams{
@@ -73,7 +74,8 @@ func TestResolveThingProperInput(t *testing.T) {
 
 func TestResolveThingBadInput(t *testing.T) {
 	source := map[string]interface{}{
-		"Things": "foobar",
+		"Things":      "foobar",
+		"RequestsLog": &mockRequestsLog{},
 	}
 
 	params := graphql.ResolveParams{

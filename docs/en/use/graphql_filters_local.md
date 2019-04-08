@@ -4,6 +4,12 @@
 
 ## Purpose: Show how filters can be used in local queries
 
+## Index
+- [Local Get and GetMeta](#local-get-and-getmeta)
+- [Local GetMeta](#local-getmeta)
+- [Local Aggregate](#local-aggregate)
+
+## Local Get and GetMeta
 Without filters, a local query could look like this:
 
 ``` graphql 
@@ -26,7 +32,7 @@ Without filters, a local query could look like this:
 }
 ```
 
-In this query, the result will contain the names and population of all the cities, and which country they are in. If you only want to Get all the cities in the Netherlands with a population higher than 100,000, this can be specified in the `where` filter in the class in the `Get` function:
+In this query, the result will contain the names and population of all the cities, and which country they are in. If you only want to Get all the cities in the Netherlands with a population higher than 100.000, this can be specified in the `where` filter in the class in the `Get` function:
 
 ```graphql
 {
@@ -122,6 +128,8 @@ Without operator 'And' or 'Or' at the highest level:
 }
 ```
 
+The same holds for GetMeta queries.
+
 ## geoCoordinates
 Distance ranges of geoCoordinates can be filtered as follows:
 ```graphql
@@ -146,4 +154,40 @@ Distance ranges of geoCoordinates can be filtered as follows:
 }
 ```
 The `distance` is always in kilometers. `geoCoordinates` are in DMS format.
-This query will result in all cities within a 2 kilometer range of the geoCoordinates `{latitude: 52.4, longitude: 4.9}`. 
+This query will result in all cities within a 2 kilometer range of the geoCoordinates `{latitude: 52.4, longitude: 4.9}`.
+
+
+## Local Aggregate
+Grouping is associated with aggregation. The GraphQL query function is called `Aggregate`, which returns aggregations of data groups. The data can be grouped by a specific property, which can be specified on the class level in the query. The `minimum`, `maximum`, `median`, `sum`, `mode`, and the `mean` of numeric property values can be queried, as well as the number of specific property values by `count`. The returned data is a list of groups, indicated by `groupedBy` `path` (same as the filter), and the actual `value`. 
+
+### Example
+The query below groups all the cities in a local Weaviate on the name of the country, and should return the aggregated data values of the specified functions.
+
+``` graphql
+{
+  Local {
+    Aggregate {
+      Things {
+        City(groupBy:["inCountry", "Country", "name"]) { 
+          population {
+            minimum
+            maximum
+            median
+            mean
+            sum
+            mode
+            count
+          }
+          name { # This property has no numeric values, but 'string' values instead. Only 'count' can be queried for non-numeric propertie
+            count
+          }
+          groupedBy { #indicates the groups
+            path #the path as shown in the filter, will be ["inCountry", "Country", "name"]
+            value #the property value of the path's property key of the group
+          }
+        }
+      }
+    }
+  }
+}
+```

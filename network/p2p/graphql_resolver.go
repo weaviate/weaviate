@@ -15,57 +15,93 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/creativesoftwarefdn/weaviate/client"
 	"github.com/creativesoftwarefdn/weaviate/client/graphql"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/common"
-	networkGet "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/get"
-	networkGetMeta "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 )
 
 // ProxyGetInstance proxies a single SubQuery to a single Target Instance. It
 // is inteded to be called multiple times if you need to Network.Get from
 // multiple instances.
-func (n *network) ProxyGetInstance(params networkGet.Params) (*models.GraphQLResponse, error) {
-	peer, err := n.GetPeerByName(params.TargetInstance)
-	if err != nil {
-		knownPeers, _ := n.ListPeers()
-		return nil, fmt.Errorf("could not connect to %s: %s, known peers are %#v", params.TargetInstance, err, knownPeers)
-	}
-
-	peerClient, err := peer.CreateClient()
-	if err != nil {
-		return nil, fmt.Errorf("could not build client for peer %s: %s", peer.Name, err)
-	}
-
-	result, err := postToPeer(peerClient, params.SubQuery, nil)
-	if err != nil {
-		return nil, fmt.Errorf("could post to peer %s: %s", peer.Name, err)
-	}
-
-	return result.Payload, nil
+func (n *network) ProxyGetInstance(params common.Params) (*models.GraphQLResponse, error) {
+	return n.proxy(params)
 }
 
 // ProxyGetMetaInstance proxies a single SubQuery to a single Target Instance. It
 // is inteded to be called multiple times if you need to Network.GetMeta from
 // multiple instances.
-func (n *network) ProxyGetMetaInstance(params networkGetMeta.Params) (*models.GraphQLResponse, error) {
+func (n *network) ProxyGetMetaInstance(params common.Params) (*models.GraphQLResponse, error) {
+	return n.proxy(params)
+}
+
+// ProxyAggregateInstance proxies a single SubQuery to a single Target Instance. It
+// is inteded to be called multiple times if you need to Network.Aggregate from
+// multiple instances.
+func (n *network) ProxyAggregateInstance(params common.Params) (*models.GraphQLResponse, error) {
+	return n.proxy(params)
+}
+
+func (n *network) proxy(params common.Params) (*models.GraphQLResponse, error) {
 	peer, err := n.GetPeerByName(params.TargetInstance)
 	if err != nil {
 		knownPeers, _ := n.ListPeers()
-		return nil, fmt.Errorf("could not connect to %s: %s, known peers are %#v", params.TargetInstance, err, knownPeers)
+		return nil, fmt.Errorf("could not connect to %s: %s, known peers are %#v",
+			params.TargetInstance, err, knownPeers)
 	}
 
+	return n.sendQueryToPeer(params.SubQuery, peer)
+}
+
+type peerResponse struct {
+	res *models.GraphQLResponse
+	err error
+}
+
+func (n *network) ProxyFetch(q common.SubQuery) ([]*models.GraphQLResponse, error) {
+	var results []*models.GraphQLResponse
+	knownPeers, err := n.ListPeers()
+	if err != nil {
+		return nil, err
+	}
+
+	wg := &sync.WaitGroup{}
+	resultsC := make(chan peerResponse, len(knownPeers))
+	for _, peer := range knownPeers {
+		wg.Add(1)
+		go func(peer peers.Peer) {
+			defer wg.Done()
+			res, err := n.sendQueryToPeer(q, peer)
+			resultsC <- peerResponse{res, err}
+		}(peer)
+	}
+
+	wg.Wait()
+	close(resultsC)
+	for res := range resultsC {
+		if res.err != nil {
+			return nil, res.err
+		}
+
+		results = append(results, res.res)
+	}
+
+	return results, nil
+}
+
+func (n *network) sendQueryToPeer(q common.SubQuery, peer peers.Peer) (*models.GraphQLResponse, error) {
 	peerClient, err := peer.CreateClient()
 	if err != nil {
 		return nil, fmt.Errorf("could not build client for peer %s: %s", peer.Name, err)
 	}
 
-	result, err := postToPeer(peerClient, params.SubQuery, nil)
+	result, err := postToPeer(peerClient, q, nil)
 	if err != nil {
-		return nil, fmt.Errorf("could post to peer %s: %s", peer.Name, err)
+		return nil, fmt.Errorf("could not post to peer %s: %s", peer.Name, err)
 	}
 
 	return result.Payload, nil
@@ -77,7 +113,7 @@ func postToPeer(client *client.WeaviateDecentralisedKnowledgeGraph, subQuery com
 	localContext, cancel := context.WithTimeout(localContext, 1*time.Second)
 	defer cancel()
 	requestParams := &graphql.WeaviateGraphqlPostParams{
-		Body:    &models.GraphQLQuery{Query: subQuery.WrapInLocalQuery()},
+		Body:    &models.GraphQLQuery{Query: subQuery.String()},
 		Context: localContext,
 		// re-enable once we have auth again
 		// HTTPClient: clientWithTokenInjectorRoundTripper(principal),

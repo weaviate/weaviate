@@ -1,4 +1,14 @@
-package restapi
+/*                          _       _
+ *__      _____  __ ___   ___  __ _| |_ ___
+ *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+ * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+ *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+ *
+ * Copyright © 2016 - 2019 Weaviate. All rights reserved.
+ * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+ * CONTACT: hello@creativesoftwarefdn.org
+ */package restapi
 
 import (
 	"context"
@@ -12,12 +22,13 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/graphql"
 	"github.com/creativesoftwarefdn/weaviate/restapi/rest_api_utils"
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
 const error422 string = "The request is well-formed but was unable to be followed due to semantic errors."
 
-func setupGraphQLHandlers(api *operations.WeaviateAPI) {
+func setupGraphQLHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog) {
 	api.GraphqlWeaviateGraphqlPostHandler = graphql.WeaviateGraphqlPostHandlerFunc(func(params graphql.WeaviateGraphqlPostParams, principal *models.Principal) middleware.Responder {
 		defer messaging.TimeTrack(time.Now())
 		messaging.DebugMessage("Starting GraphQL resolving")
@@ -77,6 +88,11 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI) {
 			return graphql.NewWeaviateGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
 		}
 
+		// Register the request
+		go func() {
+			requestsLog.Register(telemetry.TypeGQL, telemetry.LocalAdd)
+		}()
+
 		// Return the response
 		return graphql.NewWeaviateGraphqlPostOK().WithPayload(graphQLResponse)
 	})
@@ -98,7 +114,7 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI) {
 		// Generate a goroutine for each separate request
 		for requestIndex, unbatchedRequest := range params.Body {
 			wg.Add(1)
-			go handleUnbatchedGraphQLRequest(wg, context.Background(), unbatchedRequest, requestIndex, &requestResults)
+			go handleUnbatchedGraphQLRequest(wg, context.Background(), unbatchedRequest, requestIndex, &requestResults, requestsLog)
 		}
 
 		wg.Wait()
@@ -117,7 +133,7 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI) {
 }
 
 // Handle a single unbatched GraphQL request, return a tuple containing the index of the request in the batch and either the response or an error
-func handleUnbatchedGraphQLRequest(wg *sync.WaitGroup, ctx context.Context, unbatchedRequest *models.GraphQLQuery, requestIndex int, requestResults *chan rest_api_utils.UnbatchedRequestResponse) {
+func handleUnbatchedGraphQLRequest(wg *sync.WaitGroup, ctx context.Context, unbatchedRequest *models.GraphQLQuery, requestIndex int, requestResults *chan rest_api_utils.UnbatchedRequestResponse, requestsLog *telemetry.RequestsLog) {
 	defer wg.Done()
 
 	// Get all input from the body of the request
@@ -183,7 +199,6 @@ func handleUnbatchedGraphQLRequest(wg *sync.WaitGroup, ctx context.Context, unba
 					&graphQLResponse,
 				}
 			} else {
-
 				// Return the GraphQL response
 				*requestResults <- rest_api_utils.UnbatchedRequestResponse{
 					requestIndex,

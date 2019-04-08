@@ -26,6 +26,12 @@ type Resolver interface {
 	LocalGetClass(info *Params) (interface{}, error)
 }
 
+// // RequestsLog is a local abstraction on the RequestsLog that needs to be
+// // provided to the graphQL API in order to log Local.Get queries.
+type RequestsLog interface {
+	Register(requestType string, identifier string)
+}
+
 type Params struct {
 	Kind       kind.Kind
 	Filters    *common_filters.LocalFilter
