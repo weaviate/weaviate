@@ -23,7 +23,7 @@ import (
 
 func assertCreateThing(t *testing.T, className string, schema map[string]interface{}) strfmt.UUID {
 	params := things.NewWeaviateThingsCreateParams().WithBody(things.WeaviateThingsCreateBody{
-		Thing: &models.ThingCreate{
+		Thing: &models.Thing{
 			AtContext: "http://example.org",
 			AtClass:   className,
 			Schema:    schema,
@@ -36,16 +36,16 @@ func assertCreateThing(t *testing.T, className string, schema map[string]interfa
 
 	// Ensure that the response is OK
 	helper.AssertRequestOk(t, resp, err, func() {
-		thingID = resp.Payload.ThingID
+		thingID = resp.Payload.ID
 	})
 
 	return thingID
 }
 
-func assertGetThing(t *testing.T, uuid strfmt.UUID) *models.ThingGetResponse {
+func assertGetThing(t *testing.T, uuid strfmt.UUID) *models.Thing {
 	getResp, err := helper.Client(t).Things.WeaviateThingsGet(things.NewWeaviateThingsGetParams().WithThingID(uuid), nil)
 
-	var thing *models.ThingGetResponse
+	var thing *models.Thing
 
 	helper.AssertRequestOk(t, getResp, err, func() {
 		thing = getResp.Payload
@@ -54,7 +54,7 @@ func assertGetThing(t *testing.T, uuid strfmt.UUID) *models.ThingGetResponse {
 	return thing
 }
 
-func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.ThingGetResponse {
+func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.Thing {
 	var (
 		resp *things.WeaviateThingsGetOK
 		err  error
@@ -67,7 +67,7 @@ func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.ThingGetRe
 
 	helper.AssertEventuallyEqual(t, true, checkThunk)
 
-	var thing *models.ThingGetResponse
+	var thing *models.Thing
 
 	helper.AssertRequestOk(t, resp, err, func() {
 		thing = resp.Payload

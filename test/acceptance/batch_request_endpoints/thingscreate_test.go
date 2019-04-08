@@ -35,14 +35,14 @@ func TestBatchThingsCreateResultsOrder(t *testing.T) {
 	expectedResult := "no such class with name '%s' found in the schema. Check your schema files for which classes are available"
 
 	// generate actioncreate content
-	thing1 := &models.ThingCreate{
+	thing1 := &models.Thing{
 		AtContext: "http://example.org",
 		AtClass:   classOneName,
 		Schema: map[string]interface{}{
 			"testString": "Test string",
 		},
 	}
-	thing2 := &models.ThingCreate{
+	thing2 := &models.Thing{
 		AtContext: "http://example.org",
 		AtClass:   classTwoName,
 		Schema: map[string]interface{}{
@@ -54,7 +54,7 @@ func TestBatchThingsCreateResultsOrder(t *testing.T) {
 
 	// generate request body
 	params := operations.NewWeaviateBatchingThingsCreateParams().WithBody(operations.WeaviateBatchingThingsCreateBody{
-		Things: []*models.ThingCreate{thing1, thing2},
+		Things: []*models.Thing{thing1, thing2},
 		Fields: []*string{&testFields},
 	})
 

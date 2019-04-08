@@ -176,7 +176,7 @@ func makeResolveRefField(peers peers.Peers) graphql.FieldResolveFn {
 func extractSchemaFromKind(v NetworkRef, result interface{}) (map[string]interface{}, error) {
 	switch v.Kind {
 	case kind.THING_KIND:
-		thing, ok := result.(models.Thing)
+		thing, ok := result.(*models.Thing)
 		if !ok {
 			return nil, fmt.Errorf("expected a models.Thing, but remote instance returned %#v", result)
 		}

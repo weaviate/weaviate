@@ -39,11 +39,10 @@ type BaseConnector interface {
 
 	AddThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error
 	AddThingsBatch(ctx context.Context, things batchmodels.Things) error
-	GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error
+	GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.Thing) error
 	ListThings(ctx context.Context, first int, offset int, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error
 	UpdateThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error
 	DeleteThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error
-	HistoryThing(ctx context.Context, UUID strfmt.UUID, history *models.ThingHistory) error
 	MoveToHistoryThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID, deleted bool) error
 
 	AddAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error

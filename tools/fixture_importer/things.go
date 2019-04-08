@@ -88,15 +88,15 @@ func createThings() {
 			}
 		}
 
-		t := models.ThingCreate{
+		t := models.Thing{
 			AtContext: "http://example.org",
 			AtClass:   className,
 			Schema:    properties,
 		}
 
 		thing := assertCreateThing(&t)
-		idMap[uuid] = string(thing.ThingID) // Store mapping of ID's
-		fmt.Printf("Created Thing %s\n", thing.ThingID)
+		idMap[uuid] = string(thing.ID) // Store mapping of ID's
+		fmt.Printf("Created Thing %s\n", thing.ID)
 	}
 }
 
@@ -269,7 +269,7 @@ func checkThingExists(id string) bool {
 	return true
 }
 
-func assertCreateThing(t *models.ThingCreate) *models.ThingGetResponse {
+func assertCreateThing(t *models.Thing) *models.Thing {
 	params := things.NewWeaviateThingsCreateParams().WithBody(things.WeaviateThingsCreateBody{Thing: t})
 
 	resp, err := client.Things.WeaviateThingsCreate(params, nil)
@@ -286,7 +286,7 @@ func assertCreateThing(t *models.ThingCreate) *models.ThingGetResponse {
 	return resp.Payload
 }
 
-func assertUpdateThing(id string, update *models.ThingUpdate) *models.ThingGetResponse {
+func assertUpdateThing(id string, update *models.Thing) *models.Thing {
 	params := things.NewWeaviateThingsUpdateParams().WithBody(update).WithThingID(strfmt.UUID(id))
 
 	resp, err := client.Things.WeaviateThingsUpdate(params, nil)
@@ -306,7 +306,7 @@ func assertUpdateThing(id string, update *models.ThingUpdate) *models.ThingGetRe
 	return resp.Payload
 }
 
-func assertPatchThing(id string, p *models.PatchDocument) *models.ThingGetResponse {
+func assertPatchThing(id string, p *models.PatchDocument) *models.Thing {
 	params := things.NewWeaviateThingsPatchParams().WithBody([]*models.PatchDocument{p}).WithThingID(strfmt.UUID(id))
 
 	resp, err := client.Things.WeaviateThingsPatch(params, nil)

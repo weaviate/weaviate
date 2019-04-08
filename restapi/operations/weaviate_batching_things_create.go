@@ -98,7 +98,7 @@ type WeaviateBatchingThingsCreateBody struct {
 	Fields []*string `json:"fields"`
 
 	// things
-	Things []*models.ThingCreate `json:"things"`
+	Things []*models.Thing `json:"things"`
 }
 
 // Validate validates this weaviate batching things create body

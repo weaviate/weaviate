@@ -279,7 +279,7 @@ func (j *Janusgraph) singleLocalRef(ref *crossref.Ref, propType schema.PropertyD
 		}
 		refClassName = schema.AssertValidClassName(singleRefValue.AtClass)
 	case kind.THING_KIND:
-		var singleRefValue models.ThingGetResponse
+		var singleRefValue models.Thing
 		err := j.GetThing(nil, ref.TargetID, &singleRefValue)
 		if err != nil {
 			return result, fmt.Errorf("Illegal value for property %s; could not resolve thing with UUID: %v", ref.TargetID.String(), err)

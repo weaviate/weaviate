@@ -49,7 +49,7 @@ type WeaviateThingsUpdateParams struct {
 	  Required: true
 	  In: body
 	*/
-	Body *models.ThingUpdate
+	Body *models.Thing
 	/*Unique ID of the Thing.
 	  Required: true
 	  In: path
@@ -68,7 +68,7 @@ func (o *WeaviateThingsUpdateParams) BindRequest(r *http.Request, route *middlew
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body models.ThingUpdate
+		var body models.Thing
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
 				res = append(res, errors.Required("body", "body"))

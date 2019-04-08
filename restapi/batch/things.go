@@ -116,7 +116,7 @@ func (r *thingsRequest) validateConcurrently(body operations.WeaviateBatchingThi
 	return thingsChanToSlice(c)
 }
 
-func (r *thingsRequest) validateThing(wg *sync.WaitGroup, thingCreate *models.ThingCreate,
+func (r *thingsRequest) validateThing(wg *sync.WaitGroup, thingCreate *models.Thing,
 	originalIndex int, resultsC *chan batchmodels.Thing, fieldsToKeep map[string]int) {
 	defer wg.Done()
 

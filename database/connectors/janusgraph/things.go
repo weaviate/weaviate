@@ -35,11 +35,11 @@ func (j *Janusgraph) AddThingsBatch(ctx context.Context, things batchmodels.Thin
 	return j.addThingsBatch(things)
 }
 
-func (j *Janusgraph) GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error {
+func (j *Janusgraph) GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.Thing) error {
 	return j.getClass(kind.THING_KIND, UUID,
 		&thingResponse.AtClass,
 		&thingResponse.AtContext,
-		&thingResponse.ThingID,
+		&thingResponse.ID,
 		&thingResponse.CreationTimeUnix,
 		&thingResponse.LastUpdateTimeUnix,
 		&thingResponse.Schema)
@@ -49,10 +49,10 @@ func (j *Janusgraph) GetThings(ctx context.Context, UUIDs []strfmt.UUID, respons
 	// TODO gh-612: Optimize query to perform just _one_ JanusGraph lookup.
 
 	response.TotalResults = 0
-	response.Things = make([]*models.ThingGetResponse, 0)
+	response.Things = make([]*models.Thing, 0)
 
 	for _, uuid := range UUIDs {
-		var thing_response models.ThingGetResponse
+		var thing_response models.Thing
 		err := j.GetThing(ctx, uuid, &thing_response)
 
 		if err == nil {
@@ -68,10 +68,10 @@ func (j *Janusgraph) GetThings(ctx context.Context, UUIDs []strfmt.UUID, respons
 
 func (j *Janusgraph) ListThings(ctx context.Context, first int, offset int, wheres []*connutils.WhereQuery, response *models.ThingsListResponse) error {
 	response.TotalResults = 0
-	response.Things = make([]*models.ThingGetResponse, 0)
+	response.Things = make([]*models.Thing, 0)
 
 	return j.listClass(kind.THING_KIND, nil, first, offset, nil, func(uuid strfmt.UUID) {
-		var thing_response models.ThingGetResponse
+		var thing_response models.Thing
 		err := j.GetThing(ctx, uuid, &thing_response)
 
 		if err == nil {
@@ -90,10 +90,6 @@ func (j *Janusgraph) UpdateThing(ctx context.Context, thing *models.Thing, UUID 
 
 func (j *Janusgraph) DeleteThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error {
 	return j.deleteClass(kind.THING_KIND, UUID)
-}
-
-func (j *Janusgraph) HistoryThing(ctx context.Context, UUID strfmt.UUID, history *models.ThingHistory) error {
-	return nil
 }
 
 func (j *Janusgraph) MoveToHistoryThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID, deleted bool) error {

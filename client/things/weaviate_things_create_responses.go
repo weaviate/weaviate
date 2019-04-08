@@ -87,7 +87,7 @@ func NewWeaviateThingsCreateOK() *WeaviateThingsCreateOK {
 Thing created.
 */
 type WeaviateThingsCreateOK struct {
-	Payload *models.ThingGetResponse
+	Payload *models.Thing
 }
 
 func (o *WeaviateThingsCreateOK) Error() string {
@@ -96,7 +96,7 @@ func (o *WeaviateThingsCreateOK) Error() string {
 
 func (o *WeaviateThingsCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.ThingGetResponse)
+	o.Payload = new(models.Thing)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
@@ -212,7 +212,7 @@ swagger:model WeaviateThingsCreateBody
 type WeaviateThingsCreateBody struct {
 
 	// thing
-	Thing *models.ThingCreate `json:"thing,omitempty"`
+	Thing *models.Thing `json:"thing,omitempty"`
 }
 
 // Validate validates this weaviate things create body

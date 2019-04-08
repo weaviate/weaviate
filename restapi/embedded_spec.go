@@ -827,7 +827,7 @@ func init() {
                 "things": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/definitions/ThingCreate"
+                    "$ref": "#/definitions/Thing"
                   }
                 }
               }
@@ -1875,7 +1875,7 @@ func init() {
               "type": "object",
               "properties": {
                 "thing": {
-                  "$ref": "#/definitions/ThingCreate"
+                  "$ref": "#/definitions/Thing"
                 }
               }
             }
@@ -1885,7 +1885,7 @@ func init() {
           "200": {
             "description": "Thing created.",
             "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
+              "$ref": "#/definitions/Thing"
             }
           },
           "401": {
@@ -1928,7 +1928,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/ThingCreate"
+              "$ref": "#/definitions/Thing"
             }
           }
         ],
@@ -1984,7 +1984,7 @@ func init() {
           "200": {
             "description": "Successful response.",
             "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
+              "$ref": "#/definitions/Thing"
             }
           },
           "401": {
@@ -2030,7 +2030,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/ThingUpdate"
+              "$ref": "#/definitions/Thing"
             }
           }
         ],
@@ -2038,7 +2038,7 @@ func init() {
           "200": {
             "description": "Successfully received.",
             "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
+              "$ref": "#/definitions/Thing"
             }
           },
           "401": {
@@ -2145,7 +2145,7 @@ func init() {
           "200": {
             "description": "Successfully applied.",
             "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
+              "$ref": "#/definitions/Thing"
             }
           },
           "400": {
@@ -2177,57 +2177,6 @@ func init() {
         "x-available-in-websocket": false,
         "x-serviceIds": [
           "weaviate.local.manipulate"
-        ]
-      }
-    },
-    "/things/{thingId}/history": {
-      "get": {
-        "description": "Returns a particular Thing's history.",
-        "tags": [
-          "things"
-        ],
-        "summary": "Get a Thing's history based on its UUID.",
-        "operationId": "weaviate.thing.history.get",
-        "parameters": [
-          {
-            "type": "string",
-            "format": "uuid",
-            "description": "Unique ID of the Thing.",
-            "name": "thingId",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/ThingGetHistoryResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Insufficient permissions."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false,
-        "x-serviceIds": [
-          "weaviate.local.query"
         ]
       }
     },
@@ -3101,31 +3050,6 @@ func init() {
       }
     },
     "Thing": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/ThingCreate"
-        },
-        {
-          "type": "object",
-          "properties": {
-            "creationTimeUnix": {
-              "description": "Timestamp of creation of this Thing in milliseconds since epoch UTC.",
-              "type": "integer",
-              "format": "int64"
-            },
-            "key": {
-              "$ref": "#/definitions/SingleRef"
-            },
-            "lastUpdateTimeUnix": {
-              "description": "Timestamp of the last Thing update in milliseconds since epoch UTC.",
-              "type": "integer",
-              "format": "int64"
-            }
-          }
-        }
-      ]
-    },
-    "ThingCreate": {
       "type": "object",
       "properties": {
         "@class": {
@@ -3136,88 +3060,28 @@ func init() {
           "description": "Available context schema.",
           "type": "string"
         },
-        "schema": {
-          "$ref": "#/definitions/Schema"
-        }
-      }
-    },
-    "ThingGetHistoryResponse": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/ThingHistory"
+        "creationTimeUnix": {
+          "description": "Timestamp of creation of this Thing in milliseconds since epoch UTC.",
+          "type": "integer",
+          "format": "int64"
         },
-        {
-          "type": "object",
-          "properties": {
-            "thingId": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        }
-      ]
-    },
-    "ThingGetResponse": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/Thing"
-        },
-        {
-          "type": "object",
-          "properties": {
-            "thingId": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        }
-      ]
-    },
-    "ThingHistory": {
-      "type": "object",
-      "properties": {
-        "deleted": {
-          "description": "Indication whether the Action is deleted.",
-          "type": "boolean"
+        "id": {
+          "description": "ID of the Thing.",
+          "type": "string",
+          "format": "uuid"
         },
         "key": {
           "$ref": "#/definitions/SingleRef"
         },
-        "propertyHistory": {
-          "description": "An array with the history of the Things.",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/ThingHistoryObject"
-          }
+        "lastUpdateTimeUnix": {
+          "description": "Timestamp of the last Thing update in milliseconds since epoch UTC.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "schema": {
+          "$ref": "#/definitions/Schema"
         }
       }
-    },
-    "ThingHistoryObject": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/ThingCreate"
-        },
-        {
-          "type": "object",
-          "properties": {
-            "creationTimeUnix": {
-              "description": "Timestamp of creation of this Thing history in milliseconds since epoch UTC.",
-              "type": "integer",
-              "format": "int64"
-            }
-          }
-        }
-      ]
-    },
-    "ThingUpdate": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/Thing"
-        },
-        {
-          "type": "object"
-        }
-      ]
     },
     "ThingsGetResponse": {
       "type": "object",
@@ -3262,7 +3126,7 @@ func init() {
           "description": "The actual list of Things.",
           "type": "array",
           "items": {
-            "$ref": "#/definitions/ThingGetResponse"
+            "$ref": "#/definitions/Thing"
           }
         },
         "totalResults": {
@@ -4144,7 +4008,7 @@ func init() {
                 "things": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/definitions/ThingCreate"
+                    "$ref": "#/definitions/Thing"
                   }
                 }
               }
@@ -5200,7 +5064,7 @@ func init() {
               "type": "object",
               "properties": {
                 "thing": {
-                  "$ref": "#/definitions/ThingCreate"
+                  "$ref": "#/definitions/Thing"
                 }
               }
             }
@@ -5210,7 +5074,7 @@ func init() {
           "200": {
             "description": "Thing created.",
             "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
+              "$ref": "#/definitions/Thing"
             }
           },
           "401": {
@@ -5253,7 +5117,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/ThingCreate"
+              "$ref": "#/definitions/Thing"
             }
           }
         ],
@@ -5309,7 +5173,7 @@ func init() {
           "200": {
             "description": "Successful response.",
             "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
+              "$ref": "#/definitions/Thing"
             }
           },
           "401": {
@@ -5355,7 +5219,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/ThingUpdate"
+              "$ref": "#/definitions/Thing"
             }
           }
         ],
@@ -5363,7 +5227,7 @@ func init() {
           "200": {
             "description": "Successfully received.",
             "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
+              "$ref": "#/definitions/Thing"
             }
           },
           "401": {
@@ -5470,7 +5334,7 @@ func init() {
           "200": {
             "description": "Successfully applied.",
             "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
+              "$ref": "#/definitions/Thing"
             }
           },
           "400": {
@@ -5502,57 +5366,6 @@ func init() {
         "x-available-in-websocket": false,
         "x-serviceIds": [
           "weaviate.local.manipulate"
-        ]
-      }
-    },
-    "/things/{thingId}/history": {
-      "get": {
-        "description": "Returns a particular Thing's history.",
-        "tags": [
-          "things"
-        ],
-        "summary": "Get a Thing's history based on its UUID.",
-        "operationId": "weaviate.thing.history.get",
-        "parameters": [
-          {
-            "type": "string",
-            "format": "uuid",
-            "description": "Unique ID of the Thing.",
-            "name": "thingId",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/ThingGetHistoryResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Insufficient permissions."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false,
-        "x-serviceIds": [
-          "weaviate.local.query"
         ]
       }
     },
@@ -6426,31 +6239,6 @@ func init() {
       }
     },
     "Thing": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/ThingCreate"
-        },
-        {
-          "type": "object",
-          "properties": {
-            "creationTimeUnix": {
-              "description": "Timestamp of creation of this Thing in milliseconds since epoch UTC.",
-              "type": "integer",
-              "format": "int64"
-            },
-            "key": {
-              "$ref": "#/definitions/SingleRef"
-            },
-            "lastUpdateTimeUnix": {
-              "description": "Timestamp of the last Thing update in milliseconds since epoch UTC.",
-              "type": "integer",
-              "format": "int64"
-            }
-          }
-        }
-      ]
-    },
-    "ThingCreate": {
       "type": "object",
       "properties": {
         "@class": {
@@ -6461,88 +6249,28 @@ func init() {
           "description": "Available context schema.",
           "type": "string"
         },
-        "schema": {
-          "$ref": "#/definitions/Schema"
-        }
-      }
-    },
-    "ThingGetHistoryResponse": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/ThingHistory"
+        "creationTimeUnix": {
+          "description": "Timestamp of creation of this Thing in milliseconds since epoch UTC.",
+          "type": "integer",
+          "format": "int64"
         },
-        {
-          "type": "object",
-          "properties": {
-            "thingId": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        }
-      ]
-    },
-    "ThingGetResponse": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/Thing"
-        },
-        {
-          "type": "object",
-          "properties": {
-            "thingId": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        }
-      ]
-    },
-    "ThingHistory": {
-      "type": "object",
-      "properties": {
-        "deleted": {
-          "description": "Indication whether the Action is deleted.",
-          "type": "boolean"
+        "id": {
+          "description": "ID of the Thing.",
+          "type": "string",
+          "format": "uuid"
         },
         "key": {
           "$ref": "#/definitions/SingleRef"
         },
-        "propertyHistory": {
-          "description": "An array with the history of the Things.",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/ThingHistoryObject"
-          }
+        "lastUpdateTimeUnix": {
+          "description": "Timestamp of the last Thing update in milliseconds since epoch UTC.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "schema": {
+          "$ref": "#/definitions/Schema"
         }
       }
-    },
-    "ThingHistoryObject": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/ThingCreate"
-        },
-        {
-          "type": "object",
-          "properties": {
-            "creationTimeUnix": {
-              "description": "Timestamp of creation of this Thing history in milliseconds since epoch UTC.",
-              "type": "integer",
-              "format": "int64"
-            }
-          }
-        }
-      ]
-    },
-    "ThingUpdate": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/Thing"
-        },
-        {
-          "type": "object"
-        }
-      ]
     },
     "ThingsGetResponse": {
       "type": "object",
@@ -6587,7 +6315,7 @@ func init() {
           "description": "The actual list of Things.",
           "type": "array",
           "items": {
-            "$ref": "#/definitions/ThingGetResponse"
+            "$ref": "#/definitions/Thing"
           }
         },
         "totalResults": {

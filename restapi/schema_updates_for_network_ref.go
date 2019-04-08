@@ -105,7 +105,7 @@ func (u *referenceSchemaUpdater) singleRef(prop *models.SingleRef, propName stri
 func (u *referenceSchemaUpdater) updateSchema(remoteKind interface{}, peerName string, prop *models.SingleRef,
 	propName string) error {
 	switch thingOrAction := remoteKind.(type) {
-	case models.Thing:
+	case *models.Thing:
 		remoteClass := fmt.Sprintf("%s/%s", peerName, thingOrAction.AtClass)
 		err := u.schemaManager.UpdatePropertyAddDataType(u.ctx, u.kind, u.fromClass, propName, remoteClass)
 		if err != nil {

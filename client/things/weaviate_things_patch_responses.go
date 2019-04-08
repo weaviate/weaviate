@@ -99,7 +99,7 @@ func NewWeaviateThingsPatchOK() *WeaviateThingsPatchOK {
 Successfully applied.
 */
 type WeaviateThingsPatchOK struct {
-	Payload *models.ThingGetResponse
+	Payload *models.Thing
 }
 
 func (o *WeaviateThingsPatchOK) Error() string {
@@ -108,7 +108,7 @@ func (o *WeaviateThingsPatchOK) Error() string {
 
 func (o *WeaviateThingsPatchOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.ThingGetResponse)
+	o.Payload = new(models.Thing)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {

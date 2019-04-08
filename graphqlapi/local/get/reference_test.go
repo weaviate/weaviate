@@ -33,15 +33,11 @@ func TestLocalGetWithNetworkRefResolvesCorrectly(t *testing.T) {
 	happyPathHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		body := models.ThingGetResponse{
-			ThingID: "best-id",
-			Thing: models.Thing{
-				ThingCreate: models.ThingCreate{
-					AtClass: "SomeRemoteClass",
-					Schema: map[string]interface{}{
-						"bestString": "someValue",
-					},
-				},
+		body := models.Thing{
+			ID:      "best-id",
+			AtClass: "SomeRemoteClass",
+			Schema: map[string]interface{}{
+				"bestString": "someValue",
 			},
 		}
 		json.NewEncoder(w).Encode(body)
