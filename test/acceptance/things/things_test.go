@@ -41,8 +41,8 @@ func TestCreateThingWorks(t *testing.T) {
 	thingTestNumber := 1.337
 	thingTestDate := "2017-10-06T08:15:30+01:00"
 
-	params := things.NewWeaviateThingsCreateParams().WithBody(things.WeaviateThingsCreateBody{
-		Thing: &models.Thing{
+	params := things.NewWeaviateThingsCreateParams().WithBody(
+		&models.Thing{
 			AtContext: "http://example.org",
 			AtClass:   "TestThing",
 			Schema: map[string]interface{}{
@@ -52,8 +52,7 @@ func TestCreateThingWorks(t *testing.T) {
 				"testNumber":   thingTestNumber,
 				"testDateTime": thingTestDate,
 			},
-		},
-	})
+		})
 
 	resp, err := helper.Client(t).Things.WeaviateThingsCreate(params, nil)
 
@@ -89,7 +88,7 @@ func TestCannotCreateInvalidThings(t *testing.T) {
 			example := example_ // Needed; example is updated to point to a new test case.
 			t.Parallel()
 
-			params := things.NewWeaviateThingsCreateParams().WithBody(things.WeaviateThingsCreateBody{Thing: example.thing()})
+			params := things.NewWeaviateThingsCreateParams().WithBody(example.thing())
 			resp, err := helper.Client(t).Things.WeaviateThingsCreate(params, nil)
 			helper.AssertRequestFail(t, resp, err, func() {
 				errResponse, ok := err.(*things.WeaviateThingsCreateUnprocessableEntity)

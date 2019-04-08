@@ -1872,12 +1872,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "thing": {
-                  "$ref": "#/definitions/Thing"
-                }
-              }
+              "$ref": "#/definitions/Thing"
             }
           }
         ],
@@ -5061,12 +5056,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "thing": {
-                  "$ref": "#/definitions/Thing"
-                }
-              }
+              "$ref": "#/definitions/Thing"
             }
           }
         ],

@@ -19,9 +19,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
-	"github.com/go-openapi/swag"
 
 	strfmt "github.com/go-openapi/strfmt"
 
@@ -203,64 +201,5 @@ func (o *WeaviateThingsCreateInternalServerError) readResponse(response runtime.
 		return err
 	}
 
-	return nil
-}
-
-/*WeaviateThingsCreateBody weaviate things create body
-swagger:model WeaviateThingsCreateBody
-*/
-type WeaviateThingsCreateBody struct {
-
-	// thing
-	Thing *models.Thing `json:"thing,omitempty"`
-}
-
-// Validate validates this weaviate things create body
-func (o *WeaviateThingsCreateBody) Validate(formats strfmt.Registry) error {
-	var res []error
-
-	if err := o.validateThing(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
-	return nil
-}
-
-func (o *WeaviateThingsCreateBody) validateThing(formats strfmt.Registry) error {
-
-	if swag.IsZero(o.Thing) { // not required
-		return nil
-	}
-
-	if o.Thing != nil {
-		if err := o.Thing.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("body" + "." + "thing")
-			}
-			return err
-		}
-	}
-
-	return nil
-}
-
-// MarshalBinary interface implementation
-func (o *WeaviateThingsCreateBody) MarshalBinary() ([]byte, error) {
-	if o == nil {
-		return nil, nil
-	}
-	return swag.WriteJSON(o)
-}
-
-// UnmarshalBinary interface implementation
-func (o *WeaviateThingsCreateBody) UnmarshalBinary(b []byte) error {
-	var res WeaviateThingsCreateBody
-	if err := swag.ReadJSON(b, &res); err != nil {
-		return err
-	}
-	*o = res
 	return nil
 }

@@ -270,7 +270,7 @@ func checkThingExists(id string) bool {
 }
 
 func assertCreateThing(t *models.Thing) *models.Thing {
-	params := things.NewWeaviateThingsCreateParams().WithBody(things.WeaviateThingsCreateBody{Thing: t})
+	params := things.NewWeaviateThingsCreateParams().WithBody(t)
 
 	resp, err := client.Things.WeaviateThingsCreate(params, nil)
 
