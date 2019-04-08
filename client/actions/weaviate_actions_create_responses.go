@@ -44,13 +44,6 @@ func (o *WeaviateActionsCreateReader) ReadResponse(response runtime.ClientRespon
 		}
 		return result, nil
 
-	case 202:
-		result := NewWeaviateActionsCreateAccepted()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return result, nil
-
 	case 401:
 		result := NewWeaviateActionsCreateUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -102,35 +95,6 @@ func (o *WeaviateActionsCreateOK) Error() string {
 }
 
 func (o *WeaviateActionsCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	o.Payload = new(models.ActionGetResponse)
-
-	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
-		return err
-	}
-
-	return nil
-}
-
-// NewWeaviateActionsCreateAccepted creates a WeaviateActionsCreateAccepted with default headers values
-func NewWeaviateActionsCreateAccepted() *WeaviateActionsCreateAccepted {
-	return &WeaviateActionsCreateAccepted{}
-}
-
-/*WeaviateActionsCreateAccepted handles this case with default header values.
-
-Successfully received. No guarantees are made that the Action persists.
-*/
-type WeaviateActionsCreateAccepted struct {
-	Payload *models.ActionGetResponse
-}
-
-func (o *WeaviateActionsCreateAccepted) Error() string {
-	return fmt.Sprintf("[POST /actions][%d] weaviateActionsCreateAccepted  %+v", 202, o.Payload)
-}
-
-func (o *WeaviateActionsCreateAccepted) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ActionGetResponse)
 
@@ -249,9 +213,6 @@ type WeaviateActionsCreateBody struct {
 
 	// action
 	Action *models.ActionCreate `json:"action,omitempty"`
-
-	// If `async` is true, return a 202 with the new ID of the Action. You will receive this response before the data is made persistent. If `async` is false, you will receive confirmation after the value is made persistent. The value of `async` defaults to false.
-	Async bool `json:"async,omitempty"`
 }
 
 // Validate validates this weaviate actions create body

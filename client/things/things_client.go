@@ -70,7 +70,7 @@ WeaviateThingsCreate creates a new thing based on a thing template
 
 Registers a new Thing. Given meta-data and schema values are validated.
 */
-func (a *Client) WeaviateThingsCreate(params *WeaviateThingsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsCreateOK, *WeaviateThingsCreateAccepted, error) {
+func (a *Client) WeaviateThingsCreate(params *WeaviateThingsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsCreateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateThingsCreateParams()
@@ -90,15 +90,9 @@ func (a *Client) WeaviateThingsCreate(params *WeaviateThingsCreateParams, authIn
 		Client:             params.HTTPClient,
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	switch value := result.(type) {
-	case *WeaviateThingsCreateOK:
-		return value, nil, nil
-	case *WeaviateThingsCreateAccepted:
-		return nil, value, nil
-	}
-	return nil, nil, nil
+	return result.(*WeaviateThingsCreateOK), nil
 
 }
 
@@ -200,7 +194,7 @@ WeaviateThingsPatch updates a thing based on its UUID using patch semantics
 
 Updates a Thing's data. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
-func (a *Client) WeaviateThingsPatch(params *WeaviateThingsPatchParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsPatchOK, *WeaviateThingsPatchAccepted, error) {
+func (a *Client) WeaviateThingsPatch(params *WeaviateThingsPatchParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsPatchOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateThingsPatchParams()
@@ -220,15 +214,9 @@ func (a *Client) WeaviateThingsPatch(params *WeaviateThingsPatchParams, authInfo
 		Client:             params.HTTPClient,
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	switch value := result.(type) {
-	case *WeaviateThingsPatchOK:
-		return value, nil, nil
-	case *WeaviateThingsPatchAccepted:
-		return nil, value, nil
-	}
-	return nil, nil, nil
+	return result.(*WeaviateThingsPatchOK), nil
 
 }
 
@@ -330,7 +318,7 @@ WeaviateThingsUpdate updates a thing based on its UUID
 
 Updates a Thing's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
-func (a *Client) WeaviateThingsUpdate(params *WeaviateThingsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsUpdateAccepted, error) {
+func (a *Client) WeaviateThingsUpdate(params *WeaviateThingsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsUpdateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateThingsUpdateParams()
@@ -352,7 +340,7 @@ func (a *Client) WeaviateThingsUpdate(params *WeaviateThingsUpdateParams, authIn
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateThingsUpdateAccepted), nil
+	return result.(*WeaviateThingsUpdateOK), nil
 
 }
 

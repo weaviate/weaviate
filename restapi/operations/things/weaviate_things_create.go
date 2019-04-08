@@ -91,9 +91,6 @@ func (o *WeaviateThingsCreate) ServeHTTP(rw http.ResponseWriter, r *http.Request
 // swagger:model WeaviateThingsCreateBody
 type WeaviateThingsCreateBody struct {
 
-	// If `async` is true, return a 202 with the new ID of the Thing. You will receive this response before the data is made persistent. If `async` is false, you will receive confirmation after the value is made persistent. The value of `async` defaults to false.
-	Async bool `json:"async,omitempty"`
-
 	// thing
 	Thing *models.ThingCreate `json:"thing,omitempty"`
 }

@@ -35,8 +35,8 @@ type WeaviateActionUpdateReader struct {
 func (o *WeaviateActionUpdateReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
 
-	case 202:
-		result := NewWeaviateActionUpdateAccepted()
+	case 200:
+		result := NewWeaviateActionUpdateOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -82,24 +82,24 @@ func (o *WeaviateActionUpdateReader) ReadResponse(response runtime.ClientRespons
 	}
 }
 
-// NewWeaviateActionUpdateAccepted creates a WeaviateActionUpdateAccepted with default headers values
-func NewWeaviateActionUpdateAccepted() *WeaviateActionUpdateAccepted {
-	return &WeaviateActionUpdateAccepted{}
+// NewWeaviateActionUpdateOK creates a WeaviateActionUpdateOK with default headers values
+func NewWeaviateActionUpdateOK() *WeaviateActionUpdateOK {
+	return &WeaviateActionUpdateOK{}
 }
 
-/*WeaviateActionUpdateAccepted handles this case with default header values.
+/*WeaviateActionUpdateOK handles this case with default header values.
 
 Successfully received.
 */
-type WeaviateActionUpdateAccepted struct {
+type WeaviateActionUpdateOK struct {
 	Payload *models.ActionGetResponse
 }
 
-func (o *WeaviateActionUpdateAccepted) Error() string {
-	return fmt.Sprintf("[PUT /actions/{actionId}][%d] weaviateActionUpdateAccepted  %+v", 202, o.Payload)
+func (o *WeaviateActionUpdateOK) Error() string {
+	return fmt.Sprintf("[PUT /actions/{actionId}][%d] weaviateActionUpdateOK  %+v", 200, o.Payload)
 }
 
-func (o *WeaviateActionUpdateAccepted) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+func (o *WeaviateActionUpdateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ActionGetResponse)
 

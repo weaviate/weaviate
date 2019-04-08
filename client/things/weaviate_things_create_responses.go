@@ -44,13 +44,6 @@ func (o *WeaviateThingsCreateReader) ReadResponse(response runtime.ClientRespons
 		}
 		return result, nil
 
-	case 202:
-		result := NewWeaviateThingsCreateAccepted()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return result, nil
-
 	case 401:
 		result := NewWeaviateThingsCreateUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -102,35 +95,6 @@ func (o *WeaviateThingsCreateOK) Error() string {
 }
 
 func (o *WeaviateThingsCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	o.Payload = new(models.ThingGetResponse)
-
-	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
-		return err
-	}
-
-	return nil
-}
-
-// NewWeaviateThingsCreateAccepted creates a WeaviateThingsCreateAccepted with default headers values
-func NewWeaviateThingsCreateAccepted() *WeaviateThingsCreateAccepted {
-	return &WeaviateThingsCreateAccepted{}
-}
-
-/*WeaviateThingsCreateAccepted handles this case with default header values.
-
-Successfully received.
-*/
-type WeaviateThingsCreateAccepted struct {
-	Payload *models.ThingGetResponse
-}
-
-func (o *WeaviateThingsCreateAccepted) Error() string {
-	return fmt.Sprintf("[POST /things][%d] weaviateThingsCreateAccepted  %+v", 202, o.Payload)
-}
-
-func (o *WeaviateThingsCreateAccepted) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ThingGetResponse)
 
@@ -246,9 +210,6 @@ func (o *WeaviateThingsCreateInternalServerError) readResponse(response runtime.
 swagger:model WeaviateThingsCreateBody
 */
 type WeaviateThingsCreateBody struct {
-
-	// If `async` is true, return a 202 with the new ID of the Thing. You will receive this response before the data is made persistent. If `async` is false, you will receive confirmation after the value is made persistent. The value of `async` defaults to false.
-	Async bool `json:"async,omitempty"`
 
 	// thing
 	Thing *models.ThingCreate `json:"thing,omitempty"`

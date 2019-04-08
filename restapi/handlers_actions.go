@@ -172,54 +172,24 @@ func setupActionsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 			return actions.NewWeaviateActionsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
 		}
 
-		if params.Async != nil && *params.Async == true {
-			// Move the current properties to the history
-			delayedLock.IncSteps()
-			go func() {
-				defer delayedLock.Unlock()
-				dbConnector.MoveToHistoryAction(ctx, &oldAction.Action, params.ActionID, false)
-			}()
+		// Move the current properties to the history
+		dbConnector.MoveToHistoryAction(ctx, &oldAction.Action, params.ActionID, false)
 
-			// Update the database
-			delayedLock.IncSteps()
-			go func() {
-				defer delayedLock.Unlock()
-				err := dbConnector.UpdateAction(ctx, action, UUID)
-				if err != nil {
-					fmt.Printf("Update action failed, because %s", err)
-				}
-			}()
-
-			// Create return Object
-			actionGetResponse.Action = *action
-
-			// Register the function call
-			go func() {
-				requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulate)
-			}()
-
-			// Returns accepted so a Go routine can process in the background
-			return actions.NewWeaviateActionsPatchAccepted().WithPayload(&actionGetResponse)
-		} else {
-			// Move the current properties to the history
-			dbConnector.MoveToHistoryAction(ctx, &oldAction.Action, params.ActionID, false)
-
-			err := dbConnector.UpdateAction(ctx, action, UUID)
-			if err != nil {
-				return actions.NewWeaviateActionUpdateUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
-			}
-
-			// Create return Object
-			actionGetResponse.Action = *action
-
-			// Register the function call
-			go func() {
-				requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulate)
-			}()
-
-			// Returns accepted so a Go routine can process in the background
-			return actions.NewWeaviateActionsPatchOK().WithPayload(&actionGetResponse)
+		err = dbConnector.UpdateAction(ctx, action, UUID)
+		if err != nil {
+			return actions.NewWeaviateActionUpdateUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
 		}
+
+		// Create return Object
+		actionGetResponse.Action = *action
+
+		// Register the function call
+		go func() {
+			requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulate)
+		}()
+
+		// Returns accepted so a Go routine can process in the background
+		return actions.NewWeaviateActionsPatchOK().WithPayload(&actionGetResponse)
 	})
 	api.ActionsWeaviateActionsReferencesCreateHandler = actions.WeaviateActionsReferencesCreateHandlerFunc(func(params actions.WeaviateActionsReferencesCreateParams, principal *models.Principal) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
@@ -560,7 +530,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 		}()
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the dbConnector.Add should have a go routine)
-		return actions.NewWeaviateActionUpdateAccepted().WithPayload(responseObject)
+		return actions.NewWeaviateActionUpdateOK().WithPayload(responseObject)
 	})
 	api.ActionsWeaviateActionsValidateHandler = actions.WeaviateActionsValidateHandlerFunc(func(params actions.WeaviateActionsValidateParams, principal *models.Principal) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
@@ -625,33 +595,18 @@ func setupActionsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 		responseObject.Action = *action
 		responseObject.ActionID = UUID
 
-		if params.Body.Async {
-			delayedLock.IncSteps()
-			go func() {
-				defer delayedLock.Unlock()
-				dbConnector.AddAction(ctx, action, UUID)
-			}()
-
-			// Register the function call
-			go func() {
-				requestsLog.Register(telemetry.TypeREST, telemetry.LocalAdd)
-			}()
-
-			return actions.NewWeaviateActionsCreateAccepted().WithPayload(responseObject)
-		} else {
-			//TODO gh-617: handle errors
-			err := dbConnector.AddAction(ctx, action, UUID)
-			if err != nil {
-				panic(err)
-			}
-
-			// Register the function call
-			go func() {
-				requestsLog.Register(telemetry.TypeREST, telemetry.LocalAdd)
-			}()
-
-			return actions.NewWeaviateActionsCreateOK().WithPayload(responseObject)
+		//TODO gh-617: handle errors
+		err = dbConnector.AddAction(ctx, action, UUID)
+		if err != nil {
+			panic(err)
 		}
+
+		// Register the function call
+		go func() {
+			requestsLog.Register(telemetry.TypeREST, telemetry.LocalAdd)
+		}()
+
+		return actions.NewWeaviateActionsCreateOK().WithPayload(responseObject)
 	})
 	api.ActionsWeaviateActionsDeleteHandler = actions.WeaviateActionsDeleteHandlerFunc(func(params actions.WeaviateActionsDeleteParams, principal *models.Principal) middleware.Responder {
 		dbLock, err := db.ConnectorLock()

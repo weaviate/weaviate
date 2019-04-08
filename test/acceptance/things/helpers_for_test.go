@@ -28,10 +28,9 @@ func assertCreateThing(t *testing.T, className string, schema map[string]interfa
 			AtClass:   className,
 			Schema:    schema,
 		},
-		Async: false,
 	})
 
-	resp, _, err := helper.Client(t).Things.WeaviateThingsCreate(params, nil)
+	resp, err := helper.Client(t).Things.WeaviateThingsCreate(params, nil)
 
 	var thingID strfmt.UUID
 

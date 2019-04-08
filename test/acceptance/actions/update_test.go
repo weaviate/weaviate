@@ -126,7 +126,7 @@ func TestCanPatchActionsSetCref(t *testing.T) {
 	params := actions.NewWeaviateActionsPatchParams().
 		WithBody([]*models.PatchDocument{patch}).
 		WithActionID(actionID)
-	patchResp, _, err := helper.Client(t).Actions.WeaviateActionsPatch(params, nil)
+	patchResp, err := helper.Client(t).Actions.WeaviateActionsPatch(params, nil)
 	helper.AssertRequestOk(t, patchResp, err, nil)
 
 	actualThunk := func() interface{} {

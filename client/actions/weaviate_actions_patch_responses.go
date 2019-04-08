@@ -42,13 +42,6 @@ func (o *WeaviateActionsPatchReader) ReadResponse(response runtime.ClientRespons
 		}
 		return result, nil
 
-	case 202:
-		result := NewWeaviateActionsPatchAccepted()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return result, nil
-
 	case 400:
 		result := NewWeaviateActionsPatchBadRequest()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -114,35 +107,6 @@ func (o *WeaviateActionsPatchOK) Error() string {
 }
 
 func (o *WeaviateActionsPatchOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	o.Payload = new(models.ActionGetResponse)
-
-	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
-		return err
-	}
-
-	return nil
-}
-
-// NewWeaviateActionsPatchAccepted creates a WeaviateActionsPatchAccepted with default headers values
-func NewWeaviateActionsPatchAccepted() *WeaviateActionsPatchAccepted {
-	return &WeaviateActionsPatchAccepted{}
-}
-
-/*WeaviateActionsPatchAccepted handles this case with default header values.
-
-Successfully received.
-*/
-type WeaviateActionsPatchAccepted struct {
-	Payload *models.ActionGetResponse
-}
-
-func (o *WeaviateActionsPatchAccepted) Error() string {
-	return fmt.Sprintf("[PATCH /actions/{actionId}][%d] weaviateActionsPatchAccepted  %+v", 202, o.Payload)
-}
-
-func (o *WeaviateActionsPatchAccepted) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ActionGetResponse)
 

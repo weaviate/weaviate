@@ -48,7 +48,7 @@ func TestCanCreateAction(t *testing.T) {
 		},
 	})
 
-	resp, _, err := helper.Client(t).Actions.WeaviateActionsCreate(params, nil)
+	resp, err := helper.Client(t).Actions.WeaviateActionsCreate(params, nil)
 
 	// Ensure that the response is OK
 	helper.AssertRequestOk(t, resp, err, func() {
