@@ -29,7 +29,7 @@ func Test_QueryBuilder_DateProps(t *testing.T) {
 			},
 			expectedQuery: `
 				.union(
-						groupCount().by("dateOfFirstApperance")
+						has("dateOfFirstApperance").groupCount().by("dateOfFirstApperance")
 							.order(local).by(values, decr).limit(local, 3).project("topOccurrences").project("dateOfFirstApperance")
 				)
 				.group().by(select(keys).unfold()).by(
@@ -50,7 +50,7 @@ func Test_QueryBuilder_DateProps(t *testing.T) {
 			},
 			expectedQuery: `
 				.union(
-						groupCount().by("dateOfFirstApperance")
+						has("dateOfFirstApperance").groupCount().by("dateOfFirstApperance")
 							.order(local).by(values, decr).limit(local, 3).project("topOccurrences").project("dateOfFirstApperance")
 				)
 				.group().by(select(keys).unfold()).by(
@@ -72,7 +72,7 @@ func Test_QueryBuilder_DateProps(t *testing.T) {
 			expectedQuery: `
 				.union(
 				    has("dateOfFirstApperance").count().project("count").project("dateOfFirstApperance"),
-						groupCount().by("dateOfFirstApperance")
+						has("dateOfFirstApperance").groupCount().by("dateOfFirstApperance")
 							.order(local).by(values, decr).limit(local, 3).project("topOccurrences").project("dateOfFirstApperance")
 				)
 				.group().by(select(keys).unfold()).by(

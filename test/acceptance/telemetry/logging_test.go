@@ -41,7 +41,7 @@ func TestCreateActionLogging(t *testing.T) {
 	sendCreateActionRequest(t)
 
 	// wait for the log to be posted
-	time.Sleep(3 * time.Second)
+	time.Sleep(7 * time.Second)
 
 	result := retrieveLogFromMockEndpoint(t)
 

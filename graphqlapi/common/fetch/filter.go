@@ -67,21 +67,24 @@ func (b *FilterBuilder) fields() graphql.InputObjectConfigFieldMap {
 }
 
 func (b *FilterBuilder) properties() *graphql.InputObject {
-	filterPropertiesElements := common_filters.BuildNew(fmt.Sprintf("%sFetch%s", b.prefix, b.kind.TitleizedName()))
+	elements := common_filters.BuildNew(fmt.Sprintf("%sFetch%s", b.prefix, b.kind.TitleizedName()))
 
 	// Remove path and operands fields as they are not required here
-	delete(filterPropertiesElements, "path")
-	delete(filterPropertiesElements, "operands")
+	delete(elements, "path")
+	delete(elements, "operands")
 
-	filterPropertiesElements["certainty"] = &graphql.InputObjectFieldConfig{
-		Type:        graphql.Float,
+	// make operator required
+	elements["operator"].Type = graphql.NewNonNull(elements["operator"].Type)
+
+	elements["certainty"] = &graphql.InputObjectFieldConfig{
+		Type:        graphql.NewNonNull(graphql.Float),
 		Description: descriptions.WhereCertainty,
 	}
-	filterPropertiesElements["name"] = &graphql.InputObjectFieldConfig{
-		Type:        graphql.String,
+	elements["name"] = &graphql.InputObjectFieldConfig{
+		Type:        graphql.NewNonNull(graphql.String),
 		Description: descriptions.WhereName,
 	}
-	filterPropertiesElements["keywords"] = &graphql.InputObjectFieldConfig{
+	elements["keywords"] = &graphql.InputObjectFieldConfig{
 		Type:        graphql.NewList(b.keywordInpObj(fmt.Sprintf("%sFetch%sWhereProperties", b.prefix, b.kind.TitleizedName()))),
 		Description: descriptions.WhereKeywords,
 	}
@@ -89,7 +92,7 @@ func (b *FilterBuilder) properties() *graphql.InputObject {
 	networkFetchWhereInpObjPropertiesObj := graphql.NewInputObject(
 		graphql.InputObjectConfig{
 			Name:        fmt.Sprintf("%sFetch%sWhereInpObjProperties", b.prefix, b.kind.TitleizedName()),
-			Fields:      filterPropertiesElements,
+			Fields:      elements,
 			Description: descriptions.WhereProperties,
 		},
 	)
