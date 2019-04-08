@@ -99,14 +99,11 @@ func (b *Query) stringPropCount(prop getmeta.MetaProperty) (*gremlin.Query, erro
 }
 
 func (b *Query) stringPropTopOccurrences(prop getmeta.MetaProperty) (*gremlin.Query, error) {
-	q := gremlin.New()
-
-	q = q.GroupCount().By(b.mappedPropertyName(b.params.ClassName, prop.Name)).
+	return gremlin.New().HasProperty(b.mappedPropertyName(b.params.ClassName, prop.Name)).
+		GroupCount().By(b.mappedPropertyName(b.params.ClassName, prop.Name)).
 		OrderLocalByValuesLimit("decr", 3).
 		Project(StringTopOccurrences).
-		Project(string(prop.Name))
-
-	return q, nil
+		Project(string(prop.Name)), nil
 }
 
 func concatGremlin(queries ...*gremlin.Query) *gremlin.Query {
