@@ -29,24 +29,22 @@ import (
 func TestListAll(t *testing.T) {
 	t.Parallel()
 
-	params1 := things.NewWeaviateThingsCreateParams().WithBody(things.WeaviateThingsCreateBody{
-		Thing: &models.Thing{
+	params1 := things.NewWeaviateThingsCreateParams().WithBody(
+		&models.Thing{
 			AtContext: "http://example.org",
 			AtClass:   "TestThing",
 			Schema:    map[string]interface{}{},
-		},
-	})
+		})
 	resp1, err := helper.Client(t).Things.WeaviateThingsCreate(params1, nil)
 	assert.Nil(t, err, "creation should succeed")
 	thing1ID := resp1.Payload.ID
 
-	params2 := things.NewWeaviateThingsCreateParams().WithBody(things.WeaviateThingsCreateBody{
-		Thing: &models.Thing{
+	params2 := things.NewWeaviateThingsCreateParams().WithBody(
+		&models.Thing{
 			AtContext: "http://example.org",
 			AtClass:   "TestThing",
 			Schema:    map[string]interface{}{},
-		},
-	})
+		})
 	resp2, err := helper.Client(t).Things.WeaviateThingsCreate(params2, nil)
 	assert.Nil(t, err, "creation should succeed")
 	thing2ID := resp2.Payload.ID

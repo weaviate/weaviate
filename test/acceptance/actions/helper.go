@@ -102,12 +102,10 @@ func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.Thing {
 }
 
 func assertCreateThing(t *testing.T, className string, schema map[string]interface{}) strfmt.UUID {
-	params := things.NewWeaviateThingsCreateParams().WithBody(things.WeaviateThingsCreateBody{
-		Thing: &models.Thing{
-			AtContext: "http://example.org",
-			AtClass:   className,
-			Schema:    schema,
-		},
+	params := things.NewWeaviateThingsCreateParams().WithBody(&models.Thing{
+		AtContext: "http://example.org",
+		AtClass:   className,
+		Schema:    schema,
 	})
 
 	resp, err := helper.Client(t).Things.WeaviateThingsCreate(params, nil)

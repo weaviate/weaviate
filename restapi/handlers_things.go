@@ -49,7 +49,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 
 		// Validate schema given in body with the weaviate schema
 		databaseSchema := schema.HackFromDatabaseSchema(schemaLock.GetSchema())
-		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), params.Body.Thing, databaseSchema,
+		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), params.Body, databaseSchema,
 			dbConnector, network, serverConfig)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
@@ -57,9 +57,9 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 
 		// Make Thing-Object
 		thing := &models.Thing{}
-		thing.Schema = params.Body.Thing.Schema
-		thing.AtClass = params.Body.Thing.AtClass
-		thing.AtContext = params.Body.Thing.AtContext
+		thing.Schema = params.Body.Schema
+		thing.AtClass = params.Body.AtClass
+		thing.AtContext = params.Body.AtContext
 		thing.CreationTimeUnix = connutils.NowUnix()
 		thing.LastUpdateTimeUnix = 0
 		thing.ID = UUID
@@ -68,10 +68,10 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		responseObject = thing
 
 		ctx := params.HTTPRequest.Context()
-		refSchemaUpdater := newReferenceSchemaUpdater(ctx, schemaLock.SchemaManager(), network, params.Body.Thing.AtClass, kind.THING_KIND)
+		refSchemaUpdater := newReferenceSchemaUpdater(ctx, schemaLock.SchemaManager(), network, params.Body.AtClass, kind.THING_KIND)
 
 		dbConnector.AddThing(ctx, thing, UUID)
-		err = refSchemaUpdater.addNetworkDataTypes(params.Body.Thing.Schema)
+		err = refSchemaUpdater.addNetworkDataTypes(params.Body.Schema)
 		if err != nil {
 
 			// Register the function call
