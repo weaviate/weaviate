@@ -19,7 +19,6 @@ import (
 	"io/ioutil"
 	"regexp"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/go-openapi/swag"
 	"gopkg.in/yaml.v2"
 
@@ -50,7 +49,6 @@ type Config struct {
 	Network              *Network        `json:"network" yaml:"network"`
 	Limit                int64           `json:"limit" yaml:"limit"`
 	Debug                bool            `json:"debug" yaml:"debug"`
-	Development          Development     `json:"development" yaml:"development"`
 	Contextionary        Contextionary   `json:"contextionary" yaml:"contextionary"`
 	ConfigurationStorage ConfigStore     `json:"configuration_storage" yaml:"configuration_storage"`
 	Authentication       Authentication  `json:"authentication" yaml:"authentication"`
@@ -101,12 +99,6 @@ type Broker struct {
 type Database struct {
 	Name           string      `json:"name" yaml:"name"`
 	DatabaseConfig interface{} `json:"database_config" yaml:"database_config"`
-}
-
-// Development is the outline of (temporary) config variables
-// Note: the purpose is that these variables will be moved somewhere else in time
-type Development struct {
-	ExternalInstances []Instance `json:"external_instances" yaml:"external_instances"`
 }
 
 // Instance is the outline for an external instance whereto crossreferences can be resolved
@@ -163,8 +155,6 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, m *mess
 
 	f.Config = config
 
-	spew.Dump(f.Config)
-
 	// Check the debug mode
 	m.Debug = f.Config.Debug
 	if f.Config.Debug {
@@ -198,28 +188,4 @@ func (f *WeaviateConfig) parseConfigFile(file []byte, name string) (Config, erro
 	}
 
 	return config, nil
-}
-
-// GetInstance from config
-func (f *WeaviateConfig) GetInstance(hostname string) (instance Instance, err error) {
-	err = nil
-
-	found := false
-
-	// For each instance, check if hostname is the same
-	for _, v := range f.Config.Development.ExternalInstances {
-		if hostname == v.URL {
-			instance = v
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		// Didn't find item in list
-		err = errors.New("can't find key for given instance")
-		return
-	}
-
-	return
 }
