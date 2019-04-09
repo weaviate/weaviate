@@ -51,8 +51,8 @@ If a POST to the logging endpoint does not return a `200` status code then Weavi
 ## 3 Configure
 You can configure Weaviate's Telemetry by tweaking three variables in the config files (found [here](https://github.com/creativesoftwarefdn/weaviate/tree/master/tools/dev)). 
 	
-### 3.1 Enable
-The enable variable disables Telemetry if set to false. It is set to true by default. Disable Telemetry if you are contributing to Weaviate and/or not an enterprise user.
+### 3.1 Disabled
+The disabled variable disables Telemetry if set to true. It is set to false by default. Disable Telemetry if you are contributing to Weaviate and/or not an enterprise user.
 	
 ### 3.2 Interval
 The interval variable determines the amount of time separating Weaviate's attempts to send logs to the logging endpoint. It is measured in seconds.

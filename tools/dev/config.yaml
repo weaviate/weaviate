@@ -22,7 +22,7 @@ environments:
   debug: true
   telemetry:
     interval: 300
-    enabled: true
+    disabled: false
     remoteURL: http://logs.semi.technology
   development:
     external_instances:
@@ -47,7 +47,7 @@ environments:
   debug: true
   telemetry:
     interval: 300
-    enabled: true
+    disabled: false
     remoteURL: http://logs.semi.technology
 - name: janusgraph_docker
   database:
@@ -68,7 +68,7 @@ environments:
   debug: true
   telemetry:
     interval: 1
-    enabled: true
+    disabled: false
     remoteURL: http://telemetry_mock_api:8087/mock/new
   development:
     external_instances:

@@ -20,7 +20,7 @@
 		"debug": true,
 		"telemetry": {
 			"interval": 300,
-			"enabled": true,
+			"disabled": false,
 			"remoteURL": "http://logs.semi.technology"
 		}
 	}, {
@@ -49,7 +49,7 @@
 		"debug": true,
 		"telemetry": {
 			"interval": 300,
-			"enabled": true,
+			"disabled": false,
 			"remoteURL": "http://logs.semi.technology"
 		}
 	}, {
@@ -78,7 +78,7 @@
 		"debug": true,
 		"telemetry": {
 			"interval": 300,
-			"enabled": true,
+			"disabled": false,
 			"remoteURL": "http://logs.semi.technology"
 		}
 	}]

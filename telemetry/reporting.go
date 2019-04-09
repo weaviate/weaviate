@@ -43,12 +43,12 @@ type etcdClient interface {
 }
 
 // NewReporter creates a new Reporter struct and returns a pointer to it.
-func NewReporter(ctx context.Context, requestsLog *RequestsLog, reportInterval int, reportURL string, telemetryEnabled bool, testing bool, client etcdClient, messaging *messages.Messaging) *Reporter {
+func NewReporter(ctx context.Context, requestsLog *RequestsLog, reportInterval int, reportURL string, telemetryDisabled bool, testing bool, client etcdClient, messaging *messages.Messaging) *Reporter {
 	return &Reporter{
 		log:         requestsLog,
 		interval:    reportInterval,
 		url:         reportURL,
-		enabled:     telemetryEnabled,
+		disabled:    telemetryDisabled,
 		transformer: NewOutputTransformer(testing),
 		poster:      NewPoster(ctx, reportURL, client, messaging),
 		client:      client,
@@ -63,7 +63,7 @@ type Reporter struct {
 	log         *RequestsLog
 	interval    int
 	url         string
-	enabled     bool
+	disabled    bool
 	transformer *OutputTransformer
 	poster      *Poster
 	client      etcdClient
@@ -75,7 +75,7 @@ type Reporter struct {
 // Start posts logged function calls in CBOR format to the provided url every <provided interval> seconds.
 // Contains a failsafe mechanism in the case the url is unreachable.
 func (r *Reporter) Start() {
-	if r.enabled {
+	if r.disabled == false {
 		for {
 			time.Sleep(time.Duration(r.interval) * time.Second)
 			extractedLog := r.log.ExtractLoggedRequests()
