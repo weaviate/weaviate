@@ -226,7 +226,6 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		// Apply the patch
 		updatedJSON, applyErr := patchObject.Apply(thingUpdateJSON)
 		if applyErr != nil {
-			fmt.Printf("patch attempt on %#v failed. Patch: %#v", thingUpdateJSON, patchObject)
 			return things.NewWeaviateThingsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(applyErr.Error()))
 		}
 

@@ -58,7 +58,6 @@ func (j *Janusgraph) LocalGetClass(params *get.Params) (interface{}, error) {
 
 	result := <-ch
 	if result.err != nil {
-		fmt.Printf("Paniced %#v\n", result.err)
 		return nil, result.err
 	}
 	return result.results, nil
