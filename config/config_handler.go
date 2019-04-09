@@ -46,7 +46,7 @@ type File struct {
 type Telemetry struct {
 	RemoteURL string `json:"remoteURL" yaml:"remoteURL"`
 	Interval  int    `json:"interval" yaml:"interval"`
-	Enabled   bool   `json:"enabled" yaml:"enabled"`
+	Disabled  bool   `json:"disabled" yaml:"disabled"`
 }
 
 // Environment outline of the environment inside the config file

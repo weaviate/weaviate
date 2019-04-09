@@ -21,24 +21,24 @@ type RequestsLog struct {
 	Mutex    *sync.Mutex
 	Log      map[string]*RequestLog
 	PeerName string
-	Enabled  bool
+	Disabled bool
 	Debug    bool
 }
 
 // NewLog creates a new Requestslog and returns a pointer to it.
 func NewLog() *RequestsLog {
 	return &RequestsLog{
-		Mutex:   &sync.Mutex{},
-		Log:     make(map[string]*RequestLog),
-		Enabled: true,
-		Debug:   false,
+		Mutex:    &sync.Mutex{},
+		Log:      make(map[string]*RequestLog),
+		Disabled: false,
+		Debug:    false,
 	}
 }
 
 // Register a performed request. Either creates a new entry or updates an existing one,
 // depending on whether a request of that type has already been logged.
 func (r *RequestsLog) Register(requestType string, identifier string) {
-	if r.Enabled {
+	if !r.Disabled {
 
 		requestLog := &RequestLog{
 			Type:       requestType,
@@ -61,7 +61,7 @@ func (r *RequestsLog) Register(requestType string, identifier string) {
 
 // ExtractLoggedRequests copies the map used to log performed requests and resets the map to its default (empty) state.
 func (r *RequestsLog) ExtractLoggedRequests() *map[string]*RequestLog {
-	if r.Enabled {
+	if !r.Disabled {
 		r.Mutex.Lock()
 		logState := make(map[string]*RequestLog)
 
