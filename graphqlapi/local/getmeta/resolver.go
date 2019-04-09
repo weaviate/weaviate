@@ -121,7 +121,7 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 			return nil, fmt.Errorf("expected source to contain a usable Resolver, but was %t", p.Source)
 		}
 
-		cfg, ok := source["Config"].(config.Environment)
+		cfg, ok := source["Config"].(config.Config)
 		if !ok {
 			return nil, fmt.Errorf("expected source to contain a config, but was %t", p.Source)
 		}

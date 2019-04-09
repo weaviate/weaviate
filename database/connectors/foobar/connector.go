@@ -62,14 +62,14 @@ type Foobar struct {
 	client *websocket.Conn
 	kind   string
 
-	appConfig     config.Environment
+	appConfig     config.Config
 	config        Config
 	serverAddress string
 	schema        schema.Schema
 	messaging     *messages.Messaging
 }
 
-func New(config interface{}, appConfig config.Environment) (error, dbconnector.DatabaseConnector) {
+func New(config interface{}, appConfig config.Config) (error, dbconnector.DatabaseConnector) {
 	f := &Foobar{
 		appConfig: appConfig,
 	}

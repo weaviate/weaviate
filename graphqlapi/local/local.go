@@ -26,7 +26,7 @@ import (
 
 // Build the local queries from the database schema.
 func Build(dbSchema *schema.Schema, peers peers.Peers, logger *messages.Messaging,
-	config config.Environment) (*graphql.Field, error) {
+	config config.Config) (*graphql.Field, error) {
 	getField, err := get.Build(dbSchema, peers, logger)
 	if err != nil {
 		return nil, err
