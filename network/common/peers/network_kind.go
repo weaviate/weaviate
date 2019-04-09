@@ -68,20 +68,20 @@ func (p Peers) getRemoteThingOrAction(kind crossrefs.NetworkKind,
 	case libkind.ACTION_KIND:
 		params := actions.NewWeaviateActionsGetParams().
 			WithTimeout(1 * time.Second).
-			WithActionID(kind.ID)
+			WithID(kind.ID)
 		ok, err := client.Actions.WeaviateActionsGet(params, nil)
 		if err != nil {
 			return result, fmt.Errorf(
 				"could not get remote kind: could not GET things from peer: %s", err)
 		}
 
-		_, err = p.HasClass(crossrefs.NetworkClass{ClassName: ok.Payload.Action.AtClass, PeerName: kind.PeerName})
+		_, err = p.HasClass(crossrefs.NetworkClass{ClassName: ok.Payload.AtClass, PeerName: kind.PeerName})
 		if err != nil {
 			return result, fmt.Errorf(
-				"schema mismatch: class of remote kind (%s) is not in the cached remote schema", ok.Payload.Action.AtClass)
+				"schema mismatch: class of remote kind (%s) is not in the cached remote schema", ok.Payload.AtClass)
 		}
 
-		return ok.Payload.Action, nil
+		return ok.Payload, nil
 	default:
 		return result, fmt.Errorf("could not get remote kind: unknown kind '%s'", kind.Kind)
 	}

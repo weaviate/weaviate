@@ -14,6 +14,7 @@ package test
 // Acceptance tests for actions
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -32,19 +33,23 @@ func TestCanUpdateActionSetNumber(t *testing.T) {
 		"testNumber": 41.0,
 	})
 
-	update := models.ActionUpdate{}
+	update := models.Action{}
 	update.Schema = schema
 	update.AtClass = "TestAction"
 	update.AtContext = "blurgh"
 
-	params := actions.NewWeaviateActionUpdateParams().WithActionID(uuid).WithBody(&update)
+	params := actions.NewWeaviateActionUpdateParams().WithID(uuid).WithBody(&update)
 	updateResp, err := helper.Client(t).Actions.WeaviateActionUpdate(params, nil)
 	helper.AssertRequestOk(t, updateResp, err, nil)
 
 	actualThunk := func() interface{} {
 		updatedAction := assertGetAction(t, uuid)
 		updatedSchema := updatedAction.Schema.(map[string]interface{})
-		return updatedSchema["testNumber"]
+		if updatedSchema["testNumber"] == nil {
+			return nil
+		}
+		num, _ := updatedSchema["testNumber"].(json.Number).Float64()
+		return num
 	}
 	helper.AssertEventuallyEqual(t, 41.0, actualThunk)
 }
@@ -59,12 +64,12 @@ func TestCanUpdateActionSetString(t *testing.T) {
 		"testString": "wibbly wobbly",
 	})
 
-	update := models.ActionUpdate{}
+	update := models.Action{}
 	update.Schema = schema
 	update.AtClass = "TestAction"
 	update.AtContext = "blurgh"
 
-	params := actions.NewWeaviateActionUpdateParams().WithActionID(uuid).WithBody(&update)
+	params := actions.NewWeaviateActionUpdateParams().WithID(uuid).WithBody(&update)
 	updateResp, err := helper.Client(t).Actions.WeaviateActionUpdate(params, nil)
 	helper.AssertRequestOk(t, updateResp, err, nil)
 
@@ -85,12 +90,12 @@ func TestCanUpdateActionSetBool(t *testing.T) {
 		"testBoolean": true,
 	})
 
-	update := models.ActionUpdate{}
+	update := models.Action{}
 	update.Schema = schema
 	update.AtClass = "TestAction"
 	update.AtContext = "blurgh"
 
-	params := actions.NewWeaviateActionUpdateParams().WithActionID(uuid).WithBody(&update)
+	params := actions.NewWeaviateActionUpdateParams().WithID(uuid).WithBody(&update)
 	updateResp, err := helper.Client(t).Actions.WeaviateActionUpdate(params, nil)
 
 	helper.AssertRequestOk(t, updateResp, err, nil)
@@ -125,7 +130,7 @@ func TestCanPatchActionsSetCref(t *testing.T) {
 	// Now to try to link
 	params := actions.NewWeaviateActionsPatchParams().
 		WithBody([]*models.PatchDocument{patch}).
-		WithActionID(actionID)
+		WithID(actionID)
 	patchResp, err := helper.Client(t).Actions.WeaviateActionsPatch(params, nil)
 	helper.AssertRequestOk(t, patchResp, err, nil)
 

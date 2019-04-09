@@ -19,9 +19,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
-	"github.com/go-openapi/swag"
 
 	strfmt "github.com/go-openapi/strfmt"
 
@@ -87,7 +85,7 @@ func NewWeaviateActionsCreateOK() *WeaviateActionsCreateOK {
 Action created.
 */
 type WeaviateActionsCreateOK struct {
-	Payload *models.ActionGetResponse
+	Payload *models.Action
 }
 
 func (o *WeaviateActionsCreateOK) Error() string {
@@ -96,7 +94,7 @@ func (o *WeaviateActionsCreateOK) Error() string {
 
 func (o *WeaviateActionsCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.ActionGetResponse)
+	o.Payload = new(models.Action)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
@@ -203,64 +201,5 @@ func (o *WeaviateActionsCreateInternalServerError) readResponse(response runtime
 		return err
 	}
 
-	return nil
-}
-
-/*WeaviateActionsCreateBody weaviate actions create body
-swagger:model WeaviateActionsCreateBody
-*/
-type WeaviateActionsCreateBody struct {
-
-	// action
-	Action *models.ActionCreate `json:"action,omitempty"`
-}
-
-// Validate validates this weaviate actions create body
-func (o *WeaviateActionsCreateBody) Validate(formats strfmt.Registry) error {
-	var res []error
-
-	if err := o.validateAction(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
-	return nil
-}
-
-func (o *WeaviateActionsCreateBody) validateAction(formats strfmt.Registry) error {
-
-	if swag.IsZero(o.Action) { // not required
-		return nil
-	}
-
-	if o.Action != nil {
-		if err := o.Action.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("body" + "." + "action")
-			}
-			return err
-		}
-	}
-
-	return nil
-}
-
-// MarshalBinary interface implementation
-func (o *WeaviateActionsCreateBody) MarshalBinary() ([]byte, error) {
-	if o == nil {
-		return nil, nil
-	}
-	return swag.WriteJSON(o)
-}
-
-// UnmarshalBinary interface implementation
-func (o *WeaviateActionsCreateBody) UnmarshalBinary(b []byte) error {
-	var res WeaviateActionsCreateBody
-	if err := swag.ReadJSON(b, &res); err != nil {
-		return err
-	}
-	*o = res
 	return nil
 }

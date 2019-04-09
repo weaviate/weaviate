@@ -100,9 +100,6 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		// Get item from database
 		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), params.ID, &thingGetResponse)
 
-		// Save the old-thing in a variable
-		oldThing := thingGetResponse
-
 		// Not found
 		if errGet != nil {
 			return things.NewWeaviateThingsDeleteNotFound()
@@ -110,14 +107,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 
 		thingGetResponse.LastUpdateTimeUnix = connutils.NowUnix()
 
-		// Move the current properties to the history
-		delayedLock.IncSteps()
 		ctx := params.HTTPRequest.Context()
-		go func() {
-			delayedLock.Unlock()
-			dbConnector.MoveToHistoryThing(ctx, &oldThing, params.ID, true)
-		}()
-
 		// Add new row as GO-routine
 		delayedLock.IncSteps()
 		go func() {
@@ -212,9 +202,6 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		UUID := strfmt.UUID(params.ID)
 		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), UUID, &thingGetResponse)
 
-		// Save the old-thing in a variable
-		oldThing := thingGetResponse
-
 		// Add update time
 		thingGetResponse.LastUpdateTimeUnix = connutils.NowUnix()
 
@@ -266,9 +253,6 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 				createErrorResponseObject(err.Error()),
 			)
 		}
-
-		// Move the current properties to the history
-		dbConnector.MoveToHistoryThing(ctx, &oldThing, UUID, false)
 
 		// Update the database
 		err = dbConnector.UpdateThing(ctx, thing, UUID)
@@ -577,9 +561,6 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		UUID := params.ID
 		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), UUID, &thingGetResponse)
 
-		// Save the old-thing in a variable
-		oldThing := thingGetResponse
-
 		// If there are no results, there is an error
 		if errGet != nil {
 			// Object not found response.
@@ -594,13 +575,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 			return things.NewWeaviateThingsUpdateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
 
-		// Move the current properties to the history
 		ctx := params.HTTPRequest.Context()
-		delayedLock.IncSteps()
-		go func() {
-			delayedLock.Unlock()
-			dbConnector.MoveToHistoryThing(ctx, &oldThing, UUID, false)
-		}()
 
 		// Update the database
 		params.Body.LastUpdateTimeUnix = connutils.NowUnix()

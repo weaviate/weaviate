@@ -45,16 +45,16 @@ type WeaviateActionsReferencesCreateParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*Unique ID of the Action.
-	  Required: true
-	  In: path
-	*/
-	ActionID strfmt.UUID
 	/*
 	  Required: true
 	  In: body
 	*/
 	Body *models.SingleRef
+	/*Unique ID of the Action.
+	  Required: true
+	  In: path
+	*/
+	ID strfmt.UUID
 	/*Unique name of the property related to the Action.
 	  Required: true
 	  In: path
@@ -70,11 +70,6 @@ func (o *WeaviateActionsReferencesCreateParams) BindRequest(r *http.Request, rou
 	var res []error
 
 	o.HTTPRequest = r
-
-	rActionID, rhkActionID, _ := route.Params.GetOK("actionId")
-	if err := o.bindActionID(rActionID, rhkActionID, route.Formats); err != nil {
-		res = append(res, err)
-	}
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
@@ -98,6 +93,11 @@ func (o *WeaviateActionsReferencesCreateParams) BindRequest(r *http.Request, rou
 	} else {
 		res = append(res, errors.Required("body", "body"))
 	}
+	rID, rhkID, _ := route.Params.GetOK("id")
+	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
 	rPropertyName, rhkPropertyName, _ := route.Params.GetOK("propertyName")
 	if err := o.bindPropertyName(rPropertyName, rhkPropertyName, route.Formats); err != nil {
 		res = append(res, err)
@@ -109,8 +109,8 @@ func (o *WeaviateActionsReferencesCreateParams) BindRequest(r *http.Request, rou
 	return nil
 }
 
-// bindActionID binds and validates parameter ActionID from path.
-func (o *WeaviateActionsReferencesCreateParams) bindActionID(rawData []string, hasKey bool, formats strfmt.Registry) error {
+// bindID binds and validates parameter ID from path.
+func (o *WeaviateActionsReferencesCreateParams) bindID(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
 	if len(rawData) > 0 {
 		raw = rawData[len(rawData)-1]
@@ -122,21 +122,21 @@ func (o *WeaviateActionsReferencesCreateParams) bindActionID(rawData []string, h
 	// Format: uuid
 	value, err := formats.Parse("uuid", raw)
 	if err != nil {
-		return errors.InvalidType("actionId", "path", "strfmt.UUID", raw)
+		return errors.InvalidType("id", "path", "strfmt.UUID", raw)
 	}
-	o.ActionID = *(value.(*strfmt.UUID))
+	o.ID = *(value.(*strfmt.UUID))
 
-	if err := o.validateActionID(formats); err != nil {
+	if err := o.validateID(formats); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-// validateActionID carries on validations for parameter ActionID
-func (o *WeaviateActionsReferencesCreateParams) validateActionID(formats strfmt.Registry) error {
+// validateID carries on validations for parameter ID
+func (o *WeaviateActionsReferencesCreateParams) validateID(formats strfmt.Registry) error {
 
-	if err := validate.FormatOf("actionId", "path", "uuid", o.ActionID.String(), formats); err != nil {
+	if err := validate.FormatOf("id", "path", "uuid", o.ID.String(), formats); err != nil {
 		return err
 	}
 	return nil

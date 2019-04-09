@@ -26,7 +26,7 @@ import (
 
 // WeaviateActionsGetURL generates an URL for the weaviate actions get operation
 type WeaviateActionsGetURL struct {
-	ActionID strfmt.UUID
+	ID strfmt.UUID
 
 	_basePath string
 	// avoid unkeyed usage
@@ -52,13 +52,13 @@ func (o *WeaviateActionsGetURL) SetBasePath(bp string) {
 func (o *WeaviateActionsGetURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/actions/{actionId}"
+	var _path = "/actions/{id}"
 
-	actionID := o.ActionID.String()
-	if actionID != "" {
-		_path = strings.Replace(_path, "{actionId}", actionID, -1)
+	id := o.ID.String()
+	if id != "" {
+		_path = strings.Replace(_path, "{id}", id, -1)
 	} else {
-		return nil, errors.New("ActionID is required on WeaviateActionsGetURL")
+		return nil, errors.New("ID is required on WeaviateActionsGetURL")
 	}
 
 	_basePath := o._basePath

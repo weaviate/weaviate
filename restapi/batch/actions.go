@@ -116,7 +116,7 @@ func (r *actionsRequest) validateConcurrently(body operations.WeaviateBatchingAc
 	return actionsChanToSlice(c)
 }
 
-func (r *actionsRequest) validateAction(wg *sync.WaitGroup, actionCreate *models.ActionCreate,
+func (r *actionsRequest) validateAction(wg *sync.WaitGroup, actionCreate *models.Action,
 	originalIndex int, resultsC *chan batchmodels.Action, fieldsToKeep map[string]int) {
 	defer wg.Done()
 

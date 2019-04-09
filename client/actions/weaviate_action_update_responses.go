@@ -92,16 +92,16 @@ func NewWeaviateActionUpdateOK() *WeaviateActionUpdateOK {
 Successfully received.
 */
 type WeaviateActionUpdateOK struct {
-	Payload *models.ActionGetResponse
+	Payload *models.Action
 }
 
 func (o *WeaviateActionUpdateOK) Error() string {
-	return fmt.Sprintf("[PUT /actions/{actionId}][%d] weaviateActionUpdateOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[PUT /actions/{id}][%d] weaviateActionUpdateOK  %+v", 200, o.Payload)
 }
 
 func (o *WeaviateActionUpdateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.ActionGetResponse)
+	o.Payload = new(models.Action)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
@@ -124,7 +124,7 @@ type WeaviateActionUpdateUnauthorized struct {
 }
 
 func (o *WeaviateActionUpdateUnauthorized) Error() string {
-	return fmt.Sprintf("[PUT /actions/{actionId}][%d] weaviateActionUpdateUnauthorized ", 401)
+	return fmt.Sprintf("[PUT /actions/{id}][%d] weaviateActionUpdateUnauthorized ", 401)
 }
 
 func (o *WeaviateActionUpdateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -145,7 +145,7 @@ type WeaviateActionUpdateForbidden struct {
 }
 
 func (o *WeaviateActionUpdateForbidden) Error() string {
-	return fmt.Sprintf("[PUT /actions/{actionId}][%d] weaviateActionUpdateForbidden ", 403)
+	return fmt.Sprintf("[PUT /actions/{id}][%d] weaviateActionUpdateForbidden ", 403)
 }
 
 func (o *WeaviateActionUpdateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -166,7 +166,7 @@ type WeaviateActionUpdateNotFound struct {
 }
 
 func (o *WeaviateActionUpdateNotFound) Error() string {
-	return fmt.Sprintf("[PUT /actions/{actionId}][%d] weaviateActionUpdateNotFound ", 404)
+	return fmt.Sprintf("[PUT /actions/{id}][%d] weaviateActionUpdateNotFound ", 404)
 }
 
 func (o *WeaviateActionUpdateNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -188,7 +188,7 @@ type WeaviateActionUpdateUnprocessableEntity struct {
 }
 
 func (o *WeaviateActionUpdateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[PUT /actions/{actionId}][%d] weaviateActionUpdateUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[PUT /actions/{id}][%d] weaviateActionUpdateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *WeaviateActionUpdateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -217,7 +217,7 @@ type WeaviateActionUpdateInternalServerError struct {
 }
 
 func (o *WeaviateActionUpdateInternalServerError) Error() string {
-	return fmt.Sprintf("[PUT /actions/{actionId}][%d] weaviateActionUpdateInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[PUT /actions/{id}][%d] weaviateActionUpdateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *WeaviateActionUpdateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

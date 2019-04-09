@@ -30,10 +30,6 @@ import (
 type ActionsGetResponse struct {
 	Action
 
-	// ID of the Action.
-	// Format: uuid
-	ActionID strfmt.UUID `json:"actionId,omitempty"`
-
 	// result
 	Result *ActionsGetResponseAO1Result `json:"result,omitempty"`
 }
@@ -49,15 +45,11 @@ func (m *ActionsGetResponse) UnmarshalJSON(raw []byte) error {
 
 	// AO1
 	var dataAO1 struct {
-		ActionID strfmt.UUID `json:"actionId,omitempty"`
-
 		Result *ActionsGetResponseAO1Result `json:"result,omitempty"`
 	}
 	if err := swag.ReadJSON(raw, &dataAO1); err != nil {
 		return err
 	}
-
-	m.ActionID = dataAO1.ActionID
 
 	m.Result = dataAO1.Result
 
@@ -75,12 +67,8 @@ func (m ActionsGetResponse) MarshalJSON() ([]byte, error) {
 	_parts = append(_parts, aO0)
 
 	var dataAO1 struct {
-		ActionID strfmt.UUID `json:"actionId,omitempty"`
-
 		Result *ActionsGetResponseAO1Result `json:"result,omitempty"`
 	}
-
-	dataAO1.ActionID = m.ActionID
 
 	dataAO1.Result = m.Result
 
@@ -102,10 +90,6 @@ func (m *ActionsGetResponse) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
-	if err := m.validateActionID(formats); err != nil {
-		res = append(res, err)
-	}
-
 	if err := m.validateResult(formats); err != nil {
 		res = append(res, err)
 	}
@@ -113,19 +97,6 @@ func (m *ActionsGetResponse) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
-	return nil
-}
-
-func (m *ActionsGetResponse) validateActionID(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.ActionID) { // not required
-		return nil
-	}
-
-	if err := validate.FormatOf("actionId", "body", "uuid", m.ActionID.String(), formats); err != nil {
-		return err
-	}
-
 	return nil
 }
 

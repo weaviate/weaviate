@@ -78,8 +78,8 @@ func ValidateThingBody(ctx context.Context, thing *models.Thing, databaseSchema 
 	return sve
 }
 
-// ValidateActionBody Validates a action body using the 'ActionCreate' object.
-func ValidateActionBody(ctx context.Context, action *models.ActionCreate, databaseSchema schema.WeaviateSchema,
+// ValidateActionBody Validates a action body using the 'Action' object.
+func ValidateActionBody(ctx context.Context, action *models.Action, databaseSchema schema.WeaviateSchema,
 	dbConnector dbconnector.DatabaseConnector, network network.Network, serverConfig *config.WeaviateConfig,
 ) error {
 	// Validate the body
@@ -141,7 +141,7 @@ func validateLocalRef(ctx context.Context, dbConnector dbconnector.DatabaseConne
 		obj := &models.Thing{}
 		err = dbConnector.GetThing(ctx, ref.TargetID, obj)
 	case kind.ACTION_KIND:
-		obj := &models.ActionGetResponse{}
+		obj := &models.Action{}
 		err = dbConnector.GetAction(ctx, ref.TargetID, obj)
 	}
 
