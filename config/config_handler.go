@@ -45,7 +45,6 @@ type Config struct {
 	Name                 string          `json:"name" yaml:"name"`
 	AnalyticsEngine      AnalyticsEngine `json:"analytics_engine" yaml:"analytics_engine"`
 	Database             Database        `json:"database" yaml:"database"`
-	Broker               Broker          `json:"broker" yaml:"broker"`
 	Network              *Network        `json:"network" yaml:"network"`
 	Limit                int64           `json:"limit" yaml:"limit"`
 	Debug                bool            `json:"debug" yaml:"debug"`
@@ -87,12 +86,6 @@ type Network struct {
 type ConfigStore struct {
 	Type string `json:"type" yaml:"type"`
 	URL  string `json:"url" yaml:"url"`
-}
-
-// Broker checks if broker details are set
-type Broker struct {
-	Host string `json:"host" yaml:"host"`
-	Port int32  `json:"port" yaml:"port"`
 }
 
 // Database is the outline of the database
