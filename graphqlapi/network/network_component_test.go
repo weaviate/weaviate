@@ -294,7 +294,7 @@ type testCases []testCase
 func (tests testCases) AssertNoError(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			networkSchema, err := Build(test.peers, config.Environment{})
+			networkSchema, err := Build(test.peers, config.Config{})
 			require.Nil(t, err, test.name)
 
 			schemaObject := graphql.ObjectConfig{

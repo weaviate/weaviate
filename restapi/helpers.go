@@ -22,14 +22,14 @@ const pageOverride int = 1
 
 // getLimit returns the maximized limit
 func getLimit(paramMaxResults *int64) int {
-	maxResults := serverConfig.Environment.Limit
+	maxResults := serverConfig.Config.Limit
 	// Get the max results from params, if exists
 	if paramMaxResults != nil {
 		maxResults = *paramMaxResults
 	}
 
 	// Max results form URL, otherwise max = config.Limit.
-	return int(math.Min(float64(maxResults), float64(serverConfig.Environment.Limit)))
+	return int(math.Min(float64(maxResults), float64(serverConfig.Config.Limit)))
 }
 
 // getPage returns the page if set

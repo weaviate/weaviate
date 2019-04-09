@@ -24,7 +24,7 @@ import (
 )
 
 // Build the local queries from the database schema.
-func Build(dbSchema *schema.Schema, config config.Environment) (*graphql.Field, error) {
+func Build(dbSchema *schema.Schema, config config.Config) (*graphql.Field, error) {
 	if len(dbSchema.Actions.Classes) == 0 && len(dbSchema.Things.Classes) == 0 {
 		return nil, fmt.Errorf("there are no Actions or Things classes defined yet")
 	}

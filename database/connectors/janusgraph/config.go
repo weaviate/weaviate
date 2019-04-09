@@ -33,7 +33,7 @@ type AnalyticsEngine struct {
 	URL     string `mapstructure:"url"`
 }
 
-func (c Config) validate(appConfig config.Environment) error {
+func (c Config) validate(appConfig config.Config) error {
 	if c.URL == "" {
 		return fmt.Errorf("url cannot be empty")
 	}

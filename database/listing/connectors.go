@@ -21,7 +21,7 @@ import (
 )
 
 // Build a new connector based on it's name. Returns nil if the connector is unknown.
-func NewConnector(name string, config interface{}, appConfig config.Environment) (err error, conn dbconnector.DatabaseConnector) {
+func NewConnector(name string, config interface{}, appConfig config.Config) (err error, conn dbconnector.DatabaseConnector) {
 	switch name {
 	case "janusgraph":
 		err, conn = janusgraph.New(config, appConfig)

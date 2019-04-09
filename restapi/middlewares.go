@@ -50,7 +50,7 @@ func setupGlobalMiddleware(handler http.Handler) http.Handler {
 
 func addLogging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if serverConfig.Environment.Debug {
+		if serverConfig.Config.Debug {
 			log.Printf("Received request: %+v %+v\n", r.Method, r.URL)
 		}
 		next.ServeHTTP(w, r)

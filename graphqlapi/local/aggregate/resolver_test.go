@@ -254,7 +254,7 @@ func Test_Resolve(t *testing.T) {
 func (tests testCases) AssertExtraction(t *testing.T, k kind.Kind, className string) {
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			resolver := newMockResolver(config.Environment{})
+			resolver := newMockResolver(config.Config{})
 
 			expectedParams := &Params{
 				Kind:       k,

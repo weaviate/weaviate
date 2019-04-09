@@ -39,12 +39,12 @@ type graphQL struct {
 	resolverProvider ResolverProvider
 	networkPeers     peers.Peers
 	requestsLog      *telemetry.RequestsLog
-	config           config.Environment
+	config           config.Config
 }
 
 // Construct a GraphQL API from the database schema, and resolver interface.
 func Build(dbSchema *schema.Schema, peers peers.Peers, resolverProvider ResolverProvider, logger *messages.Messaging,
-	config config.Environment) (GraphQL, error) {
+	config config.Config) (GraphQL, error) {
 	graphqlSchema, err := buildGraphqlSchema(dbSchema, peers, logger, config)
 
 	if err != nil {
@@ -94,7 +94,7 @@ func (g *graphQL) Resolve(query string, operationName string, variables map[stri
 }
 
 func buildGraphqlSchema(dbSchema *schema.Schema, peers peers.Peers, logger *messages.Messaging,
-	config config.Environment) (graphql.Schema, error) {
+	config config.Config) (graphql.Schema, error) {
 	localSchema, err := local.Build(dbSchema, peers, logger, config)
 	if err != nil {
 		return graphql.Schema{}, err

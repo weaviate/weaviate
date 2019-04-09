@@ -19,6 +19,7 @@ import (
 	"io/ioutil"
 	"regexp"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/go-openapi/swag"
 	"gopkg.in/yaml.v2"
 
@@ -28,18 +29,9 @@ import (
 // DefaultConfigFile is the default file when no config file is provided
 const DefaultConfigFile string = "./weaviate.conf.json"
 
-// DefaultEnvironment is the default env when no env is provided
-const DefaultEnvironment string = "development"
-
 // Flags are input options
 type Flags struct {
-	ConfigSection string `long:"config" description:"the section inside the config file that has to be used"`
-	ConfigFile    string `long:"config-file" description:"path to config file (default: ./weaviate.conf.json)"`
-}
-
-// File gives the outline of the config file
-type File struct {
-	Environments []Environment `json:"environments"`
+	ConfigFile string `long:"config-file" description:"path to config file (default: ./weaviate.conf.json)"`
 }
 
 // Logging gives the outline of the logging parameters in the config file
@@ -49,8 +41,8 @@ type Logging struct {
 	Enabled  bool   `json:"enabled" yaml:"enabled"`
 }
 
-// Environment outline of the environment inside the config file
-type Environment struct {
+// Config outline of the config file
+type Config struct {
 	Name                 string          `json:"name" yaml:"name"`
 	AnalyticsEngine      AnalyticsEngine `json:"analytics_engine" yaml:"analytics_engine"`
 	Database             Database        `json:"database" yaml:"database"`
@@ -137,9 +129,9 @@ func GetConfigOptionGroup() *swag.CommandLineOptionsGroup {
 
 // WeaviateConfig represents the used schema's
 type WeaviateConfig struct {
-	Environment Environment
-	Hostname    string
-	Scheme      string
+	Config   Config
+	Hostname string
+	Scheme   string
 }
 
 // GetHostAddress from config locations
@@ -150,7 +142,6 @@ func (f *WeaviateConfig) GetHostAddress() string {
 // LoadConfig from config locations
 func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, m *messages.Messaging) error {
 	// Get command line flags
-	configEnvironment := flags.Options.(*Flags).ConfigSection
 	configFileName := flags.Options.(*Flags).ConfigFile
 
 	// Set default if not given
@@ -165,46 +156,26 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, m *mess
 		return errors.New("config file '" + configFileName + "' not found.")
 	}
 
-	// Set default env if not given
-	if err != nil || configEnvironment == "" {
-		configEnvironment = DefaultEnvironment
-		m.InfoMessage("Using default environment '" + DefaultEnvironment + "'.")
-	}
-
-	configFile, err := f.parseConfigFile(file, configFileName)
+	config, err := f.parseConfigFile(file, configFileName)
 	if err != nil {
 		return err
 	}
 
-	// Loop through all values in object to see whether the given connection-name exists
-	foundEnvironment := false
-	for _, env := range configFile.Environments {
-		if env.Name == configEnvironment {
-			foundEnvironment = true
+	f.Config = config
 
-			// Get config interface data
-			f.Environment = env
-		}
-	}
-
-	// Return default database because no good config is found
-	if !foundEnvironment {
-		return errors.New("no environment found with name '" + configEnvironment + "'")
-	}
-
-	m.InfoMessage("Config file found, loading environment..")
+	spew.Dump(f.Config)
 
 	// Check the debug mode
-	m.Debug = f.Environment.Debug
-	if f.Environment.Debug {
+	m.Debug = f.Config.Debug
+	if f.Config.Debug {
 		m.InfoMessage("Running in DEBUG-mode")
 	}
 
 	return nil
 }
 
-func (f *WeaviateConfig) parseConfigFile(file []byte, name string) (File, error) {
-	var config File
+func (f *WeaviateConfig) parseConfigFile(file []byte, name string) (Config, error) {
+	var config Config
 
 	m := regexp.MustCompile(".*\\.(\\w+)$").FindStringSubmatch(name)
 	if len(m) < 2 {
@@ -236,7 +207,7 @@ func (f *WeaviateConfig) GetInstance(hostname string) (instance Instance, err er
 	found := false
 
 	// For each instance, check if hostname is the same
-	for _, v := range f.Environment.Development.ExternalInstances {
+	for _, v := range f.Config.Development.ExternalInstances {
 		if hostname == v.URL {
 			instance = v
 			found = true

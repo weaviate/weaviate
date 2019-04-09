@@ -33,7 +33,7 @@ func Test_ExtractAnalyticsPropsFromAggregate(t *testing.T) {
 		UseAnaltyicsEngine: true,
 		ForceRecalculate:   true,
 	}
-	cfg := config.Environment{
+	cfg := config.Config{
 		AnalyticsEngine: config.AnalyticsEngine{
 			Enabled: true,
 		},

@@ -69,23 +69,26 @@ func configureServer(s *http.Server, scheme, addr string) {
 	serverConfig = &config.WeaviateConfig{}
 	appState.ServerConfig = serverConfig
 	err := serverConfig.LoadConfig(connectorOptionGroup, messaging)
+	if err != nil {
+		messaging.ExitError(1, "could not load config: "+err.Error())
+	}
 	messaging.InfoMessage(fmt.Sprintf("loaded the config, time left is: %s", timeTillDeadline(ctx)))
 
 	appState.OIDC = configureOIDC(appState)
 	messaging.InfoMessage(fmt.Sprintf("configured OIDC client, time left is: %s", timeTillDeadline(ctx)))
 
 	// Extract environment variables needed for logging
-	loggingInterval := appState.ServerConfig.Environment.Logging.Interval
-	loggingUrl := appState.ServerConfig.Environment.Logging.Url
-	loggingEnabled := appState.ServerConfig.Environment.Logging.Enabled
-	loggingDebug := appState.ServerConfig.Environment.Debug
+	loggingInterval := appState.ServerConfig.Config.Logging.Interval
+	loggingUrl := appState.ServerConfig.Config.Logging.Url
+	loggingEnabled := appState.ServerConfig.Config.Logging.Enabled
+	loggingDebug := appState.ServerConfig.Config.Debug
 
 	if loggingEnabled != true && loggingEnabled != false {
 		loggingEnabled = true
 	}
 
 	// Propagate the peer name (if any), debug toggle and the enabled toggle to the requestsLog
-	mainLog.PeerName = appState.ServerConfig.Environment.Network.PeerName
+	mainLog.PeerName = appState.ServerConfig.Config.Network.PeerName
 	mainLog.Debug = loggingDebug
 	mainLog.Enabled = loggingEnabled
 
@@ -105,11 +108,11 @@ func configureServer(s *http.Server, scheme, addr string) {
 	messaging.InfoMessage(fmt.Sprintf("connected to network, time left is: %s", timeTillDeadline(ctx)))
 
 	// Connect to MQTT via Broker
-	weaviateBroker.ConnectToMqtt(serverConfig.Environment.Broker.Host, serverConfig.Environment.Broker.Port)
+	weaviateBroker.ConnectToMqtt(serverConfig.Config.Broker.Host, serverConfig.Config.Broker.Port)
 	messaging.InfoMessage(fmt.Sprintf("connected to broker, time left is: %s", timeTillDeadline(ctx)))
 
 	// Create the database connector using the config
-	err, dbConnector := dblisting.NewConnector(serverConfig.Environment.Database.Name, serverConfig.Environment.Database.DatabaseConfig, serverConfig.Environment)
+	err, dbConnector := dblisting.NewConnector(serverConfig.Config.Database.Name, serverConfig.Config.Database.DatabaseConfig, serverConfig.Config)
 	// Could not find, or configure connector.
 	if err != nil {
 		messaging.ExitError(78, err.Error())
@@ -118,7 +121,7 @@ func configureServer(s *http.Server, scheme, addr string) {
 	messaging.InfoMessage(fmt.Sprintf("created db connector, time left is: %s", timeTillDeadline(ctx)))
 
 	// parse config store URL
-	configURL := serverConfig.Environment.ConfigurationStorage.URL
+	configURL := serverConfig.Config.ConfigurationStorage.URL
 	configStore, err := url.Parse(configURL)
 	if err != nil || configURL == "" {
 		messaging.ExitError(78, fmt.Sprintf("cannot parse config store URL: %s", err))
@@ -220,7 +223,7 @@ func rebuildGraphQL(updatedSchema schema.Schema) {
 
 	c11y := schemaContextionary.New(contextionary)
 	root := graphQLRoot{Database: db, Network: network, contextionary: c11y, log: mainLog}
-	updatedGraphQL, err := graphqlapi.Build(&updatedSchema, peers, root, messaging, serverConfig.Environment)
+	updatedGraphQL, err := graphqlapi.Build(&updatedSchema, peers, root, messaging, serverConfig.Config)
 	if err != nil {
 		// TODO: turn on safe mode gh-520
 		graphQL = nil
@@ -268,7 +271,7 @@ func (r graphQLRoot) GetRequestsLog() fetch.RequestsLog {
 // middleware will still be able to provide the user with a valuable error
 // message, even when OIDC is globally disabled.
 func configureOIDC(appState *state.State) *oidc.Client {
-	c, err := oidc.New(appState.ServerConfig.Environment)
+	c, err := oidc.New(appState.ServerConfig.Config)
 	if err != nil {
 		appState.Messaging.ExitError(1, fmt.Sprintf("oidc client couldn't start up: %v", err))
 	}
@@ -285,15 +288,15 @@ func timeTillDeadline(ctx context.Context) time.Duration {
 // an in-memory database for the centroids of the classes / properties in the Schema.
 func loadContextionary() {
 	// First load the file backed contextionary
-	if serverConfig.Environment.Contextionary.KNNFile == "" {
+	if serverConfig.Config.Contextionary.KNNFile == "" {
 		messaging.ExitError(78, "Contextionary KNN file not specified")
 	}
 
-	if serverConfig.Environment.Contextionary.IDXFile == "" {
+	if serverConfig.Config.Contextionary.IDXFile == "" {
 		messaging.ExitError(78, "Contextionary IDX file not specified")
 	}
 
-	mmapedContextionary, err := libcontextionary.LoadVectorFromDisk(serverConfig.Environment.Contextionary.KNNFile, serverConfig.Environment.Contextionary.IDXFile)
+	mmapedContextionary, err := libcontextionary.LoadVectorFromDisk(serverConfig.Config.Contextionary.KNNFile, serverConfig.Config.Contextionary.IDXFile)
 
 	if err != nil {
 		messaging.ExitError(78, fmt.Sprintf("Could not load Contextionary; %+v", err))
@@ -305,14 +308,14 @@ func loadContextionary() {
 }
 
 func connectToNetwork() {
-	if serverConfig.Environment.Network == nil {
+	if serverConfig.Config.Network == nil {
 		messaging.InfoMessage(fmt.Sprintf("No network configured, not joining one"))
 		network = libnetworkFake.FakeNetwork{}
 		appState.Network = network
 	} else {
-		genesis_url := strfmt.URI(serverConfig.Environment.Network.GenesisURL)
-		public_url := strfmt.URI(serverConfig.Environment.Network.PublicURL)
-		peer_name := serverConfig.Environment.Network.PeerName
+		genesis_url := strfmt.URI(serverConfig.Config.Network.GenesisURL)
+		public_url := strfmt.URI(serverConfig.Config.Network.PublicURL)
+		peer_name := serverConfig.Config.Network.PeerName
 
 		messaging.InfoMessage(fmt.Sprintf("Network configured, connecting to Genesis '%v'", genesis_url))
 		new_net, err := libnetworkP2P.BootstrapNetwork(messaging, genesis_url, public_url, peer_name)
