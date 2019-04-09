@@ -35,7 +35,6 @@ import (
 	"encoding/json"
 	errors_ "errors"
 	"fmt"
-	"runtime"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/gorilla/websocket"
@@ -91,14 +90,6 @@ func New(config interface{}, appConfig config.Config) (error, dbconnector.Databa
 type Config struct {
 	Host string
 	Port int
-}
-
-func (f *Foobar) trace() {
-	pc := make([]uintptr, 10) // at least 1 entry needed
-	runtime.Callers(2, pc)
-	f2 := runtime.FuncForPC(pc[0])
-	//file, line := f2.FileLine(pc[0])
-	fmt.Printf("THIS FUNCTION RUNS: %s\n", f2.Name())
 }
 
 // setConfig sets variables, which can be placed in the config file section
