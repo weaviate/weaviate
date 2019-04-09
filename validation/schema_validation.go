@@ -49,8 +49,8 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSc
 	var isp interface{}
 	var className string
 	if refType == connutils.RefTypeAction {
-		className = object.(*models.ActionCreate).AtClass
-		isp = object.(*models.ActionCreate).Schema
+		className = object.(*models.Action).AtClass
+		isp = object.(*models.Action).Schema
 	} else if refType == connutils.RefTypeThing {
 		className = object.(*models.Thing).AtClass
 		isp = object.(*models.Thing).Schema
@@ -87,7 +87,7 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSc
 	}
 
 	if refType == connutils.RefTypeAction {
-		object.(*models.ActionCreate).Schema = returnSchema
+		object.(*models.Action).Schema = returnSchema
 	} else if refType == connutils.RefTypeThing {
 		object.(*models.Thing).Schema = returnSchema
 	} else {

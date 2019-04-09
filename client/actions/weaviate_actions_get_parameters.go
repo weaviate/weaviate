@@ -71,11 +71,11 @@ for the weaviate actions get operation typically these are written to a http.Req
 */
 type WeaviateActionsGetParams struct {
 
-	/*ActionID
+	/*ID
 	  Unique ID of the Action.
 
 	*/
-	ActionID strfmt.UUID
+	ID strfmt.UUID
 
 	timeout    time.Duration
 	Context    context.Context
@@ -115,15 +115,15 @@ func (o *WeaviateActionsGetParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
-// WithActionID adds the actionID to the weaviate actions get params
-func (o *WeaviateActionsGetParams) WithActionID(actionID strfmt.UUID) *WeaviateActionsGetParams {
-	o.SetActionID(actionID)
+// WithID adds the id to the weaviate actions get params
+func (o *WeaviateActionsGetParams) WithID(id strfmt.UUID) *WeaviateActionsGetParams {
+	o.SetID(id)
 	return o
 }
 
-// SetActionID adds the actionId to the weaviate actions get params
-func (o *WeaviateActionsGetParams) SetActionID(actionID strfmt.UUID) {
-	o.ActionID = actionID
+// SetID adds the id to the weaviate actions get params
+func (o *WeaviateActionsGetParams) SetID(id strfmt.UUID) {
+	o.ID = id
 }
 
 // WriteToRequest writes these params to a swagger request
@@ -134,8 +134,8 @@ func (o *WeaviateActionsGetParams) WriteToRequest(r runtime.ClientRequest, reg s
 	}
 	var res []error
 
-	// path param actionId
-	if err := r.SetPathParam("actionId", o.ActionID.String()); err != nil {
+	// path param id
+	if err := r.SetPathParam("id", o.ID.String()); err != nil {
 		return err
 	}
 

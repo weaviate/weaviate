@@ -20,87 +20,57 @@ import (
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 )
 
 // Action action
 // swagger:model Action
 type Action struct {
-	ActionCreate
+
+	// Type of the Action, defined in the schema.
+	AtClass string `json:"@class,omitempty"`
+
+	// Available context schema.
+	AtContext string `json:"@context,omitempty"`
 
 	// Timestamp of creation of this Action in milliseconds since epoch UTC.
 	CreationTimeUnix int64 `json:"creationTimeUnix,omitempty"`
 
+	// ID of the Action.
+	// Format: uuid
+	ID strfmt.UUID `json:"id,omitempty"`
+
 	// Timestamp of the last update made to the Action since epoch UTC.
 	LastUpdateTimeUnix int64 `json:"lastUpdateTimeUnix,omitempty"`
-}
 
-// UnmarshalJSON unmarshals this object from a JSON structure
-func (m *Action) UnmarshalJSON(raw []byte) error {
-	// AO0
-	var aO0 ActionCreate
-	if err := swag.ReadJSON(raw, &aO0); err != nil {
-		return err
-	}
-	m.ActionCreate = aO0
-
-	// AO1
-	var dataAO1 struct {
-		CreationTimeUnix int64 `json:"creationTimeUnix,omitempty"`
-
-		LastUpdateTimeUnix int64 `json:"lastUpdateTimeUnix,omitempty"`
-	}
-	if err := swag.ReadJSON(raw, &dataAO1); err != nil {
-		return err
-	}
-
-	m.CreationTimeUnix = dataAO1.CreationTimeUnix
-
-	m.LastUpdateTimeUnix = dataAO1.LastUpdateTimeUnix
-
-	return nil
-}
-
-// MarshalJSON marshals this object to a JSON structure
-func (m Action) MarshalJSON() ([]byte, error) {
-	_parts := make([][]byte, 0, 2)
-
-	aO0, err := swag.WriteJSON(m.ActionCreate)
-	if err != nil {
-		return nil, err
-	}
-	_parts = append(_parts, aO0)
-
-	var dataAO1 struct {
-		CreationTimeUnix int64 `json:"creationTimeUnix,omitempty"`
-
-		LastUpdateTimeUnix int64 `json:"lastUpdateTimeUnix,omitempty"`
-	}
-
-	dataAO1.CreationTimeUnix = m.CreationTimeUnix
-
-	dataAO1.LastUpdateTimeUnix = m.LastUpdateTimeUnix
-
-	jsonDataAO1, errAO1 := swag.WriteJSON(dataAO1)
-	if errAO1 != nil {
-		return nil, errAO1
-	}
-	_parts = append(_parts, jsonDataAO1)
-
-	return swag.ConcatJSON(_parts...), nil
+	// schema
+	Schema Schema `json:"schema,omitempty"`
 }
 
 // Validate validates this action
 func (m *Action) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	// validation for a type composition with ActionCreate
-	if err := m.ActionCreate.Validate(formats); err != nil {
+	if err := m.validateID(formats); err != nil {
 		res = append(res, err)
 	}
 
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *Action) validateID(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.ID) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("id", "body", "uuid", m.ID.String(), formats); err != nil {
+		return err
+	}
+
 	return nil
 }
 

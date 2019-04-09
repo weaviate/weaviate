@@ -272,7 +272,7 @@ func (j *Janusgraph) singleLocalRef(ref *crossref.Ref, propType schema.PropertyD
 
 	switch ref.Kind {
 	case kind.ACTION_KIND:
-		var singleRefValue models.ActionGetResponse
+		var singleRefValue models.Action
 		err := j.GetAction(nil, ref.TargetID, &singleRefValue)
 		if err != nil {
 			return result, fmt.Errorf("Illegal value for property %s; could not resolve action with UUID: %v", ref.TargetID.String(), err)

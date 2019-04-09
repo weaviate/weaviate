@@ -73,16 +73,16 @@ for the weaviate actions patch operation typically these are written to a http.R
 */
 type WeaviateActionsPatchParams struct {
 
-	/*ActionID
-	  Unique ID of the Action.
-
-	*/
-	ActionID strfmt.UUID
 	/*Body
 	  JSONPatch document as defined by RFC 6902.
 
 	*/
 	Body []*models.PatchDocument
+	/*ID
+	  Unique ID of the Action.
+
+	*/
+	ID strfmt.UUID
 
 	timeout    time.Duration
 	Context    context.Context
@@ -122,17 +122,6 @@ func (o *WeaviateActionsPatchParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
-// WithActionID adds the actionID to the weaviate actions patch params
-func (o *WeaviateActionsPatchParams) WithActionID(actionID strfmt.UUID) *WeaviateActionsPatchParams {
-	o.SetActionID(actionID)
-	return o
-}
-
-// SetActionID adds the actionId to the weaviate actions patch params
-func (o *WeaviateActionsPatchParams) SetActionID(actionID strfmt.UUID) {
-	o.ActionID = actionID
-}
-
 // WithBody adds the body to the weaviate actions patch params
 func (o *WeaviateActionsPatchParams) WithBody(body []*models.PatchDocument) *WeaviateActionsPatchParams {
 	o.SetBody(body)
@@ -144,6 +133,17 @@ func (o *WeaviateActionsPatchParams) SetBody(body []*models.PatchDocument) {
 	o.Body = body
 }
 
+// WithID adds the id to the weaviate actions patch params
+func (o *WeaviateActionsPatchParams) WithID(id strfmt.UUID) *WeaviateActionsPatchParams {
+	o.SetID(id)
+	return o
+}
+
+// SetID adds the id to the weaviate actions patch params
+func (o *WeaviateActionsPatchParams) SetID(id strfmt.UUID) {
+	o.ID = id
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *WeaviateActionsPatchParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -152,15 +152,15 @@ func (o *WeaviateActionsPatchParams) WriteToRequest(r runtime.ClientRequest, reg
 	}
 	var res []error
 
-	// path param actionId
-	if err := r.SetPathParam("actionId", o.ActionID.String()); err != nil {
-		return err
-	}
-
 	if o.Body != nil {
 		if err := r.SetBodyParam(o.Body); err != nil {
 			return err
 		}
+	}
+
+	// path param id
+	if err := r.SetPathParam("id", o.ID.String()); err != nil {
+		return err
 	}
 
 	if len(res) > 0 {

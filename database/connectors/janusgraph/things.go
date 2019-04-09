@@ -91,7 +91,3 @@ func (j *Janusgraph) UpdateThing(ctx context.Context, thing *models.Thing, UUID 
 func (j *Janusgraph) DeleteThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error {
 	return j.deleteClass(kind.THING_KIND, UUID)
 }
-
-func (j *Janusgraph) MoveToHistoryThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID, deleted bool) error {
-	return nil
-}

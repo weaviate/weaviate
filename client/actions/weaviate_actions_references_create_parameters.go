@@ -73,13 +73,13 @@ for the weaviate actions references create operation typically these are written
 */
 type WeaviateActionsReferencesCreateParams struct {
 
-	/*ActionID
+	/*Body*/
+	Body *models.SingleRef
+	/*ID
 	  Unique ID of the Action.
 
 	*/
-	ActionID strfmt.UUID
-	/*Body*/
-	Body *models.SingleRef
+	ID strfmt.UUID
 	/*PropertyName
 	  Unique name of the property related to the Action.
 
@@ -124,17 +124,6 @@ func (o *WeaviateActionsReferencesCreateParams) SetHTTPClient(client *http.Clien
 	o.HTTPClient = client
 }
 
-// WithActionID adds the actionID to the weaviate actions references create params
-func (o *WeaviateActionsReferencesCreateParams) WithActionID(actionID strfmt.UUID) *WeaviateActionsReferencesCreateParams {
-	o.SetActionID(actionID)
-	return o
-}
-
-// SetActionID adds the actionId to the weaviate actions references create params
-func (o *WeaviateActionsReferencesCreateParams) SetActionID(actionID strfmt.UUID) {
-	o.ActionID = actionID
-}
-
 // WithBody adds the body to the weaviate actions references create params
 func (o *WeaviateActionsReferencesCreateParams) WithBody(body *models.SingleRef) *WeaviateActionsReferencesCreateParams {
 	o.SetBody(body)
@@ -144,6 +133,17 @@ func (o *WeaviateActionsReferencesCreateParams) WithBody(body *models.SingleRef)
 // SetBody adds the body to the weaviate actions references create params
 func (o *WeaviateActionsReferencesCreateParams) SetBody(body *models.SingleRef) {
 	o.Body = body
+}
+
+// WithID adds the id to the weaviate actions references create params
+func (o *WeaviateActionsReferencesCreateParams) WithID(id strfmt.UUID) *WeaviateActionsReferencesCreateParams {
+	o.SetID(id)
+	return o
+}
+
+// SetID adds the id to the weaviate actions references create params
+func (o *WeaviateActionsReferencesCreateParams) SetID(id strfmt.UUID) {
+	o.ID = id
 }
 
 // WithPropertyName adds the propertyName to the weaviate actions references create params
@@ -165,15 +165,15 @@ func (o *WeaviateActionsReferencesCreateParams) WriteToRequest(r runtime.ClientR
 	}
 	var res []error
 
-	// path param actionId
-	if err := r.SetPathParam("actionId", o.ActionID.String()); err != nil {
-		return err
-	}
-
 	if o.Body != nil {
 		if err := r.SetBodyParam(o.Body); err != nil {
 			return err
 		}
+	}
+
+	// path param id
+	if err := r.SetPathParam("id", o.ID.String()); err != nil {
+		return err
 	}
 
 	// path param propertyName

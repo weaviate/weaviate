@@ -35,7 +35,7 @@ type WeaviateActionUpdateOK struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.ActionGetResponse `json:"body,omitempty"`
+	Payload *models.Action `json:"body,omitempty"`
 }
 
 // NewWeaviateActionUpdateOK creates WeaviateActionUpdateOK with default headers values
@@ -45,13 +45,13 @@ func NewWeaviateActionUpdateOK() *WeaviateActionUpdateOK {
 }
 
 // WithPayload adds the payload to the weaviate action update o k response
-func (o *WeaviateActionUpdateOK) WithPayload(payload *models.ActionGetResponse) *WeaviateActionUpdateOK {
+func (o *WeaviateActionUpdateOK) WithPayload(payload *models.Action) *WeaviateActionUpdateOK {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the weaviate action update o k response
-func (o *WeaviateActionUpdateOK) SetPayload(payload *models.ActionGetResponse) {
+func (o *WeaviateActionUpdateOK) SetPayload(payload *models.Action) {
 	o.Payload = payload
 }
 

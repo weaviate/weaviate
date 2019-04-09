@@ -301,11 +301,6 @@ func (f *Foobar) DeleteThing(ctx context.Context, thing *models.Thing, UUID strf
 	return nil
 }
 
-// MoveToHistoryThing moves a thing to history
-func (f *Foobar) MoveToHistoryThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID, deleted bool) error {
-	return nil
-}
-
 // AddActionsBatch can be used for imports of large datasets. There is no fixed
 // batch size, each connector can decide for themselves to split up the
 // incoming batch into smaller chunks. For example the Janusgraph connector
@@ -336,9 +331,9 @@ func (f *Foobar) AddAction(ctx context.Context, action *models.Action, UUID strf
 	return nil
 }
 
-// GetAction fills the given ActionGetResponse with the values from the
+// GetAction fills the given Action with the values from the
 // database, based on the given UUID.
-func (f *Foobar) GetAction(ctx context.Context, UUID strfmt.UUID, actionResponse *models.ActionGetResponse) error {
+func (f *Foobar) GetAction(ctx context.Context, UUID strfmt.UUID, actionResponse *models.Action) error {
 	// actionResponse should be populated with the response that comes from the DB.
 	// actionResponse = based on the ontology
 
@@ -372,16 +367,6 @@ func (f *Foobar) DeleteAction(ctx context.Context, action *models.Action, UUID s
 	// Run the query to delete the action based on its UUID.
 
 	// If success return nil, otherwise return the error
-	return nil
-}
-
-// HistoryAction fills the history of a Action based on its UUID
-func (f *Foobar) HistoryAction(ctx context.Context, UUID strfmt.UUID, history *models.ActionHistory) error {
-	return nil
-}
-
-// MoveToHistoryAction moves an action to history
-func (f *Foobar) MoveToHistoryAction(ctx context.Context, action *models.Action, UUID strfmt.UUID, deleted bool) error {
 	return nil
 }
 

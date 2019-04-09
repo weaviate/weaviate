@@ -76,15 +76,15 @@ func createActions() {
 			}
 		}
 
-		t := models.ActionCreate{
+		t := models.Action{
 			AtContext: "http://example.org",
 			AtClass:   className,
 			Schema:    properties,
 		}
 
 		action := assertCreateAction(&t)
-		idMap[uuid] = string(action.ActionID) // Store mapping of ID's
-		fmt.Printf("Created Action %s\n", action.ActionID)
+		idMap[uuid] = string(action.ID) // Store mapping of ID's
+		fmt.Printf("Created Action %s\n", action.ID)
 	}
 }
 
@@ -150,7 +150,7 @@ func fixupActions() {
 }
 
 func checkActionExists(id string) bool {
-	params := actions.NewWeaviateActionsGetParams().WithActionID(strfmt.UUID(id))
+	params := actions.NewWeaviateActionsGetParams().WithID(strfmt.UUID(id))
 	resp, err := client.Actions.WeaviateActionsGet(params, nil)
 
 	if err != nil {
@@ -165,8 +165,8 @@ func checkActionExists(id string) bool {
 	return true
 }
 
-func assertCreateAction(t *models.ActionCreate) *models.ActionGetResponse {
-	params := actions.NewWeaviateActionsCreateParams().WithBody(actions.WeaviateActionsCreateBody{Action: t})
+func assertCreateAction(t *models.Action) *models.Action {
+	params := actions.NewWeaviateActionsCreateParams().WithBody(t)
 
 	resp, err := client.Actions.WeaviateActionsCreate(params, nil)
 
@@ -182,8 +182,8 @@ func assertCreateAction(t *models.ActionCreate) *models.ActionGetResponse {
 	return resp.Payload
 }
 
-func assertPatchAction(id string, p *models.PatchDocument) *models.ActionGetResponse {
-	params := actions.NewWeaviateActionsPatchParams().WithBody([]*models.PatchDocument{p}).WithActionID(strfmt.UUID(id))
+func assertPatchAction(id string, p *models.PatchDocument) *models.Action {
+	params := actions.NewWeaviateActionsPatchParams().WithBody([]*models.PatchDocument{p}).WithID(strfmt.UUID(id))
 
 	resp, err := client.Actions.WeaviateActionsPatch(params, nil)
 

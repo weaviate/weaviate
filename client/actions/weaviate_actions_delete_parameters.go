@@ -71,11 +71,11 @@ for the weaviate actions delete operation typically these are written to a http.
 */
 type WeaviateActionsDeleteParams struct {
 
-	/*ActionID
+	/*ID
 	  Unique ID of the Thing.
 
 	*/
-	ActionID strfmt.UUID
+	ID strfmt.UUID
 
 	timeout    time.Duration
 	Context    context.Context
@@ -115,15 +115,15 @@ func (o *WeaviateActionsDeleteParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
-// WithActionID adds the actionID to the weaviate actions delete params
-func (o *WeaviateActionsDeleteParams) WithActionID(actionID strfmt.UUID) *WeaviateActionsDeleteParams {
-	o.SetActionID(actionID)
+// WithID adds the id to the weaviate actions delete params
+func (o *WeaviateActionsDeleteParams) WithID(id strfmt.UUID) *WeaviateActionsDeleteParams {
+	o.SetID(id)
 	return o
 }
 
-// SetActionID adds the actionId to the weaviate actions delete params
-func (o *WeaviateActionsDeleteParams) SetActionID(actionID strfmt.UUID) {
-	o.ActionID = actionID
+// SetID adds the id to the weaviate actions delete params
+func (o *WeaviateActionsDeleteParams) SetID(id strfmt.UUID) {
+	o.ID = id
 }
 
 // WriteToRequest writes these params to a swagger request
@@ -134,8 +134,8 @@ func (o *WeaviateActionsDeleteParams) WriteToRequest(r runtime.ClientRequest, re
 	}
 	var res []error
 
-	// path param actionId
-	if err := r.SetPathParam("actionId", o.ActionID.String()); err != nil {
+	// path param id
+	if err := r.SetPathParam("id", o.ID.String()); err != nil {
 		return err
 	}
 

@@ -12,6 +12,7 @@
 package test
 
 import (
+	"encoding/json"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -75,8 +76,8 @@ func sendCreateActionRequest(t *testing.T) {
 	actionTestNumber := 1.337
 	actionTestDate := "2017-10-06T08:15:30+01:00"
 
-	params := actions.NewWeaviateActionsCreateParams().WithBody(actions.WeaviateActionsCreateBody{
-		Action: &models.ActionCreate{
+	params := actions.NewWeaviateActionsCreateParams().WithBody(
+		&models.Action{
 			AtContext: "http://example.org",
 			AtClass:   "TestAction",
 			Schema: map[string]interface{}{
@@ -86,26 +87,28 @@ func sendCreateActionRequest(t *testing.T) {
 				"testNumber":   actionTestNumber,
 				"testDateTime": actionTestDate,
 			},
-		},
-	})
+		})
 
 	resp, err := helper.Client(t).Actions.WeaviateActionsCreate(params, nil)
 
 	// Ensure that the response is OK.
 	helper.AssertRequestOk(t, resp, err, func() {
 		action := resp.Payload
-		assert.Regexp(t, strfmt.UUIDPattern, action.ActionID)
+		assert.Regexp(t, strfmt.UUIDPattern, action.ID)
 
 		schema, ok := action.Schema.(map[string]interface{})
 		if !ok {
 			t.Fatal("The returned schema is not an JSON object")
 		}
 
+		testInt, _ := schema["testInt"].(json.Number).Int64()
+		testNumber, _ := schema["testNumber"].(json.Number).Float64()
+
 		// Check whether the returned information is the same as the data added.
 		assert.Equal(t, actionTestString, schema["testString"])
-		assert.Equal(t, actionTestInt, int(schema["testInt"].(float64)))
+		assert.Equal(t, actionTestInt, int(testInt))
 		assert.Equal(t, actionTestBoolean, schema["testBoolean"])
-		assert.Equal(t, actionTestNumber, schema["testNumber"])
+		assert.Equal(t, actionTestNumber, testNumber)
 		assert.Equal(t, actionTestDate, schema["testDateTime"])
 	})
 }
