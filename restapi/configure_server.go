@@ -80,8 +80,12 @@ func configureServer(s *http.Server, scheme, addr string) {
 	loggingEnabled := appState.ServerConfig.Environment.Telemetry.Enabled
 	loggingDebug := appState.ServerConfig.Environment.Debug
 
-	if loggingEnabled != true && loggingEnabled != false {
-		loggingEnabled = true
+	if loggingUrl == "" {
+		loggingUrl = telemetry.DefaultURL
+	}
+
+	if loggingInterval == 0 {
+		loggingInterval = telemetry.DefaultInterval
 	}
 
 	// Propagate the peer name (if any), debug toggle and the enabled toggle to the requestsLog
