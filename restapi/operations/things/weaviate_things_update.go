@@ -41,7 +41,7 @@ func NewWeaviateThingsUpdate(ctx *middleware.Context, handler WeaviateThingsUpda
 	return &WeaviateThingsUpdate{Context: ctx, Handler: handler}
 }
 
-/*WeaviateThingsUpdate swagger:route PUT /things/{thingId} things weaviateThingsUpdate
+/*WeaviateThingsUpdate swagger:route PUT /things/{id} things weaviateThingsUpdate
 
 Update a Thing based on its UUID.
 

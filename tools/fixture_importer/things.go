@@ -254,7 +254,7 @@ func fixupThings() {
 }
 
 func checkThingExists(id string) bool {
-	params := things.NewWeaviateThingsGetParams().WithThingID(strfmt.UUID(id))
+	params := things.NewWeaviateThingsGetParams().WithID(strfmt.UUID(id))
 	resp, err := client.Things.WeaviateThingsGet(params, nil)
 
 	if err != nil {
@@ -287,7 +287,7 @@ func assertCreateThing(t *models.Thing) *models.Thing {
 }
 
 func assertUpdateThing(id string, update *models.Thing) *models.Thing {
-	params := things.NewWeaviateThingsUpdateParams().WithBody(update).WithThingID(strfmt.UUID(id))
+	params := things.NewWeaviateThingsUpdateParams().WithBody(update).WithID(strfmt.UUID(id))
 
 	resp, err := client.Things.WeaviateThingsUpdate(params, nil)
 
@@ -307,7 +307,7 @@ func assertUpdateThing(id string, update *models.Thing) *models.Thing {
 }
 
 func assertPatchThing(id string, p *models.PatchDocument) *models.Thing {
-	params := things.NewWeaviateThingsPatchParams().WithBody([]*models.PatchDocument{p}).WithThingID(strfmt.UUID(id))
+	params := things.NewWeaviateThingsPatchParams().WithBody([]*models.PatchDocument{p}).WithID(strfmt.UUID(id))
 
 	resp, err := client.Things.WeaviateThingsPatch(params, nil)
 

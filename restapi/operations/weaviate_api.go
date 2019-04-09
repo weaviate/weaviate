@@ -864,12 +864,12 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
-	o.handlers["DELETE"]["/things/{thingId}"] = things.NewWeaviateThingsDelete(o.context, o.ThingsWeaviateThingsDeleteHandler)
+	o.handlers["DELETE"]["/things/{id}"] = things.NewWeaviateThingsDelete(o.context, o.ThingsWeaviateThingsDeleteHandler)
 
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/things/{thingId}"] = things.NewWeaviateThingsGet(o.context, o.ThingsWeaviateThingsGetHandler)
+	o.handlers["GET"]["/things/{id}"] = things.NewWeaviateThingsGet(o.context, o.ThingsWeaviateThingsGetHandler)
 
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
@@ -879,27 +879,27 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["PATCH"] == nil {
 		o.handlers["PATCH"] = make(map[string]http.Handler)
 	}
-	o.handlers["PATCH"]["/things/{thingId}"] = things.NewWeaviateThingsPatch(o.context, o.ThingsWeaviateThingsPatchHandler)
+	o.handlers["PATCH"]["/things/{id}"] = things.NewWeaviateThingsPatch(o.context, o.ThingsWeaviateThingsPatchHandler)
 
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/things/{thingId}/references/{propertyName}"] = things.NewWeaviateThingsReferencesCreate(o.context, o.ThingsWeaviateThingsReferencesCreateHandler)
+	o.handlers["POST"]["/things/{id}/references/{propertyName}"] = things.NewWeaviateThingsReferencesCreate(o.context, o.ThingsWeaviateThingsReferencesCreateHandler)
 
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
-	o.handlers["DELETE"]["/things/{thingId}/references/{propertyName}"] = things.NewWeaviateThingsReferencesDelete(o.context, o.ThingsWeaviateThingsReferencesDeleteHandler)
+	o.handlers["DELETE"]["/things/{id}/references/{propertyName}"] = things.NewWeaviateThingsReferencesDelete(o.context, o.ThingsWeaviateThingsReferencesDeleteHandler)
 
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
-	o.handlers["PUT"]["/things/{thingId}/references/{propertyName}"] = things.NewWeaviateThingsReferencesUpdate(o.context, o.ThingsWeaviateThingsReferencesUpdateHandler)
+	o.handlers["PUT"]["/things/{id}/references/{propertyName}"] = things.NewWeaviateThingsReferencesUpdate(o.context, o.ThingsWeaviateThingsReferencesUpdateHandler)
 
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
-	o.handlers["PUT"]["/things/{thingId}"] = things.NewWeaviateThingsUpdate(o.context, o.ThingsWeaviateThingsUpdateHandler)
+	o.handlers["PUT"]["/things/{id}"] = things.NewWeaviateThingsUpdate(o.context, o.ThingsWeaviateThingsUpdateHandler)
 
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)

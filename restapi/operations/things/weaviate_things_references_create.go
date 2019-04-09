@@ -41,7 +41,7 @@ func NewWeaviateThingsReferencesCreate(ctx *middleware.Context, handler Weaviate
 	return &WeaviateThingsReferencesCreate{Context: ctx, Handler: handler}
 }
 
-/*WeaviateThingsReferencesCreate swagger:route POST /things/{thingId}/references/{propertyName} things weaviateThingsReferencesCreate
+/*WeaviateThingsReferencesCreate swagger:route POST /things/{id}/references/{propertyName} things weaviateThingsReferencesCreate
 
 Add a single reference to a class-property when cardinality is set to 'hasMany'.
 

@@ -233,7 +233,7 @@ var invalidThingTestCases = []struct {
 }
 
 func cleanupThing(uuid strfmt.UUID) {
-	params := things.NewWeaviateThingsDeleteParams().WithThingID(uuid)
+	params := things.NewWeaviateThingsDeleteParams().WithID(uuid)
 	resp, err := helper.Client(nil).Things.WeaviateThingsDelete(params, nil)
 	if err != nil {
 		panic(fmt.Sprintf("Could not clean up thing '%s', because %v. Response: %#v", string(uuid), err, resp))

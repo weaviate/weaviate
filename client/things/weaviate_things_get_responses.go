@@ -89,7 +89,7 @@ type WeaviateThingsGetOK struct {
 }
 
 func (o *WeaviateThingsGetOK) Error() string {
-	return fmt.Sprintf("[GET /things/{thingId}][%d] weaviateThingsGetOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /things/{id}][%d] weaviateThingsGetOK  %+v", 200, o.Payload)
 }
 
 func (o *WeaviateThingsGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -117,7 +117,7 @@ type WeaviateThingsGetUnauthorized struct {
 }
 
 func (o *WeaviateThingsGetUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /things/{thingId}][%d] weaviateThingsGetUnauthorized ", 401)
+	return fmt.Sprintf("[GET /things/{id}][%d] weaviateThingsGetUnauthorized ", 401)
 }
 
 func (o *WeaviateThingsGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -138,7 +138,7 @@ type WeaviateThingsGetForbidden struct {
 }
 
 func (o *WeaviateThingsGetForbidden) Error() string {
-	return fmt.Sprintf("[GET /things/{thingId}][%d] weaviateThingsGetForbidden ", 403)
+	return fmt.Sprintf("[GET /things/{id}][%d] weaviateThingsGetForbidden ", 403)
 }
 
 func (o *WeaviateThingsGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -159,7 +159,7 @@ type WeaviateThingsGetNotFound struct {
 }
 
 func (o *WeaviateThingsGetNotFound) Error() string {
-	return fmt.Sprintf("[GET /things/{thingId}][%d] weaviateThingsGetNotFound ", 404)
+	return fmt.Sprintf("[GET /things/{id}][%d] weaviateThingsGetNotFound ", 404)
 }
 
 func (o *WeaviateThingsGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -181,7 +181,7 @@ type WeaviateThingsGetInternalServerError struct {
 }
 
 func (o *WeaviateThingsGetInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /things/{thingId}][%d] weaviateThingsGetInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /things/{id}][%d] weaviateThingsGetInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *WeaviateThingsGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

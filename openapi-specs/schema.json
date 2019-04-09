@@ -702,11 +702,6 @@
         },
         {
           "properties": {
-            "thingId": {
-              "description": "ID of the Thing.",
-              "format": "uuid",
-              "type": "string"
-            },
             "result": {
               "description": "Results for this specific Thing.",
               "format": "object",
@@ -1359,7 +1354,7 @@
                       "@class",
                       "schema",
                       "key",
-                      "thingId",
+                      "id",
                       "creationTimeUnix"
                     ]
                   }
@@ -2453,7 +2448,7 @@
         "x-available-in-websocket": false
       }
     },
-    "/things/{thingId}": {
+    "/things/{id}": {
       "delete": {
         "description": "Deletes a Thing from the system. All Actions pointing to this Thing, where the Thing is the object of the Action, are also being deleted.",
         "operationId": "weaviate.things.delete",
@@ -2463,7 +2458,7 @@
             "description": "Unique ID of the Thing.",
             "format": "uuid",
             "in": "path",
-            "name": "thingId",
+            "name": "id",
             "required": true,
             "type": "string"
           }
@@ -2502,7 +2497,7 @@
             "description": "Unique ID of the Thing.",
             "format": "uuid",
             "in": "path",
-            "name": "thingId",
+            "name": "id",
             "required": true,
             "type": "string"
           }
@@ -2544,7 +2539,7 @@
             "description": "Unique ID of the Thing.",
             "format": "uuid",
             "in": "path",
-            "name": "thingId",
+            "name": "id",
             "required": true,
             "type": "string"
           },
@@ -2607,7 +2602,7 @@
             "description": "Unique ID of the Thing.",
             "format": "uuid",
             "in": "path",
-            "name": "thingId",
+            "name": "id",
             "required": true,
             "type": "string"
           },
@@ -2655,7 +2650,7 @@
         "x-available-in-websocket": false
       }
     },
-    "/things/{thingId}/references/{propertyName}": {
+    "/things/{id}/references/{propertyName}": {
       "post": {
         "description": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
         "operationId": "weaviate.things.references.create",
@@ -2665,7 +2660,7 @@
             "description": "Unique ID of the Thing.",
             "format": "uuid",
             "in": "path",
-            "name": "thingId",
+            "name": "id",
             "required": true,
             "type": "string"
           },
@@ -2722,7 +2717,7 @@
             "description": "Unique ID of the Thing.",
             "format": "uuid",
             "in": "path",
-            "name": "thingId",
+            "name": "id",
             "required": true,
             "type": "string"
           },
@@ -2779,7 +2774,7 @@
             "description": "Unique ID of the Thing.",
             "format": "uuid",
             "in": "path",
-            "name": "thingId",
+            "name": "id",
             "required": true,
             "type": "string"
           },

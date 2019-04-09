@@ -50,16 +50,16 @@ type WeaviateThingsReferencesUpdateParams struct {
 	  In: body
 	*/
 	Body models.MultipleRef
+	/*Unique ID of the Thing.
+	  Required: true
+	  In: path
+	*/
+	ID strfmt.UUID
 	/*Unique name of the property related to the Thing.
 	  Required: true
 	  In: path
 	*/
 	PropertyName string
-	/*Unique ID of the Thing.
-	  Required: true
-	  In: path
-	*/
-	ThingID strfmt.UUID
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -93,18 +93,51 @@ func (o *WeaviateThingsReferencesUpdateParams) BindRequest(r *http.Request, rout
 	} else {
 		res = append(res, errors.Required("body", "body"))
 	}
+	rID, rhkID, _ := route.Params.GetOK("id")
+	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
 	rPropertyName, rhkPropertyName, _ := route.Params.GetOK("propertyName")
 	if err := o.bindPropertyName(rPropertyName, rhkPropertyName, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
-	rThingID, rhkThingID, _ := route.Params.GetOK("thingId")
-	if err := o.bindThingID(rThingID, rhkThingID, route.Formats); err != nil {
-		res = append(res, err)
-	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+// bindID binds and validates parameter ID from path.
+func (o *WeaviateThingsReferencesUpdateParams) bindID(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: true
+	// Parameter is provided by construction from the route
+
+	// Format: uuid
+	value, err := formats.Parse("uuid", raw)
+	if err != nil {
+		return errors.InvalidType("id", "path", "strfmt.UUID", raw)
+	}
+	o.ID = *(value.(*strfmt.UUID))
+
+	if err := o.validateID(formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateID carries on validations for parameter ID
+func (o *WeaviateThingsReferencesUpdateParams) validateID(formats strfmt.Registry) error {
+
+	if err := validate.FormatOf("id", "path", "uuid", o.ID.String(), formats); err != nil {
+		return err
 	}
 	return nil
 }
@@ -121,38 +154,5 @@ func (o *WeaviateThingsReferencesUpdateParams) bindPropertyName(rawData []string
 
 	o.PropertyName = raw
 
-	return nil
-}
-
-// bindThingID binds and validates parameter ThingID from path.
-func (o *WeaviateThingsReferencesUpdateParams) bindThingID(rawData []string, hasKey bool, formats strfmt.Registry) error {
-	var raw string
-	if len(rawData) > 0 {
-		raw = rawData[len(rawData)-1]
-	}
-
-	// Required: true
-	// Parameter is provided by construction from the route
-
-	// Format: uuid
-	value, err := formats.Parse("uuid", raw)
-	if err != nil {
-		return errors.InvalidType("thingId", "path", "strfmt.UUID", raw)
-	}
-	o.ThingID = *(value.(*strfmt.UUID))
-
-	if err := o.validateThingID(formats); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// validateThingID carries on validations for parameter ThingID
-func (o *WeaviateThingsReferencesUpdateParams) validateThingID(formats strfmt.Registry) error {
-
-	if err := validate.FormatOf("thingId", "path", "uuid", o.ThingID.String(), formats); err != nil {
-		return err
-	}
 	return nil
 }
