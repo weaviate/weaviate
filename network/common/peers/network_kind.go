@@ -51,7 +51,7 @@ func (p Peers) getRemoteThingOrAction(kind crossrefs.NetworkKind,
 	case libkind.THING_KIND:
 		params := things.NewWeaviateThingsGetParams().
 			WithTimeout(1 * time.Second).
-			WithThingID(kind.ID)
+			WithID(kind.ID)
 		ok, err := client.Things.WeaviateThingsGet(params, nil)
 		if err != nil {
 			return result, fmt.Errorf(

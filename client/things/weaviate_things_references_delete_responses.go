@@ -88,7 +88,7 @@ type WeaviateThingsReferencesDeleteNoContent struct {
 }
 
 func (o *WeaviateThingsReferencesDeleteNoContent) Error() string {
-	return fmt.Sprintf("[DELETE /things/{thingId}/references/{propertyName}][%d] weaviateThingsReferencesDeleteNoContent ", 204)
+	return fmt.Sprintf("[DELETE /things/{id}/references/{propertyName}][%d] weaviateThingsReferencesDeleteNoContent ", 204)
 }
 
 func (o *WeaviateThingsReferencesDeleteNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -109,7 +109,7 @@ type WeaviateThingsReferencesDeleteUnauthorized struct {
 }
 
 func (o *WeaviateThingsReferencesDeleteUnauthorized) Error() string {
-	return fmt.Sprintf("[DELETE /things/{thingId}/references/{propertyName}][%d] weaviateThingsReferencesDeleteUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /things/{id}/references/{propertyName}][%d] weaviateThingsReferencesDeleteUnauthorized ", 401)
 }
 
 func (o *WeaviateThingsReferencesDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -130,7 +130,7 @@ type WeaviateThingsReferencesDeleteForbidden struct {
 }
 
 func (o *WeaviateThingsReferencesDeleteForbidden) Error() string {
-	return fmt.Sprintf("[DELETE /things/{thingId}/references/{propertyName}][%d] weaviateThingsReferencesDeleteForbidden ", 403)
+	return fmt.Sprintf("[DELETE /things/{id}/references/{propertyName}][%d] weaviateThingsReferencesDeleteForbidden ", 403)
 }
 
 func (o *WeaviateThingsReferencesDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -152,7 +152,7 @@ type WeaviateThingsReferencesDeleteNotFound struct {
 }
 
 func (o *WeaviateThingsReferencesDeleteNotFound) Error() string {
-	return fmt.Sprintf("[DELETE /things/{thingId}/references/{propertyName}][%d] weaviateThingsReferencesDeleteNotFound  %+v", 404, o.Payload)
+	return fmt.Sprintf("[DELETE /things/{id}/references/{propertyName}][%d] weaviateThingsReferencesDeleteNotFound  %+v", 404, o.Payload)
 }
 
 func (o *WeaviateThingsReferencesDeleteNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -181,7 +181,7 @@ type WeaviateThingsReferencesDeleteInternalServerError struct {
 }
 
 func (o *WeaviateThingsReferencesDeleteInternalServerError) Error() string {
-	return fmt.Sprintf("[DELETE /things/{thingId}/references/{propertyName}][%d] weaviateThingsReferencesDeleteInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[DELETE /things/{id}/references/{propertyName}][%d] weaviateThingsReferencesDeleteInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *WeaviateThingsReferencesDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

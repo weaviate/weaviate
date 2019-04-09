@@ -32,10 +32,6 @@ type ThingsGetResponse struct {
 
 	// result
 	Result *ThingsGetResponseAO1Result `json:"result,omitempty"`
-
-	// ID of the Thing.
-	// Format: uuid
-	ThingID strfmt.UUID `json:"thingId,omitempty"`
 }
 
 // UnmarshalJSON unmarshals this object from a JSON structure
@@ -50,16 +46,12 @@ func (m *ThingsGetResponse) UnmarshalJSON(raw []byte) error {
 	// AO1
 	var dataAO1 struct {
 		Result *ThingsGetResponseAO1Result `json:"result,omitempty"`
-
-		ThingID strfmt.UUID `json:"thingId,omitempty"`
 	}
 	if err := swag.ReadJSON(raw, &dataAO1); err != nil {
 		return err
 	}
 
 	m.Result = dataAO1.Result
-
-	m.ThingID = dataAO1.ThingID
 
 	return nil
 }
@@ -76,13 +68,9 @@ func (m ThingsGetResponse) MarshalJSON() ([]byte, error) {
 
 	var dataAO1 struct {
 		Result *ThingsGetResponseAO1Result `json:"result,omitempty"`
-
-		ThingID strfmt.UUID `json:"thingId,omitempty"`
 	}
 
 	dataAO1.Result = m.Result
-
-	dataAO1.ThingID = m.ThingID
 
 	jsonDataAO1, errAO1 := swag.WriteJSON(dataAO1)
 	if errAO1 != nil {
@@ -106,10 +94,6 @@ func (m *ThingsGetResponse) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
-	if err := m.validateThingID(formats); err != nil {
-		res = append(res, err)
-	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -129,19 +113,6 @@ func (m *ThingsGetResponse) validateResult(formats strfmt.Registry) error {
 			}
 			return err
 		}
-	}
-
-	return nil
-}
-
-func (m *ThingsGetResponse) validateThingID(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.ThingID) { // not required
-		return nil
-	}
-
-	if err := validate.FormatOf("thingId", "body", "uuid", m.ThingID.String(), formats); err != nil {
-		return err
 	}
 
 	return nil

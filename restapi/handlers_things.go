@@ -98,7 +98,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		thingGetResponse.Schema = map[string]models.JSONObject{}
 
 		// Get item from database
-		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), params.ThingID, &thingGetResponse)
+		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), params.ID, &thingGetResponse)
 
 		// Save the old-thing in a variable
 		oldThing := thingGetResponse
@@ -115,14 +115,14 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		ctx := params.HTTPRequest.Context()
 		go func() {
 			delayedLock.Unlock()
-			dbConnector.MoveToHistoryThing(ctx, &oldThing, params.ThingID, true)
+			dbConnector.MoveToHistoryThing(ctx, &oldThing, params.ID, true)
 		}()
 
 		// Add new row as GO-routine
 		delayedLock.IncSteps()
 		go func() {
 			delayedLock.Unlock()
-			dbConnector.DeleteThing(ctx, &thingGetResponse, params.ThingID)
+			dbConnector.DeleteThing(ctx, &thingGetResponse, params.ID)
 		}()
 
 		// Register the function call
@@ -147,7 +147,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 
 		// Get item from database
 		ctx := params.HTTPRequest.Context()
-		err = dbConnector.GetThing(ctx, strfmt.UUID(params.ThingID), &responseObject)
+		err = dbConnector.GetThing(ctx, strfmt.UUID(params.ID), &responseObject)
 
 		// Object is not found
 		if err != nil {
@@ -209,7 +209,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		thingGetResponse.Schema = map[string]models.JSONObject{}
 
 		// Get and transform object
-		UUID := strfmt.UUID(params.ThingID)
+		UUID := strfmt.UUID(params.ID)
 		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), UUID, &thingGetResponse)
 
 		// Save the old-thing in a variable
@@ -298,7 +298,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 
 		dbConnector := dbLock.Connector()
 
-		UUID := strfmt.UUID(params.ThingID)
+		UUID := strfmt.UUID(params.ID)
 
 		class := models.Thing{}
 		ctx := params.HTTPRequest.Context()
@@ -395,7 +395,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 
 		dbConnector := dbLock.Connector()
 
-		UUID := strfmt.UUID(params.ThingID)
+		UUID := strfmt.UUID(params.ID)
 
 		class := models.Thing{}
 		ctx := params.HTTPRequest.Context()
@@ -492,7 +492,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 
 		dbConnector := dbLock.Connector()
 
-		UUID := strfmt.UUID(params.ThingID)
+		UUID := strfmt.UUID(params.ID)
 
 		class := models.Thing{}
 		ctx := params.HTTPRequest.Context()
@@ -574,7 +574,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		thingGetResponse.Schema = map[string]models.JSONObject{}
 
 		// Get item from database
-		UUID := params.ThingID
+		UUID := params.ID
 		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), UUID, &thingGetResponse)
 
 		// Save the old-thing in a variable

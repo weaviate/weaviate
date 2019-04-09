@@ -42,7 +42,7 @@ func assertCreateThing(t *testing.T, className string, schema map[string]interfa
 }
 
 func assertGetThing(t *testing.T, uuid strfmt.UUID) *models.Thing {
-	getResp, err := helper.Client(t).Things.WeaviateThingsGet(things.NewWeaviateThingsGetParams().WithThingID(uuid), nil)
+	getResp, err := helper.Client(t).Things.WeaviateThingsGet(things.NewWeaviateThingsGetParams().WithID(uuid), nil)
 
 	var thing *models.Thing
 
@@ -60,7 +60,7 @@ func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.Thing {
 	)
 
 	checkThunk := func() interface{} {
-		resp, err = helper.Client(t).Things.WeaviateThingsGet(things.NewWeaviateThingsGetParams().WithThingID(uuid), nil)
+		resp, err = helper.Client(t).Things.WeaviateThingsGet(things.NewWeaviateThingsGetParams().WithID(uuid), nil)
 		return err == nil
 	}
 

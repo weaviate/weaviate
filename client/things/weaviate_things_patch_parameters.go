@@ -78,11 +78,11 @@ type WeaviateThingsPatchParams struct {
 
 	*/
 	Body []*models.PatchDocument
-	/*ThingID
+	/*ID
 	  Unique ID of the Thing.
 
 	*/
-	ThingID strfmt.UUID
+	ID strfmt.UUID
 
 	timeout    time.Duration
 	Context    context.Context
@@ -133,15 +133,15 @@ func (o *WeaviateThingsPatchParams) SetBody(body []*models.PatchDocument) {
 	o.Body = body
 }
 
-// WithThingID adds the thingID to the weaviate things patch params
-func (o *WeaviateThingsPatchParams) WithThingID(thingID strfmt.UUID) *WeaviateThingsPatchParams {
-	o.SetThingID(thingID)
+// WithID adds the id to the weaviate things patch params
+func (o *WeaviateThingsPatchParams) WithID(id strfmt.UUID) *WeaviateThingsPatchParams {
+	o.SetID(id)
 	return o
 }
 
-// SetThingID adds the thingId to the weaviate things patch params
-func (o *WeaviateThingsPatchParams) SetThingID(thingID strfmt.UUID) {
-	o.ThingID = thingID
+// SetID adds the id to the weaviate things patch params
+func (o *WeaviateThingsPatchParams) SetID(id strfmt.UUID) {
+	o.ID = id
 }
 
 // WriteToRequest writes these params to a swagger request
@@ -158,8 +158,8 @@ func (o *WeaviateThingsPatchParams) WriteToRequest(r runtime.ClientRequest, reg 
 		}
 	}
 
-	// path param thingId
-	if err := r.SetPathParam("thingId", o.ThingID.String()); err != nil {
+	// path param id
+	if err := r.SetPathParam("id", o.ID.String()); err != nil {
 		return err
 	}
 

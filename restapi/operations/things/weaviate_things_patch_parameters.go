@@ -54,7 +54,7 @@ type WeaviateThingsPatchParams struct {
 	  Required: true
 	  In: path
 	*/
-	ThingID strfmt.UUID
+	ID strfmt.UUID
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -93,8 +93,8 @@ func (o *WeaviateThingsPatchParams) BindRequest(r *http.Request, route *middlewa
 	} else {
 		res = append(res, errors.Required("body", "body"))
 	}
-	rThingID, rhkThingID, _ := route.Params.GetOK("thingId")
-	if err := o.bindThingID(rThingID, rhkThingID, route.Formats); err != nil {
+	rID, rhkID, _ := route.Params.GetOK("id")
+	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -104,8 +104,8 @@ func (o *WeaviateThingsPatchParams) BindRequest(r *http.Request, route *middlewa
 	return nil
 }
 
-// bindThingID binds and validates parameter ThingID from path.
-func (o *WeaviateThingsPatchParams) bindThingID(rawData []string, hasKey bool, formats strfmt.Registry) error {
+// bindID binds and validates parameter ID from path.
+func (o *WeaviateThingsPatchParams) bindID(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
 	if len(rawData) > 0 {
 		raw = rawData[len(rawData)-1]
@@ -117,21 +117,21 @@ func (o *WeaviateThingsPatchParams) bindThingID(rawData []string, hasKey bool, f
 	// Format: uuid
 	value, err := formats.Parse("uuid", raw)
 	if err != nil {
-		return errors.InvalidType("thingId", "path", "strfmt.UUID", raw)
+		return errors.InvalidType("id", "path", "strfmt.UUID", raw)
 	}
-	o.ThingID = *(value.(*strfmt.UUID))
+	o.ID = *(value.(*strfmt.UUID))
 
-	if err := o.validateThingID(formats); err != nil {
+	if err := o.validateID(formats); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-// validateThingID carries on validations for parameter ThingID
-func (o *WeaviateThingsPatchParams) validateThingID(formats strfmt.Registry) error {
+// validateID carries on validations for parameter ID
+func (o *WeaviateThingsPatchParams) validateID(formats strfmt.Registry) error {
 
-	if err := validate.FormatOf("thingId", "path", "uuid", o.ThingID.String(), formats); err != nil {
+	if err := validate.FormatOf("id", "path", "uuid", o.ID.String(), formats); err != nil {
 		return err
 	}
 	return nil

@@ -26,8 +26,8 @@ import (
 
 // WeaviateThingsReferencesUpdateURL generates an URL for the weaviate things references update operation
 type WeaviateThingsReferencesUpdateURL struct {
+	ID           strfmt.UUID
 	PropertyName string
-	ThingID      strfmt.UUID
 
 	_basePath string
 	// avoid unkeyed usage
@@ -53,20 +53,20 @@ func (o *WeaviateThingsReferencesUpdateURL) SetBasePath(bp string) {
 func (o *WeaviateThingsReferencesUpdateURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/things/{thingId}/references/{propertyName}"
+	var _path = "/things/{id}/references/{propertyName}"
+
+	id := o.ID.String()
+	if id != "" {
+		_path = strings.Replace(_path, "{id}", id, -1)
+	} else {
+		return nil, errors.New("ID is required on WeaviateThingsReferencesUpdateURL")
+	}
 
 	propertyName := o.PropertyName
 	if propertyName != "" {
 		_path = strings.Replace(_path, "{propertyName}", propertyName, -1)
 	} else {
 		return nil, errors.New("PropertyName is required on WeaviateThingsReferencesUpdateURL")
-	}
-
-	thingID := o.ThingID.String()
-	if thingID != "" {
-		_path = strings.Replace(_path, "{thingId}", thingID, -1)
-	} else {
-		return nil, errors.New("ThingID is required on WeaviateThingsReferencesUpdateURL")
 	}
 
 	_basePath := o._basePath

@@ -79,7 +79,7 @@ func (a *Client) WeaviateThingsDelete(params *WeaviateThingsDeleteParams, authIn
 	result, err := a.transport.Submit(&runtime.ClientOperation{
 		ID:                 "weaviate.things.delete",
 		Method:             "DELETE",
-		PathPattern:        "/things/{thingId}",
+		PathPattern:        "/things/{id}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -110,7 +110,7 @@ func (a *Client) WeaviateThingsGet(params *WeaviateThingsGetParams, authInfo run
 	result, err := a.transport.Submit(&runtime.ClientOperation{
 		ID:                 "weaviate.things.get",
 		Method:             "GET",
-		PathPattern:        "/things/{thingId}",
+		PathPattern:        "/things/{id}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -172,7 +172,7 @@ func (a *Client) WeaviateThingsPatch(params *WeaviateThingsPatchParams, authInfo
 	result, err := a.transport.Submit(&runtime.ClientOperation{
 		ID:                 "weaviate.things.patch",
 		Method:             "PATCH",
-		PathPattern:        "/things/{thingId}",
+		PathPattern:        "/things/{id}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -203,7 +203,7 @@ func (a *Client) WeaviateThingsReferencesCreate(params *WeaviateThingsReferences
 	result, err := a.transport.Submit(&runtime.ClientOperation{
 		ID:                 "weaviate.things.references.create",
 		Method:             "POST",
-		PathPattern:        "/things/{thingId}/references/{propertyName}",
+		PathPattern:        "/things/{id}/references/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -234,7 +234,7 @@ func (a *Client) WeaviateThingsReferencesDelete(params *WeaviateThingsReferences
 	result, err := a.transport.Submit(&runtime.ClientOperation{
 		ID:                 "weaviate.things.references.delete",
 		Method:             "DELETE",
-		PathPattern:        "/things/{thingId}/references/{propertyName}",
+		PathPattern:        "/things/{id}/references/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -265,7 +265,7 @@ func (a *Client) WeaviateThingsReferencesUpdate(params *WeaviateThingsReferences
 	result, err := a.transport.Submit(&runtime.ClientOperation{
 		ID:                 "weaviate.things.references.update",
 		Method:             "PUT",
-		PathPattern:        "/things/{thingId}/references/{propertyName}",
+		PathPattern:        "/things/{id}/references/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -296,7 +296,7 @@ func (a *Client) WeaviateThingsUpdate(params *WeaviateThingsUpdateParams, authIn
 	result, err := a.transport.Submit(&runtime.ClientOperation{
 		ID:                 "weaviate.things.update",
 		Method:             "PUT",
-		PathPattern:        "/things/{thingId}",
+		PathPattern:        "/things/{id}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},

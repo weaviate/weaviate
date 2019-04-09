@@ -819,7 +819,7 @@ func init() {
                       "@class",
                       "schema",
                       "key",
-                      "thingId",
+                      "id",
                       "creationTimeUnix"
                     ]
                   }
@@ -1957,7 +1957,7 @@ func init() {
         ]
       }
     },
-    "/things/{thingId}": {
+    "/things/{id}": {
       "get": {
         "description": "Returns a particular Thing data.",
         "tags": [
@@ -1970,7 +1970,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Thing.",
-            "name": "thingId",
+            "name": "id",
             "in": "path",
             "required": true
           }
@@ -2016,7 +2016,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Thing.",
-            "name": "thingId",
+            "name": "id",
             "in": "path",
             "required": true
           },
@@ -2076,7 +2076,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Thing.",
-            "name": "thingId",
+            "name": "id",
             "in": "path",
             "required": true
           }
@@ -2119,7 +2119,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Thing.",
-            "name": "thingId",
+            "name": "id",
             "in": "path",
             "required": true
           },
@@ -2175,7 +2175,7 @@ func init() {
         ]
       }
     },
-    "/things/{thingId}/references/{propertyName}": {
+    "/things/{id}/references/{propertyName}": {
       "put": {
         "description": "Replace all references to a class-property.",
         "tags": [
@@ -2188,7 +2188,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Thing.",
-            "name": "thingId",
+            "name": "id",
             "in": "path",
             "required": true
           },
@@ -2249,7 +2249,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Thing.",
-            "name": "thingId",
+            "name": "id",
             "in": "path",
             "required": true
           },
@@ -2310,7 +2310,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Thing.",
-            "name": "thingId",
+            "name": "id",
             "in": "path",
             "required": true
           },
@@ -3103,11 +3103,6 @@ func init() {
                   ]
                 }
               }
-            },
-            "thingId": {
-              "description": "ID of the Thing.",
-              "type": "string",
-              "format": "uuid"
             }
           }
         }
@@ -3995,7 +3990,7 @@ func init() {
                       "@class",
                       "schema",
                       "key",
-                      "thingId",
+                      "id",
                       "creationTimeUnix"
                     ]
                   }
@@ -5141,7 +5136,7 @@ func init() {
         ]
       }
     },
-    "/things/{thingId}": {
+    "/things/{id}": {
       "get": {
         "description": "Returns a particular Thing data.",
         "tags": [
@@ -5154,7 +5149,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Thing.",
-            "name": "thingId",
+            "name": "id",
             "in": "path",
             "required": true
           }
@@ -5200,7 +5195,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Thing.",
-            "name": "thingId",
+            "name": "id",
             "in": "path",
             "required": true
           },
@@ -5260,7 +5255,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Thing.",
-            "name": "thingId",
+            "name": "id",
             "in": "path",
             "required": true
           }
@@ -5303,7 +5298,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Thing.",
-            "name": "thingId",
+            "name": "id",
             "in": "path",
             "required": true
           },
@@ -5359,7 +5354,7 @@ func init() {
         ]
       }
     },
-    "/things/{thingId}/references/{propertyName}": {
+    "/things/{id}/references/{propertyName}": {
       "put": {
         "description": "Replace all references to a class-property.",
         "tags": [
@@ -5372,7 +5367,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Thing.",
-            "name": "thingId",
+            "name": "id",
             "in": "path",
             "required": true
           },
@@ -5433,7 +5428,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Thing.",
-            "name": "thingId",
+            "name": "id",
             "in": "path",
             "required": true
           },
@@ -5494,7 +5489,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Thing.",
-            "name": "thingId",
+            "name": "id",
             "in": "path",
             "required": true
           },
@@ -6287,11 +6282,6 @@ func init() {
                   ]
                 }
               }
-            },
-            "thingId": {
-              "description": "ID of the Thing.",
-              "type": "string",
-              "format": "uuid"
             }
           }
         }
