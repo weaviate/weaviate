@@ -21,7 +21,6 @@ import (
 	"github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/clientv3/concurrency"
 	"github.com/creativesoftwarefdn/weaviate/auth/authentication/oidc"
-	weaviateBroker "github.com/creativesoftwarefdn/weaviate/broker"
 	"github.com/creativesoftwarefdn/weaviate/config"
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
 	"github.com/creativesoftwarefdn/weaviate/database"
@@ -106,10 +105,6 @@ func configureServer(s *http.Server, scheme, addr string) {
 
 	connectToNetwork()
 	messaging.InfoMessage(fmt.Sprintf("connected to network, time left is: %s", timeTillDeadline(ctx)))
-
-	// Connect to MQTT via Broker
-	weaviateBroker.ConnectToMqtt(serverConfig.Config.Broker.Host, serverConfig.Config.Broker.Port)
-	messaging.InfoMessage(fmt.Sprintf("connected to broker, time left is: %s", timeTillDeadline(ctx)))
 
 	// Create the database connector using the config
 	err, dbConnector := dblisting.NewConnector(serverConfig.Config.Database.Name, serverConfig.Config.Database.DatabaseConfig, serverConfig.Config)

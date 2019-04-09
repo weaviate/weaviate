@@ -15,7 +15,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	weaviateBroker "github.com/creativesoftwarefdn/weaviate/broker"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
@@ -459,10 +458,6 @@ func setupActionsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 		responseObject := &models.Action{}
 		responseObject = params.Body
 		responseObject.ID = UUID
-
-		// broadcast to MQTT
-		mqttJson, _ := json.Marshal(responseObject)
-		weaviateBroker.Publish("/actions/"+string(responseObject.ID), string(mqttJson[:]))
 
 		// Register the function call
 		go func() {
