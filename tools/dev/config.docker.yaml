@@ -18,7 +18,3 @@ logging:
   interval: 1
   enabled: true
   url: http://telemetry_mock_api:8087/mock/new
-development:
-  external_instances:
-    - url: http://localhost:8080
-    - url: http://127.0.0.1:8080
