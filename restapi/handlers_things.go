@@ -18,6 +18,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
+	"github.com/creativesoftwarefdn/weaviate/kinds"
 	"github.com/creativesoftwarefdn/weaviate/lib/delayed_unlock"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations"
@@ -28,6 +29,29 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 )
+
+type kindHandlers struct {
+	manager     kinds.Manager
+	requestsLog *telemetry.RequestsLog
+}
+
+func (h *kindHandlers) createThing(params things.WeaviateThingsCreateParams,
+	principal *models.Principal) middleware.Responder {
+	thing, err := h.manager.AddThing(params.HTTPRequest.Context(), params.Body)
+	if err != nil {
+		switch err.(type) {
+		case kinds.ErrInvalidUserInput:
+			return things.NewWeaviateThingsCreateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return things.NewWeaviateThingsCreateInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalAdd)
+	return things.NewWeaviateThingsCreateOK().WithPayload(thing)
+}
 
 func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog) {
 	/*
@@ -617,4 +641,10 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 
 		return things.NewWeaviateThingsValidateOK()
 	})
+}
+
+func (h *kindHandlers) telemetryLogAsync(requestType, identifier string) {
+	go func() {
+		h.requestsLog.Register(requestType, identifier)
+	}()
 }
