@@ -72,16 +72,16 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		dbConnector.AddThing(ctx, thing, UUID)
 		err = refSchemaUpdater.addNetworkDataTypes(params.Body.Schema)
 		if err != nil {
-
-			// Register the function call
-			go func() {
-				requestsLog.Register(telemetry.TypeREST, telemetry.LocalAdd)
-			}()
-
 			return things.NewWeaviateThingsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
 		}
+
+		go func() {
+			requestsLog.Register(telemetry.TypeREST, telemetry.LocalAdd)
+		}()
+
 		return things.NewWeaviateThingsCreateOK().WithPayload(responseObject)
 	})
+
 	api.ThingsWeaviateThingsDeleteHandler = things.WeaviateThingsDeleteHandlerFunc(func(params things.WeaviateThingsDeleteParams, principal *models.Principal) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {

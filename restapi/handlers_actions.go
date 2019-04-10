@@ -533,7 +533,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 		//TODO gh-617: handle errors
 		err = dbConnector.AddAction(ctx, action, UUID)
 		if err != nil {
-			panic(err)
+			return actions.NewWeaviateActionsCreateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 		}
 
 		// Register the function call
