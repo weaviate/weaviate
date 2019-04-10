@@ -331,7 +331,7 @@ func (j *Janusgraph) getClasses(k kind.Kind, className *schema.ClassName, first 
 	return classes, nil
 }
 
-func (j *Janusgraph) listClass(k kind.Kind, className *schema.ClassName, first int, offset int, filter *common_filters.LocalFilter, yield func(id strfmt.UUID)) error {
+func (j *Janusgraph) listClass(k kind.Kind, className *schema.ClassName, limit int, filter *common_filters.LocalFilter, yield func(id strfmt.UUID)) error {
 
 	q := gremlin.G.V().
 		HasString(PROP_KIND, k.Name())
@@ -349,7 +349,7 @@ func (j *Janusgraph) listClass(k kind.Kind, className *schema.ClassName, first i
 	q = q.Raw(filterQuery)
 
 	q = q.
-		Range(offset, first).
+		Limit(limit).
 		Values([]string{PROP_UUID})
 
 	result, err := j.client.Execute(q)

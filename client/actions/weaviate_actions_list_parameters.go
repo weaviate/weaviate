@@ -72,16 +72,11 @@ for the weaviate actions list operation typically these are written to a http.Re
 */
 type WeaviateActionsListParams struct {
 
-	/*MaxResults
+	/*Limit
 	  The maximum number of items to be returned per page. Default value is set in Weaviate config.
 
 	*/
-	MaxResults *int64
-	/*Page
-	  The page number of the items to be returned.
-
-	*/
-	Page *int64
+	Limit *int64
 
 	timeout    time.Duration
 	Context    context.Context
@@ -121,26 +116,15 @@ func (o *WeaviateActionsListParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
-// WithMaxResults adds the maxResults to the weaviate actions list params
-func (o *WeaviateActionsListParams) WithMaxResults(maxResults *int64) *WeaviateActionsListParams {
-	o.SetMaxResults(maxResults)
+// WithLimit adds the limit to the weaviate actions list params
+func (o *WeaviateActionsListParams) WithLimit(limit *int64) *WeaviateActionsListParams {
+	o.SetLimit(limit)
 	return o
 }
 
-// SetMaxResults adds the maxResults to the weaviate actions list params
-func (o *WeaviateActionsListParams) SetMaxResults(maxResults *int64) {
-	o.MaxResults = maxResults
-}
-
-// WithPage adds the page to the weaviate actions list params
-func (o *WeaviateActionsListParams) WithPage(page *int64) *WeaviateActionsListParams {
-	o.SetPage(page)
-	return o
-}
-
-// SetPage adds the page to the weaviate actions list params
-func (o *WeaviateActionsListParams) SetPage(page *int64) {
-	o.Page = page
+// SetLimit adds the limit to the weaviate actions list params
+func (o *WeaviateActionsListParams) SetLimit(limit *int64) {
+	o.Limit = limit
 }
 
 // WriteToRequest writes these params to a swagger request
@@ -151,32 +135,16 @@ func (o *WeaviateActionsListParams) WriteToRequest(r runtime.ClientRequest, reg 
 	}
 	var res []error
 
-	if o.MaxResults != nil {
+	if o.Limit != nil {
 
-		// query param maxResults
-		var qrMaxResults int64
-		if o.MaxResults != nil {
-			qrMaxResults = *o.MaxResults
+		// query param limit
+		var qrLimit int64
+		if o.Limit != nil {
+			qrLimit = *o.Limit
 		}
-		qMaxResults := swag.FormatInt64(qrMaxResults)
-		if qMaxResults != "" {
-			if err := r.SetQueryParam("maxResults", qMaxResults); err != nil {
-				return err
-			}
-		}
-
-	}
-
-	if o.Page != nil {
-
-		// query param page
-		var qrPage int64
-		if o.Page != nil {
-			qrPage = *o.Page
-		}
-		qPage := swag.FormatInt64(qrPage)
-		if qPage != "" {
-			if err := r.SetQueryParam("page", qPage); err != nil {
+		qLimit := swag.FormatInt64(qrLimit)
+		if qLimit != "" {
+			if err := r.SetQueryParam("limit", qLimit); err != nil {
 				return err
 			}
 		}

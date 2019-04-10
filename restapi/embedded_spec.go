@@ -61,10 +61,7 @@ func init() {
         "operationId": "weaviate.actions.list",
         "parameters": [
           {
-            "$ref": "#/parameters/CommonMaxResultsParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonPageParameterQuery"
+            "$ref": "#/parameters/CommonLimitParameterQuery"
           }
         ],
         "responses": {
@@ -1766,10 +1763,7 @@ func init() {
         "operationId": "weaviate.things.list",
         "parameters": [
           {
-            "$ref": "#/parameters/CommonMaxResultsParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonPageParameterQuery"
+            "$ref": "#/parameters/CommonLimitParameterQuery"
           }
         ],
         "responses": {
@@ -2957,18 +2951,11 @@ func init() {
     }
   },
   "parameters": {
-    "CommonMaxResultsParameterQuery": {
+    "CommonLimitParameterQuery": {
       "type": "integer",
       "format": "int64",
       "description": "The maximum number of items to be returned per page. Default value is set in Weaviate config.",
-      "name": "maxResults",
-      "in": "query"
-    },
-    "CommonPageParameterQuery": {
-      "type": "integer",
-      "format": "int64",
-      "description": "The page number of the items to be returned.",
-      "name": "page",
+      "name": "limit",
       "in": "query"
     }
   },
@@ -3056,14 +3043,7 @@ func init() {
             "type": "integer",
             "format": "int64",
             "description": "The maximum number of items to be returned per page. Default value is set in Weaviate config.",
-            "name": "maxResults",
-            "in": "query"
-          },
-          {
-            "type": "integer",
-            "format": "int64",
-            "description": "The page number of the items to be returned.",
-            "name": "page",
+            "name": "limit",
             "in": "query"
           }
         ],
@@ -4769,14 +4749,7 @@ func init() {
             "type": "integer",
             "format": "int64",
             "description": "The maximum number of items to be returned per page. Default value is set in Weaviate config.",
-            "name": "maxResults",
-            "in": "query"
-          },
-          {
-            "type": "integer",
-            "format": "int64",
-            "description": "The page number of the items to be returned.",
-            "name": "page",
+            "name": "limit",
             "in": "query"
           }
         ],
@@ -5965,18 +5938,11 @@ func init() {
     }
   },
   "parameters": {
-    "CommonMaxResultsParameterQuery": {
+    "CommonLimitParameterQuery": {
       "type": "integer",
       "format": "int64",
       "description": "The maximum number of items to be returned per page. Default value is set in Weaviate config.",
-      "name": "maxResults",
-      "in": "query"
-    },
-    "CommonPageParameterQuery": {
-      "type": "integer",
-      "format": "int64",
-      "description": "The page number of the items to be returned.",
-      "name": "page",
+      "name": "limit",
       "in": "query"
     }
   },
