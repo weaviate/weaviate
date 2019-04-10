@@ -56,7 +56,7 @@ func (j *Janusgraph) LocalGetClass(params *get.Params) (interface{}, error) {
 }
 
 func (j *Janusgraph) doLocalGetClass(params *get.Params) ([]interface{}, error) {
-	q, err := jget.NewQuery(*params, &j.state, &j.schema).String()
+	q, err := jget.NewQuery(*params, &j.state, &j.schema, j.appConfig.QueryDefaults).String()
 	if err != nil {
 		return nil, fmt.Errorf("could not build query: %s", err)
 	}

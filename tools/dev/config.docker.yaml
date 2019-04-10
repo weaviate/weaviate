@@ -12,7 +12,8 @@ network:
   genesis_url: http://genesis_fake:8090
   public_url: http://localhost:8080
   peer_name: bestWeaviate
-limit: 100
+query_defaults:
+  limit: 100
 debug: true
 logging:
   interval: 1
