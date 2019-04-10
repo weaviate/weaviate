@@ -46,12 +46,17 @@ type Config struct {
 	AnalyticsEngine      AnalyticsEngine `json:"analytics_engine" yaml:"analytics_engine"`
 	Database             Database        `json:"database" yaml:"database"`
 	Network              *Network        `json:"network" yaml:"network"`
-	Limit                int64           `json:"limit" yaml:"limit"`
 	Debug                bool            `json:"debug" yaml:"debug"`
+	QueryDefaults        QueryDefaults   `json:"query_defaults" yaml:"query_defaults"`
 	Contextionary        Contextionary   `json:"contextionary" yaml:"contextionary"`
 	ConfigurationStorage ConfigStore     `json:"configuration_storage" yaml:"configuration_storage"`
 	Authentication       Authentication  `json:"authentication" yaml:"authentication"`
 	Logging              Logging         `json:"logging" yaml:"logging"`
+}
+
+// QueryDefaults for optional parameters
+type QueryDefaults struct {
+	Limit int64 `json:"limit" yaml:"limit"`
 }
 
 type Contextionary struct {

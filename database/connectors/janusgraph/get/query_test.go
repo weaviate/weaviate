@@ -47,6 +47,23 @@ func Test_QueryBuilder(t *testing.T) {
 			`,
 		},
 		{
+			name: "without an explicit limit specified",
+			inputParams: get.Params{
+				ClassName: "City",
+				Properties: []get.SelectProperty{
+					get.SelectProperty{
+						IsPrimitive: true,
+						Name:        "name",
+					},
+				},
+				Kind: kind.THING_KIND,
+			},
+			expectedQuery: `
+			g.V().has("kind", "thing").hasLabel("class_18")
+				.limit(20).path().by(valueMap())
+			`,
+		},
+		{
 			name: "with a Thing.City with a single primitive prop 'name' and a where filter",
 			inputParams: get.Params{
 				ClassName: "City",

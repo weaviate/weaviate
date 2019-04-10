@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/filters"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/state"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
@@ -32,6 +33,7 @@ type Query struct {
 	params     get.Params
 	nameSource nameSource
 	typeSource typeSource
+	defaults   config.QueryDefaults
 }
 
 var isNetworkRef *regexp.Regexp
@@ -41,11 +43,12 @@ func init() {
 }
 
 // NewQuery is the preferred way to create a query
-func NewQuery(p get.Params, ns nameSource, ts typeSource) *Query {
+func NewQuery(p get.Params, ns nameSource, ts typeSource, d config.QueryDefaults) *Query {
 	return &Query{
 		params:     p,
 		nameSource: ns,
 		typeSource: ts,
+		defaults:   d,
 	}
 }
 
@@ -69,7 +72,7 @@ func (b *Query) String() (string, error) {
 	var filterQuery string
 	var refPropQueries string
 	var err error
-	var limit = 20
+	var limit = int(b.defaults.Limit)
 
 	if b.params.Pagination != nil {
 		limit = b.params.Pagination.Limit

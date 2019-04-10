@@ -17,6 +17,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/state"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
@@ -213,7 +214,7 @@ type testCases []testCase
 func (tests testCases) AssertQuery(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			query, err := NewQuery(test.inputParams, &fakeNameSource{}, &fakeTypeSource{}).String()
+			query, err := NewQuery(test.inputParams, &fakeNameSource{}, &fakeTypeSource{}, config.QueryDefaults{Limit: 20}).String()
 			require.Equal(t, test.expectedErr, err, "should match expected error")
 			assert.Equal(t, breakOnDot(stripAll(test.expectedQuery)), breakOnDot(stripAll(query)), "should match the query")
 		})

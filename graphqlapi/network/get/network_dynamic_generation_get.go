@@ -65,12 +65,8 @@ func actionClassField(class *models.SemanticSchemaClass, getActionsAndThings *ma
 		Type:        graphql.NewList(actionClassPropertyFieldsObj),
 		Description: class.Description,
 		Args: graphql.FieldConfigArgument{
-			"first": &graphql.ArgumentConfig{
+			"limit": &graphql.ArgumentConfig{
 				Description: descriptions.First,
-				Type:        graphql.Int,
-			},
-			"after": &graphql.ArgumentConfig{
-				Description: descriptions.After,
 				Type:        graphql.Int,
 			},
 			"where": &graphql.ArgumentConfig{
