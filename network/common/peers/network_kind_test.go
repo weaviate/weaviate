@@ -67,7 +67,7 @@ func TestGetKindHappyPathWithThings(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		body := models.Thing{
-			ID:      "best-uuid",
+			ID:    "best-uuid",
 			Class: "Instrument",
 		}
 		json.NewEncoder(w).Encode(body)
@@ -123,7 +123,7 @@ func TestGetKindHappyPathWithActions(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		body := models.Action{
-			ID:      "best-uuid-2",
+			ID:    "best-uuid-2",
 			Class: "Recital",
 		}
 		json.NewEncoder(w).Encode(body)
@@ -179,7 +179,7 @@ func TestGetKindSchemaMismatch(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		body := models.Action{
-			ID:      "best-uuid-2",
+			ID:    "best-uuid-2",
 			Class: "Recital",
 		}
 		json.NewEncoder(w).Encode(body)

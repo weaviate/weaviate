@@ -34,8 +34,8 @@ type NetworkRef struct {
 // particular reference field is a local ref and does not require further
 // resolving, as opposed to a NetworkRef.
 type LocalRef struct {
-	Class string
-	Fields  map[string]interface{}
+	Class  string
+	Fields map[string]interface{}
 }
 
 func buildReferenceField(propertyType schema.PropertyDataType,
