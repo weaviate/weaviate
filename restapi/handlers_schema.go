@@ -200,7 +200,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 			Actions: dbSchema.Actions,
 			Things:  dbSchema.Things,
 		}
-		// TODO: validate this serviceID
+
 		// Register the function call
 		go func() {
 			requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulateMeta)
