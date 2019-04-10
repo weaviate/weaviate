@@ -24,9 +24,8 @@ import (
 func assertCreateThing(t *testing.T, className string, schema map[string]interface{}) strfmt.UUID {
 	params := things.NewWeaviateThingsCreateParams().WithBody(
 		&models.Thing{
-			AtContext: "http://example.org",
-			AtClass:   className,
-			Schema:    schema,
+			Class:  className,
+			Schema: schema,
 		})
 
 	resp, err := helper.Client(t).Things.WeaviateThingsCreate(params, nil)

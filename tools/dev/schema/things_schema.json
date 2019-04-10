@@ -1,5 +1,4 @@
 {
-    "@context": "",
     "version": "0.0.1",
     "type": "thing",
     "name": "weaviate demo things schema",

@@ -182,17 +182,15 @@ var graphQLGetResponse = `{
 }`
 
 var restThingHappyPathResponse = fmt.Sprintf(`{
-  "@class": "Instruments",
+  "class": "Instruments",
 	"schema": {
 		"name": "Talkbox"
 	},
-  "@context": "string",
   "thingId": "%s"
 }`, thingID)
 
 var schemaResponse = `{
   "actions": {
-    "@context": "",
     "version": "0.0.1",
     "type": "action",
     "name": "weaviate demo actions schema",
@@ -200,7 +198,6 @@ var schemaResponse = `{
     "classes": []
   },
   "things": {
-    "@context": "",
     "version": "0.0.1",
     "type": "thing",
     "name": "weaviate demo things schema",

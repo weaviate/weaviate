@@ -77,7 +77,7 @@ will be returned normally; the values of fields that are not named in this
 parameter will be returned as `null`. This parameter defaults to `"ALL"`. The
 options are as follows:
 + `"ALL"`
-+ `"@class"`
++ `"class"`
 + `"schema"`
 + `"creationTimeUnix"`
 + `"key"`

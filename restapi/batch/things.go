@@ -128,11 +128,10 @@ func (r *thingsRequest) validateThing(wg *sync.WaitGroup, thingCreate *models.Th
 
 	// Create Thing object
 	thing := &models.Thing{}
-	thing.AtContext = thingCreate.AtContext
 	thing.LastUpdateTimeUnix = 0
 
-	if _, ok := fieldsToKeep["@class"]; ok {
-		thing.AtClass = thingCreate.AtClass
+	if _, ok := fieldsToKeep["class"]; ok {
+		thing.Class = thingCreate.Class
 	}
 	if _, ok := fieldsToKeep["schema"]; ok {
 		thing.Schema = thingCreate.Schema

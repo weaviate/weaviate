@@ -148,7 +148,7 @@ var weaviateBatchingActionsCreateBodyFieldsItemsEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["ALL","@class","schema","key","id","creationTimeUnix"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["ALL","class","schema","id","creationTimeUnix"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {

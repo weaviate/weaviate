@@ -27,8 +27,8 @@ import (
 )
 
 func (j *Janusgraph) AddThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error {
-	sanitizedClassName := schema.AssertValidClassName(thing.AtClass)
-	return j.addClass(kind.THING_KIND, sanitizedClassName, UUID, thing.AtContext, thing.CreationTimeUnix, thing.LastUpdateTimeUnix, thing.Schema)
+	sanitizedClassName := schema.AssertValidClassName(thing.Class)
+	return j.addClass(kind.THING_KIND, sanitizedClassName, UUID, thing.CreationTimeUnix, thing.LastUpdateTimeUnix, thing.Schema)
 }
 
 func (j *Janusgraph) AddThingsBatch(ctx context.Context, things batchmodels.Things) error {
@@ -37,8 +37,7 @@ func (j *Janusgraph) AddThingsBatch(ctx context.Context, things batchmodels.Thin
 
 func (j *Janusgraph) GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.Thing) error {
 	return j.getClass(kind.THING_KIND, UUID,
-		&thingResponse.AtClass,
-		&thingResponse.AtContext,
+		&thingResponse.Class,
 		&thingResponse.ID,
 		&thingResponse.CreationTimeUnix,
 		&thingResponse.LastUpdateTimeUnix,
@@ -84,8 +83,8 @@ func (j *Janusgraph) ListThings(ctx context.Context, first int, offset int, wher
 }
 
 func (j *Janusgraph) UpdateThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error {
-	sanitizedClassName := schema.AssertValidClassName(thing.AtClass)
-	return j.updateClass(kind.THING_KIND, sanitizedClassName, UUID, thing.AtContext, thing.LastUpdateTimeUnix, thing.Schema)
+	sanitizedClassName := schema.AssertValidClassName(thing.Class)
+	return j.updateClass(kind.THING_KIND, sanitizedClassName, UUID, thing.LastUpdateTimeUnix, thing.Schema)
 }
 
 func (j *Janusgraph) DeleteThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error {

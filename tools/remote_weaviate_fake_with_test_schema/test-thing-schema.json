@@ -1,5 +1,4 @@
 {
-    "@context": "http://example.org",
     "type": "thing",
     "version": "1.0.0",
     "name": "example.org - Thing Test",

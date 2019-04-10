@@ -19,7 +19,7 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-func (j *Janusgraph) addClass(k kind.Kind, className schema.ClassName, UUID strfmt.UUID, atContext string, creationTimeUnix int64, lastUpdateTimeUnix int64, rawProperties interface{}) error {
+func (j *Janusgraph) addClass(k kind.Kind, className schema.ClassName, UUID strfmt.UUID, creationTimeUnix int64, lastUpdateTimeUnix int64, rawProperties interface{}) error {
 	vertexLabel := j.state.MustGetMappedClassName(className)
 	sourceClassAlias := "classToBeAdded"
 
@@ -28,7 +28,6 @@ func (j *Janusgraph) addClass(k kind.Kind, className schema.ClassName, UUID strf
 		StringProperty(PROP_KIND, k.Name()).
 		StringProperty(PROP_UUID, UUID.String()).
 		StringProperty(PROP_CLASS_ID, string(vertexLabel)).
-		StringProperty(PROP_AT_CONTEXT, atContext).
 		Int64Property(PROP_CREATION_TIME_UNIX, creationTimeUnix).
 		Int64Property(PROP_LAST_UPDATE_TIME_UNIX, lastUpdateTimeUnix)
 
@@ -87,7 +86,7 @@ func (j *Janusgraph) addThingsBatch(things batchmodels.Things) error {
 			}
 
 			q = q.Raw("\n")
-			className := schema.AssertValidClassName(thing.Thing.AtClass)
+			className := schema.AssertValidClassName(thing.Thing.Class)
 			vertexLabel := j.state.MustGetMappedClassName(className)
 			sourceClassAlias := "classToBeAdded"
 
@@ -96,7 +95,6 @@ func (j *Janusgraph) addThingsBatch(things batchmodels.Things) error {
 				StringProperty(PROP_KIND, k.Name()).
 				StringProperty(PROP_UUID, thing.UUID.String()).
 				StringProperty(PROP_CLASS_ID, string(vertexLabel)).
-				StringProperty(PROP_AT_CONTEXT, thing.Thing.AtContext).
 				Int64Property(PROP_CREATION_TIME_UNIX, thing.Thing.CreationTimeUnix).
 				Int64Property(PROP_LAST_UPDATE_TIME_UNIX, thing.Thing.LastUpdateTimeUnix)
 
@@ -164,7 +162,7 @@ func (j *Janusgraph) addActionsBatch(actions batchmodels.Actions) error {
 			}
 
 			q = q.Raw("\n")
-			className := schema.AssertValidClassName(action.Action.AtClass)
+			className := schema.AssertValidClassName(action.Action.Class)
 			vertexLabel := j.state.MustGetMappedClassName(className)
 			sourceClassAlias := "classToBeAdded"
 
@@ -173,7 +171,6 @@ func (j *Janusgraph) addActionsBatch(actions batchmodels.Actions) error {
 				StringProperty(PROP_KIND, k.Name()).
 				StringProperty(PROP_UUID, action.UUID.String()).
 				StringProperty(PROP_CLASS_ID, string(vertexLabel)).
-				StringProperty(PROP_AT_CONTEXT, action.Action.AtContext).
 				Int64Property(PROP_CREATION_TIME_UNIX, action.Action.CreationTimeUnix).
 				Int64Property(PROP_LAST_UPDATE_TIME_UNIX, action.Action.LastUpdateTimeUnix)
 

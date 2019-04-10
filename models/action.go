@@ -28,10 +28,7 @@ import (
 type Action struct {
 
 	// Type of the Action, defined in the schema.
-	AtClass string `json:"@class,omitempty"`
-
-	// Available context schema.
-	AtContext string `json:"@context,omitempty"`
+	Class string `json:"class,omitempty"`
 
 	// Timestamp of creation of this Action in milliseconds since epoch UTC.
 	CreationTimeUnix int64 `json:"creationTimeUnix,omitempty"`

@@ -28,10 +28,7 @@ import (
 type Thing struct {
 
 	// Class of the Thing, defined in the schema.
-	AtClass string `json:"@class,omitempty"`
-
-	// Available context schema.
-	AtContext string `json:"@context,omitempty"`
+	Class string `json:"class,omitempty"`
 
 	// Timestamp of creation of this Thing in milliseconds since epoch UTC.
 	CreationTimeUnix int64 `json:"creationTimeUnix,omitempty"`
@@ -39,9 +36,6 @@ type Thing struct {
 	// ID of the Thing.
 	// Format: uuid
 	ID strfmt.UUID `json:"id,omitempty"`
-
-	// key
-	Key *SingleRef `json:"key,omitempty"`
 
 	// Timestamp of the last Thing update in milliseconds since epoch UTC.
 	LastUpdateTimeUnix int64 `json:"lastUpdateTimeUnix,omitempty"`
@@ -55,10 +49,6 @@ func (m *Thing) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateID(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateKey(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -76,24 +66,6 @@ func (m *Thing) validateID(formats strfmt.Registry) error {
 
 	if err := validate.FormatOf("id", "body", "uuid", m.ID.String(), formats); err != nil {
 		return err
-	}
-
-	return nil
-}
-
-func (m *Thing) validateKey(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.Key) { // not required
-		return nil
-	}
-
-	if m.Key != nil {
-		if err := m.Key.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("key")
-			}
-			return err
-		}
 	}
 
 	return nil

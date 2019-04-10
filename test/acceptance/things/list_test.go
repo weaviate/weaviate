@@ -31,9 +31,8 @@ func TestListAll(t *testing.T) {
 
 	params1 := things.NewWeaviateThingsCreateParams().WithBody(
 		&models.Thing{
-			AtContext: "http://example.org",
-			AtClass:   "TestThing",
-			Schema:    map[string]interface{}{},
+			Class:  "TestThing",
+			Schema: map[string]interface{}{},
 		})
 	resp1, err := helper.Client(t).Things.WeaviateThingsCreate(params1, nil)
 	assert.Nil(t, err, "creation should succeed")
@@ -41,9 +40,8 @@ func TestListAll(t *testing.T) {
 
 	params2 := things.NewWeaviateThingsCreateParams().WithBody(
 		&models.Thing{
-			AtContext: "http://example.org",
-			AtClass:   "TestThing",
-			Schema:    map[string]interface{}{},
+			Class:  "TestThing",
+			Schema: map[string]interface{}{},
 		})
 	resp2, err := helper.Client(t).Things.WeaviateThingsCreate(params2, nil)
 	assert.Nil(t, err, "creation should succeed")

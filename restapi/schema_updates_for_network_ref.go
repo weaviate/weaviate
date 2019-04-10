@@ -106,14 +106,14 @@ func (u *referenceSchemaUpdater) updateSchema(remoteKind interface{}, peerName s
 	propName string) error {
 	switch thingOrAction := remoteKind.(type) {
 	case *models.Thing:
-		remoteClass := fmt.Sprintf("%s/%s", peerName, thingOrAction.AtClass)
+		remoteClass := fmt.Sprintf("%s/%s", peerName, thingOrAction.Class)
 		err := u.schemaManager.UpdatePropertyAddDataType(u.ctx, u.kind, u.fromClass, propName, remoteClass)
 		if err != nil {
 			return fmt.Errorf("could not add network thing class %s to %s.%s: %s",
 				remoteClass, u.fromClass, propName, err)
 		}
 	case models.Action:
-		remoteClass := fmt.Sprintf("%s/%s", peerName, thingOrAction.AtClass)
+		remoteClass := fmt.Sprintf("%s/%s", peerName, thingOrAction.Class)
 		err := u.schemaManager.UpdatePropertyAddDataType(u.ctx, u.kind, u.fromClass, propName, remoteClass)
 		if err != nil {
 			return fmt.Errorf("could not add network action class %s to %s.%s: %s",

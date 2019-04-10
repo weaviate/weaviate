@@ -79,13 +79,11 @@ var schemaTests = []struct {
 func testUpdateMeta(t *testing.T, lsm database.SchemaManager) {
 	t.Parallel()
 
-	assert.Equal(t, lsm.GetSchema().Things.AtContext, strfmt.URI(""))
 	assert.Equal(t, lsm.GetSchema().Things.Maintainer, strfmt.Email(""))
 	assert.Equal(t, lsm.GetSchema().Things.Name, "")
 
 	assert.Nil(t, lsm.UpdateMeta(context.TODO(), kind.THING_KIND, "http://new/context", "person@example.org", "somename"))
 
-	assert.Equal(t, lsm.GetSchema().Things.AtContext, strfmt.URI("http://new/context"))
 	assert.Equal(t, lsm.GetSchema().Things.Maintainer, strfmt.Email("person@example.org"))
 	assert.Equal(t, lsm.GetSchema().Things.Name, "somename")
 }

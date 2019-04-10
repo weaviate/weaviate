@@ -48,7 +48,7 @@ type kindClass struct {
 	lastUpdateTimeUnix int64
 }
 
-func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *string, atContext *string, foundUUID *strfmt.UUID, creationTimeUnix *int64, lastUpdateTimeUnix *int64, properties *models.Schema) error {
+func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *string, foundUUID *strfmt.UUID, creationTimeUnix *int64, lastUpdateTimeUnix *int64, properties *models.Schema) error {
 	// Fetch the class, it's key, and it's relations.
 	q := gremlin.G.V().
 		HasString(PROP_KIND, k.Name()).
@@ -95,10 +95,6 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 
 	if atClass != nil {
 		*atClass = className.String()
-	}
-
-	if atContext != nil {
-		*atContext = vertex.AssertPropertyValue(PROP_AT_CONTEXT).AssertString()
 	}
 
 	if creationTimeUnix != nil {
