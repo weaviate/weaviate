@@ -18,10 +18,7 @@ package schema
 import (
 	"net/http"
 
-	errors "github.com/go-openapi/errors"
 	middleware "github.com/go-openapi/runtime/middleware"
-	strfmt "github.com/go-openapi/strfmt"
-	swag "github.com/go-openapi/swag"
 
 	models "github.com/creativesoftwarefdn/weaviate/models"
 )
@@ -83,63 +80,4 @@ func (o *WeaviateSchemaThingsUpdate) ServeHTTP(rw http.ResponseWriter, r *http.R
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 
-}
-
-// WeaviateSchemaThingsUpdateBody weaviate schema things update body
-// swagger:model WeaviateSchemaThingsUpdateBody
-type WeaviateSchemaThingsUpdateBody struct {
-
-	// keywords
-	Keywords models.SemanticSchemaKeywords `json:"keywords,omitempty"`
-
-	// The new name of the Thing.
-	NewName string `json:"newName,omitempty"`
-}
-
-// Validate validates this weaviate schema things update body
-func (o *WeaviateSchemaThingsUpdateBody) Validate(formats strfmt.Registry) error {
-	var res []error
-
-	if err := o.validateKeywords(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
-	return nil
-}
-
-func (o *WeaviateSchemaThingsUpdateBody) validateKeywords(formats strfmt.Registry) error {
-
-	if swag.IsZero(o.Keywords) { // not required
-		return nil
-	}
-
-	if err := o.Keywords.Validate(formats); err != nil {
-		if ve, ok := err.(*errors.Validation); ok {
-			return ve.ValidateName("body" + "." + "keywords")
-		}
-		return err
-	}
-
-	return nil
-}
-
-// MarshalBinary interface implementation
-func (o *WeaviateSchemaThingsUpdateBody) MarshalBinary() ([]byte, error) {
-	if o == nil {
-		return nil, nil
-	}
-	return swag.WriteJSON(o)
-}
-
-// UnmarshalBinary interface implementation
-func (o *WeaviateSchemaThingsUpdateBody) UnmarshalBinary(b []byte) error {
-	var res WeaviateSchemaThingsUpdateBody
-	if err := swag.ReadJSON(b, &res); err != nil {
-		return err
-	}
-	*o = res
-	return nil
 }

@@ -1209,16 +1209,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "keywords": {
-                  "$ref": "#/definitions/SemanticSchemaKeywords"
-                },
-                "newName": {
-                  "description": "The new name of the Action.",
-                  "type": "string"
-                }
-              }
+              "$ref": "#/definitions/SemanticSchemaClass"
             }
           }
         ],
@@ -1367,16 +1358,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "keywords": {
-                  "$ref": "#/definitions/SemanticSchemaKeywords"
-                },
-                "newName": {
-                  "description": "The new name of the property.",
-                  "type": "string"
-                }
-              }
+              "$ref": "#/definitions/SemanticSchemaClassProperty"
             }
           }
         ],
@@ -1511,18 +1493,8 @@ func init() {
           {
             "name": "body",
             "in": "body",
-            "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "keywords": {
-                  "$ref": "#/definitions/SemanticSchemaKeywords"
-                },
-                "newName": {
-                  "description": "The new name of the Thing.",
-                  "type": "string"
-                }
-              }
+              "$ref": "#/definitions/SemanticSchemaClass"
             }
           }
         ],
@@ -1671,16 +1643,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "keywords": {
-                  "$ref": "#/definitions/SemanticSchemaKeywords"
-                },
-                "newName": {
-                  "description": "The new name of the property.",
-                  "type": "string"
-                }
-              }
+              "$ref": "#/definitions/SemanticSchemaClassProperty"
             }
           }
         ],
@@ -4192,16 +4155,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "keywords": {
-                  "$ref": "#/definitions/SemanticSchemaKeywords"
-                },
-                "newName": {
-                  "description": "The new name of the Action.",
-                  "type": "string"
-                }
-              }
+              "$ref": "#/definitions/SemanticSchemaClass"
             }
           }
         ],
@@ -4350,16 +4304,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "keywords": {
-                  "$ref": "#/definitions/SemanticSchemaKeywords"
-                },
-                "newName": {
-                  "description": "The new name of the property.",
-                  "type": "string"
-                }
-              }
+              "$ref": "#/definitions/SemanticSchemaClassProperty"
             }
           }
         ],
@@ -4494,18 +4439,8 @@ func init() {
           {
             "name": "body",
             "in": "body",
-            "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "keywords": {
-                  "$ref": "#/definitions/SemanticSchemaKeywords"
-                },
-                "newName": {
-                  "description": "The new name of the Thing.",
-                  "type": "string"
-                }
-              }
+              "$ref": "#/definitions/SemanticSchemaClass"
             }
           }
         ],
@@ -4654,16 +4589,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "keywords": {
-                  "$ref": "#/definitions/SemanticSchemaKeywords"
-                },
-                "newName": {
-                  "description": "The new name of the property.",
-                  "type": "string"
-                }
-              }
+              "$ref": "#/definitions/SemanticSchemaClassProperty"
             }
           }
         ],

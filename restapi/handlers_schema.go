@@ -128,8 +128,9 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		var newName *string
 		var newKeywords *models.SemanticSchemaKeywords
 
-		if params.Body.NewName != "" {
-			newName = &params.Body.NewName
+		if params.Body.Name != params.PropertyName {
+			// the name in the URI and body don't match, so we assume the user wants to rename
+			newName = &params.Body.Name
 		}
 
 		// TODO gh-619: This implies that we can't undo setting keywords, because we can't detect if keywords is not present, or empty.
@@ -164,8 +165,9 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		var newName *string
 		var newKeywords *models.SemanticSchemaKeywords
 
-		if params.Body.NewName != "" {
-			newName = &params.Body.NewName
+		if params.Body.Class != params.ClassName {
+			// the name in the URI and body don't match, so we assume the user wants to rename
+			newName = &params.Body.Class
 		}
 
 		// TODO gh-619: This implies that we can't undo setting keywords, because we can't detect if keywords is not present, or empty.
@@ -307,8 +309,9 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		var newName *string
 		var newKeywords *models.SemanticSchemaKeywords
 
-		if params.Body.NewName != "" {
-			newName = &params.Body.NewName
+		if params.Body.Name != params.PropertyName {
+			// the name in the URI and body don't match, so we assume the user wants to rename
+			newName = &params.Body.Name
 		}
 
 		// TODO gh-619: This implies that we can't undo setting keywords, because we can't detect if keywords is not present, or empty.
@@ -342,8 +345,9 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		var newName *string
 		var newKeywords *models.SemanticSchemaKeywords
 
-		if params.Body.NewName != "" {
-			newName = &params.Body.NewName
+		if params.Body.Class != params.ClassName {
+			// the name in the URI and body don't match, so we assume the user wants to rename
+			newName = &params.Body.Class
 		}
 
 		// TODO gh-619: This implies that we can't undo setting keywords, because we can't detect if keywords is not present, or empty.

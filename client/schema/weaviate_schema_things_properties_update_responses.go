@@ -19,9 +19,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
-	"github.com/go-openapi/swag"
 
 	strfmt "github.com/go-openapi/strfmt"
 
@@ -195,65 +193,5 @@ func (o *WeaviateSchemaThingsPropertiesUpdateInternalServerError) readResponse(r
 		return err
 	}
 
-	return nil
-}
-
-/*WeaviateSchemaThingsPropertiesUpdateBody weaviate schema things properties update body
-swagger:model WeaviateSchemaThingsPropertiesUpdateBody
-*/
-type WeaviateSchemaThingsPropertiesUpdateBody struct {
-
-	// keywords
-	Keywords models.SemanticSchemaKeywords `json:"keywords,omitempty"`
-
-	// The new name of the property.
-	NewName string `json:"newName,omitempty"`
-}
-
-// Validate validates this weaviate schema things properties update body
-func (o *WeaviateSchemaThingsPropertiesUpdateBody) Validate(formats strfmt.Registry) error {
-	var res []error
-
-	if err := o.validateKeywords(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
-	return nil
-}
-
-func (o *WeaviateSchemaThingsPropertiesUpdateBody) validateKeywords(formats strfmt.Registry) error {
-
-	if swag.IsZero(o.Keywords) { // not required
-		return nil
-	}
-
-	if err := o.Keywords.Validate(formats); err != nil {
-		if ve, ok := err.(*errors.Validation); ok {
-			return ve.ValidateName("body" + "." + "keywords")
-		}
-		return err
-	}
-
-	return nil
-}
-
-// MarshalBinary interface implementation
-func (o *WeaviateSchemaThingsPropertiesUpdateBody) MarshalBinary() ([]byte, error) {
-	if o == nil {
-		return nil, nil
-	}
-	return swag.WriteJSON(o)
-}
-
-// UnmarshalBinary interface implementation
-func (o *WeaviateSchemaThingsPropertiesUpdateBody) UnmarshalBinary(b []byte) error {
-	var res WeaviateSchemaThingsPropertiesUpdateBody
-	if err := swag.ReadJSON(b, &res); err != nil {
-		return err
-	}
-	*o = res
 	return nil
 }
