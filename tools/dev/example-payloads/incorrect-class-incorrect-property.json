@@ -1,0 +1,6 @@
+{
+  "@dataType": ["@()@#$@#"],
+  "cardinality": "atMostOne",
+  "description": "Some description",
+  "name": "anotherProperty"
+}

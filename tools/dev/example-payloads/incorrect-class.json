@@ -1,0 +1,36 @@
+{
+  "class": "IncorrectAnimal",
+  "description": "An animal with incorrect fields",
+  "keywords": [
+    {
+      "keyword": "alive",
+      "weight": 0.8
+    }
+  ],
+  "properties": [
+    {
+      "@dataType": ["string"],
+      "cardinality": "atMostOne",
+      "description": "The name of the animal",
+      "keywords": [
+        {
+          "keyword": "label",
+          "weight": 0.5
+        }
+      ],
+      "name": "name"
+    },
+    {
+      "@dataType": ["Peer/Schnitzel"],
+      "cardinality": "atMostOne",
+      "description": "Some description",
+      "name": "ofAnimal"
+    },
+    {
+      "@dataType": ["text"],
+      "cardinality": "atMostOne",
+      "description": "Some description",
+      "name": "description"
+    }
+  ]
+}
