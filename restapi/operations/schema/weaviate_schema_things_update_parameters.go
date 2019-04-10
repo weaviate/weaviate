@@ -16,7 +16,6 @@ package schema
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	"io"
 	"net/http"
 
 	"github.com/go-openapi/errors"
@@ -24,6 +23,8 @@ import (
 	"github.com/go-openapi/runtime/middleware"
 
 	strfmt "github.com/go-openapi/strfmt"
+
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // NewWeaviateSchemaThingsUpdateParams creates a new WeaviateSchemaThingsUpdateParams object
@@ -43,10 +44,9 @@ type WeaviateSchemaThingsUpdateParams struct {
 	HTTPRequest *http.Request `json:"-"`
 
 	/*
-	  Required: true
 	  In: body
 	*/
-	Body WeaviateSchemaThingsUpdateBody
+	Body *models.SemanticSchemaClass
 	/*
 	  Required: true
 	  In: path
@@ -65,13 +65,9 @@ func (o *WeaviateSchemaThingsUpdateParams) BindRequest(r *http.Request, route *m
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body WeaviateSchemaThingsUpdateBody
+		var body models.SemanticSchemaClass
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
-			if err == io.EOF {
-				res = append(res, errors.Required("body", "body"))
-			} else {
-				res = append(res, errors.NewParseError("body", "body", "", err))
-			}
+			res = append(res, errors.NewParseError("body", "body", "", err))
 		} else {
 			// validate body object
 			if err := body.Validate(route.Formats); err != nil {
@@ -79,11 +75,9 @@ func (o *WeaviateSchemaThingsUpdateParams) BindRequest(r *http.Request, route *m
 			}
 
 			if len(res) == 0 {
-				o.Body = body
+				o.Body = &body
 			}
 		}
-	} else {
-		res = append(res, errors.Required("body", "body"))
 	}
 	rClassName, rhkClassName, _ := route.Params.GetOK("className")
 	if err := o.bindClassName(rClassName, rhkClassName, route.Formats); err != nil {

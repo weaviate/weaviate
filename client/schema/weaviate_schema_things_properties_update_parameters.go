@@ -25,6 +25,8 @@ import (
 	cr "github.com/go-openapi/runtime/client"
 
 	strfmt "github.com/go-openapi/strfmt"
+
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // NewWeaviateSchemaThingsPropertiesUpdateParams creates a new WeaviateSchemaThingsPropertiesUpdateParams object
@@ -72,7 +74,7 @@ for the weaviate schema things properties update operation typically these are w
 type WeaviateSchemaThingsPropertiesUpdateParams struct {
 
 	/*Body*/
-	Body WeaviateSchemaThingsPropertiesUpdateBody
+	Body *models.SemanticSchemaClassProperty
 	/*ClassName*/
 	ClassName string
 	/*PropertyName*/
@@ -117,13 +119,13 @@ func (o *WeaviateSchemaThingsPropertiesUpdateParams) SetHTTPClient(client *http.
 }
 
 // WithBody adds the body to the weaviate schema things properties update params
-func (o *WeaviateSchemaThingsPropertiesUpdateParams) WithBody(body WeaviateSchemaThingsPropertiesUpdateBody) *WeaviateSchemaThingsPropertiesUpdateParams {
+func (o *WeaviateSchemaThingsPropertiesUpdateParams) WithBody(body *models.SemanticSchemaClassProperty) *WeaviateSchemaThingsPropertiesUpdateParams {
 	o.SetBody(body)
 	return o
 }
 
 // SetBody adds the body to the weaviate schema things properties update params
-func (o *WeaviateSchemaThingsPropertiesUpdateParams) SetBody(body WeaviateSchemaThingsPropertiesUpdateBody) {
+func (o *WeaviateSchemaThingsPropertiesUpdateParams) SetBody(body *models.SemanticSchemaClassProperty) {
 	o.Body = body
 }
 
@@ -157,8 +159,10 @@ func (o *WeaviateSchemaThingsPropertiesUpdateParams) WriteToRequest(r runtime.Cl
 	}
 	var res []error
 
-	if err := r.SetBodyParam(o.Body); err != nil {
-		return err
+	if o.Body != nil {
+		if err := r.SetBodyParam(o.Body); err != nil {
+			return err
+		}
 	}
 
 	// path param className
