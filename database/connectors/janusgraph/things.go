@@ -65,11 +65,11 @@ func (j *Janusgraph) GetThings(ctx context.Context, UUIDs []strfmt.UUID, respons
 	return nil
 }
 
-func (j *Janusgraph) ListThings(ctx context.Context, first int, offset int, wheres []*connutils.WhereQuery, response *models.ThingsListResponse) error {
+func (j *Janusgraph) ListThings(ctx context.Context, limit int, wheres []*connutils.WhereQuery, response *models.ThingsListResponse) error {
 	response.TotalResults = 0
 	response.Things = make([]*models.Thing, 0)
 
-	return j.listClass(kind.THING_KIND, nil, first, offset, nil, func(uuid strfmt.UUID) {
+	return j.listClass(kind.THING_KIND, nil, limit, nil, func(uuid strfmt.UUID) {
 		var thing_response models.Thing
 		err := j.GetThing(ctx, uuid, &thing_response)
 

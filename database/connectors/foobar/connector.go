@@ -265,7 +265,7 @@ func (f *Foobar) GetThings(ctx context.Context, UUIDs []strfmt.UUID, thingRespon
 
 // ListThings fills the given ThingsListResponse with the values from the
 // database, based on the given parameters.
-func (f *Foobar) ListThings(ctx context.Context, first int, offset int, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error {
+func (f *Foobar) ListThings(ctx context.Context, limit int, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error {
 
 	// thingsResponse should be populated with the response that comes from the DB.
 	// thingsResponse = based on the ontology
@@ -340,7 +340,7 @@ func (f *Foobar) GetActions(ctx context.Context, UUIDs []strfmt.UUID, actionsRes
 }
 
 // ListActions fills the ActionReponse  with a list of all actions
-func (f *Foobar) ListActions(ctx context.Context, first int, offset int, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error {
+func (f *Foobar) ListActions(ctx context.Context, limit int, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error {
 	// If success return nil, otherwise return the error
 	return nil
 }

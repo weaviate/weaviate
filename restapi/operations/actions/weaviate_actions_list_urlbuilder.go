@@ -25,8 +25,7 @@ import (
 
 // WeaviateActionsListURL generates an URL for the weaviate actions list operation
 type WeaviateActionsListURL struct {
-	MaxResults *int64
-	Page       *int64
+	Limit *int64
 
 	_basePath string
 	// avoid unkeyed usage
@@ -62,20 +61,12 @@ func (o *WeaviateActionsListURL) Build() (*url.URL, error) {
 
 	qs := make(url.Values)
 
-	var maxResults string
-	if o.MaxResults != nil {
-		maxResults = swag.FormatInt64(*o.MaxResults)
+	var limit string
+	if o.Limit != nil {
+		limit = swag.FormatInt64(*o.Limit)
 	}
-	if maxResults != "" {
-		qs.Set("maxResults", maxResults)
-	}
-
-	var page string
-	if o.Page != nil {
-		page = swag.FormatInt64(*o.Page)
-	}
-	if page != "" {
-		qs.Set("page", page)
+	if limit != "" {
+		qs.Set("limit", limit)
 	}
 
 	_result.RawQuery = qs.Encode()

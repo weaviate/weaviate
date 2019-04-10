@@ -593,8 +593,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 		dbConnector := dbLock.Connector()
 
 		// Get limit and page
-		limit := getLimit(params.MaxResults)
-		page := getPage(params.Page)
+		limit := getLimit(params.Limit)
 
 		// Initialize response
 		actionsResponse := models.ActionsListResponse{}
@@ -602,7 +601,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 
 		// List all results
 		ctx := params.HTTPRequest.Context()
-		err = dbConnector.ListActions(ctx, limit, (page-1)*limit, []*connutils.WhereQuery{}, &actionsResponse)
+		err = dbConnector.ListActions(ctx, limit, []*connutils.WhereQuery{}, &actionsResponse)
 		if err != nil {
 			return actions.NewWeaviateActionsListInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 		}

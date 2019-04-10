@@ -641,19 +641,11 @@
     "version": "0.12.71"
   },
   "parameters": {
-    "CommonMaxResultsParameterQuery": {
+    "CommonLimitParameterQuery": {
       "description": "The maximum number of items to be returned per page. Default value is set in Weaviate config.",
       "format": "int64",
       "in": "query",
-      "name": "maxResults",
-      "required": false,
-      "type": "integer"
-    },
-    "CommonPageParameterQuery": {
-      "description": "The page number of the items to be returned.",
-      "format": "int64",
-      "in": "query",
-      "name": "page",
+      "name": "limit",
       "required": false,
       "type": "integer"
     }
@@ -666,10 +658,7 @@
         "x-serviceIds": ["weaviate.local.query"],
         "parameters": [
           {
-            "$ref": "#/parameters/CommonMaxResultsParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonPageParameterQuery"
+            "$ref": "#/parameters/CommonLimitParameterQuery"
           }
         ],
         "responses": {
@@ -2145,10 +2134,7 @@
         "x-serviceIds": ["weaviate.local.query"],
         "parameters": [
           {
-            "$ref": "#/parameters/CommonMaxResultsParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonPageParameterQuery"
+            "$ref": "#/parameters/CommonLimitParameterQuery"
           }
         ],
         "responses": {

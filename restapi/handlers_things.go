@@ -161,8 +161,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		dbConnector := dbLock.Connector()
 
 		// Get limit and page
-		limit := getLimit(params.MaxResults)
-		page := getPage(params.Page)
+		limit := getLimit(params.Limit)
 
 		// Initialize response
 		thingsResponse := models.ThingsListResponse{}
@@ -170,7 +169,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 
 		// List all results
 		ctx := params.HTTPRequest.Context()
-		err = dbConnector.ListThings(ctx, limit, (page-1)*limit, []*connutils.WhereQuery{}, &thingsResponse)
+		err = dbConnector.ListThings(ctx, limit, []*connutils.WhereQuery{}, &thingsResponse)
 		if err != nil {
 			return things.NewWeaviateThingsListInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 		}
