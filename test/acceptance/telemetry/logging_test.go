@@ -78,8 +78,7 @@ func sendCreateActionRequest(t *testing.T) {
 
 	params := actions.NewWeaviateActionsCreateParams().WithBody(
 		&models.Action{
-			AtContext: "http://example.org",
-			AtClass:   "TestAction",
+			Class: "TestAction",
 			Schema: map[string]interface{}{
 				"testString":   actionTestString,
 				"testInt":      actionTestInt,

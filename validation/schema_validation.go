@@ -49,10 +49,10 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSc
 	var isp interface{}
 	var className string
 	if refType == connutils.RefTypeAction {
-		className = object.(*models.Action).AtClass
+		className = object.(*models.Action).Class
 		isp = object.(*models.Action).Schema
 	} else if refType == connutils.RefTypeThing {
-		className = object.(*models.Thing).AtClass
+		className = object.(*models.Thing).Class
 		isp = object.(*models.Thing).Schema
 	} else {
 		return fmt.Errorf(schema.ErrorInvalidRefType)

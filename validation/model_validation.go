@@ -64,7 +64,7 @@ const (
 func ValidateThingBody(ctx context.Context, thing *models.Thing, databaseSchema schema.WeaviateSchema,
 	dbConnector dbconnector.DatabaseConnector, network network.Network, serverConfig *config.WeaviateConfig) error {
 	// Validate the body
-	bve := validateBody(thing.AtClass, thing.AtContext)
+	bve := validateBody(thing.Class)
 
 	// Return error if possible
 	if bve != nil {
@@ -83,7 +83,7 @@ func ValidateActionBody(ctx context.Context, action *models.Action, databaseSche
 	dbConnector dbconnector.DatabaseConnector, network network.Network, serverConfig *config.WeaviateConfig,
 ) error {
 	// Validate the body
-	bve := validateBody(action.AtClass, action.AtContext)
+	bve := validateBody(action.Class)
 
 	// Return error if possible
 	if bve != nil {
@@ -98,15 +98,10 @@ func ValidateActionBody(ctx context.Context, action *models.Action, databaseSche
 }
 
 // validateBody Validates the overlapping body values
-func validateBody(class string, context string) error {
+func validateBody(class string) error {
 	// If the given class is empty, return an error
 	if class == "" {
 		return fmt.Errorf(ErrorMissingClass)
-	}
-
-	// If the given context is empty, return an error
-	if context == "" {
-		return fmt.Errorf(ErrorMissingContext)
 	}
 
 	// No error

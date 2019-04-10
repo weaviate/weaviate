@@ -118,7 +118,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 			return actions.NewWeaviateActionsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
 
-		err = newReferenceSchemaUpdater(ctx, schemaLock.SchemaManager(), network, action.AtClass, kind.ACTION_KIND).
+		err = newReferenceSchemaUpdater(ctx, schemaLock.SchemaManager(), network, action.Class, kind.ACTION_KIND).
 			addNetworkDataTypes(action.Schema)
 		if err != nil {
 			return actions.NewWeaviateActionsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
@@ -164,7 +164,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 		dbSchema := dbLock.GetSchema()
 
 		// Find property and see if it has a max cardinality of >1
-		err, prop := dbSchema.GetProperty(kind.ACTION_KIND, schema.AssertValidClassName(class.AtClass), schema.AssertValidPropertyName(params.PropertyName))
+		err, prop := dbSchema.GetProperty(kind.ACTION_KIND, schema.AssertValidClassName(class.Class), schema.AssertValidPropertyName(params.PropertyName))
 		if err != nil {
 			return actions.NewWeaviateActionsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find property '%s'; %s", params.PropertyName, err.Error())))
@@ -261,7 +261,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 		dbSchema := dbLock.GetSchema()
 
 		// Find property and see if it has a max cardinality of >1
-		err, prop := dbSchema.GetProperty(kind.ACTION_KIND, schema.AssertValidClassName(class.AtClass), schema.AssertValidPropertyName(params.PropertyName))
+		err, prop := dbSchema.GetProperty(kind.ACTION_KIND, schema.AssertValidClassName(class.Class), schema.AssertValidPropertyName(params.PropertyName))
 		if err != nil {
 			return actions.NewWeaviateActionsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find property '%s'; %s", params.PropertyName, err.Error())))
@@ -358,7 +358,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 		dbSchema := dbLock.GetSchema()
 
 		// Find property and see if it has a max cardinality of >1
-		err, prop := dbSchema.GetProperty(kind.ACTION_KIND, schema.AssertValidClassName(class.AtClass), schema.AssertValidPropertyName(params.PropertyName))
+		err, prop := dbSchema.GetProperty(kind.ACTION_KIND, schema.AssertValidClassName(class.Class), schema.AssertValidPropertyName(params.PropertyName))
 		if err != nil {
 			return actions.NewWeaviateActionsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find property '%s'; %s", params.PropertyName, err.Error())))
@@ -512,7 +512,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 		}
 
 		ctx := params.HTTPRequest.Context()
-		err = newReferenceSchemaUpdater(ctx, schemaLock.SchemaManager(), network, params.Body.AtClass, kind.ACTION_KIND).
+		err = newReferenceSchemaUpdater(ctx, schemaLock.SchemaManager(), network, params.Body.Class, kind.ACTION_KIND).
 			addNetworkDataTypes(params.Body.Schema)
 		if err != nil {
 			return actions.NewWeaviateActionsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
@@ -520,8 +520,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 
 		// Make Action-Object
 		action := &models.Action{}
-		action.AtClass = params.Body.AtClass
-		action.AtContext = params.Body.AtContext
+		action.Class = params.Body.Class
 		action.Schema = params.Body.Schema
 		action.CreationTimeUnix = connutils.NowUnix()
 		action.LastUpdateTimeUnix = 0

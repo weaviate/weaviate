@@ -36,15 +36,13 @@ func TestBatchThingsCreateResultsOrder(t *testing.T) {
 
 	// generate actioncreate content
 	thing1 := &models.Thing{
-		AtContext: "http://example.org",
-		AtClass:   classOneName,
+		Class: classOneName,
 		Schema: map[string]interface{}{
 			"testString": "Test string",
 		},
 	}
 	thing2 := &models.Thing{
-		AtContext: "http://example.org",
-		AtClass:   classTwoName,
+		Class: classTwoName,
 		Schema: map[string]interface{}{
 			"testInt": 1,
 		},

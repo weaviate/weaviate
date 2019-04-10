@@ -77,9 +77,8 @@ func createActions() {
 		}
 
 		t := models.Action{
-			AtContext: "http://example.org",
-			AtClass:   className,
-			Schema:    properties,
+			Class:  className,
+			Schema: properties,
 		}
 
 		action := assertCreateAction(&t)

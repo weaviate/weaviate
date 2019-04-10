@@ -128,11 +128,10 @@ func (r *actionsRequest) validateAction(wg *sync.WaitGroup, actionCreate *models
 
 	// Create Action object
 	action := &models.Action{}
-	action.AtContext = actionCreate.AtContext
 	action.LastUpdateTimeUnix = 0
 
-	if _, ok := fieldsToKeep["@class"]; ok {
-		action.AtClass = actionCreate.AtClass
+	if _, ok := fieldsToKeep["class"]; ok {
+		action.Class = actionCreate.Class
 	}
 	if _, ok := fieldsToKeep["schema"]; ok {
 		action.Schema = actionCreate.Schema

@@ -43,8 +43,7 @@ func TestCreateThingWorks(t *testing.T) {
 
 	params := things.NewWeaviateThingsCreateParams().WithBody(
 		&models.Thing{
-			AtContext: "http://example.org",
-			AtClass:   "TestThing",
+			Class: "TestThing",
 			Schema: map[string]interface{}{
 				"testString":   thingTestString,
 				"testInt":      thingTestInt,
@@ -119,7 +118,6 @@ var invalidThingTestCases = []struct {
 		mistake: "missing the class",
 		thing: func() *models.Thing {
 			return &models.Thing{
-				AtContext: "http://example.org",
 				Schema: map[string]interface{}{
 					"testString": "test",
 				},
@@ -130,25 +128,10 @@ var invalidThingTestCases = []struct {
 		},
 	},
 	{
-		mistake: "missing the context",
-		thing: func() *models.Thing {
-			return &models.Thing{
-				AtClass: "TestThing",
-				Schema: map[string]interface{}{
-					"testString": "test",
-				},
-			}
-		},
-		errorCheck: func(t *testing.T, err *models.ErrorResponse) {
-			assert.Equal(t, validation.ErrorMissingContext, err.Error[0].Message)
-		},
-	},
-	{
 		mistake: "non existing class",
 		thing: func() *models.Thing {
 			return &models.Thing{
-				AtClass:   "NonExistingClass",
-				AtContext: "http://example.org",
+				Class: "NonExistingClass",
 				Schema: map[string]interface{}{
 					"testString": "test",
 				},
@@ -162,8 +145,7 @@ var invalidThingTestCases = []struct {
 		mistake: "non existing property",
 		thing: func() *models.Thing {
 			return &models.Thing{
-				AtClass:   "TestThing",
-				AtContext: "http://example.org",
+				Class: "TestThing",
 				Schema: map[string]interface{}{
 					"nonExistingProperty": "test",
 				},
@@ -198,8 +180,7 @@ var invalidThingTestCases = []struct {
 		mistake: "invalid cref, property missing locationUrl",
 		thing: func() *models.Thing {
 			return &models.Thing{
-				AtClass:   "TestThing",
-				AtContext: "http://example.org",
+				Class: "TestThing",
 				Schema: map[string]interface{}{
 					"testCref": map[string]interface{}{
 						"$cref": fakeThingId,
@@ -217,8 +198,7 @@ var invalidThingTestCases = []struct {
 		mistake: "invalid property; assign int to string",
 		thing: func() *models.Thing {
 			return &models.Thing{
-				AtClass:   "TestThing",
-				AtContext: "http://example.org",
+				Class: "TestThing",
 				Schema: map[string]interface{}{
 					"testString": 2,
 				},

@@ -58,10 +58,10 @@ func (p Peers) getRemoteThingOrAction(kind crossrefs.NetworkKind,
 				"could not get remote kind: could not GET things from peer: %s", err)
 		}
 
-		_, err = p.HasClass(crossrefs.NetworkClass{ClassName: ok.Payload.AtClass, PeerName: kind.PeerName})
+		_, err = p.HasClass(crossrefs.NetworkClass{ClassName: ok.Payload.Class, PeerName: kind.PeerName})
 		if err != nil {
 			return result, fmt.Errorf(
-				"schema mismatch: class of remote kind (%s) is not in the cached remote schema", ok.Payload.AtClass)
+				"schema mismatch: class of remote kind (%s) is not in the cached remote schema", ok.Payload.Class)
 		}
 
 		return ok.Payload, nil
@@ -75,10 +75,10 @@ func (p Peers) getRemoteThingOrAction(kind crossrefs.NetworkKind,
 				"could not get remote kind: could not GET things from peer: %s", err)
 		}
 
-		_, err = p.HasClass(crossrefs.NetworkClass{ClassName: ok.Payload.AtClass, PeerName: kind.PeerName})
+		_, err = p.HasClass(crossrefs.NetworkClass{ClassName: ok.Payload.Class, PeerName: kind.PeerName})
 		if err != nil {
 			return result, fmt.Errorf(
-				"schema mismatch: class of remote kind (%s) is not in the cached remote schema", ok.Payload.AtClass)
+				"schema mismatch: class of remote kind (%s) is not in the cached remote schema", ok.Payload.Class)
 		}
 
 		return ok.Payload, nil

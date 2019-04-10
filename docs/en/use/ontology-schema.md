@@ -161,8 +161,7 @@ In the [RESTful API](./RESTful.md) this will be shown as:
 ```json
 {
     "thing": {
-        "@class": "SomeClass",
-        "@context": "http://context.org",
+        "class": "SomeClass",
         "schema": {
             "name": "SomeOtherClass",
             "someProperty": {

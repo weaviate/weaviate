@@ -628,9 +628,8 @@ func init() {
                     "default": "ALL",
                     "enum": [
                       "ALL",
-                      "@class",
+                      "class",
                       "schema",
-                      "key",
                       "id",
                       "creationTimeUnix"
                     ]
@@ -760,9 +759,8 @@ func init() {
                     "default": "ALL",
                     "enum": [
                       "ALL",
-                      "@class",
+                      "class",
                       "schema",
-                      "key",
                       "id",
                       "creationTimeUnix"
                     ]
@@ -2309,12 +2307,8 @@ func init() {
     "Action": {
       "type": "object",
       "properties": {
-        "@class": {
+        "class": {
           "description": "Type of the Action, defined in the schema.",
-          "type": "string"
-        },
-        "@context": {
-          "description": "Available context schema.",
           "type": "string"
         },
         "creationTimeUnix": {
@@ -2780,11 +2774,6 @@ func init() {
       "description": "Definitions of semantic schemas (also see: https://github.com/creativesoftwarefdn/weaviate-semantic-schemas).",
       "type": "object",
       "properties": {
-        "@context": {
-          "description": "URL of the context.",
-          "type": "string",
-          "format": "uri"
-        },
         "classes": {
           "description": "Semantic classes that are available.",
           "type": "array",
@@ -2894,12 +2883,8 @@ func init() {
     "Thing": {
       "type": "object",
       "properties": {
-        "@class": {
+        "class": {
           "description": "Class of the Thing, defined in the schema.",
-          "type": "string"
-        },
-        "@context": {
-          "description": "Available context schema.",
           "type": "string"
         },
         "creationTimeUnix": {
@@ -2911,9 +2896,6 @@ func init() {
           "description": "ID of the Thing.",
           "type": "string",
           "format": "uuid"
-        },
-        "key": {
-          "$ref": "#/definitions/SingleRef"
         },
         "lastUpdateTimeUnix": {
           "description": "Timestamp of the last Thing update in milliseconds since epoch UTC.",
@@ -3646,9 +3628,8 @@ func init() {
                     "default": "ALL",
                     "enum": [
                       "ALL",
-                      "@class",
+                      "class",
                       "schema",
-                      "key",
                       "id",
                       "creationTimeUnix"
                     ]
@@ -3778,9 +3759,8 @@ func init() {
                     "default": "ALL",
                     "enum": [
                       "ALL",
-                      "@class",
+                      "class",
                       "schema",
-                      "key",
                       "id",
                       "creationTimeUnix"
                     ]
@@ -5335,12 +5315,8 @@ func init() {
     "Action": {
       "type": "object",
       "properties": {
-        "@class": {
+        "class": {
           "description": "Type of the Action, defined in the schema.",
-          "type": "string"
-        },
-        "@context": {
-          "description": "Available context schema.",
           "type": "string"
         },
         "creationTimeUnix": {
@@ -5806,11 +5782,6 @@ func init() {
       "description": "Definitions of semantic schemas (also see: https://github.com/creativesoftwarefdn/weaviate-semantic-schemas).",
       "type": "object",
       "properties": {
-        "@context": {
-          "description": "URL of the context.",
-          "type": "string",
-          "format": "uri"
-        },
         "classes": {
           "description": "Semantic classes that are available.",
           "type": "array",
@@ -5920,12 +5891,8 @@ func init() {
     "Thing": {
       "type": "object",
       "properties": {
-        "@class": {
+        "class": {
           "description": "Class of the Thing, defined in the schema.",
-          "type": "string"
-        },
-        "@context": {
-          "description": "Available context schema.",
           "type": "string"
         },
         "creationTimeUnix": {
@@ -5937,9 +5904,6 @@ func init() {
           "description": "ID of the Thing.",
           "type": "string",
           "format": "uuid"
-        },
-        "key": {
-          "$ref": "#/definitions/SingleRef"
         },
         "lastUpdateTimeUnix": {
           "description": "Timestamp of the last Thing update in milliseconds since epoch UTC.",

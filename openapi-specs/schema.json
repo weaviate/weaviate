@@ -19,12 +19,8 @@
     },
     "Action": {
       "properties": {
-        "@class": {
+        "class": {
           "description": "Type of the Action, defined in the schema.",
-          "type": "string"
-        },
-        "@context": {
-          "description": "Available context schema.",
           "type": "string"
         },
         "schema": {
@@ -401,11 +397,6 @@
     "SemanticSchema": {
       "description": "Definitions of semantic schemas (also see: https://github.com/creativesoftwarefdn/weaviate-semantic-schemas).",
       "properties": {
-        "@context": {
-          "description": "URL of the context.",
-          "format": "uri",
-          "type": "string"
-        },
         "classes": {
           "description": "Semantic classes that are available.",
           "items": {
@@ -566,12 +557,8 @@
     },
     "Thing": {
       "properties": {
-        "@class": {
+        "class": {
           "description": "Class of the Thing, defined in the schema.",
-          "type": "string"
-        },
-        "@context": {
-          "description": "Available context schema.",
           "type": "string"
         },
         "schema": {
@@ -586,9 +573,6 @@
           "description": "Timestamp of creation of this Thing in milliseconds since epoch UTC.",
           "format": "int64",
           "type": "integer"
-        },
-        "key": {
-          "$ref": "#/definitions/SingleRef"
         },
         "lastUpdateTimeUnix": {
           "description": "Timestamp of the last Thing update in milliseconds since epoch UTC.",
@@ -1200,14 +1184,7 @@
                   "items": {
                     "type": "string",
                     "default": "ALL",
-                    "enum": [
-                      "ALL",
-                      "@class",
-                      "schema",
-                      "key",
-                      "id",
-                      "creationTimeUnix"
-                    ]
+                    "enum": ["ALL", "class", "schema", "id", "creationTimeUnix"]
                   }
                 },
                 "things": {
@@ -1274,14 +1251,7 @@
                   "items": {
                     "type": "string",
                     "default": "ALL",
-                    "enum": [
-                      "ALL",
-                      "@class",
-                      "schema",
-                      "key",
-                      "id",
-                      "creationTimeUnix"
-                    ]
+                    "enum": ["ALL", "class", "schema", "id", "creationTimeUnix"]
                   }
                 },
                 "actions": {

@@ -277,14 +277,14 @@ func (j *Janusgraph) singleLocalRef(ref *crossref.Ref, propType schema.PropertyD
 		if err != nil {
 			return result, fmt.Errorf("Illegal value for property %s; could not resolve action with UUID: %v", ref.TargetID.String(), err)
 		}
-		refClassName = schema.AssertValidClassName(singleRefValue.AtClass)
+		refClassName = schema.AssertValidClassName(singleRefValue.Class)
 	case kind.THING_KIND:
 		var singleRefValue models.Thing
 		err := j.GetThing(nil, ref.TargetID, &singleRefValue)
 		if err != nil {
 			return result, fmt.Errorf("Illegal value for property %s; could not resolve thing with UUID: %v", ref.TargetID.String(), err)
 		}
-		refClassName = schema.AssertValidClassName(singleRefValue.AtClass)
+		refClassName = schema.AssertValidClassName(singleRefValue.Class)
 	}
 
 	// Verify the cross reference

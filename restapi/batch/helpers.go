@@ -19,7 +19,7 @@ import (
 
 // determine which field values not to return
 func determineResponseFields(fields []*string, isThingsCreate bool) map[string]int {
-	fieldsToKeep := map[string]int{"@class": 0, "schema": 0, "creationtimeunix": 0, "key": 0, "actionid": 0}
+	fieldsToKeep := map[string]int{"class": 0, "schema": 0, "creationtimeunix": 0, "key": 0, "actionid": 0}
 
 	// convert to things instead of actions
 	if isThingsCreate {

@@ -89,9 +89,8 @@ func createThings() {
 		}
 
 		t := models.Thing{
-			AtContext: "http://example.org",
-			AtClass:   className,
-			Schema:    properties,
+			Class:  className,
+			Schema: properties,
 		}
 
 		thing := assertCreateThing(&t)

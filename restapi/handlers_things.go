@@ -57,8 +57,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		// Make Thing-Object
 		thing := &models.Thing{}
 		thing.Schema = params.Body.Schema
-		thing.AtClass = params.Body.AtClass
-		thing.AtContext = params.Body.AtContext
+		thing.Class = params.Body.Class
 		thing.CreationTimeUnix = connutils.NowUnix()
 		thing.LastUpdateTimeUnix = 0
 		thing.ID = UUID
@@ -67,7 +66,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		responseObject = thing
 
 		ctx := params.HTTPRequest.Context()
-		refSchemaUpdater := newReferenceSchemaUpdater(ctx, schemaLock.SchemaManager(), network, params.Body.AtClass, kind.THING_KIND)
+		refSchemaUpdater := newReferenceSchemaUpdater(ctx, schemaLock.SchemaManager(), network, params.Body.Class, kind.THING_KIND)
 
 		dbConnector.AddThing(ctx, thing, UUID)
 		err = refSchemaUpdater.addNetworkDataTypes(params.Body.Schema)
@@ -244,7 +243,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		}
 
 		ctx := params.HTTPRequest.Context()
-		err = newReferenceSchemaUpdater(ctx, schemaLock.SchemaManager(), network, thing.AtClass, kind.THING_KIND).
+		err = newReferenceSchemaUpdater(ctx, schemaLock.SchemaManager(), network, thing.Class, kind.THING_KIND).
 			addNetworkDataTypes(thing.Schema)
 		if err != nil {
 			return things.NewWeaviateThingsPatchUnprocessableEntity().WithPayload(
@@ -294,7 +293,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		dbSchema := dbLock.GetSchema()
 
 		// Find property and see if it has a max cardinality of >1
-		err, prop := dbSchema.GetProperty(kind.THING_KIND, schema.AssertValidClassName(class.AtClass), schema.AssertValidPropertyName(params.PropertyName))
+		err, prop := dbSchema.GetProperty(kind.THING_KIND, schema.AssertValidClassName(class.Class), schema.AssertValidPropertyName(params.PropertyName))
 		if err != nil {
 			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find property '%s'; %s", params.PropertyName, err.Error())))
@@ -391,7 +390,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		dbSchema := dbLock.GetSchema()
 
 		// Find property and see if it has a max cardinality of >1
-		err, prop := dbSchema.GetProperty(kind.THING_KIND, schema.AssertValidClassName(class.AtClass), schema.AssertValidPropertyName(params.PropertyName))
+		err, prop := dbSchema.GetProperty(kind.THING_KIND, schema.AssertValidClassName(class.Class), schema.AssertValidPropertyName(params.PropertyName))
 		if err != nil {
 			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find property '%s'; %s", params.PropertyName, err.Error())))
@@ -488,7 +487,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		dbSchema := dbLock.GetSchema()
 
 		// Find property and see if it has a max cardinality of >1
-		err, prop := dbSchema.GetProperty(kind.THING_KIND, schema.AssertValidClassName(class.AtClass), schema.AssertValidPropertyName(params.PropertyName))
+		err, prop := dbSchema.GetProperty(kind.THING_KIND, schema.AssertValidClassName(class.Class), schema.AssertValidPropertyName(params.PropertyName))
 		if err != nil {
 			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find property '%s'; %s", params.PropertyName, err.Error())))
@@ -578,7 +577,6 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		// Update the database
 		params.Body.LastUpdateTimeUnix = connutils.NowUnix()
 		params.Body.CreationTimeUnix = thingGetResponse.CreationTimeUnix
-		params.Body.Key = thingGetResponse.Key
 		delayedLock.IncSteps()
 		go func() {
 			delayedLock.Unlock()

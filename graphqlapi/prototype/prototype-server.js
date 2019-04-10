@@ -1994,8 +1994,7 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
     // instance will be validated
     app.get('/weaviate/v1/things/0bac326d-b17f-49fd-91ba-d5f1d528c34f', (req, res) => {
       res.send({
-        "@class": "Country",
-        "@context": "http://example.com",
+        "class": "Country",
         thingId: "0bac326d-b17f-49fd-91ba-d5f1d528c34f",
         schema: {
           name: "USA",

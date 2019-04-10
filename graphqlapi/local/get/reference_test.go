@@ -35,7 +35,7 @@ func TestLocalGetWithNetworkRefResolvesCorrectly(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		body := models.Thing{
 			ID:      "best-id",
-			AtClass: "SomeRemoteClass",
+			Class: "SomeRemoteClass",
 			Schema: map[string]interface{}{
 				"bestString": "someValue",
 			},

@@ -191,7 +191,7 @@ var happyPathHandler = func(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	body := models.Thing{
 		ID:      "best-reference",
-		AtClass: "BestThing",
+		Class: "BestThing",
 	}
 	json.NewEncoder(w).Encode(body)
 }
