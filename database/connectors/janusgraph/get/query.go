@@ -69,12 +69,10 @@ func (b *Query) String() (string, error) {
 	var filterQuery string
 	var refPropQueries string
 	var err error
-	var first = 100
-	var offset = 0
+	var limit = 20
 
 	if b.params.Pagination != nil {
-		first = b.params.Pagination.First
-		offset = b.params.Pagination.After
+		limit = b.params.Pagination.Limit
 	}
 
 	if b.params.Filters != nil {
@@ -92,7 +90,7 @@ func (b *Query) String() (string, error) {
 		HasLabel(string(b.nameSource.MustGetMappedClassName(schema.ClassName(b.params.ClassName)))).
 		Raw(filterQuery).
 		Raw(refPropQueries).
-		Range(offset, first).
+		Limit(limit).
 		Path().
 		ByQuery(gremlin.New().Raw("valueMap()"))
 

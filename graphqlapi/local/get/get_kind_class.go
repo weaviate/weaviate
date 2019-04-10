@@ -182,12 +182,8 @@ func buildGetClassField(classObject *graphql.Object, k kind.Kind,
 		Type:        graphql.NewList(classObject),
 		Description: class.Description,
 		Args: graphql.FieldConfigArgument{
-			"first": &graphql.ArgumentConfig{
+			"limit": &graphql.ArgumentConfig{
 				Description: descriptions.First,
-				Type:        graphql.Int,
-			},
-			"after": &graphql.ArgumentConfig{
-				Description: descriptions.After,
 				Type:        graphql.Int,
 			},
 			"where": &graphql.ArgumentConfig{

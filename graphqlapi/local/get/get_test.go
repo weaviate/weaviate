@@ -99,15 +99,14 @@ func TestExtractPagination(t *testing.T) {
 		ClassName:  "SomeAction",
 		Properties: []SelectProperty{{Name: "intField", IsPrimitive: true}},
 		Pagination: &common.Pagination{
-			First: 10,
-			After: 20,
+			Limit: 10,
 		},
 	}
 
 	resolver.On("LocalGetClass", expectedParams).
 		Return(test_helper.EmptyList(), nil).Once()
 
-	query := "{ Get { Actions { SomeAction(first:10, after: 20) { intField } } } }"
+	query := "{ Get { Actions { SomeAction(limit: 10) { intField } } } }"
 	resolver.AssertResolve(t, query)
 }
 

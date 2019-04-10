@@ -38,13 +38,12 @@ func Test_QueryBuilder(t *testing.T) {
 				},
 				Kind: kind.THING_KIND,
 				Pagination: &common.Pagination{
-					After: 0,
-					First: 33,
+					Limit: 33,
 				},
 			},
 			expectedQuery: `
 			g.V().has("kind", "thing").hasLabel("class_18")
-				.range(0, 33).path().by(valueMap())
+				.limit(33).path().by(valueMap())
 			`,
 		},
 		{
@@ -59,8 +58,7 @@ func Test_QueryBuilder(t *testing.T) {
 				},
 				Kind: kind.THING_KIND,
 				Pagination: &common.Pagination{
-					After: 0,
-					First: 33,
+					Limit: 33,
 				},
 				Filters: &cf.LocalFilter{
 					Root: &cf.Clause{
@@ -79,7 +77,7 @@ func Test_QueryBuilder(t *testing.T) {
 			expectedQuery: `
 			g.V().has("kind", "thing").hasLabel("class_18")
 			  .union(has("prop_1", eq("Amsterdam")))
-				.range(0, 33).path().by(valueMap())
+				.limit(33).path().by(valueMap())
 			`,
 		},
 		{
@@ -109,8 +107,7 @@ func Test_QueryBuilder(t *testing.T) {
 				},
 				Kind: kind.THING_KIND,
 				Pagination: &common.Pagination{
-					After: 0,
-					First: 33,
+					Limit: 33,
 				},
 			},
 			expectedQuery: `
@@ -120,7 +117,7 @@ func Test_QueryBuilder(t *testing.T) {
 						outE("prop_3").inV().hasLabel("class_19")
 					)
 				)
-				.range(0, 33).path().by(valueMap())
+				.limit(33).path().by(valueMap())
 			`,
 		},
 		{
@@ -150,8 +147,7 @@ func Test_QueryBuilder(t *testing.T) {
 				},
 				Kind: kind.THING_KIND,
 				Pagination: &common.Pagination{
-					After: 0,
-					First: 33,
+					Limit: 33,
 				},
 			},
 			expectedQuery: `
@@ -161,7 +157,7 @@ func Test_QueryBuilder(t *testing.T) {
 						outE("prop_3").inV()
 					)
 				)
-				.range(0, 33).path().by(valueMap())
+				.limit(33).path().by(valueMap())
 			`,
 		},
 		{
@@ -213,8 +209,7 @@ func Test_QueryBuilder(t *testing.T) {
 				},
 				Kind: kind.THING_KIND,
 				Pagination: &common.Pagination{
-					After: 0,
-					First: 33,
+					Limit: 33,
 				},
 			},
 			expectedQuery: `
@@ -224,7 +219,7 @@ func Test_QueryBuilder(t *testing.T) {
 					.optional( outE("prop_13").inV().hasLabel("class_20"))
 					.optional( outE("prop_23").inV().hasLabel("class_21"))
 				)
-				.range(0, 33).path().by(valueMap())
+				.limit(33).path().by(valueMap())
 			`,
 		},
 	}
