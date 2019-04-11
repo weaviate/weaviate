@@ -29,7 +29,7 @@ func Test_QueryBuilder_StringProps(t *testing.T) {
 			},
 			expectedQuery: `
 				.union(
-						groupCount().by("name")
+						has("name").groupCount().by("name")
 							.order(local).by(values, decr).limit(local, 3).project("topOccurrences").project("name")
 				)
 				.group().by(select(keys).unfold()).by(
@@ -50,7 +50,7 @@ func Test_QueryBuilder_StringProps(t *testing.T) {
 			},
 			expectedQuery: `
 				.union(
-						groupCount().by("name")
+						has("name").groupCount().by("name")
 							.order(local).by(values, decr).limit(local, 3).project("topOccurrences").project("name")
 				)
 				.group().by(select(keys).unfold()).by(
@@ -72,7 +72,7 @@ func Test_QueryBuilder_StringProps(t *testing.T) {
 			expectedQuery: `
 				.union(
 				    has("name").count().project("count").project("name"),
-						groupCount().by("name")
+						has("name").groupCount().by("name")
 							.order(local).by(values, decr).limit(local, 3).project("topOccurrences").project("name")
 				)
 				.group().by(select(keys).unfold()).by(
