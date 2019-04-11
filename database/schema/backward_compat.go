@@ -96,7 +96,7 @@ func GetPropertyDataType(class *models.SemanticSchemaClass, propertyName string)
 	var returnDataType DataType
 
 	// For each data type
-	for _, dataType := range prop.AtDataType {
+	for _, dataType := range prop.DataType {
 		// Get the first letter to see if it is a capital
 		firstLetter := string(dataType[0])
 		if strings.ToUpper(firstLetter) == firstLetter {

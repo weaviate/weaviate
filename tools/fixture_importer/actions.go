@@ -46,10 +46,10 @@ func createActions() {
 			} else {
 				class := findClass(schema.Actions, className)
 				property := findProperty(class, key)
-				if len(property.AtDataType) != 1 {
+				if len(property.DataType) != 1 {
 					panic(fmt.Sprintf("Only one datatype supported for import. Failed in action %s.%s", className, property.Name))
 				}
-				dataType := property.AtDataType[0]
+				dataType := property.DataType[0]
 
 				switch dataType {
 				case "string", "date", "text":

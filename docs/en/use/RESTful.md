@@ -64,7 +64,7 @@ $ curl -X POST http://localhost:8080/weaviate/v1/schema/things -H "Content-Type:
     }],
     "description": "Animal park",
     "properties": [{
-        "@dataType": [
+        "dataType": [
             "string"
         ],
         "cardinality": "atMostOne",
@@ -134,7 +134,7 @@ Example request:
 
 ```bash
 $ curl -X PUT http://localhost:8080/weaviate/v1/schema/things/Zoo/properties -H "Content-Type: application/json" -d '{
-  "@dataType": [
+  "dataType": [
     "City"
   ],
   "cardinality": "atMostOne",
@@ -171,7 +171,7 @@ $ curl -X POST http://localhost:8080/weaviate/v1/schema/actions -H "Content-Type
     }],
     "description": "When something is bought in one of the Zoo shops",
     "properties": [{
-        "@dataType": [
+        "dataType": [
             "number"
         ],
         "description": "Which amount is spend?",
@@ -240,7 +240,7 @@ Example request:
 
 ```bash
 $ curl -X PUT http://localhost:8080/weaviate/v1/schema/actions/BuyAction/properties -H "Content-Type: application/json" -d '{
-  "@dataType": [
+  "dataType": [
     "Shop"
   ],
   "cardinality": "atMostOne",

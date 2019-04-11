@@ -206,11 +206,11 @@ func (l *etcdSchemaManager) UpdatePropertyAddDataType(ctx context.Context, kind 
 		return err
 	}
 
-	if dataTypeAlreadyContained(prop.AtDataType, newDataType) {
+	if dataTypeAlreadyContained(prop.DataType, newDataType) {
 		return nil
 	}
 
-	prop.AtDataType = append(prop.AtDataType, newDataType)
+	prop.DataType = append(prop.DataType, newDataType)
 	err = l.saveSchema(ctx)
 
 	if err != nil {

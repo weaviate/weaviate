@@ -38,8 +38,8 @@ func TestExtractSchemaWithPrimitiveActions(t *testing.T) {
 					Class: "BestAction",
 					Properties: []*models.SemanticSchemaClassProperty{
 						&models.SemanticSchemaClassProperty{
-							AtDataType: []string{"string"},
-							Name:       "bestStringProp",
+							DataType: []string{"string"},
+							Name:     "bestStringProp",
 						},
 					},
 				}},
@@ -59,8 +59,8 @@ func TestExtractSchemaWithPrimitiveThings(t *testing.T) {
 					Class: "BestThing",
 					Properties: []*models.SemanticSchemaClassProperty{
 						&models.SemanticSchemaClassProperty{
-							AtDataType: []string{"string"},
-							Name:       "bestStringProp",
+							DataType: []string{"string"},
+							Name:     "bestStringProp",
 						},
 					},
 				}},
@@ -80,8 +80,8 @@ func TestExtractSchemaWithThingsWithLocalRefs(t *testing.T) {
 					Class: "BestThing",
 					Properties: []*models.SemanticSchemaClassProperty{
 						&models.SemanticSchemaClassProperty{
-							AtDataType: []string{"AnotherFairlyGoodThing"},
-							Name:       "BestReference",
+							DataType: []string{"AnotherFairlyGoodThing"},
+							Name:     "BestReference",
 						},
 					},
 				}},
@@ -101,8 +101,8 @@ func TestExtractSchemaWithThingsWithNetworkRefs(t *testing.T) {
 					Class: "BestThing",
 					Properties: []*models.SemanticSchemaClassProperty{
 						&models.SemanticSchemaClassProperty{
-							AtDataType: []string{"OtherInstance/TheBestThing"},
-							Name:       "BestReference",
+							DataType: []string{"OtherInstance/TheBestThing"},
+							Name:     "BestReference",
 						},
 					},
 				},
@@ -110,12 +110,12 @@ func TestExtractSchemaWithThingsWithNetworkRefs(t *testing.T) {
 					Class: "WorstThing",
 					Properties: []*models.SemanticSchemaClassProperty{
 						&models.SemanticSchemaClassProperty{
-							AtDataType: []string{"OtherInstance/TheWorstThing"},
-							Name:       "WorstReference",
+							DataType: []string{"OtherInstance/TheWorstThing"},
+							Name:     "WorstReference",
 						},
 						&models.SemanticSchemaClassProperty{
-							AtDataType: []string{"OtherInstance/TheMediocreThing"},
-							Name:       "MediocreReference",
+							DataType: []string{"OtherInstance/TheMediocreThing"},
+							Name:     "MediocreReference",
 						},
 					},
 				},
@@ -140,8 +140,8 @@ func TestExtractSchemaWithActionsWithNetworkRefs(t *testing.T) {
 					Class: "BestAction",
 					Properties: []*models.SemanticSchemaClassProperty{
 						&models.SemanticSchemaClassProperty{
-							AtDataType: []string{"OtherInstance/TheBestThing"},
-							Name:       "BestReference",
+							DataType: []string{"OtherInstance/TheBestThing"},
+							Name:     "BestReference",
 						},
 					},
 				},
@@ -149,12 +149,12 @@ func TestExtractSchemaWithActionsWithNetworkRefs(t *testing.T) {
 					Class: "WorstThing",
 					Properties: []*models.SemanticSchemaClassProperty{
 						&models.SemanticSchemaClassProperty{
-							AtDataType: []string{"OtherInstance/TheWorstThing"},
-							Name:       "WorstReference",
+							DataType: []string{"OtherInstance/TheWorstThing"},
+							Name:     "WorstReference",
 						},
 						&models.SemanticSchemaClassProperty{
-							AtDataType: []string{"OtherInstance/TheMediocreThing"},
-							Name:       "MediocreReference",
+							DataType: []string{"OtherInstance/TheMediocreThing"},
+							Name:     "MediocreReference",
 						},
 					},
 				},
@@ -179,8 +179,8 @@ func TestExtractSchemaWithDuplicates(t *testing.T) {
 					Class: "BestAction",
 					Properties: []*models.SemanticSchemaClassProperty{
 						&models.SemanticSchemaClassProperty{
-							AtDataType: []string{"OtherInstance/TheBestThing"},
-							Name:       "BestReference",
+							DataType: []string{"OtherInstance/TheBestThing"},
+							Name:     "BestReference",
 						},
 					},
 				},
@@ -188,12 +188,12 @@ func TestExtractSchemaWithDuplicates(t *testing.T) {
 					Class: "WorstThing",
 					Properties: []*models.SemanticSchemaClassProperty{
 						&models.SemanticSchemaClassProperty{
-							AtDataType: []string{"OtherInstance/TheBestThing"},
-							Name:       "WorstReference",
+							DataType: []string{"OtherInstance/TheBestThing"},
+							Name:     "WorstReference",
 						},
 						&models.SemanticSchemaClassProperty{
-							AtDataType: []string{"OtherInstance/TheBestThing"},
-							Name:       "MediocreReference",
+							DataType: []string{"OtherInstance/TheBestThing"},
+							Name:     "MediocreReference",
 						},
 					},
 				},
@@ -205,8 +205,8 @@ func TestExtractSchemaWithDuplicates(t *testing.T) {
 					Class: "BestThing",
 					Properties: []*models.SemanticSchemaClassProperty{
 						&models.SemanticSchemaClassProperty{
-							AtDataType: []string{"OtherInstance/TheBestThing"},
-							Name:       "BestReference",
+							DataType: []string{"OtherInstance/TheBestThing"},
+							Name:     "BestReference",
 						},
 					},
 				},
@@ -214,12 +214,12 @@ func TestExtractSchemaWithDuplicates(t *testing.T) {
 					Class: "WorstThing",
 					Properties: []*models.SemanticSchemaClassProperty{
 						&models.SemanticSchemaClassProperty{
-							AtDataType: []string{"OtherInstance/TheBestThing"},
-							Name:       "WorstReference",
+							DataType: []string{"OtherInstance/TheBestThing"},
+							Name:     "WorstReference",
 						},
 						&models.SemanticSchemaClassProperty{
-							AtDataType: []string{"OtherInstance/TheBestThing"},
-							Name:       "MediocreReference",
+							DataType: []string{"OtherInstance/TheBestThing"},
+							Name:     "MediocreReference",
 						},
 					},
 				},

@@ -297,7 +297,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find property '%s'; %s", params.PropertyName, err.Error())))
 		}
-		propertyDataType, err := dbSchema.FindPropertyDataType(prop.AtDataType)
+		propertyDataType, err := dbSchema.FindPropertyDataType(prop.DataType)
 		if err != nil {
 			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find datatype of property '%s'; %s", params.PropertyName, err.Error())))
@@ -394,7 +394,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find property '%s'; %s", params.PropertyName, err.Error())))
 		}
-		propertyDataType, err := dbSchema.FindPropertyDataType(prop.AtDataType)
+		propertyDataType, err := dbSchema.FindPropertyDataType(prop.DataType)
 		if err != nil {
 			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find datatype of property '%s'; %s", params.PropertyName, err.Error())))
@@ -491,7 +491,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find property '%s'; %s", params.PropertyName, err.Error())))
 		}
-		propertyDataType, err := dbSchema.FindPropertyDataType(prop.AtDataType)
+		propertyDataType, err := dbSchema.FindPropertyDataType(prop.DataType)
 		if err != nil {
 			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find datatype of property '%s'; %s", params.PropertyName, err.Error())))

@@ -347,7 +347,7 @@ function createAggregateSubClasses(ontologyThings, weaviate){
                 };
 
                 // numeric properties have additional aggregation values to return
-                if (singleClassProperty["@dataType"] == "number") {
+                if (singleClassProperty["dataType"] == "number") {
                   returnProps["minimum"] = {
                     name: "Aggregate" + weaviate + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "Minimum",
                     description: getDesc("AggregateSubClassMinimum"),
@@ -379,7 +379,7 @@ function createAggregateSubClasses(ontologyThings, weaviate){
                     type: GraphQLFloat
                   };
                 }
-                if (singleClassProperty["@dataType"] == "int") {
+                if (singleClassProperty["dataType"] == "int") {
                   returnProps["minimum"] = {
                     name: "Aggregate" + weaviate + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "Minimum",
                     description: getDesc("AggregateSubClassMinimum"),
@@ -510,7 +510,7 @@ function createMetaSubClasses(ontologyThings, location='') {
               type: GraphQLInt,
             }
           }
-          singleClassProperty["@dataType"].forEach(singleClassPropertyDatatype => {
+          singleClassProperty["dataType"].forEach(singleClassPropertyDatatype => {
 
             // if class (start with capital, return Class)
             if(singleClassPropertyDatatype[0] === singleClassPropertyDatatype[0].toUpperCase()){
@@ -666,7 +666,7 @@ function createMetaSubClasses(ontologyThings, location='') {
             //     type: GraphQLString // string since no GraphQL date type exists
             //   }
             } else {
-              console.error("I DONT KNOW THIS VALUE! " + singleClassProperty["@dataType"][0])
+              console.error("I DONT KNOW THIS VALUE! " + singleClassProperty["dataType"][0])
               returnProps[singleClassProperty.name] = {
                 name: location + "Meta" + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1),
                 description: singleClassProperty.description,
@@ -749,7 +749,7 @@ function createSubClasses(ontologyThings, weaviate){
         // loop over properties
         singleClass.properties.forEach(singleClassProperty => {
           returntypes = []
-          singleClassProperty["@dataType"].forEach(singleClassPropertyDatatype => {
+          singleClassProperty["dataType"].forEach(singleClassPropertyDatatype => {
             // if class (start with capital, return Class)
             if(singleClassPropertyDatatype[0] === singleClassPropertyDatatype[0].toUpperCase()){
               returntypes.push(subClasses[singleClassPropertyDatatype])
@@ -790,7 +790,7 @@ function createSubClasses(ontologyThings, weaviate){
                 type: GraphQLString // text datatype is formatted as string
               }
             } else {
-              console.error("I DONT KNOW THIS VALUE! " + singleClassProperty["@dataType"][0])
+              console.error("I DONT KNOW THIS VALUE! " + singleClassProperty["dataType"][0])
               returnProps[singleClassProperty.name] = {
                 name: weaviate + singleClass.class + singleClassProperty.name,
                 description: singleClassProperty.description,

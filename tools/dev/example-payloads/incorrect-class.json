@@ -9,7 +9,7 @@
   ],
   "properties": [
     {
-      "@dataType": ["string"],
+      "dataType": ["string"],
       "cardinality": "atMostOne",
       "description": "The name of the animal",
       "keywords": [
@@ -21,13 +21,13 @@
       "name": "name"
     },
     {
-      "@dataType": ["Peer/Schnitzel"],
+      "dataType": ["Peer/Schnitzel"],
       "cardinality": "atMostOne",
       "description": "Some description",
       "name": "ofAnimal"
     },
     {
-      "@dataType": ["text"],
+      "dataType": ["text"],
       "cardinality": "atMostOne",
       "description": "Some description",
       "name": "description"
