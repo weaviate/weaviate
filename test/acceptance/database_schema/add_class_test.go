@@ -128,6 +128,17 @@ func TestDeleteSingleProperties(t *testing.T) {
 	_, err = helper.Client(t).Things.WeaviateThingsList(things.NewWeaviateThingsListParams(), nil)
 	assert.Nil(t, err, "listing things should not error")
 
+	t.Log("verifying we could re-add the property with the same name")
+	readdParams := schema.NewWeaviateSchemaThingsPropertiesAddParams().
+		WithClassName(randomThingClassName).
+		WithBody(&models.SemanticSchemaClassProperty{
+			Name:     "description",
+			DataType: []string{"string"},
+		})
+
+	_, err = helper.Client(t).Schema.WeaviateSchemaThingsPropertiesAdd(readdParams, nil)
+	assert.Nil(t, err, "adding the previously deleted property again should not error")
+
 	// Now clean up this class.
 	t.Log("Remove the class")
 	delParams := schema.NewWeaviateSchemaThingsDeleteParams().WithClassName(randomThingClassName)
