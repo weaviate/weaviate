@@ -26,7 +26,7 @@ func TestLoop(t *testing.T) {
 
 	// setup
 	calledFunctions := NewLog()
-	calledFunctions.Enabled = true
+	calledFunctions.Disabled = false
 	calledFunctions.PeerName = "soggy-whale-bread"
 	calledFunctions.Register("REST", "weaviate.something.or.other")
 
@@ -38,12 +38,12 @@ func TestLoop(t *testing.T) {
 	clientConf := clientv3.Config{}
 	client, _ := clientv3.New(clientConf)
 	ctx := context.Background()
-	reporter := NewReporter(ctx, calledFunctions, interval, url, true, true, client, messaging)
+	reporter := NewReporter(ctx, calledFunctions, interval, url, false, true, client, messaging)
 	reporter.UnitTest = true
 
 	go reporter.Start()
 
-	time.Sleep(time.Duration(2) * time.Second)
+	time.Sleep(time.Duration(3) * time.Second)
 
 	logsAfterReporting := calledFunctions.ExtractLoggedRequests()
 
@@ -57,7 +57,7 @@ func TestMinimize(t *testing.T) {
 
 	// setup
 	calledFunctions := NewLog()
-	calledFunctions.Enabled = true
+	calledFunctions.Disabled = false
 	calledFunctions.PeerName = "tiny-grey-chainsword"
 	calledFunctions.Register("REST", "weaviate.something.or.other")
 
@@ -93,7 +93,7 @@ func TestAddTimestamps(t *testing.T) {
 
 	// setup
 	calledFunctions := NewLog()
-	calledFunctions.Enabled = true
+	calledFunctions.Disabled = false
 	calledFunctions.PeerName = "iridiscent-damp-bagel"
 	calledFunctions.Register("REST", "weaviate.something.or.other1")
 	calledFunctions.Register("REST", "weaviate.something.or.other2")

@@ -42,11 +42,11 @@ type File struct {
 	Environments []Environment `json:"environments"`
 }
 
-// Logging gives the outline of the logging parameters in the config file
-type Logging struct {
-	Url      string `json:"url" yaml:"url"`
-	Interval int    `json:"interval" yaml:"interval"`
-	Enabled  bool   `json:"enabled" yaml:"enabled"`
+// Telemetry gives the outline of the telemetry parameters in the config file
+type Telemetry struct {
+	RemoteURL string `json:"remote_url" yaml:"remote_url"`
+	Interval  int    `json:"interval" yaml:"interval"`
+	Disabled  bool   `json:"disabled" yaml:"disabled"`
 }
 
 // Environment outline of the environment inside the config file
@@ -62,7 +62,7 @@ type Environment struct {
 	Contextionary        Contextionary   `json:"contextionary" yaml:"contextionary"`
 	ConfigurationStorage ConfigStore     `json:"configuration_storage" yaml:"configuration_storage"`
 	Authentication       Authentication  `json:"authentication" yaml:"authentication"`
-	Logging              Logging         `json:"logging" yaml:"logging"`
+	Telemetry            Telemetry       `json:"telemetry" yaml:"telemetry"`
 }
 
 type Contextionary struct {
@@ -190,6 +190,10 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, m *mess
 	// Return default database because no good config is found
 	if !foundEnvironment {
 		return errors.New("no environment found with name '" + configEnvironment + "'")
+	}
+
+	if err := f.Environment.Authentication.Validate(); err != nil {
+		return fmt.Errorf("invalid config: %v", err)
 	}
 
 	m.InfoMessage("Config file found, loading environment..")

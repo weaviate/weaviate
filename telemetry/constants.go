@@ -51,3 +51,15 @@ const ReportPostFail string = "[POST failed]"
 
 // ReportCBORFail contains the value used when a report fails to be converted to CBOR
 const ReportCBORFail string = "[CBOR conversion failed]"
+
+// DefaultLogging is the setting for the logging conf variable used when none is defined
+const DefaultLogging bool = true
+
+// DefaultInterval is the setting for the logging conf variable used when none is defined
+const DefaultInterval int = 300
+
+// DefaultURL is the setting for the logging conf variable used when none is defined
+const DefaultURL string = "http://logs.semi.technology"
+
+// DefaultDebug is the setting for the logging conf variable used when none is defined
+const DefaultDebug bool = true
