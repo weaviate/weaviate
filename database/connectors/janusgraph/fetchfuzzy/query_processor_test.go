@@ -9,39 +9,44 @@
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
  * CONTACT: hello@creativesoftwarefdn.org
  */
-package fetch
+package fetchfuzzy
 
 import (
 	"testing"
 
-	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func Test_QueryProcessor(t *testing.T) {
-	t.Run("when bool count and groupCount are requested", func(t *testing.T) {
+	t.Run("with both a thing and action", func(t *testing.T) {
 
 		janusResponse := &gremlin.Response{
 			Data: []gremlin.Datum{
 				gremlin.Datum{
 					Datum: map[string]interface{}{
-						"classId": []interface{}{
-							"class_18",
+						"kind": []interface{}{
+							"thing",
 						},
 						"uuid": []interface{}{
 							"some-uuid",
+						},
+						"classId": []interface{}{
+							"class_18",
 						},
 					},
 				},
 				gremlin.Datum{
 					Datum: map[string]interface{}{
-						"classId": []interface{}{
-							"class_18",
+						"kind": []interface{}{
+							"action",
 						},
 						"uuid": []interface{}{
 							"some-other-uuid",
+						},
+						"classId": []interface{}{
+							"class_18",
 						},
 					},
 				},
@@ -54,15 +59,14 @@ func Test_QueryProcessor(t *testing.T) {
 				"className": "City",
 			},
 			map[string]interface{}{
-				"beacon":    "weaviate://my-super-peer/things/some-other-uuid",
+				"beacon":    "weaviate://my-super-peer/actions/some-other-uuid",
 				"className": "City",
 			},
 		}
 
-		k := kind.THING_KIND
 		peerName := "my-super-peer"
 
-		result, err := NewProcessor(executor, k, peerName, &fakeNameSource{}).Process(gremlin.New())
+		result, err := NewProcessor(executor, peerName, &fakeNameSource{}).Process(gremlin.New())
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
