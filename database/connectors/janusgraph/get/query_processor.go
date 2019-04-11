@@ -144,8 +144,13 @@ func (p *Processor) processVertexObject(o interface{}) (map[string]interface{}, 
 			return nil, fmt.Errorf("could not parse prop '%s': %s", key, err)
 		}
 
-		readablePropName := string(p.nameSource.GetPropertyNameFromMapped(className, state.MappedPropertyName(key)))
-		results[readablePropName] = prop
+		readablePropName, err := p.nameSource.GetPropertyNameFromMapped(className, state.MappedPropertyName(key))
+		if err != nil {
+			// this property might have been deleted in the meantime, let's skip it
+			continue
+		}
+
+		results[string(readablePropName)] = prop
 	}
 
 	return results, nil
@@ -198,7 +203,7 @@ func (p *Processor) processEdgeAndVertexObjects(o []interface{}, className schem
 		return nil, fmt.Errorf("could not identiy ref type for class '%s': %s", className, err)
 	}
 
-	crossRefProp := string(p.nameSource.GetPropertyNameFromMapped(className, state.MappedPropertyName(refProp.(string))))
+	crossRefProp := string(p.nameSource.MustGetPropertyNameFromMapped(className, state.MappedPropertyName(refProp.(string))))
 
 	if ref.Local {
 		return p.processLocalRefEdge(o, crossRefProp, className)
