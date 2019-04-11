@@ -20,6 +20,7 @@ import (
 
 	"github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/clientv3/concurrency"
+	"github.com/creativesoftwarefdn/weaviate/auth/authentication/anonymous"
 	"github.com/creativesoftwarefdn/weaviate/auth/authentication/oidc"
 	weaviateBroker "github.com/creativesoftwarefdn/weaviate/broker"
 	"github.com/creativesoftwarefdn/weaviate/config"
@@ -72,6 +73,8 @@ func configureServer(s *http.Server, scheme, addr string) {
 	messaging.InfoMessage(fmt.Sprintf("loaded the config, time left is: %s", timeTillDeadline(ctx)))
 
 	appState.OIDC = configureOIDC(appState)
+	appState.AnonymousAccess = configureAnonymousAccess(appState)
+
 	messaging.InfoMessage(fmt.Sprintf("configured OIDC client, time left is: %s", timeTillDeadline(ctx)))
 
 	// Extract environment variables needed for logging
@@ -278,6 +281,13 @@ func configureOIDC(appState *state.State) *oidc.Client {
 	}
 
 	return c
+}
+
+// configureAnonymousAccess will always be called, even if anonymous access is
+// disabled. In this case the middleware provided by this client will block
+// anonymous requests
+func configureAnonymousAccess(appState *state.State) *anonymous.Client {
+	return anonymous.New(appState.ServerConfig.Environment)
 }
 
 func timeTillDeadline(ctx context.Context) time.Duration {
