@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/mux"
 )
@@ -40,14 +41,14 @@ const EmptyRequestSize int = 3
 
 // AddLog stores the most recently received non-empty POSTed log.
 func AddLog(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("received POST")
+	fmt.Println(fmt.Sprintf("received POST at %s", time.Now()))
 
 	buf := new(bytes.Buffer)
 	buf.ReadFrom(r.Body)
 	content := buf.Bytes()
 
 	if len(content) > EmptyRequestSize {
-		fmt.Println(content)
+		fmt.Println(fmt.Sprintf("%x", content))
 		receivedLogs = append(receivedLogs, content)
 		mostRecentLog = content
 	}
