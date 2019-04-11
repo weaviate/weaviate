@@ -20,6 +20,7 @@ import (
 
 	"github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/clientv3/concurrency"
+	"github.com/creativesoftwarefdn/weaviate/auth/authentication/anonymous"
 	"github.com/creativesoftwarefdn/weaviate/auth/authentication/oidc"
 	weaviateBroker "github.com/creativesoftwarefdn/weaviate/broker"
 	"github.com/creativesoftwarefdn/weaviate/config"
@@ -72,22 +73,28 @@ func configureServer(s *http.Server, scheme, addr string) {
 	messaging.InfoMessage(fmt.Sprintf("loaded the config, time left is: %s", timeTillDeadline(ctx)))
 
 	appState.OIDC = configureOIDC(appState)
+	appState.AnonymousAccess = configureAnonymousAccess(appState)
+
 	messaging.InfoMessage(fmt.Sprintf("configured OIDC client, time left is: %s", timeTillDeadline(ctx)))
 
 	// Extract environment variables needed for logging
-	loggingInterval := appState.ServerConfig.Environment.Logging.Interval
-	loggingUrl := appState.ServerConfig.Environment.Logging.Url
-	loggingEnabled := appState.ServerConfig.Environment.Logging.Enabled
+	loggingInterval := appState.ServerConfig.Environment.Telemetry.Interval
+	loggingUrl := appState.ServerConfig.Environment.Telemetry.RemoteURL
+	loggingDisabled := appState.ServerConfig.Environment.Telemetry.Disabled
 	loggingDebug := appState.ServerConfig.Environment.Debug
 
-	if loggingEnabled != true && loggingEnabled != false {
-		loggingEnabled = true
+	if loggingUrl == "" {
+		loggingUrl = telemetry.DefaultURL
+	}
+
+	if loggingInterval == 0 {
+		loggingInterval = telemetry.DefaultInterval
 	}
 
 	// Propagate the peer name (if any), debug toggle and the enabled toggle to the requestsLog
 	mainLog.PeerName = appState.ServerConfig.Environment.Network.PeerName
 	mainLog.Debug = loggingDebug
-	mainLog.Enabled = loggingEnabled
+	mainLog.Disabled = loggingDisabled
 
 	// Add properties to the config
 	serverConfig.Hostname = addr
@@ -150,7 +157,7 @@ func configureServer(s *http.Server, scheme, addr string) {
 	// Initialize a non-expiring context for the reporter
 	reportingContext := context.Background()
 	// Initialize the reporter
-	reporter = telemetry.NewReporter(reportingContext, mainLog, loggingInterval, loggingUrl, loggingEnabled, loggingDebug, etcdClient, messaging)
+	reporter = telemetry.NewReporter(reportingContext, mainLog, loggingInterval, loggingUrl, loggingDisabled, loggingDebug, etcdClient, messaging)
 
 	// Start reporting
 	go func() {
@@ -274,6 +281,13 @@ func configureOIDC(appState *state.State) *oidc.Client {
 	}
 
 	return c
+}
+
+// configureAnonymousAccess will always be called, even if anonymous access is
+// disabled. In this case the middleware provided by this client will block
+// anonymous requests
+func configureAnonymousAccess(appState *state.State) *anonymous.Client {
+	return anonymous.New(appState.ServerConfig.Environment)
 }
 
 func timeTillDeadline(ctx context.Context) time.Duration {
