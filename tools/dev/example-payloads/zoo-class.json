@@ -1,0 +1,30 @@
+{
+  "class": "Zoo",
+  "description": "A zoo where animals live",
+  "keywords": [
+    {
+      "keyword": "animal",
+      "weight": 0.8
+    }
+  ],
+  "properties": [
+    {
+      "@dataType": ["string"],
+      "cardinality": "atMostOne",
+      "description": "The name of the zoo",
+      "keywords": [
+        {
+          "keyword": "label",
+          "weight": 0.5
+        }
+      ],
+      "name": "name"
+    },
+    {
+      "@dataType": ["geoCoordinates"],
+      "cardinality": "atMostOne",
+      "description": "where is the zoo located",
+      "name": "location"
+    }
+  ]
+}

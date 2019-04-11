@@ -381,6 +381,16 @@
   ],
   "Actions": [
     {
+      "class": "Event",
+      "uuid": "021",
+      "name": "A name"
+    },
+    {
+      "class": "Event",
+      "uuid": "022",
+      "description": "A desricption"
+    },
+    {
       "class": "Flight",
       "uuid": "100",
       "aircraft": {

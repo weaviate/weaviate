@@ -79,6 +79,22 @@
           ]
         }
       ]
+    },
+    {
+      "class": "Event",
+      "description": "Event is used to replicate bugs and prevent regressions for the fixes mentioned in gh-824",
+      "properties": [
+        {
+          "name": "name",
+          "@dataType": ["string"],
+          "description": "The name of the event"
+        },
+        {
+          "name": "description",
+          "@dataType": ["text"],
+          "description": "The description of the event"
+        }
+      ]
     }
   ]
 }
