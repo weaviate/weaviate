@@ -45,7 +45,7 @@ func TestCanAddSingleNetworkRef(t *testing.T) {
 		class := assertClassInSchema(t, schema.Things, "TestThing")
 		prop := assertPropertyInClass(t, class, "testCref")
 		expectedDataType := []string{"TestThingTwo", "RemoteWeaviateForAcceptanceTest/Instruments"}
-		assert.Equal(t, expectedDataType, prop.AtDataType, "prop should have old and newly added dataTypes")
+		assert.Equal(t, expectedDataType, prop.DataType, "prop should have old and newly added dataTypes")
 	})
 
 	t.Run("it can query the reference through the graphql api", func(t *testing.T) {
@@ -96,7 +96,7 @@ func TestCanPatchNetworkRef(t *testing.T) {
 		class := assertClassInSchema(t, schema.Things, "TestThing")
 		prop := assertPropertyInClass(t, class, "testCref")
 		expectedDataType := []string{"TestThingTwo", "RemoteWeaviateForAcceptanceTest/Instruments"}
-		assert.Equal(t, expectedDataType, prop.AtDataType, "prop should have old and newly added dataTypes")
+		assert.Equal(t, expectedDataType, prop.DataType, "prop should have old and newly added dataTypes")
 	})
 }
 

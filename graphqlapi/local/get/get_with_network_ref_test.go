@@ -35,8 +35,8 @@ func TestLocalGetWithNetworkRef(t *testing.T) {
 							Class: "SomeRemoteClass",
 							Properties: []*models.SemanticSchemaClassProperty{
 								&models.SemanticSchemaClassProperty{
-									AtDataType: []string{"string"},
-									Name:       "bestString",
+									DataType: []string{"string"},
+									Name:     "bestString",
 								},
 							},
 						},

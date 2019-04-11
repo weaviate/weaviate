@@ -92,7 +92,7 @@ $ curl -X POST http://localhost:8080/weaviate/v1/schema/things -H "Content-Type:
     }],
     "description": "Animal park",
     "properties": [{
-        "@dataType": [
+        "dataType": [
             "string"
         ],
         "cardinality": "atMostOne",
@@ -117,7 +117,7 @@ $ curl -X POST http://localhost:8080/weaviate/v1/schema/things -H "Content-Type:
     }],
     "description": "City",
     "properties": [{
-        "@dataType": [
+        "dataType": [
             "string"
         ],
         "cardinality": "atMostOne",
@@ -139,7 +139,7 @@ First, we update the `Zoo` class:
 
 ```bash
 $ curl -X POST http://localhost:8080/weaviate/v1/schema/things/Zoo/properties -H "Content-Type: application/json" -d '{
-  "@dataType": [
+  "dataType": [
     "City"
   ],
   "cardinality": "atMostOne",
@@ -153,7 +153,7 @@ Secondly, we update the `City` class:
 
 ```bash
 $ curl -X POST http://localhost:8080/weaviate/v1/schema/things/City/properties -H "Content-Type: application/json" -d '{
-  "@dataType": [
+  "dataType": [
     "Zoo"
   ],
   "cardinality": "atMostOne",
@@ -171,7 +171,7 @@ Let's update the `City` class with a location.
 
 ```bash
 $ curl -X POST http://localhost:8080/weaviate/v1/schema/things/City/properties -H "Content-Type: application/json" -d '{
-  "@dataType": [
+  "dataType": [
     "geoCoordinates"
   ],
   "cardinality": "atMostOne",
@@ -330,7 +330,7 @@ $ curl -X POST http://localhost:8080/weaviate/v1/schema/things -H "Content-Type:
     }],
     "description": "Animals",
     "properties": [{
-        "@dataType": [
+        "dataType": [
             "string"
         ],
         "description": "Name of the Animal",
@@ -340,7 +340,7 @@ $ curl -X POST http://localhost:8080/weaviate/v1/schema/things -H "Content-Type:
             "weight": 0.01
         }]
     },{
-        "@dataType": [
+        "dataType": [
             "string"
         ],
         "description": "Species of the Animal",
@@ -357,7 +357,7 @@ Next, we can extend the `Zoo` class to include many animals. Note the `cardinali
 
 ```bash
 $ curl -X POST http://localhost:8080/weaviate/v1/schema/things/Zoo/properties -H "Content-Type: application/json" -d '{
-  "@dataType": [
+  "dataType": [
     "Animal"
   ],
   "cardinality": "many",

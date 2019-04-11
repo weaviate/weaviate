@@ -209,7 +209,7 @@ var schemaResponse = `{
         "properties": [
           {
             "name": "name",
-            "@dataType": [
+            "dataType": [
               "string"
             ],
             "description": "The name of the instrument",
@@ -221,7 +221,7 @@ var schemaResponse = `{
             ]
           }, {
             "name": "volume",
-            "@dataType": [
+            "dataType": [
               "number"
             ],
             "description": "The volume the instrument can achieve",

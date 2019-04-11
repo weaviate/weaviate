@@ -10,7 +10,7 @@
             "properties": [
                 {
                     "name": "code",
-                    "@dataType": [
+                    "dataType": [
                         "string"
                     ],
                     "description": "identifier for an airport",
@@ -31,7 +31,7 @@
                 },
                 {
                     "name": "recentDeparture",
-                    "@dataType": [
+                    "dataType": [
                         "Plane"
                     ],
                     "description": "Which airplane departed most recently",
@@ -68,7 +68,7 @@
                 },
                 {
                     "name": "recentArrival",
-                    "@dataType": [
+                    "dataType": [
                         "Plane"
                     ],
                     "description": "Which airplane arrived most recently",
@@ -105,7 +105,7 @@
                 },
                 {
                     "name": "place",
-                    "@dataType": [
+                    "dataType": [
                         "string"
                     ],
                     "description": "City where the airport lies.",
@@ -134,7 +134,7 @@
                 },
                 {
                     "name": "label",
-                    "@dataType": [
+                    "dataType": [
                         "string"
                     ],
                     "description": "Label for the airport",
@@ -167,7 +167,7 @@
             "properties": [
                 {
                     "name": "code",
-                    "@dataType": [
+                    "dataType": [
                         "string"
                     ],
                     "description": "identifier for an airport",
@@ -188,7 +188,7 @@
                 },
                 {
                     "name": "label",
-                    "@dataType": [
+                    "dataType": [
                         "string"
                     ],
                     "description": "Label for the airline",
@@ -209,7 +209,7 @@
                 },
                 {
                     "name": "hasNumberOfPlanes",
-                    "@dataType": [
+                    "dataType": [
                         "int"
                     ],
                     "description": "Number of airplanes the airline owns",
@@ -270,7 +270,7 @@
             "properties": [
                 {
                     "name": "code",
-                    "@dataType": [
+                    "dataType": [
                         "string"
                     ],
                     "description": "identifier for the plane",
@@ -291,7 +291,7 @@
                 },
                 {
                     "name": "aircraft",
-                    "@dataType": [
+                    "dataType": [
                         "Aircraft"
                     ],
                     "description": "the kind of aircraft",
@@ -316,7 +316,7 @@
                 },
                 {
                     "name": "ofAirline",
-                    "@dataType": [
+                    "dataType": [
                         "Airline"
                     ],
                     "description": "Airline the plane is owned by",
@@ -361,7 +361,7 @@
             "properties": [
                 {
                     "name": "label",
-                    "@dataType": [
+                    "dataType": [
                         "string"
                     ],
                     "description": "label of the aircraft",
@@ -382,7 +382,7 @@
                 },
                 {
                     "name": "numberOfSeats",
-                    "@dataType": [
+                    "dataType": [
                         "number"
                     ],
                     "description": "number of seats available in the aircraft.",
