@@ -1,0 +1,10 @@
+{
+  "async": false,
+  "thing": {
+    "@class": "Animal",
+    "@context": "none",
+    "schema": {
+      "name": "Elephant"
+    }
+  }
+}
