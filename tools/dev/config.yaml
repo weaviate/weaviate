@@ -20,10 +20,10 @@ environments:
     idx_file: test/contextionary/example.idx
   limit: 100
   debug: true
-  logging:
-    interval: 1
-    enabled: false
-    url: http://telemetry_mock_api:8087/mock/new
+  telemetry:
+    interval: 300
+    disabled: false
+    remoteURL: http://logs.semi.technology
   development:
     external_instances:
     - url: http://localhost:8080
@@ -45,10 +45,10 @@ environments:
     idx_file: contextionary/contextionary.idx
   limit: 100
   debug: true
-  logging:
-    interval: 1
-    enabled: true
-    url: http://telemetry_mock_api:8087/mock/new
+  telemetry:
+    interval: 300
+    disabled: false
+    remoteURL: http://logs.semi.technology
 - name: janusgraph_docker
   database:
     name: janusgraph
@@ -66,10 +66,10 @@ environments:
     peer_name: bestWeaviate
   limit: 100
   debug: true
-  logging:
+  telemetry:
     interval: 1
-    enabled: true
-    url: http://telemetry_mock_api:8087/mock/new
+    disabled: false
+    remoteURL: http://telemetry_mock_api:8087/mock/new
   development:
     external_instances:
     - url: http://localhost:8080
