@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/common"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/common/fetch"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	"github.com/graphql-go/graphql"
@@ -54,6 +55,23 @@ func fetchObj() *graphql.Object {
 			},
 			Resolve: makeResolveClass(kind.THING_KIND),
 		},
+
+		"Fuzzy": &graphql.Field{
+			Name:        "WeaviateNetworkFetchFuzzy",
+			Description: descriptions.NetworkFetchFuzzy,
+			Type:        graphql.NewList(fuzzyFieldsObj()),
+			Args: graphql.FieldConfigArgument{
+				"value": &graphql.ArgumentConfig{
+					Description: descriptions.FetchFuzzyValue,
+					Type:        graphql.NewNonNull(graphql.String),
+				},
+				"certainty": &graphql.ArgumentConfig{
+					Description: descriptions.FetchFuzzyCertainty,
+					Type:        graphql.NewNonNull(graphql.Float),
+				},
+			},
+			Resolve: resolveFuzzy,
+		},
 	}
 
 	return graphql.NewObject(graphql.ObjectConfig{
@@ -65,6 +83,12 @@ func fetchObj() *graphql.Object {
 
 func kindFieldsObj(k kind.Kind) *graphql.Object {
 	fields := graphql.Fields{
+		"className": &graphql.Field{
+			Name:        fmt.Sprintf("WeaviateLocalFetch%sClassName", k.TitleizedName()),
+			Description: descriptions.LocalFetchClassName,
+			Type:        graphql.String,
+		},
+
 		"beacon": &graphql.Field{
 			Name:        fmt.Sprintf("WeaviateLocalFetch%sBeacon", k.TitleizedName()),
 			Description: descriptions.LocalFetchBeacon,
@@ -91,6 +115,37 @@ func kindFieldsObj(k kind.Kind) *graphql.Object {
 		Fields:      fields,
 		Description: desc,
 	})
+}
+
+func fuzzyFieldsObj() *graphql.Object {
+	getLocalFetchFuzzyFields := graphql.Fields{
+		"className": &graphql.Field{
+			Name:        "WeaviateLocalFetchFuzzyClassName",
+			Description: descriptions.LocalFetchFuzzyClassName,
+			Type:        graphql.String,
+		},
+
+		"beacon": &graphql.Field{
+			Name:        "WeaviateLocalFetchFuzzyBeacon",
+			Description: descriptions.LocalFetchFuzzyBeacon,
+			Type:        graphql.String,
+		},
+
+		"certainty": &graphql.Field{
+			Name:        "WeaviateLocalFetchFuzzyCertainty",
+			Description: descriptions.LocalFetchFuzzyCertainty,
+			Type:        graphql.Float,
+			Resolve:     common.JSONNumberResolver,
+		},
+	}
+
+	getLocalFetchFuzzyFieldsObject := graphql.ObjectConfig{
+		Name:        "WeaviateLocalFetchFuzzyObj",
+		Fields:      getLocalFetchFuzzyFields,
+		Description: descriptions.LocalFetchFuzzyObj,
+	}
+
+	return graphql.NewObject(getLocalFetchFuzzyFieldsObject)
 }
 
 func bubbleUpResolver(p graphql.ResolveParams) (interface{}, error) {

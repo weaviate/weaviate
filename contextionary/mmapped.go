@@ -99,6 +99,25 @@ func (m *mmappedIndex) GetNnsByVector(vector Vector, n int, k int) ([]ItemIndex,
 	}
 }
 
+// SafeGetSimilarWords returns n similar words in the contextionary,
+// examining k trees. It is guaratueed to have results, even if the word is
+// not in the contextionary. In this case the list only contains the word
+// itself. It can then still be used for exact match or levensthein-based
+// searches against db backends.
+func (m *mmappedIndex) SafeGetSimilarWords(word string, n, k int) ([]string, []float32) {
+	return safeGetSimilarWordsFromAny(m, word, n, k)
+}
+
+// SafeGetSimilarWordsWithCertainty returns  similar words in the
+// contextionary, if they are close enough to match the required certainty.
+// It is guaratueed to have results, even if the word is not in the
+// contextionary. In this case the list only contains the word itself. It can
+// then still be used for exact match or levensthein-based searches against
+// db backends.
+func (m *mmappedIndex) SafeGetSimilarWordsWithCertainty(word string, certainty float32) []string {
+	return safeGetSimilarWordsWithCertaintyFromAny(m, word, certainty)
+}
+
 func LoadVectorFromDisk(annoy_index string, word_index_file_name string) (Contextionary, error) {
 	word_index, err := LoadWordlist(word_index_file_name)
 

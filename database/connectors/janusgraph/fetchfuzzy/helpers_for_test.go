@@ -10,7 +10,7 @@
  * CONTACT: hello@creativesoftwarefdn.org
  */
 
-package fetch
+package fetchfuzzy
 
 import (
 	"fmt"
@@ -20,7 +20,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/state"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/fetch"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -67,6 +66,17 @@ func (f *fakeNameSource) MustGetMappedPropertyName(className schema.ClassName,
 		}
 	}
 	panic(fmt.Sprintf("fake name source does not contain a fake for '%s.%s'", className, propName))
+}
+
+func (f *fakeNameSource) GetMappedPropertyNames(rawProps []schema.ClassAndProperty) ([]state.MappedPropertyName, error) {
+	result := make([]state.MappedPropertyName, len(rawProps), len(rawProps))
+
+	for i, rawProp := range rawProps {
+		mapped := f.MustGetMappedPropertyName(rawProp.ClassName, rawProp.PropertyName)
+		result[i] = mapped
+	}
+
+	return result, nil
 }
 
 func (f *fakeNameSource) MustGetMappedClassName(className schema.ClassName) state.MappedClassName {
@@ -149,6 +159,19 @@ func (f *fakeTypeSource) FindPropertyDataType(dataType []string) (schema.Propert
 	return nil, fmt.Errorf("fake type source does not have an implementation for dataType '%v'", dataType)
 }
 
+func (f *fakeTypeSource) GetPropsOfType(propType string) []schema.ClassAndProperty {
+	return []schema.ClassAndProperty{
+		{
+			ClassName:    "City",
+			PropertyName: "name",
+		},
+		{
+			ClassName:    "Town",
+			PropertyName: "title",
+		},
+	}
+}
+
 type fakeDataType struct {
 	dataType schema.DataType
 }
@@ -179,7 +202,7 @@ func (p *fakeDataType) ContainsClass(needle schema.ClassName) bool {
 
 type testCase struct {
 	name          string
-	inputParams   fetch.Params
+	inputParams   []string
 	expectedQuery string
 	expectedErr   error
 }

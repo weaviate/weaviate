@@ -187,7 +187,7 @@ func (r rawResults) extractClassNames(p SearchParams) []SearchResult {
 
 	for _, rawRes := range r {
 		if regex.MatchString(rawRes.name) {
-			certainty := distanceToCertainty(rawRes.distance)
+			certainty := contextionary.DistanceToCertainty(rawRes.distance)
 			if certainty < p.Certainty {
 				continue
 			}
@@ -212,7 +212,7 @@ func (r rawResults) extractPropertyNames(p SearchParams) []SearchResult {
 	for _, rawRes := range r {
 		if regex.MatchString(rawRes.name) {
 			name := regex.FindStringSubmatch(rawRes.name)[1] //safe because we ran .MatchString before
-			certainty := distanceToCertainty(rawRes.distance)
+			certainty := contextionary.DistanceToCertainty(rawRes.distance)
 			if certainty < p.Certainty {
 				continue
 			}
@@ -249,8 +249,4 @@ func meanCertainty(rs []SearchResult) float32 {
 	}
 
 	return compound / float32(len(rs))
-}
-
-func distanceToCertainty(d float32) float32 {
-	return 1 - d/12
 }

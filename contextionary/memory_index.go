@@ -116,6 +116,25 @@ func (mi *MemoryIndex) GetNnsByVector(vector Vector, n int, k int) ([]ItemIndex,
 	}
 }
 
+// SafeGetSimilarWords returns n similar words in the contextionary,
+// examining k trees. It is guaratueed to have results, even if the word is
+// not in the contextionary. In this case the list only contains the word
+// itself. It can then still be used for exact match or levensthein-based
+// searches against db backends.
+func (mi *MemoryIndex) SafeGetSimilarWords(word string, n, k int) ([]string, []float32) {
+	return safeGetSimilarWordsFromAny(mi, word, n, k)
+}
+
+// SafeGetSimilarWordsWithCertainty returns  similar words in the
+// contextionary, if they are close enough to match the required certainty.
+// It is guaratueed to have results, even if the word is not in the
+// contextionary. In this case the list only contains the word itself. It can
+// then still be used for exact match or levensthein-based searches against
+// db backends.
+func (mi *MemoryIndex) SafeGetSimilarWordsWithCertainty(word string, certainty float32) []string {
+	return safeGetSimilarWordsWithCertaintyFromAny(mi, word, certainty)
+}
+
 // The rest of this file concerns itself with building the Memory Index.
 // This is done from the MemoryIndexBuilder struct.
 

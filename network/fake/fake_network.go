@@ -16,6 +16,7 @@ import (
 
 	graphqlnetwork "github.com/creativesoftwarefdn/weaviate/graphqlapi/network"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/common"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/fetch"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	network "github.com/creativesoftwarefdn/weaviate/network"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
@@ -54,7 +55,7 @@ func (fn FakeNetwork) ProxyAggregateInstance(common.Params) (*models.GraphQLResp
 	return nil, fmt.Errorf("Cannot proxy aggregate, because there is no network configured")
 }
 
-func (fn FakeNetwork) ProxyFetch(common.SubQuery) ([]*models.GraphQLResponse, error) {
+func (fn FakeNetwork) ProxyFetch(common.SubQuery) ([]fetch.Response, error) {
 	return nil, fmt.Errorf("Cannot proxy fetch, because there is no network configured")
 }
 

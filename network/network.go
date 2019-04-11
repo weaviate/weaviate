@@ -14,6 +14,7 @@ package network
 import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/common"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/fetch"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 )
@@ -36,12 +37,11 @@ type Network interface {
 	GetStatus() string
 
 	ListPeers() (peers.Peers, error)
-	// GetNetworkResolver() Network
 
 	ProxyGetInstance(common.Params) (*models.GraphQLResponse, error)
 	ProxyGetMetaInstance(common.Params) (*models.GraphQLResponse, error)
 	ProxyAggregateInstance(common.Params) (*models.GraphQLResponse, error)
-	ProxyFetch(query common.SubQuery) ([]*models.GraphQLResponse, error)
+	ProxyFetch(query common.SubQuery) ([]fetch.Response, error)
 
 	// UpdatePeers is Invoked by the Genesis server via an HTTP endpoint.
 	UpdatePeers(newPeers peers.Peers) error
@@ -52,7 +52,4 @@ type Network interface {
 	// Register a SchemaGetter which can be called in each pinging
 	// cycle to retrieve the current schema (hash)
 	RegisterSchemaGetter(getter SchemaGetter)
-
-	// TODO: We'll add functions like
-	// - QueryNetwork(q NetworkQuery, timeout int) (chan NetworkResponse, error)
 }

@@ -10,24 +10,22 @@
  * CONTACT: hello@creativesoftwarefdn.org
  */
 
-package fetch
+package fetchfuzzy
 
 import (
 	"fmt"
 
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/state"
-	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 )
 
-// Processor is a simple Gremlin-Query Executor that is specific to Fetch. It
+// Processor is a simple Gremlin-Query Executor that is specific to Fetch Fuzzy. It
 // transforms the return value into a usable beacon structure and calculates
 // the final certainty.
 type Processor struct {
 	executor   executor
-	kind       kind.Kind
-	nameSource nameSource
 	peerName   string
+	nameSource nameSource
 }
 
 type executor interface {
@@ -35,8 +33,8 @@ type executor interface {
 }
 
 //NewProcessor from a gremlin executer. See Processor for details.
-func NewProcessor(executor executor, k kind.Kind, peer string, ns nameSource) *Processor {
-	return &Processor{executor: executor, kind: k, peerName: peer, nameSource: ns}
+func NewProcessor(executor executor, peer string, ns nameSource) *Processor {
+	return &Processor{executor: executor, peerName: peer, nameSource: ns}
 }
 
 // Process the query by executing it and then transforming the results to
@@ -44,7 +42,8 @@ func NewProcessor(executor executor, k kind.Kind, peer string, ns nameSource) *P
 func (p *Processor) Process(query *gremlin.Query) (interface{}, error) {
 	result, err := p.executor.Execute(query)
 	if err != nil {
-		return nil, fmt.Errorf("could not process fetch query: executing the query failed: %s", err)
+		return nil, fmt.Errorf(
+			"could not process fetch fuzzy query: executing the query failed: %s", err)
 	}
 
 	results := make([]interface{}, len(result.Data), len(result.Data))
@@ -74,12 +73,17 @@ func (p *Processor) extractBeacon(data interface{}) (string, error) {
 		return "", fmt.Errorf("expected datum to be a map, but was %T", data)
 	}
 
-	uuidString, err := p.getProperty(dataMap, "uuid")
+	uuid, err := p.getProperty(dataMap, "uuid")
 	if err != nil {
 		return "", err
 	}
 
-	return p.beaconFromUUID(uuidString)
+	kind, err := p.getProperty(dataMap, "kind")
+	if err != nil {
+		return "", err
+	}
+
+	return p.beaconFromUUID(uuid, kind)
 }
 
 func (p *Processor) extractClassName(data interface{}) (string, error) {
@@ -123,9 +127,9 @@ func (p *Processor) getProperty(dataMap map[string]interface{}, propName string)
 	return propString, nil
 }
 
-func (p *Processor) beaconFromUUID(uuid string) (string, error) {
+func (p *Processor) beaconFromUUID(uuid string, kind string) (string, error) {
 	return fmt.Sprintf("weaviate://%s/%ss/%s",
-		p.peerName, p.kind.Name(), uuid), nil
+		p.peerName, kind, uuid), nil
 }
 
 func (p *Processor) classNameFromID(id string) (string, error) {
