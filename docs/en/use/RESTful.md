@@ -284,12 +284,10 @@ Example request:
 
 ```bash
 $ curl http://localhost:8080/weaviate/v1/things/validate -H "Content-Type: application/json" -d '{
-    "thing": {
-        "class": "Animal",
-        "schema": {
-            "name": "Bert",
-            "species": "elephant"
-        }
+    "class": "Animal",
+    "schema": {
+        "name": "Bert",
+        "species": "elephant"
     }
 }'
 ```
@@ -304,12 +302,10 @@ Example request:
 
 ```bash
 $ curl http://localhost:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
-    "thing": {
-        "class": "Animal",
-        "schema": {
-            "name": "Bert",
-            "species": "elephant"
-        }
+    "class": "Animal",
+    "schema": {
+        "name": "Bert",
+        "species": "elephant"
     }
 }'
 ```
@@ -322,12 +318,10 @@ Example request:
 
 ```bash
 $ curl http://localhost:8080/weaviate/v1/things/{uuid} -H "Content-Type: application/json" -d '{
-    "thing": {
-        "class": "Animal",
-        "schema": {
-            "name": "Charles",
-            "species": "monkey"
-        }
+    "class": "Animal",
+    "schema": {
+        "name": "Charles",
+        "species": "monkey"
     }
 }'
 ```
@@ -418,12 +412,10 @@ Example request:
 
 ```bash
 $ curl http://localhost:8080/weaviate/v1/actions/validate -H "Content-Type: application/json" -d '{
-    "action": {
-        "class": "Animal",
-        "schema": {
-            "name": "Bert",
-            "species": "elephant"
-        }
+    "class": "Animal",
+    "schema": {
+        "name": "Bert",
+        "species": "elephant"
     }
 }'
 ```
@@ -438,12 +430,10 @@ Example request:
 
 ```bash
 $ curl http://localhost:8080/weaviate/v1/actions -H "Content-Type: application/json" -d '{
-    "action": {
-        "class": "Animal",
-        "schema": {
-            "name": "Bert",
-            "species": "elephant"
-        }
+    "class": "Animal",
+    "schema": {
+        "name": "Bert",
+        "species": "elephant"
     }
 }'
 ```
@@ -456,12 +446,10 @@ Example request:
 
 ```bash
 $ curl http://localhost:8080/weaviate/v1/actions/{uuid} -H "Content-Type: application/json" -d '{
-    "action": {
-        "class": "Animal",
-        "schema": {
-            "name": "Charles",
-            "species": "monkey"
-        }
+    "class": "Animal",
+    "schema": {
+        "name": "Charles",
+        "species": "monkey"
     }
 }'
 ```
