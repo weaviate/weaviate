@@ -191,14 +191,12 @@ First the city of Amsterdam
 
 ```bash
 $ curl -X POST http://localhost:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
-    "thing": {
-        "class": "City",
-        "schema": {
-            "name": "Amsterdam",
-            "location": {
-                "latitude": 52.22,
-                "longitude": 4.54
-            }
+    "class": "City",
+    "schema": {
+        "name": "Amsterdam",
+        "location": {
+            "latitude": 52.22,
+            "longitude": 4.54
         }
     }
 }'
@@ -225,14 +223,12 @@ Next, the city of Berlin
 
 ```bash
 $ curl -X POST http://localhost:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
-    "thing": {
-        "class": "City",
-        "schema": {
-            "name": "Berlin",
-            "location": {
-                "latitude": 52.31,
-                "longitude": 13.23
-            }
+    "class": "City",
+    "schema": {
+        "name": "Berlin",
+        "location": {
+            "latitude": 52.31,
+            "longitude": 13.23
         }
     }
 }'
@@ -259,13 +255,11 @@ Now, we are going to add the Zoos, note how we are defining the cross-reference:
 
 ```bash
 $ curl -X POST http://localhost:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
-    "thing": {
-        "class": "Zoo",
-        "schema": {
-            "name": "Artis",
-            "inCity": {
-                "$cref": "weaviate://localhost/things/6406759e-f6fb-47ba-a537-1a62728d2f55"
-            }
+    "class": "Zoo",
+    "schema": {
+        "name": "Artis",
+        "inCity": {
+            "$cref": "weaviate://localhost/things/6406759e-f6fb-47ba-a537-1a62728d2f55"
         }
     }
 }'
@@ -293,13 +287,11 @@ We will do the same for the Berlin zoo:
 
 ```bash
 $ curl -X POST http://localhost:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
-    "thing": {
-        "class": "Zoo",
-        "schema": {
-            "name": "The Berlin Zoological Garden",
-            "inCity": {
-                "$cref": "weaviate://localhost/things/f15ba7e7-0635-4009-828b-7a631cd6840e"
-            }
+    "class": "Zoo",
+    "schema": {
+        "name": "The Berlin Zoological Garden",
+        "inCity": {
+            "$cref": "weaviate://localhost/things/f15ba7e7-0635-4009-828b-7a631cd6840e"
         }
     }
 }'
@@ -379,24 +371,20 @@ We will add two `Animals`, the elephants Alphonso and Bert and we are going to s
 
 ```bash
 $ curl -X POST http://localhost:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
-    "thing": {
-        "class": "Animal",
-        "schema": {
-            "name": "Alphonso",
-            "species": "elephant"
-        }
+    "class": "Animal",
+    "schema": {
+        "name": "Alphonso",
+        "species": "elephant"
     }
 }'
 ```
 
 ```bash
 $ curl -X POST http://localhost:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
-    "thing": {
-        "class": "Animal",
-        "schema": {
-            "name": "Bert",
-            "species": "elephant"
-        }
+    "class": "Animal",
+    "schema": {
+        "name": "Bert",
+        "species": "elephant"
     }
 }'
 ```
