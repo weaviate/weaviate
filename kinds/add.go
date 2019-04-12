@@ -3,7 +3,6 @@ package kinds
 import (
 	"context"
 
-	"github.com/creativesoftwarefdn/weaviate/database"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/models"
@@ -18,6 +17,12 @@ type addRepo interface {
 	// methods to add new items
 	AddAction(ctx context.Context, class *models.Action, id strfmt.UUID) error
 	AddThing(ctx context.Context, class *models.Thing, id strfmt.UUID) error
+}
+
+// TODO: Can we use the schema manager UC here instead of the "whole thing"?
+type schemaManager interface {
+	UpdatePropertyAddDataType(context.Context, kind.Kind, string, string, string) error
+	GetSchema() schema.Schema
 }
 
 // AddAction Class Instance to the connected DB. If the class contains a network
@@ -36,7 +41,7 @@ func (m *Manager) AddAction(ctx context.Context, class *models.Action) (*models.
 }
 
 func (m *Manager) addActionToConnectorAndSchema(ctx context.Context, class *models.Action,
-	addRepo addRepo, schemaManager database.SchemaManager) (*models.Action, error) {
+	addRepo addRepo, schemaManager schemaManager) (*models.Action, error) {
 	class.ID = generateUUID()
 	err := m.validateAction(ctx, schemaManager.GetSchema(), class, addRepo)
 	if err != nil {
@@ -80,7 +85,7 @@ func (m *Manager) AddThing(ctx context.Context, class *models.Thing) (*models.Th
 }
 
 func (m *Manager) addThingToConnectorAndSchema(ctx context.Context, class *models.Thing,
-	addRepo addRepo, schemaManager database.SchemaManager) (*models.Thing, error) {
+	addRepo addRepo, schemaManager schemaManager) (*models.Thing, error) {
 	class.ID = generateUUID()
 	err := m.validateThing(ctx, schemaManager.GetSchema(), class, addRepo)
 	if err != nil {
@@ -108,12 +113,12 @@ func (m *Manager) validateThing(ctx context.Context, dbschema schema.Schema,
 		ctx, class, databaseSchema, getRepo, m.network, m.config)
 }
 
-func (m *Manager) addNetworkDataTypesForThing(ctx context.Context, sm database.SchemaManager, class *models.Thing) error {
+func (m *Manager) addNetworkDataTypesForThing(ctx context.Context, sm schemaManager, class *models.Thing) error {
 	refSchemaUpdater := newReferenceSchemaUpdater(ctx, sm, m.network, class.Class, kind.THING_KIND)
 	return refSchemaUpdater.addNetworkDataTypes(class.Schema)
 }
 
-func (m *Manager) addNetworkDataTypesForAction(ctx context.Context, sm database.SchemaManager, class *models.Action) error {
+func (m *Manager) addNetworkDataTypesForAction(ctx context.Context, sm schemaManager, class *models.Action) error {
 	refSchemaUpdater := newReferenceSchemaUpdater(ctx, sm, m.network, class.Class, kind.ACTION_KIND)
 	return refSchemaUpdater.addNetworkDataTypes(class.Schema)
 }
