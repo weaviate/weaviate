@@ -98,7 +98,7 @@ type WeaviateBatchingThingsCreateBody struct {
 	Fields []*string `json:"fields"`
 
 	// things
-	Things []*models.ThingCreate `json:"things"`
+	Things []*models.Thing `json:"things"`
 }
 
 // Validate validates this weaviate batching things create body
@@ -123,7 +123,7 @@ var weaviateBatchingThingsCreateBodyFieldsItemsEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["ALL","@class","schema","key","thingId","creationTimeUnix"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["ALL","class","schema","id","creationTimeUnix"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {

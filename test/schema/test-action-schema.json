@@ -11,12 +11,12 @@
       "properties": [
         {
           "name": "testString",
-          "@dataType": ["string"],
+          "dataType": ["string"],
           "description": "Value of testString."
         },
         {
           "name": "testText",
-          "@dataType": ["text"],
+          "dataType": ["text"],
           "description": "Value of testText."
         },
         {
@@ -25,7 +25,7 @@
             {"keyword": "test", "weight": 1.0},
             {"keyword": "number", "weight": 1.0}
           ],
-          "@dataType": ["int"],
+          "dataType": ["int"],
           "description": "Value of testInt."
         },
         {
@@ -35,17 +35,17 @@
             {"keyword": "truth", "weight": 1.0},
             {"keyword": "value", "weight": 1.0}
           ],
-          "@dataType": ["boolean"],
+          "dataType": ["boolean"],
           "description": "Value of testBoolean."
         },
         {
           "name": "testNumber",
-          "@dataType": ["number"],
+          "dataType": ["number"],
           "description": "Value of testNumber."
         },
         {
           "name": "testDateTime",
-          "@dataType": ["date"],
+          "dataType": ["date"],
           "description": "Value of testDateTime."
         },
         {
@@ -54,7 +54,7 @@
             {"keyword": "test", "weight": 1.0},
             {"keyword": "reference", "weight": 1.0}
           ],
-          "@dataType": ["TestThing"],
+          "dataType": ["TestThing"],
           "description": "Value of testCref."
         }
       ]
@@ -65,17 +65,17 @@
       "properties": [
         {
           "name": "testString",
-          "@dataType": ["string"],
+          "dataType": ["string"],
           "description": "Value of testString."
         },
         {
           "name": "testText",
-          "@dataType": ["text"],
+          "dataType": ["text"],
           "description": "Value of testText."
         },
         {
           "name": "testInt",
-          "@dataType": ["int"],
+          "dataType": ["int"],
           "keywords": [
             {"keyword": "test", "weight": 1.0},
             {"keyword": "number", "weight": 1.0}
@@ -89,17 +89,17 @@
             {"keyword": "truth", "weight": 1.0},
             {"keyword": "value", "weight": 1.0}
           ],
-          "@dataType": ["boolean"],
+          "dataType": ["boolean"],
           "description": "Value of testBoolean."
         },
         {
           "name": "testNumber",
-          "@dataType": ["number"],
+          "dataType": ["number"],
           "description": "Value of testNumber."
         },
         {
           "name": "testDateTime",
-          "@dataType": ["date"],
+          "dataType": ["date"],
           "description": "Value of testDateTime."
         },
         {
@@ -108,7 +108,7 @@
             {"keyword": "test", "weight": 1.0},
             {"keyword": "reference", "weight": 1.0}
           ],
-          "@dataType": ["TestAction"],
+          "dataType": ["TestAction"],
           "description": "Value of testCref."
         },
         {
@@ -118,7 +118,7 @@
             {"keyword": "test", "weight": 1.0},
             {"keyword": "reference", "weight": 1.0}
           ],
-          "@dataType": ["TestAction"],
+          "dataType": ["TestAction"],
           "description": "Value of testCref."
         }
       ]

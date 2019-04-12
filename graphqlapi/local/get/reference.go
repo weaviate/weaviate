@@ -34,8 +34,8 @@ type NetworkRef struct {
 // particular reference field is a local ref and does not require further
 // resolving, as opposed to a NetworkRef.
 type LocalRef struct {
-	AtClass string
-	Fields  map[string]interface{}
+	Class  string
+	Fields map[string]interface{}
 }
 
 func buildReferenceField(propertyType schema.PropertyDataType,
@@ -142,7 +142,7 @@ func makeResolveRefField(peers peers.Peers) graphql.FieldResolveFn {
 				// inject some meta data so the ResolveType can determine the type
 				localRef := v.Fields
 				localRef["__refClassType"] = "local"
-				localRef["__refClassName"] = v.AtClass
+				localRef["__refClassName"] = v.Class
 				results[i] = localRef
 
 			case NetworkRef:
@@ -176,7 +176,7 @@ func makeResolveRefField(peers peers.Peers) graphql.FieldResolveFn {
 func extractSchemaFromKind(v NetworkRef, result interface{}) (map[string]interface{}, error) {
 	switch v.Kind {
 	case kind.THING_KIND:
-		thing, ok := result.(models.Thing)
+		thing, ok := result.(*models.Thing)
 		if !ok {
 			return nil, fmt.Errorf("expected a models.Thing, but remote instance returned %#v", result)
 		}
@@ -185,7 +185,7 @@ func extractSchemaFromKind(v NetworkRef, result interface{}) (map[string]interfa
 		if !ok {
 			return nil, fmt.Errorf("expected schema of '%v', to be a map, but is: %#v", v, schema)
 		}
-		schema["__refClassName"] = thing.AtClass
+		schema["__refClassName"] = thing.Class
 
 		return schema, nil
 	case kind.ACTION_KIND:
@@ -198,7 +198,7 @@ func extractSchemaFromKind(v NetworkRef, result interface{}) (map[string]interfa
 		if !ok {
 			return nil, fmt.Errorf("expected schema of '%v', to be a map, but is: %#v", v, schema)
 		}
-		schema["__refClassName"] = action.AtClass
+		schema["__refClassName"] = action.Class
 		return schema, nil
 
 	default:

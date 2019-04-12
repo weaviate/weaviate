@@ -15,7 +15,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	weaviateBroker "github.com/creativesoftwarefdn/weaviate/broker"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
@@ -49,7 +48,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 
 		// Validate schema given in body with the weaviate schema
 		databaseSchema := schema.HackFromDatabaseSchema(schemaLock.GetSchema())
-		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), params.Body.Thing, databaseSchema,
+		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), params.Body, databaseSchema,
 			dbConnector, network, serverConfig)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
@@ -57,48 +56,31 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 
 		// Make Thing-Object
 		thing := &models.Thing{}
-		thing.Schema = params.Body.Thing.Schema
-		thing.AtClass = params.Body.Thing.AtClass
-		thing.AtContext = params.Body.Thing.AtContext
+		thing.Schema = params.Body.Schema
+		thing.Class = params.Body.Class
 		thing.CreationTimeUnix = connutils.NowUnix()
 		thing.LastUpdateTimeUnix = 0
+		thing.ID = UUID
 
-		responseObject := &models.ThingGetResponse{}
-		responseObject.Thing = *thing
-		responseObject.ThingID = UUID
+		responseObject := &models.Thing{}
+		responseObject = thing
 
 		ctx := params.HTTPRequest.Context()
-		refSchemaUpdater := newReferenceSchemaUpdater(ctx, schemaLock.SchemaManager(), network, params.Body.Thing.AtClass, kind.THING_KIND)
-
-		if params.Body.Async {
-			delayedLock.IncSteps()
-			go func() {
-				defer unlock(delayedLock)
-				dbConnector.AddThing(ctx, thing, UUID)
-				refSchemaUpdater.addNetworkDataTypes(params.Body.Thing.Schema)
-			}()
-
-			// Register the function call
-			go func() {
-				requestsLog.Register(telemetry.TypeREST, telemetry.LocalAdd)
-			}()
-
-			return things.NewWeaviateThingsCreateAccepted().WithPayload(responseObject)
-		}
+		refSchemaUpdater := newReferenceSchemaUpdater(ctx, schemaLock.SchemaManager(), network, params.Body.Class, kind.THING_KIND)
 
 		dbConnector.AddThing(ctx, thing, UUID)
-		err = refSchemaUpdater.addNetworkDataTypes(params.Body.Thing.Schema)
+		err = refSchemaUpdater.addNetworkDataTypes(params.Body.Schema)
 		if err != nil {
 			return things.NewWeaviateThingsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
 		}
 
-		// Register the function call
 		go func() {
 			requestsLog.Register(telemetry.TypeREST, telemetry.LocalAdd)
 		}()
 
 		return things.NewWeaviateThingsCreateOK().WithPayload(responseObject)
 	})
+
 	api.ThingsWeaviateThingsDeleteHandler = things.WeaviateThingsDeleteHandlerFunc(func(params things.WeaviateThingsDeleteParams, principal *models.Principal) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
@@ -110,14 +92,11 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		dbConnector := dbLock.Connector()
 
 		// Initialize response
-		thingGetResponse := models.ThingGetResponse{}
+		thingGetResponse := models.Thing{}
 		thingGetResponse.Schema = map[string]models.JSONObject{}
 
 		// Get item from database
-		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), params.ThingID, &thingGetResponse)
-
-		// Save the old-thing in a variable
-		oldThing := thingGetResponse
+		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), params.ID, &thingGetResponse)
 
 		// Not found
 		if errGet != nil {
@@ -126,19 +105,12 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 
 		thingGetResponse.LastUpdateTimeUnix = connutils.NowUnix()
 
-		// Move the current properties to the history
-		delayedLock.IncSteps()
 		ctx := params.HTTPRequest.Context()
-		go func() {
-			delayedLock.Unlock()
-			dbConnector.MoveToHistoryThing(ctx, &oldThing.Thing, params.ThingID, true)
-		}()
-
 		// Add new row as GO-routine
 		delayedLock.IncSteps()
 		go func() {
 			delayedLock.Unlock()
-			dbConnector.DeleteThing(ctx, &thingGetResponse.Thing, params.ThingID)
+			dbConnector.DeleteThing(ctx, &thingGetResponse, params.ID)
 		}()
 
 		// Register the function call
@@ -158,12 +130,12 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		dbConnector := dbLock.Connector()
 
 		// Initialize response
-		responseObject := models.ThingGetResponse{}
+		responseObject := models.Thing{}
 		responseObject.Schema = map[string]models.JSONObject{}
 
 		// Get item from database
 		ctx := params.HTTPRequest.Context()
-		err = dbConnector.GetThing(ctx, strfmt.UUID(params.ThingID), &responseObject)
+		err = dbConnector.GetThing(ctx, strfmt.UUID(params.ID), &responseObject)
 
 		// Object is not found
 		if err != nil {
@@ -180,51 +152,6 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		return things.NewWeaviateThingsGetOK().WithPayload(&responseObject)
 	})
 
-	api.ThingsWeaviateThingHistoryGetHandler = things.WeaviateThingHistoryGetHandlerFunc(func(params things.WeaviateThingHistoryGetParams, principal *models.Principal) middleware.Responder {
-		dbLock, err := db.ConnectorLock()
-		if err != nil {
-			return things.NewWeaviateThingHistoryGetInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-		}
-		defer unlock(dbLock)
-		dbConnector := dbLock.Connector()
-
-		// Initialize response
-		responseObject := models.ThingGetResponse{}
-		responseObject.Schema = map[string]models.JSONObject{}
-
-		// Set UUID var for easy usage
-		UUID := strfmt.UUID(params.ThingID)
-
-		// Get item from database
-		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), UUID, &responseObject)
-
-		// Init the response variables
-		historyResponse := &models.ThingGetHistoryResponse{}
-		historyResponse.PropertyHistory = []*models.ThingHistoryObject{}
-		historyResponse.ThingID = UUID
-
-		// Fill the history for these objects
-		ctx := params.HTTPRequest.Context()
-		errHist := dbConnector.HistoryThing(ctx, UUID, &historyResponse.ThingHistory)
-
-		// Check whether dont exist (both give an error) to return a not found
-		if errGet != nil && (errHist != nil || len(historyResponse.PropertyHistory) == 0) {
-			messaging.ErrorMessage(errGet)
-			messaging.ErrorMessage(errHist)
-			return things.NewWeaviateThingHistoryGetNotFound()
-		}
-
-		// Thing is deleted when we have an get error and no history error
-		historyResponse.Deleted = errGet != nil && errHist == nil && len(historyResponse.PropertyHistory) != 0
-
-		// Register the function call
-		go func() {
-			requestsLog.Register(telemetry.TypeREST, telemetry.LocalQuery)
-		}()
-
-		return things.NewWeaviateThingHistoryGetOK().WithPayload(historyResponse)
-	})
-
 	api.ThingsWeaviateThingsListHandler = things.WeaviateThingsListHandlerFunc(func(params things.WeaviateThingsListParams, principal *models.Principal) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
@@ -234,16 +161,15 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		dbConnector := dbLock.Connector()
 
 		// Get limit and page
-		limit := getLimit(params.MaxResults)
-		page := getPage(params.Page)
+		limit := getLimit(params.Limit)
 
 		// Initialize response
 		thingsResponse := models.ThingsListResponse{}
-		thingsResponse.Things = []*models.ThingGetResponse{}
+		thingsResponse.Things = []*models.Thing{}
 
 		// List all results
 		ctx := params.HTTPRequest.Context()
-		err = dbConnector.ListThings(ctx, limit, (page-1)*limit, []*connutils.WhereQuery{}, &thingsResponse)
+		err = dbConnector.ListThings(ctx, limit, []*connutils.WhereQuery{}, &thingsResponse)
 		if err != nil {
 			return things.NewWeaviateThingsListInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 		}
@@ -266,15 +192,12 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		dbConnector := schemaLock.Connector()
 
 		// Initialize response
-		thingGetResponse := models.ThingGetResponse{}
+		thingGetResponse := models.Thing{}
 		thingGetResponse.Schema = map[string]models.JSONObject{}
 
 		// Get and transform object
-		UUID := strfmt.UUID(params.ThingID)
+		UUID := strfmt.UUID(params.ID)
 		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), UUID, &thingGetResponse)
-
-		// Save the old-thing in a variable
-		oldThing := thingGetResponse
 
 		// Add update time
 		thingGetResponse.LastUpdateTimeUnix = connutils.NowUnix()
@@ -292,7 +215,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 			return things.NewWeaviateThingsPatchBadRequest()
 		}
 
-		// Convert ThingGetResponse object to JSON
+		// Convert Thing object to JSON
 		thingUpdateJSON, marshalErr := json.Marshal(thingGetResponse)
 		if marshalErr != nil {
 			return things.NewWeaviateThingsPatchBadRequest()
@@ -301,7 +224,6 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		// Apply the patch
 		updatedJSON, applyErr := patchObject.Apply(thingUpdateJSON)
 		if applyErr != nil {
-			fmt.Printf("patch attempt on %#v failed. Patch: %#v", thingUpdateJSON, patchObject)
 			return things.NewWeaviateThingsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(applyErr.Error()))
 		}
 
@@ -311,7 +233,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 
 		// Validate schema made after patching with the weaviate schema
 		databaseSchema := schema.HackFromDatabaseSchema(schemaLock.GetSchema())
-		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), &thing.ThingCreate,
+		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), thing,
 			databaseSchema, dbConnector, network, serverConfig)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsPatchUnprocessableEntity().WithPayload(
@@ -320,43 +242,13 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		}
 
 		ctx := params.HTTPRequest.Context()
-		err = newReferenceSchemaUpdater(ctx, schemaLock.SchemaManager(), network, thing.AtClass, kind.THING_KIND).
+		err = newReferenceSchemaUpdater(ctx, schemaLock.SchemaManager(), network, thing.Class, kind.THING_KIND).
 			addNetworkDataTypes(thing.Schema)
 		if err != nil {
 			return things.NewWeaviateThingsPatchUnprocessableEntity().WithPayload(
 				createErrorResponseObject(err.Error()),
 			)
 		}
-
-		if params.Async != nil && *params.Async == true {
-			// Move the current properties to the history
-			delayedLock.IncSteps()
-			go func() {
-				delayedLock.Unlock()
-				dbConnector.MoveToHistoryThing(ctx, &oldThing.Thing, UUID, false)
-			}()
-
-			// Update the database
-			delayedLock.IncSteps()
-			go func() {
-				delayedLock.Unlock()
-				dbConnector.UpdateThing(ctx, thing, UUID)
-			}()
-
-			// Create return Object
-			thingGetResponse.Thing = *thing
-
-			// Register the function call
-			go func() {
-				requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulate)
-			}()
-
-			// Returns accepted so a Go routine can process in the background
-			return things.NewWeaviateThingsPatchAccepted().WithPayload(&thingGetResponse)
-		}
-
-		// Move the current properties to the history
-		dbConnector.MoveToHistoryThing(ctx, &oldThing.Thing, UUID, false)
 
 		// Update the database
 		err = dbConnector.UpdateThing(ctx, thing, UUID)
@@ -366,7 +258,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		}
 
 		// Create return Object
-		thingGetResponse.Thing = *thing
+		thingGetResponse = *thing
 
 		// Register the function call
 		go func() {
@@ -386,9 +278,9 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 
 		dbConnector := dbLock.Connector()
 
-		UUID := strfmt.UUID(params.ThingID)
+		UUID := strfmt.UUID(params.ID)
 
-		class := models.ThingGetResponse{}
+		class := models.Thing{}
 		ctx := params.HTTPRequest.Context()
 		err = dbConnector.GetThing(ctx, UUID, &class)
 
@@ -400,12 +292,12 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		dbSchema := dbLock.GetSchema()
 
 		// Find property and see if it has a max cardinality of >1
-		err, prop := dbSchema.GetProperty(kind.THING_KIND, schema.AssertValidClassName(class.AtClass), schema.AssertValidPropertyName(params.PropertyName))
+		err, prop := dbSchema.GetProperty(kind.THING_KIND, schema.AssertValidClassName(class.Class), schema.AssertValidPropertyName(params.PropertyName))
 		if err != nil {
 			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find property '%s'; %s", params.PropertyName, err.Error())))
 		}
-		propertyDataType, err := dbSchema.FindPropertyDataType(prop.AtDataType)
+		propertyDataType, err := dbSchema.FindPropertyDataType(prop.DataType)
 		if err != nil {
 			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find datatype of property '%s'; %s", params.PropertyName, err.Error())))
@@ -427,11 +319,11 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 				WithPayload(createErrorResponseObject(err.Error()))
 		}
 
-		if class.Thing.Schema == nil {
-			class.Thing.Schema = map[string]interface{}{}
+		if class.Schema == nil {
+			class.Schema = map[string]interface{}{}
 		}
 
-		schema := class.Thing.Schema.(map[string]interface{})
+		schema := class.Schema.(map[string]interface{})
 
 		_, schemaPropPresent := schema[params.PropertyName]
 		if !schemaPropPresent {
@@ -449,12 +341,12 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 
 		// Patch it back
 		schema[params.PropertyName] = schemaPropList
-		class.Thing.Schema = schema
+		class.Schema = schema
 
 		// And update the last modified time.
 		class.LastUpdateTimeUnix = connutils.NowUnix()
 
-		err = dbConnector.UpdateThing(ctx, &(class.Thing), UUID)
+		err = dbConnector.UpdateThing(ctx, &(class), UUID)
 		if err != nil {
 			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
 		}
@@ -483,9 +375,9 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 
 		dbConnector := dbLock.Connector()
 
-		UUID := strfmt.UUID(params.ThingID)
+		UUID := strfmt.UUID(params.ID)
 
-		class := models.ThingGetResponse{}
+		class := models.Thing{}
 		ctx := params.HTTPRequest.Context()
 		err = dbConnector.GetThing(ctx, UUID, &class)
 
@@ -497,12 +389,12 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		dbSchema := dbLock.GetSchema()
 
 		// Find property and see if it has a max cardinality of >1
-		err, prop := dbSchema.GetProperty(kind.THING_KIND, schema.AssertValidClassName(class.AtClass), schema.AssertValidPropertyName(params.PropertyName))
+		err, prop := dbSchema.GetProperty(kind.THING_KIND, schema.AssertValidClassName(class.Class), schema.AssertValidPropertyName(params.PropertyName))
 		if err != nil {
 			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find property '%s'; %s", params.PropertyName, err.Error())))
 		}
-		propertyDataType, err := dbSchema.FindPropertyDataType(prop.AtDataType)
+		propertyDataType, err := dbSchema.FindPropertyDataType(prop.DataType)
 		if err != nil {
 			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find datatype of property '%s'; %s", params.PropertyName, err.Error())))
@@ -518,11 +410,11 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 
 		//NOTE: we are _not_ verifying the reference; otherwise we cannot delete broken references.
 
-		if class.Thing.Schema == nil {
-			class.Thing.Schema = map[string]interface{}{}
+		if class.Schema == nil {
+			class.Schema = map[string]interface{}{}
 		}
 
-		schema := class.Thing.Schema.(map[string]interface{})
+		schema := class.Schema.(map[string]interface{})
 
 		_, schemaPropPresent := schema[params.PropertyName]
 		if !schemaPropPresent {
@@ -552,12 +444,12 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 
 		// Patch it back
 		schema[params.PropertyName] = schemaPropList
-		class.Thing.Schema = schema
+		class.Schema = schema
 
 		// And update the last modified time.
 		class.LastUpdateTimeUnix = connutils.NowUnix()
 
-		err = dbConnector.UpdateThing(ctx, &(class.Thing), UUID)
+		err = dbConnector.UpdateThing(ctx, &(class), UUID)
 		if err != nil {
 			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
 		}
@@ -580,9 +472,9 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 
 		dbConnector := dbLock.Connector()
 
-		UUID := strfmt.UUID(params.ThingID)
+		UUID := strfmt.UUID(params.ID)
 
-		class := models.ThingGetResponse{}
+		class := models.Thing{}
 		ctx := params.HTTPRequest.Context()
 		err = dbConnector.GetThing(ctx, UUID, &class)
 
@@ -594,12 +486,12 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		dbSchema := dbLock.GetSchema()
 
 		// Find property and see if it has a max cardinality of >1
-		err, prop := dbSchema.GetProperty(kind.THING_KIND, schema.AssertValidClassName(class.AtClass), schema.AssertValidPropertyName(params.PropertyName))
+		err, prop := dbSchema.GetProperty(kind.THING_KIND, schema.AssertValidClassName(class.Class), schema.AssertValidPropertyName(params.PropertyName))
 		if err != nil {
 			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find property '%s'; %s", params.PropertyName, err.Error())))
 		}
-		propertyDataType, err := dbSchema.FindPropertyDataType(prop.AtDataType)
+		propertyDataType, err := dbSchema.FindPropertyDataType(prop.DataType)
 		if err != nil {
 			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find datatype of property '%s'; %s", params.PropertyName, err.Error())))
@@ -621,20 +513,20 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 				WithPayload(createErrorResponseObject(err.Error()))
 		}
 
-		if class.Thing.Schema == nil {
-			class.Thing.Schema = map[string]interface{}{}
+		if class.Schema == nil {
+			class.Schema = map[string]interface{}{}
 		}
 
-		schema := class.Thing.Schema.(map[string]interface{})
+		schema := class.Schema.(map[string]interface{})
 
 		// (Over)write with multiple ref
 		schema[params.PropertyName] = &params.Body
-		class.Thing.Schema = schema
+		class.Schema = schema
 
 		// And update the last modified time.
 		class.LastUpdateTimeUnix = connutils.NowUnix()
 
-		err = dbConnector.UpdateThing(ctx, &(class.Thing), UUID)
+		err = dbConnector.UpdateThing(ctx, &(class), UUID)
 		if err != nil {
 			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
 		}
@@ -658,15 +550,12 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		dbConnector := dbLock.Connector()
 
 		// Initialize response
-		thingGetResponse := models.ThingGetResponse{}
+		thingGetResponse := models.Thing{}
 		thingGetResponse.Schema = map[string]models.JSONObject{}
 
 		// Get item from database
-		UUID := params.ThingID
+		UUID := params.ID
 		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), UUID, &thingGetResponse)
-
-		// Save the old-thing in a variable
-		oldThing := thingGetResponse
 
 		// If there are no results, there is an error
 		if errGet != nil {
@@ -676,46 +565,34 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 
 		// Validate schema given in body with the weaviate schema
 		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
-		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), &params.Body.ThingCreate,
+		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), params.Body,
 			databaseSchema, dbConnector, network, serverConfig)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsUpdateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
 
-		// Move the current properties to the history
 		ctx := params.HTTPRequest.Context()
-		delayedLock.IncSteps()
-		go func() {
-			delayedLock.Unlock()
-			dbConnector.MoveToHistoryThing(ctx, &oldThing.Thing, UUID, false)
-		}()
 
 		// Update the database
 		params.Body.LastUpdateTimeUnix = connutils.NowUnix()
 		params.Body.CreationTimeUnix = thingGetResponse.CreationTimeUnix
-		params.Body.Key = thingGetResponse.Key
 		delayedLock.IncSteps()
 		go func() {
 			delayedLock.Unlock()
-			dbConnector.UpdateThing(ctx, &params.Body.Thing, UUID)
+			dbConnector.UpdateThing(ctx, params.Body, UUID)
 		}()
 
 		// Create object to return
-		responseObject := &models.ThingGetResponse{}
-		responseObject.Thing = params.Body.Thing
-		responseObject.ThingID = UUID
-
-		// broadcast to MQTT
-		mqttJson, _ := json.Marshal(responseObject)
-		weaviateBroker.Publish("/things/"+string(responseObject.ThingID), string(mqttJson[:]))
+		responseObject := &models.Thing{}
+		responseObject = params.Body
+		responseObject.ID = UUID
 
 		// Register the function call
 		go func() {
 			requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulate)
 		}()
 
-		// Return SUCCESS (NOTE: this is ACCEPTED, so the dbConnector.Add should have a go routine)
-		return things.NewWeaviateThingsUpdateAccepted().WithPayload(responseObject)
+		return things.NewWeaviateThingsUpdateOK().WithPayload(responseObject)
 	})
 	api.ThingsWeaviateThingsValidateHandler = things.WeaviateThingsValidateHandlerFunc(func(params things.WeaviateThingsValidateParams, principal *models.Principal) middleware.Responder {
 		dbLock, err := db.ConnectorLock()

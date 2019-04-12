@@ -152,7 +152,7 @@ func (b *Query) combineClassWithPropName(className string, propName string,
 		return nil
 	}
 
-	propType, err := b.typeSource.FindPropertyDataType(schemaProp.AtDataType)
+	propType, err := b.typeSource.FindPropertyDataType(schemaProp.DataType)
 	if err != nil {
 		// this class property combination does not exist, simply skip it
 		return nil

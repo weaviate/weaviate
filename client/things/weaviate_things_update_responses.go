@@ -35,8 +35,8 @@ type WeaviateThingsUpdateReader struct {
 func (o *WeaviateThingsUpdateReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
 
-	case 202:
-		result := NewWeaviateThingsUpdateAccepted()
+	case 200:
+		result := NewWeaviateThingsUpdateOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -82,26 +82,26 @@ func (o *WeaviateThingsUpdateReader) ReadResponse(response runtime.ClientRespons
 	}
 }
 
-// NewWeaviateThingsUpdateAccepted creates a WeaviateThingsUpdateAccepted with default headers values
-func NewWeaviateThingsUpdateAccepted() *WeaviateThingsUpdateAccepted {
-	return &WeaviateThingsUpdateAccepted{}
+// NewWeaviateThingsUpdateOK creates a WeaviateThingsUpdateOK with default headers values
+func NewWeaviateThingsUpdateOK() *WeaviateThingsUpdateOK {
+	return &WeaviateThingsUpdateOK{}
 }
 
-/*WeaviateThingsUpdateAccepted handles this case with default header values.
+/*WeaviateThingsUpdateOK handles this case with default header values.
 
 Successfully received.
 */
-type WeaviateThingsUpdateAccepted struct {
-	Payload *models.ThingGetResponse
+type WeaviateThingsUpdateOK struct {
+	Payload *models.Thing
 }
 
-func (o *WeaviateThingsUpdateAccepted) Error() string {
-	return fmt.Sprintf("[PUT /things/{thingId}][%d] weaviateThingsUpdateAccepted  %+v", 202, o.Payload)
+func (o *WeaviateThingsUpdateOK) Error() string {
+	return fmt.Sprintf("[PUT /things/{id}][%d] weaviateThingsUpdateOK  %+v", 200, o.Payload)
 }
 
-func (o *WeaviateThingsUpdateAccepted) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+func (o *WeaviateThingsUpdateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.ThingGetResponse)
+	o.Payload = new(models.Thing)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
@@ -124,7 +124,7 @@ type WeaviateThingsUpdateUnauthorized struct {
 }
 
 func (o *WeaviateThingsUpdateUnauthorized) Error() string {
-	return fmt.Sprintf("[PUT /things/{thingId}][%d] weaviateThingsUpdateUnauthorized ", 401)
+	return fmt.Sprintf("[PUT /things/{id}][%d] weaviateThingsUpdateUnauthorized ", 401)
 }
 
 func (o *WeaviateThingsUpdateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -145,7 +145,7 @@ type WeaviateThingsUpdateForbidden struct {
 }
 
 func (o *WeaviateThingsUpdateForbidden) Error() string {
-	return fmt.Sprintf("[PUT /things/{thingId}][%d] weaviateThingsUpdateForbidden ", 403)
+	return fmt.Sprintf("[PUT /things/{id}][%d] weaviateThingsUpdateForbidden ", 403)
 }
 
 func (o *WeaviateThingsUpdateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -166,7 +166,7 @@ type WeaviateThingsUpdateNotFound struct {
 }
 
 func (o *WeaviateThingsUpdateNotFound) Error() string {
-	return fmt.Sprintf("[PUT /things/{thingId}][%d] weaviateThingsUpdateNotFound ", 404)
+	return fmt.Sprintf("[PUT /things/{id}][%d] weaviateThingsUpdateNotFound ", 404)
 }
 
 func (o *WeaviateThingsUpdateNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -188,7 +188,7 @@ type WeaviateThingsUpdateUnprocessableEntity struct {
 }
 
 func (o *WeaviateThingsUpdateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[PUT /things/{thingId}][%d] weaviateThingsUpdateUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[PUT /things/{id}][%d] weaviateThingsUpdateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *WeaviateThingsUpdateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -217,7 +217,7 @@ type WeaviateThingsUpdateInternalServerError struct {
 }
 
 func (o *WeaviateThingsUpdateInternalServerError) Error() string {
-	return fmt.Sprintf("[PUT /things/{thingId}][%d] weaviateThingsUpdateInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[PUT /things/{id}][%d] weaviateThingsUpdateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *WeaviateThingsUpdateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

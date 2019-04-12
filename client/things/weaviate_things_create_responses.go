@@ -19,9 +19,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
-	"github.com/go-openapi/swag"
 
 	strfmt "github.com/go-openapi/strfmt"
 
@@ -39,13 +37,6 @@ func (o *WeaviateThingsCreateReader) ReadResponse(response runtime.ClientRespons
 
 	case 200:
 		result := NewWeaviateThingsCreateOK()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return result, nil
-
-	case 202:
-		result := NewWeaviateThingsCreateAccepted()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -94,7 +85,7 @@ func NewWeaviateThingsCreateOK() *WeaviateThingsCreateOK {
 Thing created.
 */
 type WeaviateThingsCreateOK struct {
-	Payload *models.ThingGetResponse
+	Payload *models.Thing
 }
 
 func (o *WeaviateThingsCreateOK) Error() string {
@@ -103,36 +94,7 @@ func (o *WeaviateThingsCreateOK) Error() string {
 
 func (o *WeaviateThingsCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.ThingGetResponse)
-
-	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
-		return err
-	}
-
-	return nil
-}
-
-// NewWeaviateThingsCreateAccepted creates a WeaviateThingsCreateAccepted with default headers values
-func NewWeaviateThingsCreateAccepted() *WeaviateThingsCreateAccepted {
-	return &WeaviateThingsCreateAccepted{}
-}
-
-/*WeaviateThingsCreateAccepted handles this case with default header values.
-
-Successfully received.
-*/
-type WeaviateThingsCreateAccepted struct {
-	Payload *models.ThingGetResponse
-}
-
-func (o *WeaviateThingsCreateAccepted) Error() string {
-	return fmt.Sprintf("[POST /things][%d] weaviateThingsCreateAccepted  %+v", 202, o.Payload)
-}
-
-func (o *WeaviateThingsCreateAccepted) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	o.Payload = new(models.ThingGetResponse)
+	o.Payload = new(models.Thing)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
@@ -239,67 +201,5 @@ func (o *WeaviateThingsCreateInternalServerError) readResponse(response runtime.
 		return err
 	}
 
-	return nil
-}
-
-/*WeaviateThingsCreateBody weaviate things create body
-swagger:model WeaviateThingsCreateBody
-*/
-type WeaviateThingsCreateBody struct {
-
-	// If `async` is true, return a 202 with the new ID of the Thing. You will receive this response before the data is made persistent. If `async` is false, you will receive confirmation after the value is made persistent. The value of `async` defaults to false.
-	Async bool `json:"async,omitempty"`
-
-	// thing
-	Thing *models.ThingCreate `json:"thing,omitempty"`
-}
-
-// Validate validates this weaviate things create body
-func (o *WeaviateThingsCreateBody) Validate(formats strfmt.Registry) error {
-	var res []error
-
-	if err := o.validateThing(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
-	return nil
-}
-
-func (o *WeaviateThingsCreateBody) validateThing(formats strfmt.Registry) error {
-
-	if swag.IsZero(o.Thing) { // not required
-		return nil
-	}
-
-	if o.Thing != nil {
-		if err := o.Thing.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("body" + "." + "thing")
-			}
-			return err
-		}
-	}
-
-	return nil
-}
-
-// MarshalBinary interface implementation
-func (o *WeaviateThingsCreateBody) MarshalBinary() ([]byte, error) {
-	if o == nil {
-		return nil, nil
-	}
-	return swag.WriteJSON(o)
-}
-
-// UnmarshalBinary interface implementation
-func (o *WeaviateThingsCreateBody) UnmarshalBinary(b []byte) error {
-	var res WeaviateThingsCreateBody
-	if err := swag.ReadJSON(b, &res); err != nil {
-		return err
-	}
-	*o = res
 	return nil
 }

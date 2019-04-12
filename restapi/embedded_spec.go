@@ -61,10 +61,7 @@ func init() {
         "operationId": "weaviate.actions.list",
         "parameters": [
           {
-            "$ref": "#/parameters/CommonMaxResultsParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonPageParameterQuery"
+            "$ref": "#/parameters/CommonLimitParameterQuery"
           }
         ],
         "responses": {
@@ -109,16 +106,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "action": {
-                  "$ref": "#/definitions/ActionCreate"
-                },
-                "async": {
-                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Action. You will receive this response before the data is made persistent. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the value is made persistent. The value of ` + "`" + `async` + "`" + ` defaults to false.",
-                  "type": "boolean"
-                }
-              }
+              "$ref": "#/definitions/Action"
             }
           }
         ],
@@ -126,13 +114,7 @@ func init() {
           "200": {
             "description": "Action created.",
             "schema": {
-              "$ref": "#/definitions/ActionGetResponse"
-            }
-          },
-          "202": {
-            "description": "Successfully received. No guarantees are made that the Action persists.",
-            "schema": {
-              "$ref": "#/definitions/ActionGetResponse"
+              "$ref": "#/definitions/Action"
             }
           },
           "401": {
@@ -175,7 +157,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/ActionValidate"
+              "$ref": "#/definitions/Action"
             }
           }
         ],
@@ -209,7 +191,7 @@ func init() {
         ]
       }
     },
-    "/actions/{actionId}": {
+    "/actions/{id}": {
       "get": {
         "description": "Lists Actions.",
         "tags": [
@@ -222,7 +204,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Action.",
-            "name": "actionId",
+            "name": "id",
             "in": "path",
             "required": true
           }
@@ -231,7 +213,7 @@ func init() {
           "200": {
             "description": "Successful response.",
             "schema": {
-              "$ref": "#/definitions/ActionGetResponse"
+              "$ref": "#/definitions/Action"
             }
           },
           "401": {
@@ -268,7 +250,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Action.",
-            "name": "actionId",
+            "name": "id",
             "in": "path",
             "required": true
           },
@@ -277,15 +259,15 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/ActionUpdate"
+              "$ref": "#/definitions/Action"
             }
           }
         ],
         "responses": {
-          "202": {
+          "200": {
             "description": "Successfully received.",
             "schema": {
-              "$ref": "#/definitions/ActionGetResponse"
+              "$ref": "#/definitions/Action"
             }
           },
           "401": {
@@ -328,7 +310,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Thing.",
-            "name": "actionId",
+            "name": "id",
             "in": "path",
             "required": true
           }
@@ -371,15 +353,9 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Action.",
-            "name": "actionId",
+            "name": "id",
             "in": "path",
             "required": true
-          },
-          {
-            "type": "boolean",
-            "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 if the patch is accepted. You will receive this response before the data is made persistent. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the update is made persistent. The value of ` + "`" + `async` + "`" + ` defaults to false.",
-            "name": "async",
-            "in": "query"
           },
           {
             "description": "JSONPatch document as defined by RFC 6902.",
@@ -398,13 +374,7 @@ func init() {
           "200": {
             "description": "Successfully applied.",
             "schema": {
-              "$ref": "#/definitions/ActionGetResponse"
-            }
-          },
-          "202": {
-            "description": "Successfully received.",
-            "schema": {
-              "$ref": "#/definitions/ActionGetResponse"
+              "$ref": "#/definitions/Action"
             }
           },
           "400": {
@@ -439,58 +409,7 @@ func init() {
         ]
       }
     },
-    "/actions/{actionId}/history": {
-      "get": {
-        "description": "Returns a particular Action history.",
-        "tags": [
-          "actions"
-        ],
-        "summary": "Get an Action's history based on its UUID.",
-        "operationId": "weaviate.action.history.get",
-        "parameters": [
-          {
-            "type": "string",
-            "format": "uuid",
-            "description": "Unique ID of the Action.",
-            "name": "actionId",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/ActionGetHistoryResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Insufficient permissions."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false,
-        "x-serviceIds": [
-          "weaviate.local.query"
-        ]
-      }
-    },
-    "/actions/{actionId}/references/{propertyName}": {
+    "/actions/{id}/references/{propertyName}": {
       "put": {
         "description": "Replace all references to a class-property.",
         "tags": [
@@ -503,7 +422,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Action.",
-            "name": "actionId",
+            "name": "id",
             "in": "path",
             "required": true
           },
@@ -564,7 +483,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Action.",
-            "name": "actionId",
+            "name": "id",
             "in": "path",
             "required": true
           },
@@ -625,7 +544,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Action.",
-            "name": "actionId",
+            "name": "id",
             "in": "path",
             "required": true
           },
@@ -695,7 +614,7 @@ func init() {
                 "actions": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/definitions/ActionCreate"
+                    "$ref": "#/definitions/Action"
                   }
                 },
                 "fields": {
@@ -706,10 +625,9 @@ func init() {
                     "default": "ALL",
                     "enum": [
                       "ALL",
-                      "@class",
+                      "class",
                       "schema",
-                      "key",
-                      "actionId",
+                      "id",
                       "creationTimeUnix"
                     ]
                   }
@@ -838,10 +756,9 @@ func init() {
                     "default": "ALL",
                     "enum": [
                       "ALL",
-                      "@class",
+                      "class",
                       "schema",
-                      "key",
-                      "thingId",
+                      "id",
                       "creationTimeUnix"
                     ]
                   }
@@ -849,7 +766,7 @@ func init() {
                 "things": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/definitions/ThingCreate"
+                    "$ref": "#/definitions/Thing"
                   }
                 }
               }
@@ -1292,16 +1209,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "keywords": {
-                  "$ref": "#/definitions/SemanticSchemaKeywords"
-                },
-                "newName": {
-                  "description": "The new name of the Action.",
-                  "type": "string"
-                }
-              }
+              "$ref": "#/definitions/SemanticSchemaClass"
             }
           }
         ],
@@ -1450,16 +1358,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "keywords": {
-                  "$ref": "#/definitions/SemanticSchemaKeywords"
-                },
-                "newName": {
-                  "description": "The new name of the property.",
-                  "type": "string"
-                }
-              }
+              "$ref": "#/definitions/SemanticSchemaClassProperty"
             }
           }
         ],
@@ -1594,18 +1493,8 @@ func init() {
           {
             "name": "body",
             "in": "body",
-            "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "keywords": {
-                  "$ref": "#/definitions/SemanticSchemaKeywords"
-                },
-                "newName": {
-                  "description": "The new name of the Thing.",
-                  "type": "string"
-                }
-              }
+              "$ref": "#/definitions/SemanticSchemaClass"
             }
           }
         ],
@@ -1754,16 +1643,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "keywords": {
-                  "$ref": "#/definitions/SemanticSchemaKeywords"
-                },
-                "newName": {
-                  "description": "The new name of the property.",
-                  "type": "string"
-                }
-              }
+              "$ref": "#/definitions/SemanticSchemaClassProperty"
             }
           }
         ],
@@ -1846,10 +1726,7 @@ func init() {
         "operationId": "weaviate.things.list",
         "parameters": [
           {
-            "$ref": "#/parameters/CommonMaxResultsParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonPageParameterQuery"
+            "$ref": "#/parameters/CommonLimitParameterQuery"
           }
         ],
         "responses": {
@@ -1894,16 +1771,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "async": {
-                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Thing. You will receive this response before the data is made persistent. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the value is made persistent. The value of ` + "`" + `async` + "`" + ` defaults to false.",
-                  "type": "boolean"
-                },
-                "thing": {
-                  "$ref": "#/definitions/ThingCreate"
-                }
-              }
+              "$ref": "#/definitions/Thing"
             }
           }
         ],
@@ -1911,13 +1779,7 @@ func init() {
           "200": {
             "description": "Thing created.",
             "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
-            }
-          },
-          "202": {
-            "description": "Successfully received.",
-            "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
+              "$ref": "#/definitions/Thing"
             }
           },
           "401": {
@@ -1960,7 +1822,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/ThingCreate"
+              "$ref": "#/definitions/Thing"
             }
           }
         ],
@@ -1994,7 +1856,7 @@ func init() {
         ]
       }
     },
-    "/things/{thingId}": {
+    "/things/{id}": {
       "get": {
         "description": "Returns a particular Thing data.",
         "tags": [
@@ -2007,7 +1869,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Thing.",
-            "name": "thingId",
+            "name": "id",
             "in": "path",
             "required": true
           }
@@ -2016,7 +1878,7 @@ func init() {
           "200": {
             "description": "Successful response.",
             "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
+              "$ref": "#/definitions/Thing"
             }
           },
           "401": {
@@ -2053,7 +1915,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Thing.",
-            "name": "thingId",
+            "name": "id",
             "in": "path",
             "required": true
           },
@@ -2062,15 +1924,15 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/ThingUpdate"
+              "$ref": "#/definitions/Thing"
             }
           }
         ],
         "responses": {
-          "202": {
+          "200": {
             "description": "Successfully received.",
             "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
+              "$ref": "#/definitions/Thing"
             }
           },
           "401": {
@@ -2113,7 +1975,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Thing.",
-            "name": "thingId",
+            "name": "id",
             "in": "path",
             "required": true
           }
@@ -2156,15 +2018,9 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Thing.",
-            "name": "thingId",
+            "name": "id",
             "in": "path",
             "required": true
-          },
-          {
-            "type": "boolean",
-            "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 if the patch is accepted. You will receive this response before the data is made persistent. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the update is made persistent. The value of ` + "`" + `async` + "`" + ` defaults to false.",
-            "name": "async",
-            "in": "query"
           },
           {
             "description": "JSONPatch document as defined by RFC 6902.",
@@ -2183,13 +2039,7 @@ func init() {
           "200": {
             "description": "Successfully applied.",
             "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
-            }
-          },
-          "202": {
-            "description": "Successfully received.",
-            "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
+              "$ref": "#/definitions/Thing"
             }
           },
           "400": {
@@ -2224,58 +2074,7 @@ func init() {
         ]
       }
     },
-    "/things/{thingId}/history": {
-      "get": {
-        "description": "Returns a particular Thing's history.",
-        "tags": [
-          "things"
-        ],
-        "summary": "Get a Thing's history based on its UUID.",
-        "operationId": "weaviate.thing.history.get",
-        "parameters": [
-          {
-            "type": "string",
-            "format": "uuid",
-            "description": "Unique ID of the Thing.",
-            "name": "thingId",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/ThingGetHistoryResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Insufficient permissions."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false,
-        "x-serviceIds": [
-          "weaviate.local.query"
-        ]
-      }
-    },
-    "/things/{thingId}/references/{propertyName}": {
+    "/things/{id}/references/{propertyName}": {
       "put": {
         "description": "Replace all references to a class-property.",
         "tags": [
@@ -2288,7 +2087,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Thing.",
-            "name": "thingId",
+            "name": "id",
             "in": "path",
             "required": true
           },
@@ -2349,7 +2148,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Thing.",
-            "name": "thingId",
+            "name": "id",
             "in": "path",
             "required": true
           },
@@ -2410,7 +2209,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Thing.",
-            "name": "thingId",
+            "name": "id",
             "in": "path",
             "required": true
           },
@@ -2464,126 +2263,30 @@ func init() {
   "definitions": {
     "Action": {
       "type": "object",
-      "allOf": [
-        {
-          "$ref": "#/definitions/ActionCreate"
-        },
-        {
-          "type": "object",
-          "properties": {
-            "creationTimeUnix": {
-              "description": "Timestamp of creation of this Action in milliseconds since epoch UTC.",
-              "type": "integer",
-              "format": "int64"
-            },
-            "lastUpdateTimeUnix": {
-              "description": "Timestamp of the last update made to the Action since epoch UTC.",
-              "type": "integer",
-              "format": "int64"
-            }
-          }
-        }
-      ]
-    },
-    "ActionCreate": {
-      "type": "object",
       "properties": {
-        "@class": {
+        "class": {
           "description": "Type of the Action, defined in the schema.",
           "type": "string"
         },
-        "@context": {
-          "description": "Available context schema.",
-          "type": "string"
+        "creationTimeUnix": {
+          "description": "Timestamp of creation of this Action in milliseconds since epoch UTC.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "id": {
+          "description": "ID of the Action.",
+          "type": "string",
+          "format": "uuid"
+        },
+        "lastUpdateTimeUnix": {
+          "description": "Timestamp of the last update made to the Action since epoch UTC.",
+          "type": "integer",
+          "format": "int64"
         },
         "schema": {
           "$ref": "#/definitions/Schema"
         }
       }
-    },
-    "ActionGetHistoryResponse": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/ActionHistory"
-        },
-        {
-          "type": "object",
-          "properties": {
-            "actionId": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        }
-      ]
-    },
-    "ActionGetResponse": {
-      "type": "object",
-      "allOf": [
-        {
-          "$ref": "#/definitions/Action"
-        },
-        {
-          "properties": {
-            "actionId": {
-              "description": "ID of the Action.",
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        }
-      ]
-    },
-    "ActionHistory": {
-      "type": "object",
-      "properties": {
-        "deleted": {
-          "description": "Indication of whether the Action is deleted.",
-          "type": "boolean"
-        },
-        "propertyHistory": {
-          "description": "An array with the history of the Action.",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/ActionHistoryObject"
-          }
-        }
-      }
-    },
-    "ActionHistoryObject": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/ActionCreate"
-        },
-        {
-          "type": "object",
-          "properties": {
-            "creationTimeUnix": {
-              "description": "Timestamp of creation of this Action history in milliseconds since epoch UTC.",
-              "type": "integer",
-              "format": "int64"
-            }
-          }
-        }
-      ]
-    },
-    "ActionUpdate": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/Action"
-        },
-        {
-          "type": "object"
-        }
-      ]
-    },
-    "ActionValidate": {
-      "type": "object",
-      "allOf": [
-        {
-          "$ref": "#/definitions/ActionCreate"
-        }
-      ]
     },
     "ActionsGetResponse": {
       "type": "object",
@@ -2593,11 +2296,6 @@ func init() {
         },
         {
           "properties": {
-            "actionId": {
-              "description": "ID of the Action.",
-              "type": "string",
-              "format": "uuid"
-            },
             "result": {
               "description": "Results for this specific Action.",
               "format": "object",
@@ -2628,7 +2326,7 @@ func init() {
           "description": "The actual list of Actions.",
           "type": "array",
           "items": {
-            "$ref": "#/definitions/ActionGetResponse"
+            "$ref": "#/definitions/Action"
           }
         },
         "totalResults": {
@@ -3033,11 +2731,6 @@ func init() {
       "description": "Definitions of semantic schemas (also see: https://github.com/creativesoftwarefdn/weaviate-semantic-schemas).",
       "type": "object",
       "properties": {
-        "@context": {
-          "description": "URL of the context.",
-          "type": "string",
-          "format": "uri"
-        },
         "classes": {
           "description": "Semantic classes that are available.",
           "type": "array",
@@ -3090,13 +2783,6 @@ func init() {
     "SemanticSchemaClassProperty": {
       "type": "object",
       "properties": {
-        "@dataType": {
-          "description": "Can be a reference ($cref) to another type when it starts with a capital (for example Person), otherwise \"string\" or \"int\".",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
         "cardinality": {
           "description": "The cardinality of this property. If you want to store more than one value in a property, set this to 'many'. Defaults to 'atMostOne'. Note that by default properties can be empty in Weaviate.",
           "type": "string",
@@ -3105,6 +2791,13 @@ func init() {
             "atMostOne",
             "many"
           ]
+        },
+        "dataType": {
+          "description": "Can be a reference ($cref) to another type when it starts with a capital (for example Person), otherwise \"string\" or \"int\".",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "description": {
           "description": "Description of the property.",
@@ -3145,123 +2838,31 @@ func init() {
       }
     },
     "Thing": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/ThingCreate"
-        },
-        {
-          "type": "object",
-          "properties": {
-            "creationTimeUnix": {
-              "description": "Timestamp of creation of this Thing in milliseconds since epoch UTC.",
-              "type": "integer",
-              "format": "int64"
-            },
-            "key": {
-              "$ref": "#/definitions/SingleRef"
-            },
-            "lastUpdateTimeUnix": {
-              "description": "Timestamp of the last Thing update in milliseconds since epoch UTC.",
-              "type": "integer",
-              "format": "int64"
-            }
-          }
-        }
-      ]
-    },
-    "ThingCreate": {
       "type": "object",
       "properties": {
-        "@class": {
+        "class": {
           "description": "Class of the Thing, defined in the schema.",
           "type": "string"
         },
-        "@context": {
-          "description": "Available context schema.",
-          "type": "string"
+        "creationTimeUnix": {
+          "description": "Timestamp of creation of this Thing in milliseconds since epoch UTC.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "id": {
+          "description": "ID of the Thing.",
+          "type": "string",
+          "format": "uuid"
+        },
+        "lastUpdateTimeUnix": {
+          "description": "Timestamp of the last Thing update in milliseconds since epoch UTC.",
+          "type": "integer",
+          "format": "int64"
         },
         "schema": {
           "$ref": "#/definitions/Schema"
         }
       }
-    },
-    "ThingGetHistoryResponse": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/ThingHistory"
-        },
-        {
-          "type": "object",
-          "properties": {
-            "thingId": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        }
-      ]
-    },
-    "ThingGetResponse": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/Thing"
-        },
-        {
-          "type": "object",
-          "properties": {
-            "thingId": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        }
-      ]
-    },
-    "ThingHistory": {
-      "type": "object",
-      "properties": {
-        "deleted": {
-          "description": "Indication whether the Action is deleted.",
-          "type": "boolean"
-        },
-        "key": {
-          "$ref": "#/definitions/SingleRef"
-        },
-        "propertyHistory": {
-          "description": "An array with the history of the Things.",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/ThingHistoryObject"
-          }
-        }
-      }
-    },
-    "ThingHistoryObject": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/ThingCreate"
-        },
-        {
-          "type": "object",
-          "properties": {
-            "creationTimeUnix": {
-              "description": "Timestamp of creation of this Thing history in milliseconds since epoch UTC.",
-              "type": "integer",
-              "format": "int64"
-            }
-          }
-        }
-      ]
-    },
-    "ThingUpdate": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/Thing"
-        },
-        {
-          "type": "object"
-        }
-      ]
     },
     "ThingsGetResponse": {
       "type": "object",
@@ -3288,11 +2889,6 @@ func init() {
                   ]
                 }
               }
-            },
-            "thingId": {
-              "description": "ID of the Thing.",
-              "type": "string",
-              "format": "uuid"
             }
           }
         }
@@ -3306,7 +2902,7 @@ func init() {
           "description": "The actual list of Things.",
           "type": "array",
           "items": {
-            "$ref": "#/definitions/ThingGetResponse"
+            "$ref": "#/definitions/Thing"
           }
         },
         "totalResults": {
@@ -3318,18 +2914,11 @@ func init() {
     }
   },
   "parameters": {
-    "CommonMaxResultsParameterQuery": {
+    "CommonLimitParameterQuery": {
       "type": "integer",
       "format": "int64",
       "description": "The maximum number of items to be returned per page. Default value is set in Weaviate config.",
-      "name": "maxResults",
-      "in": "query"
-    },
-    "CommonPageParameterQuery": {
-      "type": "integer",
-      "format": "int64",
-      "description": "The page number of the items to be returned.",
-      "name": "page",
+      "name": "limit",
       "in": "query"
     }
   },
@@ -3417,14 +3006,7 @@ func init() {
             "type": "integer",
             "format": "int64",
             "description": "The maximum number of items to be returned per page. Default value is set in Weaviate config.",
-            "name": "maxResults",
-            "in": "query"
-          },
-          {
-            "type": "integer",
-            "format": "int64",
-            "description": "The page number of the items to be returned.",
-            "name": "page",
+            "name": "limit",
             "in": "query"
           }
         ],
@@ -3470,16 +3052,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "action": {
-                  "$ref": "#/definitions/ActionCreate"
-                },
-                "async": {
-                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Action. You will receive this response before the data is made persistent. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the value is made persistent. The value of ` + "`" + `async` + "`" + ` defaults to false.",
-                  "type": "boolean"
-                }
-              }
+              "$ref": "#/definitions/Action"
             }
           }
         ],
@@ -3487,13 +3060,7 @@ func init() {
           "200": {
             "description": "Action created.",
             "schema": {
-              "$ref": "#/definitions/ActionGetResponse"
-            }
-          },
-          "202": {
-            "description": "Successfully received. No guarantees are made that the Action persists.",
-            "schema": {
-              "$ref": "#/definitions/ActionGetResponse"
+              "$ref": "#/definitions/Action"
             }
           },
           "401": {
@@ -3536,7 +3103,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/ActionValidate"
+              "$ref": "#/definitions/Action"
             }
           }
         ],
@@ -3570,7 +3137,7 @@ func init() {
         ]
       }
     },
-    "/actions/{actionId}": {
+    "/actions/{id}": {
       "get": {
         "description": "Lists Actions.",
         "tags": [
@@ -3583,7 +3150,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Action.",
-            "name": "actionId",
+            "name": "id",
             "in": "path",
             "required": true
           }
@@ -3592,7 +3159,7 @@ func init() {
           "200": {
             "description": "Successful response.",
             "schema": {
-              "$ref": "#/definitions/ActionGetResponse"
+              "$ref": "#/definitions/Action"
             }
           },
           "401": {
@@ -3629,7 +3196,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Action.",
-            "name": "actionId",
+            "name": "id",
             "in": "path",
             "required": true
           },
@@ -3638,15 +3205,15 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/ActionUpdate"
+              "$ref": "#/definitions/Action"
             }
           }
         ],
         "responses": {
-          "202": {
+          "200": {
             "description": "Successfully received.",
             "schema": {
-              "$ref": "#/definitions/ActionGetResponse"
+              "$ref": "#/definitions/Action"
             }
           },
           "401": {
@@ -3689,7 +3256,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Thing.",
-            "name": "actionId",
+            "name": "id",
             "in": "path",
             "required": true
           }
@@ -3732,15 +3299,9 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Action.",
-            "name": "actionId",
+            "name": "id",
             "in": "path",
             "required": true
-          },
-          {
-            "type": "boolean",
-            "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 if the patch is accepted. You will receive this response before the data is made persistent. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the update is made persistent. The value of ` + "`" + `async` + "`" + ` defaults to false.",
-            "name": "async",
-            "in": "query"
           },
           {
             "description": "JSONPatch document as defined by RFC 6902.",
@@ -3759,13 +3320,7 @@ func init() {
           "200": {
             "description": "Successfully applied.",
             "schema": {
-              "$ref": "#/definitions/ActionGetResponse"
-            }
-          },
-          "202": {
-            "description": "Successfully received.",
-            "schema": {
-              "$ref": "#/definitions/ActionGetResponse"
+              "$ref": "#/definitions/Action"
             }
           },
           "400": {
@@ -3800,58 +3355,7 @@ func init() {
         ]
       }
     },
-    "/actions/{actionId}/history": {
-      "get": {
-        "description": "Returns a particular Action history.",
-        "tags": [
-          "actions"
-        ],
-        "summary": "Get an Action's history based on its UUID.",
-        "operationId": "weaviate.action.history.get",
-        "parameters": [
-          {
-            "type": "string",
-            "format": "uuid",
-            "description": "Unique ID of the Action.",
-            "name": "actionId",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/ActionGetHistoryResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Insufficient permissions."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false,
-        "x-serviceIds": [
-          "weaviate.local.query"
-        ]
-      }
-    },
-    "/actions/{actionId}/references/{propertyName}": {
+    "/actions/{id}/references/{propertyName}": {
       "put": {
         "description": "Replace all references to a class-property.",
         "tags": [
@@ -3864,7 +3368,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Action.",
-            "name": "actionId",
+            "name": "id",
             "in": "path",
             "required": true
           },
@@ -3925,7 +3429,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Action.",
-            "name": "actionId",
+            "name": "id",
             "in": "path",
             "required": true
           },
@@ -3986,7 +3490,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Action.",
-            "name": "actionId",
+            "name": "id",
             "in": "path",
             "required": true
           },
@@ -4056,7 +3560,7 @@ func init() {
                 "actions": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/definitions/ActionCreate"
+                    "$ref": "#/definitions/Action"
                   }
                 },
                 "fields": {
@@ -4067,10 +3571,9 @@ func init() {
                     "default": "ALL",
                     "enum": [
                       "ALL",
-                      "@class",
+                      "class",
                       "schema",
-                      "key",
-                      "actionId",
+                      "id",
                       "creationTimeUnix"
                     ]
                   }
@@ -4199,10 +3702,9 @@ func init() {
                     "default": "ALL",
                     "enum": [
                       "ALL",
-                      "@class",
+                      "class",
                       "schema",
-                      "key",
-                      "thingId",
+                      "id",
                       "creationTimeUnix"
                     ]
                   }
@@ -4210,7 +3712,7 @@ func init() {
                 "things": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/definitions/ThingCreate"
+                    "$ref": "#/definitions/Thing"
                   }
                 }
               }
@@ -4653,16 +4155,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "keywords": {
-                  "$ref": "#/definitions/SemanticSchemaKeywords"
-                },
-                "newName": {
-                  "description": "The new name of the Action.",
-                  "type": "string"
-                }
-              }
+              "$ref": "#/definitions/SemanticSchemaClass"
             }
           }
         ],
@@ -4811,16 +4304,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "keywords": {
-                  "$ref": "#/definitions/SemanticSchemaKeywords"
-                },
-                "newName": {
-                  "description": "The new name of the property.",
-                  "type": "string"
-                }
-              }
+              "$ref": "#/definitions/SemanticSchemaClassProperty"
             }
           }
         ],
@@ -4955,18 +4439,8 @@ func init() {
           {
             "name": "body",
             "in": "body",
-            "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "keywords": {
-                  "$ref": "#/definitions/SemanticSchemaKeywords"
-                },
-                "newName": {
-                  "description": "The new name of the Thing.",
-                  "type": "string"
-                }
-              }
+              "$ref": "#/definitions/SemanticSchemaClass"
             }
           }
         ],
@@ -5115,16 +4589,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "keywords": {
-                  "$ref": "#/definitions/SemanticSchemaKeywords"
-                },
-                "newName": {
-                  "description": "The new name of the property.",
-                  "type": "string"
-                }
-              }
+              "$ref": "#/definitions/SemanticSchemaClassProperty"
             }
           }
         ],
@@ -5210,14 +4675,7 @@ func init() {
             "type": "integer",
             "format": "int64",
             "description": "The maximum number of items to be returned per page. Default value is set in Weaviate config.",
-            "name": "maxResults",
-            "in": "query"
-          },
-          {
-            "type": "integer",
-            "format": "int64",
-            "description": "The page number of the items to be returned.",
-            "name": "page",
+            "name": "limit",
             "in": "query"
           }
         ],
@@ -5263,16 +4721,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "async": {
-                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Thing. You will receive this response before the data is made persistent. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the value is made persistent. The value of ` + "`" + `async` + "`" + ` defaults to false.",
-                  "type": "boolean"
-                },
-                "thing": {
-                  "$ref": "#/definitions/ThingCreate"
-                }
-              }
+              "$ref": "#/definitions/Thing"
             }
           }
         ],
@@ -5280,13 +4729,7 @@ func init() {
           "200": {
             "description": "Thing created.",
             "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
-            }
-          },
-          "202": {
-            "description": "Successfully received.",
-            "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
+              "$ref": "#/definitions/Thing"
             }
           },
           "401": {
@@ -5329,7 +4772,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/ThingCreate"
+              "$ref": "#/definitions/Thing"
             }
           }
         ],
@@ -5363,7 +4806,7 @@ func init() {
         ]
       }
     },
-    "/things/{thingId}": {
+    "/things/{id}": {
       "get": {
         "description": "Returns a particular Thing data.",
         "tags": [
@@ -5376,7 +4819,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Thing.",
-            "name": "thingId",
+            "name": "id",
             "in": "path",
             "required": true
           }
@@ -5385,7 +4828,7 @@ func init() {
           "200": {
             "description": "Successful response.",
             "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
+              "$ref": "#/definitions/Thing"
             }
           },
           "401": {
@@ -5422,7 +4865,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Thing.",
-            "name": "thingId",
+            "name": "id",
             "in": "path",
             "required": true
           },
@@ -5431,15 +4874,15 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/ThingUpdate"
+              "$ref": "#/definitions/Thing"
             }
           }
         ],
         "responses": {
-          "202": {
+          "200": {
             "description": "Successfully received.",
             "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
+              "$ref": "#/definitions/Thing"
             }
           },
           "401": {
@@ -5482,7 +4925,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Thing.",
-            "name": "thingId",
+            "name": "id",
             "in": "path",
             "required": true
           }
@@ -5525,15 +4968,9 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Thing.",
-            "name": "thingId",
+            "name": "id",
             "in": "path",
             "required": true
-          },
-          {
-            "type": "boolean",
-            "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 if the patch is accepted. You will receive this response before the data is made persistent. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the update is made persistent. The value of ` + "`" + `async` + "`" + ` defaults to false.",
-            "name": "async",
-            "in": "query"
           },
           {
             "description": "JSONPatch document as defined by RFC 6902.",
@@ -5552,13 +4989,7 @@ func init() {
           "200": {
             "description": "Successfully applied.",
             "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
-            }
-          },
-          "202": {
-            "description": "Successfully received.",
-            "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
+              "$ref": "#/definitions/Thing"
             }
           },
           "400": {
@@ -5593,58 +5024,7 @@ func init() {
         ]
       }
     },
-    "/things/{thingId}/history": {
-      "get": {
-        "description": "Returns a particular Thing's history.",
-        "tags": [
-          "things"
-        ],
-        "summary": "Get a Thing's history based on its UUID.",
-        "operationId": "weaviate.thing.history.get",
-        "parameters": [
-          {
-            "type": "string",
-            "format": "uuid",
-            "description": "Unique ID of the Thing.",
-            "name": "thingId",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/ThingGetHistoryResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Insufficient permissions."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false,
-        "x-serviceIds": [
-          "weaviate.local.query"
-        ]
-      }
-    },
-    "/things/{thingId}/references/{propertyName}": {
+    "/things/{id}/references/{propertyName}": {
       "put": {
         "description": "Replace all references to a class-property.",
         "tags": [
@@ -5657,7 +5037,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Thing.",
-            "name": "thingId",
+            "name": "id",
             "in": "path",
             "required": true
           },
@@ -5718,7 +5098,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Thing.",
-            "name": "thingId",
+            "name": "id",
             "in": "path",
             "required": true
           },
@@ -5779,7 +5159,7 @@ func init() {
             "type": "string",
             "format": "uuid",
             "description": "Unique ID of the Thing.",
-            "name": "thingId",
+            "name": "id",
             "in": "path",
             "required": true
           },
@@ -5833,126 +5213,30 @@ func init() {
   "definitions": {
     "Action": {
       "type": "object",
-      "allOf": [
-        {
-          "$ref": "#/definitions/ActionCreate"
-        },
-        {
-          "type": "object",
-          "properties": {
-            "creationTimeUnix": {
-              "description": "Timestamp of creation of this Action in milliseconds since epoch UTC.",
-              "type": "integer",
-              "format": "int64"
-            },
-            "lastUpdateTimeUnix": {
-              "description": "Timestamp of the last update made to the Action since epoch UTC.",
-              "type": "integer",
-              "format": "int64"
-            }
-          }
-        }
-      ]
-    },
-    "ActionCreate": {
-      "type": "object",
       "properties": {
-        "@class": {
+        "class": {
           "description": "Type of the Action, defined in the schema.",
           "type": "string"
         },
-        "@context": {
-          "description": "Available context schema.",
-          "type": "string"
+        "creationTimeUnix": {
+          "description": "Timestamp of creation of this Action in milliseconds since epoch UTC.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "id": {
+          "description": "ID of the Action.",
+          "type": "string",
+          "format": "uuid"
+        },
+        "lastUpdateTimeUnix": {
+          "description": "Timestamp of the last update made to the Action since epoch UTC.",
+          "type": "integer",
+          "format": "int64"
         },
         "schema": {
           "$ref": "#/definitions/Schema"
         }
       }
-    },
-    "ActionGetHistoryResponse": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/ActionHistory"
-        },
-        {
-          "type": "object",
-          "properties": {
-            "actionId": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        }
-      ]
-    },
-    "ActionGetResponse": {
-      "type": "object",
-      "allOf": [
-        {
-          "$ref": "#/definitions/Action"
-        },
-        {
-          "properties": {
-            "actionId": {
-              "description": "ID of the Action.",
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        }
-      ]
-    },
-    "ActionHistory": {
-      "type": "object",
-      "properties": {
-        "deleted": {
-          "description": "Indication of whether the Action is deleted.",
-          "type": "boolean"
-        },
-        "propertyHistory": {
-          "description": "An array with the history of the Action.",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/ActionHistoryObject"
-          }
-        }
-      }
-    },
-    "ActionHistoryObject": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/ActionCreate"
-        },
-        {
-          "type": "object",
-          "properties": {
-            "creationTimeUnix": {
-              "description": "Timestamp of creation of this Action history in milliseconds since epoch UTC.",
-              "type": "integer",
-              "format": "int64"
-            }
-          }
-        }
-      ]
-    },
-    "ActionUpdate": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/Action"
-        },
-        {
-          "type": "object"
-        }
-      ]
-    },
-    "ActionValidate": {
-      "type": "object",
-      "allOf": [
-        {
-          "$ref": "#/definitions/ActionCreate"
-        }
-      ]
     },
     "ActionsGetResponse": {
       "type": "object",
@@ -5962,11 +5246,6 @@ func init() {
         },
         {
           "properties": {
-            "actionId": {
-              "description": "ID of the Action.",
-              "type": "string",
-              "format": "uuid"
-            },
             "result": {
               "description": "Results for this specific Action.",
               "format": "object",
@@ -5997,7 +5276,7 @@ func init() {
           "description": "The actual list of Actions.",
           "type": "array",
           "items": {
-            "$ref": "#/definitions/ActionGetResponse"
+            "$ref": "#/definitions/Action"
           }
         },
         "totalResults": {
@@ -6402,11 +5681,6 @@ func init() {
       "description": "Definitions of semantic schemas (also see: https://github.com/creativesoftwarefdn/weaviate-semantic-schemas).",
       "type": "object",
       "properties": {
-        "@context": {
-          "description": "URL of the context.",
-          "type": "string",
-          "format": "uri"
-        },
         "classes": {
           "description": "Semantic classes that are available.",
           "type": "array",
@@ -6459,13 +5733,6 @@ func init() {
     "SemanticSchemaClassProperty": {
       "type": "object",
       "properties": {
-        "@dataType": {
-          "description": "Can be a reference ($cref) to another type when it starts with a capital (for example Person), otherwise \"string\" or \"int\".",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
         "cardinality": {
           "description": "The cardinality of this property. If you want to store more than one value in a property, set this to 'many'. Defaults to 'atMostOne'. Note that by default properties can be empty in Weaviate.",
           "type": "string",
@@ -6474,6 +5741,13 @@ func init() {
             "atMostOne",
             "many"
           ]
+        },
+        "dataType": {
+          "description": "Can be a reference ($cref) to another type when it starts with a capital (for example Person), otherwise \"string\" or \"int\".",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "description": {
           "description": "Description of the property.",
@@ -6514,123 +5788,31 @@ func init() {
       }
     },
     "Thing": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/ThingCreate"
-        },
-        {
-          "type": "object",
-          "properties": {
-            "creationTimeUnix": {
-              "description": "Timestamp of creation of this Thing in milliseconds since epoch UTC.",
-              "type": "integer",
-              "format": "int64"
-            },
-            "key": {
-              "$ref": "#/definitions/SingleRef"
-            },
-            "lastUpdateTimeUnix": {
-              "description": "Timestamp of the last Thing update in milliseconds since epoch UTC.",
-              "type": "integer",
-              "format": "int64"
-            }
-          }
-        }
-      ]
-    },
-    "ThingCreate": {
       "type": "object",
       "properties": {
-        "@class": {
+        "class": {
           "description": "Class of the Thing, defined in the schema.",
           "type": "string"
         },
-        "@context": {
-          "description": "Available context schema.",
-          "type": "string"
+        "creationTimeUnix": {
+          "description": "Timestamp of creation of this Thing in milliseconds since epoch UTC.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "id": {
+          "description": "ID of the Thing.",
+          "type": "string",
+          "format": "uuid"
+        },
+        "lastUpdateTimeUnix": {
+          "description": "Timestamp of the last Thing update in milliseconds since epoch UTC.",
+          "type": "integer",
+          "format": "int64"
         },
         "schema": {
           "$ref": "#/definitions/Schema"
         }
       }
-    },
-    "ThingGetHistoryResponse": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/ThingHistory"
-        },
-        {
-          "type": "object",
-          "properties": {
-            "thingId": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        }
-      ]
-    },
-    "ThingGetResponse": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/Thing"
-        },
-        {
-          "type": "object",
-          "properties": {
-            "thingId": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        }
-      ]
-    },
-    "ThingHistory": {
-      "type": "object",
-      "properties": {
-        "deleted": {
-          "description": "Indication whether the Action is deleted.",
-          "type": "boolean"
-        },
-        "key": {
-          "$ref": "#/definitions/SingleRef"
-        },
-        "propertyHistory": {
-          "description": "An array with the history of the Things.",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/ThingHistoryObject"
-          }
-        }
-      }
-    },
-    "ThingHistoryObject": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/ThingCreate"
-        },
-        {
-          "type": "object",
-          "properties": {
-            "creationTimeUnix": {
-              "description": "Timestamp of creation of this Thing history in milliseconds since epoch UTC.",
-              "type": "integer",
-              "format": "int64"
-            }
-          }
-        }
-      ]
-    },
-    "ThingUpdate": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/Thing"
-        },
-        {
-          "type": "object"
-        }
-      ]
     },
     "ThingsGetResponse": {
       "type": "object",
@@ -6657,11 +5839,6 @@ func init() {
                   ]
                 }
               }
-            },
-            "thingId": {
-              "description": "ID of the Thing.",
-              "type": "string",
-              "format": "uuid"
             }
           }
         }
@@ -6675,7 +5852,7 @@ func init() {
           "description": "The actual list of Things.",
           "type": "array",
           "items": {
-            "$ref": "#/definitions/ThingGetResponse"
+            "$ref": "#/definitions/Thing"
           }
         },
         "totalResults": {
@@ -6687,18 +5864,11 @@ func init() {
     }
   },
   "parameters": {
-    "CommonMaxResultsParameterQuery": {
+    "CommonLimitParameterQuery": {
       "type": "integer",
       "format": "int64",
       "description": "The maximum number of items to be returned per page. Default value is set in Weaviate config.",
-      "name": "maxResults",
-      "in": "query"
-    },
-    "CommonPageParameterQuery": {
-      "type": "integer",
-      "format": "int64",
-      "description": "The page number of the items to be returned.",
-      "name": "page",
+      "name": "limit",
       "in": "query"
     }
   },

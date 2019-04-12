@@ -19,10 +19,10 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-func assertGetThing(t *testing.T, uuid strfmt.UUID) *models.ThingGetResponse {
-	getResp, err := helper.Client(t).Things.WeaviateThingsGet(things.NewWeaviateThingsGetParams().WithThingID(uuid), nil)
+func assertGetThing(t *testing.T, uuid strfmt.UUID) *models.Thing {
+	getResp, err := helper.Client(t).Things.WeaviateThingsGet(things.NewWeaviateThingsGetParams().WithID(uuid), nil)
 
-	var thing *models.ThingGetResponse
+	var thing *models.Thing
 
 	helper.AssertRequestOk(t, getResp, err, func() {
 		thing = getResp.Payload

@@ -12,3 +12,8 @@ curl localhost:8080/weaviate/v1/things -H 'Content-Type: application/json' -d @.
 # # create a zoo
 # curl localhost:8080/weaviate/v1/things -H 'Content-Type: application/json' -d @./tools/dev/example-payloads/zoo-instance-nowhere.json
 
+# create an incorrect class
+# curl localhost:8080/weaviate/v1/schema/things -H 'Content-Type: application/json' -d @./tools/dev/example-payloads/incorrect-class.json
+
+# create an incorrect property on the incorrect class
+curl localhost:8080/weaviate/v1/schema/things/IncorrectAnimal/properties -H 'Content-Type: application/json' -d @./tools/dev/example-payloads/incorrect-class-incorrect-property.json

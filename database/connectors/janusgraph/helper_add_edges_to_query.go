@@ -58,7 +58,7 @@ func (j *Janusgraph) addEdgesToQuery(q *gremlin.Query, k kind.Kind, className sc
 
 		janusPropertyName := string(
 			j.state.MustGetMappedPropertyName(className, sanitizedPropertyName))
-		propType, err := j.schema.FindPropertyDataType(property.AtDataType)
+		propType, err := j.schema.FindPropertyDataType(property.DataType)
 		if err != nil {
 			return q, err
 		}
@@ -272,19 +272,19 @@ func (j *Janusgraph) singleLocalRef(ref *crossref.Ref, propType schema.PropertyD
 
 	switch ref.Kind {
 	case kind.ACTION_KIND:
-		var singleRefValue models.ActionGetResponse
+		var singleRefValue models.Action
 		err := j.GetAction(nil, ref.TargetID, &singleRefValue)
 		if err != nil {
 			return result, fmt.Errorf("Illegal value for property %s; could not resolve action with UUID: %v", ref.TargetID.String(), err)
 		}
-		refClassName = schema.AssertValidClassName(singleRefValue.AtClass)
+		refClassName = schema.AssertValidClassName(singleRefValue.Class)
 	case kind.THING_KIND:
-		var singleRefValue models.ThingGetResponse
+		var singleRefValue models.Thing
 		err := j.GetThing(nil, ref.TargetID, &singleRefValue)
 		if err != nil {
 			return result, fmt.Errorf("Illegal value for property %s; could not resolve thing with UUID: %v", ref.TargetID.String(), err)
 		}
-		refClassName = schema.AssertValidClassName(singleRefValue.AtClass)
+		refClassName = schema.AssertValidClassName(singleRefValue.Class)
 	}
 
 	// Verify the cross reference

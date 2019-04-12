@@ -75,16 +75,16 @@ type WeaviateThingsReferencesDeleteParams struct {
 
 	/*Body*/
 	Body *models.SingleRef
+	/*ID
+	  Unique ID of the Thing.
+
+	*/
+	ID strfmt.UUID
 	/*PropertyName
 	  Unique name of the property related to the Thing.
 
 	*/
 	PropertyName string
-	/*ThingID
-	  Unique ID of the Thing.
-
-	*/
-	ThingID strfmt.UUID
 
 	timeout    time.Duration
 	Context    context.Context
@@ -135,6 +135,17 @@ func (o *WeaviateThingsReferencesDeleteParams) SetBody(body *models.SingleRef) {
 	o.Body = body
 }
 
+// WithID adds the id to the weaviate things references delete params
+func (o *WeaviateThingsReferencesDeleteParams) WithID(id strfmt.UUID) *WeaviateThingsReferencesDeleteParams {
+	o.SetID(id)
+	return o
+}
+
+// SetID adds the id to the weaviate things references delete params
+func (o *WeaviateThingsReferencesDeleteParams) SetID(id strfmt.UUID) {
+	o.ID = id
+}
+
 // WithPropertyName adds the propertyName to the weaviate things references delete params
 func (o *WeaviateThingsReferencesDeleteParams) WithPropertyName(propertyName string) *WeaviateThingsReferencesDeleteParams {
 	o.SetPropertyName(propertyName)
@@ -144,17 +155,6 @@ func (o *WeaviateThingsReferencesDeleteParams) WithPropertyName(propertyName str
 // SetPropertyName adds the propertyName to the weaviate things references delete params
 func (o *WeaviateThingsReferencesDeleteParams) SetPropertyName(propertyName string) {
 	o.PropertyName = propertyName
-}
-
-// WithThingID adds the thingID to the weaviate things references delete params
-func (o *WeaviateThingsReferencesDeleteParams) WithThingID(thingID strfmt.UUID) *WeaviateThingsReferencesDeleteParams {
-	o.SetThingID(thingID)
-	return o
-}
-
-// SetThingID adds the thingId to the weaviate things references delete params
-func (o *WeaviateThingsReferencesDeleteParams) SetThingID(thingID strfmt.UUID) {
-	o.ThingID = thingID
 }
 
 // WriteToRequest writes these params to a swagger request
@@ -171,13 +171,13 @@ func (o *WeaviateThingsReferencesDeleteParams) WriteToRequest(r runtime.ClientRe
 		}
 	}
 
-	// path param propertyName
-	if err := r.SetPathParam("propertyName", o.PropertyName); err != nil {
+	// path param id
+	if err := r.SetPathParam("id", o.ID.String()); err != nil {
 		return err
 	}
 
-	// path param thingId
-	if err := r.SetPathParam("thingId", o.ThingID.String()); err != nil {
+	// path param propertyName
+	if err := r.SetPathParam("propertyName", o.PropertyName); err != nil {
 		return err
 	}
 

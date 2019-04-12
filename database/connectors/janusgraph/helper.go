@@ -48,7 +48,7 @@ type kindClass struct {
 	lastUpdateTimeUnix int64
 }
 
-func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *string, atContext *string, foundUUID *strfmt.UUID, creationTimeUnix *int64, lastUpdateTimeUnix *int64, properties *models.Schema) error {
+func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *string, foundUUID *strfmt.UUID, creationTimeUnix *int64, lastUpdateTimeUnix *int64, properties *models.Schema) error {
 	// Fetch the class, it's key, and it's relations.
 	q := gremlin.G.V().
 		HasString(PROP_KIND, k.Name()).
@@ -97,10 +97,6 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 		*atClass = className.String()
 	}
 
-	if atContext != nil {
-		*atContext = vertex.AssertPropertyValue(PROP_AT_CONTEXT).AssertString()
-	}
-
 	if creationTimeUnix != nil {
 		*creationTimeUnix = vertex.AssertPropertyValue(PROP_CREATION_TIME_UNIX).AssertInt64()
 	}
@@ -122,7 +118,7 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 				panic(fmt.Sprintf("Could not get property '%s' in class %s ; %v", propertyName, className, err))
 			}
 
-			propType, err := j.schema.FindPropertyDataType(property.AtDataType)
+			propType, err := j.schema.FindPropertyDataType(property.DataType)
 			if err != nil {
 				panic(fmt.Sprintf("Could not decode property '%s'; %v", propertyName, err))
 			}
@@ -149,9 +145,9 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 			panic(fmt.Sprintf("Could not get property '%s' in class %s ; %v", propertyName, className, err))
 		}
 
-		propType, err := j.schema.FindPropertyDataType(property.AtDataType)
+		propType, err := j.schema.FindPropertyDataType(property.DataType)
 		if err != nil {
-			panic(fmt.Sprintf("Could not get property type of '%s' in class %s; %v", property.AtDataType, className, err))
+			panic(fmt.Sprintf("Could not get property type of '%s' in class %s; %v", property.DataType, className, err))
 		}
 
 		if propType.IsReference() {
@@ -263,7 +259,7 @@ func (j *Janusgraph) getClasses(k kind.Kind, className *schema.ClassName, first 
 					panic(fmt.Sprintf("Could not get property '%s' in class %s ; %v", propertyName, className, err))
 				}
 
-				propType, err := j.schema.FindPropertyDataType(property.AtDataType)
+				propType, err := j.schema.FindPropertyDataType(property.DataType)
 				if err != nil {
 					panic(fmt.Sprintf("Could not decode property '%s'; %v", propertyName, err))
 				}
@@ -290,9 +286,9 @@ func (j *Janusgraph) getClasses(k kind.Kind, className *schema.ClassName, first 
 				panic(fmt.Sprintf("Could not get property '%s' in class %s ; %v", propertyName, className, err))
 			}
 
-			propType, err := j.schema.FindPropertyDataType(property.AtDataType)
+			propType, err := j.schema.FindPropertyDataType(property.DataType)
 			if err != nil {
-				panic(fmt.Sprintf("Could not get property type of '%s' in class %s; %v", property.AtDataType, className, err))
+				panic(fmt.Sprintf("Could not get property type of '%s' in class %s; %v", property.DataType, className, err))
 			}
 
 			if propType.IsReference() {
@@ -335,7 +331,7 @@ func (j *Janusgraph) getClasses(k kind.Kind, className *schema.ClassName, first 
 	return classes, nil
 }
 
-func (j *Janusgraph) listClass(k kind.Kind, className *schema.ClassName, first int, offset int, filter *common_filters.LocalFilter, yield func(id strfmt.UUID)) error {
+func (j *Janusgraph) listClass(k kind.Kind, className *schema.ClassName, limit int, filter *common_filters.LocalFilter, yield func(id strfmt.UUID)) error {
 
 	q := gremlin.G.V().
 		HasString(PROP_KIND, k.Name())
@@ -353,7 +349,7 @@ func (j *Janusgraph) listClass(k kind.Kind, className *schema.ClassName, first i
 	q = q.Raw(filterQuery)
 
 	q = q.
-		Range(offset, first).
+		Limit(limit).
 		Values([]string{PROP_UUID})
 
 	result, err := j.client.Execute(q)

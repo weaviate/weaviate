@@ -75,7 +75,7 @@ func (f *fakeT) Errorf(msg string, args ...interface{}) {
 // fails
 func AssertEventuallyEqual(t *testing.T, expected interface{}, actualThunk func() interface{}, msg ...interface{}) {
 	interval := 10 * time.Millisecond
-	timeout := 2000 * time.Millisecond
+	timeout := 4000 * time.Millisecond
 	elapsed := 0 * time.Millisecond
 	fakeT := &fakeT{}
 

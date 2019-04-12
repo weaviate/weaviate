@@ -39,7 +39,7 @@ func TestCanAddAPropertyIndividually(t *testing.T) {
 
 	// Append a property reference
 	params := actions.NewWeaviateActionsReferencesCreateParams().
-		WithActionID(uuid).
+		WithID(uuid).
 		WithPropertyName("testCrefs").
 		WithBody(crossref.New("localhost", toPointToUuid, kind.ACTION_KIND).SingleRef())
 
@@ -73,7 +73,7 @@ func TestCanReplaceAllProperties(t *testing.T) {
 
 	// Replace
 	params := actions.NewWeaviateActionsReferencesUpdateParams().
-		WithActionID(uuid).
+		WithID(uuid).
 		WithPropertyName("testCrefs").
 		WithBody(models.MultipleRef{
 			crossref.New("localhost", toPointToUuidLater, kind.ACTION_KIND).SingleRef(),
@@ -107,7 +107,7 @@ func TestRemovePropertyIndividually(t *testing.T) {
 
 	// Append a property reference
 	params := actions.NewWeaviateActionsReferencesDeleteParams().
-		WithActionID(uuid).
+		WithID(uuid).
 		WithPropertyName("testCrefs").
 		WithBody(
 			crossref.New("localhost", toPointToUuid, kind.ACTION_KIND).SingleRef(),

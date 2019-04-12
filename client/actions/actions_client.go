@@ -35,42 +35,11 @@ type Client struct {
 }
 
 /*
-WeaviateActionHistoryGet gets an action s history based on its UUID
-
-Returns a particular Action history.
-*/
-func (a *Client) WeaviateActionHistoryGet(params *WeaviateActionHistoryGetParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionHistoryGetOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewWeaviateActionHistoryGetParams()
-	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.action.history.get",
-		Method:             "GET",
-		PathPattern:        "/actions/{actionId}/history",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
-		Schemes:            []string{"https"},
-		Params:             params,
-		Reader:             &WeaviateActionHistoryGetReader{formats: a.formats},
-		AuthInfo:           authInfo,
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result.(*WeaviateActionHistoryGetOK), nil
-
-}
-
-/*
 WeaviateActionUpdate updates an action based on its UUID
 
 Updates an Action's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
-func (a *Client) WeaviateActionUpdate(params *WeaviateActionUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionUpdateAccepted, error) {
+func (a *Client) WeaviateActionUpdate(params *WeaviateActionUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionUpdateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateActionUpdateParams()
@@ -79,7 +48,7 @@ func (a *Client) WeaviateActionUpdate(params *WeaviateActionUpdateParams, authIn
 	result, err := a.transport.Submit(&runtime.ClientOperation{
 		ID:                 "weaviate.action.update",
 		Method:             "PUT",
-		PathPattern:        "/actions/{actionId}",
+		PathPattern:        "/actions/{id}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -92,7 +61,7 @@ func (a *Client) WeaviateActionUpdate(params *WeaviateActionUpdateParams, authIn
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateActionUpdateAccepted), nil
+	return result.(*WeaviateActionUpdateOK), nil
 
 }
 
@@ -101,7 +70,7 @@ WeaviateActionsCreate creates actions between two things object and subject
 
 Registers a new Action. Provided meta-data and schema values are validated.
 */
-func (a *Client) WeaviateActionsCreate(params *WeaviateActionsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsCreateOK, *WeaviateActionsCreateAccepted, error) {
+func (a *Client) WeaviateActionsCreate(params *WeaviateActionsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsCreateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateActionsCreateParams()
@@ -121,15 +90,9 @@ func (a *Client) WeaviateActionsCreate(params *WeaviateActionsCreateParams, auth
 		Client:             params.HTTPClient,
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	switch value := result.(type) {
-	case *WeaviateActionsCreateOK:
-		return value, nil, nil
-	case *WeaviateActionsCreateAccepted:
-		return nil, value, nil
-	}
-	return nil, nil, nil
+	return result.(*WeaviateActionsCreateOK), nil
 
 }
 
@@ -147,7 +110,7 @@ func (a *Client) WeaviateActionsDelete(params *WeaviateActionsDeleteParams, auth
 	result, err := a.transport.Submit(&runtime.ClientOperation{
 		ID:                 "weaviate.actions.delete",
 		Method:             "DELETE",
-		PathPattern:        "/actions/{actionId}",
+		PathPattern:        "/actions/{id}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -178,7 +141,7 @@ func (a *Client) WeaviateActionsGet(params *WeaviateActionsGetParams, authInfo r
 	result, err := a.transport.Submit(&runtime.ClientOperation{
 		ID:                 "weaviate.actions.get",
 		Method:             "GET",
-		PathPattern:        "/actions/{actionId}",
+		PathPattern:        "/actions/{id}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -231,7 +194,7 @@ WeaviateActionsPatch updates an action based on its UUID using patch semantics
 
 Updates an Action. This method supports patch semantics. Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
-func (a *Client) WeaviateActionsPatch(params *WeaviateActionsPatchParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsPatchOK, *WeaviateActionsPatchAccepted, error) {
+func (a *Client) WeaviateActionsPatch(params *WeaviateActionsPatchParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsPatchOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateActionsPatchParams()
@@ -240,7 +203,7 @@ func (a *Client) WeaviateActionsPatch(params *WeaviateActionsPatchParams, authIn
 	result, err := a.transport.Submit(&runtime.ClientOperation{
 		ID:                 "weaviate.actions.patch",
 		Method:             "PATCH",
-		PathPattern:        "/actions/{actionId}",
+		PathPattern:        "/actions/{id}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -251,15 +214,9 @@ func (a *Client) WeaviateActionsPatch(params *WeaviateActionsPatchParams, authIn
 		Client:             params.HTTPClient,
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	switch value := result.(type) {
-	case *WeaviateActionsPatchOK:
-		return value, nil, nil
-	case *WeaviateActionsPatchAccepted:
-		return nil, value, nil
-	}
-	return nil, nil, nil
+	return result.(*WeaviateActionsPatchOK), nil
 
 }
 
@@ -277,7 +234,7 @@ func (a *Client) WeaviateActionsReferencesCreate(params *WeaviateActionsReferenc
 	result, err := a.transport.Submit(&runtime.ClientOperation{
 		ID:                 "weaviate.actions.references.create",
 		Method:             "POST",
-		PathPattern:        "/actions/{actionId}/references/{propertyName}",
+		PathPattern:        "/actions/{id}/references/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -308,7 +265,7 @@ func (a *Client) WeaviateActionsReferencesDelete(params *WeaviateActionsReferenc
 	result, err := a.transport.Submit(&runtime.ClientOperation{
 		ID:                 "weaviate.actions.references.delete",
 		Method:             "DELETE",
-		PathPattern:        "/actions/{actionId}/references/{propertyName}",
+		PathPattern:        "/actions/{id}/references/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -339,7 +296,7 @@ func (a *Client) WeaviateActionsReferencesUpdate(params *WeaviateActionsReferenc
 	result, err := a.transport.Submit(&runtime.ClientOperation{
 		ID:                 "weaviate.actions.references.update",
 		Method:             "PUT",
-		PathPattern:        "/actions/{actionId}/references/{propertyName}",
+		PathPattern:        "/actions/{id}/references/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},

@@ -1,5 +1,4 @@
 {
-    "@context": "http://example.org",
     "type": "thing",
     "version": "1.0.0",
     "name": "example.org - Thing Test",
@@ -16,14 +15,14 @@
                       { "keyword": "word", "weight": 1.0 },
                       { "keyword": "list", "weight": 1.5 }
                     ],
-                    "@dataType": [
+                    "dataType": [
                         "string"
                     ],
                     "description": "Value of testString."
                 },
                 {
                    "name": "testText",
-                    "@dataType": [
+                    "dataType": [
                         "text"
                     ],
                     "description": "Value of testText."
@@ -34,7 +33,7 @@
                       { "keyword": "test", "weight": 1.0 },
                       { "keyword": "number", "weight": 1.0 }
                     ],
-                    "@dataType": [
+                    "dataType": [
                         "int"
                     ],
                     "description": "Value of testInt."
@@ -46,21 +45,21 @@
                       { "keyword": "truth", "weight": 1.0 },
                       { "keyword": "value", "weight": 1.0 }
                     ],
-                    "@dataType": [
+                    "dataType": [
                         "boolean"
                     ],
                     "description": "Value of testBoolean."
                 },
                 {
                     "name": "testNumber",
-                    "@dataType": [
+                    "dataType": [
                         "number"
                     ],
                     "description": "Value of testNumber."
                 },
                 {
                     "name": "testDateTime",
-                    "@dataType": [
+                    "dataType": [
                         "date"
                     ],
                     "description": "Value of testDateTime."
@@ -71,13 +70,13 @@
                       { "keyword": "test", "weight": 1.0 },
                       { "keyword": "reference", "weight": 1.0 }
                     ],
-                    "@dataType": [
+                    "dataType": [
                         "TestThingTwo"
                     ],
                     "description": "Value of testCref."
                 }, {
                     "name": "testRandomType",
-                    "@dataType": [
+                    "dataType": [
                         "string"
                     ],
                     "description": "Same name, different datatypes."
@@ -99,14 +98,14 @@
                       { "keyword": "word", "weight": 1.0 },
                       { "keyword": "list", "weight": 1.5 }
                     ],
-                    "@dataType": [
+                    "dataType": [
                         "string"
                     ],
                     "description": "Value of testString."
                 },
                 {
                    "name": "testText",
-                    "@dataType": [
+                    "dataType": [
                         "text"
                     ],
                     "description": "Value of testText."
@@ -117,7 +116,7 @@
                       { "keyword": "test", "weight": 1.0 },
                       { "keyword": "number", "weight": 1.0 }
                     ],
-                    "@dataType": [
+                    "dataType": [
                         "int"
                     ],
                     "description": "Value of testInt."
@@ -129,21 +128,21 @@
                       { "keyword": "truth", "weight": 1.0 },
                       { "keyword": "value", "weight": 1.0 }
                     ],
-                    "@dataType": [
+                    "dataType": [
                         "boolean"
                     ],
                     "description": "Value of testBoolean."
                 },
                 {
                     "name": "testNumber",
-                    "@dataType": [
+                    "dataType": [
                         "number"
                     ],
                     "description": "Value of testNumber."
                 },
                 {
                     "name": "testDateTime",
-                    "@dataType": [
+                    "dataType": [
                         "date"
                     ],
                     "description": "Value of testDateTime."
@@ -154,13 +153,13 @@
                       { "keyword": "test", "weight": 1.0 },
                       { "keyword": "reference", "weight": 1.0 }
                     ],
-                    "@dataType": [
+                    "dataType": [
                         "TestThing"
                     ],
                     "description": "Value of testCref."
                 }, {
                     "name": "testRandomType",
-                    "@dataType": [
+                    "dataType": [
                         "int"
                     ],
                     "description": "Same name, different datatypes."

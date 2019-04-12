@@ -51,7 +51,7 @@ func (l *etcdSchemaManager) validateCanAddClass(knd kind.Kind, class *models.Sem
 
 		// Validate data type of property.
 		schema := l.GetSchema()
-		_, err := (&schema).FindPropertyDataType(property.AtDataType)
+		_, err := (&schema).FindPropertyDataType(property.DataType)
 		if err != nil {
 			return fmt.Errorf("Data type fo property '%s' is invalid; %v", property.Name, err)
 		}
@@ -133,12 +133,12 @@ func (l *etcdSchemaManager) validateCanAddProperty(property *models.SemanticSche
 
 	// Validate data type of property.
 	schema := l.GetSchema()
-	_, err = (&schema).FindPropertyDataType(property.AtDataType)
+	_, err = (&schema).FindPropertyDataType(property.DataType)
 	if err != nil {
 		return fmt.Errorf("Data type of property '%s' is invalid; %v", property.Name, err)
 	}
 
-	if err = l.validateNetworkCrossRefs(property.AtDataType); err != nil {
+	if err = l.validateNetworkCrossRefs(property.DataType); err != nil {
 		return fmt.Errorf("Data type of property '%s' is invalid; %v", property.Name, err)
 	}
 

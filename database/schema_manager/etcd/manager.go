@@ -32,7 +32,6 @@ func (l *etcdSchemaManager) GetSchema() schema.Schema {
 func (l *etcdSchemaManager) UpdateMeta(ctx context.Context, kind kind.Kind,
 	atContext strfmt.URI, maintainer strfmt.Email, name string) error {
 	semanticSchema := l.schemaState.SchemaFor(kind)
-	semanticSchema.AtContext = atContext
 	semanticSchema.Maintainer = maintainer
 	semanticSchema.Name = name
 
@@ -207,11 +206,11 @@ func (l *etcdSchemaManager) UpdatePropertyAddDataType(ctx context.Context, kind 
 		return err
 	}
 
-	if dataTypeAlreadyContained(prop.AtDataType, newDataType) {
+	if dataTypeAlreadyContained(prop.DataType, newDataType) {
 		return nil
 	}
 
-	prop.AtDataType = append(prop.AtDataType, newDataType)
+	prop.DataType = append(prop.DataType, newDataType)
 	err = l.saveSchema(ctx)
 
 	if err != nil {

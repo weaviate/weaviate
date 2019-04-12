@@ -50,10 +50,10 @@ func handleMap(input interface{}, field string, path []interface{}) (interface{}
 		switch field {
 		case "Fields":
 			return extractResult(v.Fields, path[1:])
-		case "AtClass":
-			return extractResult(v.AtClass, path[1:])
+		case "Class":
+			return extractResult(v.Class, path[1:])
 		default:
-			return nil, fmt.Errorf("only 'Fields' or 'AtClass' supported on type get.LocalRef, got: %s", field)
+			return nil, fmt.Errorf("only 'Fields' or 'Class' supported on type get.LocalRef, got: %s", field)
 		}
 	default:
 		return nil, fmt.Errorf("unsupported type: %T", input)

@@ -26,7 +26,7 @@ import (
 
 // WeaviateThingsDeleteURL generates an URL for the weaviate things delete operation
 type WeaviateThingsDeleteURL struct {
-	ThingID strfmt.UUID
+	ID strfmt.UUID
 
 	_basePath string
 	// avoid unkeyed usage
@@ -52,13 +52,13 @@ func (o *WeaviateThingsDeleteURL) SetBasePath(bp string) {
 func (o *WeaviateThingsDeleteURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/things/{thingId}"
+	var _path = "/things/{id}"
 
-	thingID := o.ThingID.String()
-	if thingID != "" {
-		_path = strings.Replace(_path, "{thingId}", thingID, -1)
+	id := o.ID.String()
+	if id != "" {
+		_path = strings.Replace(_path, "{id}", id, -1)
 	} else {
-		return nil, errors.New("ThingID is required on WeaviateThingsDeleteURL")
+		return nil, errors.New("ID is required on WeaviateThingsDeleteURL")
 	}
 
 	_basePath := o._basePath

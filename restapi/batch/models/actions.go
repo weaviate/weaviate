@@ -47,9 +47,9 @@ func (b Actions) Response() []*models.ActionsGetResponse {
 			errorResponse = errPayloadFromSingleErr(action.Err)
 		}
 
+		action.Action.ID = action.UUID
 		response[i] = &models.ActionsGetResponse{
-			Action:   *action.Action,
-			ActionID: action.UUID,
+			Action: *action.Action,
 			Result: &models.ActionsGetResponseAO1Result{
 				Errors: errorResponse,
 			},

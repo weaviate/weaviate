@@ -46,10 +46,10 @@ func createActions() {
 			} else {
 				class := findClass(schema.Actions, className)
 				property := findProperty(class, key)
-				if len(property.AtDataType) != 1 {
+				if len(property.DataType) != 1 {
 					panic(fmt.Sprintf("Only one datatype supported for import. Failed in action %s.%s", className, property.Name))
 				}
-				dataType := property.AtDataType[0]
+				dataType := property.DataType[0]
 
 				switch dataType {
 				case "string", "date", "text":
@@ -76,15 +76,14 @@ func createActions() {
 			}
 		}
 
-		t := models.ActionCreate{
-			AtContext: "http://example.org",
-			AtClass:   className,
-			Schema:    properties,
+		t := models.Action{
+			Class:  className,
+			Schema: properties,
 		}
 
 		action := assertCreateAction(&t)
-		idMap[uuid] = string(action.ActionID) // Store mapping of ID's
-		fmt.Printf("Created Action %s\n", action.ActionID)
+		idMap[uuid] = string(action.ID) // Store mapping of ID's
+		fmt.Printf("Created Action %s\n", action.ID)
 	}
 }
 
@@ -150,7 +149,7 @@ func fixupActions() {
 }
 
 func checkActionExists(id string) bool {
-	params := actions.NewWeaviateActionsGetParams().WithActionID(strfmt.UUID(id))
+	params := actions.NewWeaviateActionsGetParams().WithID(strfmt.UUID(id))
 	resp, err := client.Actions.WeaviateActionsGet(params, nil)
 
 	if err != nil {
@@ -165,10 +164,10 @@ func checkActionExists(id string) bool {
 	return true
 }
 
-func assertCreateAction(t *models.ActionCreate) *models.ActionGetResponse {
-	params := actions.NewWeaviateActionsCreateParams().WithBody(actions.WeaviateActionsCreateBody{Action: t})
+func assertCreateAction(t *models.Action) *models.Action {
+	params := actions.NewWeaviateActionsCreateParams().WithBody(t)
 
-	resp, _, err := client.Actions.WeaviateActionsCreate(params, nil)
+	resp, err := client.Actions.WeaviateActionsCreate(params, nil)
 
 	if err != nil {
 		switch v := err.(type) {
@@ -182,10 +181,10 @@ func assertCreateAction(t *models.ActionCreate) *models.ActionGetResponse {
 	return resp.Payload
 }
 
-func assertPatchAction(id string, p *models.PatchDocument) *models.ActionGetResponse {
-	params := actions.NewWeaviateActionsPatchParams().WithBody([]*models.PatchDocument{p}).WithActionID(strfmt.UUID(id))
+func assertPatchAction(id string, p *models.PatchDocument) *models.Action {
+	params := actions.NewWeaviateActionsPatchParams().WithBody([]*models.PatchDocument{p}).WithID(strfmt.UUID(id))
 
-	resp, _, err := client.Actions.WeaviateActionsPatch(params, nil)
+	resp, err := client.Actions.WeaviateActionsPatch(params, nil)
 
 	if err != nil {
 		switch v := err.(type) {

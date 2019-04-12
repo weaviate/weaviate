@@ -22,14 +22,11 @@ import (
 	"strings"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/go-openapi/swag"
 )
 
 // WeaviateThingsPatchURL generates an URL for the weaviate things patch operation
 type WeaviateThingsPatchURL struct {
-	ThingID strfmt.UUID
-
-	Async *bool
+	ID strfmt.UUID
 
 	_basePath string
 	// avoid unkeyed usage
@@ -55,13 +52,13 @@ func (o *WeaviateThingsPatchURL) SetBasePath(bp string) {
 func (o *WeaviateThingsPatchURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/things/{thingId}"
+	var _path = "/things/{id}"
 
-	thingID := o.ThingID.String()
-	if thingID != "" {
-		_path = strings.Replace(_path, "{thingId}", thingID, -1)
+	id := o.ID.String()
+	if id != "" {
+		_path = strings.Replace(_path, "{id}", id, -1)
 	} else {
-		return nil, errors.New("ThingID is required on WeaviateThingsPatchURL")
+		return nil, errors.New("ID is required on WeaviateThingsPatchURL")
 	}
 
 	_basePath := o._basePath
@@ -69,18 +66,6 @@ func (o *WeaviateThingsPatchURL) Build() (*url.URL, error) {
 		_basePath = "/weaviate/v1"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
-
-	qs := make(url.Values)
-
-	var async string
-	if o.Async != nil {
-		async = swag.FormatBool(*o.Async)
-	}
-	if async != "" {
-		qs.Set("async", async)
-	}
-
-	_result.RawQuery = qs.Encode()
 
 	return &_result, nil
 }

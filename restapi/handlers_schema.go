@@ -9,6 +9,7 @@
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
  * CONTACT: hello@creativesoftwarefdn.org
  */
+
 package restapi
 
 import (
@@ -16,354 +17,211 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/schema"
+	schemaUC "github.com/creativesoftwarefdn/weaviate/schema"
 	middleware "github.com/go-openapi/runtime/middleware"
 
-	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/telemetry"
 )
 
-func setupSchemaHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog) {
-	api.SchemaWeaviateSchemaActionsCreateHandler = schema.WeaviateSchemaActionsCreateHandlerFunc(func(params schema.WeaviateSchemaActionsCreateParams, principal *models.Principal) middleware.Responder {
-		schemaLock, err := db.SchemaLock()
-		if err != nil {
-			return schema.NewWeaviateSchemaActionsCreateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-		}
-		defer unlock(schemaLock)
+type schemaHandlers struct {
+	telemetry *telemetry.RequestsLog
+	manager   *schemaUC.Manager
+}
 
-		schemaManager := schemaLock.SchemaManager()
-		ctx := params.HTTPRequest.Context()
-		err = schemaManager.AddClass(ctx, kind.ACTION_KIND, params.ActionClass)
+func (s *schemaHandlers) telemetryLogAsync(requestType, identifier string) {
+	go func() {
+		s.telemetry.Register(requestType, identifier)
+	}()
+}
 
-		if err == nil {
+func (s *schemaHandlers) addAction(params schema.WeaviateSchemaActionsCreateParams,
+	principal *models.Principal) middleware.Responder {
+	err := s.manager.AddAction(params.HTTPRequest.Context(), params.ActionClass)
+	if err != nil {
+		return schema.NewWeaviateSchemaActionsCreateUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
 
-			// Register the function call
-			go func() {
-				requestsLog.Register(telemetry.TypeREST, telemetry.LocalAddMeta)
-			}()
+	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalAddMeta)
+	return schema.NewWeaviateSchemaActionsCreateOK().WithPayload(params.ActionClass)
+}
 
-			return schema.NewWeaviateSchemaActionsCreateOK().WithPayload(params.ActionClass)
-		} else {
-			errorResponse := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{&models.ErrorResponseErrorItems0{Message: err.Error()}}}
-			return schema.NewWeaviateSchemaActionsCreateUnprocessableEntity().WithPayload(&errorResponse)
-		}
-	})
+func (s *schemaHandlers) deleteAction(params schema.WeaviateSchemaActionsDeleteParams, principal *models.Principal) middleware.Responder {
+	err := s.manager.DeleteAction(params.HTTPRequest.Context(), params.ClassName)
+	if err != nil {
+		return schema.NewWeaviateSchemaActionsDeleteBadRequest().WithPayload(errPayloadFromSingleErr(err))
+	}
 
-	api.SchemaWeaviateSchemaActionsDeleteHandler = schema.WeaviateSchemaActionsDeleteHandlerFunc(func(params schema.WeaviateSchemaActionsDeleteParams, principal *models.Principal) middleware.Responder {
-		schemaLock, err := db.SchemaLock()
-		if err != nil {
-			return schema.NewWeaviateSchemaActionsDeleteInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-		}
-		defer unlock(schemaLock)
+	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
+	return schema.NewWeaviateSchemaActionsDeleteOK()
+}
 
-		schemaManager := schemaLock.SchemaManager()
-		ctx := params.HTTPRequest.Context()
-		err = schemaManager.DropClass(ctx, kind.ACTION_KIND, params.ClassName)
+func (s *schemaHandlers) addActionProperty(params schema.WeaviateSchemaActionsPropertiesAddParams,
+	principal *models.Principal) middleware.Responder {
+	err := s.manager.AddActionProperty(params.HTTPRequest.Context(), params.ClassName, params.Body)
+	if err != nil {
+		return schema.NewWeaviateSchemaActionsPropertiesAddUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
 
-		if err == nil {
+	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
+	return schema.NewWeaviateSchemaActionsPropertiesAddOK().WithPayload(params.Body)
+}
 
-			// Register the function call
-			go func() {
-				requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulateMeta)
-			}()
-			return schema.NewWeaviateSchemaActionsDeleteOK()
-		} else {
-			errorResponse := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{&models.ErrorResponseErrorItems0{Message: err.Error()}}}
-			return schema.NewWeaviateSchemaActionsDeleteBadRequest().WithPayload(&errorResponse)
-		}
-	})
+func (s *schemaHandlers) deleteActionProperty(params schema.WeaviateSchemaActionsPropertiesDeleteParams,
+	principal *models.Principal) middleware.Responder {
+	err := s.manager.DeleteActionProperty(params.HTTPRequest.Context(), params.ClassName, params.PropertyName)
+	if err != nil {
+		return schema.NewWeaviateSchemaActionsPropertiesDeleteInternalServerError().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
 
-	api.SchemaWeaviateSchemaActionsPropertiesAddHandler = schema.WeaviateSchemaActionsPropertiesAddHandlerFunc(func(params schema.WeaviateSchemaActionsPropertiesAddParams, principal *models.Principal) middleware.Responder {
-		schemaLock, err := db.SchemaLock()
-		if err != nil {
-			return schema.NewWeaviateSchemaActionsPropertiesAddInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-		}
-		defer unlock(schemaLock)
+	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
+	return schema.NewWeaviateSchemaActionsPropertiesDeleteOK()
+}
 
-		schemaManager := schemaLock.SchemaManager()
-		ctx := params.HTTPRequest.Context()
-		err = schemaManager.AddProperty(ctx, kind.ACTION_KIND, params.ClassName, params.Body)
+func (s *schemaHandlers) updateActionProperty(params schema.WeaviateSchemaActionsPropertiesUpdateParams,
+	principal *models.Principal) middleware.Responder {
+	ctx := params.HTTPRequest.Context()
+	err := s.manager.UpdateActionProperty(ctx, params.ClassName, params.PropertyName, params.Body)
+	if err != nil {
+		return schema.NewWeaviateSchemaActionsPropertiesUpdateUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
 
-		if err == nil {
-			// Register the function call
-			go func() {
-				requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulateMeta)
-			}()
+	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
+	return schema.NewWeaviateSchemaActionsPropertiesUpdateOK()
+}
 
-			return schema.NewWeaviateSchemaActionsPropertiesAddOK().WithPayload(params.Body)
-		} else {
-			errorResponse := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{&models.ErrorResponseErrorItems0{Message: err.Error()}}}
-			return schema.NewWeaviateSchemaActionsPropertiesAddUnprocessableEntity().WithPayload(&errorResponse)
-		}
-	})
+func (s *schemaHandlers) updateAction(params schema.WeaviateSchemaActionsUpdateParams, principal *models.Principal) middleware.Responder {
+	ctx := params.HTTPRequest.Context()
+	err := s.manager.UpdateAction(ctx, params.ClassName, params.Body)
+	if err != nil {
+		return schema.NewWeaviateSchemaActionsUpdateUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
+	}
 
-	api.SchemaWeaviateSchemaActionsPropertiesDeleteHandler = schema.WeaviateSchemaActionsPropertiesDeleteHandlerFunc(func(params schema.WeaviateSchemaActionsPropertiesDeleteParams, principal *models.Principal) middleware.Responder {
-		schemaLock, err := db.SchemaLock()
-		if err != nil {
-			return schema.NewWeaviateSchemaActionsPropertiesDeleteInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-		}
-		defer unlock(schemaLock)
+	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
+	return schema.NewWeaviateSchemaActionsUpdateOK()
+}
 
-		schemaManager := schemaLock.SchemaManager()
-		ctx := params.HTTPRequest.Context()
-		_ = schemaManager.DropProperty(ctx, kind.ACTION_KIND, params.ClassName, params.PropertyName)
+func (s *schemaHandlers) getSchema(params schema.WeaviateSchemaDumpParams, principal *models.Principal) middleware.Responder {
+	dbSchema, err := s.manager.GetSchema()
+	if err != nil {
+		return schema.NewWeaviateSchemaDumpInternalServerError().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
 
-		// Register the function call
-		go func() {
-			requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulateMeta)
-		}()
+	payload := &schema.WeaviateSchemaDumpOKBody{
+		Actions: dbSchema.Actions,
+		Things:  dbSchema.Things,
+	}
 
-		return schema.NewWeaviateSchemaActionsPropertiesDeleteOK()
-	})
+	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
+	return schema.NewWeaviateSchemaDumpOK().WithPayload(payload)
+}
 
-	api.SchemaWeaviateSchemaActionsPropertiesUpdateHandler = schema.WeaviateSchemaActionsPropertiesUpdateHandlerFunc(func(params schema.WeaviateSchemaActionsPropertiesUpdateParams, principal *models.Principal) middleware.Responder {
-		schemaLock, err := db.SchemaLock()
-		if err != nil {
-			return schema.NewWeaviateSchemaActionsPropertiesUpdateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-		}
-		defer unlock(schemaLock)
+func (s *schemaHandlers) addThing(params schema.WeaviateSchemaThingsCreateParams, principal *models.Principal) middleware.Responder {
+	err := s.manager.AddThing(params.HTTPRequest.Context(), params.ThingClass)
+	if err != nil {
+		return schema.NewWeaviateSchemaThingsCreateUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
 
-		schemaManager := schemaLock.SchemaManager()
+	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalAddMeta)
+	return schema.NewWeaviateSchemaThingsCreateOK().WithPayload(params.ThingClass)
+}
 
-		var newName *string
-		var newKeywords *models.SemanticSchemaKeywords
+func (s *schemaHandlers) deleteThing(params schema.WeaviateSchemaThingsDeleteParams, principal *models.Principal) middleware.Responder {
+	err := s.manager.DeleteThing(params.HTTPRequest.Context(), params.ClassName)
+	if err != nil {
+		return schema.NewWeaviateSchemaThingsDeleteBadRequest().WithPayload(errPayloadFromSingleErr(err))
+	}
 
-		if params.Body.NewName != "" {
-			newName = &params.Body.NewName
-		}
+	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
+	return schema.NewWeaviateSchemaThingsDeleteOK()
+}
 
-		// TODO gh-619: This implies that we can't undo setting keywords, because we can't detect if keywords is not present, or empty.
-		if len(params.Body.Keywords) > 0 {
-			newKeywords = &params.Body.Keywords
-		}
-		ctx := params.HTTPRequest.Context()
-		err = schemaManager.UpdateProperty(ctx, kind.ACTION_KIND, params.ClassName, params.PropertyName, newName, newKeywords)
+func (s *schemaHandlers) addThingProperty(params schema.WeaviateSchemaThingsPropertiesAddParams,
+	principal *models.Principal) middleware.Responder {
+	err := s.manager.AddThingProperty(params.HTTPRequest.Context(), params.ClassName, params.Body)
+	if err != nil {
+		return schema.NewWeaviateSchemaThingsPropertiesAddUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
 
-		if err == nil {
-			// Register the function call
-			go func() {
-				requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulateMeta)
-			}()
+	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
+	return schema.NewWeaviateSchemaThingsPropertiesAddOK().WithPayload(params.Body)
+}
 
-			return schema.NewWeaviateSchemaActionsPropertiesUpdateOK()
-		} else {
-			errorResponse := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{&models.ErrorResponseErrorItems0{Message: err.Error()}}}
-			return schema.NewWeaviateSchemaActionsPropertiesUpdateUnprocessableEntity().WithPayload(&errorResponse)
-		}
-	})
+func (s *schemaHandlers) deleteThingProperty(params schema.WeaviateSchemaThingsPropertiesDeleteParams,
+	principal *models.Principal) middleware.Responder {
+	err := s.manager.DeleteThingProperty(params.HTTPRequest.Context(), params.ClassName, params.PropertyName)
+	if err != nil {
+		return schema.NewWeaviateSchemaThingsPropertiesDeleteInternalServerError().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
 
-	api.SchemaWeaviateSchemaActionsUpdateHandler = schema.WeaviateSchemaActionsUpdateHandlerFunc(func(params schema.WeaviateSchemaActionsUpdateParams, principal *models.Principal) middleware.Responder {
-		schemaLock, err := db.SchemaLock()
-		if err != nil {
-			return schema.NewWeaviateSchemaActionsUpdateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-		}
-		defer unlock(schemaLock)
+	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
+	return schema.NewWeaviateSchemaThingsPropertiesDeleteOK()
+}
 
-		schemaManager := schemaLock.SchemaManager()
+func (s *schemaHandlers) updateThingProperty(params schema.WeaviateSchemaThingsPropertiesUpdateParams,
+	principal *models.Principal) middleware.Responder {
+	ctx := params.HTTPRequest.Context()
+	err := s.manager.UpdateThingProperty(ctx, params.ClassName, params.PropertyName, params.Body)
+	if err != nil {
+		return schema.NewWeaviateSchemaThingsPropertiesUpdateUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
 
-		var newName *string
-		var newKeywords *models.SemanticSchemaKeywords
+	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
+	return schema.NewWeaviateSchemaThingsPropertiesUpdateOK()
+}
 
-		if params.Body.NewName != "" {
-			newName = &params.Body.NewName
-		}
+func (s *schemaHandlers) updateThing(params schema.WeaviateSchemaThingsUpdateParams,
+	principal *models.Principal) middleware.Responder {
+	ctx := params.HTTPRequest.Context()
+	err := s.manager.UpdateThing(ctx, params.ClassName, params.Body)
+	if err != nil {
+		return schema.NewWeaviateSchemaThingsUpdateUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
+	}
 
-		// TODO gh-619: This implies that we can't undo setting keywords, because we can't detect if keywords is not present, or empty.
-		if len(params.Body.Keywords) > 0 {
-			newKeywords = &params.Body.Keywords
-		}
-		ctx := params.HTTPRequest.Context()
-		err = schemaManager.UpdateClass(ctx, kind.ACTION_KIND, params.ClassName, newName, newKeywords)
+	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
+	return schema.NewWeaviateSchemaThingsUpdateOK()
+}
 
-		if err == nil {
-			// Register the function call
-			go func() {
-				requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulateMeta)
-			}()
-			return schema.NewWeaviateSchemaActionsUpdateOK()
-		} else {
-			errorResponse := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{&models.ErrorResponseErrorItems0{Message: err.Error()}}}
-			return schema.NewWeaviateSchemaActionsUpdateUnprocessableEntity().WithPayload(&errorResponse)
-		}
-	})
-	api.SchemaWeaviateSchemaDumpHandler = schema.WeaviateSchemaDumpHandlerFunc(func(params schema.WeaviateSchemaDumpParams, principal *models.Principal) middleware.Responder {
-		connectorLock, err := db.ConnectorLock()
-		if err != nil {
-			return schema.NewWeaviateSchemaDumpInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-		}
+func setupSchemaHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog, manager *schemaUC.Manager) {
+	h := &schemaHandlers{requestsLog, manager}
 
-		defer connectorLock.Unlock()
+	api.SchemaWeaviateSchemaActionsCreateHandler = schema.
+		WeaviateSchemaActionsCreateHandlerFunc(h.addAction)
+	api.SchemaWeaviateSchemaActionsUpdateHandler = schema.
+		WeaviateSchemaActionsUpdateHandlerFunc(h.updateAction)
+	api.SchemaWeaviateSchemaActionsDeleteHandler = schema.
+		WeaviateSchemaActionsDeleteHandlerFunc(h.deleteAction)
+	api.SchemaWeaviateSchemaActionsPropertiesAddHandler = schema.
+		WeaviateSchemaActionsPropertiesAddHandlerFunc(h.addActionProperty)
+	api.SchemaWeaviateSchemaActionsPropertiesDeleteHandler = schema.
+		WeaviateSchemaActionsPropertiesDeleteHandlerFunc(h.deleteActionProperty)
+	api.SchemaWeaviateSchemaActionsPropertiesUpdateHandler = schema.
+		WeaviateSchemaActionsPropertiesUpdateHandlerFunc(h.updateActionProperty)
 
-		dbSchema := connectorLock.GetSchema()
+	api.SchemaWeaviateSchemaThingsCreateHandler = schema.
+		WeaviateSchemaThingsCreateHandlerFunc(h.addThing)
+	api.SchemaWeaviateSchemaThingsUpdateHandler = schema.
+		WeaviateSchemaThingsUpdateHandlerFunc(h.updateThing)
+	api.SchemaWeaviateSchemaThingsDeleteHandler = schema.
+		WeaviateSchemaThingsDeleteHandlerFunc(h.deleteThing)
+	api.SchemaWeaviateSchemaThingsPropertiesAddHandler = schema.
+		WeaviateSchemaThingsPropertiesAddHandlerFunc(h.addThingProperty)
+	api.SchemaWeaviateSchemaThingsPropertiesDeleteHandler = schema.
+		WeaviateSchemaThingsPropertiesDeleteHandlerFunc(h.deleteThingProperty)
+	api.SchemaWeaviateSchemaThingsPropertiesUpdateHandler = schema.
+		WeaviateSchemaThingsPropertiesUpdateHandlerFunc(h.updateThingProperty)
 
-		payload := &schema.WeaviateSchemaDumpOKBody{
-			Actions: dbSchema.Actions,
-			Things:  dbSchema.Things,
-		}
-
-		// Register the function call
-		go func() {
-			requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulateMeta)
-		}()
-		return schema.NewWeaviateSchemaDumpOK().WithPayload(payload)
-	})
-
-	api.SchemaWeaviateSchemaThingsCreateHandler = schema.WeaviateSchemaThingsCreateHandlerFunc(func(params schema.WeaviateSchemaThingsCreateParams, principal *models.Principal) middleware.Responder {
-		schemaLock, err := db.SchemaLock()
-		if err != nil {
-			return schema.NewWeaviateSchemaThingsCreateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-		}
-		defer unlock(schemaLock)
-
-		schemaManager := schemaLock.SchemaManager()
-		ctx := params.HTTPRequest.Context()
-		err = schemaManager.AddClass(ctx, kind.THING_KIND, params.ThingClass)
-
-		if err == nil {
-			// Register the function call
-			go func() {
-				requestsLog.Register(telemetry.TypeREST, telemetry.LocalAddMeta)
-			}()
-			return schema.NewWeaviateSchemaThingsCreateOK().WithPayload(params.ThingClass)
-		} else {
-			errorResponse := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{&models.ErrorResponseErrorItems0{Message: err.Error()}}}
-			return schema.NewWeaviateSchemaThingsCreateUnprocessableEntity().WithPayload(&errorResponse)
-		}
-	})
-
-	api.SchemaWeaviateSchemaThingsDeleteHandler = schema.WeaviateSchemaThingsDeleteHandlerFunc(func(params schema.WeaviateSchemaThingsDeleteParams, principal *models.Principal) middleware.Responder {
-		schemaLock, err := db.SchemaLock()
-		if err != nil {
-			return schema.NewWeaviateSchemaThingsDeleteInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-		}
-		defer unlock(schemaLock)
-
-		schemaManager := schemaLock.SchemaManager()
-		ctx := params.HTTPRequest.Context()
-		err = schemaManager.DropClass(ctx, kind.THING_KIND, params.ClassName)
-
-		if err == nil {
-			// Register the function call
-			go func() {
-				requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulateMeta)
-			}()
-			return schema.NewWeaviateSchemaThingsDeleteOK()
-		} else {
-			errorResponse := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{&models.ErrorResponseErrorItems0{Message: err.Error()}}}
-			return schema.NewWeaviateSchemaThingsDeleteBadRequest().WithPayload(&errorResponse)
-		}
-	})
-
-	api.SchemaWeaviateSchemaThingsPropertiesAddHandler = schema.WeaviateSchemaThingsPropertiesAddHandlerFunc(func(params schema.WeaviateSchemaThingsPropertiesAddParams, principal *models.Principal) middleware.Responder {
-		schemaLock, err := db.SchemaLock()
-		if err != nil {
-			return schema.NewWeaviateSchemaThingsPropertiesAddInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-		}
-		defer unlock(schemaLock)
-
-		schemaManager := schemaLock.SchemaManager()
-		ctx := params.HTTPRequest.Context()
-		err = schemaManager.AddProperty(ctx, kind.THING_KIND, params.ClassName, params.Body)
-
-		if err == nil {
-			// Register the function call
-			go func() {
-				requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulateMeta)
-			}()
-			return schema.NewWeaviateSchemaThingsPropertiesAddOK().WithPayload(params.Body)
-		} else {
-			errorResponse := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{&models.ErrorResponseErrorItems0{Message: err.Error()}}}
-			return schema.NewWeaviateSchemaThingsPropertiesAddUnprocessableEntity().WithPayload(&errorResponse)
-		}
-	})
-
-	api.SchemaWeaviateSchemaThingsPropertiesDeleteHandler = schema.WeaviateSchemaThingsPropertiesDeleteHandlerFunc(func(params schema.WeaviateSchemaThingsPropertiesDeleteParams, principal *models.Principal) middleware.Responder {
-		schemaLock, err := db.SchemaLock()
-		if err != nil {
-			return schema.NewWeaviateSchemaThingsPropertiesDeleteInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-		}
-		defer unlock(schemaLock)
-
-		schemaManager := schemaLock.SchemaManager()
-		ctx := params.HTTPRequest.Context()
-		_ = schemaManager.DropProperty(ctx, kind.THING_KIND, params.ClassName, params.PropertyName)
-
-		// Register the function call
-		go func() {
-			requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulateMeta)
-		}()
-		return schema.NewWeaviateSchemaThingsPropertiesDeleteOK()
-	})
-
-	api.SchemaWeaviateSchemaThingsPropertiesUpdateHandler = schema.WeaviateSchemaThingsPropertiesUpdateHandlerFunc(func(params schema.WeaviateSchemaThingsPropertiesUpdateParams, principal *models.Principal) middleware.Responder {
-		schemaLock, err := db.SchemaLock()
-		if err != nil {
-			return schema.NewWeaviateSchemaThingsPropertiesUpdateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-		}
-		defer unlock(schemaLock)
-
-		schemaManager := schemaLock.SchemaManager()
-
-		var newName *string
-		var newKeywords *models.SemanticSchemaKeywords
-
-		if params.Body.NewName != "" {
-			newName = &params.Body.NewName
-		}
-
-		// TODO gh-619: This implies that we can't undo setting keywords, because we can't detect if keywords is not present, or empty.
-		if len(params.Body.Keywords) > 0 {
-			newKeywords = &params.Body.Keywords
-		}
-		ctx := params.HTTPRequest.Context()
-		err = schemaManager.UpdateProperty(ctx, kind.THING_KIND, params.ClassName, params.PropertyName, newName, newKeywords)
-
-		if err == nil {
-			// Register the function call
-			go func() {
-				requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulateMeta)
-			}()
-			return schema.NewWeaviateSchemaThingsPropertiesUpdateOK()
-		} else {
-			errorResponse := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{&models.ErrorResponseErrorItems0{Message: err.Error()}}}
-			return schema.NewWeaviateSchemaThingsPropertiesUpdateUnprocessableEntity().WithPayload(&errorResponse)
-		}
-	})
-
-	api.SchemaWeaviateSchemaThingsUpdateHandler = schema.WeaviateSchemaThingsUpdateHandlerFunc(func(params schema.WeaviateSchemaThingsUpdateParams, principal *models.Principal) middleware.Responder {
-		schemaLock, err := db.SchemaLock()
-		if err != nil {
-			return schema.NewWeaviateSchemaThingsUpdateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-		}
-		defer unlock(schemaLock)
-
-		schemaManager := schemaLock.SchemaManager()
-
-		var newName *string
-		var newKeywords *models.SemanticSchemaKeywords
-
-		if params.Body.NewName != "" {
-			newName = &params.Body.NewName
-		}
-
-		// TODO gh-619: This implies that we can't undo setting keywords, because we can't detect if keywords is not present, or empty.
-		if len(params.Body.Keywords) > 0 {
-			newKeywords = &params.Body.Keywords
-		}
-		ctx := params.HTTPRequest.Context()
-		err = schemaManager.UpdateClass(ctx, kind.THING_KIND, params.ClassName, newName, newKeywords)
-
-		if err == nil {
-			// Register the function call
-			go func() {
-				requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulateMeta)
-			}()
-			return schema.NewWeaviateSchemaThingsUpdateOK()
-		} else {
-			errorResponse := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{&models.ErrorResponseErrorItems0{Message: err.Error()}}}
-			return schema.NewWeaviateSchemaThingsUpdateUnprocessableEntity().WithPayload(&errorResponse)
-		}
-	})
+	api.SchemaWeaviateSchemaDumpHandler = schema.
+		WeaviateSchemaDumpHandlerFunc(h.getSchema)
 }
 
 type unlocker interface {

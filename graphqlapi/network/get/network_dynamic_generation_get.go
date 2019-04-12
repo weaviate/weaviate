@@ -65,12 +65,8 @@ func actionClassField(class *models.SemanticSchemaClass, getActionsAndThings *ma
 		Type:        graphql.NewList(actionClassPropertyFieldsObj),
 		Description: class.Description,
 		Args: graphql.FieldConfigArgument{
-			"first": &graphql.ArgumentConfig{
+			"limit": &graphql.ArgumentConfig{
 				Description: descriptions.First,
-				Type:        graphql.Int,
-			},
-			"after": &graphql.ArgumentConfig{
-				Description: descriptions.After,
 				Type:        graphql.Int,
 			},
 			"where": &graphql.ArgumentConfig{
@@ -101,14 +97,14 @@ func actionClassPropertyFields(class *models.SemanticSchemaClass, getActionsAndT
 
 		if *propertyType == schema.DataTypeCRef {
 			capitalizedPropertyName := strings.Title(property.Name)
-			numberOfDataTypes := len(property.AtDataType)
+			numberOfDataTypes := len(property.DataType)
 			dataTypeClasses := make([]*graphql.Object, numberOfDataTypes)
 
-			for index, dataType := range property.AtDataType {
+			for index, dataType := range property.DataType {
 				thingOrActionType, ok := (*getActionsAndThings)[dataType]
 
 				if !ok {
-					return nil, fmt.Errorf("no such thing/action class '%s'", property.AtDataType[index])
+					return nil, fmt.Errorf("no such thing/action class '%s'", property.DataType[index])
 				}
 
 				dataTypeClasses[index] = thingOrActionType
@@ -230,14 +226,14 @@ func thingClassPropertyFields(class *models.SemanticSchemaClass, actionsAndThing
 
 		if *propertyType == schema.DataTypeCRef {
 			capitalizedPropertyName := strings.Title(property.Name)
-			numberOfDataTypes := len(property.AtDataType)
+			numberOfDataTypes := len(property.DataType)
 			dataTypeClasses := make([]*graphql.Object, numberOfDataTypes)
 
-			for index, dataType := range property.AtDataType {
+			for index, dataType := range property.DataType {
 				thingOrActionType, ok := (*actionsAndThings)[dataType]
 
 				if !ok {
-					return nil, fmt.Errorf("no such thing/action class '%s'", property.AtDataType[index])
+					return nil, fmt.Errorf("no such thing/action class '%s'", property.DataType[index])
 				}
 
 				dataTypeClasses[index] = thingOrActionType

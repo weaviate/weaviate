@@ -27,19 +27,18 @@ import (
 )
 
 func (j *Janusgraph) AddThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error {
-	sanitizedClassName := schema.AssertValidClassName(thing.AtClass)
-	return j.addClass(kind.THING_KIND, sanitizedClassName, UUID, thing.AtContext, thing.CreationTimeUnix, thing.LastUpdateTimeUnix, thing.Schema)
+	sanitizedClassName := schema.AssertValidClassName(thing.Class)
+	return j.addClass(kind.THING_KIND, sanitizedClassName, UUID, thing.CreationTimeUnix, thing.LastUpdateTimeUnix, thing.Schema)
 }
 
 func (j *Janusgraph) AddThingsBatch(ctx context.Context, things batchmodels.Things) error {
 	return j.addThingsBatch(things)
 }
 
-func (j *Janusgraph) GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error {
+func (j *Janusgraph) GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.Thing) error {
 	return j.getClass(kind.THING_KIND, UUID,
-		&thingResponse.AtClass,
-		&thingResponse.AtContext,
-		&thingResponse.ThingID,
+		&thingResponse.Class,
+		&thingResponse.ID,
 		&thingResponse.CreationTimeUnix,
 		&thingResponse.LastUpdateTimeUnix,
 		&thingResponse.Schema)
@@ -49,10 +48,10 @@ func (j *Janusgraph) GetThings(ctx context.Context, UUIDs []strfmt.UUID, respons
 	// TODO gh-612: Optimize query to perform just _one_ JanusGraph lookup.
 
 	response.TotalResults = 0
-	response.Things = make([]*models.ThingGetResponse, 0)
+	response.Things = make([]*models.Thing, 0)
 
 	for _, uuid := range UUIDs {
-		var thing_response models.ThingGetResponse
+		var thing_response models.Thing
 		err := j.GetThing(ctx, uuid, &thing_response)
 
 		if err == nil {
@@ -66,12 +65,12 @@ func (j *Janusgraph) GetThings(ctx context.Context, UUIDs []strfmt.UUID, respons
 	return nil
 }
 
-func (j *Janusgraph) ListThings(ctx context.Context, first int, offset int, wheres []*connutils.WhereQuery, response *models.ThingsListResponse) error {
+func (j *Janusgraph) ListThings(ctx context.Context, limit int, wheres []*connutils.WhereQuery, response *models.ThingsListResponse) error {
 	response.TotalResults = 0
-	response.Things = make([]*models.ThingGetResponse, 0)
+	response.Things = make([]*models.Thing, 0)
 
-	return j.listClass(kind.THING_KIND, nil, first, offset, nil, func(uuid strfmt.UUID) {
-		var thing_response models.ThingGetResponse
+	return j.listClass(kind.THING_KIND, nil, limit, nil, func(uuid strfmt.UUID) {
+		var thing_response models.Thing
 		err := j.GetThing(ctx, uuid, &thing_response)
 
 		if err == nil {
@@ -84,18 +83,10 @@ func (j *Janusgraph) ListThings(ctx context.Context, first int, offset int, wher
 }
 
 func (j *Janusgraph) UpdateThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error {
-	sanitizedClassName := schema.AssertValidClassName(thing.AtClass)
-	return j.updateClass(kind.THING_KIND, sanitizedClassName, UUID, thing.AtContext, thing.LastUpdateTimeUnix, thing.Schema)
+	sanitizedClassName := schema.AssertValidClassName(thing.Class)
+	return j.updateClass(kind.THING_KIND, sanitizedClassName, UUID, thing.LastUpdateTimeUnix, thing.Schema)
 }
 
 func (j *Janusgraph) DeleteThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error {
 	return j.deleteClass(kind.THING_KIND, UUID)
-}
-
-func (j *Janusgraph) HistoryThing(ctx context.Context, UUID strfmt.UUID, history *models.ThingHistory) error {
-	return nil
-}
-
-func (j *Janusgraph) MoveToHistoryThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID, deleted bool) error {
-	return nil
 }

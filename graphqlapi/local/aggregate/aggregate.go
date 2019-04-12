@@ -25,7 +25,7 @@ import (
 )
 
 // Build the Aggreate Kinds schema
-func Build(dbSchema *schema.Schema, config config.Environment) (*graphql.Field, error) {
+func Build(dbSchema *schema.Schema, config config.Config) (*graphql.Field, error) {
 	getKinds := graphql.Fields{}
 
 	if len(dbSchema.Actions.Classes) == 0 && len(dbSchema.Things.Classes) == 0 {
@@ -75,7 +75,7 @@ func Build(dbSchema *schema.Schema, config config.Environment) (*graphql.Field, 
 }
 
 func classFields(databaseSchema []*models.SemanticSchemaClass, k kind.Kind,
-	config config.Environment) (*graphql.Object, error) {
+	config config.Config) (*graphql.Object, error) {
 	fields := graphql.Fields{}
 
 	for _, class := range databaseSchema {
@@ -95,7 +95,7 @@ func classFields(databaseSchema []*models.SemanticSchemaClass, k kind.Kind,
 }
 
 func classField(k kind.Kind, class *models.SemanticSchemaClass, description string,
-	config config.Environment) (*graphql.Field, error) {
+	config config.Config) (*graphql.Field, error) {
 
 	if len(class.Properties) == 0 {
 		// if we don't have class properties, we can't build this particular class,
@@ -157,7 +157,7 @@ func classField(k kind.Kind, class *models.SemanticSchemaClass, description stri
 	return fieldsField, nil
 }
 
-func extendArgsWithAnalyticsConfig(field *graphql.Field, config config.Environment) *graphql.Field {
+func extendArgsWithAnalyticsConfig(field *graphql.Field, config config.Config) *graphql.Field {
 	if !config.AnalyticsEngine.Enabled {
 		return field
 	}

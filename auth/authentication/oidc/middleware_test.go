@@ -23,7 +23,8 @@ import (
 )
 
 func Test_Middleware_NotConfigured(t *testing.T) {
-	cfg := config.Environment{
+
+	cfg := config.Config{
 		Authentication: config.Authentication{
 			OIDC: config.OIDC{
 				Enabled: false,
@@ -41,7 +42,7 @@ func Test_Middleware_NotConfigured(t *testing.T) {
 }
 
 func Test_Middleware_IncompleteConfiguration(t *testing.T) {
-	cfg := config.Environment{
+	cfg := config.Config{
 		Authentication: config.Authentication{
 			OIDC: config.OIDC{
 				Enabled: true,
@@ -66,7 +67,7 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 		server := newOIDCServer(t)
 		defer server.Close()
 
-		cfg := config.Environment{
+		cfg := config.Config{
 			Authentication: config.Authentication{
 				OIDC: config.OIDC{
 					Enabled:           true,
@@ -91,7 +92,7 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 		server := newOIDCServer(t)
 		defer server.Close()
 
-		cfg := config.Environment{
+		cfg := config.Config{
 			Authentication: config.Authentication{
 				OIDC: config.OIDC{
 					Enabled:           true,
@@ -117,7 +118,7 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 		server := newOIDCServer(t)
 		defer server.Close()
 
-		cfg := config.Environment{
+		cfg := config.Config{
 			Authentication: config.Authentication{
 				OIDC: config.OIDC{
 					Enabled:           true,

@@ -25,8 +25,8 @@ var SimpleSchema = schema.Schema{
 				Class: "SomeThing",
 				Properties: []*models.SemanticSchemaClassProperty{
 					&models.SemanticSchemaClassProperty{
-						Name:       "NetworkRefField",
-						AtDataType: []string{"OtherInstance/SomeRemoteClass"},
+						Name:     "NetworkRefField",
+						DataType: []string{"OtherInstance/SomeRemoteClass"},
 					},
 				},
 			},
@@ -38,20 +38,20 @@ var SimpleSchema = schema.Schema{
 				Class: "SomeAction",
 				Properties: []*models.SemanticSchemaClassProperty{
 					&models.SemanticSchemaClassProperty{
-						Name:       "intField",
-						AtDataType: []string{"int"},
+						Name:     "intField",
+						DataType: []string{"int"},
 					},
 					&models.SemanticSchemaClassProperty{
-						Name:       "location",
-						AtDataType: []string{"geoCoordinates"},
+						Name:     "location",
+						DataType: []string{"geoCoordinates"},
 					},
 					&models.SemanticSchemaClassProperty{
-						Name:       "hasAction",
-						AtDataType: []string{"SomeAction"},
+						Name:     "hasAction",
+						DataType: []string{"SomeAction"},
 					},
 					&models.SemanticSchemaClassProperty{
 						Name:        "hasActions",
-						AtDataType:  []string{"SomeAction"},
+						DataType:    []string{"SomeAction"},
 						Cardinality: &many,
 					},
 				},
@@ -68,8 +68,8 @@ var CarSchema = schema.Schema{
 				Class: "Manufacturer",
 				Properties: []*models.SemanticSchemaClassProperty{
 					&models.SemanticSchemaClassProperty{
-						Name:       "name",
-						AtDataType: []string{"string"},
+						Name:     "name",
+						DataType: []string{"string"},
 					},
 				},
 			},
@@ -77,28 +77,28 @@ var CarSchema = schema.Schema{
 				Class: "Car",
 				Properties: []*models.SemanticSchemaClassProperty{
 					&models.SemanticSchemaClassProperty{
-						Name:       "horsepower",
-						AtDataType: []string{"int"},
+						Name:     "horsepower",
+						DataType: []string{"int"},
 					},
 					&models.SemanticSchemaClassProperty{
-						Name:       "weight",
-						AtDataType: []string{"number"},
+						Name:     "weight",
+						DataType: []string{"number"},
 					},
 					&models.SemanticSchemaClassProperty{
-						Name:       "modelName",
-						AtDataType: []string{"string"},
+						Name:     "modelName",
+						DataType: []string{"string"},
 					},
 					&models.SemanticSchemaClassProperty{
-						Name:       "madeBy",
-						AtDataType: []string{"Manufacturer"},
+						Name:     "madeBy",
+						DataType: []string{"Manufacturer"},
 					},
 					&models.SemanticSchemaClassProperty{
-						Name:       "startOfProduction",
-						AtDataType: []string{"date"},
+						Name:     "startOfProduction",
+						DataType: []string{"date"},
 					},
 					&models.SemanticSchemaClassProperty{
-						Name:       "stillInProduction",
-						AtDataType: []string{"boolean"},
+						Name:     "stillInProduction",
+						DataType: []string{"boolean"},
 					},
 				},
 			},

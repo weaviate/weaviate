@@ -25,31 +25,28 @@ import (
 const fakeActionId strfmt.UUID = "11111111-1111-1111-1111-111111111111"
 
 func assertCreateAction(t *testing.T, className string, schema map[string]interface{}) strfmt.UUID {
-	params := actions.NewWeaviateActionsCreateParams().WithBody(actions.WeaviateActionsCreateBody{
-		Action: &models.ActionCreate{
-			AtContext: "http://example.org",
-			AtClass:   className,
-			Schema:    schema,
-		},
-		Async: false,
-	})
+	params := actions.NewWeaviateActionsCreateParams().WithBody(
+		&models.Action{
+			Class:  className,
+			Schema: schema,
+		})
 
-	resp, _, err := helper.Client(t).Actions.WeaviateActionsCreate(params, nil)
+	resp, err := helper.Client(t).Actions.WeaviateActionsCreate(params, nil)
 
 	var actionID strfmt.UUID
 
 	// Ensure that the response is OK
 	helper.AssertRequestOk(t, resp, err, func() {
-		actionID = resp.Payload.ActionID
+		actionID = resp.Payload.ID
 	})
 
 	return actionID
 }
 
-func assertGetAction(t *testing.T, uuid strfmt.UUID) *models.ActionGetResponse {
-	getResp, err := helper.Client(t).Actions.WeaviateActionsGet(actions.NewWeaviateActionsGetParams().WithActionID(uuid), nil)
+func assertGetAction(t *testing.T, uuid strfmt.UUID) *models.Action {
+	getResp, err := helper.Client(t).Actions.WeaviateActionsGet(actions.NewWeaviateActionsGetParams().WithID(uuid), nil)
 
-	var action *models.ActionGetResponse
+	var action *models.Action
 
 	helper.AssertRequestOk(t, getResp, err, func() {
 		action = getResp.Payload
@@ -58,20 +55,20 @@ func assertGetAction(t *testing.T, uuid strfmt.UUID) *models.ActionGetResponse {
 	return action
 }
 
-func assertGetActionEventually(t *testing.T, uuid strfmt.UUID) *models.ActionGetResponse {
+func assertGetActionEventually(t *testing.T, uuid strfmt.UUID) *models.Action {
 	var (
 		resp *actions.WeaviateActionsGetOK
 		err  error
 	)
 
 	checkThunk := func() interface{} {
-		resp, err = helper.Client(t).Actions.WeaviateActionsGet(actions.NewWeaviateActionsGetParams().WithActionID(uuid), nil)
+		resp, err = helper.Client(t).Actions.WeaviateActionsGet(actions.NewWeaviateActionsGetParams().WithID(uuid), nil)
 		return err == nil
 	}
 
 	helper.AssertEventuallyEqual(t, true, checkThunk)
 
-	var action *models.ActionGetResponse
+	var action *models.Action
 
 	helper.AssertRequestOk(t, resp, err, func() {
 		action = resp.Payload
@@ -80,20 +77,20 @@ func assertGetActionEventually(t *testing.T, uuid strfmt.UUID) *models.ActionGet
 	return action
 }
 
-func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.ThingGetResponse {
+func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.Thing {
 	var (
 		resp *things.WeaviateThingsGetOK
 		err  error
 	)
 
 	checkThunk := func() interface{} {
-		resp, err = helper.Client(t).Things.WeaviateThingsGet(things.NewWeaviateThingsGetParams().WithThingID(uuid), nil)
+		resp, err = helper.Client(t).Things.WeaviateThingsGet(things.NewWeaviateThingsGetParams().WithID(uuid), nil)
 		return err == nil
 	}
 
 	helper.AssertEventuallyEqual(t, true, checkThunk)
 
-	var thing *models.ThingGetResponse
+	var thing *models.Thing
 
 	helper.AssertRequestOk(t, resp, err, func() {
 		thing = resp.Payload
@@ -103,22 +100,18 @@ func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.ThingGetRe
 }
 
 func assertCreateThing(t *testing.T, className string, schema map[string]interface{}) strfmt.UUID {
-	params := things.NewWeaviateThingsCreateParams().WithBody(things.WeaviateThingsCreateBody{
-		Thing: &models.ThingCreate{
-			AtContext: "http://example.org",
-			AtClass:   className,
-			Schema:    schema,
-		},
-		Async: false,
+	params := things.NewWeaviateThingsCreateParams().WithBody(&models.Thing{
+		Class:  className,
+		Schema: schema,
 	})
 
-	resp, _, err := helper.Client(t).Things.WeaviateThingsCreate(params, nil)
+	resp, err := helper.Client(t).Things.WeaviateThingsCreate(params, nil)
 
 	var thingID strfmt.UUID
 
 	// Ensure that the response is OK
 	helper.AssertRequestOk(t, resp, err, func() {
-		thingID = resp.Payload.ThingID
+		thingID = resp.Payload.ID
 	})
 
 	return thingID

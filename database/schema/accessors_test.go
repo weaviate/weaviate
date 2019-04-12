@@ -22,17 +22,17 @@ func Test_GetAllPropsOfType(t *testing.T) {
 	car := &models.SemanticSchemaClass{
 		Class: "Car",
 		Properties: []*models.SemanticSchemaClassProperty{
-			{Name: "modelName", AtDataType: []string{"string"}},
-			{Name: "manufacturerName", AtDataType: []string{"string"}},
-			{Name: "horsepower", AtDataType: []string{"int"}},
+			{Name: "modelName", DataType: []string{"string"}},
+			{Name: "manufacturerName", DataType: []string{"string"}},
+			{Name: "horsepower", DataType: []string{"int"}},
 		},
 	}
 
 	train := &models.SemanticSchemaClass{
 		Class: "Train",
 		Properties: []*models.SemanticSchemaClassProperty{
-			{Name: "capacity", AtDataType: []string{"int"}},
-			{Name: "trainCompany", AtDataType: []string{"string"}},
+			{Name: "capacity", DataType: []string{"int"}},
+			{Name: "trainCompany", DataType: []string{"string"}},
 		},
 	}
 

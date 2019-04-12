@@ -29,7 +29,7 @@ import (
 type ActionsListResponse struct {
 
 	// The actual list of Actions.
-	Actions []*ActionGetResponse `json:"actions"`
+	Actions []*Action `json:"actions"`
 
 	// The total number of Actions for the query. The number of items in a response may be smaller due to paging.
 	TotalResults int64 `json:"totalResults,omitempty"`

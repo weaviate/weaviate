@@ -173,7 +173,7 @@ func Test_QueryProcessor(t *testing.T) {
 							"population": 30000000,
 							"uuid":       uuid2,
 						},
-						AtClass: "Country",
+						Class: "Country",
 					},
 				},
 			},
@@ -279,7 +279,7 @@ func Test_QueryProcessor(t *testing.T) {
 					"population": 30000000,
 					"uuid":       uuid2,
 				},
-				AtClass: "Country",
+				Class: "Country",
 			},
 			get.LocalRef{
 				Fields: map[string]interface{}{
@@ -287,7 +287,7 @@ func Test_QueryProcessor(t *testing.T) {
 					"population": 30000000,
 					"uuid":       uuid3,
 				},
-				AtClass: "Country",
+				Class: "Country",
 			},
 		}
 
@@ -444,19 +444,19 @@ func Test_QueryProcessor(t *testing.T) {
 				"population": 800000,
 				"InCountry": []interface{}{
 					get.LocalRef{
-						AtClass: "Country",
+						Class: "Country",
 						Fields: map[string]interface{}{
 							"name":       "Netherlands",
 							"population": 30000000,
 							"uuid":       uuid2,
 							"InContinent": []interface{}{
 								get.LocalRef{
-									AtClass: "Continent",
+									Class: "Continent",
 									Fields: map[string]interface{}{
 										"uuid": uuid3,
 										"OnPlanet": []interface{}{
 											get.LocalRef{
-												AtClass: "Planet",
+												Class: "Planet",
 												Fields: map[string]interface{}{
 													"uuid": uuid4,
 													"name": "Earth",
@@ -631,14 +631,14 @@ func Test_QueryProcessor(t *testing.T) {
 
 		innerMostRefs := []interface{}{
 			get.LocalRef{
-				AtClass: "Planet",
+				Class: "Planet",
 				Fields: map[string]interface{}{
 					"uuid": uuid4,
 					"name": "Earth",
 				},
 			},
 			get.LocalRef{
-				AtClass: "Planet",
+				Class: "Planet",
 				Fields: map[string]interface{}{
 					"uuid": uuid5,
 					"name": "FlatEarth",

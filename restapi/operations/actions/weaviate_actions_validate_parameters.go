@@ -46,7 +46,7 @@ type WeaviateActionsValidateParams struct {
 	  Required: true
 	  In: body
 	*/
-	Body *models.ActionValidate
+	Body *models.Action
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -60,7 +60,7 @@ func (o *WeaviateActionsValidateParams) BindRequest(r *http.Request, route *midd
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body models.ActionValidate
+		var body models.Action
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
 				res = append(res, errors.Required("body", "body"))

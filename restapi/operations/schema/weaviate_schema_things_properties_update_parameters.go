@@ -24,6 +24,8 @@ import (
 	"github.com/go-openapi/runtime/middleware"
 
 	strfmt "github.com/go-openapi/strfmt"
+
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // NewWeaviateSchemaThingsPropertiesUpdateParams creates a new WeaviateSchemaThingsPropertiesUpdateParams object
@@ -46,7 +48,7 @@ type WeaviateSchemaThingsPropertiesUpdateParams struct {
 	  Required: true
 	  In: body
 	*/
-	Body WeaviateSchemaThingsPropertiesUpdateBody
+	Body *models.SemanticSchemaClassProperty
 	/*
 	  Required: true
 	  In: path
@@ -70,7 +72,7 @@ func (o *WeaviateSchemaThingsPropertiesUpdateParams) BindRequest(r *http.Request
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body WeaviateSchemaThingsPropertiesUpdateBody
+		var body models.SemanticSchemaClassProperty
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
 				res = append(res, errors.Required("body", "body"))
@@ -84,7 +86,7 @@ func (o *WeaviateSchemaThingsPropertiesUpdateParams) BindRequest(r *http.Request
 			}
 
 			if len(res) == 0 {
-				o.Body = body
+				o.Body = &body
 			}
 		}
 	} else {

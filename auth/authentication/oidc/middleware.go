@@ -32,7 +32,7 @@ type Client struct {
 // New OIDC Client: It tries to retrieve the JWKs at startup (or fails), it
 // provides a middleware which can be used at runtime with a go-swagger style
 // API
-func New(cfg config.Environment) (*Client, error) {
+func New(cfg config.Config) (*Client, error) {
 	client := &Client{
 		config: cfg.Authentication.OIDC,
 	}

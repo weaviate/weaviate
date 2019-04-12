@@ -85,16 +85,16 @@ func NewWeaviateActionsGetOK() *WeaviateActionsGetOK {
 Successful response.
 */
 type WeaviateActionsGetOK struct {
-	Payload *models.ActionGetResponse
+	Payload *models.Action
 }
 
 func (o *WeaviateActionsGetOK) Error() string {
-	return fmt.Sprintf("[GET /actions/{actionId}][%d] weaviateActionsGetOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /actions/{id}][%d] weaviateActionsGetOK  %+v", 200, o.Payload)
 }
 
 func (o *WeaviateActionsGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.ActionGetResponse)
+	o.Payload = new(models.Action)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
@@ -117,7 +117,7 @@ type WeaviateActionsGetUnauthorized struct {
 }
 
 func (o *WeaviateActionsGetUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /actions/{actionId}][%d] weaviateActionsGetUnauthorized ", 401)
+	return fmt.Sprintf("[GET /actions/{id}][%d] weaviateActionsGetUnauthorized ", 401)
 }
 
 func (o *WeaviateActionsGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -138,7 +138,7 @@ type WeaviateActionsGetForbidden struct {
 }
 
 func (o *WeaviateActionsGetForbidden) Error() string {
-	return fmt.Sprintf("[GET /actions/{actionId}][%d] weaviateActionsGetForbidden ", 403)
+	return fmt.Sprintf("[GET /actions/{id}][%d] weaviateActionsGetForbidden ", 403)
 }
 
 func (o *WeaviateActionsGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -159,7 +159,7 @@ type WeaviateActionsGetNotFound struct {
 }
 
 func (o *WeaviateActionsGetNotFound) Error() string {
-	return fmt.Sprintf("[GET /actions/{actionId}][%d] weaviateActionsGetNotFound ", 404)
+	return fmt.Sprintf("[GET /actions/{id}][%d] weaviateActionsGetNotFound ", 404)
 }
 
 func (o *WeaviateActionsGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -181,7 +181,7 @@ type WeaviateActionsGetInternalServerError struct {
 }
 
 func (o *WeaviateActionsGetInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /actions/{actionId}][%d] weaviateActionsGetInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /actions/{id}][%d] weaviateActionsGetInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *WeaviateActionsGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

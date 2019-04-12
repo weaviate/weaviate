@@ -1,5 +1,4 @@
 {
-    "@context": "",
     "version": "0.0.1",
     "type": "thing",
     "name": "weaviate demo things schema",
@@ -11,7 +10,7 @@
             "properties": [
                 {
                     "name": "name",
-                    "@dataType": [
+                    "dataType": [
                         "string"
                     ],
                     "description": "Official name of the city.",
@@ -36,7 +35,7 @@
                 },
                 {
                     "name": "coordinates",
-                    "@dataType": [
+                    "dataType": [
                         "string"
                     ],
                     "description": "The city's longitude and latitude",
@@ -61,7 +60,7 @@
                 },
                 {
                     "name": "inCountry",
-                    "@dataType": [
+                    "dataType": [
                         "Country"
                     ],
                     "description": "The country the city lies in",
@@ -82,7 +81,7 @@
                 },
                 {
                     "name": "population",
-                    "@dataType": [
+                    "dataType": [
                         "int"
                     ],
                     "description": "Number of inhabitants of the city",
@@ -107,7 +106,7 @@
                 },
                 {
                     "name": "isCapital",
-                    "@dataType": [
+                    "dataType": [
                         "boolean"
                     ],
                     "description": "True if the city is a capital",
@@ -156,7 +155,7 @@
             "properties": [
                 {
                     "name": "livesIn",
-                    "@dataType": [
+                    "dataType": [
                         "City", "Country"
                     ],
                     "description": "The place where the person lives in.",
@@ -185,7 +184,7 @@
                 },
                 {
                     "name": "worksIn",
-                    "@dataType": [
+                    "dataType": [
                         "City", "Country"
                     ],
                     "description": "The place where the person works",
@@ -214,7 +213,7 @@
                 },
                 {
                     "name": "birthday",
-                    "@dataType": [
+                    "dataType": [
                         "date"
                     ],
                     "description": "Birthday of the person",
@@ -235,7 +234,7 @@
                 },
                 {
                     "name": "name",
-                    "@dataType": [
+                    "dataType": [
                         "string"
                     ],
                     "description": "Name of the person",
@@ -252,7 +251,7 @@
                 },
                 {
                     "name": "nationality",
-                    "@dataType": [
+                    "dataType": [
                         "Country"
                     ],
                     "description": "Nationality of the person",
@@ -293,7 +292,7 @@
             "properties": [
                 {
                     "name": "name",
-                    "@dataType": [
+                    "dataType": [
                         "string"
                     ],
                     "description": "Official name of the country",
@@ -318,7 +317,7 @@
                 },
                 {
                     "name": "population",
-                    "@dataType": [
+                    "dataType": [
                         "int"
                     ],
                     "description": "Amount of people living in the country",
@@ -359,7 +358,7 @@
             "properties": [
                 {
                     "name": "code",
-                    "@dataType": [
+                    "dataType": [
                         "string"
                     ],
                     "description": "identifier for an airport",
@@ -380,7 +379,7 @@
                 },
                 {
                     "name": "recentDeparture",
-                    "@dataType": [
+                    "dataType": [
                         "Plane"
                     ],
                     "description": "Which airplane departed most recently",
@@ -417,7 +416,7 @@
                 },
                 {
                     "name": "recentArrival",
-                    "@dataType": [
+                    "dataType": [
                         "Plane"
                     ],
                     "description": "Which airplane arrived most recently",
@@ -454,7 +453,7 @@
                 },
                 {
                     "name": "inCity",
-                    "@dataType": [
+                    "dataType": [
                         "City"
                     ],
                     "description": "City where the airport lies.",
@@ -483,7 +482,7 @@
                 },
                 {
                     "name": "name",
-                    "@dataType": [
+                    "dataType": [
                         "string"
                     ],
                     "description": "Official name of the airport",
@@ -524,7 +523,7 @@
             "properties": [
                 {
                     "name": "code",
-                    "@dataType": [
+                    "dataType": [
                         "string"
                     ],
                     "description": "identifier for an airport",
@@ -545,7 +544,7 @@
                 },
                 {
                     "name": "basedIn",
-                    "@dataType": [
+                    "dataType": [
                         "City",
                         "Country"
                     ],
@@ -583,7 +582,7 @@
                 },
                 {
                     "name": "name",
-                    "@dataType": [
+                    "dataType": [
                         "string"
                     ],
                     "description": "Official name of the airline",
@@ -608,7 +607,7 @@
                 },
                 {
                     "name": "hasNumberOfPlanes",
-                    "@dataType": [
+                    "dataType": [
                         "int"
                     ],
                     "description": "Number of airplanes the airline owns",
@@ -669,7 +668,7 @@
             "properties": [
                 {
                     "name": "code",
-                    "@dataType": [
+                    "dataType": [
                         "string"
                     ],
                     "description": "identifier for the plane",
@@ -690,7 +689,7 @@
                 },
                 {
                     "name": "aircraft",
-                    "@dataType": [
+                    "dataType": [
                         "Aircraft"
                     ],
                     "description": "the kind of aircraft",
@@ -715,7 +714,7 @@
                 },
                 {
                     "name": "ofAirline",
-                    "@dataType": [
+                    "dataType": [
                         "Airline"
                     ],
                     "description": "Airline the plane is owned by",
@@ -760,7 +759,7 @@
             "properties": [
                 {
                     "name": "name",
-                    "@dataType": [
+                    "dataType": [
                         "string"
                     ],
                     "description": "name of the aircraft",
@@ -781,7 +780,7 @@
                 },
                 {
                     "name": "numberOfSeats",
-                    "@dataType": [
+                    "dataType": [
                         "number"
                     ],
                     "description": "number of seats available in the aircraft.",

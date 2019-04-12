@@ -88,26 +88,25 @@ func createThings() {
 			}
 		}
 
-		t := models.ThingCreate{
-			AtContext: "http://example.org",
-			AtClass:   className,
-			Schema:    properties,
+		t := models.Thing{
+			Class:  className,
+			Schema: properties,
 		}
 
 		thing := assertCreateThing(&t)
-		idMap[uuid] = string(thing.ThingID) // Store mapping of ID's
-		fmt.Printf("Created Thing %s\n", thing.ThingID)
+		idMap[uuid] = string(thing.ID) // Store mapping of ID's
+		fmt.Printf("Created Thing %s\n", thing.ID)
 	}
 }
 
 func addPrimitiveProp(className string, key string, value interface{}, properties *map[string]interface{}) {
 	class := findClass(schema.Things, className)
 	property := findProperty(class, key)
-	if len(property.AtDataType) != 1 {
-		panic(fmt.Sprintf("Only one datatype supported for import. Failed in thing %s.%s with @dataTypes %#v on value %t",
-			className, property.Name, property.AtDataType, value))
+	if len(property.DataType) != 1 {
+		panic(fmt.Sprintf("Only one datatype supported for import. Failed in thing %s.%s with dataTypes %#v on value %t",
+			className, property.Name, property.DataType, value))
 	}
-	dataType := property.AtDataType[0]
+	dataType := property.DataType[0]
 
 	switch dataType {
 	case "string", "date":
@@ -254,7 +253,7 @@ func fixupThings() {
 }
 
 func checkThingExists(id string) bool {
-	params := things.NewWeaviateThingsGetParams().WithThingID(strfmt.UUID(id))
+	params := things.NewWeaviateThingsGetParams().WithID(strfmt.UUID(id))
 	resp, err := client.Things.WeaviateThingsGet(params, nil)
 
 	if err != nil {
@@ -269,10 +268,10 @@ func checkThingExists(id string) bool {
 	return true
 }
 
-func assertCreateThing(t *models.ThingCreate) *models.ThingGetResponse {
-	params := things.NewWeaviateThingsCreateParams().WithBody(things.WeaviateThingsCreateBody{Thing: t})
+func assertCreateThing(t *models.Thing) *models.Thing {
+	params := things.NewWeaviateThingsCreateParams().WithBody(t)
 
-	resp, _, err := client.Things.WeaviateThingsCreate(params, nil)
+	resp, err := client.Things.WeaviateThingsCreate(params, nil)
 
 	if err != nil {
 		switch v := err.(type) {
@@ -286,8 +285,8 @@ func assertCreateThing(t *models.ThingCreate) *models.ThingGetResponse {
 	return resp.Payload
 }
 
-func assertUpdateThing(id string, update *models.ThingUpdate) *models.ThingGetResponse {
-	params := things.NewWeaviateThingsUpdateParams().WithBody(update).WithThingID(strfmt.UUID(id))
+func assertUpdateThing(id string, update *models.Thing) *models.Thing {
+	params := things.NewWeaviateThingsUpdateParams().WithBody(update).WithID(strfmt.UUID(id))
 
 	resp, err := client.Things.WeaviateThingsUpdate(params, nil)
 
@@ -306,10 +305,10 @@ func assertUpdateThing(id string, update *models.ThingUpdate) *models.ThingGetRe
 	return resp.Payload
 }
 
-func assertPatchThing(id string, p *models.PatchDocument) *models.ThingGetResponse {
-	params := things.NewWeaviateThingsPatchParams().WithBody([]*models.PatchDocument{p}).WithThingID(strfmt.UUID(id))
+func assertPatchThing(id string, p *models.PatchDocument) *models.Thing {
+	params := things.NewWeaviateThingsPatchParams().WithBody([]*models.PatchDocument{p}).WithID(strfmt.UUID(id))
 
-	resp, _, err := client.Things.WeaviateThingsPatch(params, nil)
+	resp, err := client.Things.WeaviateThingsPatch(params, nil)
 
 	if err != nil {
 		switch v := err.(type) {

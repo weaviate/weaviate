@@ -28,14 +28,6 @@ type resolveResult struct {
 
 // Implement the Local->Get->KIND->CLASS lookup.
 func (j *Janusgraph) LocalGetClass(params *get.Params) (interface{}, error) {
-	first := 100
-	offset := 0
-
-	if params.Pagination != nil {
-		first = params.Pagination.First
-		offset = params.Pagination.After
-	}
-
 	ch := make(chan resolveResult, 1)
 
 	go func() {
@@ -47,7 +39,7 @@ func (j *Janusgraph) LocalGetClass(params *get.Params) (interface{}, error) {
 			close(ch)
 		}()
 
-		results, err := j.doLocalGetClass(first, offset, params)
+		results, err := j.doLocalGetClass(params)
 
 		if err != nil {
 			ch <- resolveResult{err: fmt.Errorf("Janusgraph.LocalGetClass: %#v", err)}
@@ -58,14 +50,13 @@ func (j *Janusgraph) LocalGetClass(params *get.Params) (interface{}, error) {
 
 	result := <-ch
 	if result.err != nil {
-		fmt.Printf("Paniced %#v\n", result.err)
 		return nil, result.err
 	}
 	return result.results, nil
 }
 
-func (j *Janusgraph) doLocalGetClass(first, offset int, params *get.Params) ([]interface{}, error) {
-	q, err := jget.NewQuery(*params, &j.state, &j.schema).String()
+func (j *Janusgraph) doLocalGetClass(params *get.Params) ([]interface{}, error) {
+	q, err := jget.NewQuery(*params, &j.state, &j.schema, j.appConfig.QueryDefaults).String()
 	if err != nil {
 		return nil, fmt.Errorf("could not build query: %s", err)
 	}

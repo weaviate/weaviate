@@ -11,31 +11,17 @@
  */
 package common
 
-import (
-	"errors"
-)
-
 type Pagination struct {
-	First int
-	After int
+	Limit int
 }
 
 func ExtractPaginationFromArgs(args map[string]interface{}) (*Pagination, error) {
-	afterVal, afterOk := args["after"]
-	firstVal, firstOk := args["first"]
-
-	if firstOk && afterOk {
-		after := afterVal.(int)
-		first := firstVal.(int)
-		return &Pagination{
-			After: after,
-			First: first,
-		}, nil
+	limit, ok := args["limit"]
+	if !ok {
+		return nil, nil
 	}
 
-	if firstOk || afterOk {
-		return nil, errors.New("after and first must both be specified")
-	}
-
-	return nil, nil
+	return &Pagination{
+		Limit: limit.(int),
+	}, nil
 }

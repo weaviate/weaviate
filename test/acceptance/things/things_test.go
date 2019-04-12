@@ -14,6 +14,7 @@ package test
 // Acceptance tests for things.
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -40,10 +41,9 @@ func TestCreateThingWorks(t *testing.T) {
 	thingTestNumber := 1.337
 	thingTestDate := "2017-10-06T08:15:30+01:00"
 
-	params := things.NewWeaviateThingsCreateParams().WithBody(things.WeaviateThingsCreateBody{
-		Thing: &models.ThingCreate{
-			AtContext: "http://example.org",
-			AtClass:   "TestThing",
+	params := things.NewWeaviateThingsCreateParams().WithBody(
+		&models.Thing{
+			Class: "TestThing",
 			Schema: map[string]interface{}{
 				"testString":   thingTestString,
 				"testInt":      thingTestInt,
@@ -51,26 +51,28 @@ func TestCreateThingWorks(t *testing.T) {
 				"testNumber":   thingTestNumber,
 				"testDateTime": thingTestDate,
 			},
-		},
-	})
+		})
 
-	resp, _, err := helper.Client(t).Things.WeaviateThingsCreate(params, nil)
+	resp, err := helper.Client(t).Things.WeaviateThingsCreate(params, nil)
 
 	// Ensure that the response is OK
 	helper.AssertRequestOk(t, resp, err, func() {
 		thing := resp.Payload
-		assert.Regexp(t, strfmt.UUIDPattern, thing.ThingID)
+		assert.Regexp(t, strfmt.UUIDPattern, thing.ID)
 
 		schema, ok := thing.Schema.(map[string]interface{})
 		if !ok {
 			t.Fatal("The returned schema is not an JSON object")
 		}
 
+		testInt, _ := schema["testInt"].(json.Number).Int64()
+		testNumber, _ := schema["testNumber"].(json.Number).Float64()
+
 		// Check whether the returned information is the same as the data added
 		assert.Equal(t, thingTestString, schema["testString"])
-		assert.Equal(t, thingTestInt, int(schema["testInt"].(float64)))
+		assert.Equal(t, thingTestInt, int(testInt))
 		assert.Equal(t, thingTestBoolean, schema["testBoolean"])
-		assert.Equal(t, thingTestNumber, schema["testNumber"])
+		assert.Equal(t, thingTestNumber, testNumber)
 		assert.Equal(t, thingTestDate, schema["testDateTime"])
 	})
 }
@@ -85,8 +87,8 @@ func TestCannotCreateInvalidThings(t *testing.T) {
 			example := example_ // Needed; example is updated to point to a new test case.
 			t.Parallel()
 
-			params := things.NewWeaviateThingsCreateParams().WithBody(things.WeaviateThingsCreateBody{Thing: example.thing()})
-			resp, _, err := helper.Client(t).Things.WeaviateThingsCreate(params, nil)
+			params := things.NewWeaviateThingsCreateParams().WithBody(example.thing())
+			resp, err := helper.Client(t).Things.WeaviateThingsCreate(params, nil)
 			helper.AssertRequestFail(t, resp, err, func() {
 				errResponse, ok := err.(*things.WeaviateThingsCreateUnprocessableEntity)
 				if !ok {
@@ -107,16 +109,15 @@ var invalidThingTestCases = []struct {
 	// this is a function, so that we can use utility functions like
 	// helper.GetWeaviateURL(), which might not be initialized yet
 	// during the static construction of the examples.
-	thing func() *models.ThingCreate
+	thing func() *models.Thing
 
 	// Enable the option to perform some extra assertions on the error response
 	errorCheck func(t *testing.T, err *models.ErrorResponse)
 }{
 	{
 		mistake: "missing the class",
-		thing: func() *models.ThingCreate {
-			return &models.ThingCreate{
-				AtContext: "http://example.org",
+		thing: func() *models.Thing {
+			return &models.Thing{
 				Schema: map[string]interface{}{
 					"testString": "test",
 				},
@@ -127,25 +128,10 @@ var invalidThingTestCases = []struct {
 		},
 	},
 	{
-		mistake: "missing the context",
-		thing: func() *models.ThingCreate {
-			return &models.ThingCreate{
-				AtClass: "TestThing",
-				Schema: map[string]interface{}{
-					"testString": "test",
-				},
-			}
-		},
-		errorCheck: func(t *testing.T, err *models.ErrorResponse) {
-			assert.Equal(t, validation.ErrorMissingContext, err.Error[0].Message)
-		},
-	},
-	{
 		mistake: "non existing class",
-		thing: func() *models.ThingCreate {
-			return &models.ThingCreate{
-				AtClass:   "NonExistingClass",
-				AtContext: "http://example.org",
+		thing: func() *models.Thing {
+			return &models.Thing{
+				Class: "NonExistingClass",
 				Schema: map[string]interface{}{
 					"testString": "test",
 				},
@@ -157,10 +143,9 @@ var invalidThingTestCases = []struct {
 	},
 	{
 		mistake: "non existing property",
-		thing: func() *models.ThingCreate {
-			return &models.ThingCreate{
-				AtClass:   "TestThing",
-				AtContext: "http://example.org",
+		thing: func() *models.Thing {
+			return &models.Thing{
+				Class: "TestThing",
 				Schema: map[string]interface{}{
 					"nonExistingProperty": "test",
 				},
@@ -193,10 +178,9 @@ var invalidThingTestCases = []struct {
 		   // now everything has a valid state.
 		*/
 		mistake: "invalid cref, property missing locationUrl",
-		thing: func() *models.ThingCreate {
-			return &models.ThingCreate{
-				AtClass:   "TestThing",
-				AtContext: "http://example.org",
+		thing: func() *models.Thing {
+			return &models.Thing{
+				Class: "TestThing",
 				Schema: map[string]interface{}{
 					"testCref": map[string]interface{}{
 						"$cref": fakeThingId,
@@ -212,10 +196,9 @@ var invalidThingTestCases = []struct {
 	},
 	{
 		mistake: "invalid property; assign int to string",
-		thing: func() *models.ThingCreate {
-			return &models.ThingCreate{
-				AtClass:   "TestThing",
-				AtContext: "http://example.org",
+		thing: func() *models.Thing {
+			return &models.Thing{
+				Class: "TestThing",
 				Schema: map[string]interface{}{
 					"testString": 2,
 				},
@@ -230,7 +213,7 @@ var invalidThingTestCases = []struct {
 }
 
 func cleanupThing(uuid strfmt.UUID) {
-	params := things.NewWeaviateThingsDeleteParams().WithThingID(uuid)
+	params := things.NewWeaviateThingsDeleteParams().WithID(uuid)
 	resp, err := helper.Client(nil).Things.WeaviateThingsDelete(params, nil)
 	if err != nil {
 		panic(fmt.Sprintf("Could not clean up thing '%s', because %v. Response: %#v", string(uuid), err, resp))

@@ -239,4 +239,4 @@ The query below groups all the cities in a local Weaviate on the name of the cou
 
 ## Filters
 
-See [this page](graphql_filters_network) for more information on how to use and format filters in Network queries.
+Different from the `Local` queries is that the filter arguments in the `Network` search are required to get results. 

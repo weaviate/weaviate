@@ -155,7 +155,7 @@ func (m refByID) mergeRefs(r1, r2 get.LocalRef) get.LocalRef {
 	}
 
 	return get.LocalRef{
-		AtClass: r2.AtClass,
-		Fields:  m1,
+		Class:  r2.Class,
+		Fields: m1,
 	}
 }

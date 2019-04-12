@@ -88,7 +88,7 @@ type WeaviateActionsDeleteNoContent struct {
 }
 
 func (o *WeaviateActionsDeleteNoContent) Error() string {
-	return fmt.Sprintf("[DELETE /actions/{actionId}][%d] weaviateActionsDeleteNoContent ", 204)
+	return fmt.Sprintf("[DELETE /actions/{id}][%d] weaviateActionsDeleteNoContent ", 204)
 }
 
 func (o *WeaviateActionsDeleteNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -109,7 +109,7 @@ type WeaviateActionsDeleteUnauthorized struct {
 }
 
 func (o *WeaviateActionsDeleteUnauthorized) Error() string {
-	return fmt.Sprintf("[DELETE /actions/{actionId}][%d] weaviateActionsDeleteUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /actions/{id}][%d] weaviateActionsDeleteUnauthorized ", 401)
 }
 
 func (o *WeaviateActionsDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -130,7 +130,7 @@ type WeaviateActionsDeleteForbidden struct {
 }
 
 func (o *WeaviateActionsDeleteForbidden) Error() string {
-	return fmt.Sprintf("[DELETE /actions/{actionId}][%d] weaviateActionsDeleteForbidden ", 403)
+	return fmt.Sprintf("[DELETE /actions/{id}][%d] weaviateActionsDeleteForbidden ", 403)
 }
 
 func (o *WeaviateActionsDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -151,7 +151,7 @@ type WeaviateActionsDeleteNotFound struct {
 }
 
 func (o *WeaviateActionsDeleteNotFound) Error() string {
-	return fmt.Sprintf("[DELETE /actions/{actionId}][%d] weaviateActionsDeleteNotFound ", 404)
+	return fmt.Sprintf("[DELETE /actions/{id}][%d] weaviateActionsDeleteNotFound ", 404)
 }
 
 func (o *WeaviateActionsDeleteNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -173,7 +173,7 @@ type WeaviateActionsDeleteInternalServerError struct {
 }
 
 func (o *WeaviateActionsDeleteInternalServerError) Error() string {
-	return fmt.Sprintf("[DELETE /actions/{actionId}][%d] weaviateActionsDeleteInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[DELETE /actions/{id}][%d] weaviateActionsDeleteInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *WeaviateActionsDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

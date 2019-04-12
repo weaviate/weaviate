@@ -42,13 +42,6 @@ func (o *WeaviateThingsPatchReader) ReadResponse(response runtime.ClientResponse
 		}
 		return result, nil
 
-	case 202:
-		result := NewWeaviateThingsPatchAccepted()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return result, nil
-
 	case 400:
 		result := NewWeaviateThingsPatchBadRequest()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -106,45 +99,16 @@ func NewWeaviateThingsPatchOK() *WeaviateThingsPatchOK {
 Successfully applied.
 */
 type WeaviateThingsPatchOK struct {
-	Payload *models.ThingGetResponse
+	Payload *models.Thing
 }
 
 func (o *WeaviateThingsPatchOK) Error() string {
-	return fmt.Sprintf("[PATCH /things/{thingId}][%d] weaviateThingsPatchOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[PATCH /things/{id}][%d] weaviateThingsPatchOK  %+v", 200, o.Payload)
 }
 
 func (o *WeaviateThingsPatchOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.ThingGetResponse)
-
-	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
-		return err
-	}
-
-	return nil
-}
-
-// NewWeaviateThingsPatchAccepted creates a WeaviateThingsPatchAccepted with default headers values
-func NewWeaviateThingsPatchAccepted() *WeaviateThingsPatchAccepted {
-	return &WeaviateThingsPatchAccepted{}
-}
-
-/*WeaviateThingsPatchAccepted handles this case with default header values.
-
-Successfully received.
-*/
-type WeaviateThingsPatchAccepted struct {
-	Payload *models.ThingGetResponse
-}
-
-func (o *WeaviateThingsPatchAccepted) Error() string {
-	return fmt.Sprintf("[PATCH /things/{thingId}][%d] weaviateThingsPatchAccepted  %+v", 202, o.Payload)
-}
-
-func (o *WeaviateThingsPatchAccepted) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	o.Payload = new(models.ThingGetResponse)
+	o.Payload = new(models.Thing)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
@@ -167,7 +131,7 @@ type WeaviateThingsPatchBadRequest struct {
 }
 
 func (o *WeaviateThingsPatchBadRequest) Error() string {
-	return fmt.Sprintf("[PATCH /things/{thingId}][%d] weaviateThingsPatchBadRequest ", 400)
+	return fmt.Sprintf("[PATCH /things/{id}][%d] weaviateThingsPatchBadRequest ", 400)
 }
 
 func (o *WeaviateThingsPatchBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -188,7 +152,7 @@ type WeaviateThingsPatchUnauthorized struct {
 }
 
 func (o *WeaviateThingsPatchUnauthorized) Error() string {
-	return fmt.Sprintf("[PATCH /things/{thingId}][%d] weaviateThingsPatchUnauthorized ", 401)
+	return fmt.Sprintf("[PATCH /things/{id}][%d] weaviateThingsPatchUnauthorized ", 401)
 }
 
 func (o *WeaviateThingsPatchUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -209,7 +173,7 @@ type WeaviateThingsPatchForbidden struct {
 }
 
 func (o *WeaviateThingsPatchForbidden) Error() string {
-	return fmt.Sprintf("[PATCH /things/{thingId}][%d] weaviateThingsPatchForbidden ", 403)
+	return fmt.Sprintf("[PATCH /things/{id}][%d] weaviateThingsPatchForbidden ", 403)
 }
 
 func (o *WeaviateThingsPatchForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -230,7 +194,7 @@ type WeaviateThingsPatchNotFound struct {
 }
 
 func (o *WeaviateThingsPatchNotFound) Error() string {
-	return fmt.Sprintf("[PATCH /things/{thingId}][%d] weaviateThingsPatchNotFound ", 404)
+	return fmt.Sprintf("[PATCH /things/{id}][%d] weaviateThingsPatchNotFound ", 404)
 }
 
 func (o *WeaviateThingsPatchNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -252,7 +216,7 @@ type WeaviateThingsPatchUnprocessableEntity struct {
 }
 
 func (o *WeaviateThingsPatchUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[PATCH /things/{thingId}][%d] weaviateThingsPatchUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[PATCH /things/{id}][%d] weaviateThingsPatchUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *WeaviateThingsPatchUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -281,7 +245,7 @@ type WeaviateThingsPatchInternalServerError struct {
 }
 
 func (o *WeaviateThingsPatchInternalServerError) Error() string {
-	return fmt.Sprintf("[PATCH /things/{thingId}][%d] weaviateThingsPatchInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[PATCH /things/{id}][%d] weaviateThingsPatchInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *WeaviateThingsPatchInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

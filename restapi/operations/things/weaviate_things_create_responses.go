@@ -35,7 +35,7 @@ type WeaviateThingsCreateOK struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.ThingGetResponse `json:"body,omitempty"`
+	Payload *models.Thing `json:"body,omitempty"`
 }
 
 // NewWeaviateThingsCreateOK creates WeaviateThingsCreateOK with default headers values
@@ -45,13 +45,13 @@ func NewWeaviateThingsCreateOK() *WeaviateThingsCreateOK {
 }
 
 // WithPayload adds the payload to the weaviate things create o k response
-func (o *WeaviateThingsCreateOK) WithPayload(payload *models.ThingGetResponse) *WeaviateThingsCreateOK {
+func (o *WeaviateThingsCreateOK) WithPayload(payload *models.Thing) *WeaviateThingsCreateOK {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the weaviate things create o k response
-func (o *WeaviateThingsCreateOK) SetPayload(payload *models.ThingGetResponse) {
+func (o *WeaviateThingsCreateOK) SetPayload(payload *models.Thing) {
 	o.Payload = payload
 }
 
@@ -59,50 +59,6 @@ func (o *WeaviateThingsCreateOK) SetPayload(payload *models.ThingGetResponse) {
 func (o *WeaviateThingsCreateOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(200)
-	if o.Payload != nil {
-		payload := o.Payload
-		if err := producer.Produce(rw, payload); err != nil {
-			panic(err) // let the recovery middleware deal with this
-		}
-	}
-}
-
-// WeaviateThingsCreateAcceptedCode is the HTTP code returned for type WeaviateThingsCreateAccepted
-const WeaviateThingsCreateAcceptedCode int = 202
-
-/*WeaviateThingsCreateAccepted Successfully received.
-
-swagger:response weaviateThingsCreateAccepted
-*/
-type WeaviateThingsCreateAccepted struct {
-
-	/*
-	  In: Body
-	*/
-	Payload *models.ThingGetResponse `json:"body,omitempty"`
-}
-
-// NewWeaviateThingsCreateAccepted creates WeaviateThingsCreateAccepted with default headers values
-func NewWeaviateThingsCreateAccepted() *WeaviateThingsCreateAccepted {
-
-	return &WeaviateThingsCreateAccepted{}
-}
-
-// WithPayload adds the payload to the weaviate things create accepted response
-func (o *WeaviateThingsCreateAccepted) WithPayload(payload *models.ThingGetResponse) *WeaviateThingsCreateAccepted {
-	o.Payload = payload
-	return o
-}
-
-// SetPayload sets the payload to the weaviate things create accepted response
-func (o *WeaviateThingsCreateAccepted) SetPayload(payload *models.ThingGetResponse) {
-	o.Payload = payload
-}
-
-// WriteResponse to the client
-func (o *WeaviateThingsCreateAccepted) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.WriteHeader(202)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

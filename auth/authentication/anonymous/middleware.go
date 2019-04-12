@@ -25,7 +25,7 @@ type Client struct {
 
 // New anonymous access client. Client.Middleware can be used as a regular
 // golang http-middleware
-func New(cfg config.Environment) *Client {
+func New(cfg config.Config) *Client {
 	return &Client{config: cfg.Authentication.AnonymousAccess}
 }
 

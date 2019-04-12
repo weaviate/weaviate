@@ -88,7 +88,7 @@ type WeaviateThingsReferencesUpdateOK struct {
 }
 
 func (o *WeaviateThingsReferencesUpdateOK) Error() string {
-	return fmt.Sprintf("[PUT /things/{thingId}/references/{propertyName}][%d] weaviateThingsReferencesUpdateOK ", 200)
+	return fmt.Sprintf("[PUT /things/{id}/references/{propertyName}][%d] weaviateThingsReferencesUpdateOK ", 200)
 }
 
 func (o *WeaviateThingsReferencesUpdateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -109,7 +109,7 @@ type WeaviateThingsReferencesUpdateUnauthorized struct {
 }
 
 func (o *WeaviateThingsReferencesUpdateUnauthorized) Error() string {
-	return fmt.Sprintf("[PUT /things/{thingId}/references/{propertyName}][%d] weaviateThingsReferencesUpdateUnauthorized ", 401)
+	return fmt.Sprintf("[PUT /things/{id}/references/{propertyName}][%d] weaviateThingsReferencesUpdateUnauthorized ", 401)
 }
 
 func (o *WeaviateThingsReferencesUpdateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -130,7 +130,7 @@ type WeaviateThingsReferencesUpdateForbidden struct {
 }
 
 func (o *WeaviateThingsReferencesUpdateForbidden) Error() string {
-	return fmt.Sprintf("[PUT /things/{thingId}/references/{propertyName}][%d] weaviateThingsReferencesUpdateForbidden ", 403)
+	return fmt.Sprintf("[PUT /things/{id}/references/{propertyName}][%d] weaviateThingsReferencesUpdateForbidden ", 403)
 }
 
 func (o *WeaviateThingsReferencesUpdateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -152,7 +152,7 @@ type WeaviateThingsReferencesUpdateUnprocessableEntity struct {
 }
 
 func (o *WeaviateThingsReferencesUpdateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[PUT /things/{thingId}/references/{propertyName}][%d] weaviateThingsReferencesUpdateUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[PUT /things/{id}/references/{propertyName}][%d] weaviateThingsReferencesUpdateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *WeaviateThingsReferencesUpdateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -181,7 +181,7 @@ type WeaviateThingsReferencesUpdateInternalServerError struct {
 }
 
 func (o *WeaviateThingsReferencesUpdateInternalServerError) Error() string {
-	return fmt.Sprintf("[PUT /things/{thingId}/references/{propertyName}][%d] weaviateThingsReferencesUpdateInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[PUT /things/{id}/references/{propertyName}][%d] weaviateThingsReferencesUpdateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *WeaviateThingsReferencesUpdateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

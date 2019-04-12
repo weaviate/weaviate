@@ -11,38 +11,38 @@
       "properties": [
         {
           "name": "name",
-          "@dataType": ["string"],
+          "dataType": ["string"],
           "description": "Official name of the city."
         },
         {
           "name": "coordinates",
-          "@dataType": ["string"],
+          "dataType": ["string"],
           "description": "The city's longitude and latitude",
           "keywords": [{"keyword": "location", "weight": 1.0}]
         },
         {
           "name": "inCountry",
-          "@dataType": ["Country"],
+          "dataType": ["Country"],
           "description": "The country the city lies in"
         },
         {
           "name": "population",
-          "@dataType": ["int"],
+          "dataType": ["int"],
           "description": "Number of inhabitants of the city"
         },
         {
           "name": "isCapital",
-          "@dataType": ["boolean"],
+          "dataType": ["boolean"],
           "description": "True if the city is a capital"
         },
         {
           "name": "reviews",
-          "@dataType": ["string"],
+          "dataType": ["string"],
           "description": "Visitors opinions about the city"
         },
         {
           "name": "geolocation",
-          "@dataType": ["geoCoordinates"],
+          "dataType": ["geoCoordinates"],
           "description": "The city's longitude and latitude",
           "keywords": [{"keyword": "location", "weight": 1.0}]
         }
@@ -54,22 +54,22 @@
       "properties": [
         {
           "name": "livesIn",
-          "@dataType": ["City"],
+          "dataType": ["City"],
           "description": "The place where the person lives in."
         },
         {
           "name": "birthday",
-          "@dataType": ["date"],
+          "dataType": ["date"],
           "description": "Birthday of the person"
         },
         {
           "name": "name",
-          "@dataType": ["string"],
+          "dataType": ["string"],
           "description": "Name of the person"
         },
         {
           "name": "nationality",
-          "@dataType": ["Country"],
+          "dataType": ["Country"],
           "description": "Nationality of the person",
           "keywords": [
             {"keyword": "nation", "weight": 1.0},
@@ -85,12 +85,12 @@
       "properties": [
         {
           "name": "name",
-          "@dataType": ["string"],
+          "dataType": ["string"],
           "description": "Official name of the country"
         },
         {
           "name": "population",
-          "@dataType": ["int"],
+          "dataType": ["int"],
           "description": "Amount of people living in the country"
         }
       ]
@@ -101,17 +101,17 @@
       "properties": [
         {
           "name": "code",
-          "@dataType": ["string"],
+          "dataType": ["string"],
           "description": "identifier for an airport"
         },
         {
           "name": "inCity",
-          "@dataType": ["City"],
+          "dataType": ["City"],
           "description": "City where the airport lies."
         },
         {
           "name": "name",
-          "@dataType": ["string"],
+          "dataType": ["string"],
           "description": "Official name of the airport"
         }
       ]
@@ -122,22 +122,22 @@
       "properties": [
         {
           "name": "code",
-          "@dataType": ["string"],
+          "dataType": ["string"],
           "description": "identifier for an airport"
         },
         {
           "name": "basedIn",
-          "@dataType": ["City", "Country"],
+          "dataType": ["City", "Country"],
           "description": "City or country where the airline is based."
         },
         {
           "name": "name",
-          "@dataType": ["string"],
+          "dataType": ["string"],
           "description": "Official name of the airline"
         },
         {
           "name": "hasNumberOfPlanes",
-          "@dataType": ["int"],
+          "dataType": ["int"],
           "description": "Number of airplanes the airline owns"
         }
       ]
@@ -148,17 +148,17 @@
       "properties": [
         {
           "name": "code",
-          "@dataType": ["string"],
+          "dataType": ["string"],
           "description": "identifier for the plane"
         },
         {
           "name": "aircraft",
-          "@dataType": ["Aircraft"],
+          "dataType": ["Aircraft"],
           "description": "the kind of aircraft"
         },
         {
           "name": "ofAirline",
-          "@dataType": ["Airline"],
+          "dataType": ["Airline"],
           "description": "Airline the plane is owned by"
         }
       ]
@@ -169,12 +169,12 @@
       "properties": [
         {
           "name": "name",
-          "@dataType": ["string"],
+          "dataType": ["string"],
           "description": "name of the aircraft"
         },
         {
           "name": "numberOfSeats",
-          "@dataType": ["number"],
+          "dataType": ["number"],
           "description": "number of seats available in the aircraft."
         }
       ]

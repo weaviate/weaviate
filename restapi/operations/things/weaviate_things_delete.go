@@ -41,7 +41,7 @@ func NewWeaviateThingsDelete(ctx *middleware.Context, handler WeaviateThingsDele
 	return &WeaviateThingsDelete{Context: ctx, Handler: handler}
 }
 
-/*WeaviateThingsDelete swagger:route DELETE /things/{thingId} things weaviateThingsDelete
+/*WeaviateThingsDelete swagger:route DELETE /things/{id} things weaviateThingsDelete
 
 Delete a Thing based on its UUID.
 

@@ -29,7 +29,7 @@ import (
 
 // Build the dynamically generated GetMeta Things part of the schema
 func classFields(databaseSchema []*models.SemanticSchemaClass, k kind.Kind,
-	config config.Environment) (*graphql.Object, error) {
+	config config.Config) (*graphql.Object, error) {
 	fields := graphql.Fields{}
 	var (
 		description string
@@ -62,7 +62,7 @@ func classFields(databaseSchema []*models.SemanticSchemaClass, k kind.Kind,
 }
 
 func classField(k kind.Kind, class *models.SemanticSchemaClass, description string,
-	config config.Environment) (*graphql.Field, error) {
+	config config.Config) (*graphql.Field, error) {
 	metaClassName := fmt.Sprintf("Meta%s", class.Class)
 
 	fields := graphql.ObjectConfig{
@@ -110,7 +110,7 @@ func classField(k kind.Kind, class *models.SemanticSchemaClass, description stri
 	return fieldsField, nil
 }
 
-func extendArgsWithAnalyticsConfig(field *graphql.Field, config config.Environment) *graphql.Field {
+func extendArgsWithAnalyticsConfig(field *graphql.Field, config config.Config) *graphql.Field {
 	if !config.AnalyticsEngine.Enabled {
 		return field
 	}

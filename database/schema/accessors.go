@@ -76,7 +76,7 @@ func extractAllOfPropType(classes []*models.SemanticSchemaClass, propType string
 	var result []ClassAndProperty
 	for _, class := range classes {
 		for _, prop := range class.Properties {
-			if prop.AtDataType[0] == propType {
+			if prop.DataType[0] == propType {
 				result = append(result, ClassAndProperty{
 					ClassName:    ClassName(class.Class),
 					PropertyName: PropertyName(prop.Name),

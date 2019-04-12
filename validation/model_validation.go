@@ -60,11 +60,11 @@ const (
 	ErrorNotFoundInDatabase string = "error finding the '%s' in the database: '%s' at %s"
 )
 
-// ValidateThingBody Validates a thing body using the 'ThingCreate' object.
-func ValidateThingBody(ctx context.Context, thing *models.ThingCreate, databaseSchema schema.WeaviateSchema,
+// ValidateThingBody Validates a thing body using the 'Thing' object.
+func ValidateThingBody(ctx context.Context, thing *models.Thing, databaseSchema schema.WeaviateSchema,
 	dbConnector dbconnector.DatabaseConnector, network network.Network, serverConfig *config.WeaviateConfig) error {
 	// Validate the body
-	bve := validateBody(thing.AtClass, thing.AtContext)
+	bve := validateBody(thing.Class)
 
 	// Return error if possible
 	if bve != nil {
@@ -78,12 +78,12 @@ func ValidateThingBody(ctx context.Context, thing *models.ThingCreate, databaseS
 	return sve
 }
 
-// ValidateActionBody Validates a action body using the 'ActionCreate' object.
-func ValidateActionBody(ctx context.Context, action *models.ActionCreate, databaseSchema schema.WeaviateSchema,
+// ValidateActionBody Validates a action body using the 'Action' object.
+func ValidateActionBody(ctx context.Context, action *models.Action, databaseSchema schema.WeaviateSchema,
 	dbConnector dbconnector.DatabaseConnector, network network.Network, serverConfig *config.WeaviateConfig,
 ) error {
 	// Validate the body
-	bve := validateBody(action.AtClass, action.AtContext)
+	bve := validateBody(action.Class)
 
 	// Return error if possible
 	if bve != nil {
@@ -98,15 +98,10 @@ func ValidateActionBody(ctx context.Context, action *models.ActionCreate, databa
 }
 
 // validateBody Validates the overlapping body values
-func validateBody(class string, context string) error {
+func validateBody(class string) error {
 	// If the given class is empty, return an error
 	if class == "" {
 		return fmt.Errorf(ErrorMissingClass)
-	}
-
-	// If the given context is empty, return an error
-	if context == "" {
-		return fmt.Errorf(ErrorMissingContext)
 	}
 
 	// No error
@@ -138,10 +133,10 @@ func validateLocalRef(ctx context.Context, dbConnector dbconnector.DatabaseConne
 	var err error
 	switch ref.Kind {
 	case kind.THING_KIND:
-		obj := &models.ThingGetResponse{}
+		obj := &models.Thing{}
 		err = dbConnector.GetThing(ctx, ref.TargetID, obj)
 	case kind.ACTION_KIND:
-		obj := &models.ActionGetResponse{}
+		obj := &models.Action{}
 		err = dbConnector.GetAction(ctx, ref.TargetID, obj)
 	}
 

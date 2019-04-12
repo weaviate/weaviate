@@ -92,7 +92,7 @@ $ curl -X POST http://localhost:8080/weaviate/v1/schema/things -H "Content-Type:
     }],
     "description": "Animal park",
     "properties": [{
-        "@dataType": [
+        "dataType": [
             "string"
         ],
         "cardinality": "atMostOne",
@@ -117,7 +117,7 @@ $ curl -X POST http://localhost:8080/weaviate/v1/schema/things -H "Content-Type:
     }],
     "description": "City",
     "properties": [{
-        "@dataType": [
+        "dataType": [
             "string"
         ],
         "cardinality": "atMostOne",
@@ -139,7 +139,7 @@ First, we update the `Zoo` class:
 
 ```bash
 $ curl -X POST http://localhost:8080/weaviate/v1/schema/things/Zoo/properties -H "Content-Type: application/json" -d '{
-  "@dataType": [
+  "dataType": [
     "City"
   ],
   "cardinality": "atMostOne",
@@ -153,7 +153,7 @@ Secondly, we update the `City` class:
 
 ```bash
 $ curl -X POST http://localhost:8080/weaviate/v1/schema/things/City/properties -H "Content-Type: application/json" -d '{
-  "@dataType": [
+  "dataType": [
     "Zoo"
   ],
   "cardinality": "atMostOne",
@@ -171,7 +171,7 @@ Let's update the `City` class with a location.
 
 ```bash
 $ curl -X POST http://localhost:8080/weaviate/v1/schema/things/City/properties -H "Content-Type: application/json" -d '{
-  "@dataType": [
+  "dataType": [
     "geoCoordinates"
   ],
   "cardinality": "atMostOne",
@@ -191,15 +191,12 @@ First the city of Amsterdam
 
 ```bash
 $ curl -X POST http://localhost:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
-    "thing": {
-        "@class": "City",
-        "@context": "http://myzoo.org",
-        "schema": {
-            "name": "Amsterdam",
-            "location": {
-                "latitude": 52.22,
-                "longitude": 4.54
-            }
+    "class": "City",
+    "schema": {
+        "name": "Amsterdam",
+        "location": {
+            "latitude": 52.22,
+            "longitude": 4.54
         }
     }
 }'
@@ -209,8 +206,7 @@ Results in:
 
 ```json
 {
-    "@class": "City",
-    "@context": "http://myzoo.org",
+    "class": "City",
     "schema": {
         "location": {
             "latitude": 52.22,
@@ -227,15 +223,12 @@ Next, the city of Berlin
 
 ```bash
 $ curl -X POST http://localhost:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
-    "thing": {
-        "@class": "City",
-        "@context": "http://myzoo.org",
-        "schema": {
-            "name": "Berlin",
-            "location": {
-                "latitude": 52.31,
-                "longitude": 13.23
-            }
+    "class": "City",
+    "schema": {
+        "name": "Berlin",
+        "location": {
+            "latitude": 52.31,
+            "longitude": 13.23
         }
     }
 }'
@@ -245,8 +238,7 @@ which results in:
 
 ```json
 {
-    "@class": "City",
-    "@context": "http://myzoo.org",
+    "class": "City",
     "schema": {
         "location": {
             "latitude": 52.31,
@@ -263,14 +255,11 @@ Now, we are going to add the Zoos, note how we are defining the cross-reference:
 
 ```bash
 $ curl -X POST http://localhost:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
-    "thing": {
-        "@class": "Zoo",
-        "@context": "http://myzoo.org",
-        "schema": {
-            "name": "Artis",
-            "inCity": {
-                "$cref": "weaviate://localhost/things/6406759e-f6fb-47ba-a537-1a62728d2f55"
-            }
+    "class": "Zoo",
+    "schema": {
+        "name": "Artis",
+        "inCity": {
+            "$cref": "weaviate://localhost/things/6406759e-f6fb-47ba-a537-1a62728d2f55"
         }
     }
 }'
@@ -280,8 +269,7 @@ Which results in:
 
 ```json
 {
-    "@class": "Zoo",
-    "@context": "http://myzoo.org",
+    "class": "Zoo",
     "schema": {
         "inCity": {
             "$cref": "weaviate://localhost/things/6406759e-f6fb-47ba-a537-1a62728d2f55"
@@ -299,14 +287,11 @@ We will do the same for the Berlin zoo:
 
 ```bash
 $ curl -X POST http://localhost:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
-    "thing": {
-        "@class": "Zoo",
-        "@context": "http://myzoo.org",
-        "schema": {
-            "name": "The Berlin Zoological Garden",
-            "inCity": {
-                "$cref": "weaviate://localhost/things/f15ba7e7-0635-4009-828b-7a631cd6840e"
-            }
+    "class": "Zoo",
+    "schema": {
+        "name": "The Berlin Zoological Garden",
+        "inCity": {
+            "$cref": "weaviate://localhost/things/f15ba7e7-0635-4009-828b-7a631cd6840e"
         }
     }
 }'
@@ -316,8 +301,7 @@ Which results in:
 
 ```json
 {
-    "@class": "Zoo",
-    "@context": "http://myzoo.org",
+    "class": "Zoo",
     "schema": {
         "inCity": {
             "$cref": "weaviate://localhost/things/f15ba7e7-0635-4009-828b-7a631cd6840e"
@@ -346,7 +330,7 @@ $ curl -X POST http://localhost:8080/weaviate/v1/schema/things -H "Content-Type:
     }],
     "description": "Animals",
     "properties": [{
-        "@dataType": [
+        "dataType": [
             "string"
         ],
         "description": "Name of the Animal",
@@ -356,7 +340,7 @@ $ curl -X POST http://localhost:8080/weaviate/v1/schema/things -H "Content-Type:
             "weight": 0.01
         }]
     },{
-        "@dataType": [
+        "dataType": [
             "string"
         ],
         "description": "Species of the Animal",
@@ -373,7 +357,7 @@ Next, we can extend the `Zoo` class to include many animals. Note the `cardinali
 
 ```bash
 $ curl -X POST http://localhost:8080/weaviate/v1/schema/things/Zoo/properties -H "Content-Type: application/json" -d '{
-  "@dataType": [
+  "dataType": [
     "Animal"
   ],
   "cardinality": "many",
@@ -387,26 +371,20 @@ We will add two `Animals`, the elephants Alphonso and Bert and we are going to s
 
 ```bash
 $ curl -X POST http://localhost:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
-    "thing": {
-        "@class": "Animal",
-        "@context": "http://myzoo.org",
-        "schema": {
-            "name": "Alphonso",
-            "species": "elephant"
-        }
+    "class": "Animal",
+    "schema": {
+        "name": "Alphonso",
+        "species": "elephant"
     }
 }'
 ```
 
 ```bash
 $ curl -X POST http://localhost:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
-    "thing": {
-        "@class": "Animal",
-        "@context": "http://myzoo.org",
-        "schema": {
-            "name": "Bert",
-            "species": "elephant"
-        }
+    "class": "Animal",
+    "schema": {
+        "name": "Bert",
+        "species": "elephant"
     }
 }'
 ```

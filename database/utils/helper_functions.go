@@ -19,7 +19,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"regexp"
-	"runtime"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -27,15 +26,6 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/config"
 )
-
-// Trace is used to display the running function in a connector
-func Trace() {
-	pc := make([]uintptr, 10) // at least 1 entry needed
-	runtime.Callers(2, pc)
-	f2 := runtime.FuncForPC(pc[0])
-	//file, line := f2.FileLine(pc[0])
-	fmt.Printf("THIS FUNCTION RUNS: %s\n", f2.Name())
-}
 
 // NowUnix returns the current Unix time
 func NowUnix() int64 {

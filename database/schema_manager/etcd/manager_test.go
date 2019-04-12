@@ -79,13 +79,11 @@ var schemaTests = []struct {
 func testUpdateMeta(t *testing.T, lsm database.SchemaManager) {
 	t.Parallel()
 
-	assert.Equal(t, lsm.GetSchema().Things.AtContext, strfmt.URI(""))
 	assert.Equal(t, lsm.GetSchema().Things.Maintainer, strfmt.Email(""))
 	assert.Equal(t, lsm.GetSchema().Things.Name, "")
 
 	assert.Nil(t, lsm.UpdateMeta(context.TODO(), kind.THING_KIND, "http://new/context", "person@example.org", "somename"))
 
-	assert.Equal(t, lsm.GetSchema().Things.AtContext, strfmt.URI("http://new/context"))
 	assert.Equal(t, lsm.GetSchema().Things.Maintainer, strfmt.Email("person@example.org"))
 	assert.Equal(t, lsm.GetSchema().Things.Name, "somename")
 }
@@ -252,7 +250,7 @@ func testAddPropertyDuringCreation(t *testing.T, lsm database.SchemaManager) {
 	t.Parallel()
 
 	var properties []*models.SemanticSchemaClassProperty = []*models.SemanticSchemaClassProperty{
-		{Name: "color", AtDataType: []string{"string"}},
+		{Name: "color", DataType: []string{"string"}},
 	}
 
 	err := lsm.AddClass(context.TODO(), kind.THING_KIND, &models.SemanticSchemaClass{
@@ -265,7 +263,7 @@ func testAddPropertyDuringCreation(t *testing.T, lsm database.SchemaManager) {
 	assert.Len(t, thingClasses, 1)
 	require.Len(t, thingClasses[0].Properties, 1)
 	assert.Equal(t, thingClasses[0].Properties[0].Name, "color")
-	assert.Equal(t, thingClasses[0].Properties[0].AtDataType, []string{"string"})
+	assert.Equal(t, thingClasses[0].Properties[0].DataType, []string{"string"})
 }
 
 func testAddInvalidPropertyDuringCreation(t *testing.T, lsm database.SchemaManager) {
@@ -273,7 +271,7 @@ func testAddInvalidPropertyDuringCreation(t *testing.T, lsm database.SchemaManag
 	t.Parallel()
 
 	var properties []*models.SemanticSchemaClassProperty = []*models.SemanticSchemaClassProperty{
-		{Name: "color", AtDataType: []string{"blurp"}},
+		{Name: "color", DataType: []string{"blurp"}},
 	}
 
 	err := lsm.AddClass(context.TODO(), kind.THING_KIND, &models.SemanticSchemaClass{
@@ -287,7 +285,7 @@ func testDropProperty(t *testing.T, lsm database.SchemaManager) {
 	t.Parallel()
 
 	var properties []*models.SemanticSchemaClassProperty = []*models.SemanticSchemaClassProperty{
-		{Name: "color", AtDataType: []string{"string"}},
+		{Name: "color", DataType: []string{"string"}},
 	}
 
 	err := lsm.AddClass(context.TODO(), kind.THING_KIND, &models.SemanticSchemaClass{
@@ -313,7 +311,7 @@ func testUpdatePropertyName(t *testing.T, lsm database.SchemaManager) {
 
 	// Create a class & property
 	var properties []*models.SemanticSchemaClassProperty = []*models.SemanticSchemaClassProperty{
-		{Name: "color", AtDataType: []string{"string"}},
+		{Name: "color", DataType: []string{"string"}},
 	}
 
 	err := lsm.AddClass(context.TODO(), kind.THING_KIND, &models.SemanticSchemaClass{
@@ -332,7 +330,7 @@ func testUpdatePropertyName(t *testing.T, lsm database.SchemaManager) {
 	assert.Len(t, thingClasses, 1)
 	require.Len(t, thingClasses[0].Properties, 1)
 	assert.Equal(t, thingClasses[0].Properties[0].Name, "smell")
-	assert.Equal(t, thingClasses[0].Properties[0].AtDataType, []string{"string"})
+	assert.Equal(t, thingClasses[0].Properties[0].DataType, []string{"string"})
 }
 
 func testUpdatePropertyNameCollision(t *testing.T, lsm database.SchemaManager) {
@@ -340,8 +338,8 @@ func testUpdatePropertyNameCollision(t *testing.T, lsm database.SchemaManager) {
 
 	// Create a class & property
 	var properties []*models.SemanticSchemaClassProperty = []*models.SemanticSchemaClassProperty{
-		{Name: "color", AtDataType: []string{"string"}},
-		{Name: "smell", AtDataType: []string{"string"}},
+		{Name: "color", DataType: []string{"string"}},
+		{Name: "smell", DataType: []string{"string"}},
 	}
 
 	err := lsm.AddClass(context.TODO(), kind.THING_KIND, &models.SemanticSchemaClass{
@@ -369,7 +367,7 @@ func testUpdatePropertyKeywords(t *testing.T, lsm database.SchemaManager) {
 	// Create a class Car with a property color.
 
 	var properties []*models.SemanticSchemaClassProperty = []*models.SemanticSchemaClassProperty{
-		{Name: "color", AtDataType: []string{"string"}},
+		{Name: "color", DataType: []string{"string"}},
 	}
 
 	err := lsm.AddClass(context.TODO(), kind.THING_KIND, &models.SemanticSchemaClass{
@@ -410,7 +408,7 @@ func testUpdatePropertyAddDataTypeNew(t *testing.T, lsm database.SchemaManager) 
 
 	// Create a class & property
 	var properties = []*models.SemanticSchemaClassProperty{
-		{Name: "madeBy", AtDataType: []string{"RemoteInstance/Manufacturer"}},
+		{Name: "madeBy", DataType: []string{"RemoteInstance/Manufacturer"}},
 	}
 
 	err := lsm.AddClass(context.TODO(), kind.THING_KIND, &models.SemanticSchemaClass{
@@ -428,9 +426,9 @@ func testUpdatePropertyAddDataTypeNew(t *testing.T, lsm database.SchemaManager) 
 	assert.Len(t, thingClasses, 1)
 	require.Len(t, thingClasses[0].Properties, 1)
 	assert.Equal(t, thingClasses[0].Properties[0].Name, "madeBy")
-	require.Len(t, thingClasses[0].Properties[0].AtDataType, 2)
-	assert.Equal(t, thingClasses[0].Properties[0].AtDataType[0], "RemoteInstance/Manufacturer")
-	assert.Equal(t, thingClasses[0].Properties[0].AtDataType[1], "RemoteInstance/Builder")
+	require.Len(t, thingClasses[0].Properties[0].DataType, 2)
+	assert.Equal(t, thingClasses[0].Properties[0].DataType[0], "RemoteInstance/Manufacturer")
+	assert.Equal(t, thingClasses[0].Properties[0].DataType[1], "RemoteInstance/Builder")
 }
 
 func testUpdatePropertyAddDataTypeExisting(t *testing.T, lsm database.SchemaManager) {
@@ -438,7 +436,7 @@ func testUpdatePropertyAddDataTypeExisting(t *testing.T, lsm database.SchemaMana
 
 	// Create a class & property
 	var properties = []*models.SemanticSchemaClassProperty{
-		{Name: "madeBy", AtDataType: []string{"RemoteInstance/Manufacturer"}},
+		{Name: "madeBy", DataType: []string{"RemoteInstance/Manufacturer"}},
 	}
 
 	err := lsm.AddClass(context.TODO(), kind.THING_KIND, &models.SemanticSchemaClass{
@@ -456,8 +454,8 @@ func testUpdatePropertyAddDataTypeExisting(t *testing.T, lsm database.SchemaMana
 	assert.Len(t, thingClasses, 1)
 	require.Len(t, thingClasses[0].Properties, 1)
 	assert.Equal(t, thingClasses[0].Properties[0].Name, "madeBy")
-	require.Len(t, thingClasses[0].Properties[0].AtDataType, 1)
-	assert.Equal(t, thingClasses[0].Properties[0].AtDataType[0], "RemoteInstance/Manufacturer")
+	require.Len(t, thingClasses[0].Properties[0].DataType, 1)
+	assert.Equal(t, thingClasses[0].Properties[0].DataType[0], "RemoteInstance/Manufacturer")
 }
 
 // This grant parent test setups up the temporary directory needed for the tests.

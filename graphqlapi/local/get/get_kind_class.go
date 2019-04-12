@@ -55,7 +55,7 @@ func buildGetClassObject(kindName string, class *models.SemanticSchemaClass, dbS
 			}
 
 			for _, property := range class.Properties {
-				propertyType, err := dbSchema.FindPropertyDataType(property.AtDataType)
+				propertyType, err := dbSchema.FindPropertyDataType(property.DataType)
 				if err != nil {
 					// We can't return an error in this FieldsThunk function, so we need to panic
 					panic(fmt.Sprintf("buildGetClass: wrong propertyType for %s.%s.%s; %s",
@@ -182,12 +182,8 @@ func buildGetClassField(classObject *graphql.Object, k kind.Kind,
 		Type:        graphql.NewList(classObject),
 		Description: class.Description,
 		Args: graphql.FieldConfigArgument{
-			"first": &graphql.ArgumentConfig{
+			"limit": &graphql.ArgumentConfig{
 				Description: descriptions.First,
-				Type:        graphql.Int,
-			},
-			"after": &graphql.ArgumentConfig{
-				Description: descriptions.After,
 				Type:        graphql.Int,
 			},
 			"where": &graphql.ArgumentConfig{
