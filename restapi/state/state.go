@@ -11,6 +11,7 @@
  */package state
 
 import (
+	"github.com/creativesoftwarefdn/weaviate/auth/authentication/anonymous"
 	"github.com/creativesoftwarefdn/weaviate/auth/authentication/oidc"
 	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/database"
@@ -21,9 +22,10 @@ import (
 // State is the only source of appliaction-wide state
 // NOTE: This is not true yet, se gh-723
 type State struct {
-	Database     database.Database
-	Network      network.Network
-	Messaging    *messages.Messaging
-	OIDC         *oidc.Client
-	ServerConfig *config.WeaviateConfig
+	Database        database.Database
+	Network         network.Network
+	Messaging       *messages.Messaging
+	OIDC            *oidc.Client
+	AnonymousAccess *anonymous.Client
+	ServerConfig    *config.WeaviateConfig
 }

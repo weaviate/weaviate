@@ -60,3 +60,30 @@ func (s *Schema) GetProperty(kind kind.Kind, className ClassName, propName Prope
 
 	return nil, semProp
 }
+
+func (s *Schema) GetPropsOfType(propType string) []ClassAndProperty {
+	var result []ClassAndProperty
+
+	result = append(
+		extractAllOfPropType(s.Actions.Classes, propType),
+		extractAllOfPropType(s.Things.Classes, propType)...,
+	)
+
+	return result
+}
+
+func extractAllOfPropType(classes []*models.SemanticSchemaClass, propType string) []ClassAndProperty {
+	var result []ClassAndProperty
+	for _, class := range classes {
+		for _, prop := range class.Properties {
+			if prop.DataType[0] == propType {
+				result = append(result, ClassAndProperty{
+					ClassName:    ClassName(class.Class),
+					PropertyName: PropertyName(prop.Name),
+				})
+			}
+		}
+	}
+
+	return result
+}
