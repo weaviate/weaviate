@@ -24,6 +24,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database"
 	dblisting "github.com/creativesoftwarefdn/weaviate/database/listing"
 	etcdSchemaManager "github.com/creativesoftwarefdn/weaviate/database/schema_manager/etcd"
+	"github.com/creativesoftwarefdn/weaviate/kinds"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 	"github.com/creativesoftwarefdn/weaviate/restapi/batch"
@@ -48,8 +49,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	api.OidcAuth = appState.OIDC.ValidateAndExtract
 
+	kindsManager := kinds.NewManager(db, network, serverConfig)
+
 	setupSchemaHandlers(api, mainLog, schemaUC.NewManager(db))
-	setupThingsHandlers(api, mainLog)
+	setupThingsHandlers(api, mainLog, kindsManager)
 	setupActionsHandlers(api, mainLog)
 	setupBatchHandlers(api, mainLog)
 	setupC11yHandlers(api, mainLog)
