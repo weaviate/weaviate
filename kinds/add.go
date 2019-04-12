@@ -8,7 +8,17 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/validation"
+	"github.com/go-openapi/strfmt"
 )
+
+type addRepo interface {
+	// The validation package needs to be able to get existing classes as well
+	getRepo
+
+	// methods to add new items
+	AddAction(ctx context.Context, class *models.Action, id strfmt.UUID) error
+	AddThing(ctx context.Context, class *models.Thing, id strfmt.UUID) error
+}
 
 // AddAction Class Instance to the connected DB. If the class contains a network
 // ref, it has a side-effect on the schema: The schema will be updated to
@@ -20,25 +30,38 @@ func (m *Manager) AddAction(ctx context.Context, class *models.Action) (*models.
 	}
 	defer unlock(schemaLock)
 	dbConnector := schemaLock.Connector()
+	schemaManager := schemaLock.SchemaManager()
 
+	return m.addActionToConnectorAndSchema(ctx, class, dbConnector, schemaManager)
+}
+
+func (m *Manager) addActionToConnectorAndSchema(ctx context.Context, class *models.Action,
+	addRepo addRepo, schemaManager database.SchemaManager) (*models.Action, error) {
 	class.ID = generateUUID()
-
-	err = m.validateAction(ctx, schemaLock, class)
+	err := m.validateAction(ctx, schemaManager.GetSchema(), class, addRepo)
 	if err != nil {
 		return nil, newErrInvalidUserInput("invalid action: %v", err)
 	}
 
-	err = m.addNetworkDataTypesForAction(ctx, schemaLock.SchemaManager(), class)
+	err = m.addNetworkDataTypesForAction(ctx, schemaManager, class)
 	if err != nil {
 		return nil, newErrInternal("could not update schema for network refs: %v", err)
 	}
 
-	dbConnector.AddAction(ctx, class, class.ID)
+	addRepo.AddAction(ctx, class, class.ID)
 	if err != nil {
 		return nil, newErrInternal("could not store action: %v", err)
 	}
 
 	return class, nil
+}
+
+func (m *Manager) validateAction(ctx context.Context, dbschema schema.Schema,
+	class *models.Action, getRepo getRepo) error {
+	// Validate schema given in body with the weaviate schema
+	databaseSchema := schema.HackFromDatabaseSchema(dbschema)
+	return validation.ValidateActionBody(
+		ctx, class, databaseSchema, getRepo, m.network, m.config)
 }
 
 // AddThing Class Instance to the connected DB. If the class contains a network
@@ -51,20 +74,25 @@ func (m *Manager) AddThing(ctx context.Context, class *models.Thing) (*models.Th
 	}
 	defer unlock(schemaLock)
 	dbConnector := schemaLock.Connector()
+	schemaManager := schemaLock.SchemaManager()
 
+	return m.addThingToConnectorAndSchema(ctx, class, dbConnector, schemaManager)
+}
+
+func (m *Manager) addThingToConnectorAndSchema(ctx context.Context, class *models.Thing,
+	addRepo addRepo, schemaManager database.SchemaManager) (*models.Thing, error) {
 	class.ID = generateUUID()
-
-	err = m.validateThing(ctx, schemaLock, class)
+	err := m.validateThing(ctx, schemaManager.GetSchema(), class, addRepo)
 	if err != nil {
 		return nil, newErrInvalidUserInput("invalid thing: %v", err)
 	}
 
-	err = m.addNetworkDataTypesForThing(ctx, schemaLock.SchemaManager(), class)
+	err = m.addNetworkDataTypesForThing(ctx, schemaManager, class)
 	if err != nil {
 		return nil, newErrInternal("could not update schema for network refs: %v", err)
 	}
 
-	dbConnector.AddThing(ctx, class, class.ID)
+	addRepo.AddThing(ctx, class, class.ID)
 	if err != nil {
 		return nil, newErrInternal("could not store thing: %v", err)
 	}
@@ -72,18 +100,12 @@ func (m *Manager) AddThing(ctx context.Context, class *models.Thing) (*models.Th
 	return class, nil
 }
 
-func (m *Manager) validateThing(ctx context.Context, schemaLock database.SchemaLock, class *models.Thing) error {
+func (m *Manager) validateThing(ctx context.Context, dbschema schema.Schema,
+	class *models.Thing, getRepo getRepo) error {
 	// Validate schema given in body with the weaviate schema
-	databaseSchema := schema.HackFromDatabaseSchema(schemaLock.GetSchema())
+	databaseSchema := schema.HackFromDatabaseSchema(dbschema)
 	return validation.ValidateThingBody(
-		ctx, class, databaseSchema, schemaLock.Connector(), m.network, m.config)
-}
-
-func (m *Manager) validateAction(ctx context.Context, schemaLock database.SchemaLock, class *models.Action) error {
-	// Validate schema given in body with the weaviate schema
-	databaseSchema := schema.HackFromDatabaseSchema(schemaLock.GetSchema())
-	return validation.ValidateActionBody(
-		ctx, class, databaseSchema, schemaLock.Connector(), m.network, m.config)
+		ctx, class, databaseSchema, getRepo, m.network, m.config)
 }
 
 func (m *Manager) addNetworkDataTypesForThing(ctx context.Context, sm database.SchemaManager, class *models.Thing) error {

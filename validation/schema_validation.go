@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/creativesoftwarefdn/weaviate/config"
-	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/crossref"
 	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
@@ -44,7 +43,7 @@ const (
 
 // ValidateSchemaInBody Validate the schema in the given body
 func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSchema, object interface{},
-	refType connutils.RefType, dbConnector dbconnector.DatabaseConnector, network network.Network,
+	refType connutils.RefType, dbConnector getRepo, network network.Network,
 	serverConfig *config.WeaviateConfig) error {
 	var isp interface{}
 	var className string
@@ -97,7 +96,7 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSc
 	return nil
 }
 
-func extractAndValidateProperty(ctx context.Context, pv interface{}, dbConnector dbconnector.DatabaseConnector, network network.Network,
+func extractAndValidateProperty(ctx context.Context, pv interface{}, dbConnector getRepo, network network.Network,
 	serverConfig *config.WeaviateConfig, className, propertyName string, dataType *schema.DataType) (interface{}, error) {
 	var (
 		data interface{}
@@ -152,7 +151,7 @@ func extractAndValidateProperty(ctx context.Context, pv interface{}, dbConnector
 	return data, nil
 }
 
-func cRef(ctx context.Context, pv interface{}, dbConnector dbconnector.DatabaseConnector, network network.Network,
+func cRef(ctx context.Context, pv interface{}, dbConnector getRepo, network network.Network,
 	serverConfig *config.WeaviateConfig, className, propertyName string) (interface{}, error) {
 	switch refValue := pv.(type) {
 	case map[string]interface{}:
@@ -324,7 +323,7 @@ func parseCoordinate(raw interface{}) (float64, error) {
 	}
 }
 
-func parseAndValidateSingleRef(ctx context.Context, dbConnector dbconnector.DatabaseConnector, network network.Network,
+func parseAndValidateSingleRef(ctx context.Context, dbConnector getRepo, network network.Network,
 	serverConfig *config.WeaviateConfig, pvcr map[string]interface{},
 	className, propertyName string) (*models.SingleRef, error) {
 

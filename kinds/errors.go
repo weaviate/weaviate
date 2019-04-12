@@ -15,3 +15,10 @@ type ErrInternal error
 func newErrInternal(format string, args ...interface{}) ErrInternal {
 	return ErrInternal(fmt.Errorf(format, args...))
 }
+
+// ErrNotFound indicates the desired resource doesn't exist
+type ErrNotFound error
+
+func newErrNotFound(format string, args ...interface{}) ErrNotFound {
+	return ErrNotFound(fmt.Errorf(format, args...))
+}
