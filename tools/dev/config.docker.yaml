@@ -1,3 +1,6 @@
+authentication:
+  anonymous_access:
+    enabled: true
 database:
   name: janusgraph
   database_config:
@@ -19,3 +22,7 @@ logging:
   interval: 1
   enabled: true
   url: http://telemetry_mock_api:8087/mock/new
+telemetry:
+  interval: 1
+  disabled: false
+  remote_url: http://telemetry_mock_api:8087/mock/new

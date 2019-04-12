@@ -20,7 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestNetworkFetch(t *testing.T) {
+func Test_NetworkFetch(t *testing.T) {
 	result := AssertGraphQL(t, helper.RootAuth, `
     {
 			Network {
@@ -55,6 +55,29 @@ func TestNetworkFetch(t *testing.T) {
 		map[string]interface{}{
 			"beacon":    "weaviate://RemoteWeaviateForAcceptanceTest/things/32fc9b12-00b8-46b2-962d-63c1f352e090",
 			"certainty": json.Number("0.7"),
+		},
+	}
+	assert.Equal(t, expected, results)
+}
+
+func Test_NetworkFetchFuzzy(t *testing.T) {
+	result := AssertGraphQL(t, helper.RootAuth, `
+    {
+			Network {
+				Fetch {
+					Fuzzy(value:"something", certainty: 0.5) {
+						beacon certainty
+					}
+				}
+			}
+		}`,
+	)
+
+	results := result.Get("Network", "Fetch", "Fuzzy").Result
+	expected := []interface{}{
+		map[string]interface{}{
+			"beacon":    "weaviate://RemoteWeaviateForAcceptanceTest/things/61c21951-3460-4189-86ad-884a17b70c16",
+			"certainty": json.Number("0.5"),
 		},
 	}
 	assert.Equal(t, expected, results)

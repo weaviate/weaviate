@@ -185,6 +185,25 @@ type combined_nn_search_results struct {
 	ci    *CombinedIndex
 }
 
+// SafeGetSimilarWords returns n similar words in the contextionary,
+// examining k trees. It is guaratueed to have results, even if the word is
+// not in the contextionary. In this case the list only contains the word
+// itself. It can then still be used for exact match or levensthein-based
+// searches against db backends.
+func (ci *CombinedIndex) SafeGetSimilarWords(word string, n, k int) ([]string, []float32) {
+	return safeGetSimilarWordsFromAny(ci, word, n, k)
+}
+
+// SafeGetSimilarWordsWithCertainty returns  similar words in the
+// contextionary, if they are close enough to match the required certainty.
+// It is guaratueed to have results, even if the word is not in the
+// contextionary. In this case the list only contains the word itself. It can
+// then still be used for exact match or levensthein-based searches against
+// db backends.
+func (ci *CombinedIndex) SafeGetSimilarWordsWithCertainty(word string, certainty float32) []string {
+	return safeGetSimilarWordsWithCertaintyFromAny(ci, word, certainty)
+}
+
 func (a combined_nn_search_results) Len() int      { return len(a.items) }
 func (a combined_nn_search_results) Swap(i, j int) { a.items[i], a.items[j] = a.items[j], a.items[i] }
 func (a combined_nn_search_results) Less(i, j int) bool {
