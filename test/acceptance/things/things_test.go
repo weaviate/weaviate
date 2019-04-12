@@ -26,7 +26,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
-	"github.com/creativesoftwarefdn/weaviate/validation"
 )
 
 const fakeThingId strfmt.UUID = "11111111-1111-1111-1111-111111111111"
@@ -124,7 +123,7 @@ var invalidThingTestCases = []struct {
 			}
 		},
 		errorCheck: func(t *testing.T, err *models.ErrorResponse) {
-			assert.Equal(t, validation.ErrorMissingClass, err.Error[0].Message)
+			assert.Equal(t, "invalid thing: the given class is empty", err.Error[0].Message)
 		},
 	},
 	{
@@ -138,7 +137,7 @@ var invalidThingTestCases = []struct {
 			}
 		},
 		errorCheck: func(t *testing.T, err *models.ErrorResponse) {
-			assert.Equal(t, fmt.Sprintf(schema.ErrorNoSuchClass, "NonExistingClass"), err.Error[0].Message)
+			assert.Equal(t, fmt.Sprintf("invalid thing: "+schema.ErrorNoSuchClass, "NonExistingClass"), err.Error[0].Message)
 		},
 	},
 	{
@@ -152,7 +151,7 @@ var invalidThingTestCases = []struct {
 			}
 		},
 		errorCheck: func(t *testing.T, err *models.ErrorResponse) {
-			assert.Equal(t, fmt.Sprintf(schema.ErrorNoSuchProperty, "nonExistingProperty", "TestThing"), err.Error[0].Message)
+			assert.Equal(t, fmt.Sprintf("invalid thing: "+schema.ErrorNoSuchProperty, "nonExistingProperty", "TestThing"), err.Error[0].Message)
 		},
 	},
 	{
@@ -206,7 +205,7 @@ var invalidThingTestCases = []struct {
 		},
 		errorCheck: func(t *testing.T, err *models.ErrorResponse) {
 			assert.Contains(t,
-				fmt.Sprintf("invalid string property 'testString' on class 'TestThing': not a string, but json.Number"),
+				fmt.Sprintf("invalid thing: invalid string property 'testString' on class 'TestThing': not a string, but json.Number"),
 				err.Error[0].Message)
 		},
 	},
