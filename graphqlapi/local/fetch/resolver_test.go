@@ -40,12 +40,12 @@ type result struct {
 	expectedValue interface{}
 }
 
-func Test_Resolve(t *testing.T) {
+func Test_ResolveKinds(t *testing.T) {
 	t.Parallel()
 
 	tests := testCases{
 		testCase{
-			name: "Resolve Local Fetch (entire unit)",
+			name: "Resolve Local Fetch Kinds (entire unit)",
 			query: `
 			{
 				Fetch {
@@ -63,7 +63,7 @@ func Test_Resolve(t *testing.T) {
 							valueString: "some-value"
 						},
 					}) {
-						beacon certainty
+						beacon certainty className
 					}
 				}
 			}`,
@@ -130,6 +130,7 @@ func Test_Resolve(t *testing.T) {
 			resolverReturn: []interface{}{
 				map[string]interface{}{
 					"beacon":    "weaviate://peerName/things/uuid1",
+					"className": "Superclass",
 					"certainty": 0.7,
 				},
 			},
@@ -138,6 +139,7 @@ func Test_Resolve(t *testing.T) {
 				expectedValue: []interface{}{
 					map[string]interface{}{
 						"beacon":    "weaviate://peerName/things/uuid1",
+						"className": "Superclass",
 						"certainty": 0.7,
 					},
 				},
@@ -177,7 +179,7 @@ func (tests testCases) AssertExtraction(t *testing.T) {
 	}
 }
 
-func Test__Resolve_NoResultsFromContextionary(t *testing.T) {
+func Test__ResolveKinds_NoResultsFromContextionary(t *testing.T) {
 	query := `
 			{
 				Fetch {
@@ -207,6 +209,42 @@ func Test__Resolve_NoResultsFromContextionary(t *testing.T) {
 	assert.Equal(t, res.Errors[0].Message,
 		"the contextionary contains no close matches to the provided class name. "+
 			"Try using different search terms or lowering the desired certainty")
+}
+
+func Test__ResolveFuzzy_HappyPath(t *testing.T) {
+	query := `
+			{
+				Fetch {
+					Fuzzy(value:"steak", certainty: 0.7) {
+						beacon certainty className
+					}
+				}
+			}`
+	resolverReturn := []interface{}{
+		map[string]interface{}{
+			"beacon":    "weaviate://localhost/things/foobar",
+			"className": "Superclass",
+			"certainty": 0.7,
+		},
+	}
+	expectedResult := []interface{}{
+		map[string]interface{}{
+			"beacon":    "weaviate://localhost/things/foobar",
+			"className": "Superclass",
+			"certainty": 0.7,
+		},
+	}
+
+	c11y := newMockContextionary()
+	c11y.On("SafeGetSimilarWordsWithCertainty", "steak", float32(0.7))
+	resolver := newMockResolver(c11y)
+	resolver.On("LocalFetchFuzzy", []string{"steak", "steakalt1", "steakalt2"}).
+		Return(resolverReturn, nil)
+
+	res := resolver.AssertResolve(t, query)
+	c11y.AssertExpectations(t)
+	result := res.Get("Fetch", "Fuzzy").Result
+	assert.Equal(t, expectedResult, result)
 }
 
 func Test__Resolve_MissingOperator(t *testing.T) {

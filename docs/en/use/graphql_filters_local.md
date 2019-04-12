@@ -6,8 +6,11 @@
 
 ## Index
 - [Local Get and GetMeta](#local-get-and-getmeta)
-- [Local GetMeta](#local-getmeta)
+- [Local Fetch](#local-fetch)
 - [Local Aggregate](#local-aggregate)
+- [Other parameters](#other-parameters)
+  - [Limit](#limit)
+  - [OLAP](#OLAP)
 
 ## Local Get and GetMeta
 Without filters, a local query could look like this:
@@ -157,6 +160,62 @@ The `distance` is always in kilometers. `geoCoordinates` are in DMS format.
 This query will result in all cities within a 2 kilometer range of the geoCoordinates `{latitude: 52.4, longitude: 4.9}`.
 
 
+## Local Fetch
+For [fetching](graphql_local#fetch-function) Things and Actions, you need to specify what you are looking for in the filter. You can ask for the beacon and match certainty per node as a result.
+
+In the first query below, we are looking for cities or places in the local Weaviate with a property value `Amsterdam`. This is specified by defining that you are looking for a `Thing` named `City`, but you also know (for 90%) that this might be called, or is in the same context as, `Place`. Then `Amsterdam` should be a property of this class defined by the property name `name`, or another keyword like `identifier`.
+Beacons and certainty values will then be returned.
+
+```graphql
+{
+  Network{
+    Fetch{
+      Things(where: {
+        class: {
+          name: "City",
+          keywords: [{
+            value: "Place",
+            weight: 0.9
+          }],
+          certainty: 0.9
+        },
+        properties: [{
+          name: "name",
+          keywords: [{
+            value: "identifier",
+            weight: 0.9
+          }],
+          certainty: 0.8,
+          operator: Equal,
+          valueString: "Amsterdam"
+        }]
+      }) {
+        className
+        beacon
+        certainty
+      }
+    }
+  }
+}
+```
+
+A `Fuzzy` `Fetch` requires less information in the filter. Only a property value and a certainty value need to be provided. Note that the property value is always a `string`, containing one word. To get the best results, the value should be present in the Contextionary. If not, the search still works, but searched through the data with a different approach (in the data directly). Moreover, the strings will be matched with data values on "contains" and ["Levenshtein distance"](https://en.wikipedia.org/wiki/Levenshtein_distance) basis. This implies that classes with a property `NotAmsterdam` will be returned if the query contains `Amsterdam`, and that the class with property `Amsterdam` will be returned if the query contains a typo like `Amstedram`. 
+
+```graphql
+{
+  Local {
+    Fetch {
+      Fuzzy(value:"Amsterdam", certainty:0.95){ // value is always a string
+        className
+        beacon
+        certainty
+      }
+    }
+  }
+}
+```
+
+
 ## Local Aggregate
 Grouping is associated with aggregation. The GraphQL query function is called `Aggregate`, which returns aggregations of data groups. The data can be grouped by a specific property, which can be specified on the class level in the query. The `minimum`, `maximum`, `median`, `sum`, `mode`, and the `mean` of numeric property values can be queried, as well as the number of specific property values by `count`. The returned data is a list of groups, indicated by `groupedBy` `path` (same as the filter), and the actual `value`. 
 
@@ -191,3 +250,55 @@ The query below groups all the cities in a local Weaviate on the name of the cou
   }
 }
 ```
+
+## Other parameters
+
+### Limit
+The limit filter (pagination) allows to request a certain amount of Things or Actions at one query. The argument `limit` can be combined in the query for classes of Things and Actions, where `limit` is an integer with the maximum amount of returned nodes.
+
+``` graphql
+{
+  Local{
+    Get{
+      Things{
+        Animal(limit:5){
+          name
+        }
+      }
+    }
+  }
+}
+```
+
+### OLAP
+OLAP queries take a long time (minutes to hours) to complete, so there is a way to send an OLAP query, let it run in the background, and come back later to get the results. The query result will be stored in cache. 
+
+This applies to `GetMeta` and `Aggregate` queries, where large amount of data may be processed. An example of how this can be used is:
+
+``` graphql
+{
+  Local {
+    GetMeta {
+      Things {
+        City(groupBy: ["isCapital"],
+          forceRecalculate: false,
+          useAnalyticsEngine: true,
+        ) {
+          population {
+            sum
+            maximum
+            minimum
+            mean
+            count
+          }
+          groupedBy {
+            value
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+For more information about this filter, have a look [here](graphql_parameters.md#OLAP).

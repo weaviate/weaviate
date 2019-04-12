@@ -23,7 +23,7 @@ func TestRegistering(t *testing.T) {
 
 	// setup
 	calledFunctions := NewLog()
-	calledFunctions.Enabled = true
+	calledFunctions.Disabled = false
 	calledFunctions.PeerName = "ginormous-thunder-apple"
 	calledFunctions.Register("REST", "weaviate.something.or.other")
 
@@ -52,7 +52,7 @@ func TestEnabled(t *testing.T) {
 
 	// setup
 	calledFunctions := NewLog()
-	calledFunctions.Enabled = true
+	calledFunctions.Disabled = false
 	calledFunctions.PeerName = "unimpressed-rice-sofa"
 	calledFunctions.Register("REST", "weaviate.something.or.other")
 
@@ -66,7 +66,7 @@ func TestDisabled(t *testing.T) {
 
 	// setup
 	calledFunctions := NewLog()
-	calledFunctions.Enabled = false
+	calledFunctions.Disabled = true
 	calledFunctions.PeerName = "aquatic-pineapple-home"
 	calledFunctions.Register("REST", "weaviate.something.or.other")
 
@@ -80,7 +80,7 @@ func TestRequestIncrementing(t *testing.T) {
 
 	// setup
 	calledFunctions := NewLog()
-	calledFunctions.Enabled = true
+	calledFunctions.Disabled = false
 	calledFunctions.PeerName = "awkward-handshake-guy"
 	calledFunctions.Register("REST", "weaviate.something.or.other")
 	calledFunctions.Register("REST", "weaviate.something.or.other")
@@ -98,7 +98,7 @@ func TestMultipleRequestTypes(t *testing.T) {
 
 	// setup
 	calledFunctions := NewLog()
-	calledFunctions.Enabled = true
+	calledFunctions.Disabled = false
 	calledFunctions.PeerName = "insert-ridiculous-name"
 	calledFunctions.Register("GQL", "weaviate.something.or.other1")
 	calledFunctions.Register("REST", "weaviate.something.or.other2")
@@ -122,7 +122,7 @@ func TestExtractLoggedRequests(t *testing.T) {
 
 	// setup
 	calledFunctions := NewLog()
-	calledFunctions.Enabled = true
+	calledFunctions.Disabled = false
 	calledFunctions.PeerName = "apologetic-thermonuclear-blunderbuss"
 	calledFunctions.Register("GQL", "weaviate.something.or.other")
 
@@ -157,7 +157,7 @@ func TestConcurrentRequests(t *testing.T) {
 	var wg sync.WaitGroup
 
 	calledFunctions := NewLog()
-	calledFunctions.Enabled = true
+	calledFunctions.Disabled = false
 	calledFunctions.PeerName = "forgetful-seal-cooker"
 
 	type1 := "GQL"
