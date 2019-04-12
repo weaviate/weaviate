@@ -246,12 +246,18 @@ func (j *Janusgraph) DropProperty(ctx context.Context, kind kind.Kind, className
 	sanitizedClassName := schema.AssertValidClassName(className)
 	sanitizedPropName := schema.AssertValidPropertyName(propName)
 
-	vertexLabel := j.state.MustGetMappedClassName(sanitizedClassName)
-	mappedPropertyName := j.state.MustGetMappedPropertyName(sanitizedClassName, sanitizedPropName)
+	vertexLabel, err := j.state.GetMappedClassName(sanitizedClassName)
+	if err != nil {
+		return fmt.Errorf("could not get mapped name for class: %v", err)
+	}
+	mappedPropertyName, err := j.state.GetMappedPropertyName(sanitizedClassName, sanitizedPropName)
+	if err != nil {
+		return fmt.Errorf("could not get mapped name for property: %v", err)
+	}
 
 	err, prop := j.schema.GetProperty(kind, sanitizedClassName, sanitizedPropName)
 	if err != nil {
-		panic("could not get property")
+		return fmt.Errorf("could not get property from schema: %v", err)
 	}
 
 	propertyDataType, err := j.schema.FindPropertyDataType(prop.DataType)

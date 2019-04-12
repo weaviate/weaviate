@@ -1,9 +1,6 @@
 {
-  "async": false,
-  "thing": {
-    "class": "Animal",
-    "schema": {
-      "name": "Elephant"
-    }
+  "class": "Animal",
+  "schema": {
+    "name": "Elephant"
   }
 }

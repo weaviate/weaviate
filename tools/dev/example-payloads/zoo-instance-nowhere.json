@@ -1,13 +1,10 @@
 {
-  "async": false,
-  "thing": {
-    "class": "Zoo",
-    "schema": {
-      "name": "NowhereZoo",
-      "location": {
-        "latitude": 0.1,
-        "longitude": 0
-      }
+  "class": "Zoo",
+  "schema": {
+    "name": "NowhereZoo",
+    "location": {
+      "latitude": 0.1,
+      "longitude": 0
     }
   }
 }

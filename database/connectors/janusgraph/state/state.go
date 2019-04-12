@@ -55,11 +55,20 @@ func (s *JanusGraphConnectorState) AddMappedClassName(className schema.ClassName
 }
 
 // Map a schema name to the internal janusgraph name
-func (s *JanusGraphConnectorState) MustGetMappedClassName(className schema.ClassName) MappedClassName {
+func (s *JanusGraphConnectorState) GetMappedClassName(className schema.ClassName) (MappedClassName, error) {
 	mappedName, exists := s.ClassMap[className]
-
 	if !exists {
-		panic(fmt.Sprintf("Fatal error; class name %v is not mapped to a janus name", className))
+		return "", fmt.Errorf("class name %v is not mapped to a janus name", className)
+	}
+
+	return mappedName, nil
+}
+
+// Map a schema name to the internal janusgraph name
+func (s *JanusGraphConnectorState) MustGetMappedClassName(className schema.ClassName) MappedClassName {
+	mappedName, err := s.GetMappedClassName(className)
+	if err != nil {
+		panic(err)
 	}
 
 	return mappedName
@@ -143,20 +152,29 @@ func (s *JanusGraphConnectorState) GetMappedPropertyNames(rawProps []schema.Clas
 }
 
 // Add mapping from class/property name to mapped property namej
-func (s *JanusGraphConnectorState) GetPropertyNameFromMapped(className schema.ClassName, mappedPropName MappedPropertyName) schema.PropertyName {
-	propsOfClass, exists := s.PropertyMap[className]
-
-	if !exists {
-		panic(fmt.Sprintf("Fatal error; class name %v does not have mapped properties", className))
+func (s *JanusGraphConnectorState) GetPropertyNameFromMapped(className schema.ClassName, mappedPropName MappedPropertyName) (schema.PropertyName, error) {
+	propsOfClass, ok := s.PropertyMap[className]
+	if !ok {
+		return "", fmt.Errorf("class name %v does not have mapped properties", className)
 	}
 
 	for name, mapped := range propsOfClass {
 		if mapped == mappedPropName {
-			return name
+			return name, nil
 		}
 	}
 
-	panic(fmt.Sprintf("Fatal error; property %v for class name %v is not mapped from a janus name", mappedPropName, className))
+	return "", fmt.Errorf("property %v for class name %v is not mapped from a janus name", mappedPropName, className)
+}
+
+// Add mapping from class/property name to mapped property namej
+func (s *JanusGraphConnectorState) MustGetPropertyNameFromMapped(className schema.ClassName, mappedPropName MappedPropertyName) schema.PropertyName {
+	name, err := s.GetPropertyNameFromMapped(className, mappedPropName)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	return name
 }
 
 func (s *JanusGraphConnectorState) RemoveMappedPropertyName(className schema.ClassName, propName schema.PropertyName) {

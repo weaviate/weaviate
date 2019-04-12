@@ -63,7 +63,11 @@ func (f *fakeNameSource) MustGetMappedPropertyName(className schema.ClassName,
 	panic(fmt.Sprintf("fake name source does not contain a fake for '%s.%s'", className, propName))
 }
 
-func (f *fakeNameSource) GetPropertyNameFromMapped(className schema.ClassName,
+func (f *fakeNameSource) GetPropertyNameFromMapped(className schema.ClassName, mappedName state.MappedPropertyName) (schema.PropertyName, error) {
+	return f.MustGetPropertyNameFromMapped(className, mappedName), nil
+}
+
+func (f *fakeNameSource) MustGetPropertyNameFromMapped(className schema.ClassName,
 	mappedName state.MappedPropertyName) schema.PropertyName {
 	switch mappedName {
 	case state.MappedPropertyName("prop_1"):
