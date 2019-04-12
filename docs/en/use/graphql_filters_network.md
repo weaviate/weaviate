@@ -11,9 +11,10 @@ This page explains by an example how the Network fetch works. The design of the 
 ## Index
 - [Network Get](#network-get)
 - [Network Fetch](#network-fetch)
-- [Network Introspect](#network-introspect)
 - [Network GetMeta](#network-getmeta)
-- [Network Aggregate](#network-aggragate)
+- [Network Aggregate](#network-aggregate)
+- [Other parameters](#other-parameters)
+  - [Limit](#limit)
 
 
 ## Network Get
@@ -57,9 +58,8 @@ The filter for the `Network` `Get` function has the same structure as the `Local
 
 
 ## Network Fetch
-As explained in the design, there are two different query types possible for querying the Network. `Things` and `Actions` can be 'Fetched' from the network or the ontology of nodes in the network can be 'Introspected'. For fetching Things and Actions, you  need to specify what you are looking for in the filter. You can ask for the beacon and match certainty per node as a result.
+For [fetching](graphql_network#fetch-function) Things and Actions, you need to specify what you are looking for in the filter. You can ask for the beacon and match certainty per node as a result.
 
-For this example, we use the prototype's demo dataset, which you can run using the example dataset in this GraphQL prototype. 
 In the first query below, we are looking for nodes in the network like the node `Amsterdam`. This is specified by defining that you are looking for a `Thing` named `City`, but you also know (for 90%) that this might be called, or is in the same context as, `Place`. Then `Amsterdam` should be a property of this class defined by the property name `name`, or another keyword like `identifier`.
 Beacons and certainty values will then be returned.
 
@@ -87,6 +87,7 @@ Beacons and certainty values will then be returned.
           valueString: "Amsterdam"
         }]
       }) {
+        className
         beacon
         certainty
       }
@@ -95,13 +96,14 @@ Beacons and certainty values will then be returned.
 }
 ```
 
-A `Fuzzy` `Fetch` requires less information in the filter. Only a property value and a certainty value need to be provided. Note that the property value is always a `string`, and needs to exists in the Contextionary.
+A `Fuzzy` `Fetch` requires less information in the filter. Only a property value and a certainty value need to be provided. Note that the property value is always a `string`, containing one word. To get the best results, the value should be present in the Contextionary. If not, the search still works, but searched through the data with a different approach (in the data directly). Moreover, the strings will be matched with data values on "contains" and ["Levenshtein distance"](https://en.wikipedia.org/wiki/Levenshtein_distance) basis. This implies that classes with a property `NotAmsterdam` will be returned if the query contains `Amsterdam`, and that the class with property `Amsterdam` will be returned if the query contains a typo like `Amstedram`. 
 
 ```graphql
 {
   Network {
     Fetch {
-      Fuzzy(value:"Amsterdam", certainty:0.95){ // value is always a string, because needs to be in contextionary
+      Fuzzy(value:"Amsterdam", certainty:0.95){ // value is always a string
+        className
         beacon
         certainty
       }
@@ -110,66 +112,9 @@ A `Fuzzy` `Fetch` requires less information in the filter. Only a property value
 }
 ```
 
-## Network Introspect
-Introspection is about exploring what's available in different ontologies in the network. The `Introspect` query is split into two functions: introspecting `Things` and `Actions` schemas, and introspecting a specific `Beacon`. For the former function you need to use a similar filter as in the `Fetch` function, but without specifying a specific property value for a node. For the latter one you need to enter the beacon id as a filter.
-
-### Network Introspect Things and Actions 
-The following query is an example when you want to know if there are any classes with properties in the Network which looks like `City` (or `Place`) with the property `name` (or `identifier`). In this case, it will return class names, certainty values and its properties with the name and the certainty value.
-
-```graphql
-{
-  Network {
-    Introspect {
-      Things(where: {
-        class: {
-          name: "City",
-          keywords: [{
-            value: "Place",
-            weight: 0.9
-          }],
-          certainty: 0.9
-        },
-        properties: [{
-          name: "name",
-          keywords: [{
-            value: "identifier",
-            weight: 0.9
-          }],
-          certainty: 0.8
-        }]
-      }) {
-        className
-        certainty
-        properties {
-          propertyName
-          certainty
-        }
-      }
-    }
-  }
-}
-```
-
-### Introspect a beacon
-If you found a beacon in for example the Fetch query, you can query its ontology schema. This function will return the class name and the certainty of the class names that match with the beacon, and also for the properties. The returned ontology names will always be in terms of your own defined semantic schema (ontology). 
-
-```graphql
-{
-  Network {
-    Introspect {
-      Beacon(id:"weaviate://weaviate_2/8569c0aa-3e8a-4de4-86a7-89d010152ad1") {
-        className
-        properties {
-          propertyName
-        }
-      }
-    }
-  }
-}
-```
 
 ## Network GetMeta
-Just like querying a local Weaviate, meta data about instances in the Network can be retrieved. 
+Just like querying a [local Weaviate](graphql_filters_local#local-get-and-getmeta), meta data about instances in the Network can be retrieved. 
 
 ```graphql
 {
@@ -235,3 +180,25 @@ Grouping is associated with aggregation. The GraphQL query function is called `A
   }
 }
 ``` 
+
+
+## Other parameters
+
+### Limit
+The limit filter (pagination) allows to request a certain amount of Things or Actions at one query. The argument `limit` can be combined in the query for classes of Things and Actions, where `limit` is an integer with the maximum amount of returned nodes.
+
+``` graphql
+{
+  Network{
+    Get{
+      weaviateB{
+        Things{
+          Animal(limit:5){
+            name
+          }
+        }
+      }
+    }
+  }
+}
+```

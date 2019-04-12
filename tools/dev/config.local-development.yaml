@@ -1,3 +1,6 @@
+authentication:
+  anonymous_access:
+    enabled: true
 database:
   name: janusgraph
   database_config:
@@ -26,3 +29,5 @@ network:
   genesis_url: http://localhost:8090
   public_url: http://localhost:8080
   peer_name: bestWeaviate
+telemetry:
+  disabled: true

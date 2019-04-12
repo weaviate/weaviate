@@ -1,157 +1,127 @@
 {
-    "type": "action",
-    "version": "1.0.0",
-    "name": "example.org - Action Test",
-    "maintainer": "hello@creativesoftwarefdn.org",
-    "classes": [
+  "@context": "http://example.org",
+  "type": "action",
+  "version": "1.0.0",
+  "name": "example.org - Action Test",
+  "maintainer": "hello@creativesoftwarefdn.org",
+  "classes": [
+    {
+      "class": "TestAction",
+      "description": "This is a Test",
+      "properties": [
         {
-            "class": "TestAction",
-            "description": "This is a Test",
-            "properties": [
-                {
-                   "name": "testString",
-                    "dataType": [
-                        "string"
-                    ],
-                    "description": "Value of testString."
-                },
-                {
-                   "name": "testText",
-                    "dataType": [
-                        "text"
-                    ],
-                    "description": "Value of testText."
-                },
-                {
-                    "name": "testInt",
-                    "keywords": [
-                      { "keyword": "test", "weight": 1.0 },
-                      { "keyword": "number", "weight": 1.0 }
-                    ],
-                    "dataType": [
-                        "int"
-                    ],
-                    "description": "Value of testInt."
-                },
-                {
-                    "name": "testBoolean",
-                    "keywords": [
-                      { "keyword": "test", "weight": 1.0 },
-                      { "keyword": "truth", "weight": 1.0 },
-                      { "keyword": "value", "weight": 1.0 }
-                    ],
-                    "dataType": [
-                        "boolean"
-                    ],
-                    "description": "Value of testBoolean."
-                },
-                {
-                    "name": "testNumber",
-                    "dataType": [
-                        "number"
-                    ],
-                    "description": "Value of testNumber."
-                },
-                {
-                    "name": "testDateTime",
-                    "dataType": [
-                        "date"
-                    ],
-                    "description": "Value of testDateTime."
-                },
-                {
-                    "name": "testCref",
-                    "keywords": [
-                      { "keyword": "test", "weight": 1.0 },
-                      { "keyword": "reference", "weight": 1.0 }
-                    ],
-                    "dataType": [
-                        "TestThing"
-                    ],
-                    "description": "Value of testCref."
-                }
-            ]
+          "name": "testString",
+          "dataType": ["string"],
+          "description": "Value of testString."
         },
         {
-            "class": "TestActionTwo",
-            "description": "This is a Test",
-            "properties": [
-                {
-                    "name": "testString",
-                    "dataType": [
-                        "string"
-                    ],
-                    "description": "Value of testString."
-                },
-                {
-                   "name": "testText",
-                    "dataType": [
-                        "text"
-                    ],
-                    "description": "Value of testText."
-                },
-                {
-                    "name": "testInt",
-                    "dataType": [
-                        "int"
-                    ],
-                    "keywords": [
-                      { "keyword": "test", "weight": 1.0 },
-                      { "keyword": "number", "weight": 1.0 }
-                    ],
-                    "description": "Value of testInt."
-                },
-                {
-                    "name": "testBoolean",
-                    "keywords": [
-                      { "keyword": "test", "weight": 1.0 },
-                      { "keyword": "truth", "weight": 1.0 },
-                      { "keyword": "value", "weight": 1.0 }
-                    ],
-                    "dataType": [
-                        "boolean"
-                    ],
-                    "description": "Value of testBoolean."
-                },
-                {
-                    "name": "testNumber",
-                    "dataType": [
-                        "number"
-                    ],
-                    "description": "Value of testNumber."
-                },
-                {
-                    "name": "testDateTime",
-                    "dataType": [
-                        "date"
-                    ],
-                    "description": "Value of testDateTime."
-                },
-                {
-                    "name": "testCref",
-                    "keywords": [
-                      { "keyword": "test", "weight": 1.0 },
-                      { "keyword": "reference", "weight": 1.0 }
-                    ],
-                    "dataType": [
-                        "TestAction"
-                    ],
-                    "description": "Value of testCref."
-                },
-		{
-                    "name": "testCrefs",
-                    "cardinality": "many",
-                    "keywords": [
-                      { "keyword": "test", "weight": 1.0 },
-                      { "keyword": "reference", "weight": 1.0 }
-                    ],
-                    "dataType": [
-                        "TestAction"
-                    ],
-                    "description": "Value of testCref."
-		}
-
-            ]
+          "name": "testText",
+          "dataType": ["text"],
+          "description": "Value of testText."
+        },
+        {
+          "name": "testInt",
+          "keywords": [
+            {"keyword": "test", "weight": 1.0},
+            {"keyword": "number", "weight": 1.0}
+          ],
+          "dataType": ["int"],
+          "description": "Value of testInt."
+        },
+        {
+          "name": "testBoolean",
+          "keywords": [
+            {"keyword": "test", "weight": 1.0},
+            {"keyword": "truth", "weight": 1.0},
+            {"keyword": "value", "weight": 1.0}
+          ],
+          "dataType": ["boolean"],
+          "description": "Value of testBoolean."
+        },
+        {
+          "name": "testNumber",
+          "dataType": ["number"],
+          "description": "Value of testNumber."
+        },
+        {
+          "name": "testDateTime",
+          "dataType": ["date"],
+          "description": "Value of testDateTime."
+        },
+        {
+          "name": "testCref",
+          "keywords": [
+            {"keyword": "test", "weight": 1.0},
+            {"keyword": "reference", "weight": 1.0}
+          ],
+          "dataType": ["TestThing"],
+          "description": "Value of testCref."
         }
-    ]
+      ]
+    },
+    {
+      "class": "TestActionTwo",
+      "description": "This is a Test",
+      "properties": [
+        {
+          "name": "testString",
+          "dataType": ["string"],
+          "description": "Value of testString."
+        },
+        {
+          "name": "testText",
+          "dataType": ["text"],
+          "description": "Value of testText."
+        },
+        {
+          "name": "testInt",
+          "dataType": ["int"],
+          "keywords": [
+            {"keyword": "test", "weight": 1.0},
+            {"keyword": "number", "weight": 1.0}
+          ],
+          "description": "Value of testInt."
+        },
+        {
+          "name": "testBoolean",
+          "keywords": [
+            {"keyword": "test", "weight": 1.0},
+            {"keyword": "truth", "weight": 1.0},
+            {"keyword": "value", "weight": 1.0}
+          ],
+          "dataType": ["boolean"],
+          "description": "Value of testBoolean."
+        },
+        {
+          "name": "testNumber",
+          "dataType": ["number"],
+          "description": "Value of testNumber."
+        },
+        {
+          "name": "testDateTime",
+          "dataType": ["date"],
+          "description": "Value of testDateTime."
+        },
+        {
+          "name": "testCref",
+          "keywords": [
+            {"keyword": "test", "weight": 1.0},
+            {"keyword": "reference", "weight": 1.0}
+          ],
+          "dataType": ["TestAction"],
+          "description": "Value of testCref."
+        },
+        {
+          "name": "testCrefs",
+          "cardinality": "many",
+          "keywords": [
+            {"keyword": "test", "weight": 1.0},
+            {"keyword": "reference", "weight": 1.0}
+          ],
+          "dataType": ["TestAction"],
+          "description": "Value of testCref."
+        }
+      ]
+    }
+  ]
 }
