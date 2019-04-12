@@ -71,8 +71,8 @@ func TestWithClassWithPrimitiveProp(t *testing.T) {
 							Description: "not the best class in the world, just a tribute",
 							Properties: []*models.SemanticSchemaClassProperty{
 								&models.SemanticSchemaClassProperty{
-									AtDataType: []string{"string"},
-									Name:       "bestString",
+									DataType: []string{"string"},
+									Name:     "bestString",
 								},
 							},
 						},
@@ -116,16 +116,16 @@ func TestWithClassWithReferenceProps(t *testing.T) {
 							Description: "not the best class in the world, just a tribute",
 							Properties: []*models.SemanticSchemaClassProperty{
 								&models.SemanticSchemaClassProperty{
-									AtDataType: []string{"string"},
-									Name:       "bestString",
+									DataType: []string{"string"},
+									Name:     "bestString",
 								},
 								&models.SemanticSchemaClassProperty{
-									AtDataType: []string{"SomeClass"},
-									Name:       "LocalRef",
+									DataType: []string{"SomeClass"},
+									Name:     "LocalRef",
 								},
 								&models.SemanticSchemaClassProperty{
-									AtDataType: []string{"OtherInstance/SomeClass"},
-									Name:       "ForeignRef",
+									DataType: []string{"OtherInstance/SomeClass"},
+									Name:     "ForeignRef",
 								},
 							},
 						},

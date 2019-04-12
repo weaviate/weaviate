@@ -63,7 +63,11 @@ func (f *fakeNameSource) MustGetMappedPropertyName(className schema.ClassName,
 	panic(fmt.Sprintf("fake name source does not contain a fake for '%s.%s'", className, propName))
 }
 
-func (f *fakeNameSource) GetPropertyNameFromMapped(className schema.ClassName,
+func (f *fakeNameSource) GetPropertyNameFromMapped(className schema.ClassName, mappedName state.MappedPropertyName) (schema.PropertyName, error) {
+	return f.MustGetPropertyNameFromMapped(className, mappedName), nil
+}
+
+func (f *fakeNameSource) MustGetPropertyNameFromMapped(className schema.ClassName,
 	mappedName state.MappedPropertyName) schema.PropertyName {
 	switch mappedName {
 	case state.MappedPropertyName("prop_1"):
@@ -121,34 +125,34 @@ func (f *fakeTypeSource) GetProperty(kind kind.Kind, className schema.ClassName,
 	case "City":
 		switch propName {
 		case "isCapital":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"bool"}}
+			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"bool"}}
 		case "population":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"int"}}
+			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"int"}}
 		case "area":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"number"}}
+			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"number"}}
 		case "name":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"string"}}
+			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"string"}}
 		case "dateOfFirstAppearance":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"date"}}
+			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"date"}}
 		case "inCountry":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"Country"}}
+			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"Country"}}
 		}
 	case "Country":
 		switch propName {
 		case "name":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"string"}}
+			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"string"}}
 		case "inContinent":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"Continent"}}
+			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"Continent"}}
 		}
 	case "Continent":
 		switch propName {
 		case "onPlanet":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"Planet"}}
+			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"Planet"}}
 		}
 	case "Planet":
 		switch propName {
 		case "name":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"string"}}
+			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"string"}}
 		}
 	}
 

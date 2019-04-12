@@ -10,14 +10,14 @@
             "properties": [
                 {
                    "name": "testString",
-                    "@dataType": [
+                    "dataType": [
                         "string"
                     ],
                     "description": "Value of testString."
                 },
                 {
                    "name": "testText",
-                    "@dataType": [
+                    "dataType": [
                         "text"
                     ],
                     "description": "Value of testText."
@@ -28,7 +28,7 @@
                       { "keyword": "test", "weight": 1.0 },
                       { "keyword": "number", "weight": 1.0 }
                     ],
-                    "@dataType": [
+                    "dataType": [
                         "int"
                     ],
                     "description": "Value of testInt."
@@ -40,21 +40,21 @@
                       { "keyword": "truth", "weight": 1.0 },
                       { "keyword": "value", "weight": 1.0 }
                     ],
-                    "@dataType": [
+                    "dataType": [
                         "boolean"
                     ],
                     "description": "Value of testBoolean."
                 },
                 {
                     "name": "testNumber",
-                    "@dataType": [
+                    "dataType": [
                         "number"
                     ],
                     "description": "Value of testNumber."
                 },
                 {
                     "name": "testDateTime",
-                    "@dataType": [
+                    "dataType": [
                         "date"
                     ],
                     "description": "Value of testDateTime."
@@ -65,7 +65,7 @@
                       { "keyword": "test", "weight": 1.0 },
                       { "keyword": "reference", "weight": 1.0 }
                     ],
-                    "@dataType": [
+                    "dataType": [
                         "TestThing"
                     ],
                     "description": "Value of testCref."
@@ -78,21 +78,21 @@
             "properties": [
                 {
                     "name": "testString",
-                    "@dataType": [
+                    "dataType": [
                         "string"
                     ],
                     "description": "Value of testString."
                 },
                 {
                    "name": "testText",
-                    "@dataType": [
+                    "dataType": [
                         "text"
                     ],
                     "description": "Value of testText."
                 },
                 {
                     "name": "testInt",
-                    "@dataType": [
+                    "dataType": [
                         "int"
                     ],
                     "keywords": [
@@ -108,21 +108,21 @@
                       { "keyword": "truth", "weight": 1.0 },
                       { "keyword": "value", "weight": 1.0 }
                     ],
-                    "@dataType": [
+                    "dataType": [
                         "boolean"
                     ],
                     "description": "Value of testBoolean."
                 },
                 {
                     "name": "testNumber",
-                    "@dataType": [
+                    "dataType": [
                         "number"
                     ],
                     "description": "Value of testNumber."
                 },
                 {
                     "name": "testDateTime",
-                    "@dataType": [
+                    "dataType": [
                         "date"
                     ],
                     "description": "Value of testDateTime."
@@ -133,7 +133,7 @@
                       { "keyword": "test", "weight": 1.0 },
                       { "keyword": "reference", "weight": 1.0 }
                     ],
-                    "@dataType": [
+                    "dataType": [
                         "TestAction"
                     ],
                     "description": "Value of testCref."
@@ -145,7 +145,7 @@
                       { "keyword": "test", "weight": 1.0 },
                       { "keyword": "reference", "weight": 1.0 }
                     ],
-                    "@dataType": [
+                    "dataType": [
                         "TestAction"
                     ],
                     "description": "Value of testCref."

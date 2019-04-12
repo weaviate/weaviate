@@ -13,6 +13,7 @@
         "name": "Netherlands",
         "population": 17000000
       },
+      "reviews": "A perfect city",
       "geolocation": {
         "latitude": 52.366667,
         "longitude": 4.9
@@ -39,6 +40,7 @@
       "coordinates": "N52, E007",
       "population": 3470000,
       "isCapital": true,
+      "reviews": "I had a bad time here",
       "inCountry": {
         "class": "Country",
         "uuid": "006",

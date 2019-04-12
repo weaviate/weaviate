@@ -10,4 +10,4 @@ go run ./cmd/weaviate-server \
   --scheme http \
   --host "127.0.0.1" \
   --port 8080 \
-  --config-file=tools/dev/config.local-no-network.yaml \
+  --config-file=tools/dev/config.local-no-network.yaml

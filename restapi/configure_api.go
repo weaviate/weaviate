@@ -24,12 +24,15 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database"
 	dblisting "github.com/creativesoftwarefdn/weaviate/database/listing"
 	etcdSchemaManager "github.com/creativesoftwarefdn/weaviate/database/schema_manager/etcd"
+	"github.com/creativesoftwarefdn/weaviate/kinds"
 	"github.com/creativesoftwarefdn/weaviate/messages"
+	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 	"github.com/creativesoftwarefdn/weaviate/restapi/batch"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations"
 	schemaUC "github.com/creativesoftwarefdn/weaviate/schema"
 	"github.com/creativesoftwarefdn/weaviate/telemetry"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 )
@@ -40,16 +43,18 @@ var reporter *telemetry.Reporter
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	startupRoutine()
 
-	fmt.Println("configure server called")
-	fmt.Println("configure api called")
 	api.ServeError = errors.ServeError
 
 	api.JSONConsumer = runtime.JSONConsumer()
 
-	api.OidcAuth = appState.OIDC.ValidateAndExtract
+	api.OidcAuth = func(token string, scopes []string) (*models.Principal, error) {
+		return appState.OIDC.ValidateAndExtract(token, scopes)
+	}
+
+	kindsManager := kinds.NewManager(db, network, serverConfig)
 
 	setupSchemaHandlers(api, mainLog, schemaUC.NewManager(db))
-	setupThingsHandlers(api, mainLog)
+	setupThingsHandlers(api, mainLog, kindsManager)
 	setupActionsHandlers(api, mainLog)
 	setupBatchHandlers(api, mainLog)
 	setupC11yHandlers(api, mainLog)
@@ -101,29 +106,32 @@ func startupRoutine() {
 	messaging.InfoMessage(fmt.Sprintf("loaded the config, time left is: %s", timeTillDeadline(ctx)))
 
 	appState.OIDC = configureOIDC(appState)
+	appState.AnonymousAccess = configureAnonymousAccess(appState)
+
 	messaging.InfoMessage(fmt.Sprintf("configured OIDC client, time left is: %s", timeTillDeadline(ctx)))
 
 	// Extract environment variables needed for logging
-	loggingInterval := appState.ServerConfig.Config.Logging.Interval
-	loggingUrl := appState.ServerConfig.Config.Logging.Url
-	loggingEnabled := appState.ServerConfig.Config.Logging.Enabled
+	mainLog = telemetry.NewLog()
+	loggingInterval := appState.ServerConfig.Config.Telemetry.Interval
+	loggingURL := appState.ServerConfig.Config.Telemetry.RemoteURL
+	loggingDisabled := appState.ServerConfig.Config.Telemetry.Disabled
 	loggingDebug := appState.ServerConfig.Config.Debug
 
-	if loggingEnabled != true && loggingEnabled != false {
-		loggingEnabled = true
+	if loggingURL == "" {
+		loggingURL = telemetry.DefaultURL
 	}
 
-	// Initialize the requestslog
-	mainLog = telemetry.NewLog()
+	if loggingInterval == 0 {
+		loggingInterval = telemetry.DefaultInterval
+	}
+
 	// Propagate the peer name (if any), debug toggle and the enabled toggle to the requestsLog
-	mainLog.PeerName = appState.ServerConfig.Config.Network.PeerName
-	mainLog.Debug = loggingDebug
-	mainLog.Enabled = loggingEnabled
-
-	// Fatal error loading config file
-	if err != nil {
-		messaging.ExitError(78, err.Error())
+	if appState.ServerConfig.Config.Network != nil {
+		spew.Dump(appState.ServerConfig.Config.Network.PeerName)
+		mainLog.PeerName = appState.ServerConfig.Config.Network.PeerName
 	}
+	mainLog.Debug = loggingDebug
+	mainLog.Disabled = loggingDisabled
 
 	loadContextionary()
 	messaging.InfoMessage(fmt.Sprintf("loaded the contextionary, time left is: %s", timeTillDeadline(ctx)))
@@ -173,7 +181,7 @@ func startupRoutine() {
 	// Initialize a non-expiring context for the reporter
 	reportingContext := context.Background()
 	// Initialize the reporter
-	reporter = telemetry.NewReporter(reportingContext, mainLog, loggingInterval, loggingUrl, loggingEnabled, loggingDebug, etcdClient, messaging)
+	reporter = telemetry.NewReporter(reportingContext, mainLog, loggingInterval, loggingURL, loggingDisabled, loggingDebug, etcdClient, messaging)
 
 	// Start reporting
 	go func() {

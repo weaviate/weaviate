@@ -10,7 +10,7 @@
             "properties": [
                 {
                     "name": "name",
-                    "@dataType": [
+                    "dataType": [
                         "string"
                     ],
                     "description": "Official name of the municipality.",
@@ -35,7 +35,7 @@
                 },
                 {
                     "name": "coordinates",
-                    "@dataType": [
+                    "dataType": [
                         "string"
                     ],
                     "description": "The city's longitude and latitude",
@@ -60,7 +60,7 @@
                 },
                 {
                     "name": "inhabitants",
-                    "@dataType": [
+                    "dataType": [
                         "int"
                     ],
                     "description": "Number of inhabitants of the municipality",
@@ -85,7 +85,7 @@
                 },
                 {
                     "name": "isCapital",
-                    "@dataType": [
+                    "dataType": [
                         "boolean"
                     ],
                     "description": "True if the city is a capital",
@@ -138,7 +138,7 @@
             "properties": [
                 {
                     "name": "lives",
-                    "@dataType": [
+                    "dataType": [
                         "Municipality"
                     ],
                     "description": "The municipality where the human lives in.",
@@ -163,7 +163,7 @@
                 },
                 {
                     "name": "birthday",
-                    "@dataType": [
+                    "dataType": [
                         "date"
                     ],
                     "description": "Birthday of the person",
@@ -184,7 +184,7 @@
                 },
                 {
                     "name": "name",
-                    "@dataType": [
+                    "dataType": [
                         "string"
                     ],
                     "description": "Name of the person",

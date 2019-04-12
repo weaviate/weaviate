@@ -206,11 +206,11 @@ func (l *etcdSchemaManager) UpdatePropertyAddDataType(ctx context.Context, kind 
 		return err
 	}
 
-	if dataTypeAlreadyContained(prop.AtDataType, newDataType) {
+	if dataTypeAlreadyContained(prop.DataType, newDataType) {
 		return nil
 	}
 
-	prop.AtDataType = append(prop.AtDataType, newDataType)
+	prop.DataType = append(prop.DataType, newDataType)
 	err = l.saveSchema(ctx)
 
 	if err != nil {
@@ -230,6 +230,11 @@ func dataTypeAlreadyContained(haystack []string, needle string) bool {
 }
 
 func (l *etcdSchemaManager) DropProperty(ctx context.Context, kind kind.Kind, className string, propName string) error {
+	err := l.connectorMigrator.DropProperty(ctx, kind, className, propName)
+	if err != nil {
+		return fmt.Errorf("could not migrate database schema: %v", err)
+	}
+
 	semanticSchema := l.schemaState.SchemaFor(kind)
 	class, err := schema.GetClassByName(semanticSchema, className)
 	if err != nil {
@@ -245,7 +250,7 @@ func (l *etcdSchemaManager) DropProperty(ctx context.Context, kind kind.Kind, cl
 	}
 
 	if propIdx == -1 {
-		return fmt.Errorf("Could not find property '%s'", propName)
+		return fmt.Errorf("could not find property '%s' - it might have already been deleted?", propName)
 	}
 
 	class.Properties[propIdx] = class.Properties[len(class.Properties)-1]
@@ -253,10 +258,9 @@ func (l *etcdSchemaManager) DropProperty(ctx context.Context, kind kind.Kind, cl
 	class.Properties = class.Properties[:len(class.Properties)-1]
 
 	err = l.saveSchema(ctx)
-
 	if err != nil {
-		return nil
+		return fmt.Errorf("could not persists schema change in configuration: %v", err)
 	}
 
-	return l.connectorMigrator.DropProperty(ctx, kind, className, propName)
+	return nil
 }

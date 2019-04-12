@@ -486,3 +486,8 @@ func (q *Query) OrderLocalByValuesLimit(order string, limit int) *Query {
 func (q *Query) OrderLocalByValuesSelectKeysLimit(order string, limit int) *Query {
 	return extend_query(q, `.order(local).by(values, %s).select(keys).limit(local, %d)`, EscapeString(order), limit)
 }
+
+// TextContainsFuzzy query to be used in has() queries
+func (q *Query) TextContainsFuzzy(searchterm string) *Query {
+	return smartExtendQuery(q, fmt.Sprintf(`textContainsFuzzy("%s")`, searchterm))
+}

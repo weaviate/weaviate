@@ -58,7 +58,7 @@ func (j *Janusgraph) addEdgesToQuery(q *gremlin.Query, k kind.Kind, className sc
 
 		janusPropertyName := string(
 			j.state.MustGetMappedPropertyName(className, sanitizedPropertyName))
-		propType, err := j.schema.FindPropertyDataType(property.AtDataType)
+		propType, err := j.schema.FindPropertyDataType(property.DataType)
 		if err != nil {
 			return q, err
 		}

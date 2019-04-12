@@ -462,7 +462,7 @@
     },
     "SemanticSchemaClassProperty": {
       "properties": {
-        "@dataType": {
+        "dataType": {
           "description": "Can be a reference ($cref) to another type when it starts with a capital (for example Person), otherwise \"string\" or \"int\".",
           "items": {
             "type": "string"

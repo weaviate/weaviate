@@ -27,9 +27,11 @@ type db interface {
 }
 
 // NewManager creates a new manager
-func NewManager(db db) *Manager {
+func NewManager(db db, network network.Network, config *config.WeaviateConfig) *Manager {
 	return &Manager{
-		db: db,
+		db:      db,
+		network: network,
+		config:  config,
 	}
 }
 

@@ -2783,13 +2783,6 @@ func init() {
     "SemanticSchemaClassProperty": {
       "type": "object",
       "properties": {
-        "@dataType": {
-          "description": "Can be a reference ($cref) to another type when it starts with a capital (for example Person), otherwise \"string\" or \"int\".",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
         "cardinality": {
           "description": "The cardinality of this property. If you want to store more than one value in a property, set this to 'many'. Defaults to 'atMostOne'. Note that by default properties can be empty in Weaviate.",
           "type": "string",
@@ -2798,6 +2791,13 @@ func init() {
             "atMostOne",
             "many"
           ]
+        },
+        "dataType": {
+          "description": "Can be a reference ($cref) to another type when it starts with a capital (for example Person), otherwise \"string\" or \"int\".",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "description": {
           "description": "Description of the property.",
@@ -5733,13 +5733,6 @@ func init() {
     "SemanticSchemaClassProperty": {
       "type": "object",
       "properties": {
-        "@dataType": {
-          "description": "Can be a reference ($cref) to another type when it starts with a capital (for example Person), otherwise \"string\" or \"int\".",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
         "cardinality": {
           "description": "The cardinality of this property. If you want to store more than one value in a property, set this to 'many'. Defaults to 'atMostOne'. Note that by default properties can be empty in Weaviate.",
           "type": "string",
@@ -5748,6 +5741,13 @@ func init() {
             "atMostOne",
             "many"
           ]
+        },
+        "dataType": {
+          "description": "Can be a reference ($cref) to another type when it starts with a capital (for example Person), otherwise \"string\" or \"int\".",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "description": {
           "description": "Description of the property.",

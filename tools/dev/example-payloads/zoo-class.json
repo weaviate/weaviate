@@ -9,7 +9,7 @@
   ],
   "properties": [
     {
-      "@dataType": ["string"],
+      "dataType": ["string"],
       "cardinality": "atMostOne",
       "description": "The name of the zoo",
       "keywords": [
@@ -21,7 +21,7 @@
       "name": "name"
     },
     {
-      "@dataType": ["geoCoordinates"],
+      "dataType": ["geoCoordinates"],
       "cardinality": "atMostOne",
       "description": "where is the zoo located",
       "name": "location"

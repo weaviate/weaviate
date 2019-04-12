@@ -16,6 +16,7 @@ import (
 	"fmt"
 
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/fetch"
+	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/fetchfuzzy"
 	graphqlfetch "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/fetch"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 )
@@ -27,7 +28,19 @@ func (j *Janusgraph) LocalFetchKindClass(params *graphqlfetch.Params) (interface
 		return nil, fmt.Errorf("could not build query: %s", err)
 	}
 
-	res, err := fetch.NewProcessor(j.client, params.Kind, "localhost").
+	res, err := fetch.NewProcessor(j.client, params.Kind, "localhost", &j.state).
+		Process(gremlin.New().Raw(q))
+	return res, err
+}
+
+// LocalFetchFuzzy based on GraphQL Query params
+func (j *Janusgraph) LocalFetchFuzzy(words []string) (interface{}, error) {
+	q, err := fetchfuzzy.NewQuery(words, &j.state, &j.schema).String()
+	if err != nil {
+		return nil, fmt.Errorf("could not build query: %s", err)
+	}
+
+	res, err := fetchfuzzy.NewProcessor(j.client, "localhost", &j.state).
 		Process(gremlin.New().Raw(q))
 	return res, err
 }

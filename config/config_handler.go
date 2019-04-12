@@ -33,11 +33,11 @@ type Flags struct {
 	ConfigFile string `long:"config-file" description:"path to config file (default: ./weaviate.conf.json)"`
 }
 
-// Logging gives the outline of the logging parameters in the config file
-type Logging struct {
-	Url      string `json:"url" yaml:"url"`
-	Interval int    `json:"interval" yaml:"interval"`
-	Enabled  bool   `json:"enabled" yaml:"enabled"`
+// Telemetry gives the outline of the telemetry parameters in the config file
+type Telemetry struct {
+	RemoteURL string `json:"remote_url" yaml:"remote_url"`
+	Interval  int    `json:"interval" yaml:"interval"`
+	Disabled  bool   `json:"disabled" yaml:"disabled"`
 }
 
 // Config outline of the config file
@@ -51,7 +51,7 @@ type Config struct {
 	Contextionary        Contextionary   `json:"contextionary" yaml:"contextionary"`
 	ConfigurationStorage ConfigStore     `json:"configuration_storage" yaml:"configuration_storage"`
 	Authentication       Authentication  `json:"authentication" yaml:"authentication"`
-	Logging              Logging         `json:"logging" yaml:"logging"`
+	Telemetry            Telemetry       `json:"telemetry" yaml:"telemetry"`
 }
 
 // QueryDefaults for optional parameters
@@ -152,6 +152,10 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, m *mess
 	}
 
 	f.Config = config
+
+	if err := f.Config.Authentication.Validate(); err != nil {
+		return fmt.Errorf("invalid config: %v", err)
+	}
 
 	// Check the debug mode
 	m.Debug = f.Config.Debug

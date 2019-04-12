@@ -46,3 +46,8 @@ func (dbcr *dbClosingResolver) LocalFetchKindClass(info *fetch.Params) (interfac
 	connector := dbcr.connectorLock.Connector()
 	return connector.LocalFetchKindClass(info)
 }
+
+func (dbcr *dbClosingResolver) LocalFetchFuzzy(words []string) (interface{}, error) {
+	connector := dbcr.connectorLock.Connector()
+	return connector.LocalFetchFuzzy(words)
+}

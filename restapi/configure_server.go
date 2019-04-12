@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/creativesoftwarefdn/weaviate/auth/authentication/anonymous"
 	"github.com/creativesoftwarefdn/weaviate/auth/authentication/oidc"
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
 	"github.com/creativesoftwarefdn/weaviate/database"
@@ -136,6 +137,13 @@ func configureOIDC(appState *state.State) *oidc.Client {
 	return c
 }
 
+// configureAnonymousAccess will always be called, even if anonymous access is
+// disabled. In this case the middleware provided by this client will block
+// anonymous requests
+func configureAnonymousAccess(appState *state.State) *anonymous.Client {
+	return anonymous.New(appState.ServerConfig.Config)
+}
+
 func timeTillDeadline(ctx context.Context) time.Duration {
 	dl, _ := ctx.Deadline()
 	return time.Until(dl)
@@ -179,8 +187,8 @@ func connectToNetwork() {
 		if err != nil {
 			messaging.ExitError(78, fmt.Sprintf("Could not connect to network! Reason: %+v", err))
 		} else {
-			network = *new_net
-			appState.Network = *new_net
+			network = new_net
+			appState.Network = new_net
 		}
 	}
 }

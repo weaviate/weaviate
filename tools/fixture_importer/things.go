@@ -102,11 +102,11 @@ func createThings() {
 func addPrimitiveProp(className string, key string, value interface{}, properties *map[string]interface{}) {
 	class := findClass(schema.Things, className)
 	property := findProperty(class, key)
-	if len(property.AtDataType) != 1 {
-		panic(fmt.Sprintf("Only one datatype supported for import. Failed in thing %s.%s with @dataTypes %#v on value %t",
-			className, property.Name, property.AtDataType, value))
+	if len(property.DataType) != 1 {
+		panic(fmt.Sprintf("Only one datatype supported for import. Failed in thing %s.%s with dataTypes %#v on value %t",
+			className, property.Name, property.DataType, value))
 	}
-	dataType := property.AtDataType[0]
+	dataType := property.DataType[0]
 
 	switch dataType {
 	case "string", "date":

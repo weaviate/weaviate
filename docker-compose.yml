@@ -138,3 +138,13 @@ services:
       - "tkn"
       - "--initial-cluster-state"
       - "new"
+  keycloak:
+    image: jboss/keycloak:5.0.0
+    environment:
+      KEYCLOAK_USER: admin
+      KEYCLOAK_PASSWORD: admin
+      KEYCLOAK_IMPORT: /tmp/weaviate-realm.json
+    volumes:
+      - ./tools/dev/keycloak/weaviate-realm.json:/tmp/weaviate-realm.json
+    ports:
+      - "9090:8080"

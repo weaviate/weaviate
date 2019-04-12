@@ -10,14 +10,14 @@
             "properties": [
                 {
                     "name": "person",
-                    "@dataType": [
+                    "dataType": [
                         "Human"
                     ],
                     "description": "person"
                 },
                 {
                     "name": "place",
-                    "@dataType": [
+                    "dataType": [
                         "Municipality"
                     ],
                     "description": "Place where the person lives in"

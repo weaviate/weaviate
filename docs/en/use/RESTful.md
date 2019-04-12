@@ -64,7 +64,7 @@ $ curl -X POST http://localhost:8080/weaviate/v1/schema/things -H "Content-Type:
     }],
     "description": "Animal park",
     "properties": [{
-        "@dataType": [
+        "dataType": [
             "string"
         ],
         "cardinality": "atMostOne",
@@ -134,7 +134,7 @@ Example request:
 
 ```bash
 $ curl -X PUT http://localhost:8080/weaviate/v1/schema/things/Zoo/properties -H "Content-Type: application/json" -d '{
-  "@dataType": [
+  "dataType": [
     "City"
   ],
   "cardinality": "atMostOne",
@@ -171,7 +171,7 @@ $ curl -X POST http://localhost:8080/weaviate/v1/schema/actions -H "Content-Type
     }],
     "description": "When something is bought in one of the Zoo shops",
     "properties": [{
-        "@dataType": [
+        "dataType": [
             "number"
         ],
         "description": "Which amount is spend?",
@@ -240,7 +240,7 @@ Example request:
 
 ```bash
 $ curl -X PUT http://localhost:8080/weaviate/v1/schema/actions/BuyAction/properties -H "Content-Type: application/json" -d '{
-  "@dataType": [
+  "dataType": [
     "Shop"
   ],
   "cardinality": "atMostOne",
@@ -284,12 +284,10 @@ Example request:
 
 ```bash
 $ curl http://localhost:8080/weaviate/v1/things/validate -H "Content-Type: application/json" -d '{
-    "thing": {
-        "class": "Animal",
-        "schema": {
-            "name": "Bert",
-            "species": "elephant"
-        }
+    "class": "Animal",
+    "schema": {
+        "name": "Bert",
+        "species": "elephant"
     }
 }'
 ```
@@ -304,12 +302,10 @@ Example request:
 
 ```bash
 $ curl http://localhost:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
-    "thing": {
-        "class": "Animal",
-        "schema": {
-            "name": "Bert",
-            "species": "elephant"
-        }
+    "class": "Animal",
+    "schema": {
+        "name": "Bert",
+        "species": "elephant"
     }
 }'
 ```
@@ -322,12 +318,10 @@ Example request:
 
 ```bash
 $ curl http://localhost:8080/weaviate/v1/things/{uuid} -H "Content-Type: application/json" -d '{
-    "thing": {
-        "class": "Animal",
-        "schema": {
-            "name": "Charles",
-            "species": "monkey"
-        }
+    "class": "Animal",
+    "schema": {
+        "name": "Charles",
+        "species": "monkey"
     }
 }'
 ```
@@ -418,12 +412,10 @@ Example request:
 
 ```bash
 $ curl http://localhost:8080/weaviate/v1/actions/validate -H "Content-Type: application/json" -d '{
-    "action": {
-        "class": "Animal",
-        "schema": {
-            "name": "Bert",
-            "species": "elephant"
-        }
+    "class": "Animal",
+    "schema": {
+        "name": "Bert",
+        "species": "elephant"
     }
 }'
 ```
@@ -438,12 +430,10 @@ Example request:
 
 ```bash
 $ curl http://localhost:8080/weaviate/v1/actions -H "Content-Type: application/json" -d '{
-    "action": {
-        "class": "Animal",
-        "schema": {
-            "name": "Bert",
-            "species": "elephant"
-        }
+    "class": "Animal",
+    "schema": {
+        "name": "Bert",
+        "species": "elephant"
     }
 }'
 ```
@@ -456,12 +446,10 @@ Example request:
 
 ```bash
 $ curl http://localhost:8080/weaviate/v1/actions/{uuid} -H "Content-Type: application/json" -d '{
-    "action": {
-        "class": "Animal",
-        "schema": {
-            "name": "Charles",
-            "species": "monkey"
-        }
+    "class": "Animal",
+    "schema": {
+        "name": "Charles",
+        "species": "monkey"
     }
 }'
 ```
