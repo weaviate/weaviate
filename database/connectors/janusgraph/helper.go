@@ -112,7 +112,12 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 	for key, val := range vertex.Properties {
 		if strings.HasPrefix(key, "prop_") {
 			mappedPropertyName := state.MappedPropertyName(key)
-			propertyName := j.state.GetPropertyNameFromMapped(className, mappedPropertyName)
+			propertyName, err := j.state.GetPropertyNameFromMapped(className, mappedPropertyName)
+			if err != nil {
+				// this property might have been deleted in the mean time, simply skip over it
+				continue
+			}
+
 			err, property := j.schema.GetProperty(kind, className, propertyName)
 			if err != nil {
 				panic(fmt.Sprintf("Could not get property '%s' in class %s ; %v", propertyName, className, err))
@@ -139,7 +144,7 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 		mappedPropertyName := state.MappedPropertyName(edge.AssertPropertyValue(PROP_REF_ID).AssertString())
 		uuid := edge.AssertPropertyValue(PROP_REF_EDGE_CREF).AssertString()
 
-		propertyName := j.state.GetPropertyNameFromMapped(className, mappedPropertyName)
+		propertyName := j.state.MustGetPropertyNameFromMapped(className, mappedPropertyName)
 		err, property := j.schema.GetProperty(kind, className, propertyName)
 		if err != nil {
 			panic(fmt.Sprintf("Could not get property '%s' in class %s ; %v", propertyName, className, err))
@@ -253,7 +258,7 @@ func (j *Janusgraph) getClasses(k kind.Kind, className *schema.ClassName, first 
 		for key, val := range vertex.Properties {
 			if strings.HasPrefix(key, "prop_") {
 				mappedPropertyName := state.MappedPropertyName(key)
-				propertyName := j.state.GetPropertyNameFromMapped(className, mappedPropertyName)
+				propertyName := j.state.MustGetPropertyNameFromMapped(className, mappedPropertyName)
 				err, property := j.schema.GetProperty(kind, className, propertyName)
 				if err != nil {
 					panic(fmt.Sprintf("Could not get property '%s' in class %s ; %v", propertyName, className, err))
@@ -280,7 +285,7 @@ func (j *Janusgraph) getClasses(k kind.Kind, className *schema.ClassName, first 
 			mappedPropertyName := state.MappedPropertyName(edge.AssertPropertyValue(PROP_REF_ID).AssertString())
 			uuid := edge.AssertPropertyValue(PROP_REF_EDGE_CREF).AssertString()
 
-			propertyName := j.state.GetPropertyNameFromMapped(className, mappedPropertyName)
+			propertyName := j.state.MustGetPropertyNameFromMapped(className, mappedPropertyName)
 			err, property := j.schema.GetProperty(kind, className, propertyName)
 			if err != nil {
 				panic(fmt.Sprintf("Could not get property '%s' in class %s ; %v", propertyName, className, err))
