@@ -17,7 +17,6 @@ import (
 	"fmt"
 
 	"github.com/creativesoftwarefdn/weaviate/config"
-	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/crossref"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
@@ -25,7 +24,13 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/network"
 	"github.com/creativesoftwarefdn/weaviate/network/crossrefs"
+	"github.com/go-openapi/strfmt"
 )
+
+type getRepo interface {
+	GetThing(context.Context, strfmt.UUID, *models.Thing) error
+	GetAction(context.Context, strfmt.UUID, *models.Action) error
+}
 
 const (
 	// ErrorMissingActionThings message
@@ -62,7 +67,7 @@ const (
 
 // ValidateThingBody Validates a thing body using the 'Thing' object.
 func ValidateThingBody(ctx context.Context, thing *models.Thing, databaseSchema schema.WeaviateSchema,
-	dbConnector dbconnector.DatabaseConnector, network network.Network, serverConfig *config.WeaviateConfig) error {
+	dbConnector getRepo, network network.Network, serverConfig *config.WeaviateConfig) error {
 	// Validate the body
 	bve := validateBody(thing.Class)
 
@@ -80,7 +85,7 @@ func ValidateThingBody(ctx context.Context, thing *models.Thing, databaseSchema 
 
 // ValidateActionBody Validates a action body using the 'Action' object.
 func ValidateActionBody(ctx context.Context, action *models.Action, databaseSchema schema.WeaviateSchema,
-	dbConnector dbconnector.DatabaseConnector, network network.Network, serverConfig *config.WeaviateConfig,
+	dbConnector getRepo, network network.Network, serverConfig *config.WeaviateConfig,
 ) error {
 	// Validate the body
 	bve := validateBody(action.Class)
@@ -114,7 +119,7 @@ func validateRefType(s string) bool {
 }
 
 // ValidateSingleRef validates a single ref based on location URL and existence of the object in the database
-func ValidateSingleRef(ctx context.Context, serverConfig *config.WeaviateConfig, cref *models.SingleRef, dbConnector dbconnector.DatabaseConnector, network network.Network, errorVal string) error {
+func ValidateSingleRef(ctx context.Context, serverConfig *config.WeaviateConfig, cref *models.SingleRef, dbConnector getRepo, network network.Network, errorVal string) error {
 
 	ref, err := crossref.ParseSingleRef(cref)
 	if err != nil {
@@ -128,7 +133,7 @@ func ValidateSingleRef(ctx context.Context, serverConfig *config.WeaviateConfig,
 	return validateLocalRef(ctx, dbConnector, ref, errorVal)
 }
 
-func validateLocalRef(ctx context.Context, dbConnector dbconnector.DatabaseConnector, ref *crossref.Ref, errorVal string) error {
+func validateLocalRef(ctx context.Context, dbConnector getRepo, ref *crossref.Ref, errorVal string) error {
 	// Check whether the given Object exists in the DB
 	var err error
 	switch ref.Kind {
@@ -163,7 +168,7 @@ func validateNetworkRef(network network.Network, ref *crossref.Ref) error {
 }
 
 func ValidateMultipleRef(ctx context.Context, serverConfig *config.WeaviateConfig,
-	refs *models.MultipleRef, dbConnector dbconnector.DatabaseConnector, network network.Network,
+	refs *models.MultipleRef, dbConnector getRepo, network network.Network,
 	errorVal string) error {
 	if refs == nil {
 		return nil
