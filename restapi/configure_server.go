@@ -179,8 +179,8 @@ func connectToNetwork() {
 		if err != nil {
 			messaging.ExitError(78, fmt.Sprintf("Could not connect to network! Reason: %+v", err))
 		} else {
-			network = *new_net
-			appState.Network = *new_net
+			network = new_net
+			appState.Network = new_net
 		}
 	}
 }

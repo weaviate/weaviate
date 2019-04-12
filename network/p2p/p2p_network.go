@@ -62,7 +62,7 @@ type network struct {
 
 type downloadChangedFn func(peers.Peers) peers.Peers
 
-func BootstrapNetwork(m *messages.Messaging, genesisURL strfmt.URI, publicURL strfmt.URI, peerName string) (*libnetwork.Network, error) {
+func BootstrapNetwork(m *messages.Messaging, genesisURL strfmt.URI, publicURL strfmt.URI, peerName string) (libnetwork.Network, error) {
 	if genesisURL == "" {
 		return nil, fmt.Errorf("No genesis URL provided in network configuration")
 	}
@@ -107,8 +107,7 @@ func BootstrapNetwork(m *messages.Messaging, genesisURL strfmt.URI, publicURL st
 	// Bootstrap the network in the background.
 	go n.bootstrap()
 
-	nw := libnetwork.Network(&n)
-	return &nw, nil
+	return &n, nil
 }
 
 func (n *network) bootstrap() {
