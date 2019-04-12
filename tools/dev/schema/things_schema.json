@@ -1,266 +1,215 @@
 {
-    "version": "0.0.1",
-    "type": "thing",
-    "name": "weaviate demo things schema",
-    "maintainer": "yourfriends@weaviate.com",
-    "classes": [
+  "@context": "",
+  "version": "0.0.1",
+  "type": "thing",
+  "name": "weaviate demo things schema",
+  "maintainer": "yourfriends@weaviate.com",
+  "classes": [
+    {
+      "class": "City",
+      "keywords": [
         {
-            "class": "City",
-            "keywords": [{
-              "keyword": "town",
-              "weight": 0.8
-            }, {
-              "keyword": "urban",
-              "weight": 0.9
-            }],
-            "description": "A city, place or town",
-            "properties": [
-                {
-                    "name": "name",
-                    "@dataType": [
-                        "string"
-                    ],
-                    "description": "Official name of the city."
-                },
-                {
-                    "name": "coordinates",
-                    "@dataType": [
-                        "string"
-                    ],
-                    "description": "The city's longitude and latitude",
-                    "keywords": [
-                      { "keyword": "location", "weight": 1.0 }
-                    ]
-                },
-                {
-                    "name": "geolocation",
-                    "@dataType": [
-                        "geoCoordinates"
-                    ],
-                    "description": "The city's longitude and latitude",
-                    "keywords": [
-                      { "keyword": "location", "weight": 1.0 }
-                    ]
-                },
-                {
-                    "name": "inCountry",
-                    "@dataType": [
-                        "Country"
-                    ],
-                    "description": "The country the city lies in",
-                    "cardinality": "many"
-                },
-                {
-                    "name": "population",
-                    "@dataType": [
-                        "int"
-                    ],
-                    "description": "Number of inhabitants of the city"
-                },
-                {
-                    "name": "isCapital",
-                    "@dataType": [
-                        "boolean"
-                    ],
-                    "description": "True if the city is a capital"
-                }
-            ]
+          "keyword": "town",
+          "weight": 0.8
         },
         {
-            "class": "Person",
-            "description": "Person",
-            "properties": [
-                {
-                    "name": "livesIn",
-                    "@dataType": [
-                        "City"
-                    ],
-                    "description": "The place where the person lives in."
-                },
-                {
-                    "name": "birthday",
-                    "@dataType": [
-                        "date"
-                    ],
-                    "description": "Birthday of the person"
-                },
-                {
-                    "name": "name",
-                    "@dataType": [
-                        "string"
-                    ],
-                    "description": "Name of the person"
-                },
-                {
-                    "name": "nationality",
-                    "@dataType": [
-                        "Country"
-                    ],
-                    "description": "Nationality of the person",
-                    "keywords": [
-                      { "keyword": "nation", "weight": 1.0 },
-                      { "keyword": "country", "weight": 1.0 },
-                      { "keyword": "person", "weight": 1.0 }
-                    ]
-
-                }
-            ]
-        },
-        {
-            "class": "Country",
-            "description": "Country",
-            "properties": [
-                {
-                    "name": "name",
-                    "@dataType": [
-                        "string"
-                    ],
-                    "description": "Official name of the country"
-                },
-                {
-                    "name": "population",
-                    "@dataType": [
-                        "int"
-                    ],
-                    "description": "Amount of people living in the country"
-                }
-            ]
-        },
-        {
-            "class": "Airport",
-            "description": "An airport",
-            "properties": [
-                {
-                    "name": "code",
-                    "@dataType": [
-                        "string"
-                    ],
-                    "description": "identifier for an airport"
-                },
-                {
-                    "name": "inCity",
-                    "@dataType": [
-                        "City"
-                    ],
-                    "description": "City where the airport lies."
-                },
-                {
-                    "name": "name",
-                    "@dataType": [
-                        "string"
-                    ],
-                    "description": "Official name of the airport"
-                }
-            ]
-        },
-        {
-            "class": "Airline",
-            "description": "An organization that provides flights for passengers",
-            "properties": [
-                {
-                    "name": "code",
-                    "@dataType": [
-                        "string"
-                    ],
-                    "description": "identifier for an airport"
-                },
-                {
-                    "name": "basedIn",
-                    "@dataType": [
-                        "City",
-                        "Country"
-                    ],
-                    "description": "City or country where the airline is based."
-                },
-                {
-                    "name": "name",
-                    "@dataType": [
-                        "string"
-                    ],
-                    "description": "Official name of the airline"
-                },
-                {
-                    "name": "hasNumberOfPlanes",
-                    "@dataType": [
-                        "int"
-                    ],
-                    "description": "Number of airplanes the airline owns"
-                }
-            ]
-        },
-        {
-            "class": "Plane",
-            "description": "An airplane",
-            "properties": [
-                {
-                    "name": "code",
-                    "@dataType": [
-                        "string"
-                    ],
-                    "description": "identifier for the plane"
-                },
-                {
-                    "name": "aircraft",
-                    "@dataType": [
-                        "Aircraft"
-                    ],
-                    "description": "the kind of aircraft"
-                },
-                {
-                    "name": "ofAirline",
-                    "@dataType": [
-                        "Airline"
-                    ],
-                    "description": "Airline the plane is owned by"
-                }
-            ]
-        },
-        {
-            "class": "Aircraft",
-            "description": "The kind of aircraft (e.g., \"Boeing 747\")",
-            "properties": [
-                {
-                    "name": "name",
-                    "@dataType": [
-                        "string"
-                    ],
-                    "description": "name of the aircraft"
-                },
-                {
-                    "name": "numberOfSeats",
-                    "@dataType": [
-                        "number"
-                    ],
-                    "description": "number of seats available in the aircraft."
-                }
-            ]
-        },
-        {
-            "class": "Car",
-            "description": "A specific car with make and model",
-            "properties": [
-                {
-                    "name": "model",
-                    "@dataType": [
-                        "string"
-                    ],
-                    "description": "name of the model"
-                },
-                {
-                    "name": "power",
-                    "@dataType": [
-                        "int"
-                    ],
-                    "description": "horsepower of the engine"
-                },
-                {
-                    "name": "weight",
-                    "@dataType": [
-                        "number"
-                    ],
-                    "description": "total weight of the car, including driver and a full gas tank"
-                }
-            ]
+          "keyword": "urban",
+          "weight": 0.9
         }
-    ]
+      ],
+      "description": "A city, place or town",
+      "properties": [
+        {
+          "name": "name",
+          "dataType": ["string"],
+          "description": "Official name of the city."
+        },
+        {
+          "name": "reviews",
+          "dataType": ["string"],
+          "description": "Reviews by people who have visited the city"
+        },
+        {
+          "name": "coordinates",
+          "dataType": ["string"],
+          "description": "The city's longitude and latitude",
+          "keywords": [{"keyword": "location", "weight": 1.0}]
+        },
+        {
+          "name": "geolocation",
+          "dataType": ["geoCoordinates"],
+          "description": "The city's longitude and latitude",
+          "keywords": [{"keyword": "location", "weight": 1.0}]
+        },
+        {
+          "name": "inCountry",
+          "dataType": ["Country"],
+          "description": "The country the city lies in",
+          "cardinality": "many"
+        },
+        {
+          "name": "population",
+          "dataType": ["int"],
+          "description": "Number of inhabitants of the city"
+        },
+        {
+          "name": "isCapital",
+          "dataType": ["boolean"],
+          "description": "True if the city is a capital"
+        }
+      ]
+    },
+    {
+      "class": "Person",
+      "description": "Person",
+      "properties": [
+        {
+          "name": "livesIn",
+          "dataType": ["City"],
+          "description": "The place where the person lives in."
+        },
+        {
+          "name": "birthday",
+          "dataType": ["date"],
+          "description": "Birthday of the person"
+        },
+        {
+          "name": "name",
+          "dataType": ["string"],
+          "description": "Name of the person"
+        },
+        {
+          "name": "nationality",
+          "dataType": ["Country"],
+          "description": "Nationality of the person",
+          "keywords": [
+            {"keyword": "nation", "weight": 1.0},
+            {"keyword": "country", "weight": 1.0},
+            {"keyword": "person", "weight": 1.0}
+          ]
+        }
+      ]
+    },
+    {
+      "class": "Country",
+      "description": "Country",
+      "properties": [
+        {
+          "name": "name",
+          "dataType": ["string"],
+          "description": "Official name of the country"
+        },
+        {
+          "name": "population",
+          "dataType": ["int"],
+          "description": "Amount of people living in the country"
+        }
+      ]
+    },
+    {
+      "class": "Airport",
+      "description": "An airport",
+      "properties": [
+        {
+          "name": "code",
+          "dataType": ["string"],
+          "description": "identifier for an airport"
+        },
+        {
+          "name": "inCity",
+          "dataType": ["City"],
+          "description": "City where the airport lies."
+        },
+        {
+          "name": "name",
+          "dataType": ["string"],
+          "description": "Official name of the airport"
+        }
+      ]
+    },
+    {
+      "class": "Airline",
+      "description": "An organization that provides flights for passengers",
+      "properties": [
+        {
+          "name": "code",
+          "dataType": ["string"],
+          "description": "identifier for an airport"
+        },
+        {
+          "name": "basedIn",
+          "dataType": ["City", "Country"],
+          "description": "City or country where the airline is based."
+        },
+        {
+          "name": "name",
+          "dataType": ["string"],
+          "description": "Official name of the airline"
+        },
+        {
+          "name": "hasNumberOfPlanes",
+          "dataType": ["int"],
+          "description": "Number of airplanes the airline owns"
+        }
+      ]
+    },
+    {
+      "class": "Plane",
+      "description": "An airplane",
+      "properties": [
+        {
+          "name": "code",
+          "dataType": ["string"],
+          "description": "identifier for the plane"
+        },
+        {
+          "name": "aircraft",
+          "dataType": ["Aircraft"],
+          "description": "the kind of aircraft"
+        },
+        {
+          "name": "ofAirline",
+          "dataType": ["Airline"],
+          "description": "Airline the plane is owned by"
+        }
+      ]
+    },
+    {
+      "class": "Aircraft",
+      "description": "The kind of aircraft (e.g., \"Boeing 747\")",
+      "properties": [
+        {
+          "name": "name",
+          "dataType": ["string"],
+          "description": "name of the aircraft"
+        },
+        {
+          "name": "numberOfSeats",
+          "dataType": ["number"],
+          "description": "number of seats available in the aircraft."
+        }
+      ]
+    },
+    {
+      "class": "Car",
+      "description": "A specific car with make and model",
+      "properties": [
+        {
+          "name": "model",
+          "dataType": ["string"],
+          "description": "name of the model"
+        },
+        {
+          "name": "power",
+          "dataType": ["int"],
+          "description": "horsepower of the engine"
+        },
+        {
+          "name": "weight",
+          "dataType": ["number"],
+          "description": "total weight of the car, including driver and a full gas tank"
+        }
+      ]
+    }
+  ]
 }

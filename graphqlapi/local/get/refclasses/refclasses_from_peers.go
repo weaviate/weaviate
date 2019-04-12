@@ -74,7 +74,7 @@ func graphqlObjectFromClass(name string, networkClassName string, class *models.
 			}
 
 			for _, property := range class.Properties {
-				propertyType, err := dbSchema.FindPropertyDataType(property.AtDataType)
+				propertyType, err := dbSchema.FindPropertyDataType(property.DataType)
 				if err != nil {
 					// this schema from a remote instance is not fully in our control, if
 					// we don't understand the datatype it could be down to an

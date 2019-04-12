@@ -47,7 +47,7 @@ func TestCanAddSingleNetworkRef(t *testing.T) {
 		class := assertClassInSchema(t, schema.Actions, "TestAction")
 		prop := assertPropertyInClass(t, class, "testCref")
 		expectedDataType := []string{"TestThing", "RemoteWeaviateForAcceptanceTest/Instruments"}
-		assert.Equal(t, expectedDataType, prop.AtDataType, "prop should have old and newly added dataTypes")
+		assert.Equal(t, expectedDataType, prop.DataType, "prop should have old and newly added dataTypes")
 	})
 }
 
@@ -91,6 +91,6 @@ func TestCanPatchSingleNetworkRef(t *testing.T) {
 		class := assertClassInSchema(t, schema.Actions, "TestAction")
 		prop := assertPropertyInClass(t, class, "testCref")
 		expectedDataType := []string{"TestThing", "RemoteWeaviateForAcceptanceTest/Instruments"}
-		assert.Equal(t, expectedDataType, prop.AtDataType, "prop should have old and newly added dataTypes")
+		assert.Equal(t, expectedDataType, prop.DataType, "prop should have old and newly added dataTypes")
 	})
 }

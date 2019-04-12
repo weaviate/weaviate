@@ -88,7 +88,7 @@ func (j *Janusgraph) AddClass(ctx context.Context, kind kind.Kind, class *models
 		janusPropertyName := j.state.AddMappedPropertyName(sanitizedClassName, sanitziedPropertyName)
 
 		// Determine the type of the property
-		propertyDataType, err := j.schema.FindPropertyDataType(prop.AtDataType)
+		propertyDataType, err := j.schema.FindPropertyDataType(prop.DataType)
 		if err != nil {
 			// This must already be validated.
 			panic(fmt.Sprintf("Data type fo property '%s' is invalid; %v", prop.Name, err))
@@ -96,9 +96,9 @@ func (j *Janusgraph) AddClass(ctx context.Context, kind kind.Kind, class *models
 
 		if propertyDataType.IsPrimitive() {
 			if propertyDataType.AsPrimitive() == schema.DataTypeString {
-				query.MakeIndexedPropertyKeyTextString(string(janusPropertyName), weaviatePrimitivePropTypeToJanusPropType(schema.DataType(prop.AtDataType[0])), gremlin_schema_query.CARDINALITY_SINGLE, INDEX_SEARCH)
+				query.MakeIndexedPropertyKeyTextString(string(janusPropertyName), weaviatePrimitivePropTypeToJanusPropType(schema.DataType(prop.DataType[0])), gremlin_schema_query.CARDINALITY_SINGLE, INDEX_SEARCH)
 			} else {
-				query.MakeIndexedPropertyKey(string(janusPropertyName), weaviatePrimitivePropTypeToJanusPropType(schema.DataType(prop.AtDataType[0])), gremlin_schema_query.CARDINALITY_SINGLE, INDEX_SEARCH)
+				query.MakeIndexedPropertyKey(string(janusPropertyName), weaviatePrimitivePropTypeToJanusPropType(schema.DataType(prop.DataType[0])), gremlin_schema_query.CARDINALITY_SINGLE, INDEX_SEARCH)
 			}
 		} else {
 			// In principle, we could use a Many2One edge for SingleRefs
@@ -162,14 +162,14 @@ func (j *Janusgraph) AddUnindexedProperty(ctx context.Context, kind kind.Kind, c
 	janusPropertyName := j.state.AddMappedPropertyName(sanitizedClassName, sanitziedPropertyName)
 
 	// Determine the type of the property
-	propertyDataType, err := j.schema.FindPropertyDataType(prop.AtDataType)
+	propertyDataType, err := j.schema.FindPropertyDataType(prop.DataType)
 	if err != nil {
 		// This must already be validated.
 		panic(fmt.Sprintf("Data type fo property '%s' is invalid; %v", prop.Name, err))
 	}
 
 	if propertyDataType.IsPrimitive() {
-		query.MakePropertyKey(string(janusPropertyName), weaviatePrimitivePropTypeToJanusPropType(schema.DataType(prop.AtDataType[0])), gremlin_schema_query.CARDINALITY_SINGLE)
+		query.MakePropertyKey(string(janusPropertyName), weaviatePrimitivePropTypeToJanusPropType(schema.DataType(prop.DataType[0])), gremlin_schema_query.CARDINALITY_SINGLE)
 	} else {
 		// In principle, we could use a Many2One edge for SingleRefs
 		query.MakeEdgeLabel(string(janusPropertyName), gremlin_schema_query.MULTIPLICITY_MULTI)
@@ -197,7 +197,7 @@ func (j *Janusgraph) AddProperty(ctx context.Context, kind kind.Kind, className 
 	janusPropertyName := j.state.AddMappedPropertyName(sanitizedClassName, sanitziedPropertyName)
 
 	// Determine the type of the property
-	propertyDataType, err := j.schema.FindPropertyDataType(prop.AtDataType)
+	propertyDataType, err := j.schema.FindPropertyDataType(prop.DataType)
 	if err != nil {
 		// This must already be validated.
 		panic(fmt.Sprintf("Data type fo property '%s' is invalid; %v", prop.Name, err))
@@ -205,9 +205,9 @@ func (j *Janusgraph) AddProperty(ctx context.Context, kind kind.Kind, className 
 
 	if propertyDataType.IsPrimitive() {
 		if propertyDataType.AsPrimitive() == schema.DataTypeString {
-			query.MakeIndexedPropertyKeyTextString(string(janusPropertyName), weaviatePrimitivePropTypeToJanusPropType(schema.DataType(prop.AtDataType[0])), gremlin_schema_query.CARDINALITY_SINGLE, INDEX_SEARCH)
+			query.MakeIndexedPropertyKeyTextString(string(janusPropertyName), weaviatePrimitivePropTypeToJanusPropType(schema.DataType(prop.DataType[0])), gremlin_schema_query.CARDINALITY_SINGLE, INDEX_SEARCH)
 		} else {
-			query.MakeIndexedPropertyKey(string(janusPropertyName), weaviatePrimitivePropTypeToJanusPropType(schema.DataType(prop.AtDataType[0])), gremlin_schema_query.CARDINALITY_SINGLE, INDEX_SEARCH)
+			query.MakeIndexedPropertyKey(string(janusPropertyName), weaviatePrimitivePropTypeToJanusPropType(schema.DataType(prop.DataType[0])), gremlin_schema_query.CARDINALITY_SINGLE, INDEX_SEARCH)
 		}
 	} else {
 		// In principle, we could use a Many2One edge for SingleRefs
@@ -246,15 +246,21 @@ func (j *Janusgraph) DropProperty(ctx context.Context, kind kind.Kind, className
 	sanitizedClassName := schema.AssertValidClassName(className)
 	sanitizedPropName := schema.AssertValidPropertyName(propName)
 
-	vertexLabel := j.state.MustGetMappedClassName(sanitizedClassName)
-	mappedPropertyName := j.state.MustGetMappedPropertyName(sanitizedClassName, sanitizedPropName)
+	vertexLabel, err := j.state.GetMappedClassName(sanitizedClassName)
+	if err != nil {
+		return fmt.Errorf("could not get mapped name for class: %v", err)
+	}
+	mappedPropertyName, err := j.state.GetMappedPropertyName(sanitizedClassName, sanitizedPropName)
+	if err != nil {
+		return fmt.Errorf("could not get mapped name for property: %v", err)
+	}
 
 	err, prop := j.schema.GetProperty(kind, sanitizedClassName, sanitizedPropName)
 	if err != nil {
-		panic("could not get property")
+		return fmt.Errorf("could not get property from schema: %v", err)
 	}
 
-	propertyDataType, err := j.schema.FindPropertyDataType(prop.AtDataType)
+	propertyDataType, err := j.schema.FindPropertyDataType(prop.DataType)
 	if err != nil {
 		// This must already be validated.
 		panic(fmt.Sprintf("Data type fo property '%s' is invalid; %v", prop.Name, err))

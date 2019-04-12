@@ -22,6 +22,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/lib/delayed_unlock"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations"
+	"github.com/creativesoftwarefdn/weaviate/restapi/operations/actions"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/things"
 	"github.com/creativesoftwarefdn/weaviate/telemetry"
 	"github.com/creativesoftwarefdn/weaviate/validation"
@@ -31,7 +32,7 @@ import (
 )
 
 type kindHandlers struct {
-	manager     kinds.Manager
+	manager     *kinds.Manager
 	requestsLog *telemetry.RequestsLog
 }
 
@@ -53,57 +54,31 @@ func (h *kindHandlers) createThing(params things.WeaviateThingsCreateParams,
 	return things.NewWeaviateThingsCreateOK().WithPayload(thing)
 }
 
-func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog) {
-	/*
-	 * HANDLE THINGS
-	 */
-	api.ThingsWeaviateThingsCreateHandler = things.WeaviateThingsCreateHandlerFunc(func(params things.WeaviateThingsCreateParams, principal *models.Principal) middleware.Responder {
-		schemaLock, err := db.SchemaLock()
-		if err != nil {
-			return things.NewWeaviateThingsCreateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+func (h *kindHandlers) createAction(params actions.WeaviateActionsCreateParams,
+	principal *models.Principal) middleware.Responder {
+	action, err := h.manager.AddAction(params.HTTPRequest.Context(), params.Body)
+	if err != nil {
+		switch err.(type) {
+		case kinds.ErrInvalidUserInput:
+			return actions.NewWeaviateActionsCreateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return actions.NewWeaviateActionsCreateInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
 		}
-		delayedLock := delayed_unlock.New(schemaLock)
-		defer unlock(delayedLock)
+	}
 
-		dbConnector := schemaLock.Connector()
+	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalAdd)
+	return actions.NewWeaviateActionsCreateOK().WithPayload(action)
+}
 
-		// Generate UUID for the new object
-		UUID := connutils.GenerateUUID()
+func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog, manager *kinds.Manager) {
+	h := &kindHandlers{manager, requestsLog}
 
-		// Validate schema given in body with the weaviate schema
-		databaseSchema := schema.HackFromDatabaseSchema(schemaLock.GetSchema())
-		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), params.Body, databaseSchema,
-			dbConnector, network, serverConfig)
-		if validatedErr != nil {
-			return things.NewWeaviateThingsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
-		}
-
-		// Make Thing-Object
-		thing := &models.Thing{}
-		thing.Schema = params.Body.Schema
-		thing.Class = params.Body.Class
-		thing.CreationTimeUnix = connutils.NowUnix()
-		thing.LastUpdateTimeUnix = 0
-		thing.ID = UUID
-
-		responseObject := &models.Thing{}
-		responseObject = thing
-
-		ctx := params.HTTPRequest.Context()
-		refSchemaUpdater := newReferenceSchemaUpdater(ctx, schemaLock.SchemaManager(), network, params.Body.Class, kind.THING_KIND)
-
-		dbConnector.AddThing(ctx, thing, UUID)
-		err = refSchemaUpdater.addNetworkDataTypes(params.Body.Schema)
-		if err != nil {
-			return things.NewWeaviateThingsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
-		}
-
-		go func() {
-			requestsLog.Register(telemetry.TypeREST, telemetry.LocalAdd)
-		}()
-
-		return things.NewWeaviateThingsCreateOK().WithPayload(responseObject)
-	})
+	api.ThingsWeaviateThingsCreateHandler = things.
+		WeaviateThingsCreateHandlerFunc(h.createThing)
+	api.ActionsWeaviateActionsCreateHandler = actions.
+		WeaviateActionsCreateHandlerFunc(h.createAction)
 
 	api.ThingsWeaviateThingsDeleteHandler = things.WeaviateThingsDeleteHandlerFunc(func(params things.WeaviateThingsDeleteParams, principal *models.Principal) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
@@ -321,7 +296,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find property '%s'; %s", params.PropertyName, err.Error())))
 		}
-		propertyDataType, err := dbSchema.FindPropertyDataType(prop.AtDataType)
+		propertyDataType, err := dbSchema.FindPropertyDataType(prop.DataType)
 		if err != nil {
 			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find datatype of property '%s'; %s", params.PropertyName, err.Error())))
@@ -418,7 +393,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find property '%s'; %s", params.PropertyName, err.Error())))
 		}
-		propertyDataType, err := dbSchema.FindPropertyDataType(prop.AtDataType)
+		propertyDataType, err := dbSchema.FindPropertyDataType(prop.DataType)
 		if err != nil {
 			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find datatype of property '%s'; %s", params.PropertyName, err.Error())))
@@ -515,7 +490,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find property '%s'; %s", params.PropertyName, err.Error())))
 		}
-		propertyDataType, err := dbSchema.FindPropertyDataType(prop.AtDataType)
+		propertyDataType, err := dbSchema.FindPropertyDataType(prop.DataType)
 		if err != nil {
 			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find datatype of property '%s'; %s", params.PropertyName, err.Error())))

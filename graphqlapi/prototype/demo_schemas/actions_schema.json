@@ -10,7 +10,7 @@
             "properties": [
                 {
                     "name": "aircraft",
-                    "@dataType": [
+                    "dataType": [
                         "Aircraft"
                     ],
                     "description": "The kind of aircraft",
@@ -35,7 +35,7 @@
                 },
                 {
                     "name": "arrivalAirport",
-                    "@dataType": [
+                    "dataType": [
                         "Airport"
                     ],
                     "description": "The airport where the flight terminates",
@@ -64,7 +64,7 @@
                 },
                 {
                     "name": "departureAirport",
-                    "@dataType": [
+                    "dataType": [
                         "Airport"
                     ],
                     "description": "The airport where the flight originates.",
@@ -93,7 +93,7 @@
                 },
                 {
                     "name": "flightNumber",
-                    "@dataType": [
+                    "dataType": [
                         "string"
                     ],
                     "description": "The unique identifier for a flight",
@@ -118,7 +118,7 @@
                 },
                 {
                     "name": "date",
-                    "@dataType": [
+                    "dataType": [
                         "date"
                     ],
                     "description": "The date the person is moving",
@@ -139,7 +139,7 @@
                 },
                 {
                     "name": "estimatedFlightDuration",
-                    "@dataType": [
+                    "dataType": [
                         "number"
                     ],
                     "description": "The estimated time in minutes the flight will take",
@@ -172,7 +172,7 @@
                 },
                 {
                     "name": "numberOfPassengers",
-                    "@dataType": [
+                    "dataType": [
                         "int"
                     ],
                     "description": "Total number of passengers",
@@ -201,7 +201,7 @@
                 },
                 {
                     "name": "isDelayed",
-                    "@dataType": [
+                    "dataType": [
                         "boolean"
                     ],
                     "description": "True if the flight is delayed",
@@ -242,7 +242,7 @@
             "properties": [
                 {
                     "name": "seller",
-                    "@dataType": [
+                    "dataType": [
                         "Airline",
                         "Person"
                     ],
@@ -272,7 +272,7 @@
                 },
                 {
                     "name": "price",
-                    "@dataType": [
+                    "dataType": [
                         "number"
                     ],
                     "description": "The offer price of a product",
@@ -297,7 +297,7 @@
                 },
                 {
                     "name": "buyer",
-                    "@dataType": [
+                    "dataType": [
                         "Person"
                     ],
                     "description": "The buyer of the good",

@@ -80,6 +80,15 @@ func (f *fakeNameSource) MustGetMappedClassName(className schema.ClassName) stat
 	}
 }
 
+func (f *fakeNameSource) GetClassNameFromMapped(className state.MappedClassName) schema.ClassName {
+	switch className {
+	case "class_18":
+		return schema.ClassName("City")
+	default:
+		panic(fmt.Sprintf("fake name source does not contain a class for mapped id '%s'", className))
+	}
+}
+
 type fakeTypeSource struct{}
 
 func (f *fakeTypeSource) GetProperty(kind kind.Kind, className schema.ClassName,
@@ -89,32 +98,32 @@ func (f *fakeTypeSource) GetProperty(kind kind.Kind, className schema.ClassName,
 	case "City":
 		switch propName {
 		case "isCapital":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"bool"}}
+			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"bool"}}
 		case "population":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"int"}}
+			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"int"}}
 		case "area":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"number"}}
+			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"number"}}
 		case "name":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"string"}}
+			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"string"}}
 		case "dateOfFirstAppearance":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"date"}}
+			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"date"}}
 		case "inCountry":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"Country"}}
+			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"Country"}}
 		}
 	case "Town":
 		switch propName {
 		case "isCapital":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"bool"}}
+			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"bool"}}
 		case "inhabitants":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"int"}}
+			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"int"}}
 		case "area":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"number"}}
+			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"number"}}
 		case "title":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"string"}}
+			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"string"}}
 		case "dateOfFirstAppearance":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"date"}}
+			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"date"}}
 		case "inCountry":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"Country"}}
+			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"Country"}}
 		}
 	}
 

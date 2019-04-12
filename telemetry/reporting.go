@@ -43,12 +43,12 @@ type etcdClient interface {
 }
 
 // NewReporter creates a new Reporter struct and returns a pointer to it.
-func NewReporter(ctx context.Context, requestsLog *RequestsLog, reportInterval int, reportURL string, telemetryEnabled bool, testing bool, client etcdClient, messaging *messages.Messaging) *Reporter {
+func NewReporter(ctx context.Context, requestsLog *RequestsLog, reportInterval int, reportURL string, telemetryDisabled bool, testing bool, client etcdClient, messaging *messages.Messaging) *Reporter {
 	return &Reporter{
 		log:         requestsLog,
 		interval:    reportInterval,
 		url:         reportURL,
-		enabled:     telemetryEnabled,
+		disabled:    telemetryDisabled,
 		transformer: NewOutputTransformer(testing),
 		poster:      NewPoster(ctx, reportURL, client, messaging),
 		client:      client,
@@ -63,7 +63,7 @@ type Reporter struct {
 	log         *RequestsLog
 	interval    int
 	url         string
-	enabled     bool
+	disabled    bool
 	transformer *OutputTransformer
 	poster      *Poster
 	client      etcdClient
@@ -75,7 +75,7 @@ type Reporter struct {
 // Start posts logged function calls in CBOR format to the provided url every <provided interval> seconds.
 // Contains a failsafe mechanism in the case the url is unreachable.
 func (r *Reporter) Start() {
-	if r.enabled {
+	if r.disabled == false {
 		for {
 			time.Sleep(time.Duration(r.interval) * time.Second)
 			extractedLog := r.log.ExtractLoggedRequests()
@@ -197,10 +197,11 @@ type Poster struct {
 func (p *Poster) ReportLoggedCalls(encoded *[]byte) {
 	req, err := http.NewRequest("POST", p.url, bytes.NewReader(*encoded))
 	req.Header.Set("Content-Type", "application/cbor")
+	req.Close = true
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
-	if err != nil || resp.Status != "200" {
+	if err != nil || !(resp.StatusCode >= 200 && resp.StatusCode <= 299) {
 		p.messaging.ErrorMessage(fmt.Sprintf("Storing log in the etcd key store because posting to endpoint failed: %s", err))
 		p.triggerPOSTFailsafe(encoded)
 	} else {

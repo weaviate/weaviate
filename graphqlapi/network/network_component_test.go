@@ -105,8 +105,8 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 									Class: "BestClass",
 									Properties: []*models.SemanticSchemaClassProperty{
 										&models.SemanticSchemaClassProperty{
-											Name:       "stringProp",
-											AtDataType: []string{"string"},
+											Name:     "stringProp",
+											DataType: []string{"string"},
 										},
 									},
 								},
@@ -130,8 +130,8 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 									Class: "BestClass",
 									Properties: []*models.SemanticSchemaClassProperty{
 										&models.SemanticSchemaClassProperty{
-											Name:       "location",
-											AtDataType: []string{"geoCoordinates"},
+											Name:     "location",
+											DataType: []string{"geoCoordinates"},
 										},
 									},
 								},
@@ -185,8 +185,8 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 									Class: "BestThing",
 									Properties: []*models.SemanticSchemaClassProperty{
 										&models.SemanticSchemaClassProperty{
-											AtDataType: []string{"string"},
-											Name:       "myStringProp",
+											DataType: []string{"string"},
+											Name:     "myStringProp",
 										},
 									},
 								},
@@ -198,8 +198,8 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 									Class: "BestAction",
 									Properties: []*models.SemanticSchemaClassProperty{
 										&models.SemanticSchemaClassProperty{
-											AtDataType: []string{"string"},
-											Name:       "myStringProp",
+											DataType: []string{"string"},
+											Name:     "myStringProp",
 										},
 									},
 								},
@@ -224,8 +224,8 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 									Class: "BestThing",
 									Properties: []*models.SemanticSchemaClassProperty{
 										&models.SemanticSchemaClassProperty{
-											AtDataType: []string{"string"},
-											Name:       "myStringProp",
+											DataType: []string{"string"},
+											Name:     "myStringProp",
 										},
 									},
 								},
@@ -237,8 +237,8 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 									Class: "BestAction",
 									Properties: []*models.SemanticSchemaClassProperty{
 										&models.SemanticSchemaClassProperty{
-											AtDataType: []string{"string"},
-											Name:       "myStringProp",
+											DataType: []string{"string"},
+											Name:     "myStringProp",
 										},
 									},
 								},
@@ -255,8 +255,8 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 									Class: "BestThing",
 									Properties: []*models.SemanticSchemaClassProperty{
 										&models.SemanticSchemaClassProperty{
-											AtDataType: []string{"string"},
-											Name:       "myStringProp",
+											DataType: []string{"string"},
+											Name:     "myStringProp",
 										},
 									},
 								},
@@ -268,8 +268,8 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 									Class: "BestAction",
 									Properties: []*models.SemanticSchemaClassProperty{
 										&models.SemanticSchemaClassProperty{
-											AtDataType: []string{"string"},
-											Name:       "myStringProp",
+											DataType: []string{"string"},
+											Name:     "myStringProp",
 										},
 									},
 								},

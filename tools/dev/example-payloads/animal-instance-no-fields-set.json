@@ -1,7 +1,4 @@
 {
-  "async": false,
-  "thing": {
-    "class": "Animal",
-    "schema": {}
-  }
+  "class": "Animal",
+  "schema": {}
 }

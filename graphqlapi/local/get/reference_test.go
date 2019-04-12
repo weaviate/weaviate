@@ -55,8 +55,8 @@ func TestLocalGetWithNetworkRefResolvesCorrectly(t *testing.T) {
 							Class: "SomeRemoteClass",
 							Properties: []*models.SemanticSchemaClassProperty{
 								&models.SemanticSchemaClassProperty{
-									AtDataType: []string{"string"},
-									Name:       "bestString",
+									DataType: []string{"string"},
+									Name:     "bestString",
 								},
 							},
 						},
@@ -154,8 +154,8 @@ func TestLocalGetNoNetworkRequestIsMadeWhenUserDoesntWantNetworkRef(t *testing.T
 							Class: "SomeRemoteClass",
 							Properties: []*models.SemanticSchemaClassProperty{
 								&models.SemanticSchemaClassProperty{
-									AtDataType: []string{"string"},
-									Name:       "bestString",
+									DataType: []string{"string"},
+									Name:     "bestString",
 								},
 							},
 						},
