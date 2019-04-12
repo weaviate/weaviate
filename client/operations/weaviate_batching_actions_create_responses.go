@@ -213,7 +213,7 @@ swagger:model WeaviateBatchingActionsCreateBody
 type WeaviateBatchingActionsCreateBody struct {
 
 	// actions
-	Actions []*models.ActionCreate `json:"actions"`
+	Actions []*models.Action `json:"actions"`
 
 	// Define which fields need to be returned. Default value is ALL
 	Fields []*string `json:"fields"`
@@ -266,7 +266,7 @@ var weaviateBatchingActionsCreateBodyFieldsItemsEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["ALL","@class","schema","key","actionId","creationTimeUnix"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["ALL","class","schema","id","creationTimeUnix"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {

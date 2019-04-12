@@ -35,7 +35,6 @@ import (
 	"encoding/json"
 	errors_ "errors"
 	"fmt"
-	"runtime"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/gorilla/websocket"
@@ -62,14 +61,14 @@ type Foobar struct {
 	client *websocket.Conn
 	kind   string
 
-	appConfig     config.Environment
+	appConfig     config.Config
 	config        Config
 	serverAddress string
 	schema        schema.Schema
 	messaging     *messages.Messaging
 }
 
-func New(config interface{}, appConfig config.Environment) (error, dbconnector.DatabaseConnector) {
+func New(config interface{}, appConfig config.Config) (error, dbconnector.DatabaseConnector) {
 	f := &Foobar{
 		appConfig: appConfig,
 	}
@@ -91,14 +90,6 @@ func New(config interface{}, appConfig config.Environment) (error, dbconnector.D
 type Config struct {
 	Host string
 	Port int
-}
-
-func (f *Foobar) trace() {
-	pc := make([]uintptr, 10) // at least 1 entry needed
-	runtime.Callers(2, pc)
-	f2 := runtime.FuncForPC(pc[0])
-	//file, line := f2.FileLine(pc[0])
-	fmt.Printf("THIS FUNCTION RUNS: %s\n", f2.Name())
 }
 
 // setConfig sets variables, which can be placed in the config file section
@@ -252,9 +243,9 @@ func (f *Foobar) AddThingsBatch(ctx context.Context, things batchmodels.Things) 
 	return nil
 }
 
-// GetThing fills the given ThingGetResponse with the values from the database,
+// GetThing fills the given Thing with the values from the database,
 // based on the given UUID.
-func (f *Foobar) GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error {
+func (f *Foobar) GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.Thing) error {
 
 	// thingResponse should be populated with the response that comes from the DB.
 	// thingResponse = based on the ontology
@@ -274,7 +265,7 @@ func (f *Foobar) GetThings(ctx context.Context, UUIDs []strfmt.UUID, thingRespon
 
 // ListThings fills the given ThingsListResponse with the values from the
 // database, based on the given parameters.
-func (f *Foobar) ListThings(ctx context.Context, first int, offset int, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error {
+func (f *Foobar) ListThings(ctx context.Context, limit int, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error {
 
 	// thingsResponse should be populated with the response that comes from the DB.
 	// thingsResponse = based on the ontology
@@ -298,16 +289,6 @@ func (f *Foobar) DeleteThing(ctx context.Context, thing *models.Thing, UUID strf
 	// Run the query to delete the thing based on its UUID.
 
 	// If success return nil, otherwise return the error
-	return nil
-}
-
-// HistoryThing fills the history of a thing based on its UUID
-func (f *Foobar) HistoryThing(ctx context.Context, UUID strfmt.UUID, history *models.ThingHistory) error {
-	return nil
-}
-
-// MoveToHistoryThing moves a thing to history
-func (f *Foobar) MoveToHistoryThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID, deleted bool) error {
 	return nil
 }
 
@@ -341,9 +322,9 @@ func (f *Foobar) AddAction(ctx context.Context, action *models.Action, UUID strf
 	return nil
 }
 
-// GetAction fills the given ActionGetResponse with the values from the
+// GetAction fills the given Action with the values from the
 // database, based on the given UUID.
-func (f *Foobar) GetAction(ctx context.Context, UUID strfmt.UUID, actionResponse *models.ActionGetResponse) error {
+func (f *Foobar) GetAction(ctx context.Context, UUID strfmt.UUID, actionResponse *models.Action) error {
 	// actionResponse should be populated with the response that comes from the DB.
 	// actionResponse = based on the ontology
 
@@ -359,7 +340,7 @@ func (f *Foobar) GetActions(ctx context.Context, UUIDs []strfmt.UUID, actionsRes
 }
 
 // ListActions fills the ActionReponse  with a list of all actions
-func (f *Foobar) ListActions(ctx context.Context, first int, offset int, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error {
+func (f *Foobar) ListActions(ctx context.Context, limit int, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error {
 	// If success return nil, otherwise return the error
 	return nil
 }
@@ -377,16 +358,6 @@ func (f *Foobar) DeleteAction(ctx context.Context, action *models.Action, UUID s
 	// Run the query to delete the action based on its UUID.
 
 	// If success return nil, otherwise return the error
-	return nil
-}
-
-// HistoryAction fills the history of a Action based on its UUID
-func (f *Foobar) HistoryAction(ctx context.Context, UUID strfmt.UUID, history *models.ActionHistory) error {
-	return nil
-}
-
-// MoveToHistoryAction moves an action to history
-func (f *Foobar) MoveToHistoryAction(ctx context.Context, action *models.Action, UUID strfmt.UUID, deleted bool) error {
 	return nil
 }
 

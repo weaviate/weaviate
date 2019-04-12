@@ -88,7 +88,7 @@ type WeaviateThingsDeleteNoContent struct {
 }
 
 func (o *WeaviateThingsDeleteNoContent) Error() string {
-	return fmt.Sprintf("[DELETE /things/{thingId}][%d] weaviateThingsDeleteNoContent ", 204)
+	return fmt.Sprintf("[DELETE /things/{id}][%d] weaviateThingsDeleteNoContent ", 204)
 }
 
 func (o *WeaviateThingsDeleteNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -109,7 +109,7 @@ type WeaviateThingsDeleteUnauthorized struct {
 }
 
 func (o *WeaviateThingsDeleteUnauthorized) Error() string {
-	return fmt.Sprintf("[DELETE /things/{thingId}][%d] weaviateThingsDeleteUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /things/{id}][%d] weaviateThingsDeleteUnauthorized ", 401)
 }
 
 func (o *WeaviateThingsDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -130,7 +130,7 @@ type WeaviateThingsDeleteForbidden struct {
 }
 
 func (o *WeaviateThingsDeleteForbidden) Error() string {
-	return fmt.Sprintf("[DELETE /things/{thingId}][%d] weaviateThingsDeleteForbidden ", 403)
+	return fmt.Sprintf("[DELETE /things/{id}][%d] weaviateThingsDeleteForbidden ", 403)
 }
 
 func (o *WeaviateThingsDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -151,7 +151,7 @@ type WeaviateThingsDeleteNotFound struct {
 }
 
 func (o *WeaviateThingsDeleteNotFound) Error() string {
-	return fmt.Sprintf("[DELETE /things/{thingId}][%d] weaviateThingsDeleteNotFound ", 404)
+	return fmt.Sprintf("[DELETE /things/{id}][%d] weaviateThingsDeleteNotFound ", 404)
 }
 
 func (o *WeaviateThingsDeleteNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -173,7 +173,7 @@ type WeaviateThingsDeleteInternalServerError struct {
 }
 
 func (o *WeaviateThingsDeleteInternalServerError) Error() string {
-	return fmt.Sprintf("[DELETE /things/{thingId}][%d] weaviateThingsDeleteInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[DELETE /things/{id}][%d] weaviateThingsDeleteInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *WeaviateThingsDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

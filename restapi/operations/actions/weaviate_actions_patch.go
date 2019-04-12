@@ -41,7 +41,7 @@ func NewWeaviateActionsPatch(ctx *middleware.Context, handler WeaviateActionsPat
 	return &WeaviateActionsPatch{Context: ctx, Handler: handler}
 }
 
-/*WeaviateActionsPatch swagger:route PATCH /actions/{actionId} actions weaviateActionsPatch
+/*WeaviateActionsPatch swagger:route PATCH /actions/{id} actions weaviateActionsPatch
 
 Update an Action based on its UUID (using patch semantics).
 

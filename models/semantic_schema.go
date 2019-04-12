@@ -30,10 +30,6 @@ import (
 // swagger:model SemanticSchema
 type SemanticSchema struct {
 
-	// URL of the context.
-	// Format: uri
-	AtContext strfmt.URI `json:"@context,omitempty"`
-
 	// Semantic classes that are available.
 	Classes []*SemanticSchemaClass `json:"classes"`
 
@@ -53,10 +49,6 @@ type SemanticSchema struct {
 func (m *SemanticSchema) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateAtContext(formats); err != nil {
-		res = append(res, err)
-	}
-
 	if err := m.validateClasses(formats); err != nil {
 		res = append(res, err)
 	}
@@ -72,19 +64,6 @@ func (m *SemanticSchema) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
-	return nil
-}
-
-func (m *SemanticSchema) validateAtContext(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.AtContext) { // not required
-		return nil
-	}
-
-	if err := validate.FormatOf("@context", "body", "uri", m.AtContext.String(), formats); err != nil {
-		return err
-	}
-
 	return nil
 }
 

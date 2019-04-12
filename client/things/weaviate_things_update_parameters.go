@@ -74,12 +74,12 @@ for the weaviate things update operation typically these are written to a http.R
 type WeaviateThingsUpdateParams struct {
 
 	/*Body*/
-	Body *models.ThingUpdate
-	/*ThingID
+	Body *models.Thing
+	/*ID
 	  Unique ID of the Thing.
 
 	*/
-	ThingID strfmt.UUID
+	ID strfmt.UUID
 
 	timeout    time.Duration
 	Context    context.Context
@@ -120,25 +120,25 @@ func (o *WeaviateThingsUpdateParams) SetHTTPClient(client *http.Client) {
 }
 
 // WithBody adds the body to the weaviate things update params
-func (o *WeaviateThingsUpdateParams) WithBody(body *models.ThingUpdate) *WeaviateThingsUpdateParams {
+func (o *WeaviateThingsUpdateParams) WithBody(body *models.Thing) *WeaviateThingsUpdateParams {
 	o.SetBody(body)
 	return o
 }
 
 // SetBody adds the body to the weaviate things update params
-func (o *WeaviateThingsUpdateParams) SetBody(body *models.ThingUpdate) {
+func (o *WeaviateThingsUpdateParams) SetBody(body *models.Thing) {
 	o.Body = body
 }
 
-// WithThingID adds the thingID to the weaviate things update params
-func (o *WeaviateThingsUpdateParams) WithThingID(thingID strfmt.UUID) *WeaviateThingsUpdateParams {
-	o.SetThingID(thingID)
+// WithID adds the id to the weaviate things update params
+func (o *WeaviateThingsUpdateParams) WithID(id strfmt.UUID) *WeaviateThingsUpdateParams {
+	o.SetID(id)
 	return o
 }
 
-// SetThingID adds the thingId to the weaviate things update params
-func (o *WeaviateThingsUpdateParams) SetThingID(thingID strfmt.UUID) {
-	o.ThingID = thingID
+// SetID adds the id to the weaviate things update params
+func (o *WeaviateThingsUpdateParams) SetID(id strfmt.UUID) {
+	o.ID = id
 }
 
 // WriteToRequest writes these params to a swagger request
@@ -155,8 +155,8 @@ func (o *WeaviateThingsUpdateParams) WriteToRequest(r runtime.ClientRequest, reg
 		}
 	}
 
-	// path param thingId
-	if err := r.SetPathParam("thingId", o.ThingID.String()); err != nil {
+	// path param id
+	if err := r.SetPathParam("id", o.ID.String()); err != nil {
 		return err
 	}
 

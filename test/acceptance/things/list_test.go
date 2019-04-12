@@ -29,27 +29,23 @@ import (
 func TestListAll(t *testing.T) {
 	t.Parallel()
 
-	params1 := things.NewWeaviateThingsCreateParams().WithBody(things.WeaviateThingsCreateBody{
-		Thing: &models.ThingCreate{
-			AtContext: "http://example.org",
-			AtClass:   "TestThing",
-			Schema:    map[string]interface{}{},
-		},
-	})
-	resp1, _, err := helper.Client(t).Things.WeaviateThingsCreate(params1, nil)
+	params1 := things.NewWeaviateThingsCreateParams().WithBody(
+		&models.Thing{
+			Class:  "TestThing",
+			Schema: map[string]interface{}{},
+		})
+	resp1, err := helper.Client(t).Things.WeaviateThingsCreate(params1, nil)
 	assert.Nil(t, err, "creation should succeed")
-	thing1ID := resp1.Payload.ThingID
+	thing1ID := resp1.Payload.ID
 
-	params2 := things.NewWeaviateThingsCreateParams().WithBody(things.WeaviateThingsCreateBody{
-		Thing: &models.ThingCreate{
-			AtContext: "http://example.org",
-			AtClass:   "TestThing",
-			Schema:    map[string]interface{}{},
-		},
-	})
-	resp2, _, err := helper.Client(t).Things.WeaviateThingsCreate(params2, nil)
+	params2 := things.NewWeaviateThingsCreateParams().WithBody(
+		&models.Thing{
+			Class:  "TestThing",
+			Schema: map[string]interface{}{},
+		})
+	resp2, err := helper.Client(t).Things.WeaviateThingsCreate(params2, nil)
 	assert.Nil(t, err, "creation should succeed")
-	thing2ID := resp2.Payload.ThingID
+	thing2ID := resp2.Payload.ID
 
 	// wait for both things to be indexed
 	assertGetThingEventually(t, thing1ID)
@@ -63,12 +59,12 @@ func TestListAll(t *testing.T) {
 	found2 := false
 
 	for _, thing := range resp.Payload.Things {
-		if thing.ThingID == resp1.Payload.ThingID {
+		if thing.ID == resp1.Payload.ID {
 			assert.False(t, found1, "found double ID for thing 1!")
 			found1 = true
 		}
 
-		if thing.ThingID == resp2.Payload.ThingID {
+		if thing.ID == resp2.Payload.ID {
 			assert.False(t, found2, "found double ID for thing 2!")
 			found2 = true
 		}

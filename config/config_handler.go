@@ -28,18 +28,9 @@ import (
 // DefaultConfigFile is the default file when no config file is provided
 const DefaultConfigFile string = "./weaviate.conf.json"
 
-// DefaultEnvironment is the default env when no env is provided
-const DefaultEnvironment string = "development"
-
 // Flags are input options
 type Flags struct {
-	ConfigSection string `long:"config" description:"the section inside the config file that has to be used"`
-	ConfigFile    string `long:"config-file" description:"path to config file (default: ./weaviate.conf.json)"`
-}
-
-// File gives the outline of the config file
-type File struct {
-	Environments []Environment `json:"environments"`
+	ConfigFile string `long:"config-file" description:"path to config file (default: ./weaviate.conf.json)"`
 }
 
 // Telemetry gives the outline of the telemetry parameters in the config file
@@ -49,20 +40,23 @@ type Telemetry struct {
 	Disabled  bool   `json:"disabled" yaml:"disabled"`
 }
 
-// Environment outline of the environment inside the config file
-type Environment struct {
+// Config outline of the config file
+type Config struct {
 	Name                 string          `json:"name" yaml:"name"`
 	AnalyticsEngine      AnalyticsEngine `json:"analytics_engine" yaml:"analytics_engine"`
 	Database             Database        `json:"database" yaml:"database"`
-	Broker               Broker          `json:"broker" yaml:"broker"`
 	Network              *Network        `json:"network" yaml:"network"`
-	Limit                int64           `json:"limit" yaml:"limit"`
 	Debug                bool            `json:"debug" yaml:"debug"`
-	Development          Development     `json:"development" yaml:"development"`
+	QueryDefaults        QueryDefaults   `json:"query_defaults" yaml:"query_defaults"`
 	Contextionary        Contextionary   `json:"contextionary" yaml:"contextionary"`
 	ConfigurationStorage ConfigStore     `json:"configuration_storage" yaml:"configuration_storage"`
 	Authentication       Authentication  `json:"authentication" yaml:"authentication"`
 	Telemetry            Telemetry       `json:"telemetry" yaml:"telemetry"`
+}
+
+// QueryDefaults for optional parameters
+type QueryDefaults struct {
+	Limit int64 `json:"limit" yaml:"limit"`
 }
 
 type Contextionary struct {
@@ -99,22 +93,10 @@ type ConfigStore struct {
 	URL  string `json:"url" yaml:"url"`
 }
 
-// Broker checks if broker details are set
-type Broker struct {
-	Host string `json:"host" yaml:"host"`
-	Port int32  `json:"port" yaml:"port"`
-}
-
 // Database is the outline of the database
 type Database struct {
 	Name           string      `json:"name" yaml:"name"`
 	DatabaseConfig interface{} `json:"database_config" yaml:"database_config"`
-}
-
-// Development is the outline of (temporary) config variables
-// Note: the purpose is that these variables will be moved somewhere else in time
-type Development struct {
-	ExternalInstances []Instance `json:"external_instances" yaml:"external_instances"`
 }
 
 // Instance is the outline for an external instance whereto crossreferences can be resolved
@@ -137,9 +119,9 @@ func GetConfigOptionGroup() *swag.CommandLineOptionsGroup {
 
 // WeaviateConfig represents the used schema's
 type WeaviateConfig struct {
-	Environment Environment
-	Hostname    string
-	Scheme      string
+	Config   Config
+	Hostname string
+	Scheme   string
 }
 
 // GetHostAddress from config locations
@@ -150,7 +132,6 @@ func (f *WeaviateConfig) GetHostAddress() string {
 // LoadConfig from config locations
 func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, m *messages.Messaging) error {
 	// Get command line flags
-	configEnvironment := flags.Options.(*Flags).ConfigSection
 	configFileName := flags.Options.(*Flags).ConfigFile
 
 	// Set default if not given
@@ -165,50 +146,28 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, m *mess
 		return errors.New("config file '" + configFileName + "' not found.")
 	}
 
-	// Set default env if not given
-	if err != nil || configEnvironment == "" {
-		configEnvironment = DefaultEnvironment
-		m.InfoMessage("Using default environment '" + DefaultEnvironment + "'.")
-	}
-
-	configFile, err := f.parseConfigFile(file, configFileName)
+	config, err := f.parseConfigFile(file, configFileName)
 	if err != nil {
 		return err
 	}
 
-	// Loop through all values in object to see whether the given connection-name exists
-	foundEnvironment := false
-	for _, env := range configFile.Environments {
-		if env.Name == configEnvironment {
-			foundEnvironment = true
+	f.Config = config
 
-			// Get config interface data
-			f.Environment = env
-		}
-	}
-
-	// Return default database because no good config is found
-	if !foundEnvironment {
-		return errors.New("no environment found with name '" + configEnvironment + "'")
-	}
-
-	if err := f.Environment.Authentication.Validate(); err != nil {
+	if err := f.Config.Authentication.Validate(); err != nil {
 		return fmt.Errorf("invalid config: %v", err)
 	}
 
-	m.InfoMessage("Config file found, loading environment..")
-
 	// Check the debug mode
-	m.Debug = f.Environment.Debug
-	if f.Environment.Debug {
+	m.Debug = f.Config.Debug
+	if f.Config.Debug {
 		m.InfoMessage("Running in DEBUG-mode")
 	}
 
 	return nil
 }
 
-func (f *WeaviateConfig) parseConfigFile(file []byte, name string) (File, error) {
-	var config File
+func (f *WeaviateConfig) parseConfigFile(file []byte, name string) (Config, error) {
+	var config Config
 
 	m := regexp.MustCompile(".*\\.(\\w+)$").FindStringSubmatch(name)
 	if len(m) < 2 {
@@ -231,28 +190,4 @@ func (f *WeaviateConfig) parseConfigFile(file []byte, name string) (File, error)
 	}
 
 	return config, nil
-}
-
-// GetInstance from config
-func (f *WeaviateConfig) GetInstance(hostname string) (instance Instance, err error) {
-	err = nil
-
-	found := false
-
-	// For each instance, check if hostname is the same
-	for _, v := range f.Environment.Development.ExternalInstances {
-		if hostname == v.URL {
-			instance = v
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		// Didn't find item in list
-		err = errors.New("can't find key for given instance")
-		return
-	}
-
-	return
 }

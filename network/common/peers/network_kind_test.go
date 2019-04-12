@@ -66,13 +66,9 @@ func TestGetKindHappyPathWithThings(t *testing.T) {
 	happyPathHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		body := models.ThingGetResponse{
-			ThingID: "best-uuid",
-			Thing: models.Thing{
-				ThingCreate: models.ThingCreate{
-					AtClass: "Instrument",
-				},
-			},
+		body := models.Thing{
+			ID:    "best-uuid",
+			Class: "Instrument",
 		}
 		json.NewEncoder(w).Encode(body)
 	}
@@ -86,7 +82,7 @@ func TestGetKindHappyPathWithThings(t *testing.T) {
 	t.Run("matches the specified schema", func(t *testing.T) {
 		server.matchers = []http.HandlerFunc{happyPathHandler}
 		result, _ := peers.RemoteKind(thing)
-		assert.Equal(t, "Instrument", result.(models.Thing).AtClass, "found thing's schema should match")
+		assert.Equal(t, "Instrument", result.(*models.Thing).Class, "found thing's schema should match")
 	})
 
 	t.Run("queries the correct path", func(t *testing.T) {
@@ -126,13 +122,9 @@ func TestGetKindHappyPathWithActions(t *testing.T) {
 	happyPathHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		body := models.ActionGetResponse{
-			ActionID: "best-uuid-2",
-			Action: models.Action{
-				ActionCreate: models.ActionCreate{
-					AtClass: "Recital",
-				},
-			},
+		body := models.Action{
+			ID:    "best-uuid-2",
+			Class: "Recital",
 		}
 		json.NewEncoder(w).Encode(body)
 	}
@@ -146,7 +138,7 @@ func TestGetKindHappyPathWithActions(t *testing.T) {
 	t.Run("matches the specified schema", func(t *testing.T) {
 		server.matchers = []http.HandlerFunc{happyPathHandler}
 		result, _ := peers.RemoteKind(action)
-		assert.Equal(t, "Recital", result.(models.Action).AtClass, "found action's schema should match")
+		assert.Equal(t, "Recital", result.(*models.Action).Class, "found action's schema should match")
 	})
 
 	t.Run("queries the correct path", func(t *testing.T) {
@@ -186,13 +178,9 @@ func TestGetKindSchemaMismatch(t *testing.T) {
 	happyPathHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		body := models.ActionGetResponse{
-			ActionID: "best-uuid-2",
-			Action: models.Action{
-				ActionCreate: models.ActionCreate{
-					AtClass: "Recital",
-				},
-			},
+		body := models.Action{
+			ID:    "best-uuid-2",
+			Class: "Recital",
 		}
 		json.NewEncoder(w).Encode(body)
 	}

@@ -41,7 +41,7 @@ func NewWeaviateThingsReferencesUpdate(ctx *middleware.Context, handler Weaviate
 	return &WeaviateThingsReferencesUpdate{Context: ctx, Handler: handler}
 }
 
-/*WeaviateThingsReferencesUpdate swagger:route PUT /things/{thingId}/references/{propertyName} things weaviateThingsReferencesUpdate
+/*WeaviateThingsReferencesUpdate swagger:route PUT /things/{id}/references/{propertyName} things weaviateThingsReferencesUpdate
 
 Replace all references to a class-property.
 

@@ -22,31 +22,28 @@ import (
 )
 
 func assertCreateThing(t *testing.T, className string, schema map[string]interface{}) strfmt.UUID {
-	params := things.NewWeaviateThingsCreateParams().WithBody(things.WeaviateThingsCreateBody{
-		Thing: &models.ThingCreate{
-			AtContext: "http://example.org",
-			AtClass:   className,
-			Schema:    schema,
-		},
-		Async: false,
-	})
+	params := things.NewWeaviateThingsCreateParams().WithBody(
+		&models.Thing{
+			Class:  className,
+			Schema: schema,
+		})
 
-	resp, _, err := helper.Client(t).Things.WeaviateThingsCreate(params, nil)
+	resp, err := helper.Client(t).Things.WeaviateThingsCreate(params, nil)
 
 	var thingID strfmt.UUID
 
 	// Ensure that the response is OK
 	helper.AssertRequestOk(t, resp, err, func() {
-		thingID = resp.Payload.ThingID
+		thingID = resp.Payload.ID
 	})
 
 	return thingID
 }
 
-func assertGetThing(t *testing.T, uuid strfmt.UUID) *models.ThingGetResponse {
-	getResp, err := helper.Client(t).Things.WeaviateThingsGet(things.NewWeaviateThingsGetParams().WithThingID(uuid), nil)
+func assertGetThing(t *testing.T, uuid strfmt.UUID) *models.Thing {
+	getResp, err := helper.Client(t).Things.WeaviateThingsGet(things.NewWeaviateThingsGetParams().WithID(uuid), nil)
 
-	var thing *models.ThingGetResponse
+	var thing *models.Thing
 
 	helper.AssertRequestOk(t, getResp, err, func() {
 		thing = getResp.Payload
@@ -55,20 +52,20 @@ func assertGetThing(t *testing.T, uuid strfmt.UUID) *models.ThingGetResponse {
 	return thing
 }
 
-func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.ThingGetResponse {
+func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.Thing {
 	var (
 		resp *things.WeaviateThingsGetOK
 		err  error
 	)
 
 	checkThunk := func() interface{} {
-		resp, err = helper.Client(t).Things.WeaviateThingsGet(things.NewWeaviateThingsGetParams().WithThingID(uuid), nil)
+		resp, err = helper.Client(t).Things.WeaviateThingsGet(things.NewWeaviateThingsGetParams().WithID(uuid), nil)
 		return err == nil
 	}
 
 	helper.AssertEventuallyEqual(t, true, checkThunk)
 
-	var thing *models.ThingGetResponse
+	var thing *models.Thing
 
 	helper.AssertRequestOk(t, resp, err, func() {
 		thing = resp.Payload

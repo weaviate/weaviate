@@ -154,7 +154,7 @@ func (b *Query) prop(prop aggregate.Property) (*propertyAggregation, error) {
 		return nil, fmt.Errorf("could not find property '%s' in schema: %s", prop.Name, err)
 	}
 
-	dataType, err := b.typeSource.FindPropertyDataType(parsed.AtDataType)
+	dataType, err := b.typeSource.FindPropertyDataType(parsed.DataType)
 	if err != nil {
 		return nil, fmt.Errorf("could not find data type of prop '%s': %s", prop.Name, err)
 	}

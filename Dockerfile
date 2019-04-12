@@ -83,16 +83,16 @@ ENTRYPOINT ["/bin/weaviate"]
 # Development configuration with demo dataset
 FROM weaviate_base AS development
 COPY ./tools/dev/schema /schema
-COPY ./tools/dev/config.yaml /weaviate.conf.yaml
-CMD [ "--host", "0.0.0.0", "--port", "8080", "--scheme", "http", "--config-file", "./weaviate.conf.yaml", "--config", "janusgraph_docker"]
+COPY ./tools/dev/config.docker.yaml /weaviate.conf.yaml
+CMD [ "--host", "0.0.0.0", "--port", "8080", "--scheme", "http", "--config-file", "./weaviate.conf.yaml" ]
 
 ###############################################################################
 # Configuration used for the acceptance tests.
 FROM weaviate_base AS test
 COPY ./test/schema/test-action-schema.json /schema/actions_schema.json
 COPY ./test/schema/test-thing-schema.json /schema/things_schema.json
-COPY ./tools/dev/config.yaml /weaviate.conf.yaml
-CMD [ "--host", "0.0.0.0", "--port", "8080", "--scheme", "http", "--config-file", "./weaviate.conf.yaml", "--config", "janusgraph_docker"]
+COPY ./tools/dev/config.docker.yaml /weaviate.conf.yaml
+CMD [ "--host", "0.0.0.0", "--port", "8080", "--scheme", "http", "--config-file", "./weaviate.conf.yaml" ]
 
 ###############################################################################
 # This is the production image for running waviates configurations; contains the executable & contextionary

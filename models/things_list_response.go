@@ -29,7 +29,7 @@ import (
 type ThingsListResponse struct {
 
 	// The actual list of Things.
-	Things []*ThingGetResponse `json:"things"`
+	Things []*Thing `json:"things"`
 
 	// The total number of Things for the query. The number of items in a response may be smaller due to paging.
 	TotalResults int64 `json:"totalResults,omitempty"`

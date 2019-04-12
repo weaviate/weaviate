@@ -33,15 +33,11 @@ func TestLocalGetWithNetworkRefResolvesCorrectly(t *testing.T) {
 	happyPathHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		body := models.ThingGetResponse{
-			ThingID: "best-id",
-			Thing: models.Thing{
-				ThingCreate: models.ThingCreate{
-					AtClass: "SomeRemoteClass",
-					Schema: map[string]interface{}{
-						"bestString": "someValue",
-					},
-				},
+		body := models.Thing{
+			ID:    "best-id",
+			Class: "SomeRemoteClass",
+			Schema: map[string]interface{}{
+				"bestString": "someValue",
 			},
 		}
 		json.NewEncoder(w).Encode(body)
@@ -59,8 +55,8 @@ func TestLocalGetWithNetworkRefResolvesCorrectly(t *testing.T) {
 							Class: "SomeRemoteClass",
 							Properties: []*models.SemanticSchemaClassProperty{
 								&models.SemanticSchemaClassProperty{
-									AtDataType: []string{"string"},
-									Name:       "bestString",
+									DataType: []string{"string"},
+									Name:     "bestString",
 								},
 							},
 						},
@@ -158,8 +154,8 @@ func TestLocalGetNoNetworkRequestIsMadeWhenUserDoesntWantNetworkRef(t *testing.T
 							Class: "SomeRemoteClass",
 							Properties: []*models.SemanticSchemaClassProperty{
 								&models.SemanticSchemaClassProperty{
-									AtDataType: []string{"string"},
-									Name:       "bestString",
+									DataType: []string{"string"},
+									Name:     "bestString",
 								},
 							},
 						},

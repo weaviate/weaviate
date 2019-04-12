@@ -17,6 +17,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/state"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
@@ -120,34 +121,34 @@ func (f *fakeTypeSource) GetProperty(kind kind.Kind, className schema.ClassName,
 	case "City":
 		switch propName {
 		case "isCapital":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"bool"}}
+			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"bool"}}
 		case "population":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"int"}}
+			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"int"}}
 		case "area":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"number"}}
+			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"number"}}
 		case "name":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"string"}}
+			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"string"}}
 		case "dateOfFirstAppearance":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"date"}}
+			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"date"}}
 		case "inCountry":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"Country"}}
+			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"Country"}}
 		}
 	case "Country":
 		switch propName {
 		case "name":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"string"}}
+			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"string"}}
 		case "inContinent":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"Continent"}}
+			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"Continent"}}
 		}
 	case "Continent":
 		switch propName {
 		case "onPlanet":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"Planet"}}
+			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"Planet"}}
 		}
 	case "Planet":
 		switch propName {
 		case "name":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"string"}}
+			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"string"}}
 		}
 	}
 
@@ -213,7 +214,7 @@ type testCases []testCase
 func (tests testCases) AssertQuery(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			query, err := NewQuery(test.inputParams, &fakeNameSource{}, &fakeTypeSource{}).String()
+			query, err := NewQuery(test.inputParams, &fakeNameSource{}, &fakeTypeSource{}, config.QueryDefaults{Limit: 20}).String()
 			require.Equal(t, test.expectedErr, err, "should match expected error")
 			assert.Equal(t, breakOnDot(stripAll(test.expectedQuery)), breakOnDot(stripAll(query)), "should match the query")
 		})

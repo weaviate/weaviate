@@ -41,7 +41,7 @@ func NewWeaviateActionUpdate(ctx *middleware.Context, handler WeaviateActionUpda
 	return &WeaviateActionUpdate{Context: ctx, Handler: handler}
 }
 
-/*WeaviateActionUpdate swagger:route PUT /actions/{actionId} actions weaviateActionUpdate
+/*WeaviateActionUpdate swagger:route PUT /actions/{id} actions weaviateActionUpdate
 
 Update an Action based on its UUID.
 

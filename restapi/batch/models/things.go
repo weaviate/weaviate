@@ -47,9 +47,9 @@ func (b Things) Response() []*models.ThingsGetResponse {
 			errorResponse = errPayloadFromSingleErr(thing.Err)
 		}
 
+		thing.Thing.ID = thing.UUID
 		response[i] = &models.ThingsGetResponse{
-			Thing:   *thing.Thing,
-			ThingID: thing.UUID,
+			Thing: *thing.Thing,
 			Result: &models.ThingsGetResponseAO1Result{
 				Errors: errorResponse,
 			},

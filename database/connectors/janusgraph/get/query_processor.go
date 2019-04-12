@@ -249,7 +249,7 @@ func (p *Processor) processLocalRefEdge(o []interface{}, crossRefProp string,
 	}
 
 	return map[string]interface{}{
-		strings.Title(crossRefProp): []interface{}{get.LocalRef{Fields: processedVertex, AtClass: string(linkedClassName)}},
+		strings.Title(crossRefProp): []interface{}{get.LocalRef{Fields: processedVertex, Class: string(linkedClassName)}},
 	}, nil
 }
 

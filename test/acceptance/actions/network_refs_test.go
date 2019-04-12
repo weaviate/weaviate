@@ -47,7 +47,7 @@ func TestCanAddSingleNetworkRef(t *testing.T) {
 		class := assertClassInSchema(t, schema.Actions, "TestAction")
 		prop := assertPropertyInClass(t, class, "testCref")
 		expectedDataType := []string{"TestThing", "RemoteWeaviateForAcceptanceTest/Instruments"}
-		assert.Equal(t, expectedDataType, prop.AtDataType, "prop should have old and newly added dataTypes")
+		assert.Equal(t, expectedDataType, prop.DataType, "prop should have old and newly added dataTypes")
 	})
 }
 
@@ -72,8 +72,8 @@ func TestCanPatchSingleNetworkRef(t *testing.T) {
 	t.Run("it can apply the patch", func(t *testing.T) {
 		params := actions.NewWeaviateActionsPatchParams().
 			WithBody([]*models.PatchDocument{patch}).
-			WithActionID(actionID)
-		patchResp, _, err := helper.Client(t).Actions.WeaviateActionsPatch(params, nil)
+			WithID(actionID)
+		patchResp, err := helper.Client(t).Actions.WeaviateActionsPatch(params, nil)
 		helper.AssertRequestOk(t, patchResp, err, nil)
 	})
 
@@ -91,6 +91,6 @@ func TestCanPatchSingleNetworkRef(t *testing.T) {
 		class := assertClassInSchema(t, schema.Actions, "TestAction")
 		prop := assertPropertyInClass(t, class, "testCref")
 		expectedDataType := []string{"TestThing", "RemoteWeaviateForAcceptanceTest/Instruments"}
-		assert.Equal(t, expectedDataType, prop.AtDataType, "prop should have old and newly added dataTypes")
+		assert.Equal(t, expectedDataType, prop.DataType, "prop should have old and newly added dataTypes")
 	})
 }

@@ -48,17 +48,17 @@ func (f *fakeTypeSource) GetProperty(kind kind.Kind, className schema.ClassName,
 
 	switch propName {
 	case "isCapital":
-		return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"bool"}}
+		return nil, &models.SemanticSchemaClassProperty{DataType: []string{"bool"}}
 	case "population":
-		return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"int"}}
+		return nil, &models.SemanticSchemaClassProperty{DataType: []string{"int"}}
 	case "area":
-		return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"number"}}
+		return nil, &models.SemanticSchemaClassProperty{DataType: []string{"number"}}
 	case "name":
-		return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"string"}}
+		return nil, &models.SemanticSchemaClassProperty{DataType: []string{"string"}}
 	case "dateOfFirstApperance":
-		return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"date"}}
+		return nil, &models.SemanticSchemaClassProperty{DataType: []string{"date"}}
 	case "inCountry":
-		return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"Country"}}
+		return nil, &models.SemanticSchemaClassProperty{DataType: []string{"Country"}}
 	}
 
 	return fmt.Errorf("fake type source does not have an implementation for prop '%s'", propName), nil

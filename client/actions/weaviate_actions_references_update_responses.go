@@ -88,7 +88,7 @@ type WeaviateActionsReferencesUpdateOK struct {
 }
 
 func (o *WeaviateActionsReferencesUpdateOK) Error() string {
-	return fmt.Sprintf("[PUT /actions/{actionId}/references/{propertyName}][%d] weaviateActionsReferencesUpdateOK ", 200)
+	return fmt.Sprintf("[PUT /actions/{id}/references/{propertyName}][%d] weaviateActionsReferencesUpdateOK ", 200)
 }
 
 func (o *WeaviateActionsReferencesUpdateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -109,7 +109,7 @@ type WeaviateActionsReferencesUpdateUnauthorized struct {
 }
 
 func (o *WeaviateActionsReferencesUpdateUnauthorized) Error() string {
-	return fmt.Sprintf("[PUT /actions/{actionId}/references/{propertyName}][%d] weaviateActionsReferencesUpdateUnauthorized ", 401)
+	return fmt.Sprintf("[PUT /actions/{id}/references/{propertyName}][%d] weaviateActionsReferencesUpdateUnauthorized ", 401)
 }
 
 func (o *WeaviateActionsReferencesUpdateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -130,7 +130,7 @@ type WeaviateActionsReferencesUpdateForbidden struct {
 }
 
 func (o *WeaviateActionsReferencesUpdateForbidden) Error() string {
-	return fmt.Sprintf("[PUT /actions/{actionId}/references/{propertyName}][%d] weaviateActionsReferencesUpdateForbidden ", 403)
+	return fmt.Sprintf("[PUT /actions/{id}/references/{propertyName}][%d] weaviateActionsReferencesUpdateForbidden ", 403)
 }
 
 func (o *WeaviateActionsReferencesUpdateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -152,7 +152,7 @@ type WeaviateActionsReferencesUpdateUnprocessableEntity struct {
 }
 
 func (o *WeaviateActionsReferencesUpdateUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[PUT /actions/{actionId}/references/{propertyName}][%d] weaviateActionsReferencesUpdateUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[PUT /actions/{id}/references/{propertyName}][%d] weaviateActionsReferencesUpdateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *WeaviateActionsReferencesUpdateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -181,7 +181,7 @@ type WeaviateActionsReferencesUpdateInternalServerError struct {
 }
 
 func (o *WeaviateActionsReferencesUpdateInternalServerError) Error() string {
-	return fmt.Sprintf("[PUT /actions/{actionId}/references/{propertyName}][%d] weaviateActionsReferencesUpdateInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[PUT /actions/{id}/references/{propertyName}][%d] weaviateActionsReferencesUpdateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *WeaviateActionsReferencesUpdateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

@@ -74,7 +74,7 @@ for the weaviate actions validate operation typically these are written to a htt
 type WeaviateActionsValidateParams struct {
 
 	/*Body*/
-	Body *models.ActionValidate
+	Body *models.Action
 
 	timeout    time.Duration
 	Context    context.Context
@@ -115,13 +115,13 @@ func (o *WeaviateActionsValidateParams) SetHTTPClient(client *http.Client) {
 }
 
 // WithBody adds the body to the weaviate actions validate params
-func (o *WeaviateActionsValidateParams) WithBody(body *models.ActionValidate) *WeaviateActionsValidateParams {
+func (o *WeaviateActionsValidateParams) WithBody(body *models.Action) *WeaviateActionsValidateParams {
 	o.SetBody(body)
 	return o
 }
 
 // SetBody adds the body to the weaviate actions validate params
-func (o *WeaviateActionsValidateParams) SetBody(body *models.ActionValidate) {
+func (o *WeaviateActionsValidateParams) SetBody(body *models.Action) {
 	o.Body = body
 }
 

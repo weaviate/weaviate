@@ -23,42 +23,42 @@ import (
 	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
-// WeaviateActionUpdateAcceptedCode is the HTTP code returned for type WeaviateActionUpdateAccepted
-const WeaviateActionUpdateAcceptedCode int = 202
+// WeaviateActionUpdateOKCode is the HTTP code returned for type WeaviateActionUpdateOK
+const WeaviateActionUpdateOKCode int = 200
 
-/*WeaviateActionUpdateAccepted Successfully received.
+/*WeaviateActionUpdateOK Successfully received.
 
-swagger:response weaviateActionUpdateAccepted
+swagger:response weaviateActionUpdateOK
 */
-type WeaviateActionUpdateAccepted struct {
+type WeaviateActionUpdateOK struct {
 
 	/*
 	  In: Body
 	*/
-	Payload *models.ActionGetResponse `json:"body,omitempty"`
+	Payload *models.Action `json:"body,omitempty"`
 }
 
-// NewWeaviateActionUpdateAccepted creates WeaviateActionUpdateAccepted with default headers values
-func NewWeaviateActionUpdateAccepted() *WeaviateActionUpdateAccepted {
+// NewWeaviateActionUpdateOK creates WeaviateActionUpdateOK with default headers values
+func NewWeaviateActionUpdateOK() *WeaviateActionUpdateOK {
 
-	return &WeaviateActionUpdateAccepted{}
+	return &WeaviateActionUpdateOK{}
 }
 
-// WithPayload adds the payload to the weaviate action update accepted response
-func (o *WeaviateActionUpdateAccepted) WithPayload(payload *models.ActionGetResponse) *WeaviateActionUpdateAccepted {
+// WithPayload adds the payload to the weaviate action update o k response
+func (o *WeaviateActionUpdateOK) WithPayload(payload *models.Action) *WeaviateActionUpdateOK {
 	o.Payload = payload
 	return o
 }
 
-// SetPayload sets the payload to the weaviate action update accepted response
-func (o *WeaviateActionUpdateAccepted) SetPayload(payload *models.ActionGetResponse) {
+// SetPayload sets the payload to the weaviate action update o k response
+func (o *WeaviateActionUpdateOK) SetPayload(payload *models.Action) {
 	o.Payload = payload
 }
 
 // WriteResponse to the client
-func (o *WeaviateActionUpdateAccepted) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+func (o *WeaviateActionUpdateOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.WriteHeader(202)
+	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

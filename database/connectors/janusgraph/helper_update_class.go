@@ -18,7 +18,7 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-func (j *Janusgraph) updateClass(k kind.Kind, className schema.ClassName, UUID strfmt.UUID, atContext string, lastUpdateTimeUnix int64, rawProperties interface{}) error {
+func (j *Janusgraph) updateClass(k kind.Kind, className schema.ClassName, UUID strfmt.UUID, lastUpdateTimeUnix int64, rawProperties interface{}) error {
 	vertexLabel := j.state.MustGetMappedClassName(className)
 
 	sourceClassAlias := "classToBeUpdated"
@@ -28,7 +28,6 @@ func (j *Janusgraph) updateClass(k kind.Kind, className schema.ClassName, UUID s
 		HasString(PROP_UUID, UUID.String()).
 		As(sourceClassAlias).
 		StringProperty(PROP_CLASS_ID, string(vertexLabel)).
-		StringProperty(PROP_AT_CONTEXT, atContext).
 		Int64Property(PROP_LAST_UPDATE_TIME_UNIX, lastUpdateTimeUnix)
 
 	q, err := j.addEdgesToQuery(q, k, className, rawProperties, sourceClassAlias)

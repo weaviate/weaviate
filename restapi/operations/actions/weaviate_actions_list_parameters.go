@@ -45,11 +45,7 @@ type WeaviateActionsListParams struct {
 	/*The maximum number of items to be returned per page. Default value is set in Weaviate config.
 	  In: query
 	*/
-	MaxResults *int64
-	/*The page number of the items to be returned.
-	  In: query
-	*/
-	Page *int64
+	Limit *int64
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -63,13 +59,8 @@ func (o *WeaviateActionsListParams) BindRequest(r *http.Request, route *middlewa
 
 	qs := runtime.Values(r.URL.Query())
 
-	qMaxResults, qhkMaxResults, _ := qs.GetOK("maxResults")
-	if err := o.bindMaxResults(qMaxResults, qhkMaxResults, route.Formats); err != nil {
-		res = append(res, err)
-	}
-
-	qPage, qhkPage, _ := qs.GetOK("page")
-	if err := o.bindPage(qPage, qhkPage, route.Formats); err != nil {
+	qLimit, qhkLimit, _ := qs.GetOK("limit")
+	if err := o.bindLimit(qLimit, qhkLimit, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -79,8 +70,8 @@ func (o *WeaviateActionsListParams) BindRequest(r *http.Request, route *middlewa
 	return nil
 }
 
-// bindMaxResults binds and validates parameter MaxResults from query.
-func (o *WeaviateActionsListParams) bindMaxResults(rawData []string, hasKey bool, formats strfmt.Registry) error {
+// bindLimit binds and validates parameter Limit from query.
+func (o *WeaviateActionsListParams) bindLimit(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
 	if len(rawData) > 0 {
 		raw = rawData[len(rawData)-1]
@@ -94,31 +85,9 @@ func (o *WeaviateActionsListParams) bindMaxResults(rawData []string, hasKey bool
 
 	value, err := swag.ConvertInt64(raw)
 	if err != nil {
-		return errors.InvalidType("maxResults", "query", "int64", raw)
+		return errors.InvalidType("limit", "query", "int64", raw)
 	}
-	o.MaxResults = &value
-
-	return nil
-}
-
-// bindPage binds and validates parameter Page from query.
-func (o *WeaviateActionsListParams) bindPage(rawData []string, hasKey bool, formats strfmt.Registry) error {
-	var raw string
-	if len(rawData) > 0 {
-		raw = rawData[len(rawData)-1]
-	}
-
-	// Required: false
-	// AllowEmptyValue: false
-	if raw == "" { // empty values pass all other validations
-		return nil
-	}
-
-	value, err := swag.ConvertInt64(raw)
-	if err != nil {
-		return errors.InvalidType("page", "query", "int64", raw)
-	}
-	o.Page = &value
+	o.Limit = &value
 
 	return nil
 }

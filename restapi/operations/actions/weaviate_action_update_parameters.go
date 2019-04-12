@@ -45,16 +45,16 @@ type WeaviateActionUpdateParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*Unique ID of the Action.
-	  Required: true
-	  In: path
-	*/
-	ActionID strfmt.UUID
 	/*
 	  Required: true
 	  In: body
 	*/
-	Body *models.ActionUpdate
+	Body *models.Action
+	/*Unique ID of the Action.
+	  Required: true
+	  In: path
+	*/
+	ID strfmt.UUID
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -66,14 +66,9 @@ func (o *WeaviateActionUpdateParams) BindRequest(r *http.Request, route *middlew
 
 	o.HTTPRequest = r
 
-	rActionID, rhkActionID, _ := route.Params.GetOK("actionId")
-	if err := o.bindActionID(rActionID, rhkActionID, route.Formats); err != nil {
-		res = append(res, err)
-	}
-
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body models.ActionUpdate
+		var body models.Action
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
 				res = append(res, errors.Required("body", "body"))
@@ -93,14 +88,19 @@ func (o *WeaviateActionUpdateParams) BindRequest(r *http.Request, route *middlew
 	} else {
 		res = append(res, errors.Required("body", "body"))
 	}
+	rID, rhkID, _ := route.Params.GetOK("id")
+	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
 	return nil
 }
 
-// bindActionID binds and validates parameter ActionID from path.
-func (o *WeaviateActionUpdateParams) bindActionID(rawData []string, hasKey bool, formats strfmt.Registry) error {
+// bindID binds and validates parameter ID from path.
+func (o *WeaviateActionUpdateParams) bindID(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
 	if len(rawData) > 0 {
 		raw = rawData[len(rawData)-1]
@@ -112,21 +112,21 @@ func (o *WeaviateActionUpdateParams) bindActionID(rawData []string, hasKey bool,
 	// Format: uuid
 	value, err := formats.Parse("uuid", raw)
 	if err != nil {
-		return errors.InvalidType("actionId", "path", "strfmt.UUID", raw)
+		return errors.InvalidType("id", "path", "strfmt.UUID", raw)
 	}
-	o.ActionID = *(value.(*strfmt.UUID))
+	o.ID = *(value.(*strfmt.UUID))
 
-	if err := o.validateActionID(formats); err != nil {
+	if err := o.validateID(formats); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-// validateActionID carries on validations for parameter ActionID
-func (o *WeaviateActionUpdateParams) validateActionID(formats strfmt.Registry) error {
+// validateID carries on validations for parameter ID
+func (o *WeaviateActionUpdateParams) validateID(formats strfmt.Registry) error {
 
-	if err := validate.FormatOf("actionId", "path", "uuid", o.ActionID.String(), formats); err != nil {
+	if err := validate.FormatOf("id", "path", "uuid", o.ID.String(), formats); err != nil {
 		return err
 	}
 	return nil

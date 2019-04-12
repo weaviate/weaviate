@@ -26,7 +26,7 @@ import (
 
 // WeaviateActionsReferencesDeleteURL generates an URL for the weaviate actions references delete operation
 type WeaviateActionsReferencesDeleteURL struct {
-	ActionID     strfmt.UUID
+	ID           strfmt.UUID
 	PropertyName string
 
 	_basePath string
@@ -53,13 +53,13 @@ func (o *WeaviateActionsReferencesDeleteURL) SetBasePath(bp string) {
 func (o *WeaviateActionsReferencesDeleteURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/actions/{actionId}/references/{propertyName}"
+	var _path = "/actions/{id}/references/{propertyName}"
 
-	actionID := o.ActionID.String()
-	if actionID != "" {
-		_path = strings.Replace(_path, "{actionId}", actionID, -1)
+	id := o.ID.String()
+	if id != "" {
+		_path = strings.Replace(_path, "{id}", id, -1)
 	} else {
-		return nil, errors.New("ActionID is required on WeaviateActionsReferencesDeleteURL")
+		return nil, errors.New("ID is required on WeaviateActionsReferencesDeleteURL")
 	}
 
 	propertyName := o.PropertyName

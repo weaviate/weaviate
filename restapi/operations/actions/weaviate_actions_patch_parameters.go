@@ -22,7 +22,6 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
-	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
 
 	strfmt "github.com/go-openapi/strfmt"
@@ -46,20 +45,16 @@ type WeaviateActionsPatchParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*Unique ID of the Action.
-	  Required: true
-	  In: path
-	*/
-	ActionID strfmt.UUID
-	/*If `async` is true, return a 202 if the patch is accepted. You will receive this response before the data is made persistent. If `async` is false, you will receive confirmation after the update is made persistent. The value of `async` defaults to false.
-	  In: query
-	*/
-	Async *bool
 	/*JSONPatch document as defined by RFC 6902.
 	  Required: true
 	  In: body
 	*/
 	Body []*models.PatchDocument
+	/*Unique ID of the Action.
+	  Required: true
+	  In: path
+	*/
+	ID strfmt.UUID
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -70,18 +65,6 @@ func (o *WeaviateActionsPatchParams) BindRequest(r *http.Request, route *middlew
 	var res []error
 
 	o.HTTPRequest = r
-
-	qs := runtime.Values(r.URL.Query())
-
-	rActionID, rhkActionID, _ := route.Params.GetOK("actionId")
-	if err := o.bindActionID(rActionID, rhkActionID, route.Formats); err != nil {
-		res = append(res, err)
-	}
-
-	qAsync, qhkAsync, _ := qs.GetOK("async")
-	if err := o.bindAsync(qAsync, qhkAsync, route.Formats); err != nil {
-		res = append(res, err)
-	}
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
@@ -110,14 +93,19 @@ func (o *WeaviateActionsPatchParams) BindRequest(r *http.Request, route *middlew
 	} else {
 		res = append(res, errors.Required("body", "body"))
 	}
+	rID, rhkID, _ := route.Params.GetOK("id")
+	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
 	return nil
 }
 
-// bindActionID binds and validates parameter ActionID from path.
-func (o *WeaviateActionsPatchParams) bindActionID(rawData []string, hasKey bool, formats strfmt.Registry) error {
+// bindID binds and validates parameter ID from path.
+func (o *WeaviateActionsPatchParams) bindID(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
 	if len(rawData) > 0 {
 		raw = rawData[len(rawData)-1]
@@ -129,44 +117,22 @@ func (o *WeaviateActionsPatchParams) bindActionID(rawData []string, hasKey bool,
 	// Format: uuid
 	value, err := formats.Parse("uuid", raw)
 	if err != nil {
-		return errors.InvalidType("actionId", "path", "strfmt.UUID", raw)
+		return errors.InvalidType("id", "path", "strfmt.UUID", raw)
 	}
-	o.ActionID = *(value.(*strfmt.UUID))
+	o.ID = *(value.(*strfmt.UUID))
 
-	if err := o.validateActionID(formats); err != nil {
+	if err := o.validateID(formats); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-// validateActionID carries on validations for parameter ActionID
-func (o *WeaviateActionsPatchParams) validateActionID(formats strfmt.Registry) error {
+// validateID carries on validations for parameter ID
+func (o *WeaviateActionsPatchParams) validateID(formats strfmt.Registry) error {
 
-	if err := validate.FormatOf("actionId", "path", "uuid", o.ActionID.String(), formats); err != nil {
+	if err := validate.FormatOf("id", "path", "uuid", o.ID.String(), formats); err != nil {
 		return err
 	}
-	return nil
-}
-
-// bindAsync binds and validates parameter Async from query.
-func (o *WeaviateActionsPatchParams) bindAsync(rawData []string, hasKey bool, formats strfmt.Registry) error {
-	var raw string
-	if len(rawData) > 0 {
-		raw = rawData[len(rawData)-1]
-	}
-
-	// Required: false
-	// AllowEmptyValue: false
-	if raw == "" { // empty values pass all other validations
-		return nil
-	}
-
-	value, err := swag.ConvertBool(raw)
-	if err != nil {
-		return errors.InvalidType("async", "query", "bool", raw)
-	}
-	o.Async = &value
-
 	return nil
 }

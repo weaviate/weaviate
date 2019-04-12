@@ -51,8 +51,8 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 							Class: "BestLocalAction",
 							Properties: []*models.SemanticSchemaClassProperty{
 								&models.SemanticSchemaClassProperty{
-									AtDataType: []string{"string"},
-									Name:       "myStringProp",
+									DataType: []string{"string"},
+									Name:     "myStringProp",
 								},
 							},
 						},
@@ -73,8 +73,8 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 							Class: "BestLocalThing",
 							Properties: []*models.SemanticSchemaClassProperty{
 								&models.SemanticSchemaClassProperty{
-									AtDataType: []string{"string"},
-									Name:       "myStringProp",
+									DataType: []string{"string"},
+									Name:     "myStringProp",
 								},
 							},
 						},
@@ -174,8 +174,8 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 									Class: "BestClass",
 									Properties: []*models.SemanticSchemaClassProperty{
 										&models.SemanticSchemaClassProperty{
-											Name:       "stringProp",
-											AtDataType: []string{"string"},
+											Name:     "stringProp",
+											DataType: []string{"string"},
 										},
 									},
 								},
@@ -231,8 +231,8 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 									Class: "BestThing",
 									Properties: []*models.SemanticSchemaClassProperty{
 										&models.SemanticSchemaClassProperty{
-											AtDataType: []string{"string"},
-											Name:       "myStringProp",
+											DataType: []string{"string"},
+											Name:     "myStringProp",
 										},
 									},
 								},
@@ -244,8 +244,8 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 									Class: "BestAction",
 									Properties: []*models.SemanticSchemaClassProperty{
 										&models.SemanticSchemaClassProperty{
-											AtDataType: []string{"string"},
-											Name:       "myStringProp",
+											DataType: []string{"string"},
+											Name:     "myStringProp",
 										},
 									},
 								},
@@ -271,8 +271,8 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 									Class: "BestThing",
 									Properties: []*models.SemanticSchemaClassProperty{
 										&models.SemanticSchemaClassProperty{
-											AtDataType: []string{"string"},
-											Name:       "myStringProp",
+											DataType: []string{"string"},
+											Name:     "myStringProp",
 										},
 									},
 								},
@@ -284,8 +284,8 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 									Class: "BestAction",
 									Properties: []*models.SemanticSchemaClassProperty{
 										&models.SemanticSchemaClassProperty{
-											AtDataType: []string{"string"},
-											Name:       "myStringProp",
+											DataType: []string{"string"},
+											Name:     "myStringProp",
 										},
 									},
 								},
@@ -302,8 +302,8 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 									Class: "BestThing",
 									Properties: []*models.SemanticSchemaClassProperty{
 										&models.SemanticSchemaClassProperty{
-											AtDataType: []string{"string"},
-											Name:       "myStringProp",
+											DataType: []string{"string"},
+											Name:     "myStringProp",
 										},
 									},
 								},
@@ -315,8 +315,8 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 									Class: "BestAction",
 									Properties: []*models.SemanticSchemaClassProperty{
 										&models.SemanticSchemaClassProperty{
-											AtDataType: []string{"string"},
-											Name:       "myStringProp",
+											DataType: []string{"string"},
+											Name:     "myStringProp",
 										},
 									},
 								},
@@ -342,7 +342,7 @@ type testCases []testCase
 func (tests testCases) AssertNoError(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			localSchema, err := Build(&test.localSchema, test.peers, nil, config.Environment{})
+			localSchema, err := Build(&test.localSchema, test.peers, nil, config.Config{})
 			require.Nil(t, err, test.name)
 
 			schemaObject := graphql.ObjectConfig{
@@ -378,8 +378,8 @@ func validSchema() schema.Schema {
 					Class: "BestLocalThing",
 					Properties: []*models.SemanticSchemaClassProperty{
 						&models.SemanticSchemaClassProperty{
-							AtDataType: []string{"string"},
-							Name:       "myStringProp",
+							DataType: []string{"string"},
+							Name:     "myStringProp",
 						},
 					},
 				},
@@ -391,8 +391,8 @@ func validSchema() schema.Schema {
 					Class: "BestLocalAction",
 					Properties: []*models.SemanticSchemaClassProperty{
 						&models.SemanticSchemaClassProperty{
-							AtDataType: []string{"string"},
-							Name:       "myStringProp",
+							DataType: []string{"string"},
+							Name:     "myStringProp",
 						},
 					},
 				},

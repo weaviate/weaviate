@@ -47,7 +47,7 @@ type Janusgraph struct {
 
 	// appConfig is the global app-wide config. appConfig can be used if the
 	// connectors behavior should depend on application-wide settings
-	appConfig config.Environment
+	appConfig config.Config
 
 	serverAddress string
 	schema        schema.Schema
@@ -61,7 +61,7 @@ type Janusgraph struct {
 }
 
 // New Janusgraph Connector
-func New(config interface{}, appConfig config.Environment) (error, dbconnector.DatabaseConnector) {
+func New(config interface{}, appConfig config.Config) (error, dbconnector.DatabaseConnector) {
 	j := &Janusgraph{
 		appConfig: appConfig,
 	}

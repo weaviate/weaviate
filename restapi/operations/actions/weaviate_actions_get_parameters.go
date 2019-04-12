@@ -45,7 +45,7 @@ type WeaviateActionsGetParams struct {
 	  Required: true
 	  In: path
 	*/
-	ActionID strfmt.UUID
+	ID strfmt.UUID
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -57,8 +57,8 @@ func (o *WeaviateActionsGetParams) BindRequest(r *http.Request, route *middlewar
 
 	o.HTTPRequest = r
 
-	rActionID, rhkActionID, _ := route.Params.GetOK("actionId")
-	if err := o.bindActionID(rActionID, rhkActionID, route.Formats); err != nil {
+	rID, rhkID, _ := route.Params.GetOK("id")
+	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -68,8 +68,8 @@ func (o *WeaviateActionsGetParams) BindRequest(r *http.Request, route *middlewar
 	return nil
 }
 
-// bindActionID binds and validates parameter ActionID from path.
-func (o *WeaviateActionsGetParams) bindActionID(rawData []string, hasKey bool, formats strfmt.Registry) error {
+// bindID binds and validates parameter ID from path.
+func (o *WeaviateActionsGetParams) bindID(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
 	if len(rawData) > 0 {
 		raw = rawData[len(rawData)-1]
@@ -81,21 +81,21 @@ func (o *WeaviateActionsGetParams) bindActionID(rawData []string, hasKey bool, f
 	// Format: uuid
 	value, err := formats.Parse("uuid", raw)
 	if err != nil {
-		return errors.InvalidType("actionId", "path", "strfmt.UUID", raw)
+		return errors.InvalidType("id", "path", "strfmt.UUID", raw)
 	}
-	o.ActionID = *(value.(*strfmt.UUID))
+	o.ID = *(value.(*strfmt.UUID))
 
-	if err := o.validateActionID(formats); err != nil {
+	if err := o.validateID(formats); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-// validateActionID carries on validations for parameter ActionID
-func (o *WeaviateActionsGetParams) validateActionID(formats strfmt.Registry) error {
+// validateID carries on validations for parameter ID
+func (o *WeaviateActionsGetParams) validateID(formats strfmt.Registry) error {
 
-	if err := validate.FormatOf("actionId", "path", "uuid", o.ActionID.String(), formats); err != nil {
+	if err := validate.FormatOf("id", "path", "uuid", o.ID.String(), formats); err != nil {
 		return err
 	}
 	return nil

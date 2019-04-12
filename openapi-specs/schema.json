@@ -1,95 +1,47 @@
 {
   "basePath": "/weaviate/v1",
-  "consumes": [
-    "application/yaml",
-    "application/json"
-  ],
+  "consumes": ["application/yaml", "application/json"],
   "definitions": {
     "Principal": {
-        "type": "object",
-        "properties": {
-            "username": {
-                "type": "string",
-                "description": "The username that was extracted either from the authentication information"
-            },
-            "groups": {
-                "type": "array",
-                "items": {
-                    "type": "string"
-                }
-            }
+      "type": "object",
+      "properties": {
+        "username": {
+          "type": "string",
+          "description": "The username that was extracted either from the authentication information"
+        },
+        "groups": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
+      }
     },
     "Action": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/ActionCreate"
-        },
-        {
-          "properties": {
-            "creationTimeUnix": {
-              "description": "Timestamp of creation of this Action in milliseconds since epoch UTC.",
-              "format": "int64",
-              "type": "integer"
-            },
-            "lastUpdateTimeUnix": {
-              "description": "Timestamp of the last update made to the Action since epoch UTC.",
-              "format": "int64",
-              "type": "integer"
-            }
-          },
-          "type": "object"
-        }
-      ],
-      "type": "object"
-    },
-    "ActionCreate": {
       "properties": {
-        "@class": {
+        "class": {
           "description": "Type of the Action, defined in the schema.",
-          "type": "string"
-        },
-        "@context": {
-          "description": "Available context schema.",
           "type": "string"
         },
         "schema": {
           "$ref": "#/definitions/Schema"
+        },
+        "id": {
+          "description": "ID of the Action.",
+          "format": "uuid",
+          "type": "string"
+        },
+        "creationTimeUnix": {
+          "description": "Timestamp of creation of this Action in milliseconds since epoch UTC.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "lastUpdateTimeUnix": {
+          "description": "Timestamp of the last update made to the Action since epoch UTC.",
+          "format": "int64",
+          "type": "integer"
         }
       },
-      "type": "object"
-    },
-    "ActionGetHistoryResponse": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/ActionHistory"
-        },
-        {
-          "properties": {
-            "actionId": {
-              "format": "uuid",
-              "type": "string"
-            }
-          },
-          "type": "object"
-        }
-      ]
-    },
-    "ActionGetResponse": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/Action"
-        },
-        {
-          "properties": {
-            "actionId": {
-              "description": "ID of the Action.",
-              "format": "uuid",
-              "type": "string"
-            }
-          }
-        }
-      ],
       "type": "object"
     },
     "ActionsGetResponse": {
@@ -99,11 +51,6 @@
         },
         {
           "properties": {
-            "actionId": {
-              "description": "ID of the Action.",
-              "format": "uuid",
-              "type": "string"
-            },
             "result": {
               "description": "Results for this specific Action.",
               "format": "object",
@@ -111,11 +58,7 @@
                 "status": {
                   "type": "string",
                   "default": "SUCCESS",
-                  "enum": [
-                    "SUCCESS",
-                    "PENDING",
-                    "FAILED"
-                  ]
+                  "enum": ["SUCCESS", "PENDING", "FAILED"]
                 },
                 "errors": {
                   "$ref": "#/definitions/ErrorResponse"
@@ -127,64 +70,13 @@
       ],
       "type": "object"
     },
-    "ActionHistory": {
-      "properties": {
-        "deleted": {
-          "description": "Indication of whether the Action is deleted.",
-          "type": "boolean"
-        },
-        "propertyHistory": {
-          "description": "An array with the history of the Action.",
-          "items": {
-            "$ref": "#/definitions/ActionHistoryObject"
-          },
-          "type": "array"
-        }
-      },
-      "type": "object"
-    },
-    "ActionHistoryObject": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/ActionCreate"
-        },
-        {
-          "properties": {
-            "creationTimeUnix": {
-              "description": "Timestamp of creation of this Action history in milliseconds since epoch UTC.",
-              "format": "int64",
-              "type": "integer"
-            }
-          },
-          "type": "object"
-        }
-      ]
-    },
-    "ActionUpdate": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/Action"
-        },
-        {
-          "type": "object"
-        }
-      ]
-    },
-    "ActionValidate": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/ActionCreate"
-        }
-      ],
-      "type": "object"
-    },
     "ActionsListResponse": {
       "description": "List of Actions.",
       "properties": {
         "actions": {
           "description": "The actual list of Actions.",
           "items": {
-            "$ref": "#/definitions/ActionGetResponse"
+            "$ref": "#/definitions/Action"
           },
           "type": "array"
         },
@@ -450,14 +342,7 @@
         },
         "op": {
           "description": "The operation to be performed.",
-          "enum": [
-            "add",
-            "remove",
-            "replace",
-            "move",
-            "copy",
-            "test"
-          ],
+          "enum": ["add", "remove", "replace", "move", "copy", "test"],
           "type": "string"
         },
         "path": {
@@ -469,10 +354,7 @@
           "type": "object"
         }
       },
-      "required": [
-        "op",
-        "path"
-      ]
+      "required": ["op", "path"]
     },
     "PeerUpdate": {
       "description": "A single peer in the network.",
@@ -515,11 +397,6 @@
     "SemanticSchema": {
       "description": "Definitions of semantic schemas (also see: https://github.com/creativesoftwarefdn/weaviate-semantic-schemas).",
       "properties": {
-        "@context": {
-          "description": "URL of the context.",
-          "format": "uri",
-          "type": "string"
-        },
         "classes": {
           "description": "Semantic classes that are available.",
           "items": {
@@ -538,10 +415,7 @@
         },
         "type": {
           "description": "Type of schema, should be \"thing\" or \"action\".",
-          "enum": [
-            "thing",
-            "action"
-          ],
+          "enum": ["thing", "action"],
           "type": "string"
         }
       },
@@ -588,7 +462,7 @@
     },
     "SemanticSchemaClassProperty": {
       "properties": {
-        "@dataType": {
+        "dataType": {
           "description": "Can be a reference ($cref) to another type when it starts with a capital (for example Person), otherwise \"string\" or \"int\".",
           "items": {
             "type": "string"
@@ -598,10 +472,7 @@
         "cardinality": {
           "description": "The cardinality of this property. If you want to store more than one value in a property, set this to 'many'. Defaults to 'atMostOne'. Note that by default properties can be empty in Weaviate.",
           "type": "string",
-          "enum": [
-            "atMostOne",
-            "many"
-          ],
+          "enum": ["atMostOne", "many"],
           "default": "atMostOne"
         },
         "description": {
@@ -658,11 +529,7 @@
                 "status": {
                   "type": "string",
                   "default": "SUCCESS",
-                  "enum": [
-                    "SUCCESS",
-                    "PENDING",
-                    "FAILED"
-                  ]
+                  "enum": ["SUCCESS", "PENDING", "FAILED"]
                 },
                 "errors": {
                   "$ref": "#/definitions/ErrorResponse"
@@ -689,77 +556,31 @@
       }
     },
     "Thing": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/ThingCreate"
-        },
-        {
-          "properties": {
-            "creationTimeUnix": {
-              "description": "Timestamp of creation of this Thing in milliseconds since epoch UTC.",
-              "format": "int64",
-              "type": "integer"
-            },
-            "key": {
-              "$ref": "#/definitions/SingleRef"
-            },
-            "lastUpdateTimeUnix": {
-              "description": "Timestamp of the last Thing update in milliseconds since epoch UTC.",
-              "format": "int64",
-              "type": "integer"
-            }
-          },
-          "type": "object"
-        }
-      ]
-    },
-    "ThingCreate": {
       "properties": {
-        "@class": {
+        "class": {
           "description": "Class of the Thing, defined in the schema.",
-          "type": "string"
-        },
-        "@context": {
-          "description": "Available context schema.",
           "type": "string"
         },
         "schema": {
           "$ref": "#/definitions/Schema"
+        },
+        "id": {
+          "description": "ID of the Thing.",
+          "format": "uuid",
+          "type": "string"
+        },
+        "creationTimeUnix": {
+          "description": "Timestamp of creation of this Thing in milliseconds since epoch UTC.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "lastUpdateTimeUnix": {
+          "description": "Timestamp of the last Thing update in milliseconds since epoch UTC.",
+          "format": "int64",
+          "type": "integer"
         }
       },
       "type": "object"
-    },
-    "ThingGetHistoryResponse": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/ThingHistory"
-        },
-        {
-          "properties": {
-            "thingId": {
-              "format": "uuid",
-              "type": "string"
-            }
-          },
-          "type": "object"
-        }
-      ]
-    },
-    "ThingGetResponse": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/Thing"
-        },
-        {
-          "properties": {
-            "thingId": {
-              "format": "uuid",
-              "type": "string"
-            }
-          },
-          "type": "object"
-        }
-      ]
     },
     "ThingsGetResponse": {
       "allOf": [
@@ -768,11 +589,6 @@
         },
         {
           "properties": {
-            "thingId": {
-              "description": "ID of the Thing.",
-              "format": "uuid",
-              "type": "string"
-            },
             "result": {
               "description": "Results for this specific Thing.",
               "format": "object",
@@ -780,11 +596,7 @@
                 "status": {
                   "type": "string",
                   "default": "SUCCESS",
-                  "enum": [
-                    "SUCCESS",
-                    "PENDING",
-                    "FAILED"
-                  ]
+                  "enum": ["SUCCESS", "PENDING", "FAILED"]
                 },
                 "errors": {
                   "$ref": "#/definitions/ErrorResponse"
@@ -796,59 +608,13 @@
       ],
       "type": "object"
     },
-    "ThingHistory": {
-      "properties": {
-        "deleted": {
-          "description": "Indication whether the Action is deleted.",
-          "type": "boolean"
-        },
-        "key": {
-          "$ref": "#/definitions/SingleRef"
-        },
-        "propertyHistory": {
-          "description": "An array with the history of the Things.",
-          "items": {
-            "$ref": "#/definitions/ThingHistoryObject"
-          },
-          "type": "array"
-        }
-      },
-      "type": "object"
-    },
-    "ThingHistoryObject": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/ThingCreate"
-        },
-        {
-          "properties": {
-            "creationTimeUnix": {
-              "description": "Timestamp of creation of this Thing history in milliseconds since epoch UTC.",
-              "format": "int64",
-              "type": "integer"
-            }
-          },
-          "type": "object"
-        }
-      ]
-    },
-    "ThingUpdate": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/Thing"
-        },
-        {
-          "type": "object"
-        }
-      ]
-    },
     "ThingsListResponse": {
       "description": "List of Things.",
       "properties": {
         "things": {
           "description": "The actual list of Things.",
           "items": {
-            "$ref": "#/definitions/ThingGetResponse"
+            "$ref": "#/definitions/Thing"
           },
           "type": "array"
         },
@@ -875,19 +641,11 @@
     "version": "0.12.71"
   },
   "parameters": {
-    "CommonMaxResultsParameterQuery": {
+    "CommonLimitParameterQuery": {
       "description": "The maximum number of items to be returned per page. Default value is set in Weaviate config.",
       "format": "int64",
       "in": "query",
-      "name": "maxResults",
-      "required": false,
-      "type": "integer"
-    },
-    "CommonPageParameterQuery": {
-      "description": "The page number of the items to be returned.",
-      "format": "int64",
-      "in": "query",
-      "name": "page",
+      "name": "limit",
       "required": false,
       "type": "integer"
     }
@@ -897,15 +655,10 @@
       "get": {
         "description": "Lists all Actions in reverse order of creation, owned by the user that belongs to the used token.",
         "operationId": "weaviate.actions.list",
-        "x-serviceIds": [
-          "weaviate.local.query"
-        ],
+        "x-serviceIds": ["weaviate.local.query"],
         "parameters": [
           {
-            "$ref": "#/parameters/CommonMaxResultsParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonPageParameterQuery"
+            "$ref": "#/parameters/CommonLimitParameterQuery"
           }
         ],
         "responses": {
@@ -932,34 +685,21 @@
           }
         },
         "summary": "Get a list of Actions.",
-        "tags": [
-          "actions"
-        ],
+        "tags": ["actions"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "post": {
         "description": "Registers a new Action. Provided meta-data and schema values are validated.",
         "operationId": "weaviate.actions.create",
-        "x-serviceIds": [
-          "weaviate.local.add"
-        ],
+        "x-serviceIds": ["weaviate.local.add"],
         "parameters": [
           {
             "in": "body",
             "name": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "action": {
-                  "$ref": "#/definitions/ActionCreate"
-                },
-                "async": {
-                  "type": "boolean",
-                  "description": "If `async` is true, return a 202 with the new ID of the Action. You will receive this response before the data is made persistent. If `async` is false, you will receive confirmation after the value is made persistent. The value of `async` defaults to false."
-                }
-              }
+              "$ref": "#/definitions/Action"
             }
           }
         ],
@@ -967,13 +707,7 @@
           "200": {
             "description": "Action created.",
             "schema": {
-              "$ref": "#/definitions/ActionGetResponse"
-            }
-          },
-          "202": {
-            "description": "Successfully received. No guarantees are made that the Action persists.",
-            "schema": {
-              "$ref": "#/definitions/ActionGetResponse"
+              "$ref": "#/definitions/Action"
             }
           },
           "401": {
@@ -996,9 +730,7 @@
           }
         },
         "summary": "Create Actions between two Things (object and subject).",
-        "tags": [
-          "actions"
-        ],
+        "tags": ["actions"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
@@ -1007,16 +739,14 @@
       "post": {
         "description": "Validate an Action's schema and meta-data. It has to be based on a schema, which is related to the given Action to be accepted by this validation.",
         "operationId": "weaviate.actions.validate",
-        "x-serviceIds": [
-          "weaviate.local.query.meta"
-        ],
+        "x-serviceIds": ["weaviate.local.query.meta"],
         "parameters": [
           {
             "in": "body",
             "name": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/ActionValidate"
+              "$ref": "#/definitions/Action"
             }
           }
         ],
@@ -1044,26 +774,22 @@
           }
         },
         "summary": "Validate an Action based on a schema.",
-        "tags": [
-          "actions"
-        ],
+        "tags": ["actions"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
-    "/actions/{actionId}": {
+    "/actions/{id}": {
       "delete": {
         "description": "Deletes an Action from the system.",
         "operationId": "weaviate.actions.delete",
-        "x-serviceIds": [
-          "weaviate.local.manipulate"
-        ],
+        "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
           {
             "description": "Unique ID of the Thing.",
             "format": "uuid",
             "in": "path",
-            "name": "actionId",
+            "name": "id",
             "required": true,
             "type": "string"
           }
@@ -1089,24 +815,20 @@
           }
         },
         "summary": "Delete an Action based on its UUID.",
-        "tags": [
-          "actions"
-        ],
+        "tags": ["actions"],
         "x-available-in-mqtt": true,
         "x-available-in-websocket": true
       },
       "get": {
         "description": "Lists Actions.",
         "operationId": "weaviate.actions.get",
-        "x-serviceIds": [
-          "weaviate.local.query"
-        ],
+        "x-serviceIds": ["weaviate.local.query"],
         "parameters": [
           {
             "description": "Unique ID of the Action.",
             "format": "uuid",
             "in": "path",
-            "name": "actionId",
+            "name": "id",
             "required": true,
             "type": "string"
           }
@@ -1115,7 +837,7 @@
           "200": {
             "description": "Successful response.",
             "schema": {
-              "$ref": "#/definitions/ActionGetResponse"
+              "$ref": "#/definitions/Action"
             }
           },
           "401": {
@@ -1135,32 +857,22 @@
           }
         },
         "summary": "Get a specific Action based on its UUID and a Thing UUID. Also available as Websocket bus.",
-        "tags": [
-          "actions"
-        ],
+        "tags": ["actions"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "patch": {
         "description": "Updates an Action. This method supports patch semantics. Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "operationId": "weaviate.actions.patch",
-        "x-serviceIds": [
-          "weaviate.local.manipulate"
-        ],
+        "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
           {
             "description": "Unique ID of the Action.",
             "format": "uuid",
             "in": "path",
-            "name": "actionId",
+            "name": "id",
             "required": true,
             "type": "string"
-          },
-          {
-            "description": "If `async` is true, return a 202 if the patch is accepted. You will receive this response before the data is made persistent. If `async` is false, you will receive confirmation after the update is made persistent. The value of `async` defaults to false.",
-            "name": "async",
-            "in": "query",
-            "type": "boolean"
           },
           {
             "description": "JSONPatch document as defined by RFC 6902.",
@@ -1179,13 +891,7 @@
           "200": {
             "description": "Successfully applied.",
             "schema": {
-              "$ref": "#/definitions/ActionGetResponse"
-            }
-          },
-          "202": {
-            "description": "Successfully received.",
-            "schema": {
-              "$ref": "#/definitions/ActionGetResponse"
+              "$ref": "#/definitions/Action"
             }
           },
           "400": {
@@ -1214,24 +920,20 @@
           }
         },
         "summary": "Update an Action based on its UUID (using patch semantics).",
-        "tags": [
-          "actions"
-        ],
+        "tags": ["actions"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "put": {
         "description": "Updates an Action's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "operationId": "weaviate.action.update",
-        "x-serviceIds": [
-          "weaviate.local.manipulate"
-        ],
+        "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
           {
             "description": "Unique ID of the Action.",
             "format": "uuid",
             "in": "path",
-            "name": "actionId",
+            "name": "id",
             "required": true,
             "type": "string"
           },
@@ -1240,15 +942,15 @@
             "name": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/ActionUpdate"
+              "$ref": "#/definitions/Action"
             }
           }
         ],
         "responses": {
-          "202": {
+          "200": {
             "description": "Successfully received.",
             "schema": {
-              "$ref": "#/definitions/ActionGetResponse"
+              "$ref": "#/definitions/Action"
             }
           },
           "401": {
@@ -1274,77 +976,22 @@
           }
         },
         "summary": "Update an Action based on its UUID.",
-        "tags": [
-          "actions"
-        ],
+        "tags": ["actions"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
-    "/actions/{actionId}/history": {
-      "get": {
-        "description": "Returns a particular Action history.",
-        "operationId": "weaviate.action.history.get",
-        "x-serviceIds": [
-          "weaviate.local.query"
-        ],
-        "parameters": [
-          {
-            "description": "Unique ID of the Action.",
-            "format": "uuid",
-            "in": "path",
-            "name": "actionId",
-            "required": true,
-            "type": "string"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/ActionGetHistoryResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Insufficient permissions."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "summary": "Get an Action's history based on its UUID.",
-        "tags": [
-          "actions"
-        ],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
-      }
-    },
-    "/actions/{actionId}/references/{propertyName}": {
+    "/actions/{id}/references/{propertyName}": {
       "post": {
         "description": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
         "operationId": "weaviate.actions.references.create",
-        "x-serviceIds": [
-          "weaviate.local.manipulate"
-        ],
+        "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
           {
             "description": "Unique ID of the Action.",
             "format": "uuid",
             "in": "path",
-            "name": "actionId",
+            "name": "id",
             "required": true,
             "type": "string"
           },
@@ -1388,24 +1035,20 @@
           }
         },
         "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
-        "tags": [
-          "actions"
-        ],
+        "tags": ["actions"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "put": {
         "description": "Replace all references to a class-property.",
         "operationId": "weaviate.actions.references.update",
-        "x-serviceIds": [
-          "weaviate.local.manipulate"
-        ],
+        "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
           {
             "description": "Unique ID of the Action.",
             "format": "uuid",
             "in": "path",
-            "name": "actionId",
+            "name": "id",
             "required": true,
             "type": "string"
           },
@@ -1449,24 +1092,20 @@
           }
         },
         "summary": "Replace all references to a class-property.",
-        "tags": [
-          "actions"
-        ],
+        "tags": ["actions"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "delete": {
         "description": "Delete the single reference that is given in the body from the list of references that this property has.",
         "operationId": "weaviate.actions.references.delete",
-        "x-serviceIds": [
-          "weaviate.local.manipulate"
-        ],
+        "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
           {
             "description": "Unique ID of the Action.",
             "format": "uuid",
             "in": "path",
-            "name": "actionId",
+            "name": "id",
             "required": true,
             "type": "string"
           },
@@ -1510,9 +1149,7 @@
           }
         },
         "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
-        "tags": [
-          "actions"
-        ],
+        "tags": ["actions"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
@@ -1521,9 +1158,7 @@
       "post": {
         "description": "Register new Things in bulk. Provided meta-data and schema values are validated.",
         "operationId": "weaviate.batching.things.create",
-        "x-serviceIds": [
-          "weaviate.local.add"
-        ],
+        "x-serviceIds": ["weaviate.local.add"],
         "parameters": [
           {
             "in": "body",
@@ -1538,20 +1173,13 @@
                   "items": {
                     "type": "string",
                     "default": "ALL",
-                    "enum": [
-                      "ALL",
-                      "@class",
-                      "schema",
-                      "key",
-                      "thingId",
-                      "creationTimeUnix"
-                    ]
+                    "enum": ["ALL", "class", "schema", "id", "creationTimeUnix"]
                   }
                 },
                 "things": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/definitions/ThingCreate"
+                    "$ref": "#/definitions/Thing"
                   }
                 }
               }
@@ -1588,10 +1216,7 @@
           }
         },
         "summary": "Creates new Things based on a Thing template as a batch.",
-        "tags": [
-          "batching",
-          "things"
-        ],
+        "tags": ["batching", "things"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
@@ -1600,9 +1225,7 @@
       "post": {
         "description": "Register new Actions in bulk. Given meta-data and schema values are validated.",
         "operationId": "weaviate.batching.actions.create",
-        "x-serviceIds": [
-          "weaviate.local.add"
-        ],
+        "x-serviceIds": ["weaviate.local.add"],
         "parameters": [
           {
             "in": "body",
@@ -1617,20 +1240,13 @@
                   "items": {
                     "type": "string",
                     "default": "ALL",
-                    "enum": [
-                      "ALL",
-                      "@class",
-                      "schema",
-                      "key",
-                      "actionId",
-                      "creationTimeUnix"
-                    ]
+                    "enum": ["ALL", "class", "schema", "id", "creationTimeUnix"]
                   }
                 },
                 "actions": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/definitions/ActionCreate"
+                    "$ref": "#/definitions/Action"
                   }
                 }
               }
@@ -1667,10 +1283,7 @@
           }
         },
         "summary": "Creates new Actions based on an Action template as a batch.",
-        "tags": [
-          "batching",
-          "actions"
-        ],
+        "tags": ["batching", "actions"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
@@ -1679,9 +1292,7 @@
       "post": {
         "description": "Register cross-references between any class items (things or actions) in bulk.",
         "operationId": "weaviate.batching.references.create",
-        "x-serviceIds": [
-          "weaviate.local.add"
-        ],
+        "x-serviceIds": ["weaviate.local.add"],
         "parameters": [
           {
             "in": "body",
@@ -1726,10 +1337,7 @@
           }
         },
         "summary": "Creates new Cross-References between arbitrary classes in bulk.",
-        "tags": [
-          "batching",
-          "references"
-        ],
+        "tags": ["batching", "references"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
@@ -1782,9 +1390,7 @@
           }
         },
         "summary": "Get a response based on GraphQL",
-        "tags": [
-          "graphql"
-        ],
+        "tags": ["graphql"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
@@ -1837,9 +1443,7 @@
           }
         },
         "summary": "Get a response based on GraphQL.",
-        "tags": [
-          "graphql"
-        ],
+        "tags": ["graphql"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
@@ -1848,9 +1452,7 @@
       "get": {
         "description": "Gives meta information about the server and can be used to provide information to another Weaviate instance that wants to interact with the current instance.",
         "operationId": "weaviate.meta.get",
-        "x-serviceIds": [
-          "weaviate.local.query.meta"
-        ],
+        "x-serviceIds": ["weaviate.local.query.meta"],
         "responses": {
           "200": {
             "description": "Successful response.",
@@ -1869,9 +1471,7 @@
           }
         },
         "summary": "Returns meta information of the current Weaviate instance.",
-        "tags": [
-          "meta"
-        ],
+        "tags": ["meta"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
@@ -1880,9 +1480,7 @@
       "get": {
         "description": "Check if a peer is alive and healthy.",
         "operationId": "weaviate.p2p.health",
-        "x-serviceIds": [
-          "weaviate.network.query.meta"
-        ],
+        "x-serviceIds": ["weaviate.network.query.meta"],
         "responses": {
           "200": {
             "description": "Alive and kicking!"
@@ -1896,9 +1494,7 @@
         },
         "security": [],
         "summary": "Check if a peer is alive.",
-        "tags": [
-          "P2P"
-        ],
+        "tags": ["P2P"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
@@ -1907,9 +1503,7 @@
       "put": {
         "description": "Receive an update from the Genesis server.",
         "operationId": "weaviate.p2p.genesis_update",
-        "x-serviceIds": [
-          "weaviate.network.query.meta"
-        ],
+        "x-serviceIds": ["weaviate.network.query.meta"],
         "parameters": [
           {
             "in": "body",
@@ -1935,9 +1529,7 @@
           }
         },
         "security": [],
-        "tags": [
-          "P2P"
-        ],
+        "tags": ["P2P"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
@@ -1946,12 +1538,8 @@
       "get": {
         "summary": "Dump the current the database schema.",
         "operationId": "weaviate.schema.dump",
-        "x-serviceIds": [
-          "weaviate.local.query.meta"
-        ],
-        "tags": [
-          "schema"
-        ],
+        "x-serviceIds": ["weaviate.local.query.meta"],
+        "tags": ["schema"],
         "responses": {
           "200": {
             "description": "Successfully dumped the database schema.",
@@ -1983,12 +1571,8 @@
       "post": {
         "summary": "Create a new Action class in the ontology.",
         "operationId": "weaviate.schema.actions.create",
-        "x-serviceIds": [
-          "weaviate.local.add.meta"
-        ],
-        "tags": [
-          "schema"
-        ],
+        "x-serviceIds": ["weaviate.local.add.meta"],
+        "tags": ["schema"],
         "parameters": [
           {
             "name": "actionClass",
@@ -2028,12 +1612,8 @@
       "delete": {
         "summary": "Remove an Action class (and all data in the instances) from the ontology.",
         "operationId": "weaviate.schema.actions.delete",
-        "x-serviceIds": [
-          "weaviate.local.manipulate.meta"
-        ],
-        "tags": [
-          "schema"
-        ],
+        "x-serviceIds": ["weaviate.local.manipulate.meta"],
+        "tags": ["schema"],
         "parameters": [
           {
             "name": "className",
@@ -2066,12 +1646,8 @@
       "put": {
         "summary": "Rename, or replace the keywords of the Action.",
         "operationId": "weaviate.schema.actions.update",
-        "x-serviceIds": [
-          "weaviate.local.manipulate.meta"
-        ],
-        "tags": [
-          "schema"
-        ],
+        "x-serviceIds": ["weaviate.local.manipulate.meta"],
+        "tags": ["schema"],
         "parameters": [
           {
             "name": "className",
@@ -2084,16 +1660,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "newName": {
-                  "description": "The new name of the Action.",
-                  "type": "string"
-                },
-                "keywords": {
-                  "$ref": "#/definitions/SemanticSchemaKeywords"
-                }
-              }
+              "$ref": "#/definitions/SemanticSchemaClass"
             }
           }
         ],
@@ -2126,12 +1693,8 @@
       "post": {
         "summary": "Add a property to an Action class.",
         "operationId": "weaviate.schema.actions.properties.add",
-        "x-serviceIds": [
-          "weaviate.local.manipulate.meta"
-        ],
-        "tags": [
-          "schema"
-        ],
+        "x-serviceIds": ["weaviate.local.manipulate.meta"],
+        "tags": ["schema"],
         "parameters": [
           {
             "name": "className",
@@ -2180,12 +1743,8 @@
       "delete": {
         "summary": "Remove a property from an Action class.",
         "operationId": "weaviate.schema.actions.properties.delete",
-        "x-serviceIds": [
-          "weaviate.local.manipulate.meta"
-        ],
-        "tags": [
-          "schema"
-        ],
+        "x-serviceIds": ["weaviate.local.manipulate.meta"],
+        "tags": ["schema"],
         "parameters": [
           {
             "name": "className",
@@ -2221,12 +1780,8 @@
       "put": {
         "summary": "Rename, or replace the keywords of the property.",
         "operationId": "weaviate.schema.actions.properties.update",
-        "x-serviceIds": [
-          "weaviate.local.manipulate.meta"
-        ],
-        "tags": [
-          "schema"
-        ],
+        "x-serviceIds": ["weaviate.local.manipulate.meta"],
+        "tags": ["schema"],
         "parameters": [
           {
             "name": "className",
@@ -2245,16 +1800,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "newName": {
-                  "description": "The new name of the property.",
-                  "type": "string"
-                },
-                "keywords": {
-                  "$ref": "#/definitions/SemanticSchemaKeywords"
-                }
-              }
+              "$ref": "#/definitions/SemanticSchemaClassProperty"
             }
           }
         ],
@@ -2287,12 +1833,8 @@
       "post": {
         "summary": "Create a new Thing class in the ontology.",
         "operationId": "weaviate.schema.things.create",
-        "x-serviceIds": [
-          "weaviate.local.add.meta"
-        ],
-        "tags": [
-          "schema"
-        ],
+        "x-serviceIds": ["weaviate.local.add.meta"],
+        "tags": ["schema"],
         "parameters": [
           {
             "name": "thingClass",
@@ -2332,12 +1874,8 @@
       "delete": {
         "summary": "Remove a Thing class (and all data in the instances) from the ontology.",
         "operationId": "weaviate.schema.things.delete",
-        "x-serviceIds": [
-          "weaviate.local.manipulate.meta"
-        ],
-        "tags": [
-          "schema"
-        ],
+        "x-serviceIds": ["weaviate.local.manipulate.meta"],
+        "tags": ["schema"],
         "parameters": [
           {
             "name": "className",
@@ -2370,12 +1908,8 @@
       "put": {
         "summary": "Rename, or replace the keywords of the Thing.",
         "operationId": "weaviate.schema.things.update",
-        "x-serviceIds": [
-          "weaviate.local.manipulate.meta"
-        ],
-        "tags": [
-          "schema"
-        ],
+        "x-serviceIds": ["weaviate.local.manipulate.meta"],
+        "tags": ["schema"],
         "parameters": [
           {
             "name": "className",
@@ -2386,18 +1920,8 @@
           {
             "name": "body",
             "in": "body",
-            "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "newName": {
-                  "description": "The new name of the Thing.",
-                  "type": "string"
-                },
-                "keywords": {
-                  "$ref": "#/definitions/SemanticSchemaKeywords"
-                }
-              }
+              "$ref": "#/definitions/SemanticSchemaClass"
             }
           }
         ],
@@ -2430,12 +1954,8 @@
       "post": {
         "summary": "Add a property to a Thing class.",
         "operationId": "weaviate.schema.things.properties.add",
-        "x-serviceIds": [
-          "weaviate.local.manipulate.meta"
-        ],
-        "tags": [
-          "schema"
-        ],
+        "x-serviceIds": ["weaviate.local.manipulate.meta"],
+        "tags": ["schema"],
         "parameters": [
           {
             "name": "className",
@@ -2484,12 +2004,8 @@
       "delete": {
         "summary": "Remove a property from a Thing class.",
         "operationId": "weaviate.schema.things.properties.delete",
-        "x-serviceIds": [
-          "weaviate.local.manipulate.meta"
-        ],
-        "tags": [
-          "schema"
-        ],
+        "x-serviceIds": ["weaviate.local.manipulate.meta"],
+        "tags": ["schema"],
         "parameters": [
           {
             "name": "className",
@@ -2525,12 +2041,8 @@
       "put": {
         "summary": "Rename, or replace the keywords of the property.",
         "operationId": "weaviate.schema.things.properties.update",
-        "x-serviceIds": [
-          "weaviate.local.manipulate.meta"
-        ],
-        "tags": [
-          "schema"
-        ],
+        "x-serviceIds": ["weaviate.local.manipulate.meta"],
+        "tags": ["schema"],
         "parameters": [
           {
             "name": "className",
@@ -2549,16 +2061,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "newName": {
-                  "description": "The new name of the property.",
-                  "type": "string"
-                },
-                "keywords": {
-                  "$ref": "#/definitions/SemanticSchemaKeywords"
-                }
-              }
+              "$ref": "#/definitions/SemanticSchemaClassProperty"
             }
           }
         ],
@@ -2591,15 +2094,10 @@
       "get": {
         "description": "Lists all Things in reverse order of creation, owned by the user that belongs to the used token.",
         "operationId": "weaviate.things.list",
-        "x-serviceIds": [
-          "weaviate.local.query"
-        ],
+        "x-serviceIds": ["weaviate.local.query"],
         "parameters": [
           {
-            "$ref": "#/parameters/CommonMaxResultsParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonPageParameterQuery"
+            "$ref": "#/parameters/CommonLimitParameterQuery"
           }
         ],
         "responses": {
@@ -2626,34 +2124,21 @@
           }
         },
         "summary": "Get a list of Things.",
-        "tags": [
-          "things"
-        ],
+        "tags": ["things"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "post": {
         "description": "Registers a new Thing. Given meta-data and schema values are validated.",
         "operationId": "weaviate.things.create",
-        "x-serviceIds": [
-          "weaviate.local.add"
-        ],
+        "x-serviceIds": ["weaviate.local.add"],
         "parameters": [
           {
             "in": "body",
             "name": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "async": {
-                  "type": "boolean",
-                  "description": "If `async` is true, return a 202 with the new ID of the Thing. You will receive this response before the data is made persistent. If `async` is false, you will receive confirmation after the value is made persistent. The value of `async` defaults to false."
-                },
-                "thing": {
-                  "$ref": "#/definitions/ThingCreate"
-                }
-              }
+              "$ref": "#/definitions/Thing"
             }
           }
         ],
@@ -2661,13 +2146,7 @@
           "200": {
             "description": "Thing created.",
             "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
-            }
-          },
-          "202": {
-            "description": "Successfully received.",
-            "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
+              "$ref": "#/definitions/Thing"
             }
           },
           "401": {
@@ -2690,9 +2169,7 @@
           }
         },
         "summary": "Create a new Thing based on a Thing template.",
-        "tags": [
-          "things"
-        ],
+        "tags": ["things"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
@@ -2701,16 +2178,14 @@
       "post": {
         "description": "Validate a Thing's schema and meta-data. It has to be based on a schema, which is related to the given Thing to be accepted by this validation.",
         "operationId": "weaviate.things.validate",
-        "x-serviceIds": [
-          "weaviate.local.query.meta"
-        ],
+        "x-serviceIds": ["weaviate.local.query.meta"],
         "parameters": [
           {
             "in": "body",
             "name": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/ThingCreate"
+              "$ref": "#/definitions/Thing"
             }
           }
         ],
@@ -2738,26 +2213,22 @@
           }
         },
         "summary": "Validate Things schema.",
-        "tags": [
-          "things"
-        ],
+        "tags": ["things"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
-    "/things/{thingId}": {
+    "/things/{id}": {
       "delete": {
         "description": "Deletes a Thing from the system. All Actions pointing to this Thing, where the Thing is the object of the Action, are also being deleted.",
         "operationId": "weaviate.things.delete",
-        "x-serviceIds": [
-          "weaviate.local.manipulate"
-        ],
+        "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
           {
             "description": "Unique ID of the Thing.",
             "format": "uuid",
             "in": "path",
-            "name": "thingId",
+            "name": "id",
             "required": true,
             "type": "string"
           }
@@ -2783,24 +2254,20 @@
           }
         },
         "summary": "Delete a Thing based on its UUID.",
-        "tags": [
-          "things"
-        ],
+        "tags": ["things"],
         "x-available-in-mqtt": true,
         "x-available-in-websocket": true
       },
       "get": {
         "description": "Returns a particular Thing data.",
         "operationId": "weaviate.things.get",
-        "x-serviceIds": [
-          "weaviate.local.query"
-        ],
+        "x-serviceIds": ["weaviate.local.query"],
         "parameters": [
           {
             "description": "Unique ID of the Thing.",
             "format": "uuid",
             "in": "path",
-            "name": "thingId",
+            "name": "id",
             "required": true,
             "type": "string"
           }
@@ -2809,7 +2276,7 @@
           "200": {
             "description": "Successful response.",
             "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
+              "$ref": "#/definitions/Thing"
             }
           },
           "401": {
@@ -2829,32 +2296,22 @@
           }
         },
         "summary": "Get a Thing based on its UUID.",
-        "tags": [
-          "things"
-        ],
+        "tags": ["things"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "patch": {
         "description": "Updates a Thing's data. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "operationId": "weaviate.things.patch",
-        "x-serviceIds": [
-          "weaviate.local.manipulate"
-        ],
+        "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
           {
             "description": "Unique ID of the Thing.",
             "format": "uuid",
             "in": "path",
-            "name": "thingId",
+            "name": "id",
             "required": true,
             "type": "string"
-          },
-          {
-            "description": "If `async` is true, return a 202 if the patch is accepted. You will receive this response before the data is made persistent. If `async` is false, you will receive confirmation after the update is made persistent. The value of `async` defaults to false.",
-            "name": "async",
-            "in": "query",
-            "type": "boolean"
           },
           {
             "description": "JSONPatch document as defined by RFC 6902.",
@@ -2873,13 +2330,7 @@
           "200": {
             "description": "Successfully applied.",
             "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
-            }
-          },
-          "202": {
-            "description": "Successfully received.",
-            "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
+              "$ref": "#/definitions/Thing"
             }
           },
           "400": {
@@ -2908,24 +2359,20 @@
           }
         },
         "summary": "Update a Thing based on its UUID (using patch semantics).",
-        "tags": [
-          "things"
-        ],
+        "tags": ["things"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "put": {
         "description": "Updates a Thing's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "operationId": "weaviate.things.update",
-        "x-serviceIds": [
-          "weaviate.local.manipulate"
-        ],
+        "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
           {
             "description": "Unique ID of the Thing.",
             "format": "uuid",
             "in": "path",
-            "name": "thingId",
+            "name": "id",
             "required": true,
             "type": "string"
           },
@@ -2934,15 +2381,15 @@
             "name": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/ThingUpdate"
+              "$ref": "#/definitions/Thing"
             }
           }
         ],
         "responses": {
-          "202": {
+          "200": {
             "description": "Successfully received.",
             "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
+              "$ref": "#/definitions/Thing"
             }
           },
           "401": {
@@ -2968,77 +2415,22 @@
           }
         },
         "summary": "Update a Thing based on its UUID.",
-        "tags": [
-          "things"
-        ],
+        "tags": ["things"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
-    "/things/{thingId}/history": {
-      "get": {
-        "description": "Returns a particular Thing's history.",
-        "operationId": "weaviate.thing.history.get",
-        "x-serviceIds": [
-          "weaviate.local.query"
-        ],
-        "parameters": [
-          {
-            "description": "Unique ID of the Thing.",
-            "format": "uuid",
-            "in": "path",
-            "name": "thingId",
-            "required": true,
-            "type": "string"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/ThingGetHistoryResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Insufficient permissions."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "summary": "Get a Thing's history based on its UUID.",
-        "tags": [
-          "things"
-        ],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
-      }
-    },
-    "/things/{thingId}/references/{propertyName}": {
+    "/things/{id}/references/{propertyName}": {
       "post": {
         "description": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
         "operationId": "weaviate.things.references.create",
-        "x-serviceIds": [
-          "weaviate.local.manipulate"
-        ],
+        "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
           {
             "description": "Unique ID of the Thing.",
             "format": "uuid",
             "in": "path",
-            "name": "thingId",
+            "name": "id",
             "required": true,
             "type": "string"
           },
@@ -3082,24 +2474,20 @@
           }
         },
         "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
-        "tags": [
-          "things"
-        ],
+        "tags": ["things"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "put": {
         "description": "Replace all references to a class-property.",
         "operationId": "weaviate.things.references.update",
-        "x-serviceIds": [
-          "weaviate.local.manipulate"
-        ],
+        "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
           {
             "description": "Unique ID of the Thing.",
             "format": "uuid",
             "in": "path",
-            "name": "thingId",
+            "name": "id",
             "required": true,
             "type": "string"
           },
@@ -3143,24 +2531,20 @@
           }
         },
         "summary": "Replace all references to a class-property.",
-        "tags": [
-          "things"
-        ],
+        "tags": ["things"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "delete": {
         "description": "Delete the single reference that is given in the body from the list of references that this property has.",
         "operationId": "weaviate.things.references.delete",
-        "x-serviceIds": [
-          "weaviate.local.manipulate"
-        ],
+        "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
           {
             "description": "Unique ID of the Thing.",
             "format": "uuid",
             "in": "path",
-            "name": "thingId",
+            "name": "id",
             "required": true,
             "type": "string"
           },
@@ -3204,9 +2588,7 @@
           }
         },
         "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
-        "tags": [
-          "things"
-        ],
+        "tags": ["things"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
@@ -3215,9 +2597,7 @@
       "get": {
         "description": "Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/creativesoftwarefdn/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase",
         "operationId": "weaviate.c11y.words",
-        "x-serviceIds": [
-          "weaviate.c11y.words.get"
-        ],
+        "x-serviceIds": ["weaviate.c11y.words.get"],
         "parameters": [
           {
             "description": "CamelCase list of words to validate.",
@@ -3257,9 +2637,7 @@
           }
         },
         "summary": "Checks if a word or wordString is part of the contextionary.",
-        "tags": [
-          "contextionary-API"
-        ],
+        "tags": ["contextionary-API"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
@@ -3268,9 +2646,7 @@
       "post": {
         "description": "Analyzes a sentence based on the contextionary",
         "operationId": "weaviate.c11y.corpus.get",
-        "x-serviceIds": [
-          "weaviate.c11y.corpus.get"
-        ],
+        "x-serviceIds": ["weaviate.c11y.corpus.get"],
         "parameters": [
           {
             "description": "A text corpus",
@@ -3295,20 +2671,14 @@
           }
         },
         "summary": "Checks if a word or wordString is part of the contextionary.",
-        "tags": [
-          "contextionary-API"
-        ],
+        "tags": ["contextionary-API"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     }
   },
-  "produces": [
-    "application/json"
-  ],
-  "schemes": [
-    "https"
-  ],
+  "produces": ["application/json"],
+  "schemes": ["https"],
   "security": [
     {},
     {
@@ -3317,11 +2687,11 @@
   ],
   "securityDefinitions": {
     "oidc": {
-        "type": "oauth2",
-        "description": "OIDC (OpenConnect ID - based on OAuth2)",
-        "flow": "implicit",
-        "authorizationUrl": "http://to-be-configured-in-the-application-config"
-      }
+      "type": "oauth2",
+      "description": "OIDC (OpenConnect ID - based on OAuth2)",
+      "flow": "implicit",
+      "authorizationUrl": "http://to-be-configured-in-the-application-config"
+    }
   },
   "swagger": "2.0",
   "tags": [

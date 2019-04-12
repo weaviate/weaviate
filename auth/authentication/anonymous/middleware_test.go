@@ -30,7 +30,7 @@ func Test_AnonymousMiddleware_Enabled(t *testing.T) {
 		w.WriteHeader(900)
 	})
 
-	cfg := config.Environment{
+	cfg := config.Config{
 		Authentication: config.Authentication{
 			AnonymousAccess: config.AnonymousAccess{
 				Enabled: true,
@@ -53,7 +53,7 @@ func Test_AnonymousMiddleware_Disabled(t *testing.T) {
 			w.WriteHeader(900)
 		})
 
-		cfg := config.Environment{
+		cfg := config.Config{
 			Authentication: config.Authentication{
 				AnonymousAccess: config.AnonymousAccess{
 					Enabled: false,
@@ -79,7 +79,7 @@ func Test_AnonymousMiddleware_Disabled(t *testing.T) {
 			w.WriteHeader(900)
 		})
 
-		cfg := config.Environment{
+		cfg := config.Config{
 			Authentication: config.Authentication{
 				AnonymousAccess: config.AnonymousAccess{
 					Enabled: false,

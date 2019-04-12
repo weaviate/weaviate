@@ -9,7 +9,7 @@
   ],
   "properties": [
     {
-      "@dataType": ["string"],
+      "dataType": ["string"],
       "cardinality": "atMostOne",
       "description": "The name of the animal",
       "keywords": [
@@ -21,7 +21,7 @@
       "name": "name"
     },
     {
-      "@dataType": ["text"],
+      "dataType": ["text"],
       "cardinality": "atMostOne",
       "description": "Some description",
       "name": "description"

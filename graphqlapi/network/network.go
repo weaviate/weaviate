@@ -35,7 +35,7 @@ type schemaDependentObjects struct {
 }
 
 // Build the network queries from the database schema.
-func Build(peers peers.Peers, config config.Environment) (*graphql.Field, error) {
+func Build(peers peers.Peers, config config.Config) (*graphql.Field, error) {
 
 	filterContainer := &utils.FilterContainer{}
 

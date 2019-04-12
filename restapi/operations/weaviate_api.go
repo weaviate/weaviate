@@ -59,9 +59,6 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		JSONConsumer:        runtime.JSONConsumer(),
 		YamlConsumer:        yamlpc.YAMLConsumer(),
 		JSONProducer:        runtime.JSONProducer(),
-		ActionsWeaviateActionHistoryGetHandler: actions.WeaviateActionHistoryGetHandlerFunc(func(params actions.WeaviateActionHistoryGetParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation ActionsWeaviateActionHistoryGet has not yet been implemented")
-		}),
 		ActionsWeaviateActionUpdateHandler: actions.WeaviateActionUpdateHandlerFunc(func(params actions.WeaviateActionUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ActionsWeaviateActionUpdate has not yet been implemented")
 		}),
@@ -161,9 +158,6 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		SchemaWeaviateSchemaThingsUpdateHandler: schema.WeaviateSchemaThingsUpdateHandlerFunc(func(params schema.WeaviateSchemaThingsUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation SchemaWeaviateSchemaThingsUpdate has not yet been implemented")
 		}),
-		ThingsWeaviateThingHistoryGetHandler: things.WeaviateThingHistoryGetHandlerFunc(func(params things.WeaviateThingHistoryGetParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation ThingsWeaviateThingHistoryGet has not yet been implemented")
-		}),
 		ThingsWeaviateThingsCreateHandler: things.WeaviateThingsCreateHandlerFunc(func(params things.WeaviateThingsCreateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ThingsWeaviateThingsCreate has not yet been implemented")
 		}),
@@ -241,8 +235,6 @@ type WeaviateAPI struct {
 	// APIAuthorizer provides access control (ACL/RBAC/ABAC) by providing access to the request and authenticated principal
 	APIAuthorizer runtime.Authorizer
 
-	// ActionsWeaviateActionHistoryGetHandler sets the operation handler for the weaviate action history get operation
-	ActionsWeaviateActionHistoryGetHandler actions.WeaviateActionHistoryGetHandler
 	// ActionsWeaviateActionUpdateHandler sets the operation handler for the weaviate action update operation
 	ActionsWeaviateActionUpdateHandler actions.WeaviateActionUpdateHandler
 	// ActionsWeaviateActionsCreateHandler sets the operation handler for the weaviate actions create operation
@@ -309,8 +301,6 @@ type WeaviateAPI struct {
 	SchemaWeaviateSchemaThingsPropertiesUpdateHandler schema.WeaviateSchemaThingsPropertiesUpdateHandler
 	// SchemaWeaviateSchemaThingsUpdateHandler sets the operation handler for the weaviate schema things update operation
 	SchemaWeaviateSchemaThingsUpdateHandler schema.WeaviateSchemaThingsUpdateHandler
-	// ThingsWeaviateThingHistoryGetHandler sets the operation handler for the weaviate thing history get operation
-	ThingsWeaviateThingHistoryGetHandler things.WeaviateThingHistoryGetHandler
 	// ThingsWeaviateThingsCreateHandler sets the operation handler for the weaviate things create operation
 	ThingsWeaviateThingsCreateHandler things.WeaviateThingsCreateHandler
 	// ThingsWeaviateThingsDeleteHandler sets the operation handler for the weaviate things delete operation
@@ -400,10 +390,6 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.OidcAuth == nil {
 		unregistered = append(unregistered, "OidcAuth")
-	}
-
-	if o.ActionsWeaviateActionHistoryGetHandler == nil {
-		unregistered = append(unregistered, "actions.WeaviateActionHistoryGetHandler")
 	}
 
 	if o.ActionsWeaviateActionUpdateHandler == nil {
@@ -536,10 +522,6 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.SchemaWeaviateSchemaThingsUpdateHandler == nil {
 		unregistered = append(unregistered, "schema.WeaviateSchemaThingsUpdateHandler")
-	}
-
-	if o.ThingsWeaviateThingHistoryGetHandler == nil {
-		unregistered = append(unregistered, "things.WeaviateThingHistoryGetHandler")
 	}
 
 	if o.ThingsWeaviateThingsCreateHandler == nil {
@@ -695,15 +677,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers = make(map[string]map[string]http.Handler)
 	}
 
-	if o.handlers["GET"] == nil {
-		o.handlers["GET"] = make(map[string]http.Handler)
-	}
-	o.handlers["GET"]["/actions/{actionId}/history"] = actions.NewWeaviateActionHistoryGet(o.context, o.ActionsWeaviateActionHistoryGetHandler)
-
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
-	o.handlers["PUT"]["/actions/{actionId}"] = actions.NewWeaviateActionUpdate(o.context, o.ActionsWeaviateActionUpdateHandler)
+	o.handlers["PUT"]["/actions/{id}"] = actions.NewWeaviateActionUpdate(o.context, o.ActionsWeaviateActionUpdateHandler)
 
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
@@ -713,12 +690,12 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
-	o.handlers["DELETE"]["/actions/{actionId}"] = actions.NewWeaviateActionsDelete(o.context, o.ActionsWeaviateActionsDeleteHandler)
+	o.handlers["DELETE"]["/actions/{id}"] = actions.NewWeaviateActionsDelete(o.context, o.ActionsWeaviateActionsDeleteHandler)
 
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/actions/{actionId}"] = actions.NewWeaviateActionsGet(o.context, o.ActionsWeaviateActionsGetHandler)
+	o.handlers["GET"]["/actions/{id}"] = actions.NewWeaviateActionsGet(o.context, o.ActionsWeaviateActionsGetHandler)
 
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
@@ -728,22 +705,22 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["PATCH"] == nil {
 		o.handlers["PATCH"] = make(map[string]http.Handler)
 	}
-	o.handlers["PATCH"]["/actions/{actionId}"] = actions.NewWeaviateActionsPatch(o.context, o.ActionsWeaviateActionsPatchHandler)
+	o.handlers["PATCH"]["/actions/{id}"] = actions.NewWeaviateActionsPatch(o.context, o.ActionsWeaviateActionsPatchHandler)
 
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/actions/{actionId}/references/{propertyName}"] = actions.NewWeaviateActionsReferencesCreate(o.context, o.ActionsWeaviateActionsReferencesCreateHandler)
+	o.handlers["POST"]["/actions/{id}/references/{propertyName}"] = actions.NewWeaviateActionsReferencesCreate(o.context, o.ActionsWeaviateActionsReferencesCreateHandler)
 
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
-	o.handlers["DELETE"]["/actions/{actionId}/references/{propertyName}"] = actions.NewWeaviateActionsReferencesDelete(o.context, o.ActionsWeaviateActionsReferencesDeleteHandler)
+	o.handlers["DELETE"]["/actions/{id}/references/{propertyName}"] = actions.NewWeaviateActionsReferencesDelete(o.context, o.ActionsWeaviateActionsReferencesDeleteHandler)
 
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
-	o.handlers["PUT"]["/actions/{actionId}/references/{propertyName}"] = actions.NewWeaviateActionsReferencesUpdate(o.context, o.ActionsWeaviateActionsReferencesUpdateHandler)
+	o.handlers["PUT"]["/actions/{id}/references/{propertyName}"] = actions.NewWeaviateActionsReferencesUpdate(o.context, o.ActionsWeaviateActionsReferencesUpdateHandler)
 
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
@@ -865,11 +842,6 @@ func (o *WeaviateAPI) initHandlerCache() {
 	}
 	o.handlers["PUT"]["/schema/things/{className}"] = schema.NewWeaviateSchemaThingsUpdate(o.context, o.SchemaWeaviateSchemaThingsUpdateHandler)
 
-	if o.handlers["GET"] == nil {
-		o.handlers["GET"] = make(map[string]http.Handler)
-	}
-	o.handlers["GET"]["/things/{thingId}/history"] = things.NewWeaviateThingHistoryGet(o.context, o.ThingsWeaviateThingHistoryGetHandler)
-
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
@@ -878,12 +850,12 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
-	o.handlers["DELETE"]["/things/{thingId}"] = things.NewWeaviateThingsDelete(o.context, o.ThingsWeaviateThingsDeleteHandler)
+	o.handlers["DELETE"]["/things/{id}"] = things.NewWeaviateThingsDelete(o.context, o.ThingsWeaviateThingsDeleteHandler)
 
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/things/{thingId}"] = things.NewWeaviateThingsGet(o.context, o.ThingsWeaviateThingsGetHandler)
+	o.handlers["GET"]["/things/{id}"] = things.NewWeaviateThingsGet(o.context, o.ThingsWeaviateThingsGetHandler)
 
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
@@ -893,27 +865,27 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["PATCH"] == nil {
 		o.handlers["PATCH"] = make(map[string]http.Handler)
 	}
-	o.handlers["PATCH"]["/things/{thingId}"] = things.NewWeaviateThingsPatch(o.context, o.ThingsWeaviateThingsPatchHandler)
+	o.handlers["PATCH"]["/things/{id}"] = things.NewWeaviateThingsPatch(o.context, o.ThingsWeaviateThingsPatchHandler)
 
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/things/{thingId}/references/{propertyName}"] = things.NewWeaviateThingsReferencesCreate(o.context, o.ThingsWeaviateThingsReferencesCreateHandler)
+	o.handlers["POST"]["/things/{id}/references/{propertyName}"] = things.NewWeaviateThingsReferencesCreate(o.context, o.ThingsWeaviateThingsReferencesCreateHandler)
 
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
-	o.handlers["DELETE"]["/things/{thingId}/references/{propertyName}"] = things.NewWeaviateThingsReferencesDelete(o.context, o.ThingsWeaviateThingsReferencesDeleteHandler)
+	o.handlers["DELETE"]["/things/{id}/references/{propertyName}"] = things.NewWeaviateThingsReferencesDelete(o.context, o.ThingsWeaviateThingsReferencesDeleteHandler)
 
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
-	o.handlers["PUT"]["/things/{thingId}/references/{propertyName}"] = things.NewWeaviateThingsReferencesUpdate(o.context, o.ThingsWeaviateThingsReferencesUpdateHandler)
+	o.handlers["PUT"]["/things/{id}/references/{propertyName}"] = things.NewWeaviateThingsReferencesUpdate(o.context, o.ThingsWeaviateThingsReferencesUpdateHandler)
 
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
-	o.handlers["PUT"]["/things/{thingId}"] = things.NewWeaviateThingsUpdate(o.context, o.ThingsWeaviateThingsUpdateHandler)
+	o.handlers["PUT"]["/things/{id}"] = things.NewWeaviateThingsUpdate(o.context, o.ThingsWeaviateThingsUpdateHandler)
 
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)

@@ -96,7 +96,7 @@ func (t *TypeInspector) analyze(params *getmeta.Params, prop getmeta.MetaPropert
 			"type inspector cannot get property %s.%s: %s", params.ClassName, prop.Name, err)
 	}
 
-	propType, err := t.typeSource.FindPropertyDataType(schemaProp.AtDataType)
+	propType, err := t.typeSource.FindPropertyDataType(schemaProp.DataType)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"type inspector cannot get data type of property %s.%s: %s", params.ClassName, prop.Name, err)

@@ -16,12 +16,12 @@
             {"keyword": "word", "weight": 1.0},
             {"keyword": "list", "weight": 1.5}
           ],
-          "@dataType": ["string"],
+          "dataType": ["string"],
           "description": "Value of testString."
         },
         {
           "name": "testText",
-          "@dataType": ["text"],
+          "dataType": ["text"],
           "description": "Value of testText."
         },
         {
@@ -30,7 +30,7 @@
             {"keyword": "test", "weight": 1.0},
             {"keyword": "number", "weight": 1.0}
           ],
-          "@dataType": ["int"],
+          "dataType": ["int"],
           "description": "Value of testInt."
         },
         {
@@ -40,17 +40,17 @@
             {"keyword": "truth", "weight": 1.0},
             {"keyword": "value", "weight": 1.0}
           ],
-          "@dataType": ["boolean"],
+          "dataType": ["boolean"],
           "description": "Value of testBoolean."
         },
         {
           "name": "testNumber",
-          "@dataType": ["number"],
+          "dataType": ["number"],
           "description": "Value of testNumber."
         },
         {
           "name": "testDateTime",
-          "@dataType": ["date"],
+          "dataType": ["date"],
           "description": "Value of testDateTime."
         },
         {
@@ -59,12 +59,12 @@
             {"keyword": "test", "weight": 1.0},
             {"keyword": "reference", "weight": 1.0}
           ],
-          "@dataType": ["TestThingTwo"],
+          "dataType": ["TestThingTwo"],
           "description": "Value of testCref."
         },
         {
           "name": "testRandomType",
-          "@dataType": ["string"],
+          "dataType": ["string"],
           "description": "Same name, different datatypes."
         }
       ]
@@ -84,12 +84,12 @@
             {"keyword": "word", "weight": 1.0},
             {"keyword": "list", "weight": 1.5}
           ],
-          "@dataType": ["string"],
+          "dataType": ["string"],
           "description": "Value of testString."
         },
         {
           "name": "testText",
-          "@dataType": ["text"],
+          "dataType": ["text"],
           "description": "Value of testText."
         },
         {
@@ -98,7 +98,7 @@
             {"keyword": "test", "weight": 1.0},
             {"keyword": "number", "weight": 1.0}
           ],
-          "@dataType": ["int"],
+          "dataType": ["int"],
           "description": "Value of testInt."
         },
         {
@@ -108,17 +108,17 @@
             {"keyword": "truth", "weight": 1.0},
             {"keyword": "value", "weight": 1.0}
           ],
-          "@dataType": ["boolean"],
+          "dataType": ["boolean"],
           "description": "Value of testBoolean."
         },
         {
           "name": "testNumber",
-          "@dataType": ["number"],
+          "dataType": ["number"],
           "description": "Value of testNumber."
         },
         {
           "name": "testDateTime",
-          "@dataType": ["date"],
+          "dataType": ["date"],
           "description": "Value of testDateTime."
         },
         {
@@ -127,12 +127,12 @@
             {"keyword": "test", "weight": 1.0},
             {"keyword": "reference", "weight": 1.0}
           ],
-          "@dataType": ["TestThing"],
+          "dataType": ["TestThing"],
           "description": "Value of testCref."
         },
         {
           "name": "testRandomType",
-          "@dataType": ["int"],
+          "dataType": ["int"],
           "description": "Same name, different datatypes."
         }
       ]

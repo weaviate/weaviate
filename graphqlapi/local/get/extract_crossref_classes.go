@@ -43,7 +43,7 @@ func extractFromClasses(classes []*models.SemanticSchemaClass) []crossrefs.Netwo
 func extractFromProperties(props []*models.SemanticSchemaClassProperty) []crossrefs.NetworkClass {
 	var result = []crossrefs.NetworkClass{}
 	for _, prop := range props {
-		result = append(result, extractFromDataTypes(prop.AtDataType)...)
+		result = append(result, extractFromDataTypes(prop.DataType)...)
 	}
 
 	return result

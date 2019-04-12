@@ -1,8 +1,7 @@
 {
   "async": false,
   "thing": {
-    "@class": "Zoo",
-    "@context": "none",
+    "class": "Zoo",
     "schema": {
       "name": "NowhereZoo",
       "location": {

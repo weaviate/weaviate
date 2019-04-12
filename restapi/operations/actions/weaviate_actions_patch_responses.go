@@ -35,7 +35,7 @@ type WeaviateActionsPatchOK struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.ActionGetResponse `json:"body,omitempty"`
+	Payload *models.Action `json:"body,omitempty"`
 }
 
 // NewWeaviateActionsPatchOK creates WeaviateActionsPatchOK with default headers values
@@ -45,13 +45,13 @@ func NewWeaviateActionsPatchOK() *WeaviateActionsPatchOK {
 }
 
 // WithPayload adds the payload to the weaviate actions patch o k response
-func (o *WeaviateActionsPatchOK) WithPayload(payload *models.ActionGetResponse) *WeaviateActionsPatchOK {
+func (o *WeaviateActionsPatchOK) WithPayload(payload *models.Action) *WeaviateActionsPatchOK {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the weaviate actions patch o k response
-func (o *WeaviateActionsPatchOK) SetPayload(payload *models.ActionGetResponse) {
+func (o *WeaviateActionsPatchOK) SetPayload(payload *models.Action) {
 	o.Payload = payload
 }
 
@@ -59,50 +59,6 @@ func (o *WeaviateActionsPatchOK) SetPayload(payload *models.ActionGetResponse) {
 func (o *WeaviateActionsPatchOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(200)
-	if o.Payload != nil {
-		payload := o.Payload
-		if err := producer.Produce(rw, payload); err != nil {
-			panic(err) // let the recovery middleware deal with this
-		}
-	}
-}
-
-// WeaviateActionsPatchAcceptedCode is the HTTP code returned for type WeaviateActionsPatchAccepted
-const WeaviateActionsPatchAcceptedCode int = 202
-
-/*WeaviateActionsPatchAccepted Successfully received.
-
-swagger:response weaviateActionsPatchAccepted
-*/
-type WeaviateActionsPatchAccepted struct {
-
-	/*
-	  In: Body
-	*/
-	Payload *models.ActionGetResponse `json:"body,omitempty"`
-}
-
-// NewWeaviateActionsPatchAccepted creates WeaviateActionsPatchAccepted with default headers values
-func NewWeaviateActionsPatchAccepted() *WeaviateActionsPatchAccepted {
-
-	return &WeaviateActionsPatchAccepted{}
-}
-
-// WithPayload adds the payload to the weaviate actions patch accepted response
-func (o *WeaviateActionsPatchAccepted) WithPayload(payload *models.ActionGetResponse) *WeaviateActionsPatchAccepted {
-	o.Payload = payload
-	return o
-}
-
-// SetPayload sets the payload to the weaviate actions patch accepted response
-func (o *WeaviateActionsPatchAccepted) SetPayload(payload *models.ActionGetResponse) {
-	o.Payload = payload
-}
-
-// WriteResponse to the client
-func (o *WeaviateActionsPatchAccepted) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.WriteHeader(202)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

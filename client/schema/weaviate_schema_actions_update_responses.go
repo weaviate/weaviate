@@ -19,9 +19,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
-	"github.com/go-openapi/swag"
 
 	strfmt "github.com/go-openapi/strfmt"
 
@@ -195,65 +193,5 @@ func (o *WeaviateSchemaActionsUpdateInternalServerError) readResponse(response r
 		return err
 	}
 
-	return nil
-}
-
-/*WeaviateSchemaActionsUpdateBody weaviate schema actions update body
-swagger:model WeaviateSchemaActionsUpdateBody
-*/
-type WeaviateSchemaActionsUpdateBody struct {
-
-	// keywords
-	Keywords models.SemanticSchemaKeywords `json:"keywords,omitempty"`
-
-	// The new name of the Action.
-	NewName string `json:"newName,omitempty"`
-}
-
-// Validate validates this weaviate schema actions update body
-func (o *WeaviateSchemaActionsUpdateBody) Validate(formats strfmt.Registry) error {
-	var res []error
-
-	if err := o.validateKeywords(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
-	return nil
-}
-
-func (o *WeaviateSchemaActionsUpdateBody) validateKeywords(formats strfmt.Registry) error {
-
-	if swag.IsZero(o.Keywords) { // not required
-		return nil
-	}
-
-	if err := o.Keywords.Validate(formats); err != nil {
-		if ve, ok := err.(*errors.Validation); ok {
-			return ve.ValidateName("body" + "." + "keywords")
-		}
-		return err
-	}
-
-	return nil
-}
-
-// MarshalBinary interface implementation
-func (o *WeaviateSchemaActionsUpdateBody) MarshalBinary() ([]byte, error) {
-	if o == nil {
-		return nil, nil
-	}
-	return swag.WriteJSON(o)
-}
-
-// UnmarshalBinary interface implementation
-func (o *WeaviateSchemaActionsUpdateBody) UnmarshalBinary(b []byte) error {
-	var res WeaviateSchemaActionsUpdateBody
-	if err := swag.ReadJSON(b, &res); err != nil {
-		return err
-	}
-	*o = res
 	return nil
 }

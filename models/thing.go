@@ -20,96 +20,35 @@ import (
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 )
 
 // Thing thing
 // swagger:model Thing
 type Thing struct {
-	ThingCreate
+
+	// Class of the Thing, defined in the schema.
+	Class string `json:"class,omitempty"`
 
 	// Timestamp of creation of this Thing in milliseconds since epoch UTC.
 	CreationTimeUnix int64 `json:"creationTimeUnix,omitempty"`
 
-	// key
-	Key *SingleRef `json:"key,omitempty"`
+	// ID of the Thing.
+	// Format: uuid
+	ID strfmt.UUID `json:"id,omitempty"`
 
 	// Timestamp of the last Thing update in milliseconds since epoch UTC.
 	LastUpdateTimeUnix int64 `json:"lastUpdateTimeUnix,omitempty"`
-}
 
-// UnmarshalJSON unmarshals this object from a JSON structure
-func (m *Thing) UnmarshalJSON(raw []byte) error {
-	// AO0
-	var aO0 ThingCreate
-	if err := swag.ReadJSON(raw, &aO0); err != nil {
-		return err
-	}
-	m.ThingCreate = aO0
-
-	// AO1
-	var dataAO1 struct {
-		CreationTimeUnix int64 `json:"creationTimeUnix,omitempty"`
-
-		Key *SingleRef `json:"key,omitempty"`
-
-		LastUpdateTimeUnix int64 `json:"lastUpdateTimeUnix,omitempty"`
-	}
-	if err := swag.ReadJSON(raw, &dataAO1); err != nil {
-		return err
-	}
-
-	m.CreationTimeUnix = dataAO1.CreationTimeUnix
-
-	m.Key = dataAO1.Key
-
-	m.LastUpdateTimeUnix = dataAO1.LastUpdateTimeUnix
-
-	return nil
-}
-
-// MarshalJSON marshals this object to a JSON structure
-func (m Thing) MarshalJSON() ([]byte, error) {
-	_parts := make([][]byte, 0, 2)
-
-	aO0, err := swag.WriteJSON(m.ThingCreate)
-	if err != nil {
-		return nil, err
-	}
-	_parts = append(_parts, aO0)
-
-	var dataAO1 struct {
-		CreationTimeUnix int64 `json:"creationTimeUnix,omitempty"`
-
-		Key *SingleRef `json:"key,omitempty"`
-
-		LastUpdateTimeUnix int64 `json:"lastUpdateTimeUnix,omitempty"`
-	}
-
-	dataAO1.CreationTimeUnix = m.CreationTimeUnix
-
-	dataAO1.Key = m.Key
-
-	dataAO1.LastUpdateTimeUnix = m.LastUpdateTimeUnix
-
-	jsonDataAO1, errAO1 := swag.WriteJSON(dataAO1)
-	if errAO1 != nil {
-		return nil, errAO1
-	}
-	_parts = append(_parts, jsonDataAO1)
-
-	return swag.ConcatJSON(_parts...), nil
+	// schema
+	Schema Schema `json:"schema,omitempty"`
 }
 
 // Validate validates this thing
 func (m *Thing) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	// validation for a type composition with ThingCreate
-	if err := m.ThingCreate.Validate(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateKey(formats); err != nil {
+	if err := m.validateID(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -119,19 +58,14 @@ func (m *Thing) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *Thing) validateKey(formats strfmt.Registry) error {
+func (m *Thing) validateID(formats strfmt.Registry) error {
 
-	if swag.IsZero(m.Key) { // not required
+	if swag.IsZero(m.ID) { // not required
 		return nil
 	}
 
-	if m.Key != nil {
-		if err := m.Key.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("key")
-			}
-			return err
-		}
+	if err := validate.FormatOf("id", "body", "uuid", m.ID.String(), formats); err != nil {
+		return err
 	}
 
 	return nil

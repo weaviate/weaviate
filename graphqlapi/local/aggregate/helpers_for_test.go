@@ -28,7 +28,7 @@ type mockResolver struct {
 	testhelper.MockResolver
 }
 
-func newMockResolver(cfg config.Environment) *mockResolver {
+func newMockResolver(cfg config.Config) *mockResolver {
 	field, err := Build(&testhelper.CarSchema, cfg)
 	if err != nil {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))

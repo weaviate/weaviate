@@ -56,7 +56,7 @@ Properties are defined as follows inside classes (based on the example above):
 		"weight": 0
 	}],
 	"properties": [{
-		"@dataType": [
+		"dataType": [
 			"string"
 		],
 		"cardinality": "atMostOne",
@@ -74,8 +74,8 @@ Legend:
 
 | key | value |
 | --- | --- |
-| properties.@dataType | array |
-| properties.@dataType._string_ | the data type, see an overview of data types and formats [here](#property-datatypes) |
+| properties.dataType | array |
+| properties.dataType._string_ | the data type, see an overview of data types and formats [here](#property-datatypes) |
 | properties.cardinality | Should be `atMostOne` or `many`, more information can be found [here](#cardinality) |
 | properties.description | Description of the property |
 | properties.name | The name of the property, this property should be part of the [Weaviate Contextionary](../contribute/contextionary.md) |
@@ -83,7 +83,7 @@ Legend:
 
 ## Cardinality
 
-A property's `@dataType` is always set as one (`atMostOne`) meaning that it can have only one type to direct to. However, when setting cross-references, you sometimes want to be able to point to multiple things or actions.
+A property's `dataType` is always set as one (`atMostOne`) meaning that it can have only one type to direct to. However, when setting cross-references, you sometimes want to be able to point to multiple things or actions.
 
 For example, the class `Animal` might have the property `livesIn` which can be a cross-reference to a cage or an aquarium. When using GraphQL to retrieve data from the graph, the cardinality will determine how the query is constructed.
 
@@ -94,7 +94,7 @@ For example, the class `Animal` might have the property `livesIn` which can be a
     "keywords": [],
     "properties": [{
         "name": "livesIn",
-        "@dataType": [
+        "dataType": [
             "Aquarium", "Cage"
         ],
         "cardinality": "many",
@@ -161,8 +161,7 @@ In the [RESTful API](./RESTful.md) this will be shown as:
 ```json
 {
     "thing": {
-        "@class": "SomeClass",
-        "@context": "http://context.org",
+        "class": "SomeClass",
         "schema": {
             "name": "SomeOtherClass",
             "someProperty": {
@@ -186,7 +185,7 @@ Example:
   "keywords": [],
   "properties": [{
     "name": "location",
-    "@dataType": [
+    "dataType": [
         "geoCoordinates"
     ],
     "cardinality": "atMostOne",
