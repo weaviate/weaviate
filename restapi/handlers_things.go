@@ -106,6 +106,110 @@ func (h *kindHandlers) getAction(params actions.WeaviateActionsGetParams,
 	return actions.NewWeaviateActionsGetOK().WithPayload(action)
 }
 
+func (h *kindHandlers) getThings(params things.WeaviateThingsListParams,
+	principal *models.Principal) middleware.Responder {
+	list, err := h.manager.GetThings(params.HTTPRequest.Context(), getLimit(params.Limit))
+	if err != nil {
+		return things.NewWeaviateThingsListInternalServerError().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalQuery)
+	// TODO: unify response with other verbs
+	return things.NewWeaviateThingsListOK().
+		WithPayload(&models.ThingsListResponse{
+			Things:       list,
+			TotalResults: int64(len(list)),
+		})
+}
+
+func (h *kindHandlers) getActions(params actions.WeaviateActionsListParams,
+	principal *models.Principal) middleware.Responder {
+	list, err := h.manager.GetActions(params.HTTPRequest.Context(), getLimit(params.Limit))
+	if err != nil {
+		return actions.NewWeaviateActionsListInternalServerError().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalQuery)
+	// TODO: unify response with other verbs
+	return actions.NewWeaviateActionsListOK().
+		WithPayload(&models.ActionsListResponse{
+			Actions:      list,
+			TotalResults: int64(len(list)),
+		})
+}
+
+func (h *kindHandlers) updateThing(params things.WeaviateThingsUpdateParams,
+	principal *models.Principal) middleware.Responder {
+	thing, err := h.manager.UpdateThing(params.HTTPRequest.Context(), params.ID, params.Body)
+	if err != nil {
+		switch err.(type) {
+		case kinds.ErrInvalidUserInput:
+			return things.NewWeaviateThingsUpdateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return things.NewWeaviateThingsUpdateInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
+	return things.NewWeaviateThingsUpdateOK().WithPayload(thing)
+}
+
+func (h *kindHandlers) updateAction(params actions.WeaviateActionUpdateParams,
+	principal *models.Principal) middleware.Responder {
+	action, err := h.manager.UpdateAction(params.HTTPRequest.Context(), params.ID, params.Body)
+	if err != nil {
+		switch err.(type) {
+		case kinds.ErrInvalidUserInput:
+			return actions.NewWeaviateActionUpdateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return actions.NewWeaviateActionUpdateInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
+	return actions.NewWeaviateActionUpdateOK().WithPayload(action)
+}
+
+func (h *kindHandlers) deleteThing(params things.WeaviateThingsDeleteParams,
+	principal *models.Principal) middleware.Responder {
+	err := h.manager.DeleteThing(params.HTTPRequest.Context(), params.ID)
+	if err != nil {
+		switch err.(type) {
+		case kinds.ErrNotFound:
+			return things.NewWeaviateThingsDeleteNotFound()
+		default:
+			return things.NewWeaviateThingsDeleteInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
+	return things.NewWeaviateThingsDeleteNoContent()
+}
+
+func (h *kindHandlers) deleteAction(params actions.WeaviateActionsDeleteParams,
+	principal *models.Principal) middleware.Responder {
+	err := h.manager.DeleteAction(params.HTTPRequest.Context(), params.ID)
+	if err != nil {
+		switch err.(type) {
+		case kinds.ErrNotFound:
+			return actions.NewWeaviateActionsDeleteNotFound()
+		default:
+			return actions.NewWeaviateActionsDeleteInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
+	return actions.NewWeaviateActionsDeleteNoContent()
+}
+
 func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog, manager *kinds.Manager) {
 	h := &kindHandlers{manager, requestsLog}
 
@@ -113,82 +217,24 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		WeaviateThingsCreateHandlerFunc(h.createThing)
 	api.ThingsWeaviateThingsGetHandler = things.
 		WeaviateThingsGetHandlerFunc(h.getThing)
+	api.ThingsWeaviateThingsDeleteHandler = things.
+		WeaviateThingsDeleteHandlerFunc(h.deleteThing)
+	api.ThingsWeaviateThingsListHandler = things.
+		WeaviateThingsListHandlerFunc(h.getThings)
+	api.ThingsWeaviateThingsUpdateHandler = things.
+		WeaviateThingsUpdateHandlerFunc(h.updateThing)
 
 	api.ActionsWeaviateActionsCreateHandler = actions.
 		WeaviateActionsCreateHandlerFunc(h.createAction)
 	api.ActionsWeaviateActionsGetHandler = actions.
 		WeaviateActionsGetHandlerFunc(h.getAction)
+	api.ActionsWeaviateActionsDeleteHandler = actions.
+		WeaviateActionsDeleteHandlerFunc(h.deleteAction)
+	api.ActionsWeaviateActionsListHandler = actions.
+		WeaviateActionsListHandlerFunc(h.getActions)
+	api.ActionsWeaviateActionUpdateHandler = actions.
+		WeaviateActionUpdateHandlerFunc(h.updateAction)
 
-	api.ThingsWeaviateThingsDeleteHandler = things.WeaviateThingsDeleteHandlerFunc(func(params things.WeaviateThingsDeleteParams, principal *models.Principal) middleware.Responder {
-		dbLock, err := db.ConnectorLock()
-		if err != nil {
-			return things.NewWeaviateThingsDeleteInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-		}
-		delayedLock := delayed_unlock.New(dbLock)
-		defer unlock(delayedLock)
-
-		dbConnector := dbLock.Connector()
-
-		// Initialize response
-		thingGetResponse := models.Thing{}
-		thingGetResponse.Schema = map[string]models.JSONObject{}
-
-		// Get item from database
-		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), params.ID, &thingGetResponse)
-
-		// Not found
-		if errGet != nil {
-			return things.NewWeaviateThingsDeleteNotFound()
-		}
-
-		thingGetResponse.LastUpdateTimeUnix = connutils.NowUnix()
-
-		ctx := params.HTTPRequest.Context()
-		// Add new row as GO-routine
-		delayedLock.IncSteps()
-		go func() {
-			delayedLock.Unlock()
-			dbConnector.DeleteThing(ctx, &thingGetResponse, params.ID)
-		}()
-
-		// Register the function call
-		go func() {
-			requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulate)
-		}()
-
-		// Return 'No Content'
-		return things.NewWeaviateThingsDeleteNoContent()
-	})
-
-	api.ThingsWeaviateThingsListHandler = things.WeaviateThingsListHandlerFunc(func(params things.WeaviateThingsListParams, principal *models.Principal) middleware.Responder {
-		dbLock, err := db.ConnectorLock()
-		if err != nil {
-			return things.NewWeaviateThingsListInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-		}
-		defer unlock(dbLock)
-		dbConnector := dbLock.Connector()
-
-		// Get limit and page
-		limit := getLimit(params.Limit)
-
-		// Initialize response
-		thingsResponse := models.ThingsListResponse{}
-		thingsResponse.Things = []*models.Thing{}
-
-		// List all results
-		ctx := params.HTTPRequest.Context()
-		err = dbConnector.ListThings(ctx, limit, []*connutils.WhereQuery{}, &thingsResponse)
-		if err != nil {
-			return things.NewWeaviateThingsListInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-		}
-
-		// Register the function call
-		go func() {
-			requestsLog.Register(telemetry.TypeREST, telemetry.LocalQuery)
-		}()
-
-		return things.NewWeaviateThingsListOK().WithPayload(&thingsResponse)
-	})
 	api.ThingsWeaviateThingsPatchHandler = things.WeaviateThingsPatchHandlerFunc(func(params things.WeaviateThingsPatchParams, principal *models.Principal) middleware.Responder {
 		schemaLock, err := db.SchemaLock()
 		if err != nil {
@@ -547,61 +593,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		// Returns accepted so a Go routine can process in the background
 		return things.NewWeaviateThingsReferencesCreateOK()
 	})
-	api.ThingsWeaviateThingsUpdateHandler = things.WeaviateThingsUpdateHandlerFunc(func(params things.WeaviateThingsUpdateParams, principal *models.Principal) middleware.Responder {
-		dbLock, err := db.ConnectorLock()
-		if err != nil {
-			return things.NewWeaviateThingsUpdateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-		}
-		delayedLock := delayed_unlock.New(dbLock)
-		defer unlock(delayedLock)
 
-		dbConnector := dbLock.Connector()
-
-		// Initialize response
-		thingGetResponse := models.Thing{}
-		thingGetResponse.Schema = map[string]models.JSONObject{}
-
-		// Get item from database
-		UUID := params.ID
-		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), UUID, &thingGetResponse)
-
-		// If there are no results, there is an error
-		if errGet != nil {
-			// Object not found response.
-			return things.NewWeaviateThingsUpdateNotFound()
-		}
-
-		// Validate schema given in body with the weaviate schema
-		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
-		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), params.Body,
-			databaseSchema, dbConnector, network, serverConfig)
-		if validatedErr != nil {
-			return things.NewWeaviateThingsUpdateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
-		}
-
-		ctx := params.HTTPRequest.Context()
-
-		// Update the database
-		params.Body.LastUpdateTimeUnix = connutils.NowUnix()
-		params.Body.CreationTimeUnix = thingGetResponse.CreationTimeUnix
-		delayedLock.IncSteps()
-		go func() {
-			delayedLock.Unlock()
-			dbConnector.UpdateThing(ctx, params.Body, UUID)
-		}()
-
-		// Create object to return
-		responseObject := &models.Thing{}
-		responseObject = params.Body
-		responseObject.ID = UUID
-
-		// Register the function call
-		go func() {
-			requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulate)
-		}()
-
-		return things.NewWeaviateThingsUpdateOK().WithPayload(responseObject)
-	})
 	api.ThingsWeaviateThingsValidateHandler = things.WeaviateThingsValidateHandlerFunc(func(params things.WeaviateThingsValidateParams, principal *models.Principal) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
