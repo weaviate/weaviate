@@ -1,49 +1,73 @@
 package kinds
 
-// // DeleteAction Class Instance from the connected DB
-// func (m *Manager) DeleteAction(ctx context.Context, class *models.Action) (*models.Action, error) {
-// 	schemaLock, err := m.db.SchemaLock()
-// 	if err != nil {
-// 		return nil, newErrInternal("could not aquire lock: %v", err)
-// 	}
-// 	defer unlock(schemaLock)
-// 	dbConnector := schemaLock.Connector()
+import (
+	"context"
 
-// 	class.ID = generateUUID()
+	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/go-openapi/strfmt"
+)
 
-// 	err = m.validateAction(ctx, schemaLock, class)
-// 	if err != nil {
-// 		return nil, newErrInvalidUserInput("invalid action: %v", err)
-// 	}
+type deleteRepo interface {
+	// delete depends on getRepo for a not-found check
+	getRepo
 
-// 	err = m.addNetworkDataTypesForAction(ctx, schemaLock.SchemaManager(), class)
-// 	if err != nil {
-// 		return nil, newErrInternal("could not update schema for network refs: %v", err)
-// 	}
+	// TODO: Delete unnecessary 2nd arg
+	DeleteThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error
+	DeleteAction(ctx context.Context, thing *models.Action, UUID strfmt.UUID) error
+}
 
-// 	dbConnector.DeleteAction(ctx, class, class.ID)
-// 	if err != nil {
-// 		return nil, newErrInternal("could not store action: %v", err)
-// 	}
+// DeleteAction Class Instance from the conncected DB
+func (m *Manager) DeleteAction(ctx context.Context, id strfmt.UUID) error {
+	dbLock, err := m.db.ConnectorLock()
+	if err != nil {
+		return newErrInternal("could not aquire lock: %v", err)
+	}
+	defer unlock(dbLock)
 
-// 	return class, nil
-// }
+	dbConnector := dbLock.Connector()
+	return m.deleteActionFromRepo(ctx, id, dbConnector)
+}
 
-// // DeleteThing Class Instance from the conncected DB
-// func (m *Manager) DeleteThing(ctx context.Context, id strfmt.UUID) (*models.Thing, error) {
-// 	dbLock, err := db.ConnectorLock()
-// 	if err != nil {
-// 		return nil, newErrInternal("could not aquire lock: %v", err)
-// 	}
-// 	delayedLock := delayed_unlock.New(dbLock)
-// 	defer unlock(delayedLock)
+func (m *Manager) deleteActionFromRepo(ctx context.Context, id strfmt.UUID,
+	repo deleteRepo) error {
 
-// 	dbConnector := dbLock.Connector()
+	_, err := m.getActionFromRepo(ctx, id, repo)
+	if err != nil {
+		return err
+	}
 
-// 	dbConnector.DeleteThing(ctx, class, class.ID)
-// 	if err != nil {
-// 		return nil, newErrInternal("could not store thing: %v", err)
-// 	}
+	repo.DeleteAction(ctx, nil, id)
+	if err != nil {
+		return newErrInternal("could not delete action: %v", err)
+	}
 
-// 	return class, nil
-// }
+	return nil
+}
+
+// DeleteThing Class Instance from the conncected DB
+func (m *Manager) DeleteThing(ctx context.Context, id strfmt.UUID) error {
+	dbLock, err := m.db.ConnectorLock()
+	if err != nil {
+		return newErrInternal("could not aquire lock: %v", err)
+	}
+	defer unlock(dbLock)
+
+	dbConnector := dbLock.Connector()
+	return m.deleteThingFromRepo(ctx, id, dbConnector)
+}
+
+func (m *Manager) deleteThingFromRepo(ctx context.Context, id strfmt.UUID,
+	repo deleteRepo) error {
+
+	_, err := m.getThingFromRepo(ctx, id, repo)
+	if err != nil {
+		return err
+	}
+
+	repo.DeleteThing(ctx, nil, id)
+	if err != nil {
+		return newErrInternal("could not delete thing: %v", err)
+	}
+
+	return nil
+}

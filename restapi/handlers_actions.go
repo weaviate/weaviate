@@ -30,35 +30,6 @@ import (
 )
 
 func setupActionsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog) {
-	api.ActionsWeaviateActionsGetHandler = actions.WeaviateActionsGetHandlerFunc(func(params actions.WeaviateActionsGetParams, principal *models.Principal) middleware.Responder {
-		dbLock, err := db.ConnectorLock()
-		if err != nil {
-			return actions.NewWeaviateActionsGetInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-		}
-		defer dbLock.Unlock()
-		dbConnector := dbLock.Connector()
-
-		// Initialize response
-		actionGetResponse := models.Action{}
-		actionGetResponse.Schema = map[string]models.JSONObject{}
-
-		// Get item from database
-		ctx := params.HTTPRequest.Context()
-		err = dbConnector.GetAction(ctx, params.ID, &actionGetResponse)
-
-		// Object is deleted
-		if err != nil {
-			return actions.NewWeaviateActionsGetNotFound()
-		}
-
-		// Register the function call
-		go func() {
-			requestsLog.Register(telemetry.TypeREST, telemetry.LocalQuery)
-		}()
-
-		// Get is successful
-		return actions.NewWeaviateActionsGetOK().WithPayload(&actionGetResponse)
-	})
 	api.ActionsWeaviateActionsPatchHandler = actions.WeaviateActionsPatchHandlerFunc(func(params actions.WeaviateActionsPatchParams, principal *models.Principal) middleware.Responder {
 		schemaLock, err := db.SchemaLock()
 		if err != nil {
@@ -412,61 +383,6 @@ func setupActionsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 		// Returns accepted so a Go routine can process in the background
 		return actions.NewWeaviateActionsReferencesCreateOK()
 	})
-	api.ActionsWeaviateActionUpdateHandler = actions.WeaviateActionUpdateHandlerFunc(func(params actions.WeaviateActionUpdateParams, principal *models.Principal) middleware.Responder {
-		dbLock, err := db.ConnectorLock()
-		if err != nil {
-			return actions.NewWeaviateActionUpdateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-		}
-		delayedLock := delayed_unlock.New(dbLock)
-		defer delayedLock.Unlock()
-		dbConnector := dbLock.Connector()
-
-		// Initialize response
-		actionGetResponse := models.Action{}
-		actionGetResponse.Schema = map[string]models.JSONObject{}
-
-		// Get item from database
-		UUID := params.ID
-		ctx := params.HTTPRequest.Context()
-		errGet := dbConnector.GetAction(ctx, UUID, &actionGetResponse)
-
-		// If there are no results, there is an error
-		if errGet != nil {
-			// Object not found response.
-			return actions.NewWeaviateActionUpdateNotFound()
-		}
-
-		// Validate schema given in body with the weaviate schema
-		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
-		validatedErr := validation.ValidateActionBody(params.HTTPRequest.Context(), params.Body,
-			databaseSchema, dbConnector, network, serverConfig)
-		if validatedErr != nil {
-			return actions.NewWeaviateActionUpdateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
-		}
-
-		// Update the database
-		params.Body.LastUpdateTimeUnix = connutils.NowUnix()
-		params.Body.CreationTimeUnix = actionGetResponse.CreationTimeUnix
-
-		delayedLock.IncSteps()
-		go func() {
-			defer delayedLock.Unlock()
-			dbConnector.UpdateAction(ctx, params.Body, UUID)
-		}()
-
-		// Create object to return
-		responseObject := &models.Action{}
-		responseObject = params.Body
-		responseObject.ID = UUID
-
-		// Register the function call
-		go func() {
-			requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulate)
-		}()
-
-		// Return SUCCESS (NOTE: this is ACCEPTED, so the dbConnector.Add should have a go routine)
-		return actions.NewWeaviateActionUpdateOK().WithPayload(responseObject)
-	})
 	api.ActionsWeaviateActionsValidateHandler = actions.WeaviateActionsValidateHandlerFunc(func(params actions.WeaviateActionsValidateParams, principal *models.Principal) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
@@ -491,75 +407,5 @@ func setupActionsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 
 		return actions.NewWeaviateActionsValidateOK()
 	})
-	api.ActionsWeaviateActionsDeleteHandler = actions.WeaviateActionsDeleteHandlerFunc(func(params actions.WeaviateActionsDeleteParams, principal *models.Principal) middleware.Responder {
-		dbLock, err := db.ConnectorLock()
-		if err != nil {
-			return actions.NewWeaviateActionsDeleteInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-		}
-		delayedLock := delayed_unlock.New(dbLock)
-		defer delayedLock.Unlock()
 
-		dbConnector := dbLock.Connector()
-
-		// Initialize response
-		actionGetResponse := models.Action{}
-		actionGetResponse.Schema = map[string]models.JSONObject{}
-
-		// Get item from database
-		ctx := params.HTTPRequest.Context()
-		errGet := dbConnector.GetAction(ctx, params.ID, &actionGetResponse)
-
-		// Not found
-		if errGet != nil {
-			return actions.NewWeaviateActionsDeleteNotFound()
-		}
-
-		actionGetResponse.LastUpdateTimeUnix = connutils.NowUnix()
-
-		// Add new row as GO-routine
-		delayedLock.IncSteps()
-		go func() {
-			defer delayedLock.Unlock()
-			dbConnector.DeleteAction(ctx, &actionGetResponse, params.ID)
-		}()
-
-		// Register the function call
-		go func() {
-			requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulate)
-		}()
-
-		// Return 'No Content'
-		return actions.NewWeaviateActionsDeleteNoContent()
-	})
-
-	api.ActionsWeaviateActionsListHandler = actions.WeaviateActionsListHandlerFunc(func(params actions.WeaviateActionsListParams, principal *models.Principal) middleware.Responder {
-		dbLock, err := db.ConnectorLock()
-		if err != nil {
-			return actions.NewWeaviateActionsListInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-		}
-		defer dbLock.Unlock()
-
-		dbConnector := dbLock.Connector()
-
-		// Get limit and page
-		limit := getLimit(params.Limit)
-
-		// Initialize response
-		actionsResponse := models.ActionsListResponse{}
-		actionsResponse.Actions = []*models.Action{}
-
-		// List all results
-		ctx := params.HTTPRequest.Context()
-		err = dbConnector.ListActions(ctx, limit, []*connutils.WhereQuery{}, &actionsResponse)
-		if err != nil {
-			return actions.NewWeaviateActionsListInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-		}
-
-		// Register the function call
-		go func() {
-			requestsLog.Register(telemetry.TypeREST, telemetry.LocalQuery)
-		}()
-
-		return actions.NewWeaviateActionsListOK().WithPayload(&actionsResponse)
-	})
 }
