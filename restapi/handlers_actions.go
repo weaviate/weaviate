@@ -12,7 +12,6 @@
 package restapi
 
 import (
-	"encoding/json"
 	"fmt"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
@@ -24,93 +23,11 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/actions"
 	"github.com/creativesoftwarefdn/weaviate/telemetry"
 	"github.com/creativesoftwarefdn/weaviate/validation"
-	jsonpatch "github.com/evanphx/json-patch"
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 )
 
 func setupActionsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog) {
-	api.ActionsWeaviateActionsPatchHandler = actions.WeaviateActionsPatchHandlerFunc(func(params actions.WeaviateActionsPatchParams, principal *models.Principal) middleware.Responder {
-		schemaLock, err := db.SchemaLock()
-		if err != nil {
-			return actions.NewWeaviateActionsPatchInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-		}
-		delayedLock := delayed_unlock.New(schemaLock)
-		defer unlock(delayedLock)
-
-		dbConnector := schemaLock.Connector()
-
-		// Initialize response
-		actionGetResponse := models.Action{}
-		actionGetResponse.Schema = map[string]models.JSONObject{}
-
-		// Get and transform object
-		UUID := strfmt.UUID(params.ID)
-		ctx := params.HTTPRequest.Context()
-		errGet := dbConnector.GetAction(ctx, UUID, &actionGetResponse)
-
-		actionGetResponse.LastUpdateTimeUnix = connutils.NowUnix()
-
-		// Return error if UUID is not found.
-		if errGet != nil {
-			return actions.NewWeaviateActionsPatchNotFound()
-		}
-
-		// Get PATCH params in format RFC 6902
-		jsonBody, marshalErr := json.Marshal(params.Body)
-		patchObject, decodeErr := jsonpatch.DecodePatch([]byte(jsonBody))
-
-		if marshalErr != nil || decodeErr != nil {
-			return actions.NewWeaviateActionsPatchBadRequest()
-		}
-
-		// Convert Action object to JSON
-		actionUpdateJSON, marshalErr := json.Marshal(actionGetResponse)
-		if marshalErr != nil {
-			return actions.NewWeaviateActionsPatchBadRequest()
-		}
-
-		// Apply the patch
-		updatedJSON, applyErr := patchObject.Apply(actionUpdateJSON)
-
-		if applyErr != nil {
-			return actions.NewWeaviateActionsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(applyErr.Error()))
-		}
-
-		// Turn it into a Action object
-		action := &models.Action{}
-		json.Unmarshal([]byte(updatedJSON), &action)
-
-		// Validate schema made after patching with the weaviate schema
-		databaseSchema := schema.HackFromDatabaseSchema(schemaLock.GetSchema())
-		validatedErr := validation.ValidateActionBody(params.HTTPRequest.Context(), action,
-			databaseSchema, dbConnector, network, serverConfig)
-		if validatedErr != nil {
-			return actions.NewWeaviateActionsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
-		}
-
-		err = newReferenceSchemaUpdater(ctx, schemaLock.SchemaManager(), network, action.Class, kind.ACTION_KIND).
-			addNetworkDataTypes(action.Schema)
-		if err != nil {
-			return actions.NewWeaviateActionsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
-		}
-
-		err = dbConnector.UpdateAction(ctx, action, UUID)
-		if err != nil {
-			return actions.NewWeaviateActionUpdateUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
-		}
-
-		// Create return Object
-		actionGetResponse = *action
-
-		// Register the function call
-		go func() {
-			requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulate)
-		}()
-
-		// Returns accepted so a Go routine can process in the background
-		return actions.NewWeaviateActionsPatchOK().WithPayload(&actionGetResponse)
-	})
 	api.ActionsWeaviateActionsReferencesCreateHandler = actions.WeaviateActionsReferencesCreateHandlerFunc(func(params actions.WeaviateActionsReferencesCreateParams, principal *models.Principal) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
