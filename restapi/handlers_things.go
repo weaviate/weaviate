@@ -210,6 +210,163 @@ func (h *kindHandlers) deleteAction(params actions.WeaviateActionsDeleteParams,
 	return actions.NewWeaviateActionsDeleteNoContent()
 }
 
+// patchThing uses RFC 6902 semantics (https://tools.ietf.org/html/rfc6902) to allow
+// a partial modificatiof the thing resource
+//
+// Internally, this means, we need to first run the Get UC, then apply the
+// patch and then run the update UC
+func (h *kindHandlers) patchThing(params things.WeaviateThingsPatchParams, principal *models.Principal) middleware.Responder {
+	origThing, err := h.manager.GetThing(params.HTTPRequest.Context(), params.ID)
+	if err != nil {
+		switch err.(type) {
+		case kinds.ErrNotFound:
+			return things.NewWeaviateThingsPatchNotFound()
+		default:
+			return things.NewWeaviateThingsPatchInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	patched, err := h.getPatchedThing(origThing, params.Body)
+	if err != nil {
+		switch err.(type) {
+		case kinds.ErrInvalidUserInput:
+			return things.NewWeaviateThingsPatchUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return things.NewWeaviateThingsPatchInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	updated, err := h.manager.UpdateThing(params.HTTPRequest.Context(), params.ID, patched)
+	if err != nil {
+		switch err.(type) {
+		case kinds.ErrInvalidUserInput:
+			return things.NewWeaviateThingsUpdateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return things.NewWeaviateThingsUpdateInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
+
+	// Returns accepted so a Go routine can process in the background
+	return things.NewWeaviateThingsPatchOK().WithPayload(updated)
+}
+
+func (h *kindHandlers) getPatchedThing(orig *models.Thing,
+	patch interface{}) (*models.Thing, error) {
+
+	updated, err := h.getPatchedKind(orig, patch)
+	if err != nil {
+		return nil, err
+	}
+
+	thing := &models.Thing{}
+	err = json.Unmarshal([]byte(updated), &thing)
+	if err != nil {
+		return nil, err
+	}
+
+	return thing, nil
+}
+
+// patchAction uses RFC 6902 semantics (https://tools.ietf.org/html/rfc6902) to allow
+// a partial modificatiof the action resource
+//
+// Internally, this means, we need to first run the Get UC, then apply the
+// patch and then run the update UC
+func (h *kindHandlers) patchAction(params actions.WeaviateActionsPatchParams, principal *models.Principal) middleware.Responder {
+	origAction, err := h.manager.GetAction(params.HTTPRequest.Context(), params.ID)
+	if err != nil {
+		switch err.(type) {
+		case kinds.ErrNotFound:
+			return actions.NewWeaviateActionsPatchNotFound()
+		default:
+			return actions.NewWeaviateActionsPatchInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	patched, err := h.getPatchedAction(origAction, params.Body)
+	if err != nil {
+		switch err.(type) {
+		case kinds.ErrInvalidUserInput:
+			return actions.NewWeaviateActionsPatchUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return actions.NewWeaviateActionsPatchInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	updated, err := h.manager.UpdateAction(params.HTTPRequest.Context(), params.ID, patched)
+	if err != nil {
+		switch err.(type) {
+		case kinds.ErrInvalidUserInput:
+			return actions.NewWeaviateActionUpdateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return actions.NewWeaviateActionUpdateInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
+
+	// Returns accepted so a Go routine can process in the background
+	return actions.NewWeaviateActionsPatchOK().WithPayload(updated)
+}
+
+func (h *kindHandlers) getPatchedAction(orig *models.Action,
+	patch interface{}) (*models.Action, error) {
+
+	updated, err := h.getPatchedKind(orig, patch)
+	if err != nil {
+		return nil, err
+	}
+
+	action := &models.Action{}
+	err = json.Unmarshal([]byte(updated), &action)
+	if err != nil {
+		return nil, err
+	}
+
+	return action, nil
+}
+
+func (h *kindHandlers) getPatchedKind(orig interface{},
+	patch interface{}) ([]byte, error) {
+
+	// Get PATCH params in format RFC 6902
+	jsonBody, err := json.Marshal(patch)
+	if err != nil {
+		return nil, kinds.ErrInternal(err)
+	}
+
+	patchObject, err := jsonpatch.DecodePatch([]byte(jsonBody))
+	if err != nil {
+		return nil, kinds.ErrInvalidUserInput(err)
+	}
+
+	// Convert Kind to JSON
+	origJSON, err := json.Marshal(orig)
+	if err != nil {
+		return nil, kinds.ErrInternal(err)
+	}
+
+	// Apply the patch
+	updatedJSON, err := patchObject.Apply(origJSON)
+	if err != nil {
+		return nil, kinds.ErrInternal(err)
+	}
+
+	return updatedJSON, nil
+}
+
 func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog, manager *kinds.Manager) {
 	h := &kindHandlers{manager, requestsLog}
 
@@ -223,6 +380,8 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		WeaviateThingsListHandlerFunc(h.getThings)
 	api.ThingsWeaviateThingsUpdateHandler = things.
 		WeaviateThingsUpdateHandlerFunc(h.updateThing)
+	api.ThingsWeaviateThingsPatchHandler = things.
+		WeaviateThingsPatchHandlerFunc(h.patchThing)
 
 	api.ActionsWeaviateActionsCreateHandler = actions.
 		WeaviateActionsCreateHandlerFunc(h.createAction)
@@ -234,94 +393,9 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		WeaviateActionsListHandlerFunc(h.getActions)
 	api.ActionsWeaviateActionUpdateHandler = actions.
 		WeaviateActionUpdateHandlerFunc(h.updateAction)
+	api.ActionsWeaviateActionsPatchHandler = actions.
+		WeaviateActionsPatchHandlerFunc(h.patchAction)
 
-	api.ThingsWeaviateThingsPatchHandler = things.WeaviateThingsPatchHandlerFunc(func(params things.WeaviateThingsPatchParams, principal *models.Principal) middleware.Responder {
-		schemaLock, err := db.SchemaLock()
-		if err != nil {
-			return things.NewWeaviateThingsPatchInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-		}
-		delayedLock := delayed_unlock.New(schemaLock)
-		defer unlock(delayedLock)
-
-		dbConnector := schemaLock.Connector()
-
-		// Initialize response
-		thingGetResponse := models.Thing{}
-		thingGetResponse.Schema = map[string]models.JSONObject{}
-
-		// Get and transform object
-		UUID := strfmt.UUID(params.ID)
-		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), UUID, &thingGetResponse)
-
-		// Add update time
-		thingGetResponse.LastUpdateTimeUnix = connutils.NowUnix()
-
-		// Return error if UUID is not found.
-		if errGet != nil {
-			return things.NewWeaviateThingsPatchNotFound()
-		}
-
-		// Get PATCH params in format RFC 6902
-		jsonBody, marshalErr := json.Marshal(params.Body)
-		patchObject, decodeErr := jsonpatch.DecodePatch([]byte(jsonBody))
-
-		if marshalErr != nil || decodeErr != nil {
-			return things.NewWeaviateThingsPatchBadRequest()
-		}
-
-		// Convert Thing object to JSON
-		thingUpdateJSON, marshalErr := json.Marshal(thingGetResponse)
-		if marshalErr != nil {
-			return things.NewWeaviateThingsPatchBadRequest()
-		}
-
-		// Apply the patch
-		updatedJSON, applyErr := patchObject.Apply(thingUpdateJSON)
-		if applyErr != nil {
-			return things.NewWeaviateThingsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(applyErr.Error()))
-		}
-
-		// Turn it into a Thing object
-		thing := &models.Thing{}
-		json.Unmarshal([]byte(updatedJSON), &thing)
-
-		// Validate schema made after patching with the weaviate schema
-		databaseSchema := schema.HackFromDatabaseSchema(schemaLock.GetSchema())
-		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), thing,
-			databaseSchema, dbConnector, network, serverConfig)
-		if validatedErr != nil {
-			return things.NewWeaviateThingsPatchUnprocessableEntity().WithPayload(
-				createErrorResponseObject(fmt.Sprintf("validation failed: %s", validatedErr.Error())),
-			)
-		}
-
-		ctx := params.HTTPRequest.Context()
-		err = newReferenceSchemaUpdater(ctx, schemaLock.SchemaManager(), network, thing.Class, kind.THING_KIND).
-			addNetworkDataTypes(thing.Schema)
-		if err != nil {
-			return things.NewWeaviateThingsPatchUnprocessableEntity().WithPayload(
-				createErrorResponseObject(err.Error()),
-			)
-		}
-
-		// Update the database
-		err = dbConnector.UpdateThing(ctx, thing, UUID)
-
-		if err != nil {
-			return things.NewWeaviateThingsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
-		}
-
-		// Create return Object
-		thingGetResponse = *thing
-
-		// Register the function call
-		go func() {
-			requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulate)
-		}()
-
-		// Returns accepted so a Go routine can process in the background
-		return things.NewWeaviateThingsPatchOK().WithPayload(&thingGetResponse)
-	})
 	api.ThingsWeaviateThingsReferencesCreateHandler = things.WeaviateThingsReferencesCreateHandlerFunc(func(params things.WeaviateThingsReferencesCreateParams, principal *models.Principal) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
