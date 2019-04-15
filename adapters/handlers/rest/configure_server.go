@@ -16,6 +16,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql"
@@ -47,18 +48,27 @@ func configureServer(s *http.Server, scheme, addr string) {
 	serverConfig.Scheme = scheme
 }
 
-func updateSchemaCallback(updatedSchema schema.Schema) {
-	// Note that this is thread safe; we're running in a single go-routine, because the event
-	// handlers are called when the SchemaLock is still held.
-	rebuildContextionary(updatedSchema)
-	rebuildGraphQL(updatedSchema)
+func makeUpdateSchemaCallBackWithLogger(logger logrus.FieldLogger) func(schema.Schema) {
+	return func(updatedSchema schema.Schema) {
+		// Note that this is thread safe; we're running in a single go-routine, because the event
+		// handlers are called when the SchemaLock is still held.
+		if err := rebuildContextionary(updatedSchema, logger); err != nil {
+			logger.WithField("action", "contextionary_rebuild").
+				WithError(err).Fatal("could not (re)build contextionary")
+		}
+
+		if err := rebuildGraphQL(updatedSchema, logger); err != nil {
+			logger.WithField("action", "graphql_rebuild").
+				WithError(err).Error("could not (re)build graphql provider")
+		}
+	}
 }
 
-func rebuildContextionary(updatedSchema schema.Schema) {
+func rebuildContextionary(updatedSchema schema.Schema, logger logrus.FieldLogger) error {
 	// build new contextionary extended by the local schema
 	schemaContextionary, err := databaseSchema.BuildInMemoryContextionaryFromSchema(updatedSchema, &rawContextionary)
 	if err != nil {
-		messaging.ExitError(78, fmt.Sprintf("Could not build in-memory contextionary from schema; %+v", err))
+		return fmt.Errorf("Could not build in-memory contextionary from schema; %v", err)
 	}
 
 	// Combine contextionaries
@@ -66,33 +76,33 @@ func rebuildContextionary(updatedSchema schema.Schema) {
 	combined, err := libcontextionary.CombineVectorIndices(contextionaries)
 
 	if err != nil {
-		messaging.ExitError(78, fmt.Sprintf("Could not combine the contextionary database with the in-memory generated contextionary; %+v", err))
+		return fmt.Errorf("Could not combine the contextionary database with the in-memory generated contextionary; %v", err)
 	}
 
-	messaging.InfoMessage("Contextionary extended with names in the schema")
+	logger.WithField("action", "contextionary_rebuild").Debug("contextionary extended with new schema")
 
 	contextionary = libcontextionary.Contextionary(combined)
+	return nil
 }
 
-func rebuildGraphQL(updatedSchema schema.Schema) {
+func rebuildGraphQL(updatedSchema schema.Schema, logger logrus.FieldLogger) error {
 	peers, err := network.ListPeers()
 	if err != nil {
 		graphQL = nil
-		messaging.ErrorMessage(fmt.Sprintf("could not list network peers to regenerate schema:\n%#v\n", err))
-		return
+		return fmt.Errorf("could not list network peers to regenerate schema: %v", err)
 	}
 
 	c11y := schemaContextionary.New(contextionary)
 	root := graphQLRoot{Database: db, Network: network, contextionary: c11y, log: mainLog}
-	updatedGraphQL, err := graphql.Build(&updatedSchema, peers, root, messaging, serverConfig.Config)
+	updatedGraphQL, err := graphql.Build(&updatedSchema, peers, root, logger, serverConfig.Config)
 	if err != nil {
-		// TODO: turn on safe mode gh-520
 		graphQL = nil
-		messaging.ErrorMessage(fmt.Sprintf("Could not re-generate GraphQL schema, because:\n%#v\n", err))
-	} else {
-		messaging.InfoMessage("Updated GraphQL schema")
-		graphQL = updatedGraphQL
+		return fmt.Errorf("Could not re-generate GraphQL schema, because: %v", err)
 	}
+
+	graphQL = updatedGraphQL
+	logger.WithField("action", "graphql_rebuild").Debug("successfully rebuild graphql schema")
+	return nil
 }
 
 type schemaGetter struct {
@@ -134,7 +144,8 @@ func (r graphQLRoot) GetRequestsLog() fetch.RequestsLog {
 func configureOIDC(appState *state.State) *oidc.Client {
 	c, err := oidc.New(appState.ServerConfig.Config)
 	if err != nil {
-		appState.Messaging.ExitError(1, fmt.Sprintf("oidc client couldn't start up: %v", err))
+		appState.Logger.WithField("action", "oidc_init").WithError(err).Fatal("oidc client could not start up")
+		os.Exit(1)
 	}
 
 	return c

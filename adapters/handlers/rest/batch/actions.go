@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
-	"time"
 
 	batchmodels "github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/batch/models"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/operations"
@@ -25,8 +24,8 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/usecases/telemetry"
 	"github.com/creativesoftwarefdn/weaviate/usecases/kinds/validation"
+	"github.com/creativesoftwarefdn/weaviate/usecases/telemetry"
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
@@ -41,8 +40,6 @@ type actionsRequest struct {
 
 // ActionsCreate is the (go-swagger style) http handler for BatchingActionsCreate
 func (b *Batch) ActionsCreate(params operations.WeaviateBatchingActionsCreateParams, principal *models.Principal) middleware.Responder {
-	defer b.appState.Messaging.TimeTrack(time.Now())
-
 	r := newActionsRequest(params.HTTPRequest, b.appState, b.requestsLog)
 	if errResponder := r.lock(); errResponder != nil {
 		return errResponder

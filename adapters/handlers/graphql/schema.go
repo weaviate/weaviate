@@ -20,12 +20,12 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network"
-	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
-	"github.com/creativesoftwarefdn/weaviate/messages"
+	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
 	"github.com/creativesoftwarefdn/weaviate/usecases/telemetry"
 	"github.com/graphql-go/graphql"
+	"github.com/sirupsen/logrus"
 )
 
 // The communication interface between the REST API and the GraphQL API.
@@ -43,7 +43,7 @@ type graphQL struct {
 }
 
 // Construct a GraphQL API from the database schema, and resolver interface.
-func Build(dbSchema *schema.Schema, peers peers.Peers, resolverProvider ResolverProvider, logger *messages.Messaging,
+func Build(dbSchema *schema.Schema, peers peers.Peers, resolverProvider ResolverProvider, logger logrus.FieldLogger,
 	config config.Config) (GraphQL, error) {
 	graphqlSchema, err := buildGraphqlSchema(dbSchema, peers, logger, config)
 
@@ -93,7 +93,7 @@ func (g *graphQL) Resolve(query string, operationName string, variables map[stri
 	})
 }
 
-func buildGraphqlSchema(dbSchema *schema.Schema, peers peers.Peers, logger *messages.Messaging,
+func buildGraphqlSchema(dbSchema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger,
 	config config.Config) (graphql.Schema, error) {
 	localSchema, err := local.Build(dbSchema, peers, logger, config)
 	if err != nil {

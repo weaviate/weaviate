@@ -17,7 +17,6 @@ import (
 	"crypto/tls"
 	"io/ioutil"
 	"log"
-	"os"
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/state"
 
@@ -26,9 +25,8 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/operations"
-	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	"github.com/creativesoftwarefdn/weaviate/database"
-	"github.com/creativesoftwarefdn/weaviate/messages"
+	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
 	libnetwork "github.com/creativesoftwarefdn/weaviate/usecases/network"
@@ -47,7 +45,6 @@ var contextionary libcontextionary.Contextionary
 var network libnetwork.Network
 var serverConfig *config.WeaviateConfig
 var graphQL graphql.GraphQL
-var messaging *messages.Messaging
 
 var appState *state.State
 
@@ -59,13 +56,6 @@ func init() {
 	discard := ioutil.Discard
 	myGRPCLogger := log.New(discard, "", log.LstdFlags)
 	grpclog.SetLogger(myGRPCLogger)
-
-	// Create temp folder if it does not exist
-	tempFolder := "temp"
-	if _, err := os.Stat(tempFolder); os.IsNotExist(err) {
-		messaging.InfoMessage("Temp folder created...")
-		os.Mkdir(tempFolder, 0766)
-	}
 }
 
 // configureAPI -> see configure_api.go
