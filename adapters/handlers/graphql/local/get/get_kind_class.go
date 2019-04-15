@@ -25,7 +25,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/get/refclasses"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
-	"github.com/creativesoftwarefdn/weaviate/telemetry"
+	"github.com/creativesoftwarefdn/weaviate/usecases/telemetry"
 
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"

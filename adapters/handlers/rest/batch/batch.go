@@ -12,7 +12,7 @@
 
 import (
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/state"
-	"github.com/creativesoftwarefdn/weaviate/telemetry"
+	"github.com/creativesoftwarefdn/weaviate/usecases/telemetry"
 )
 
 // New creates all REST api handlers for batching things and actions

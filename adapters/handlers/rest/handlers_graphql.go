@@ -24,7 +24,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/operations/graphql"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/rest_api_utils"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/telemetry"
+	"github.com/creativesoftwarefdn/weaviate/usecases/telemetry"
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 

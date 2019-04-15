@@ -22,8 +22,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/fetch"
 	graphqlnetwork "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/state"
-	"github.com/creativesoftwarefdn/weaviate/auth/authentication/anonymous"
-	"github.com/creativesoftwarefdn/weaviate/auth/authentication/oidc"
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
 	"github.com/creativesoftwarefdn/weaviate/database"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
@@ -32,7 +30,9 @@ import (
 	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
 	libnetworkFake "github.com/creativesoftwarefdn/weaviate/network/fake"
 	libnetworkP2P "github.com/creativesoftwarefdn/weaviate/network/p2p"
-	"github.com/creativesoftwarefdn/weaviate/telemetry"
+	"github.com/creativesoftwarefdn/weaviate/usecases/auth/authentication/anonymous"
+	"github.com/creativesoftwarefdn/weaviate/usecases/auth/authentication/oidc"
+	"github.com/creativesoftwarefdn/weaviate/usecases/telemetry"
 	"github.com/go-openapi/strfmt"
 )
 

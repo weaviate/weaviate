@@ -25,8 +25,8 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/telemetry"
-	"github.com/creativesoftwarefdn/weaviate/validation"
+	"github.com/creativesoftwarefdn/weaviate/usecases/telemetry"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds/validation"
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
