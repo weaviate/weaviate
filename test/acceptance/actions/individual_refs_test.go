@@ -105,7 +105,7 @@ func TestRemovePropertyIndividually(t *testing.T) {
 	updatedSchema := updatedAction.Schema.(map[string]interface{})
 	assert.NotNil(t, updatedSchema["testCrefs"])
 
-	// Append a property reference
+	// Delete a property reference
 	params := actions.NewWeaviateActionsReferencesDeleteParams().
 		WithID(uuid).
 		WithPropertyName("testCrefs").
