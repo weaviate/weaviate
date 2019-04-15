@@ -48,10 +48,10 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/aggregate"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/fetch"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/getmeta"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/aggregate"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/fetch"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/get"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 )
 

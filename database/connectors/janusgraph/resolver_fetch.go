@@ -17,7 +17,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/fetch"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/fetchfuzzy"
-	graphqlfetch "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/fetch"
+	graphqlfetch "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/fetch"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 )
 

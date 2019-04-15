@@ -16,7 +16,7 @@ import (
 	"time"
 
 	analytics "github.com/SeMI-network/janus-spark-analytics/clients/go"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/aggregate"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/aggregate"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 )
 

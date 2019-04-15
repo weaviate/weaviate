@@ -13,7 +13,7 @@
 import (
 	"fmt"
 
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/get"
 )
 
 func extractResult(input interface{}, path []interface{}) (interface{}, error) {

@@ -11,7 +11,7 @@
  */package get
 
 import (
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/get"
 )
 
 type byID map[string][]interface{}

@@ -15,7 +15,7 @@ import (
 	"fmt"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/getmeta"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
 )
 
 // TypeInspector can process the types of each specified props

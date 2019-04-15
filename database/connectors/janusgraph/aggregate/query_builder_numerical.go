@@ -15,7 +15,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/aggregate"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/aggregate"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 )
 

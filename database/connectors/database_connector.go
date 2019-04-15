@@ -23,7 +23,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema_migrator"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	graphqlapiLocal "github.com/creativesoftwarefdn/weaviate/graphqlapi/local"
+	graphqlapiLocal "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 )
 

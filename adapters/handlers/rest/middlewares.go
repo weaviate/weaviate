@@ -17,7 +17,7 @@ import (
 	"net/http"
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/swagger_middleware"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/graphiql"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/graphiql"
 	"github.com/creativesoftwarefdn/weaviate/lib/feature_flags"
 	"github.com/rs/cors"
 )

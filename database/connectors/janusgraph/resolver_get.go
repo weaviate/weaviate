@@ -17,7 +17,7 @@ import (
 
 	jget "github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/get"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/get"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 )
 

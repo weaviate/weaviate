@@ -14,7 +14,7 @@ package meta
 import (
 	"testing"
 
-	gm "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/getmeta"
+	gm "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
 )
 
 func Test_QueryBuilder_IntProps(t *testing.T) {

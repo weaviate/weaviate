@@ -15,8 +15,8 @@ import (
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
-	ag "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/aggregate"
-	cf "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
+	ag "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/aggregate"
+	cf "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
 )
 
 // These tests only assert that multiple props work together correctly. See the

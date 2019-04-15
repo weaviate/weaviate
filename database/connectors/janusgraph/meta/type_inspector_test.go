@@ -15,7 +15,7 @@ import (
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
-	gm "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/getmeta"
+	gm "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
