@@ -54,8 +54,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	kindsManager := kinds.NewManager(db, network, serverConfig)
 
 	setupSchemaHandlers(api, mainLog, schemaUC.NewManager(db))
-	setupThingsHandlers(api, mainLog, kindsManager)
-	setupActionsHandlers(api, mainLog)
+	setupKindHandlers(api, mainLog, kindsManager)
 	setupBatchHandlers(api, mainLog)
 	setupC11yHandlers(api, mainLog)
 	setupGraphQLHandlers(api, mainLog)
