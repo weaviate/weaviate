@@ -23,6 +23,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/genesis/client"
 	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus/hooks/test"
 )
 
 func TestGetExistingPeer(t *testing.T) {
@@ -32,8 +33,10 @@ func TestGetExistingPeer(t *testing.T) {
 		URI:  "http://best-peer.com",
 	}
 
+	logger, _ := test.NewNullLogger()
 	subject := network{
-		peers: []peers.Peer{peer},
+		peers:  []peers.Peer{peer},
+		logger: logger,
 	}
 
 	actual, err := subject.GetPeerByName("best-peer")
@@ -67,8 +70,10 @@ func TestGetWrongPeer(t *testing.T) {
 		URI:  "http://best-peer.com",
 	}
 
+	logger, _ := test.NewNullLogger()
 	subject := network{
-		peers: []peers.Peer{peer},
+		peers:  []peers.Peer{peer},
+		logger: logger,
 	}
 
 	_, err := subject.GetPeerByName("worst-peer")
@@ -96,9 +101,12 @@ func TestPingPeer(t *testing.T) {
 			Schemes:  []string{genesisURI.Scheme},
 		}
 		genesisClient := client.NewHTTPClientWithConfig(nil, &transportConfig)
+
+		logger, _ := test.NewNullLogger()
 		subject = &network{
 			client: *genesisClient,
 			peerID: strfmt.UUID("2dd9195c-e321-4025-aace-8cb48522661f"),
+			logger: logger,
 		}
 		schemaGetter = &dummySchemaGetter{schema: sampleSchema()}
 		subject.RegisterSchemaGetter(schemaGetter)

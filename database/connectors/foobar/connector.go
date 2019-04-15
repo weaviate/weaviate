@@ -16,7 +16,7 @@ When starting Weaviate, functions are called in the following order;
  - GetName
  - SetConfig
  - SetSchema
- - SetMessaging
+ - SetLogger
  - SetServerAddress
  - Connect
  - Init
@@ -34,25 +34,24 @@ import (
 	"context"
 	"encoding/json"
 	errors_ "errors"
-	"fmt"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/gorilla/websocket"
 	"github.com/mitchellh/mapstructure"
+	"github.com/sirupsen/logrus"
 
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/aggregate"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/fetch"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/get"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
 	batchmodels "github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/batch/models"
-	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/aggregate"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/fetch"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/get"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
-	"github.com/creativesoftwarefdn/weaviate/messages"
+	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 )
 
 // Foobar has some basic variables.
@@ -65,7 +64,7 @@ type Foobar struct {
 	config        Config
 	serverAddress string
 	schema        schema.Schema
-	messaging     *messages.Messaging
+	logger        logrus.FieldLogger
 }
 
 func New(config interface{}, appConfig config.Config) (error, dbconnector.DatabaseConnector) {
@@ -127,13 +126,9 @@ func (f *Foobar) SetSchema(schemaInput schema.Schema) {
 	f.schema = schemaInput
 }
 
-// SetMessaging is used to send messages to the service Available message types
-// are: f.messaging.Infomessage ...DebugMessage ...ErrorMessage ...ExitError
-// (also exits the service) ...InfoMessage
-func (f *Foobar) SetMessaging(m *messages.Messaging) {
-
-	// mandatory, adds the message functions to f.messaging to make them globally accessible.
-	f.messaging = m
+// SetLogger to make the connector use a logrus.FieldLogger
+func (f *Foobar) SetLogger(l logrus.FieldLogger) {
+	f.logger = l
 }
 
 // SetServerAddress is used to fill in a global variable with the server
@@ -257,8 +252,6 @@ func (f *Foobar) GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *
 // GetThings fills the given ThingsListResponse with the values from the
 // database, based on the given UUIDs.
 func (f *Foobar) GetThings(ctx context.Context, UUIDs []strfmt.UUID, thingResponse *models.ThingsListResponse) error {
-	f.messaging.DebugMessage(fmt.Sprintf("GetThings: %s", UUIDs))
-
 	// If success return nil, otherwise return the error
 	return nil
 }

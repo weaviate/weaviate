@@ -27,13 +27,14 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	databaseSchema "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
 	schemaContextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
+	"github.com/creativesoftwarefdn/weaviate/usecases/auth/authentication/anonymous"
+	"github.com/creativesoftwarefdn/weaviate/usecases/auth/authentication/oidc"
 	libnetwork "github.com/creativesoftwarefdn/weaviate/usecases/network"
 	libnetworkFake "github.com/creativesoftwarefdn/weaviate/usecases/network/fake"
 	libnetworkP2P "github.com/creativesoftwarefdn/weaviate/usecases/network/p2p"
-	"github.com/creativesoftwarefdn/weaviate/usecases/auth/authentication/anonymous"
-	"github.com/creativesoftwarefdn/weaviate/usecases/auth/authentication/oidc"
 	"github.com/creativesoftwarefdn/weaviate/usecases/telemetry"
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
 )
 
 // As soon as server is initialized but not run yet, this function will be called.
@@ -146,37 +147,41 @@ func configureAnonymousAccess(appState *state.State) *anonymous.Client {
 	return anonymous.New(appState.ServerConfig.Config)
 }
 
-func timeTillDeadline(ctx context.Context) time.Duration {
+func timeTillDeadline(ctx context.Context) string {
 	dl, _ := ctx.Deadline()
-	return time.Until(dl)
+	return fmt.Sprintf("%s", time.Until(dl))
 }
 
 // This function loads the Contextionary database, and creates
 // an in-memory database for the centroids of the classes / properties in the Schema.
-func loadContextionary() {
+func loadContextionary(logger *logrus.Logger) {
 	// First load the file backed contextionary
 	if serverConfig.Config.Contextionary.KNNFile == "" {
-		messaging.ExitError(78, "Contextionary KNN file not specified")
+		logger.WithField("action", "startup").Error("contextionary KNN file not set")
+		logger.Exit(1)
 	}
 
 	if serverConfig.Config.Contextionary.IDXFile == "" {
-		messaging.ExitError(78, "Contextionary IDX file not specified")
+		logger.WithField("action", "startup").Error("contextionary IDX file not set")
+		logger.Exit(1)
 	}
 
-	mmapedContextionary, err := libcontextionary.LoadVectorFromDisk(serverConfig.Config.Contextionary.KNNFile, serverConfig.Config.Contextionary.IDXFile)
-
+	mmapedContextionary, err := libcontextionary.LoadVectorFromDisk(
+		serverConfig.Config.Contextionary.KNNFile, serverConfig.Config.Contextionary.IDXFile)
 	if err != nil {
-		messaging.ExitError(78, fmt.Sprintf("Could not load Contextionary; %+v", err))
+		logger.WithField("action", "startup").
+			WithError(err).
+			Error("could not load contextionary")
+		logger.Exit(1)
 	}
 
-	messaging.InfoMessage("Contextionary loaded from disk")
-
+	logger.Debug("contextionary loaded")
 	rawContextionary = mmapedContextionary
 }
 
-func connectToNetwork() {
+func connectToNetwork(logger *logrus.Logger) {
 	if serverConfig.Config.Network == nil {
-		messaging.InfoMessage(fmt.Sprintf("No network configured, not joining one"))
+		logger.Info("No network configured. Not Joining one.")
 		network = libnetworkFake.FakeNetwork{}
 		appState.Network = network
 	} else {
@@ -184,10 +189,16 @@ func connectToNetwork() {
 		public_url := strfmt.URI(serverConfig.Config.Network.PublicURL)
 		peer_name := serverConfig.Config.Network.PeerName
 
-		messaging.InfoMessage(fmt.Sprintf("Network configured, connecting to Genesis '%v'", genesis_url))
-		new_net, err := libnetworkP2P.BootstrapNetwork(messaging, genesis_url, public_url, peer_name)
+		logger.
+			WithField("peer_name", peer_name).
+			WithField("genesis_url", genesis_url).
+			Info("Network configured. Attempting to join.")
+		new_net, err := libnetworkP2P.BootstrapNetwork(logger, genesis_url, public_url, peer_name)
 		if err != nil {
-			messaging.ExitError(78, fmt.Sprintf("Could not connect to network! Reason: %+v", err))
+			logger.WithField("action", "startup").
+				WithError(err).
+				Error("could not connect to network")
+			logger.Exit(1)
 		} else {
 			network = new_net
 			appState.Network = new_net

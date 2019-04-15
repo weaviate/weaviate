@@ -12,7 +12,6 @@
 package p2p
 
 import (
-	"fmt"
 	"reflect"
 
 	libnetwork "github.com/creativesoftwarefdn/weaviate/usecases/network"
@@ -23,11 +22,23 @@ func (n *network) UpdatePeers(newPeers peers.Peers) error {
 	n.Lock()
 	defer n.Unlock()
 
-	n.messaging.InfoMessage(fmt.Sprintf("Received updated peer list with %v peers", len(newPeers)))
+	n.logger.
+		WithField("action", "network_peer_update").
+		WithField("peers", newPeers).
+		Debug("received updated peer list")
 
 	if !havePeersChanged(n.peers, newPeers) {
+		n.logger.
+			WithField("action", "network_peer_update").
+			WithField("peers", newPeers).
+			Debug("peers have not changed, doing nothing")
 		return nil
 	}
+
+	n.logger.
+		WithField("action", "network_peer_update").
+		WithField("peers", newPeers).
+		Debug("peers have changed, updating schema")
 
 	// download schema updates if peers are new or their hash changed
 	// in this iteration.

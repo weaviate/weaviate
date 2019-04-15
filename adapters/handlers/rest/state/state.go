@@ -13,12 +13,13 @@
 package state
 
 import (
-	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	"github.com/creativesoftwarefdn/weaviate/database"
 	"github.com/creativesoftwarefdn/weaviate/messages"
-	"github.com/creativesoftwarefdn/weaviate/usecases/network"
 	"github.com/creativesoftwarefdn/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/creativesoftwarefdn/weaviate/usecases/auth/authentication/oidc"
+	"github.com/creativesoftwarefdn/weaviate/usecases/config"
+	"github.com/creativesoftwarefdn/weaviate/usecases/network"
+	"github.com/sirupsen/logrus"
 )
 
 // State is the only source of appliaction-wide state
@@ -30,4 +31,5 @@ type State struct {
 	OIDC            *oidc.Client
 	AnonymousAccess *anonymous.Client
 	ServerConfig    *config.WeaviateConfig
+	Logger          *logrus.Logger
 }

@@ -14,8 +14,6 @@ package rest
 
 import (
 	"context"
-	"fmt"
-	"log"
 	"net/http"
 	"net/url"
 	"time"
@@ -24,19 +22,20 @@ import (
 	"github.com/coreos/etcd/clientv3/concurrency"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/batch"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/operations"
-	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	"github.com/creativesoftwarefdn/weaviate/database"
 	dblisting "github.com/creativesoftwarefdn/weaviate/database/listing"
 	etcdSchemaManager "github.com/creativesoftwarefdn/weaviate/database/schema_manager/etcd"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/messages"
-	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
-	"github.com/creativesoftwarefdn/weaviate/usecases/telemetry"
+	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
+	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
 	schemaUC "github.com/creativesoftwarefdn/weaviate/usecases/schema"
+	"github.com/creativesoftwarefdn/weaviate/usecases/telemetry"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
+	"github.com/sirupsen/logrus"
 )
 
 var mainLog *telemetry.RequestsLog
@@ -91,25 +90,35 @@ func startupRoutine() {
 	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 
+	logger := logrus.New()
+	// logger.SetFormatter(&logrus.JSONFormatter{})
+	logger.SetLevel(logrus.DebugLevel)
+
 	// Create message service
 	messaging = &messages.Messaging{}
 	appState.Messaging = messaging
+	appState.Logger = logger
 
-	messaging.InfoMessage(fmt.Sprintf("created the context, nothing done yet, time left is: %s", timeTillDeadline(ctx)))
+	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
+		Debug("created startup context, nothing done so far")
 
 	// Load the config using the flags
 	serverConfig = &config.WeaviateConfig{}
 	appState.ServerConfig = serverConfig
 	err := serverConfig.LoadConfig(connectorOptionGroup, messaging)
 	if err != nil {
-		messaging.ExitError(1, "could not load config: "+err.Error())
+		logger.WithField("action", "startup").WithError(err).Error("could not load config")
+		logger.Exit(1)
 	}
-	messaging.InfoMessage(fmt.Sprintf("loaded the config, time left is: %s", timeTillDeadline(ctx)))
+
+	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
+		Debug("config loaded")
 
 	appState.OIDC = configureOIDC(appState)
 	appState.AnonymousAccess = configureAnonymousAccess(appState)
 
-	messaging.InfoMessage(fmt.Sprintf("configured OIDC client, time left is: %s", timeTillDeadline(ctx)))
+	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
+		Debug("configured OIDC and anonymous access client")
 
 	// Extract environment variables needed for logging
 	mainLog = telemetry.NewLog()
@@ -134,48 +143,64 @@ func startupRoutine() {
 	mainLog.Debug = loggingDebug
 	mainLog.Disabled = loggingDisabled
 
-	loadContextionary()
-	messaging.InfoMessage(fmt.Sprintf("loaded the contextionary, time left is: %s", timeTillDeadline(ctx)))
+	loadContextionary(logger)
+	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
+		Debug("contextionary loaded")
 
-	connectToNetwork()
-	messaging.InfoMessage(fmt.Sprintf("connected to network, time left is: %s", timeTillDeadline(ctx)))
+	connectToNetwork(logger)
+	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
+		Debug("network configured")
 
 	// Create the database connector using the config
 	err, dbConnector := dblisting.NewConnector(serverConfig.Config.Database.Name, serverConfig.Config.Database.DatabaseConfig, serverConfig.Config)
 	// Could not find, or configure connector.
 	if err != nil {
-		messaging.ExitError(78, err.Error())
+		logger.WithField("action", "startup").WithError(err).Error("could not load config")
+		logger.Exit(1)
 	}
 
-	messaging.InfoMessage(fmt.Sprintf("created db connector, time left is: %s", timeTillDeadline(ctx)))
+	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
+		Debug("created db connector")
 
 	// parse config store URL
 	configURL := serverConfig.Config.ConfigurationStorage.URL
 	configStore, err := url.Parse(configURL)
 	if err != nil || configURL == "" {
-		messaging.ExitError(78, fmt.Sprintf("cannot parse config store URL: %s", err))
+		logger.WithField("action", "startup").WithField("url", configURL).
+			WithError(err).Error("cannot parse config store URL")
+		logger.Exit(1)
 	}
 
 	// Construct a distributed lock
 	etcdClient, err := clientv3.New(clientv3.Config{Endpoints: []string{configStore.String()}})
 	if err != nil {
-		log.Fatal(err)
+		logger.WithField("action", "startup").
+			WithError(err).Error("cannot construct distributed lock with etcd")
+		logger.Exit(1)
 	}
 
-	messaging.InfoMessage(fmt.Sprintf("created an etcd client, time left is: %s", timeTillDeadline(ctx)))
+	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
+		Debug("created etcd client")
 
 	s1, err := concurrency.NewSession(etcdClient)
 	if err != nil {
-		log.Fatal(err)
+		logger.WithField("action", "startup").
+			WithError(err).Error("cannot create etcd session")
+		logger.Exit(1)
 	}
-	messaging.InfoMessage(fmt.Sprintf("created an etcd session, time left is: %s", timeTillDeadline(ctx)))
+
+	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
+		Debug("created etcd session")
 
 	manager, err := etcdSchemaManager.New(ctx, etcdClient, dbConnector, network)
 	if err != nil {
-		messaging.ExitError(78, fmt.Sprintf("Could not initialize local database state: %v", err))
+		logger.WithField("action", "startup").
+			WithError(err).Error("cannot (etcd) schema manager and initialize schema")
+		logger.Exit(1)
 	}
 
-	messaging.InfoMessage(fmt.Sprintf("initialized the schema, time left is: %s", timeTillDeadline(ctx)))
+	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
+		Debug("initialized schema")
 
 	manager.RegisterSchemaUpdateCallback(updateSchemaCallback)
 
@@ -199,11 +224,16 @@ func startupRoutine() {
 		SchemaManager: manager,
 		Connector:     dbConnector,
 		Contextionary: contextionary,
-		Messaging:     messaging,
+		Logger:        logger,
 	}
 	db, err = database.New(ctx, dbParams)
 	if err != nil {
-		messaging.ExitError(1, fmt.Sprintf("Could not initialize the database: %s", err.Error()))
+		logger.
+			WithField("action", "startup").
+			WithField("params", dbParams).
+			WithError(err).
+			Error("cannot initialize connected db")
+		logger.Exit(1)
 	}
 	appState.Database = db
 

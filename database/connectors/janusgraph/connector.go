@@ -18,12 +18,11 @@ import (
 
 	client "github.com/SeMI-network/janus-spark-analytics/clients/go"
 	"github.com/coreos/etcd/clientv3"
-	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/state"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
-	"github.com/creativesoftwarefdn/weaviate/messages"
+	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 
 	"github.com/creativesoftwarefdn/weaviate/gremlin/http_client"
 
@@ -51,7 +50,7 @@ type Janusgraph struct {
 
 	serverAddress string
 	schema        schema.Schema
-	messaging     *messages.Messaging
+	logger        logrus.FieldLogger
 
 	// etcd can be used as an external cache for the analytics api
 	etcdClient *clientv3.Client
@@ -79,12 +78,9 @@ func (f *Janusgraph) SetSchema(schemaInput schema.Schema) {
 	f.schema = schemaInput
 }
 
-// SetMessaging is used to send messages to the service.
-// Available message types are: f.messaging.Infomessage ...DebugMessage ...ErrorMessage ...ExitError (also exits the service) ...InfoMessage
-func (f *Janusgraph) SetMessaging(m *messages.Messaging) {
-
-	// mandatory, adds the message functions to f.messaging to make them globally accessible.
-	f.messaging = m
+// SetLogger configures the logrus FieldLogger
+func (f *Janusgraph) SetLogger(l logrus.FieldLogger) {
+	f.logger = l
 }
 
 // SetServerAddress is used to fill in a global variable with the server address, but can also be used
@@ -96,7 +92,9 @@ func (f *Janusgraph) SetServerAddress(addr string) {
 
 // Init 1st initializes the schema in the database and 2nd creates a root key.
 func (f *Janusgraph) Init(ctx context.Context) error {
-	f.messaging.DebugMessage("Initializeing JanusGraph")
+	f.logger.WithField("action", "database_init").
+		WithField("connector", "janusgraph").
+		Debug("initializing Janusgraph Connector")
 
 	err := f.ensureBasicSchema(ctx)
 	if err != nil {
@@ -135,7 +133,9 @@ func (f *Janusgraph) Connect() error {
 		return fmt.Errorf("Could not connect to Gremlin server; %v", err)
 	}
 
-	f.messaging.InfoMessage("Sucessfully pinged Gremlin server")
+	f.logger.WithField("action", "database_init").
+		WithField("connector", "janusgraph").
+		Debug("established connection to Gremlin server")
 
 	return nil
 }
