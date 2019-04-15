@@ -342,6 +342,42 @@ func (h *kindHandlers) getPatchedKind(orig interface{},
 	return nil
 }
 
+func (h *kindHandlers) addThingReference(params things.WeaviateThingsReferencesCreateParams,
+	principal *models.Principal) middleware.Responder {
+	err := h.manager.AddThingReference(params.HTTPRequest.Context(), params.ID, params.PropertyName, params.Body)
+	if err != nil {
+		switch err.(type) {
+		case kinds.ErrNotFound, kinds.ErrInvalidUserInput:
+			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return things.NewWeaviateThingsReferencesCreateInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
+	return things.NewWeaviateThingsReferencesCreateOK()
+}
+
+func (h *kindHandlers) addActionReference(params actions.WeaviateActionsReferencesCreateParams,
+	principal *models.Principal) middleware.Responder {
+	err := h.manager.AddActionReference(params.HTTPRequest.Context(), params.ID, params.PropertyName, params.Body)
+	if err != nil {
+		switch err.(type) {
+		case kinds.ErrNotFound, kinds.ErrInvalidUserInput:
+			return actions.NewWeaviateActionsReferencesCreateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return actions.NewWeaviateActionsReferencesCreateInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
+	return actions.NewWeaviateActionsReferencesCreateOK()
+}
+
 func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog, manager *kinds.Manager) {
 	h := &kindHandlers{manager, requestsLog}
 
@@ -357,6 +393,8 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		WeaviateThingsUpdateHandlerFunc(h.updateThing)
 	api.ThingsWeaviateThingsPatchHandler = things.
 		WeaviateThingsPatchHandlerFunc(h.patchThing)
+	api.ThingsWeaviateThingsReferencesCreateHandler = things.
+		WeaviateThingsReferencesCreateHandlerFunc(h.addThingReference)
 
 	api.ActionsWeaviateActionsCreateHandler = actions.
 		WeaviateActionsCreateHandlerFunc(h.createAction)
@@ -370,98 +408,9 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		WeaviateActionUpdateHandlerFunc(h.updateAction)
 	api.ActionsWeaviateActionsPatchHandler = actions.
 		WeaviateActionsPatchHandlerFunc(h.patchAction)
+	api.ActionsWeaviateActionsReferencesCreateHandler = actions.
+		WeaviateActionsReferencesCreateHandlerFunc(h.addActionReference)
 
-	api.ThingsWeaviateThingsReferencesCreateHandler = things.WeaviateThingsReferencesCreateHandlerFunc(func(params things.WeaviateThingsReferencesCreateParams, principal *models.Principal) middleware.Responder {
-		dbLock, err := db.ConnectorLock()
-		if err != nil {
-			return things.NewWeaviateThingsReferencesCreateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-		}
-		delayedLock := delayed_unlock.New(dbLock)
-		defer unlock(delayedLock)
-
-		dbConnector := dbLock.Connector()
-
-		UUID := strfmt.UUID(params.ID)
-
-		class := models.Thing{}
-		ctx := params.HTTPRequest.Context()
-		err = dbConnector.GetThing(ctx, UUID, &class)
-
-		if err != nil {
-			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().
-				WithPayload(createErrorResponseObject("Could not find thing"))
-		}
-
-		dbSchema := dbLock.GetSchema()
-
-		// Find property and see if it has a max cardinality of >1
-		err, prop := dbSchema.GetProperty(kind.THING_KIND, schema.AssertValidClassName(class.Class), schema.AssertValidPropertyName(params.PropertyName))
-		if err != nil {
-			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().
-				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find property '%s'; %s", params.PropertyName, err.Error())))
-		}
-		propertyDataType, err := dbSchema.FindPropertyDataType(prop.DataType)
-		if err != nil {
-			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().
-				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find datatype of property '%s'; %s", params.PropertyName, err.Error())))
-		}
-		if propertyDataType.IsPrimitive() {
-			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().
-				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' is a primitive datatype", params.PropertyName)))
-		}
-		if prop.Cardinality == nil || *prop.Cardinality != "many" {
-			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().
-				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' has a cardinality of atMostOne", params.PropertyName)))
-		}
-
-		// Look up the single ref.
-		err = validation.ValidateSingleRef(ctx, serverConfig, params.Body, dbConnector, network,
-			"reference not found")
-		if err != nil {
-			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().
-				WithPayload(createErrorResponseObject(err.Error()))
-		}
-
-		if class.Schema == nil {
-			class.Schema = map[string]interface{}{}
-		}
-
-		schema := class.Schema.(map[string]interface{})
-
-		_, schemaPropPresent := schema[params.PropertyName]
-		if !schemaPropPresent {
-			schema[params.PropertyName] = []interface{}{}
-		}
-
-		schemaProp := schema[params.PropertyName]
-		schemaPropList, ok := schemaProp.([]interface{})
-		if !ok {
-			panic("Internal error; this should be a liast")
-		}
-
-		// Add the reference
-		schemaPropList = append(schemaPropList, params.Body)
-
-		// Patch it back
-		schema[params.PropertyName] = schemaPropList
-		class.Schema = schema
-
-		// And update the last modified time.
-		class.LastUpdateTimeUnix = connutils.NowUnix()
-
-		err = dbConnector.UpdateThing(ctx, &(class), UUID)
-		if err != nil {
-			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
-		}
-
-		// Register the function call
-		go func() {
-			requestsLog.Register(telemetry.TypeREST, telemetry.LocalManipulate)
-		}()
-
-		// Returns accepted so a Go routine can process in the background
-		return things.NewWeaviateThingsReferencesCreateOK()
-	})
 	api.ThingsWeaviateThingsReferencesDeleteHandler = things.WeaviateThingsReferencesDeleteHandlerFunc(func(params things.WeaviateThingsReferencesDeleteParams, principal *models.Principal) middleware.Responder {
 		if params.Body == nil {
 			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().
