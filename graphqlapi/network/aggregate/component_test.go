@@ -17,9 +17,9 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/common"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/test/helper"
-	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/graphql-go/graphql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"

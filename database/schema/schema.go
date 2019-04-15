@@ -15,7 +15,7 @@ import (
 	"fmt"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
-	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 )
 
 // Newtype to denote that this string is used as a Class name

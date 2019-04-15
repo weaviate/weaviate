@@ -21,7 +21,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
-	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
 )

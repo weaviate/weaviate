@@ -17,8 +17,8 @@ import (
 	"net/url"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/common"
-	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/graphql-go/graphql"
 )
 

@@ -14,10 +14,10 @@ package fake
 import (
 	"fmt"
 
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	graphqlnetwork "github.com/creativesoftwarefdn/weaviate/graphqlapi/network"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/common"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/fetch"
-	"github.com/creativesoftwarefdn/weaviate/models"
 	network "github.com/creativesoftwarefdn/weaviate/network"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 )

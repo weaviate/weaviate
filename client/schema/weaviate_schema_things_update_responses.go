@@ -23,7 +23,7 @@ import (
 
 	strfmt "github.com/go-openapi/strfmt"
 
-	models "github.com/creativesoftwarefdn/weaviate/models"
+	models "github.com/creativesoftwarefdn/weaviate/entities/models"
 )
 
 // WeaviateSchemaThingsUpdateReader is a Reader for the WeaviateSchemaThingsUpdate structure.

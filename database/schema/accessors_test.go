@@ -13,7 +13,7 @@
 import (
 	"testing"
 
-	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -18,13 +18,13 @@ import (
 	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
 	"github.com/go-openapi/strfmt"
 
+	batchmodels "github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/batch/models"
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema_migrator"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	graphqlapiLocal "github.com/creativesoftwarefdn/weaviate/graphqlapi/local"
 	"github.com/creativesoftwarefdn/weaviate/messages"
-	"github.com/creativesoftwarefdn/weaviate/models"
-	batchmodels "github.com/creativesoftwarefdn/weaviate/restapi/batch/models"
 )
 
 // BaseConnector is the interface that all connectors should have

@@ -17,7 +17,7 @@ import (
 
 	"github.com/coreos/go-oidc"
 	"github.com/creativesoftwarefdn/weaviate/config"
-	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	errors "github.com/go-openapi/errors"
 )
 

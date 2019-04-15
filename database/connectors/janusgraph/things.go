@@ -19,11 +19,11 @@ import (
 
 	"fmt"
 
+	batchmodels "github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/batch/models"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
-	"github.com/creativesoftwarefdn/weaviate/models"
-	batchmodels "github.com/creativesoftwarefdn/weaviate/restapi/batch/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 )
 
 func (j *Janusgraph) AddThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error {

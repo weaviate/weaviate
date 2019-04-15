@@ -17,7 +17,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 )
 
 type schemaProperties struct {

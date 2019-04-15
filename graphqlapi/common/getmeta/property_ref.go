@@ -14,9 +14,9 @@ package getmeta
 import (
 	"fmt"
 
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/common"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
-	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/graphql-go/graphql"
 )
 

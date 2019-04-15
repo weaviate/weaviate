@@ -19,8 +19,8 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/crossref"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
-	"github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // map properties in thing.Schema according to the mapping.

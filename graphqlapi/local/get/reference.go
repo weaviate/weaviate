@@ -18,8 +18,8 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get/refclasses"
-	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 	"github.com/creativesoftwarefdn/weaviate/network/crossrefs"
 	"github.com/graphql-go/graphql"

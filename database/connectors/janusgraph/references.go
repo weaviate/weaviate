@@ -14,9 +14,9 @@ import (
 	"context"
 	"fmt"
 
+	batchmodels "github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/batch/models"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
-	batchmodels "github.com/creativesoftwarefdn/weaviate/restapi/batch/models"
 )
 
 // AddBatchReferences in bulk.

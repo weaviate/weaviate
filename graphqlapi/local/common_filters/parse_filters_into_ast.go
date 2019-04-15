@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
-	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 )
 
 // Extract the filters from the arguments of a Local->Get or Local->GetMeta query.

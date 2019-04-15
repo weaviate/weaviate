@@ -13,7 +13,7 @@
 import (
 	"context"
 
-	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/go-openapi/strfmt"
 )
 

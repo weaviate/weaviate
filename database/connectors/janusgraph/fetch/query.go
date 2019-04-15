@@ -18,9 +18,9 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	contextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/fetch"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
-	"github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // Query prepares a Local->Fetch Query. Can be built with String(). Create with
