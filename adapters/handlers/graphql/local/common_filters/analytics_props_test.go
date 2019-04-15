@@ -14,7 +14,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/creativesoftwarefdn/weaviate/config"
+	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

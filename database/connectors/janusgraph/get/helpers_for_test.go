@@ -17,7 +17,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/creativesoftwarefdn/weaviate/config"
+	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/state"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"

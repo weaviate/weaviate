@@ -16,7 +16,7 @@ package network
 import (
 	"fmt"
 
-	"github.com/creativesoftwarefdn/weaviate/config"
+	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/descriptions"
 	network_aggregate "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network/aggregate"
 	network_fetch "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network/fetch"
@@ -24,7 +24,7 @@ import (
 	network_getmeta "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network/getmeta"
 	network_introspect "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network/introspect"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/utils"
-	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
+	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
 	"github.com/graphql-go/graphql"
 )
 

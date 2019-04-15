@@ -20,10 +20,10 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network"
-	"github.com/creativesoftwarefdn/weaviate/config"
+	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/messages"
-	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
+	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
 	"github.com/creativesoftwarefdn/weaviate/usecases/telemetry"
 	"github.com/graphql-go/graphql"
 )

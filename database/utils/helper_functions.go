@@ -24,7 +24,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	gouuid "github.com/satori/go.uuid"
 
-	"github.com/creativesoftwarefdn/weaviate/config"
+	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 )
 
 // NowUnix returns the current Unix time

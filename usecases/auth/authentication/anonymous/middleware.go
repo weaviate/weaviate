@@ -14,7 +14,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/creativesoftwarefdn/weaviate/config"
+	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	"github.com/go-openapi/runtime"
 )
 

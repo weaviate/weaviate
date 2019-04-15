@@ -41,7 +41,7 @@ import (
 	"github.com/mitchellh/mapstructure"
 
 	batchmodels "github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/batch/models"
-	"github.com/creativesoftwarefdn/weaviate/config"
+	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"

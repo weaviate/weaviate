@@ -15,8 +15,8 @@ import (
 	"fmt"
 	"reflect"
 
-	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
-	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
+	libnetwork "github.com/creativesoftwarefdn/weaviate/usecases/network"
+	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
 )
 
 func (n *network) UpdatePeers(newPeers peers.Peers) error {

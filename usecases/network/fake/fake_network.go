@@ -18,8 +18,8 @@ import (
 	graphqlnetwork "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network/common"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network/fetch"
-	network "github.com/creativesoftwarefdn/weaviate/network"
-	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
+	network "github.com/creativesoftwarefdn/weaviate/usecases/network"
+	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
 )
 
 type FakeNetwork struct {

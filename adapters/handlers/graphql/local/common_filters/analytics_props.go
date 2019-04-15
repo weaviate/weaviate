@@ -13,7 +13,7 @@
 import (
 	"fmt"
 
-	"github.com/creativesoftwarefdn/weaviate/config"
+	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 )
 
 // AnalyticsProps will be extracted from the graphql args of analytics

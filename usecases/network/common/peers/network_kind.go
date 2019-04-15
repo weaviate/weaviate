@@ -20,7 +20,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/client/things"
 	libkind "github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/network/crossrefs"
+	"github.com/creativesoftwarefdn/weaviate/usecases/network/crossrefs"
 )
 
 // RemoteKind tries to retrieve a kind (i.e. thing or action) from the
