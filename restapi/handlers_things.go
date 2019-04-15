@@ -9,6 +9,7 @@
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
  * CONTACT: hello@creativesoftwarefdn.org
  */
+
 package restapi
 
 import (
@@ -227,7 +228,8 @@ func (h *kindHandlers) patchThing(params things.WeaviateThingsPatchParams, princ
 		}
 	}
 
-	patched, err := h.getPatchedThing(origThing, params.Body)
+	patched := &models.Thing{}
+	err = h.getPatchedKind(origThing, params.Body, patched)
 	if err != nil {
 		switch err.(type) {
 		case kinds.ErrInvalidUserInput:
@@ -257,23 +259,6 @@ func (h *kindHandlers) patchThing(params things.WeaviateThingsPatchParams, princ
 	return things.NewWeaviateThingsPatchOK().WithPayload(updated)
 }
 
-func (h *kindHandlers) getPatchedThing(orig *models.Thing,
-	patch interface{}) (*models.Thing, error) {
-
-	updated, err := h.getPatchedKind(orig, patch)
-	if err != nil {
-		return nil, err
-	}
-
-	thing := &models.Thing{}
-	err = json.Unmarshal([]byte(updated), &thing)
-	if err != nil {
-		return nil, err
-	}
-
-	return thing, nil
-}
-
 // patchAction uses RFC 6902 semantics (https://tools.ietf.org/html/rfc6902) to allow
 // a partial modificatiof the action resource
 //
@@ -291,7 +276,8 @@ func (h *kindHandlers) patchAction(params actions.WeaviateActionsPatchParams, pr
 		}
 	}
 
-	patched, err := h.getPatchedAction(origAction, params.Body)
+	patched := &models.Action{}
+	err = h.getPatchedKind(origAction, params.Body, patched)
 	if err != nil {
 		switch err.(type) {
 		case kinds.ErrInvalidUserInput:
@@ -321,50 +307,39 @@ func (h *kindHandlers) patchAction(params actions.WeaviateActionsPatchParams, pr
 	return actions.NewWeaviateActionsPatchOK().WithPayload(updated)
 }
 
-func (h *kindHandlers) getPatchedAction(orig *models.Action,
-	patch interface{}) (*models.Action, error) {
-
-	updated, err := h.getPatchedKind(orig, patch)
-	if err != nil {
-		return nil, err
-	}
-
-	action := &models.Action{}
-	err = json.Unmarshal([]byte(updated), &action)
-	if err != nil {
-		return nil, err
-	}
-
-	return action, nil
-}
-
 func (h *kindHandlers) getPatchedKind(orig interface{},
-	patch interface{}) ([]byte, error) {
+	patch interface{}, target interface{}) error {
 
 	// Get PATCH params in format RFC 6902
 	jsonBody, err := json.Marshal(patch)
 	if err != nil {
-		return nil, kinds.ErrInternal(err)
+		return kinds.ErrInternal(err)
 	}
 
 	patchObject, err := jsonpatch.DecodePatch([]byte(jsonBody))
 	if err != nil {
-		return nil, kinds.ErrInvalidUserInput(err)
+		return kinds.ErrInvalidUserInput(err)
 	}
 
 	// Convert Kind to JSON
 	origJSON, err := json.Marshal(orig)
 	if err != nil {
-		return nil, kinds.ErrInternal(err)
+		return kinds.ErrInternal(err)
 	}
 
 	// Apply the patch
 	updatedJSON, err := patchObject.Apply(origJSON)
 	if err != nil {
-		return nil, kinds.ErrInternal(err)
+		return kinds.ErrInternal(err)
 	}
 
-	return updatedJSON, nil
+	// Marshal back to original format
+	err = json.Unmarshal([]byte(updatedJSON), &target)
+	if err != nil {
+		return kinds.ErrInternal(err)
+	}
+
+	return nil
 }
 
 func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog, manager *kinds.Manager) {

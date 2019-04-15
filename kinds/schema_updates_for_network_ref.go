@@ -27,10 +27,6 @@ type peersLister interface {
 	ListPeers() (peers.Peers, error)
 }
 
-type schemaManager interface {
-	UpdatePropertyAddDataType(context.Context, kind.Kind, string, string, string) error
-}
-
 type referenceSchemaUpdater struct {
 	schemaManager schemaManager
 	network       peersLister
