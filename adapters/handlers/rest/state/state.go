@@ -8,15 +8,17 @@
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
  * CONTACT: hello@creativesoftwarefdn.org
- */package state
+ */
+
+package state
 
 import (
-	"github.com/creativesoftwarefdn/weaviate/auth/authentication/anonymous"
-	"github.com/creativesoftwarefdn/weaviate/auth/authentication/oidc"
 	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/database"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/network"
+	"github.com/creativesoftwarefdn/weaviate/usecases/auth/authentication/anonymous"
+	"github.com/creativesoftwarefdn/weaviate/usecases/auth/authentication/oidc"
 )
 
 // State is the only source of appliaction-wide state

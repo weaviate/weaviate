@@ -18,7 +18,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network/common"
-	"github.com/creativesoftwarefdn/weaviate/telemetry"
+	"github.com/creativesoftwarefdn/weaviate/usecases/telemetry"
 	"github.com/graphql-go/graphql"
 )
 

@@ -16,7 +16,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/validation"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds/validation"
 	"github.com/go-openapi/strfmt"
 )
 

@@ -17,11 +17,11 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/operations"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/operations/schema"
-	schemaUC "github.com/creativesoftwarefdn/weaviate/schema"
+	schemaUC "github.com/creativesoftwarefdn/weaviate/usecases/schema"
 	middleware "github.com/go-openapi/runtime/middleware"
 
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/telemetry"
+	"github.com/creativesoftwarefdn/weaviate/usecases/telemetry"
 )
 
 type schemaHandlers struct {

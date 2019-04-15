@@ -16,7 +16,7 @@ package aggregate
 import (
 	"fmt"
 
-	"github.com/creativesoftwarefdn/weaviate/telemetry"
+	"github.com/creativesoftwarefdn/weaviate/usecases/telemetry"
 
 	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
