@@ -17,14 +17,14 @@ import (
 
 	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
 
+	graphqlapiLocal "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local"
 	batchmodels "github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/batch/models"
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema_migrator"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	graphqlapiLocal "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local"
-	"github.com/creativesoftwarefdn/weaviate/messages"
 )
 
 // BaseConnector is the interface that all connectors should have
@@ -35,7 +35,7 @@ type BaseConnector interface {
 	Init(ctx context.Context) error
 	SetServerAddress(serverAddress string)
 	SetSchema(s schema.Schema)
-	SetMessaging(m *messages.Messaging)
+	SetLogger(l logrus.FieldLogger)
 
 	AddThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error
 	AddThingsBatch(ctx context.Context, things batchmodels.Things) error

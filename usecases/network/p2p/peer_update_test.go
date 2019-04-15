@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
+	"github.com/sirupsen/logrus/hooks/test"
 )
 
 func TestPeerUpdateWithNewPeers(t *testing.T) {
@@ -26,9 +27,11 @@ func TestPeerUpdateWithNewPeers(t *testing.T) {
 		URI:  "does-not-matter",
 	}}
 
+	logger, _ := test.NewNullLogger()
 	subject := network{
 		peers:           oldPeers,
 		downloadChanged: downloadChangedFake(newPeers),
+		logger:          logger,
 	}
 
 	callbackCalled := false
@@ -58,9 +61,11 @@ func TestPeerUpdateWithoutAnyChange(t *testing.T) {
 		URI:  "does-not-matter",
 	}}
 
+	logger, _ := test.NewNullLogger()
 	subject := network{
 		peers:           unchangedPeers,
 		downloadChanged: downloadChangedFake(unchangedPeers),
+		logger:          logger,
 	}
 
 	callbackCalled := false

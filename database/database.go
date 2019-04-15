@@ -21,8 +21,8 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/contextionary"
 	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
-	"github.com/creativesoftwarefdn/weaviate/messages"
 	recipe "github.com/etcd-io/etcd/contrib/recipes"
+	"github.com/sirupsen/logrus"
 )
 
 type Database interface {
@@ -43,9 +43,8 @@ type database struct {
 }
 
 type Params struct {
-	// Messaging client, to be replaced with a more standardized logger like
-	// logrus at some point. See gh-666.
-	Messaging *messages.Messaging
+	// Logrus logger
+	Logger *logrus.Logger
 
 	// The distributed RWLock is achieved using etcd. Instead of passing around a
 	// reference to one RWMutex (which is impossible across multiple processes),
@@ -76,8 +75,8 @@ func (p *Params) validate() error {
 		return fmt.Errorf("invalid params: field '%s' is required", fieldName)
 	}
 
-	if p.Messaging == nil {
-		return makeError("Messaging")
+	if p.Logger == nil {
+		return makeError("Logger")
 	}
 
 	if p.LockerKey == "" {
@@ -110,7 +109,7 @@ func New(ctx context.Context, params *Params) (Database, error) {
 		return nil, err
 	}
 
-	manager, connector, messaging := params.SchemaManager, params.Connector, params.Messaging
+	manager, connector, logger := params.SchemaManager, params.Connector, params.Logger
 	lockerSession, lockerKey := params.LockerSession, params.LockerKey
 	contextionary := params.Contextionary
 
@@ -127,12 +126,16 @@ func New(ctx context.Context, params *Params) (Database, error) {
 
 	connector.SetState(ctx, initialState)
 	connector.SetSchema(manager.GetSchema())
-	connector.SetMessaging(messaging)
+	connector.SetLogger(logger)
 
 	// Make the connector try to connect to a database
 	errConnect := connector.Connect()
 	if errConnect != nil {
-		messaging.ExitError(1, fmt.Sprintf("Could not connect to backing database: %s", errConnect.Error()))
+		logger.
+			WithField("action", "database_init").
+			WithError(errConnect).
+			Error("could not establish connection in database connector")
+		logger.Exit(1)
 	}
 
 	// Note that this lock is not passed to the returned &database{} type. Because
@@ -198,7 +201,11 @@ func New(ctx context.Context, params *Params) (Database, error) {
 	}()
 	errInit := connector.Init(ctx)
 	if errInit != nil {
-		messaging.ExitError(1, fmt.Sprintf("Could not initialize connector: %s", errInit.Error()))
+		logger.
+			WithField("action", "database_init").
+			WithError(errInit).
+			Error("could not initialize database connector")
+		logger.Exit(1)
 	}
 
 	manager.SetContextionary(contextionary)

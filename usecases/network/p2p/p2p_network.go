@@ -24,11 +24,11 @@ import (
 	genesis_client "github.com/creativesoftwarefdn/weaviate/genesis/client"
 	client_ops "github.com/creativesoftwarefdn/weaviate/genesis/client/operations"
 	genesismodels "github.com/creativesoftwarefdn/weaviate/genesis/models"
-	"github.com/creativesoftwarefdn/weaviate/messages"
 	libnetwork "github.com/creativesoftwarefdn/weaviate/usecases/network"
 	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
 	p2pschema "github.com/creativesoftwarefdn/weaviate/usecases/network/p2p/schema"
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -52,7 +52,7 @@ type network struct {
 
 	state           string
 	genesisURL      strfmt.URI
-	messaging       *messages.Messaging
+	logger          logrus.FieldLogger
 	client          genesis_client.WeaviateGenesisServer
 	peers           peers.Peers
 	callbacks       []libnetwork.PeerUpdateCallback
@@ -62,7 +62,8 @@ type network struct {
 
 type downloadChangedFn func(peers.Peers) peers.Peers
 
-func BootstrapNetwork(m *messages.Messaging, genesisURL strfmt.URI, publicURL strfmt.URI, peerName string) (libnetwork.Network, error) {
+// BootstrapNetwork with HTTP p2p functionality
+func BootstrapNetwork(logger logrus.FieldLogger, genesisURL strfmt.URI, publicURL strfmt.URI, peerName string) (libnetwork.Network, error) {
 	if genesisURL == "" {
 		return nil, fmt.Errorf("No genesis URL provided in network configuration")
 	}
@@ -98,7 +99,7 @@ func BootstrapNetwork(m *messages.Messaging, genesisURL strfmt.URI, publicURL st
 		peerName:        peerName,
 		state:           NETWORK_STATE_BOOTSTRAPPING,
 		genesisURL:      genesisURL,
-		messaging:       m,
+		logger:          logger,
 		client:          *client,
 		peers:           make([]peers.Peer, 0),
 		downloadChanged: p2pschema.DownloadChanged,
@@ -112,7 +113,7 @@ func BootstrapNetwork(m *messages.Messaging, genesisURL strfmt.URI, publicURL st
 
 func (n *network) bootstrap() {
 	time.Sleep(10) //TODO: Use channel close to listen for when complete configuration is done.
-	n.messaging.InfoMessage("Bootstrapping network")
+	n.logger.WithField("action", "network_bootstrap").Debug("network bootstrapping beginning")
 
 	newPeer := genesismodels.PeerUpdate{
 		PeerName: n.peerName,
@@ -123,12 +124,18 @@ func (n *network) bootstrap() {
 	params.Body = &newPeer
 	response, err := n.client.Operations.GenesisPeersRegister(params)
 	if err != nil {
-		n.messaging.ErrorMessage(fmt.Sprintf("Could not register this peer in the network, because: %+v", err))
+		n.logger.
+			WithField("action", "network_bootstrap").
+			WithError(err).
+			Error("could not register peer in network")
 		n.state = NETWORK_STATE_FAILED
 	} else {
 		n.state = NETWORK_STATE_HEALTHY
 		n.peerID = response.Payload.Peer.ID
-		n.messaging.InfoMessage(fmt.Sprintf("Registered at Genesis server with id '%v'", n.peerID))
+		n.logger.
+			WithField("action", "network_bootstrap").
+			WithField("peer_id", n.peerID).
+			Info("registered at genesis server")
 	}
 
 	go n.keepPinging()
@@ -164,16 +171,22 @@ func (n *network) keepPinging() {
 }
 
 func (n *network) ping() {
-	n.messaging.InfoMessage("Pinging Genesis server")
+	n.logger.WithField("action", "network_ping").Debug("pinging genesis server")
 
 	if n.schemaGetter == nil {
-		n.messaging.InfoMessage("cannot ping genesis server: no SchemaGetter present on network")
+		n.logger.
+			WithField("action", "network_ping").
+			WithError(errors.New("no schema getter present")).
+			Error("cannot ping gensis server")
 		return
 	}
 
 	currentSchema, err := n.schemaGetter.Schema()
 	if err != nil {
-		n.messaging.InfoMessage(fmt.Sprintf("can not ping Genesis server; %+v", err))
+		n.logger.
+			WithField("action", "network_ping").
+			WithError(err).
+			Error("cannot ping gensis server")
 	}
 
 	n.Lock()
@@ -181,7 +194,10 @@ func (n *network) ping() {
 	params.PeerID = n.peerID
 	hash, err := schemaHash(currentSchema)
 	if err != nil {
-		n.messaging.InfoMessage(fmt.Sprintf("cannot ping genesis server: %s", err))
+		n.logger.
+			WithField("action", "network_ping").
+			WithError(err).
+			Error("cannot ping gensis server")
 		return
 	}
 
@@ -191,7 +207,10 @@ func (n *network) ping() {
 	n.Unlock()
 	_, err = n.client.Operations.GenesisPeersPing(params)
 	if err != nil {
-		n.messaging.InfoMessage(fmt.Sprintf("Could not ping Genesis server; %+v", err))
+		n.logger.
+			WithField("action", "network_ping").
+			WithError(err).
+			Error("cannot ping gensis server")
 	}
 }
 
