@@ -16,7 +16,7 @@ import (
 	"fmt"
 	"unicode"
 
-	"github.com/creativesoftwarefdn/weaviate/network/crossrefs"
+	"github.com/creativesoftwarefdn/weaviate/usecases/network/crossrefs"
 )
 
 type DataType string

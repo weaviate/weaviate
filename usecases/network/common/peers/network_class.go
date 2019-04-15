@@ -15,7 +15,7 @@ import (
 	"fmt"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
-	"github.com/creativesoftwarefdn/weaviate/network/crossrefs"
+	"github.com/creativesoftwarefdn/weaviate/usecases/network/crossrefs"
 )
 
 // HasClass verifies whether both the peer and the referenced

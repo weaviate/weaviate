@@ -25,9 +25,9 @@ import (
 	client_ops "github.com/creativesoftwarefdn/weaviate/genesis/client/operations"
 	genesismodels "github.com/creativesoftwarefdn/weaviate/genesis/models"
 	"github.com/creativesoftwarefdn/weaviate/messages"
-	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
-	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
-	p2pschema "github.com/creativesoftwarefdn/weaviate/network/p2p/schema"
+	libnetwork "github.com/creativesoftwarefdn/weaviate/usecases/network"
+	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
+	p2pschema "github.com/creativesoftwarefdn/weaviate/usecases/network/p2p/schema"
 	"github.com/go-openapi/strfmt"
 )
 

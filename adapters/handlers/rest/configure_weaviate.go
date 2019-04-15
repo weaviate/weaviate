@@ -26,12 +26,12 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/operations"
-	"github.com/creativesoftwarefdn/weaviate/config"
+	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	"github.com/creativesoftwarefdn/weaviate/database"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
-	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
+	libnetwork "github.com/creativesoftwarefdn/weaviate/usecases/network"
 )
 
 var connectorOptionGroup *swag.CommandLineOptionsGroup

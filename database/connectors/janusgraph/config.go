@@ -13,7 +13,7 @@
 import (
 	"fmt"
 
-	"github.com/creativesoftwarefdn/weaviate/config"
+	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	"github.com/mitchellh/mapstructure"
 )
 

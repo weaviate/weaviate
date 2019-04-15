@@ -16,8 +16,8 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
-	"github.com/creativesoftwarefdn/weaviate/network/crossrefs"
+	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
+	"github.com/creativesoftwarefdn/weaviate/usecases/network/crossrefs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

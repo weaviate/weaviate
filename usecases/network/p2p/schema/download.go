@@ -17,7 +17,7 @@ import (
 
 	schemaclient "github.com/creativesoftwarefdn/weaviate/client/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
-	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
+	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
 )
 
 func download(peer peers.Peer) (schema.Schema, error) {

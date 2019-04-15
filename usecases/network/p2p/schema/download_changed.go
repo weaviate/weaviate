@@ -13,7 +13,7 @@ package schema
 
 import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
-	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
+	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
 )
 
 type schemaDownload struct {

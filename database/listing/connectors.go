@@ -14,7 +14,7 @@ package listing
 import (
 	"fmt"
 
-	"github.com/creativesoftwarefdn/weaviate/config"
+	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/foobar"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph"

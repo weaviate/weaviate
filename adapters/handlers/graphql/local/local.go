@@ -12,7 +12,7 @@
 package local
 
 import (
-	"github.com/creativesoftwarefdn/weaviate/config"
+	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/aggregate"
@@ -20,7 +20,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/get"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/messages"
-	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
+	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
 	"github.com/graphql-go/graphql"
 )
 

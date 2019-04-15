@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/creativesoftwarefdn/weaviate/config"
+	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	"github.com/dgrijalva/jwt-go"
 	errors "github.com/go-openapi/errors"
 	"github.com/stretchr/testify/assert"

@@ -15,7 +15,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
+	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
 )
 
 func TestPeerUpdateWithNewPeers(t *testing.T) {

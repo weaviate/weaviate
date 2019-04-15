@@ -22,7 +22,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/get/refclasses"
 	"github.com/creativesoftwarefdn/weaviate/messages"
-	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
+	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
 	"github.com/graphql-go/graphql"
 )
 
