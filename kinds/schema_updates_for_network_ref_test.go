@@ -168,6 +168,10 @@ func (f *fakeSchemaManager) UpdatePropertyAddDataType(ctx context.Context, k kin
 	return nil
 }
 
+func (f *fakeSchemaManager) GetSchema() schema.Schema {
+	panic("not implemented")
+}
+
 func newFakeServer(t *testing.T) *fakeServer {
 	server := &fakeServer{t: t}
 	server.server = httptest.NewServer(http.HandlerFunc(server.handle))
