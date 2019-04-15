@@ -15,14 +15,12 @@ package restapi
 import (
 	"encoding/json"
 
-	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/kinds"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/actions"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/things"
 	"github.com/creativesoftwarefdn/weaviate/telemetry"
-	"github.com/creativesoftwarefdn/weaviate/validation"
 	jsonpatch "github.com/evanphx/json-patch"
 	middleware "github.com/go-openapi/runtime/middleware"
 )
@@ -32,7 +30,7 @@ type kindHandlers struct {
 	requestsLog *telemetry.RequestsLog
 }
 
-func (h *kindHandlers) createThing(params things.WeaviateThingsCreateParams,
+func (h *kindHandlers) addThing(params things.WeaviateThingsCreateParams,
 	principal *models.Principal) middleware.Responder {
 	thing, err := h.manager.AddThing(params.HTTPRequest.Context(), params.Body)
 	if err != nil {
@@ -50,7 +48,26 @@ func (h *kindHandlers) createThing(params things.WeaviateThingsCreateParams,
 	return things.NewWeaviateThingsCreateOK().WithPayload(thing)
 }
 
-func (h *kindHandlers) createAction(params actions.WeaviateActionsCreateParams,
+func (h *kindHandlers) validateThing(params things.WeaviateThingsValidateParams,
+	principal *models.Principal) middleware.Responder {
+
+	err := h.manager.ValidateThing(params.HTTPRequest.Context(), params.Body)
+	if err != nil {
+		switch err.(type) {
+		case kinds.ErrInvalidUserInput:
+			return things.NewWeaviateThingsValidateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return things.NewWeaviateThingsValidateInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalQueryMeta)
+	return things.NewWeaviateThingsValidateOK()
+}
+
+func (h *kindHandlers) addAction(params actions.WeaviateActionsCreateParams,
 	principal *models.Principal) middleware.Responder {
 	action, err := h.manager.AddAction(params.HTTPRequest.Context(), params.Body)
 	if err != nil {
@@ -66,6 +83,25 @@ func (h *kindHandlers) createAction(params actions.WeaviateActionsCreateParams,
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalAdd)
 	return actions.NewWeaviateActionsCreateOK().WithPayload(action)
+}
+
+func (h *kindHandlers) validateAction(params actions.WeaviateActionsValidateParams,
+	principal *models.Principal) middleware.Responder {
+
+	err := h.manager.ValidateAction(params.HTTPRequest.Context(), params.Body)
+	if err != nil {
+		switch err.(type) {
+		case kinds.ErrInvalidUserInput:
+			return actions.NewWeaviateActionsValidateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return actions.NewWeaviateActionsValidateInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalQueryMeta)
+	return actions.NewWeaviateActionsValidateOK()
 }
 
 func (h *kindHandlers) getThing(params things.WeaviateThingsGetParams,
@@ -445,11 +481,13 @@ func (h *kindHandlers) deleteThingReference(params things.WeaviateThingsReferenc
 	return things.NewWeaviateThingsReferencesDeleteNoContent()
 }
 
-func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog, manager *kinds.Manager) {
+func setupKindHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog, manager *kinds.Manager) {
 	h := &kindHandlers{manager, requestsLog}
 
 	api.ThingsWeaviateThingsCreateHandler = things.
-		WeaviateThingsCreateHandlerFunc(h.createThing)
+		WeaviateThingsCreateHandlerFunc(h.addThing)
+	api.ThingsWeaviateThingsValidateHandler = things.
+		WeaviateThingsValidateHandlerFunc(h.validateThing)
 	api.ThingsWeaviateThingsGetHandler = things.
 		WeaviateThingsGetHandlerFunc(h.getThing)
 	api.ThingsWeaviateThingsDeleteHandler = things.
@@ -468,7 +506,9 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		WeaviateThingsReferencesUpdateHandlerFunc(h.updateThingReferences)
 
 	api.ActionsWeaviateActionsCreateHandler = actions.
-		WeaviateActionsCreateHandlerFunc(h.createAction)
+		WeaviateActionsCreateHandlerFunc(h.addAction)
+	api.ActionsWeaviateActionsValidateHandler = actions.
+		WeaviateActionsValidateHandlerFunc(h.validateAction)
 	api.ActionsWeaviateActionsGetHandler = actions.
 		WeaviateActionsGetHandlerFunc(h.getAction)
 	api.ActionsWeaviateActionsDeleteHandler = actions.
@@ -486,29 +526,6 @@ func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 	api.ActionsWeaviateActionsReferencesUpdateHandler = actions.
 		WeaviateActionsReferencesUpdateHandlerFunc(h.updateActionReferences)
 
-	api.ThingsWeaviateThingsValidateHandler = things.WeaviateThingsValidateHandlerFunc(func(params things.WeaviateThingsValidateParams, principal *models.Principal) middleware.Responder {
-		dbLock, err := db.ConnectorLock()
-		if err != nil {
-			return things.NewWeaviateThingsValidateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-		}
-		defer unlock(dbLock)
-		dbConnector := dbLock.Connector()
-
-		// Validate schema given in body with the weaviate schema
-		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
-		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), params.Body, databaseSchema,
-			dbConnector, network, serverConfig)
-		if validatedErr != nil {
-			return things.NewWeaviateThingsValidateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
-		}
-
-		// Register the function call
-		go func() {
-			requestsLog.Register(telemetry.TypeREST, telemetry.LocalQueryMeta)
-		}()
-
-		return things.NewWeaviateThingsValidateOK()
-	})
 }
 
 func (h *kindHandlers) telemetryLogAsync(requestType, identifier string) {
