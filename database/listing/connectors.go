@@ -14,10 +14,10 @@ package listing
 import (
 	"fmt"
 
-	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/foobar"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph"
+	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 )
 
 // Build a new connector based on it's name. Returns nil if the connector is unknown.

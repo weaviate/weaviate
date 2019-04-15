@@ -14,8 +14,8 @@ package aggregate
 import (
 	"fmt"
 
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/graphql-go/graphql"
 )
 

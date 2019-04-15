@@ -12,8 +12,8 @@
 package fetch
 
 import (
-	contextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
 	testhelper "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/test/helper"
+	contextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
 	"github.com/stretchr/testify/mock"
 )
 

@@ -16,10 +16,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/get/refclasses"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/get/refclasses"
 	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
 	"github.com/creativesoftwarefdn/weaviate/usecases/network/crossrefs"
 	"github.com/graphql-go/graphql"

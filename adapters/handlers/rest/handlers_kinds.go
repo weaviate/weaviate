@@ -19,8 +19,8 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/operations/actions"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/operations/things"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/usecases/telemetry"
 	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
+	"github.com/creativesoftwarefdn/weaviate/usecases/telemetry"
 	jsonpatch "github.com/evanphx/json-patch"
 	middleware "github.com/go-openapi/runtime/middleware"
 )

@@ -15,9 +15,9 @@ package common_filters
 import (
 	"testing"
 
+	test_helper "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	test_helper "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/graphql-go/graphql/gqlerrors"
 	"github.com/graphql-go/graphql/language/location"
 )

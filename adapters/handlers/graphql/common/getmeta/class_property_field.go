@@ -17,10 +17,10 @@ package getmeta
 import (
 	"fmt"
 
-	"github.com/creativesoftwarefdn/weaviate/database/schema"
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/common"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/graphql-go/graphql"
 )
 

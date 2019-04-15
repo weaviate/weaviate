@@ -17,9 +17,9 @@ import (
 	"runtime/debug"
 	"testing"
 
-	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
+	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
 	"github.com/graphql-go/graphql"
 	"github.com/stretchr/testify/assert"

@@ -14,8 +14,8 @@ package meta
 import (
 	"testing"
 
-	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	gm "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
+	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
