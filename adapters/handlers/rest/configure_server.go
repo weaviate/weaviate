@@ -18,6 +18,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/fetch"
+	graphqlnetwork "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/state"
 	"github.com/creativesoftwarefdn/weaviate/auth/authentication/anonymous"
 	"github.com/creativesoftwarefdn/weaviate/auth/authentication/oidc"
@@ -26,9 +29,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	databaseSchema "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
 	schemaContextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/fetch"
-	graphqlnetwork "github.com/creativesoftwarefdn/weaviate/graphqlapi/network"
 	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
 	libnetworkFake "github.com/creativesoftwarefdn/weaviate/network/fake"
 	libnetworkP2P "github.com/creativesoftwarefdn/weaviate/network/p2p"
@@ -83,7 +83,7 @@ func rebuildGraphQL(updatedSchema schema.Schema) {
 
 	c11y := schemaContextionary.New(contextionary)
 	root := graphQLRoot{Database: db, Network: network, contextionary: c11y, log: mainLog}
-	updatedGraphQL, err := graphqlapi.Build(&updatedSchema, peers, root, messaging, serverConfig.Config)
+	updatedGraphQL, err := graphql.Build(&updatedSchema, peers, root, messaging, serverConfig.Config)
 	if err != nil {
 		// TODO: turn on safe mode gh-520
 		graphQL = nil

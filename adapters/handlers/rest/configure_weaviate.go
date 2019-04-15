@@ -24,10 +24,10 @@ import (
 	"github.com/go-openapi/swag"
 	"google.golang.org/grpc/grpclog"
 
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/operations"
 	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/database"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
@@ -46,7 +46,7 @@ var rawContextionary libcontextionary.Contextionary
 var contextionary libcontextionary.Contextionary
 var network libnetwork.Network
 var serverConfig *config.WeaviateConfig
-var graphQL graphqlapi.GraphQL
+var graphQL graphql.GraphQL
 var messaging *messages.Messaging
 
 var appState *state.State

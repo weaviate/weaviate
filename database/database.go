@@ -17,16 +17,16 @@ import (
 	"log"
 
 	"github.com/coreos/etcd/clientv3/concurrency"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql"
 	"github.com/creativesoftwarefdn/weaviate/contextionary"
 	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	recipe "github.com/etcd-io/etcd/contrib/recipes"
 )
 
 type Database interface {
-	graphqlapi.DatabaseResolverProvider
+	graphql.DatabaseResolverProvider
 
 	ConnectorLock() (ConnectorLock, error)
 	SchemaLock() (SchemaLock, error)
@@ -256,7 +256,7 @@ func (db *database) SchemaLock() (SchemaLock, error) {
 	}, nil
 }
 
-func (db *database) GetResolver() (graphqlapi.ClosingResolver, error) {
+func (db *database) GetResolver() (graphql.ClosingResolver, error) {
 	lock, err := db.ConnectorLock()
 	if err != nil {
 		return nil, err

@@ -14,8 +14,8 @@ package network
 import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/common"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/fetch"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network/common"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network/fetch"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 )
 

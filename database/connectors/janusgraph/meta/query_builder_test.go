@@ -14,7 +14,7 @@ package meta
 import (
 	"testing"
 
-	gm "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/getmeta"
+	gm "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
 )
 
 // This file contains only a single test to verify that combining multiple

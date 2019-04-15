@@ -15,9 +15,9 @@ import (
 	"fmt"
 
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	graphqlnetwork "github.com/creativesoftwarefdn/weaviate/graphqlapi/network"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/common"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/fetch"
+	graphqlnetwork "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network/common"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network/fetch"
 	network "github.com/creativesoftwarefdn/weaviate/network"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 )

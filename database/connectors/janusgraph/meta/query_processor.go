@@ -17,7 +17,7 @@ import (
 
 	analytics "github.com/SeMI-network/janus-spark-analytics/clients/go"
 	"github.com/coreos/etcd/clientv3"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/getmeta"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 )
 

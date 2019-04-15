@@ -25,7 +25,7 @@ import (
 	libkind "github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/go-openapi/strfmt"
 )

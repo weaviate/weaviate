@@ -15,7 +15,7 @@ package aggregate
 import (
 	"fmt"
 
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 )
 

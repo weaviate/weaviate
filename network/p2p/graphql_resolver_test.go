@@ -19,8 +19,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/common"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/fetch"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network/common"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network/fetch"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
