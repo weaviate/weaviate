@@ -16,7 +16,7 @@ import (
 
 	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
 	utils "github.com/creativesoftwarefdn/weaviate/database/utils"
-	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/go-openapi/strfmt"
 )
 

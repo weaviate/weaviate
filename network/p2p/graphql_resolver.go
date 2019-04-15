@@ -20,9 +20,9 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/client"
 	"github.com/creativesoftwarefdn/weaviate/client/graphql"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/common"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/fetch"
-	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 )
 

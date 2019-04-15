@@ -16,8 +16,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/creativesoftwarefdn/weaviate/restapi"
-	"github.com/creativesoftwarefdn/weaviate/restapi/operations"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/operations"
 	loads "github.com/go-openapi/loads"
 	flags "github.com/jessevdk/go-flags"
 )
@@ -27,13 +27,13 @@ import (
 
 func main() {
 
-	swaggerSpec, err := loads.Embedded(restapi.SwaggerJSON, restapi.FlatSwaggerJSON)
+	swaggerSpec, err := loads.Embedded(rest.SwaggerJSON, rest.FlatSwaggerJSON)
 	if err != nil {
 		log.Fatalln(err)
 	}
 
 	api := operations.NewWeaviateAPI(swaggerSpec)
-	server := restapi.NewServer(api)
+	server := rest.NewServer(api)
 	defer server.Shutdown()
 
 	parser := flags.NewParser(server, flags.Default)

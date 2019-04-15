@@ -15,8 +15,8 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	contextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
-	"github.com/creativesoftwarefdn/weaviate/models"
 )
 
 type whereFilter struct {

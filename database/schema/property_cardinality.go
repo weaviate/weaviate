@@ -13,7 +13,7 @@ package schema
 
 import (
 	"fmt"
-	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 )
 
 type Cardinality int

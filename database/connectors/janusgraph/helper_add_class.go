@@ -12,10 +12,10 @@
 package janusgraph
 
 import (
+	batchmodels "github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/batch/models"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
-	batchmodels "github.com/creativesoftwarefdn/weaviate/restapi/batch/models"
 	"github.com/go-openapi/strfmt"
 )
 

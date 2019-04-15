@@ -12,7 +12,7 @@
 package schema
 
 import (
-	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"testing"
 )
 

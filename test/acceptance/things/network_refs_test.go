@@ -16,7 +16,7 @@ import (
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/client/things"
-	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	graphql "github.com/creativesoftwarefdn/weaviate/test/acceptance/graphql_resolvers"
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
 	"github.com/stretchr/testify/assert"

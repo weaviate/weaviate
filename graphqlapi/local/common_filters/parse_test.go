@@ -16,8 +16,8 @@ import (
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	test_helper "github.com/creativesoftwarefdn/weaviate/graphqlapi/test/helper"
-	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/graphql-go/graphql/gqlerrors"
 	"github.com/graphql-go/graphql/language/location"
 )

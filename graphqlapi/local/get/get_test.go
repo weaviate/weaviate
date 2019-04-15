@@ -17,9 +17,9 @@ import (
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/common"
 	test_helper "github.com/creativesoftwarefdn/weaviate/graphqlapi/test/helper"
-	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/stretchr/testify/assert"
 )
 
