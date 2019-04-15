@@ -12,9 +12,9 @@
 package janusgraph
 
 import (
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/filters"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/meta"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 )
 

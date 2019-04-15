@@ -16,10 +16,10 @@ package get
 import (
 	"testing"
 
-	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/common"
 	test_helper "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/test/helper"
+	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/stretchr/testify/assert"
 )
 

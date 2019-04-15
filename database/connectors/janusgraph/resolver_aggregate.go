@@ -13,9 +13,9 @@
 package janusgraph
 
 import (
+	graphql_aggregate "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/aggregate"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/aggregate"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/filters"
-	graphql_aggregate "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/aggregate"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 )
 

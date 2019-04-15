@@ -14,8 +14,8 @@ package network_get
 import (
 	"testing"
 
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network/common"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
 	"github.com/graphql-go/graphql/language/source"

@@ -17,12 +17,12 @@ import (
 	"strings"
 	"testing"
 
+	ag "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/aggregate"
+	cf "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/state"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	ag "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/aggregate"
-	cf "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

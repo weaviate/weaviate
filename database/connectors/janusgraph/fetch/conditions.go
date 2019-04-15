@@ -14,9 +14,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/fetch"
+	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 )
 

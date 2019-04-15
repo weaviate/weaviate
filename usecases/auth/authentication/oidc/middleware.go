@@ -16,8 +16,8 @@ import (
 	"strings"
 
 	"github.com/coreos/go-oidc"
-	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
+	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	errors "github.com/go-openapi/errors"
 )
 

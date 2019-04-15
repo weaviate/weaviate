@@ -16,8 +16,8 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network/common"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/usecases/telemetry"
 	"github.com/graphql-go/graphql"
 )

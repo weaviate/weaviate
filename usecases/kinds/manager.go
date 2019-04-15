@@ -14,8 +14,8 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	"github.com/creativesoftwarefdn/weaviate/database"
+	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	"github.com/creativesoftwarefdn/weaviate/usecases/network"
 	"github.com/go-openapi/strfmt"
 	uuid "github.com/satori/go.uuid"

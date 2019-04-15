@@ -18,11 +18,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network/common"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network/fetch"
 	"github.com/creativesoftwarefdn/weaviate/client"
 	"github.com/creativesoftwarefdn/weaviate/client/graphql"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network/common"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network/fetch"
 	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
 )
 

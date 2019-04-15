@@ -15,9 +15,9 @@ package aggregate
 import (
 	"testing"
 
-	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	ag "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/aggregate"
 	cf "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/creativesoftwarefdn/weaviate/database/schema"
 )
 
 func Test_QueryBuilder_VariousGroupingStrategies_WithNameSource(t *testing.T) {
