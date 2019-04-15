@@ -43,7 +43,7 @@ func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, id
 		return err
 	}
 
-	err = m.validateCanAddReference(kind.ACTION_KIND, action.Class, propertyName, classSchema)
+	err = m.validateCanModifyReference(kind.ACTION_KIND, action.Class, propertyName, classSchema)
 	if err != nil {
 		return err
 	}
@@ -102,7 +102,7 @@ func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, id 
 		return err
 	}
 
-	err = m.validateCanAddReference(kind.THING_KIND, thing.Class, propertyName, classSchema)
+	err = m.validateCanModifyReference(kind.THING_KIND, thing.Class, propertyName, classSchema)
 	if err != nil {
 		return err
 	}
@@ -137,7 +137,7 @@ func (m *Manager) validateReference(ctx context.Context, reference *models.Singl
 	return nil
 }
 
-func (m *Manager) validateCanAddReference(k kind.Kind, className string,
+func (m *Manager) validateCanModifyReference(k kind.Kind, className string,
 	propertyName string, classSchema schema.Schema) error {
 	// TODO: Use checks with error handling instead of panicking
 	class := schema.AssertValidClassName(className)
