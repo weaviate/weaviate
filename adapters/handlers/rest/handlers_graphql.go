@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
-	"time"
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/operations"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/operations/graphql"
@@ -32,9 +31,6 @@ const error422 string = "The request is well-formed but was unable to be followe
 
 func setupGraphQLHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog) {
 	api.GraphqlWeaviateGraphqlPostHandler = graphql.WeaviateGraphqlPostHandlerFunc(func(params graphql.WeaviateGraphqlPostParams, principal *models.Principal) middleware.Responder {
-		defer messaging.TimeTrack(time.Now())
-		messaging.DebugMessage("Starting GraphQL resolving")
-
 		errorResponse := &models.ErrorResponse{}
 
 		// Get all input from the body of the request, as it is a POST.
@@ -100,9 +96,6 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 	})
 
 	api.GraphqlWeaviateGraphqlBatchHandler = graphql.WeaviateGraphqlBatchHandlerFunc(func(params graphql.WeaviateGraphqlBatchParams, principal *models.Principal) middleware.Responder {
-		defer messaging.TimeTrack(time.Now())
-		messaging.DebugMessage("Starting GraphQL batch resolving")
-
 		amountOfBatchedRequests := len(params.Body)
 		errorResponse := &models.ErrorResponse{}
 

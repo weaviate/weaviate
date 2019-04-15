@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/coreos/etcd/clientv3"
-	"github.com/creativesoftwarefdn/weaviate/messages"
+	"github.com/sirupsen/logrus"
 	"github.com/ugorji/go/codec"
 )
 
@@ -43,18 +43,20 @@ type etcdClient interface {
 }
 
 // NewReporter creates a new Reporter struct and returns a pointer to it.
-func NewReporter(ctx context.Context, requestsLog *RequestsLog, reportInterval int, reportURL string, telemetryDisabled bool, testing bool, client etcdClient, messaging *messages.Messaging) *Reporter {
+func NewReporter(ctx context.Context, requestsLog *RequestsLog, reportInterval int,
+	reportURL string, telemetryDisabled bool, testing bool, client etcdClient,
+	logger logrus.FieldLogger) *Reporter {
 	return &Reporter{
 		log:         requestsLog,
 		interval:    reportInterval,
 		url:         reportURL,
 		disabled:    telemetryDisabled,
 		transformer: NewOutputTransformer(testing),
-		poster:      NewPoster(ctx, reportURL, client, messaging),
+		poster:      NewPoster(ctx, reportURL, client, logger),
 		client:      client,
 		context:     ctx,
 		UnitTest:    false,
-		messaging:   messaging,
+		logger:      logger,
 	}
 }
 
@@ -69,7 +71,7 @@ type Reporter struct {
 	client      etcdClient
 	context     context.Context
 	UnitTest    bool // Indicates if the Reporter is being run from a unit test, disables log POSTing/etcd storage if true
-	messaging   *messages.Messaging
+	logger      logrus.FieldLogger
 }
 
 // Start posts logged function calls in CBOR format to the provided url every <provided interval> seconds.
@@ -85,7 +87,10 @@ func (r *Reporter) Start() {
 				if err == nil {
 					r.poster.ReportLoggedCalls(transformedLog)
 				} else {
-					r.messaging.ErrorMessage(fmt.Sprintf("Storing log in the etcd key store because CBOR conversion failed: %s", err))
+					r.logger.
+						WithField("action", "telemetry_reporting").
+						WithError(err).
+						Warning("Falling back to local etcd storage: CBOR conversion failed")
 					r.triggerCBORFailsafe(extractedLog)
 				}
 			}
@@ -110,7 +115,11 @@ func (r *Reporter) triggerCBORFailsafe(extractedLog *map[string]*RequestLog) {
 
 	_, err := r.client.Put(r.context, key, value)
 	if err != nil {
-		r.messaging.ErrorMessage(fmt.Sprintf("Failed to store log in the etcd key store: %s", err))
+		r.logger.
+			WithField("action", "telemetry_reporting").
+			WithField("event", "telemetry_fallback_storage").
+			WithError(err).
+			Error("Primary reporting failed, fallback (etcd storage) failed as well")
 	}
 }
 
@@ -176,21 +185,21 @@ func (o *OutputTransformer) EncodeAsCBOR(minimizedLogs *[]map[string]interface{}
 }
 
 // NewPoster creates a new poster struct, which is responsible for sending logs to the specified endpoint.
-func NewPoster(ctx context.Context, url string, client etcdClient, messaging *messages.Messaging) *Poster {
+func NewPoster(ctx context.Context, url string, client etcdClient, logger logrus.FieldLogger) *Poster {
 	return &Poster{
-		context:   ctx,
-		url:       url,
-		client:    client,
-		messaging: messaging,
+		context: ctx,
+		url:     url,
+		client:  client,
+		logger:  logger,
 	}
 }
 
 // Poster is a class responsible for sending the converted log to the logging endpoint. If the endpoint is unreachable then the logs are stored in the etcd store.
 type Poster struct {
-	url       string
-	client    etcdClient
-	context   context.Context
-	messaging *messages.Messaging
+	url     string
+	client  etcdClient
+	context context.Context
+	logger  logrus.FieldLogger
 }
 
 // ReportLoggedCalls sends the logs to a previously determined REST endpoint.
@@ -202,7 +211,11 @@ func (p *Poster) ReportLoggedCalls(encoded *[]byte) {
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil || !(resp.StatusCode >= 200 && resp.StatusCode <= 299) {
-		p.messaging.ErrorMessage(fmt.Sprintf("Storing log in the etcd key store because posting to endpoint failed: %s", err))
+		p.logger.
+			WithField("action", "telemetry_reporting").
+			WithField("event", "telemetry_fallback_storage").
+			WithError(err).
+			Warning("storing telemetry information in local configuration storage (etcd) because sending request failed")
 		p.triggerPOSTFailsafe(encoded)
 	} else {
 		defer resp.Body.Close()
@@ -216,6 +229,10 @@ func (p *Poster) triggerPOSTFailsafe(encoded *[]byte) {
 
 	_, err := p.client.Put(p.context, key, string(*encoded))
 	if err != nil {
-		p.messaging.ErrorMessage(fmt.Sprintf("Failed to store log in the etcd key store: %s", err))
+		p.logger.
+			WithField("action", "telemetry_reporting").
+			WithField("event", "telemetry_fallback_storage").
+			WithError(err).
+			Error("Primary reporting failed, fallback (etcd storage) failed as well")
 	}
 }

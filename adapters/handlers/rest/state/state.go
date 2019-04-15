@@ -14,7 +14,6 @@ package state
 
 import (
 	"github.com/creativesoftwarefdn/weaviate/database"
-	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/creativesoftwarefdn/weaviate/usecases/auth/authentication/oidc"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"
@@ -27,7 +26,6 @@ import (
 type State struct {
 	Database        database.Database
 	Network         network.Network
-	Messaging       *messages.Messaging
 	OIDC            *oidc.Client
 	AnonymousAccess *anonymous.Client
 	ServerConfig    *config.WeaviateConfig

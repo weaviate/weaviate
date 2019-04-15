@@ -20,9 +20,8 @@ import (
 	"regexp"
 
 	"github.com/go-openapi/swag"
+	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
-
-	"github.com/creativesoftwarefdn/weaviate/messages"
 )
 
 // DefaultConfigFile is the default file when no config file is provided
@@ -130,14 +129,15 @@ func (f *WeaviateConfig) GetHostAddress() string {
 }
 
 // LoadConfig from config locations
-func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, m *messages.Messaging) error {
+func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger logrus.FieldLogger) error {
 	// Get command line flags
 	configFileName := flags.Options.(*Flags).ConfigFile
 
 	// Set default if not given
 	if configFileName == "" {
 		configFileName = DefaultConfigFile
-		m.InfoMessage("Using default config file location '" + DefaultConfigFile + "'.")
+		logger.WithField("action", "config_load").WithField("config_file_path", DefaultConfigFile).
+			Info("no config file specified, using default")
 	}
 
 	// Read config file
@@ -155,12 +155,6 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, m *mess
 
 	if err := f.Config.Authentication.Validate(); err != nil {
 		return fmt.Errorf("invalid config: %v", err)
-	}
-
-	// Check the debug mode
-	m.Debug = f.Config.Debug
-	if f.Config.Debug {
-		m.InfoMessage("Running in DEBUG-mode")
 	}
 
 	return nil

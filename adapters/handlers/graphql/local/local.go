@@ -12,20 +12,20 @@
 package local
 
 import (
-	"github.com/creativesoftwarefdn/weaviate/usecases/config"
-	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/aggregate"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/fetch"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/get"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
-	"github.com/creativesoftwarefdn/weaviate/messages"
+	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
 	"github.com/graphql-go/graphql"
+	"github.com/sirupsen/logrus"
 )
 
 // Build the local queries from the database schema.
-func Build(dbSchema *schema.Schema, peers peers.Peers, logger *messages.Messaging,
+func Build(dbSchema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger,
 	config config.Config) (*graphql.Field, error) {
 	getField, err := get.Build(dbSchema, peers, logger)
 	if err != nil {

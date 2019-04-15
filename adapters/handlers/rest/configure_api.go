@@ -22,17 +22,16 @@ import (
 	"github.com/coreos/etcd/clientv3/concurrency"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/batch"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/operations"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/state"
 	"github.com/creativesoftwarefdn/weaviate/database"
 	dblisting "github.com/creativesoftwarefdn/weaviate/database/listing"
 	etcdSchemaManager "github.com/creativesoftwarefdn/weaviate/database/schema_manager/etcd"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
 	schemaUC "github.com/creativesoftwarefdn/weaviate/usecases/schema"
 	"github.com/creativesoftwarefdn/weaviate/usecases/telemetry"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/sirupsen/logrus"
@@ -42,7 +41,7 @@ var mainLog *telemetry.RequestsLog
 var reporter *telemetry.Reporter
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
-	startupRoutine()
+	appState := startupRoutine()
 
 	api.ServeError = errors.ServeError
 
@@ -50,6 +49,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	api.OidcAuth = func(token string, scopes []string) (*models.Principal, error) {
 		return appState.OIDC.ValidateAndExtract(token, scopes)
+	}
+
+	api.Logger = func(msg string, args ...interface{}) {
+		appState.Logger.WithField("action", "restapi_management").Infof(msg, args...)
 	}
 
 	kindsManager := kinds.NewManager(db, network, serverConfig)
@@ -78,7 +81,7 @@ func setupBatchHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Requ
 }
 
 // TODO: Split up and don't write into global variables. Instead return an appState
-func startupRoutine() {
+func startupRoutine() *state.State {
 	// context for the startup procedure. (So far the only subcommand respecting
 	// the context is the schema initialization, as this uses the etcd client
 	// requiring context. Nevertheless it would make sense to have everything
@@ -93,10 +96,6 @@ func startupRoutine() {
 	logger := logrus.New()
 	// logger.SetFormatter(&logrus.JSONFormatter{})
 	logger.SetLevel(logrus.DebugLevel)
-
-	// Create message service
-	messaging = &messages.Messaging{}
-	appState.Messaging = messaging
 	appState.Logger = logger
 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
@@ -105,7 +104,7 @@ func startupRoutine() {
 	// Load the config using the flags
 	serverConfig = &config.WeaviateConfig{}
 	appState.ServerConfig = serverConfig
-	err := serverConfig.LoadConfig(connectorOptionGroup, messaging)
+	err := serverConfig.LoadConfig(connectorOptionGroup, logger)
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).Error("could not load config")
 		logger.Exit(1)
@@ -137,7 +136,6 @@ func startupRoutine() {
 
 	// Propagate the peer name (if any), debug toggle and the enabled toggle to the requestsLog
 	if appState.ServerConfig.Config.Network != nil {
-		spew.Dump(appState.ServerConfig.Config.Network.PeerName)
 		mainLog.PeerName = appState.ServerConfig.Config.Network.PeerName
 	}
 	mainLog.Debug = loggingDebug
@@ -202,12 +200,13 @@ func startupRoutine() {
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("initialized schema")
 
+	updateSchemaCallback := makeUpdateSchemaCallBackWithLogger(logger)
 	manager.RegisterSchemaUpdateCallback(updateSchemaCallback)
 
 	// Initialize a non-expiring context for the reporter
 	reportingContext := context.Background()
 	// Initialize the reporter
-	reporter = telemetry.NewReporter(reportingContext, mainLog, loggingInterval, loggingURL, loggingDisabled, loggingDebug, etcdClient, messaging)
+	reporter = telemetry.NewReporter(reportingContext, mainLog, loggingInterval, loggingURL, loggingDisabled, loggingDebug, etcdClient, logger)
 
 	// Start reporting
 	go func() {
@@ -244,4 +243,5 @@ func startupRoutine() {
 
 	network.RegisterSchemaGetter(&schemaGetter{db: db})
 
+	return appState
 }

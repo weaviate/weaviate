@@ -16,18 +16,18 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/get/refclasses"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/descriptions"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/get/refclasses"
-	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
 	"github.com/graphql-go/graphql"
+	"github.com/sirupsen/logrus"
 )
 
 // Build the Local.Get part of the graphql tree
-func Build(dbSchema *schema.Schema, peers peers.Peers, logger *messages.Messaging) (*graphql.Field, error) {
+func Build(dbSchema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger) (*graphql.Field, error) {
 	getKinds := graphql.Fields{}
 
 	if len(dbSchema.Actions.Classes) == 0 && len(dbSchema.Things.Classes) == 0 {
@@ -38,11 +38,11 @@ func Build(dbSchema *schema.Schema, peers peers.Peers, logger *messages.Messagin
 	networkRefs := extractNetworkRefClassNames(dbSchema)
 	knownRefClasses, err := refclasses.FromPeers(peers, networkRefs)
 	if err != nil {
-		msg := fmt.Sprintf("an error occured while trying to build known network ref classes, "+
-			"this kind of error won't block the graphql api, but it does mean that the mentioned refs "+
-			"will not be available. This error is expected when the network is not ready yet. If so, "+
-			"it should not reappear after a peer update: %s", err)
-		logger.ErrorMessage(msg)
+		msg := "an error occured while trying to build known network ref classes, " +
+			"this kind of error won't block the graphql api, but it does mean that the mentioned refs " +
+			"will not be available. This error is expected when the network is not ready yet. If so, " +
+			"it should not reappear after a peer update"
+		logger.WithField("action", "graphql_rebuild").WithError(err).Warning(msg)
 	}
 
 	if len(dbSchema.Actions.Classes) > 0 {

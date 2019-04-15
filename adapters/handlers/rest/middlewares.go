@@ -13,11 +13,10 @@
 package rest
 
 import (
-	"log"
 	"net/http"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/swagger_middleware"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/graphiql"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/swagger_middleware"
 	"github.com/creativesoftwarefdn/weaviate/lib/feature_flags"
 	"github.com/rs/cors"
 )
@@ -53,9 +52,11 @@ func setupGlobalMiddleware(handler http.Handler) http.Handler {
 
 func addLogging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if serverConfig.Config.Debug {
-			log.Printf("Received request: %+v %+v\n", r.Method, r.URL)
-		}
+		appState.Logger.
+			WithField("action", "restapi_request").
+			WithField("method", r.Method).
+			WithField("url", r.URL).
+			Debug("received HTTP request")
 		next.ServeHTTP(w, r)
 	})
 }

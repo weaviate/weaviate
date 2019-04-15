@@ -19,8 +19,8 @@ import (
 	"testing"
 
 	test_helper "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/test/helper"
-	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
+	"github.com/sirupsen/logrus/hooks/test"
 )
 
 type mockRequestsLog struct{}
@@ -34,7 +34,8 @@ type mockResolver struct {
 }
 
 func newMockResolver(peers peers.Peers) *mockResolver {
-	field, err := Build(&test_helper.SimpleSchema, peers, &messages.Messaging{})
+	logger, _ := test.NewNullLogger()
+	field, err := Build(&test_helper.SimpleSchema, peers, logger)
 	if err != nil {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
 	}
