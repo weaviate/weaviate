@@ -42,5 +42,5 @@ ENTRYPOINT ["/bin/weaviate"]
 # Development configuration with demo dataset
 FROM weaviate_base AS janus
 COPY ./tools/dev/schema /schema
-COPY ./tools/dev/config.json /weaviate.conf.json
+COPY ./tools/dev/config.docker.yaml /weaviate.conf.yaml
 CMD [ "--host", "0.0.0.0", "--port", "8080", "--scheme", "http", "--config", "janusgraph_docker"]

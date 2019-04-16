@@ -31,7 +31,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations"
 	schemaUC "github.com/creativesoftwarefdn/weaviate/schema"
 	"github.com/creativesoftwarefdn/weaviate/telemetry"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 )
@@ -124,7 +123,6 @@ func startupRoutine() {
 
 	// Propagate the peer name (if any), debug toggle and the enabled toggle to the requestsLog
 	if appState.ServerConfig.Config.Network != nil {
-		spew.Dump(appState.ServerConfig.Config.Network.PeerName)
 		mainLog.PeerName = appState.ServerConfig.Config.Network.PeerName
 	}
 	mainLog.Debug = loggingDebug
