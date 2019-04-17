@@ -16,6 +16,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"os"
 	"time"
 
 	"github.com/coreos/etcd/clientv3"
@@ -93,9 +94,7 @@ func startupRoutine() *state.State {
 	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 
-	logger := logrus.New()
-	// logger.SetFormatter(&logrus.JSONFormatter{})
-	logger.SetLevel(logrus.DebugLevel)
+	logger := logger()
 	appState.Logger = logger
 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
@@ -244,4 +243,24 @@ func startupRoutine() *state.State {
 	network.RegisterSchemaGetter(&schemaGetter{db: db})
 
 	return appState
+}
+
+// logger does not parse the regular config object, as logging needs to be
+// configured before the configuration is even loaded/parsed. We are thus
+// "manually" reading the desired env vars and set reasonable defaults if they
+// are not set.
+//
+// Defaults to log level info and json format
+func logger() *logrus.Logger {
+	logger := logrus.New()
+	if os.Getenv("LOG_FORMAT") != "text" {
+		logger.SetFormatter(&logrus.JSONFormatter{})
+	}
+	if os.Getenv("LOG_LEVEL") == "debug" {
+		logger.SetLevel(logrus.DebugLevel)
+	} else {
+		logger.SetLevel(logrus.InfoLevel)
+	}
+
+	return logger
 }
