@@ -14,8 +14,8 @@ import (
 	"fmt"
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/descriptions"
-	"github.com/creativesoftwarefdn/weaviate/database/schema"
-	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/graphql-go/graphql"
 )
 

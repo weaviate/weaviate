@@ -10,7 +10,7 @@
  * CONTACT: hello@creativesoftwarefdn.org
  */package schema
 
-import "github.com/creativesoftwarefdn/weaviate/database/schema"
+import "github.com/creativesoftwarefdn/weaviate/entities/schema"
 
 // GetSchema returns a local cached version of the current schema
 func (m *Manager) GetSchema() (schema.Schema, error) {

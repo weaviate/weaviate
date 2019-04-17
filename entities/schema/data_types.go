@@ -15,8 +15,6 @@ import (
 	"errors"
 	"fmt"
 	"unicode"
-
-	"github.com/creativesoftwarefdn/weaviate/usecases/network/crossrefs"
 )
 
 type DataType string
@@ -133,7 +131,7 @@ func (s *Schema) FindPropertyDataType(dataType []string) (PropertyDataType, erro
 	var classes []ClassName
 
 	for _, someDataType := range dataType {
-		if crossrefs.ValidClassName(someDataType) {
+		if ValidNetworkClassName(someDataType) {
 			// this is a network instance
 			classes = append(classes, ClassName(someDataType))
 		} else {

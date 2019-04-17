@@ -20,7 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/creativesoftwarefdn/weaviate/database"
-	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/go-openapi/strfmt"
 )

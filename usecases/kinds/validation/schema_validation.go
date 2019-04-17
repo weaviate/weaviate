@@ -18,8 +18,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/creativesoftwarefdn/weaviate/database/schema"
-	"github.com/creativesoftwarefdn/weaviate/database/schema/crossref"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema/crossref"
 	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"

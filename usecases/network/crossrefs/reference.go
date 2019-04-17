@@ -13,10 +13,10 @@ package crossrefs
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
-	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/go-openapi/strfmt"
 )
 
@@ -36,22 +36,10 @@ type NetworkKind struct {
 	ID       strfmt.UUID
 }
 
-var networkClassRegexp = regexp.MustCompile(`^([A-Za-z]+)+/([A-Z][a-z]+)+$`)
-
-// ValidClassName verifies if the specified class is a valid
-// crossReference name. This does not mean the class currently exists
-// on the specified instance or that the instance exist, but simply
-// that the name is valid.
-// Receiving a false could also still mean the class is not network-ref, but
-// simply a local-ref.
-func ValidClassName(name string) bool {
-	return networkClassRegexp.MatchString(name)
-}
-
 // ParseClass into a NetworkClass
 func ParseClass(name string) (NetworkClass, error) {
 	result := NetworkClass{}
-	if !ValidClassName(name) {
+	if !schema.ValidNetworkClassName(name) {
 		return result, fmt.Errorf(
 			"%s is not a valid Network class, must match <peerName>/<className>", name)
 	}

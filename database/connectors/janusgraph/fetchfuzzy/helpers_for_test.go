@@ -18,8 +18,8 @@ import (
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/state"
-	"github.com/creativesoftwarefdn/weaviate/database/schema"
-	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

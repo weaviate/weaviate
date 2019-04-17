@@ -14,7 +14,7 @@ package fetch
 import (
 	"testing"
 
-	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

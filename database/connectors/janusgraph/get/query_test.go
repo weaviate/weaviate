@@ -19,8 +19,8 @@ import (
 	cf "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/fetch"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/get"
-	"github.com/creativesoftwarefdn/weaviate/database/schema"
-	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	contextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
 )
 

@@ -12,7 +12,7 @@
 package etcd
 
 import (
-	db_schema "github.com/creativesoftwarefdn/weaviate/database/schema"
+	db_schema "github.com/creativesoftwarefdn/weaviate/entities/schema"
 )
 
 func (l *etcdSchemaManager) RegisterSchemaUpdateCallback(callback func(updatedSchema db_schema.Schema)) {

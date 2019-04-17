@@ -18,7 +18,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/client"
 	"github.com/creativesoftwarefdn/weaviate/client/actions"
 	"github.com/creativesoftwarefdn/weaviate/client/things"
-	libkind "github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	libkind "github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/usecases/network/crossrefs"
 )

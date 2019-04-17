@@ -20,7 +20,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	genesis_client "github.com/creativesoftwarefdn/weaviate/genesis/client"
 	client_ops "github.com/creativesoftwarefdn/weaviate/genesis/client/operations"
 	genesismodels "github.com/creativesoftwarefdn/weaviate/genesis/models"

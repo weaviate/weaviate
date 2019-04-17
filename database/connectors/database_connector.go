@@ -22,7 +22,7 @@ import (
 	graphqlapiLocal "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local"
 	batchmodels "github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/batch/models"
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
-	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema_migrator"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 )

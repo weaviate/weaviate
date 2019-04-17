@@ -15,7 +15,7 @@ import (
 	"fmt"
 
 	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
-	db_schema "github.com/creativesoftwarefdn/weaviate/database/schema"
+	db_schema "github.com/creativesoftwarefdn/weaviate/entities/schema"
 )
 
 type RWLocker interface {

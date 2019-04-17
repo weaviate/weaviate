@@ -23,7 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/creativesoftwarefdn/weaviate/client/things"
-	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
 )

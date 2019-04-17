@@ -14,7 +14,7 @@ package peers
 import (
 	"fmt"
 
-	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/usecases/network/crossrefs"
 )
 

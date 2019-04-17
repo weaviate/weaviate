@@ -18,10 +18,12 @@ import (
 
 var validateClassNameRegex *regexp.Regexp
 var validatePropertyNameRegex *regexp.Regexp
+var validateNetworkClassRegex *regexp.Regexp
 
 func init() {
 	validateClassNameRegex = regexp.MustCompile(`^([A-Z][a-z]+)+$`)
 	validatePropertyNameRegex = regexp.MustCompile(`^[a-z]+([A-Z][a-z]+)*$`)
+	validateNetworkClassRegex = regexp.MustCompile(`^([A-Za-z]+)+/([A-Z][a-z]+)+$`)
 }
 
 // Validates that this string is a valid class name (formate wise)
@@ -40,6 +42,16 @@ func ValidatePropertyName(name string) (error, PropertyName) {
 	} else {
 		return fmt.Errorf("'%s' is not a valid property name", name), ""
 	}
+}
+
+// ValidClassName verifies if the specified class is a valid
+// crossReference name. This does not mean the class currently exists
+// on the specified instance or that the instance exist, but simply
+// that the name is valid.
+// Receiving a false could also still mean the class is not network-ref, but
+// simply a local-ref.
+func ValidNetworkClassName(name string) bool {
+	return validateNetworkClassRegex.MatchString(name)
 }
 
 // Assert that this string is a valid class name

@@ -16,7 +16,7 @@ import (
 	"strings"
 
 	"github.com/creativesoftwarefdn/weaviate/contextionary"
-	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/fatih/camelcase"
 )
 
