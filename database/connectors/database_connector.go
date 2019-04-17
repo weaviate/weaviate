@@ -58,7 +58,4 @@ type DatabaseConnector interface {
 	BaseConnector
 	connector_state.Connector
 	graphqlapiLocal.Resolver
-
-	GetThings(ctx context.Context, UUIDs []strfmt.UUID, thingResponse *models.ThingsListResponse) error
-	GetActions(ctx context.Context, UUIDs []strfmt.UUID, actionResponse *models.ActionsListResponse) error
 }

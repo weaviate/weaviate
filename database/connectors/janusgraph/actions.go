@@ -17,8 +17,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 
-	"fmt"
-
 	batchmodels "github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/batch/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
@@ -41,28 +39,6 @@ func (j *Janusgraph) GetAction(ctx context.Context, UUID strfmt.UUID, actionResp
 		&actionResponse.CreationTimeUnix,
 		&actionResponse.LastUpdateTimeUnix,
 		&actionResponse.Schema)
-}
-
-func (j *Janusgraph) GetActions(ctx context.Context, UUIDs []strfmt.UUID, response *models.ActionsListResponse) error {
-	// TODO gh-612: Optimize query to perform just _one_ JanusGraph lookup
-
-	response.TotalResults = 0
-	response.Actions = make([]*models.Action, 0)
-
-	for _, uuid := range UUIDs {
-		var action_response models.Action
-		err := j.GetAction(ctx, uuid, &action_response)
-
-		if err == nil {
-			response.TotalResults += 1
-			response.Actions = append(response.Actions, &action_response)
-		} else {
-			// TODO: Replace with structured not found error
-			return fmt.Errorf("%s: action with UUID '%v' not found", "not found", uuid)
-		}
-	}
-
-	return nil
 }
 
 func (j *Janusgraph) ListActions(ctx context.Context, limit int, response *models.ActionsListResponse) error {
