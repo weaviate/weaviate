@@ -20,12 +20,11 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/filters"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/state"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/crossref"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	libkind "github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
-	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/go-openapi/strfmt"
 )
@@ -64,7 +63,7 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 	}
 
 	if len(result.Data) == 0 {
-		return errors.New(connutils.StaticThingNotFound)
+		return errors.New("not found")
 	}
 
 	// The outputs 'thing' and 'key' will be repeated over all results. Just get them for one for now.
@@ -217,7 +216,7 @@ func (j *Janusgraph) getClasses(k kind.Kind, className *schema.ClassName, first 
 	}
 
 	if len(result.Data) == 0 {
-		return nil, errors.New(connutils.StaticThingNotFound)
+		return nil, errors.New("not found")
 	}
 
 	classes := make([]kindClass, len(result.Data), len(result.Data))

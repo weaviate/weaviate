@@ -14,8 +14,6 @@ import (
 	"context"
 	"errors"
 
-	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
-	utils "github.com/creativesoftwarefdn/weaviate/database/utils"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/go-openapi/strfmt"
 )
@@ -24,10 +22,8 @@ type getRepo interface {
 	GetThing(context.Context, strfmt.UUID, *models.Thing) error
 	GetAction(context.Context, strfmt.UUID, *models.Action) error
 
-	ListThings(ctx context.Context, limit int, wheres []*connutils.WhereQuery,
-		thingsResponse *models.ThingsListResponse) error
-	ListActions(ctx context.Context, limit int, wheres []*connutils.WhereQuery,
-		actionsResponse *models.ActionsListResponse) error
+	ListThings(ctx context.Context, limit int, thingsResponse *models.ThingsListResponse) error
+	ListActions(ctx context.Context, limit int, actionsResponse *models.ActionsListResponse) error
 }
 
 // GetThing Class from the connected DB
@@ -89,8 +85,8 @@ func (m *Manager) getThingFromRepo(ctx context.Context, id strfmt.UUID,
 	err := repo.GetThing(ctx, id, &thing)
 	if err != nil {
 		switch err {
-		// TODO: Don't depend on utils package
-		case errors.New(utils.StaticThingNotFound):
+		// TODO: Replace with structured error
+		case errors.New("not found"):
 			return nil, newErrNotFound(err.Error())
 		default:
 			return nil, newErrInternal("could not get thing from db: %v", err)
@@ -104,7 +100,7 @@ func (m *Manager) getThingsFromRepo(ctx context.Context, limit int,
 	repo getRepo) ([]*models.Thing, error) {
 	thingsResponse := models.ThingsListResponse{}
 	thingsResponse.Things = []*models.Thing{}
-	err := repo.ListThings(ctx, limit, []*connutils.WhereQuery{}, &thingsResponse)
+	err := repo.ListThings(ctx, limit, &thingsResponse)
 	if err != nil {
 		return nil, newErrInternal("could not list things: %v", err)
 	}
@@ -119,8 +115,8 @@ func (m *Manager) getActionFromRepo(ctx context.Context, id strfmt.UUID,
 	err := repo.GetAction(ctx, id, &action)
 	if err != nil {
 		switch err {
-		// TODO: Don't depend on utils package
-		case errors.New(utils.StaticActionNotFound):
+		// TODO: Replace with structured error
+		case errors.New("not found"):
 			return nil, newErrNotFound(err.Error())
 		default:
 			return nil, newErrInternal("could not get action from db: %v", err)
@@ -134,7 +130,7 @@ func (m *Manager) getActionsFromRepo(ctx context.Context, limit int,
 	repo getRepo) ([]*models.Action, error) {
 	actionsResponse := models.ActionsListResponse{}
 	actionsResponse.Actions = []*models.Action{}
-	err := repo.ListActions(ctx, limit, []*connutils.WhereQuery{}, &actionsResponse)
+	err := repo.ListActions(ctx, limit, &actionsResponse)
 	if err != nil {
 		return nil, newErrInternal("could not list actions: %v", err)
 	}

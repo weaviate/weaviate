@@ -47,10 +47,9 @@ import (
 	batchmodels "github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/batch/models"
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
-	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 )
 
@@ -258,7 +257,7 @@ func (f *Foobar) GetThings(ctx context.Context, UUIDs []strfmt.UUID, thingRespon
 
 // ListThings fills the given ThingsListResponse with the values from the
 // database, based on the given parameters.
-func (f *Foobar) ListThings(ctx context.Context, limit int, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error {
+func (f *Foobar) ListThings(ctx context.Context, limit int, thingsResponse *models.ThingsListResponse) error {
 
 	// thingsResponse should be populated with the response that comes from the DB.
 	// thingsResponse = based on the ontology
@@ -333,7 +332,7 @@ func (f *Foobar) GetActions(ctx context.Context, UUIDs []strfmt.UUID, actionsRes
 }
 
 // ListActions fills the ActionReponse  with a list of all actions
-func (f *Foobar) ListActions(ctx context.Context, limit int, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error {
+func (f *Foobar) ListActions(ctx context.Context, limit int, actionsResponse *models.ActionsListResponse) error {
 	// If success return nil, otherwise return the error
 	return nil
 }

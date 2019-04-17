@@ -20,10 +20,9 @@ import (
 	"fmt"
 
 	batchmodels "github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/batch/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
-	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
 )
 
 func (j *Janusgraph) AddAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error {
@@ -58,14 +57,15 @@ func (j *Janusgraph) GetActions(ctx context.Context, UUIDs []strfmt.UUID, respon
 			response.TotalResults += 1
 			response.Actions = append(response.Actions, &action_response)
 		} else {
-			return fmt.Errorf("%s: action with UUID '%v' not found", connutils.StaticActionNotFound, uuid)
+			// TODO: Replace with structured not found error
+			return fmt.Errorf("%s: action with UUID '%v' not found", "not found", uuid)
 		}
 	}
 
 	return nil
 }
 
-func (j *Janusgraph) ListActions(ctx context.Context, limit int, wheres []*connutils.WhereQuery, response *models.ActionsListResponse) error {
+func (j *Janusgraph) ListActions(ctx context.Context, limit int, response *models.ActionsListResponse) error {
 	response.TotalResults = 0
 	response.Actions = make([]*models.Action, 0)
 

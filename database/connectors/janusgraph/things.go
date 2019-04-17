@@ -20,10 +20,9 @@ import (
 	"fmt"
 
 	batchmodels "github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/batch/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
-	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
 )
 
 func (j *Janusgraph) AddThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error {
@@ -58,14 +57,15 @@ func (j *Janusgraph) GetThings(ctx context.Context, UUIDs []strfmt.UUID, respons
 			response.TotalResults += 1
 			response.Things = append(response.Things, &thing_response)
 		} else {
-			return fmt.Errorf("%s: thing with UUID '%v' not found", connutils.StaticThingNotFound, uuid)
+			// TODO: replace with structured not found error
+			return fmt.Errorf("%s: thing with UUID '%v' not found", "not found", uuid)
 		}
 	}
 
 	return nil
 }
 
-func (j *Janusgraph) ListThings(ctx context.Context, limit int, wheres []*connutils.WhereQuery, response *models.ThingsListResponse) error {
+func (j *Janusgraph) ListThings(ctx context.Context, limit int, response *models.ThingsListResponse) error {
 	response.TotalResults = 0
 	response.Things = make([]*models.Thing, 0)
 
