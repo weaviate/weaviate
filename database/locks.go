@@ -14,7 +14,7 @@ package database
 import (
 	"fmt"
 
-	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
+	dbconnector "github.com/creativesoftwarefdn/weaviate/adapters/connectors"
 	db_schema "github.com/creativesoftwarefdn/weaviate/entities/schema"
 )
 

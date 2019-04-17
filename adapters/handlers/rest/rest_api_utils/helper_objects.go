@@ -14,8 +14,8 @@
 package rest_api_utils
 
 import (
+	dbconnector "github.com/creativesoftwarefdn/weaviate/adapters/connectors"
 	"github.com/creativesoftwarefdn/weaviate/database"
-	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/lib/delayed_unlock"
 )

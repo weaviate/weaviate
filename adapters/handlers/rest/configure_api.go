@@ -25,10 +25,10 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/operations"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/state"
 	"github.com/creativesoftwarefdn/weaviate/database"
-	dblisting "github.com/creativesoftwarefdn/weaviate/database/listing"
 	etcdSchemaManager "github.com/creativesoftwarefdn/weaviate/database/schema_manager/etcd"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"
+	dblisting "github.com/creativesoftwarefdn/weaviate/usecases/connswitch"
 	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
 	schemaUC "github.com/creativesoftwarefdn/weaviate/usecases/schema"
@@ -148,8 +148,8 @@ func startupRoutine() *state.State {
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("network configured")
 
-	// Create the database connector using the config
-	err, dbConnector := dblisting.NewConnector(serverConfig.Config.Database.Name, serverConfig.Config.Database.DatabaseConfig, serverConfig.Config)
+		// Create the database connector using the config
+	dbConnector, err := dblisting.NewConnector(serverConfig.Config.Database.Name, serverConfig.Config.Database.DatabaseConfig, serverConfig.Config)
 	// Could not find, or configure connector.
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).Error("could not load config")

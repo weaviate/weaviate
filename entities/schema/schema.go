@@ -14,8 +14,8 @@ package schema
 import (
 	"fmt"
 
-	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 )
 
 // Newtype to denote that this string is used as a Class name

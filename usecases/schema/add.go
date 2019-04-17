@@ -13,8 +13,8 @@
 import (
 	"context"
 
-	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 )
 
 // AddAction Class to the schema

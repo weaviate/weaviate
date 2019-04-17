@@ -17,8 +17,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"

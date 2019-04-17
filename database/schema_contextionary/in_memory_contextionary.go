@@ -19,9 +19,9 @@ import (
 
 	"github.com/fatih/camelcase"
 
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
 
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
 )

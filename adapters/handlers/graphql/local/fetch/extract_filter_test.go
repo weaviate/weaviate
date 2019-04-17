@@ -16,9 +16,9 @@ import (
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
+	contextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
-	contextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
 	"github.com/stretchr/testify/mock"
 )
 

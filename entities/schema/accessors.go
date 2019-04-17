@@ -13,8 +13,8 @@
 package schema
 
 import (
-	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 )
 
 func (s *Schema) GetClass(k kind.Kind, className ClassName) *models.SemanticSchemaClass {

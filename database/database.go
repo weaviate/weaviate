@@ -17,9 +17,9 @@ import (
 	"log"
 
 	"github.com/coreos/etcd/clientv3/concurrency"
+	dbconnector "github.com/creativesoftwarefdn/weaviate/adapters/connectors"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql"
 	"github.com/creativesoftwarefdn/weaviate/contextionary"
-	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	recipe "github.com/etcd-io/etcd/contrib/recipes"
 	"github.com/sirupsen/logrus"
