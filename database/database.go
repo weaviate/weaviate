@@ -20,7 +20,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql"
 	"github.com/creativesoftwarefdn/weaviate/contextionary"
 	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
-	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	recipe "github.com/etcd-io/etcd/contrib/recipes"
 	"github.com/sirupsen/logrus"
 )

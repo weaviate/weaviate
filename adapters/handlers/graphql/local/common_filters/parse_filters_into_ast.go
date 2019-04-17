@@ -16,7 +16,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 )
 

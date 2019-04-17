@@ -16,7 +16,7 @@ import (
 	"net/url"
 
 	"github.com/creativesoftwarefdn/weaviate/client"
-	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/go-openapi/strfmt"
 )
 

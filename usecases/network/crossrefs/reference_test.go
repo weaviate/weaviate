@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -42,7 +43,7 @@ func TestNetworkCrossRefNames(t *testing.T) {
 			msg = fmt.Sprintf("'%s' should NOT be a valid network cross-ref", data.input)
 		}
 		t.Run(msg, func(t *testing.T) {
-			if result := ValidClassName(data.input); result != data.expectedResult {
+			if result := schema.ValidNetworkClassName(data.input); result != data.expectedResult {
 				t.Errorf("wanted %v, but got %v", data.expectedResult, result)
 			}
 		})

@@ -16,7 +16,7 @@ import (
 	"time"
 
 	schemaclient "github.com/creativesoftwarefdn/weaviate/client/schema"
-	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
 )
 

@@ -21,7 +21,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/operations"
 	rest_api_utils "github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/rest_api_utils"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/state"
-	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/usecases/kinds/validation"

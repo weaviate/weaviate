@@ -25,7 +25,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/state"
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
 	"github.com/creativesoftwarefdn/weaviate/database"
-	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	databaseSchema "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
 	schemaContextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
 	"github.com/creativesoftwarefdn/weaviate/usecases/auth/authentication/anonymous"

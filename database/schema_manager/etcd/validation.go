@@ -15,9 +15,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/creativesoftwarefdn/weaviate/database/schema"
-	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/usecases/network/crossrefs"
 	"github.com/fatih/camelcase"
 )
@@ -192,7 +192,7 @@ func (l *etcdSchemaManager) validatePropertyNameOrKeywordsCorrect(className stri
 
 func (l *etcdSchemaManager) validateNetworkCrossRefs(dataTypes []string) error {
 	for _, dataType := range dataTypes {
-		if !crossrefs.ValidClassName(dataType) {
+		if !schema.ValidNetworkClassName(dataType) {
 			// we don't know anything about the validity of non-network-refs
 			// that's the concern of a separate validation
 			continue
