@@ -18,10 +18,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/crossref"
-	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	"github.com/creativesoftwarefdn/weaviate/usecases/network"
 )
@@ -43,14 +43,14 @@ const (
 
 // ValidateSchemaInBody Validate the schema in the given body
 func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSchema, object interface{},
-	refType connutils.RefType, dbConnector getRepo, network network.Network,
+	k kind.Kind, dbConnector getRepo, network network.Network,
 	serverConfig *config.WeaviateConfig) error {
 	var isp interface{}
 	var className string
-	if refType == connutils.RefTypeAction {
+	if k == kind.ACTION_KIND {
 		className = object.(*models.Action).Class
 		isp = object.(*models.Action).Schema
-	} else if refType == connutils.RefTypeThing {
+	} else if k == kind.THING_KIND {
 		className = object.(*models.Thing).Class
 		isp = object.(*models.Thing).Schema
 	} else {
@@ -85,9 +85,9 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSc
 		returnSchema[propertyKey] = data
 	}
 
-	if refType == connutils.RefTypeAction {
+	if k == kind.ACTION_KIND {
 		object.(*models.Action).Schema = returnSchema
-	} else if refType == connutils.RefTypeThing {
+	} else if k == kind.THING_KIND {
 		object.(*models.Thing).Schema = returnSchema
 	} else {
 		return fmt.Errorf(schema.ErrorInvalidRefType)

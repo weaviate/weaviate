@@ -16,11 +16,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/crossref"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
-	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	"github.com/creativesoftwarefdn/weaviate/usecases/network"
 	"github.com/creativesoftwarefdn/weaviate/usecases/network/crossrefs"
@@ -77,7 +76,7 @@ func ValidateThingBody(ctx context.Context, thing *models.Thing, databaseSchema 
 	}
 
 	// Return the schema validation error
-	sve := ValidateSchemaInBody(ctx, databaseSchema.ThingSchema.Schema, thing, connutils.RefTypeThing,
+	sve := ValidateSchemaInBody(ctx, databaseSchema.ThingSchema.Schema, thing, kind.THING_KIND,
 		dbConnector, network, serverConfig)
 
 	return sve
@@ -96,7 +95,7 @@ func ValidateActionBody(ctx context.Context, action *models.Action, databaseSche
 	}
 
 	// Return the schema validation error
-	sve := ValidateSchemaInBody(ctx, databaseSchema.ActionSchema.Schema, action, connutils.RefTypeAction,
+	sve := ValidateSchemaInBody(ctx, databaseSchema.ActionSchema.Schema, action, kind.ACTION_KIND,
 		dbConnector, network, serverConfig)
 
 	return sve

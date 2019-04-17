@@ -16,17 +16,19 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 
 	batchmodels "github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/batch/models"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/operations"
 	rest_api_utils "github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/rest_api_utils"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/state"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema"
-	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/usecases/kinds/validation"
 	"github.com/creativesoftwarefdn/weaviate/usecases/telemetry"
 	middleware "github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/strfmt"
+	uuid "github.com/satori/go.uuid"
 )
 
 // a helper type that is created for each incoming request and spans the
@@ -118,7 +120,7 @@ func (r *thingsRequest) validateThing(wg *sync.WaitGroup, thingCreate *models.Th
 	defer wg.Done()
 
 	// Generate UUID for the new object
-	uuid := connutils.GenerateUUID()
+	uuid := generateUUID()
 
 	// Validate schema given in body with the weaviate schema
 	databaseSchema := schema.HackFromDatabaseSchema(r.locks.DBLock.GetSchema())
@@ -134,7 +136,7 @@ func (r *thingsRequest) validateThing(wg *sync.WaitGroup, thingCreate *models.Th
 		thing.Schema = thingCreate.Schema
 	}
 	if _, ok := fieldsToKeep["creationtimeunix"]; ok {
-		thing.CreationTimeUnix = connutils.NowUnix()
+		thing.CreationTimeUnix = unixNow()
 	}
 
 	err := validation.ValidateThingBody(r.Context(), thingCreate, databaseSchema, r.locks.DBConnector,
@@ -162,4 +164,17 @@ func thingsChanToSlice(c chan batchmodels.Thing) batchmodels.Things {
 	}
 
 	return result
+}
+
+func generateUUID() strfmt.UUID {
+	uuid, err := uuid.NewV4()
+	if err != nil {
+		panic("PANIC: Can't create UUID")
+	}
+
+	return strfmt.UUID(fmt.Sprintf("%v", uuid))
+}
+
+func unixNow() int64 {
+	return time.Now().UnixNano() / int64(time.Millisecond)
 }
