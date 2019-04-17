@@ -18,8 +18,8 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/genesis/client"
 	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
 	"github.com/go-openapi/strfmt"

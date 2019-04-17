@@ -21,8 +21,8 @@ import (
 
 	apiclient "github.com/creativesoftwarefdn/weaviate/client"
 	apischema "github.com/creativesoftwarefdn/weaviate/client/schema"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/go-openapi/runtime"
 	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"

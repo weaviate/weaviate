@@ -16,8 +16,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/go-openapi/strfmt"
 )
 

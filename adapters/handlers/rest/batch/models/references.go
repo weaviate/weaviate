@@ -11,8 +11,8 @@
  */package models
 
 import (
-	"github.com/creativesoftwarefdn/weaviate/entities/schema/crossref"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema/crossref"
 	"github.com/go-openapi/strfmt"
 )
 

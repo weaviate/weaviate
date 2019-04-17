@@ -85,8 +85,8 @@ services:
     environment:
      - DEV_MODE=true
     volumes:
-      - ./database/connectors/janusgraph/janusgraph.properties:/janusgraph-config/janusgraph.properties
-      - ./database/connectors/janusgraph/gremlin-server.yaml:/janusgraph-config/gremlin-server.yaml
+      - ./adapters/connectors/janusgraph/janusgraph.properties:/janusgraph-config/janusgraph.properties
+      - ./adapters/connectors/janusgraph/gremlin-server.yaml:/janusgraph-config/gremlin-server.yaml
   db:
     image: scylladb/scylla:2.0.1
     ports:
