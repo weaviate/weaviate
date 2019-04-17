@@ -17,8 +17,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 
-	"fmt"
-
 	batchmodels "github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/batch/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
@@ -41,28 +39,6 @@ func (j *Janusgraph) GetThing(ctx context.Context, UUID strfmt.UUID, thingRespon
 		&thingResponse.CreationTimeUnix,
 		&thingResponse.LastUpdateTimeUnix,
 		&thingResponse.Schema)
-}
-
-func (j *Janusgraph) GetThings(ctx context.Context, UUIDs []strfmt.UUID, response *models.ThingsListResponse) error {
-	// TODO gh-612: Optimize query to perform just _one_ JanusGraph lookup.
-
-	response.TotalResults = 0
-	response.Things = make([]*models.Thing, 0)
-
-	for _, uuid := range UUIDs {
-		var thing_response models.Thing
-		err := j.GetThing(ctx, uuid, &thing_response)
-
-		if err == nil {
-			response.TotalResults += 1
-			response.Things = append(response.Things, &thing_response)
-		} else {
-			// TODO: replace with structured not found error
-			return fmt.Errorf("%s: thing with UUID '%v' not found", "not found", uuid)
-		}
-	}
-
-	return nil
 }
 
 func (j *Janusgraph) ListThings(ctx context.Context, limit int, response *models.ThingsListResponse) error {

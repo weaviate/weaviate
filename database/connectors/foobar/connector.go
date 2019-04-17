@@ -248,13 +248,6 @@ func (f *Foobar) GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *
 	return nil
 }
 
-// GetThings fills the given ThingsListResponse with the values from the
-// database, based on the given UUIDs.
-func (f *Foobar) GetThings(ctx context.Context, UUIDs []strfmt.UUID, thingResponse *models.ThingsListResponse) error {
-	// If success return nil, otherwise return the error
-	return nil
-}
-
 // ListThings fills the given ThingsListResponse with the values from the
 // database, based on the given parameters.
 func (f *Foobar) ListThings(ctx context.Context, limit int, thingsResponse *models.ThingsListResponse) error {
@@ -320,13 +313,6 @@ func (f *Foobar) GetAction(ctx context.Context, UUID strfmt.UUID, actionResponse
 	// actionResponse should be populated with the response that comes from the DB.
 	// actionResponse = based on the ontology
 
-	// If success return nil, otherwise return the error
-	return nil
-}
-
-// GetActions fills the given ActionsListResponse with the values from the
-// database, based on the given UUIDs.
-func (f *Foobar) GetActions(ctx context.Context, UUIDs []strfmt.UUID, actionsResponse *models.ActionsListResponse) error {
 	// If success return nil, otherwise return the error
 	return nil
 }
