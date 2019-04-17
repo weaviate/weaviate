@@ -15,6 +15,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -477,7 +478,8 @@ func TestSchema(t *testing.T) {
 
 // New Local Schema Manager
 func newSchemaManager() database.SchemaManager {
-	sm, err := New(context.TODO(), newFakeETCDClient(), &NilMigrator{}, nil)
+	logger, _ := test.NewNullLogger()
+	sm, err := New(context.TODO(), newFakeETCDClient(), &NilMigrator{}, nil, logger)
 	if err != nil {
 		panic(err)
 	}

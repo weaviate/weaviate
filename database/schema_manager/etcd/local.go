@@ -25,7 +25,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema_migrator"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/usecases/network"
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 )
 
 // SchemaStateStorageKey is the etcd key used to store the schema
@@ -59,6 +59,8 @@ type etcdSchemaManager struct {
 
 	// Network to validate cross-refs
 	network network.Network
+
+	logger logrus.FieldLogger
 }
 
 // The state that will be serialized to/from etcd.
@@ -74,20 +76,22 @@ func (l *state) SchemaFor(k kind.Kind) *models.SemanticSchema {
 	case kind.ACTION_KIND:
 		return l.ActionSchema
 	default:
-		log.Fatalf("Passed wrong neither thing nor action, but %v", k)
-		return nil
+		// It is fine to panic here, as this indicates an unrecoverable error in
+		// the program, rather than an invalid input based on user input
+		panic(fmt.Sprintf("Passed wrong neither thing nor action, but %v", k))
 	}
 }
 
 // New etcd schema manager which will save and read both the schema meta info
 // as well as the connector state (i.e. class name mappings) to and from etcd
 func New(ctx context.Context, client etcdClient, connectorMigrator schema_migrator.Migrator,
-	network network.Network) (database.SchemaManager, error) {
+	network network.Network, logger logrus.FieldLogger) (database.SchemaManager, error) {
 	manager := &etcdSchemaManager{
 		client:            client,
 		schemaState:       state{},
 		connectorMigrator: connectorMigrator,
 		network:           network,
+		logger:            logger,
 	}
 
 	err := manager.loadOrInitializeSchema(ctx)
@@ -169,7 +173,10 @@ func (m *etcdSchemaManager) saveSchema(ctx context.Context) error {
 		return fmt.Errorf("could not marshal schema state to json: %s", err)
 	}
 
-	log.Info("Updating etcd schema on etcd")
+	m.logger.
+		WithField("action", "schema_update").
+		WithField("configuration_store", "etcd").
+		Debug("saving updated schema to configuration store")
 
 	_, err = m.client.Put(ctx, "/weaviate/schema/state", string(stateBytes))
 	if err != nil {
@@ -190,7 +197,10 @@ func (m *etcdSchemaManager) saveConnectorState(ctx context.Context) error {
 		return fmt.Errorf("could not marshal connector state to json: %s", err)
 	}
 
-	log.Info("Saving connector state to etcd")
+	m.logger.
+		WithField("action", "connector_state_update").
+		WithField("configuration_store", "etcd").
+		Debug("saving updated connector state to configuration store")
 
 	_, err = m.client.Put(ctx, "/weaviate/connector/state", string(stateBytes))
 	if err != nil {

@@ -189,7 +189,7 @@ func startupRoutine() *state.State {
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("created etcd session")
 
-	manager, err := etcdSchemaManager.New(ctx, etcdClient, dbConnector, network)
+	manager, err := etcdSchemaManager.New(ctx, etcdClient, dbConnector, network, logger)
 	if err != nil {
 		logger.WithField("action", "startup").
 			WithError(err).Error("cannot (etcd) schema manager and initialize schema")
