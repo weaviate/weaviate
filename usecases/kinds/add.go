@@ -40,11 +40,11 @@ type schemaManager interface {
 // ref, it has a side-effect on the schema: The schema will be updated to
 // include this particular network ref class.
 func (m *Manager) AddAction(ctx context.Context, class *models.Action) (*models.Action, error) {
-	err := m.locks.LockSchema()
+	unlock, err := m.locks.LockSchema()
 	if err != nil {
 		return nil, newErrInternal("could not aquire lock: %v", err)
 	}
-	defer m.locks.UnlockSchema()
+	defer unlock()
 
 	return m.addActionToConnectorAndSchema(ctx, class)
 }
@@ -80,11 +80,11 @@ func (m *Manager) validateAction(ctx context.Context, class *models.Action) erro
 // ref, it has a side-effect on the schema: The schema will be updated to
 // include this particular network ref class.
 func (m *Manager) AddThing(ctx context.Context, class *models.Thing) (*models.Thing, error) {
-	err := m.locks.LockSchema()
+	unlock, err := m.locks.LockSchema()
 	if err != nil {
 		return nil, newErrInternal("could not aquire lock: %v", err)
 	}
-	defer m.locks.UnlockSchema()
+	defer unlock()
 
 	return m.addThingToConnectorAndSchema(ctx, class)
 }

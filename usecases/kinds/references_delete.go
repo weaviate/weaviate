@@ -14,7 +14,6 @@ import (
 	"context"
 
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/go-openapi/strfmt"
 )
@@ -22,21 +21,17 @@ import (
 // DeleteActionReference from connected DB
 func (m *Manager) DeleteActionReference(ctx context.Context, id strfmt.UUID,
 	propertyName string, property *models.SingleRef) error {
-	schemaLock, err := m.db.SchemaLock()
+	unlock, err := m.locks.LockSchema()
 	if err != nil {
 		return newErrInternal("could not aquire lock: %v", err)
 	}
-	defer unlock(schemaLock)
-	classSchema := schemaLock.GetSchema()
-	dbConnector := schemaLock.Connector()
+	defer unlock()
 
-	return m.deleteActionReferenceFromConnector(ctx, id, propertyName, property,
-		dbConnector, classSchema)
+	return m.deleteActionReferenceFromConnector(ctx, id, propertyName, property)
 }
 
 func (m *Manager) deleteActionReferenceFromConnector(ctx context.Context, id strfmt.UUID,
-	propertyName string, property *models.SingleRef, repo updateAndGetRepo,
-	classSchema schema.Schema) error {
+	propertyName string, property *models.SingleRef) error {
 
 	// get action to see if it exists
 	action, err := m.getActionFromRepo(ctx, id)
@@ -46,7 +41,7 @@ func (m *Manager) deleteActionReferenceFromConnector(ctx context.Context, id str
 
 	// NOTE: The reference itself is not being validated, to allow for deletion
 	// of broken references
-	err = m.validateCanModifyReference(kind.ACTION_KIND, action.Class, propertyName, classSchema)
+	err = m.validateCanModifyReference(kind.ACTION_KIND, action.Class, propertyName)
 	if err != nil {
 		return err
 	}
@@ -58,7 +53,7 @@ func (m *Manager) deleteActionReferenceFromConnector(ctx context.Context, id str
 	action.Schema = extended
 	action.LastUpdateTimeUnix = unixNow()
 
-	repo.UpdateAction(ctx, action, action.ID)
+	m.repo.UpdateAction(ctx, action, action.ID)
 	if err != nil {
 		return newErrInternal("could not store action: %v", err)
 	}
@@ -69,21 +64,17 @@ func (m *Manager) deleteActionReferenceFromConnector(ctx context.Context, id str
 // DeleteThingReference from connected DB
 func (m *Manager) DeleteThingReference(ctx context.Context, id strfmt.UUID,
 	propertyName string, property *models.SingleRef) error {
-	schemaLock, err := m.db.SchemaLock()
+	unlock, err := m.locks.LockSchema()
 	if err != nil {
 		return newErrInternal("could not aquire lock: %v", err)
 	}
-	defer unlock(schemaLock)
-	classSchema := schemaLock.GetSchema()
-	dbConnector := schemaLock.Connector()
+	defer unlock()
 
-	return m.deleteThingReferenceFromConnector(ctx, id, propertyName, property,
-		dbConnector, classSchema)
+	return m.deleteThingReferenceFromConnector(ctx, id, propertyName, property)
 }
 
 func (m *Manager) deleteThingReferenceFromConnector(ctx context.Context, id strfmt.UUID,
-	propertyName string, property *models.SingleRef, repo updateAndGetRepo,
-	classSchema schema.Schema) error {
+	propertyName string, property *models.SingleRef) error {
 
 	// get thing to see if it exists
 	thing, err := m.getThingFromRepo(ctx, id)
@@ -93,7 +84,7 @@ func (m *Manager) deleteThingReferenceFromConnector(ctx context.Context, id strf
 
 	// NOTE: The reference itself is not being validated, to allow for deletion
 	// of broken references
-	err = m.validateCanModifyReference(kind.THING_KIND, thing.Class, propertyName, classSchema)
+	err = m.validateCanModifyReference(kind.THING_KIND, thing.Class, propertyName)
 	if err != nil {
 		return err
 	}
@@ -105,7 +96,7 @@ func (m *Manager) deleteThingReferenceFromConnector(ctx context.Context, id strf
 	thing.Schema = extended
 	thing.LastUpdateTimeUnix = unixNow()
 
-	repo.UpdateThing(ctx, thing, thing.ID)
+	m.repo.UpdateThing(ctx, thing, thing.ID)
 	if err != nil {
 		return newErrInternal("could not store thing: %v", err)
 	}

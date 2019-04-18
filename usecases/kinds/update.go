@@ -14,7 +14,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/creativesoftwarefdn/weaviate/database"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/go-openapi/strfmt"
 )
@@ -36,20 +35,17 @@ type updateRepo interface {
 // ref, it has a side-effect on the schema: The schema will be updated to
 // include this particular network ref class.
 func (m *Manager) UpdateAction(ctx context.Context, id strfmt.UUID, class *models.Action) (*models.Action, error) {
-	schemaLock, err := m.db.SchemaLock()
+	unlock, err := m.locks.LockSchema()
 	if err != nil {
 		return nil, newErrInternal("could not aquire lock: %v", err)
 	}
-	defer unlock(schemaLock)
-	dbConnector := schemaLock.Connector()
-	schemaManager := schemaLock.SchemaManager()
+	defer unlock()
 
-	return m.updateActionToConnectorAndSchema(ctx, id, class, dbConnector, schemaManager)
+	return m.updateActionToConnectorAndSchema(ctx, id, class)
 }
 
 func (m *Manager) updateActionToConnectorAndSchema(ctx context.Context, id strfmt.UUID,
-	class *models.Action, updateRepo updateAndGetRepo, schemaManager database.SchemaManager) (*models.Action,
-	error) {
+	class *models.Action) (*models.Action, error) {
 	if id != class.ID {
 		return nil, newErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
@@ -70,7 +66,7 @@ func (m *Manager) updateActionToConnectorAndSchema(ctx context.Context, id strfm
 	}
 
 	class.LastUpdateTimeUnix = unixNow()
-	updateRepo.UpdateAction(ctx, class, class.ID)
+	m.repo.UpdateAction(ctx, class, class.ID)
 	if err != nil {
 		return nil, newErrInternal("could not store updated action: %v", err)
 	}
@@ -82,20 +78,17 @@ func (m *Manager) updateActionToConnectorAndSchema(ctx context.Context, id strfm
 // ref, it has a side-effect on the schema: The schema will be updated to
 // include this particular network ref class.
 func (m *Manager) UpdateThing(ctx context.Context, id strfmt.UUID, class *models.Thing) (*models.Thing, error) {
-	schemaLock, err := m.db.SchemaLock()
+	unlock, err := m.locks.LockSchema()
 	if err != nil {
 		return nil, newErrInternal("could not aquire lock: %v", err)
 	}
-	defer unlock(schemaLock)
-	dbConnector := schemaLock.Connector()
-	schemaManager := schemaLock.SchemaManager()
+	defer unlock()
 
-	return m.updateThingToConnectorAndSchema(ctx, id, class, dbConnector, schemaManager)
+	return m.updateThingToConnectorAndSchema(ctx, id, class)
 }
 
 func (m *Manager) updateThingToConnectorAndSchema(ctx context.Context, id strfmt.UUID,
-	class *models.Thing, updateRepo updateAndGetRepo, schemaManager database.SchemaManager) (*models.Thing,
-	error) {
+	class *models.Thing) (*models.Thing, error) {
 	if id != class.ID {
 		return nil, newErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
@@ -116,7 +109,7 @@ func (m *Manager) updateThingToConnectorAndSchema(ctx context.Context, id strfmt
 	}
 
 	class.LastUpdateTimeUnix = unixNow()
-	updateRepo.UpdateThing(ctx, class, class.ID)
+	m.repo.UpdateThing(ctx, class, class.ID)
 	if err != nil {
 		return nil, newErrInternal("could not store updated thing: %v", err)
 	}

@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/creativesoftwarefdn/weaviate/database"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	"github.com/creativesoftwarefdn/weaviate/usecases/network"
 	"github.com/go-openapi/strfmt"
@@ -24,19 +23,11 @@ import (
 // Manager Manages schema changes at a use-case level, i.e. agnostic of
 // underlying databases or storage providers
 type Manager struct {
-	db            db
 	network       network.Network
 	config        *config.WeaviateConfig
 	repo          repo
 	locks         locks
 	schemaManager schemaManager
-}
-
-type db interface {
-	// TODO: Remove dependency to database package, this is a violation of clean
-	// arch principles
-	SchemaLock() (database.SchemaLock, error)
-	ConnectorLock() (database.ConnectorLock, error)
 }
 
 type repo interface {
@@ -47,18 +38,18 @@ type repo interface {
 }
 
 type locks interface {
-	LockConnector() error
-	UnlockConnector() error
-	LockSchema() error
-	UnlockSchema() error
+	LockConnector() (func() error, error)
+	LockSchema() (func() error, error)
 }
 
 // NewManager creates a new manager
-func NewManager(db db, network network.Network, config *config.WeaviateConfig) *Manager {
+func NewManager(repo repo, locks locks, schemaManager schemaManager, network network.Network, config *config.WeaviateConfig) *Manager {
 	return &Manager{
-		db:      db,
-		network: network,
-		config:  config,
+		network:       network,
+		config:        config,
+		repo:          repo,
+		locks:         locks,
+		schemaManager: schemaManager,
 	}
 }
 

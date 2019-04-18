@@ -10,7 +10,7 @@
  * CONTACT: hello@creativesoftwarefdn.org
  */
 
-package dbconnector
+package connectors
 
 import (
 	"context"
