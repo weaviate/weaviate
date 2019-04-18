@@ -18,12 +18,12 @@ import (
 
 // DeleteActionProperty to an existing Action
 func (m *Manager) DeleteActionProperty(ctx context.Context, class string, property string) error {
-	return m.deleteClassProperty(ctx, class, property, kind.ACTION_KIND)
+	return m.deleteClassProperty(ctx, class, property, kind.Action)
 }
 
 // DeleteThingProperty to an existing Thing
 func (m *Manager) DeleteThingProperty(ctx context.Context, class string, property string) error {
-	return m.deleteClassProperty(ctx, class, property, kind.THING_KIND)
+	return m.deleteClassProperty(ctx, class, property, kind.Thing)
 }
 
 func (m *Manager) deleteClassProperty(ctx context.Context, class string, property string, k kind.Kind) error {

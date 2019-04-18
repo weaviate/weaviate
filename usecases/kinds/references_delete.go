@@ -41,7 +41,7 @@ func (m *Manager) deleteActionReferenceFromConnector(ctx context.Context, id str
 
 	// NOTE: The reference itself is not being validated, to allow for deletion
 	// of broken references
-	err = m.validateCanModifyReference(kind.ACTION_KIND, action.Class, propertyName)
+	err = m.validateCanModifyReference(kind.Action, action.Class, propertyName)
 	if err != nil {
 		return err
 	}
@@ -84,7 +84,7 @@ func (m *Manager) deleteThingReferenceFromConnector(ctx context.Context, id strf
 
 	// NOTE: The reference itself is not being validated, to allow for deletion
 	// of broken references
-	err = m.validateCanModifyReference(kind.THING_KIND, thing.Class, propertyName)
+	err = m.validateCanModifyReference(kind.Thing, thing.Class, propertyName)
 	if err != nil {
 		return err
 	}

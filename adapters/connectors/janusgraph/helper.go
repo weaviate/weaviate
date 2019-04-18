@@ -84,7 +84,11 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 		*foundUUID = strfmt.UUID(vertex.AssertPropertyValue(PROP_UUID).AssertString())
 	}
 
-	kind := libkind.KindByName(vertex.AssertPropertyValue(PROP_KIND).AssertString())
+	kind, err := libkind.Parse(vertex.AssertPropertyValue(PROP_KIND).AssertString())
+	if err != nil {
+		return fmt.Errorf("could not parse kind: %v", err)
+	}
+
 	mappedClassName := state.MappedClassName(vertex.AssertPropertyValue(PROP_CLASS_ID).AssertString())
 	className := j.state.GetClassNameFromMapped(mappedClassName)
 	class := j.schema.GetClass(kind, className)
@@ -156,8 +160,11 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 
 		if propType.IsReference() {
 			ref := make(map[string]interface{})
-
-			crefURI := crossref.New(locationUrl, strfmt.UUID(uuid), libkind.KindByName(type_)).String()
+			refKind, err := libkind.Parse(type_)
+			if err != nil {
+				return fmt.Errorf("could not parse kind for ref with id '%s': %v", uuid, err)
+			}
+			crefURI := crossref.New(locationUrl, strfmt.UUID(uuid), refKind).String()
 			ref["$cref"] = crefURI
 			switch schema.CardinalityOfProperty(property) {
 			case schema.CardinalityAtMostOne:
@@ -237,7 +244,10 @@ func (j *Janusgraph) getClasses(k kind.Kind, className *schema.ClassName, first 
 
 		uuid := strfmt.UUID(vertex.AssertPropertyValue(PROP_UUID).AssertString())
 
-		kind := libkind.KindByName(vertex.AssertPropertyValue(PROP_KIND).AssertString())
+		kind, err := libkind.Parse(vertex.AssertPropertyValue(PROP_KIND).AssertString())
+		if err != nil {
+			return nil, fmt.Errorf("could not parse kind for item %d: %v", i, err)
+		}
 		mappedClassName := state.MappedClassName(vertex.AssertPropertyValue(PROP_CLASS_ID).AssertString())
 		className := j.state.GetClassNameFromMapped(mappedClassName)
 		class := j.schema.GetClass(kind, className)
@@ -298,7 +308,11 @@ func (j *Janusgraph) getClasses(k kind.Kind, className *schema.ClassName, first 
 			if propType.IsReference() {
 				ref := make(map[string]interface{})
 
-				crefURI := crossref.New(locationUrl, strfmt.UUID(uuid), libkind.KindByName(type_)).String()
+				refKind, err := libkind.Parse(type_)
+				if err != nil {
+					return nil, fmt.Errorf("could not parse kind for ref with id '%s': %v", uuid, err)
+				}
+				crefURI := crossref.New(locationUrl, strfmt.UUID(uuid), refKind).String()
 				ref["$cref"] = crefURI
 				switch schema.CardinalityOfProperty(property) {
 				case schema.CardinalityAtMostOne:

@@ -47,10 +47,10 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSc
 	serverConfig *config.WeaviateConfig) error {
 	var isp interface{}
 	var className string
-	if k == kind.ACTION_KIND {
+	if k == kind.Action {
 		className = object.(*models.Action).Class
 		isp = object.(*models.Action).Schema
-	} else if k == kind.THING_KIND {
+	} else if k == kind.Thing {
 		className = object.(*models.Thing).Class
 		isp = object.(*models.Thing).Schema
 	} else {
@@ -85,9 +85,9 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSc
 		returnSchema[propertyKey] = data
 	}
 
-	if k == kind.ACTION_KIND {
+	if k == kind.Action {
 		object.(*models.Action).Schema = returnSchema
-	} else if k == kind.THING_KIND {
+	} else if k == kind.Thing {
 		object.(*models.Thing).Schema = returnSchema
 	} else {
 		return fmt.Errorf(schema.ErrorInvalidRefType)

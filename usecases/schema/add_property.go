@@ -19,12 +19,12 @@ import (
 
 // AddActionProperty to an existing Action
 func (m *Manager) AddActionProperty(ctx context.Context, class string, property *models.SemanticSchemaClassProperty) error {
-	return m.addClassProperty(ctx, class, property, kind.ACTION_KIND)
+	return m.addClassProperty(ctx, class, property, kind.Action)
 }
 
 // AddThingProperty to an existing Thing
 func (m *Manager) AddThingProperty(ctx context.Context, class string, property *models.SemanticSchemaClassProperty) error {
-	return m.addClassProperty(ctx, class, property, kind.THING_KIND)
+	return m.addClassProperty(ctx, class, property, kind.Thing)
 }
 
 func (m *Manager) addClassProperty(ctx context.Context, class string,

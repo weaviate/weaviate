@@ -36,9 +36,9 @@ func classFields(databaseSchema []*models.SemanticSchemaClass, k kind.Kind,
 	)
 
 	switch k {
-	case kind.THING_KIND:
+	case kind.Thing:
 		description = descriptions.LocalGetMetaThingsObj
-	case kind.ACTION_KIND:
+	case kind.Action:
 		description = descriptions.LocalGetMetaActionsObj
 	default:
 		return nil, fmt.Errorf("unrecoginzed kind '%#v", k)

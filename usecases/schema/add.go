@@ -19,12 +19,12 @@ import (
 
 // AddAction Class to the schema
 func (m *Manager) AddAction(ctx context.Context, class *models.SemanticSchemaClass) error {
-	return m.addClass(ctx, class, kind.ACTION_KIND)
+	return m.addClass(ctx, class, kind.Action)
 }
 
 // AddThing Class to the schema
 func (m *Manager) AddThing(ctx context.Context, class *models.SemanticSchemaClass) error {
-	return m.addClass(ctx, class, kind.THING_KIND)
+	return m.addClass(ctx, class, kind.Thing)
 }
 
 func (m *Manager) addClass(ctx context.Context, class *models.SemanticSchemaClass, k kind.Kind) error {

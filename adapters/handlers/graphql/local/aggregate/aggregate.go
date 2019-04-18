@@ -33,7 +33,7 @@ func Build(dbSchema *schema.Schema, config config.Config) (*graphql.Field, error
 	}
 
 	if len(dbSchema.Actions.Classes) > 0 {
-		localAggregateActions, err := classFields(dbSchema.Actions.Classes, kind.ACTION_KIND, config)
+		localAggregateActions, err := classFields(dbSchema.Actions.Classes, kind.Action, config)
 		if err != nil {
 			return nil, err
 		}
@@ -47,7 +47,7 @@ func Build(dbSchema *schema.Schema, config config.Config) (*graphql.Field, error
 	}
 
 	if len(dbSchema.Things.Classes) > 0 {
-		localAggregateThings, err := classFields(dbSchema.Things.Classes, kind.THING_KIND, config)
+		localAggregateThings, err := classFields(dbSchema.Things.Classes, kind.Thing, config)
 		if err != nil {
 			return nil, err
 		}

@@ -76,7 +76,7 @@ func ValidateThingBody(ctx context.Context, thing *models.Thing, databaseSchema 
 	}
 
 	// Return the schema validation error
-	sve := ValidateSchemaInBody(ctx, databaseSchema.ThingSchema.Schema, thing, kind.THING_KIND,
+	sve := ValidateSchemaInBody(ctx, databaseSchema.ThingSchema.Schema, thing, kind.Thing,
 		dbConnector, network, serverConfig)
 
 	return sve
@@ -95,7 +95,7 @@ func ValidateActionBody(ctx context.Context, action *models.Action, databaseSche
 	}
 
 	// Return the schema validation error
-	sve := ValidateSchemaInBody(ctx, databaseSchema.ActionSchema.Schema, action, kind.ACTION_KIND,
+	sve := ValidateSchemaInBody(ctx, databaseSchema.ActionSchema.Schema, action, kind.Action,
 		dbConnector, network, serverConfig)
 
 	return sve
@@ -136,10 +136,10 @@ func validateLocalRef(ctx context.Context, dbConnector getRepo, ref *crossref.Re
 	// Check whether the given Object exists in the DB
 	var err error
 	switch ref.Kind {
-	case kind.THING_KIND:
+	case kind.Thing:
 		obj := &models.Thing{}
 		err = dbConnector.GetThing(ctx, ref.TargetID, obj)
-	case kind.ACTION_KIND:
+	case kind.Action:
 		obj := &models.Action{}
 		err = dbConnector.GetAction(ctx, ref.TargetID, obj)
 	}

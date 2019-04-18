@@ -27,7 +27,7 @@ func Test_ParamsHashing(t *testing.T) {
 			Analytics: cf.AnalyticsProps{UseAnaltyicsEngine: true},
 			ClassName: schema.ClassName("MyBestClass"),
 			Filters:   nil,
-			Kind:      kind.THING_KIND,
+			Kind:      kind.Thing,
 			Properties: []Property{
 				Property{
 					Name:        schema.PropertyName("bestprop"),

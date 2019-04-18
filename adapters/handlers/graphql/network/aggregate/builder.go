@@ -69,7 +69,7 @@ func (b *Builder) buildKinds() (graphql.Fields, error) {
 	fields := graphql.Fields{}
 
 	if b.schema.Actions != nil && len(b.schema.Actions.Classes) > 0 {
-		actions, err := b.buildKind(kind.ACTION_KIND)
+		actions, err := b.buildKind(kind.Action)
 		if err != nil {
 			return nil, fmt.Errorf("could not build 'action' kind: %s", err)
 		}
@@ -78,7 +78,7 @@ func (b *Builder) buildKinds() (graphql.Fields, error) {
 	}
 
 	if b.schema.Things != nil && len(b.schema.Things.Classes) > 0 {
-		things, err := b.buildKind(kind.THING_KIND)
+		things, err := b.buildKind(kind.Thing)
 		if err != nil {
 			return nil, fmt.Errorf("could not build 'thing' kind: %s", err)
 		}
@@ -110,9 +110,9 @@ func (b *Builder) buildKind(k kind.Kind) (*graphql.Object, error) {
 	// transition
 
 	switch k {
-	case kind.ACTION_KIND:
+	case kind.Action:
 		return classFields(b.schema.Actions.Classes, k, b.peerName)
-	case kind.THING_KIND:
+	case kind.Thing:
 		return classFields(b.schema.Things.Classes, k, b.peerName)
 	}
 

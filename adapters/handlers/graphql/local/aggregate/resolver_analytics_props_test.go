@@ -40,7 +40,7 @@ func Test_ExtractAnalyticsPropsFromAggregate(t *testing.T) {
 	}
 
 	expectedParams := &Params{
-		Kind:      kind.THING_KIND,
+		Kind:      kind.Thing,
 		ClassName: schema.ClassName("Car"),
 		Properties: []Property{
 			{

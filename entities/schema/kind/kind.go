@@ -16,32 +16,39 @@ import (
 	"strings"
 )
 
+// Kind distinguishes between Thing and Action Kind. Other Kinds might be added
+// in the future
 type Kind string
 
-const THING_KIND Kind = "thing"
-const ACTION_KIND Kind = "action"
-const NETWORK_THING_KIND Kind = "network_thing"
-const NETWORK_ACTION_KIND Kind = "network_action"
+// Thing Kind represents real-life things, such as objects and persons
+const Thing Kind = "thing"
 
+// Action Kind represents events and processes
+const Action Kind = "action"
+
+// Name returns the lowercaps name, such as thing, action
 func (k *Kind) Name() string {
 	return string(*k)
 }
 
+// TitleizedName uppercases the name, such as Thing, Action
 func (k *Kind) TitleizedName() string {
 	return strings.Title(k.Name())
 }
 
+// AllCapsName such as THING, ACTION
 func (k *Kind) AllCapsName() string {
 	return strings.ToUpper(k.Name())
 }
 
-func KindByName(name string) Kind {
+// Parse parses a string into a typed Kind
+func Parse(name string) (Kind, error) {
 	switch name {
 	case "thing":
-		return THING_KIND
+		return Thing, nil
 	case "action":
-		return ACTION_KIND
+		return Action, nil
 	default:
-		panic(fmt.Sprintf("No such kind %s", name))
+		return "", fmt.Errorf("invalid kind: %s", name)
 	}
 }

@@ -31,7 +31,7 @@ func Test__SchemaSearch_Classes(t *testing.T) {
 			searchParams: SearchParams{
 				SearchType: SearchTypeClass,
 				Name:       "Car",
-				Kind:       kind.THING_KIND,
+				Kind:       kind.Thing,
 				Certainty:  0.9,
 			},
 			expectedError: nil,
@@ -40,7 +40,7 @@ func Test__SchemaSearch_Classes(t *testing.T) {
 				Results: []SearchResult{
 					SearchResult{
 						Name:      "Car",
-						Kind:      kind.THING_KIND,
+						Kind:      kind.Thing,
 						Certainty: 0.9699532,
 					},
 				},
@@ -56,7 +56,7 @@ func Test__SchemaSearch_Classes(t *testing.T) {
 			searchParams: SearchParams{
 				SearchType: SearchTypeClass,
 				Name:       "CarDriver",
-				Kind:       kind.THING_KIND,
+				Kind:       kind.Thing,
 				Certainty:  0.5,
 			},
 			expectedError: nil,
@@ -65,7 +65,7 @@ func Test__SchemaSearch_Classes(t *testing.T) {
 				Results: []SearchResult{
 					SearchResult{
 						Name:      "Driver",
-						Kind:      kind.THING_KIND,
+						Kind:      kind.Thing,
 						Certainty: 0.8572954,
 					},
 				},
@@ -81,7 +81,7 @@ func Test__SchemaSearch_Classes(t *testing.T) {
 			searchParams: SearchParams{
 				SearchType: SearchTypeClass,
 				Name:       "Car",
-				Kind:       kind.THING_KIND,
+				Kind:       kind.Thing,
 				Certainty:  0.9,
 			},
 			expectedError: nil,
@@ -90,7 +90,7 @@ func Test__SchemaSearch_Classes(t *testing.T) {
 				Results: []SearchResult{
 					SearchResult{
 						Name:      "Car",
-						Kind:      kind.THING_KIND,
+						Kind:      kind.Thing,
 						Certainty: 0.9699532,
 					},
 				},
@@ -105,7 +105,7 @@ func Test__SchemaSearch_Classes(t *testing.T) {
 			searchParams: SearchParams{
 				SearchType: SearchTypeClass,
 				Name:       "Drive",
-				Kind:       kind.ACTION_KIND,
+				Kind:       kind.Action,
 				Certainty:  0.9,
 			},
 			expectedError: nil,
@@ -114,7 +114,7 @@ func Test__SchemaSearch_Classes(t *testing.T) {
 				Results: []SearchResult{
 					SearchResult{
 						Name:      "Drive",
-						Kind:      kind.ACTION_KIND,
+						Kind:      kind.Action,
 						Certainty: 0.9699532,
 					},
 				},
@@ -129,7 +129,7 @@ func Test__SchemaSearch_Classes(t *testing.T) {
 			searchParams: SearchParams{
 				SearchType: SearchTypeClass,
 				Name:       "Spaceship",
-				Kind:       kind.THING_KIND,
+				Kind:       kind.Thing,
 				Certainty:  0.9,
 			},
 			expectedError: errors.New("could not build centroid from name and keywords: " +
@@ -147,7 +147,7 @@ func Test__SchemaSearch_Classes(t *testing.T) {
 			searchParams: SearchParams{
 				SearchType: SearchTypeClass,
 				Name:       "Car",
-				Kind:       kind.THING_KIND,
+				Kind:       kind.Thing,
 				Certainty:  0.9,
 				Keywords: models.SemanticSchemaKeywords{
 					{
@@ -166,7 +166,7 @@ func Test__SchemaSearch_Classes(t *testing.T) {
 				Results: []SearchResult{
 					SearchResult{
 						Name:      "Car",
-						Kind:      kind.THING_KIND,
+						Kind:      kind.Thing,
 						Certainty: 0.9284513,
 					},
 				},
@@ -181,7 +181,7 @@ func Test__SchemaSearch_Classes(t *testing.T) {
 			searchParams: SearchParams{
 				SearchType: SearchTypeClass,
 				Name:       "Car",
-				Kind:       kind.THING_KIND,
+				Kind:       kind.Thing,
 				Certainty:  0.9,
 				Keywords: models.SemanticSchemaKeywords{
 					{
@@ -210,7 +210,7 @@ func Test__SchemaSearch_Properties(t *testing.T) {
 			searchParams: SearchParams{
 				SearchType: SearchTypeProperty,
 				Name:       "horsepower",
-				Kind:       kind.THING_KIND,
+				Kind:       kind.Thing,
 				Certainty:  0.9,
 			},
 			expectedError: nil,
@@ -219,7 +219,7 @@ func Test__SchemaSearch_Properties(t *testing.T) {
 				Results: []SearchResult{
 					SearchResult{
 						Name:      "horsepower",
-						Kind:      kind.THING_KIND,
+						Kind:      kind.Thing,
 						Certainty: 0.9699532,
 					},
 				},
@@ -236,7 +236,7 @@ func Test__SchemaSearch_Properties(t *testing.T) {
 			searchParams: SearchParams{
 				SearchType: SearchTypeProperty,
 				Name:       "horsepower",
-				Kind:       kind.THING_KIND,
+				Kind:       kind.Thing,
 				Certainty:  0.9,
 			},
 			expectedError: nil,
@@ -245,7 +245,7 @@ func Test__SchemaSearch_Properties(t *testing.T) {
 				Results: []SearchResult{
 					SearchResult{
 						Name:      "horsepower",
-						Kind:      kind.THING_KIND,
+						Kind:      kind.Thing,
 						Certainty: 0.9699532,
 					},
 				},
@@ -261,7 +261,7 @@ func Test__SchemaSearch_Properties(t *testing.T) {
 			searchParams: SearchParams{
 				SearchType: SearchTypeProperty,
 				Name:       "horsepower",
-				Kind:       kind.THING_KIND,
+				Kind:       kind.Thing,
 				Certainty:  0.9,
 			},
 			expectedError: nil,
@@ -270,7 +270,7 @@ func Test__SchemaSearch_Properties(t *testing.T) {
 				Results: []SearchResult{
 					SearchResult{
 						Name:      "horsepower",
-						Kind:      kind.THING_KIND,
+						Kind:      kind.Thing,
 						Certainty: 0.9672985, // note: this is the mean certainty of Car.horsepower and Autombile.horsepower
 					},
 				},
@@ -285,7 +285,7 @@ func Test__SchemaSearch_Properties(t *testing.T) {
 			searchParams: SearchParams{
 				SearchType: SearchTypeProperty,
 				Name:       "Spaceship",
-				Kind:       kind.THING_KIND,
+				Kind:       kind.Thing,
 				Certainty:  0.9,
 			},
 			expectedError: errors.New("could not build centroid from name and keywords: " +
@@ -303,7 +303,7 @@ func Test__SchemaSearch_Properties(t *testing.T) {
 			searchParams: SearchParams{
 				SearchType: SearchTypeProperty,
 				Name:       "horsepower",
-				Kind:       kind.THING_KIND,
+				Kind:       kind.Thing,
 				Certainty:  0.9,
 				Keywords: models.SemanticSchemaKeywords{
 					{
@@ -322,7 +322,7 @@ func Test__SchemaSearch_Properties(t *testing.T) {
 				Results: []SearchResult{
 					SearchResult{
 						Name:      "horsepower",
-						Kind:      kind.THING_KIND,
+						Kind:      kind.Thing,
 						Certainty: 0.9284513,
 					},
 				},
@@ -337,7 +337,7 @@ func Test__SchemaSearch_Properties(t *testing.T) {
 			searchParams: SearchParams{
 				SearchType: SearchTypeProperty,
 				Name:       "horsepower",
-				Kind:       kind.THING_KIND,
+				Kind:       kind.Thing,
 				Certainty:  0.9,
 				Keywords: models.SemanticSchemaKeywords{
 					{

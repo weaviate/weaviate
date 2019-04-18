@@ -46,7 +46,7 @@ func Build(dbSchema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger
 	}
 
 	if len(dbSchema.Actions.Classes) > 0 {
-		localGetActions, err := buildGetClasses(dbSchema, kind.ACTION_KIND, dbSchema.Actions, &knownClasses, knownRefClasses, peers)
+		localGetActions, err := buildGetClasses(dbSchema, kind.Action, dbSchema.Actions, &knownClasses, knownRefClasses, peers)
 		if err != nil {
 			return nil, err
 		}
@@ -63,7 +63,7 @@ func Build(dbSchema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger
 	}
 
 	if len(dbSchema.Things.Classes) > 0 {
-		localGetThings, err := buildGetClasses(dbSchema, kind.THING_KIND, dbSchema.Things, &knownClasses, knownRefClasses, peers)
+		localGetThings, err := buildGetClasses(dbSchema, kind.Thing, dbSchema.Things, &knownClasses, knownRefClasses, peers)
 		if err != nil {
 			return nil, err
 		}

@@ -48,7 +48,7 @@ func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, id
 		return err
 	}
 
-	err = m.validateCanModifyReference(kind.ACTION_KIND, action.Class, propertyName)
+	err = m.validateCanModifyReference(kind.Action, action.Class, propertyName)
 	if err != nil {
 		return err
 	}
@@ -102,7 +102,7 @@ func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, id 
 		return err
 	}
 
-	err = m.validateCanModifyReference(kind.THING_KIND, thing.Class, propertyName)
+	err = m.validateCanModifyReference(kind.Thing, thing.Class, propertyName)
 	if err != nil {
 		return err
 	}

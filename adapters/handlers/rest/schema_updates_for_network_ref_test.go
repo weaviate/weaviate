@@ -29,14 +29,14 @@ import (
 )
 
 func TestSchemaUpdaterWithEmtpyRefSchema(t *testing.T) {
-	err := newReferenceSchemaUpdater(context.TODO(), nil, nil, "FooThing", kind.THING_KIND).
+	err := newReferenceSchemaUpdater(context.TODO(), nil, nil, "FooThing", kind.Thing).
 		addNetworkDataTypes(nil)
 
 	assert.Nil(t, err, "it does not error with an empty schema")
 }
 
 func TestSchemaUpdaterWithOnlyPrimitiveProps(t *testing.T) {
-	err := newReferenceSchemaUpdater(context.TODO(), nil, nil, "FooThing", kind.THING_KIND).
+	err := newReferenceSchemaUpdater(context.TODO(), nil, nil, "FooThing", kind.Thing).
 		addNetworkDataTypes(map[string]interface{}{
 			"foo":  "bar",
 			"baz":  int64(100),
@@ -48,7 +48,7 @@ func TestSchemaUpdaterWithOnlyPrimitiveProps(t *testing.T) {
 
 func TestSchemaUpdaterWithOnlyLocalRefs(t *testing.T) {
 	loc := "weaviate://localhost/things/fcc72dff-7feb-4a84-b580-fa0261aea776"
-	err := newReferenceSchemaUpdater(context.TODO(), nil, nil, "FooThing", kind.THING_KIND).
+	err := newReferenceSchemaUpdater(context.TODO(), nil, nil, "FooThing", kind.Thing).
 		addNetworkDataTypes(map[string]interface{}{
 			"fooRef": &models.SingleRef{
 				NrDollarCref: strfmt.URI(loc),
@@ -68,7 +68,7 @@ func TestSchemaUpdaterWithSingleNetworkRefFromThingToThing(t *testing.T) {
 	// act
 	refID := "30ad9bd2-1e33-460a-bea7-dcce72d086a1"
 	loc := "http://BestWeaviate/things/" + refID
-	err := newReferenceSchemaUpdater(context.TODO(), schemaManager, network, "FooThing", kind.THING_KIND).
+	err := newReferenceSchemaUpdater(context.TODO(), schemaManager, network, "FooThing", kind.Thing).
 		addNetworkDataTypes(map[string]interface{}{
 			"fooRef": &models.SingleRef{
 				NrDollarCref: strfmt.URI(loc),
@@ -82,7 +82,7 @@ func TestSchemaUpdaterWithSingleNetworkRefFromThingToThing(t *testing.T) {
 
 	t.Run("correct schema udpate was triggered", func(t *testing.T) {
 		call := schemaManager.CalledWith
-		// assert.Equal(t, kind.THING_KIND, call.kind,
+		// assert.Equal(t, kind.Thing, call.kind,
 		// 	"thing kind because the from class is a thing")
 		assert.Equal(t, "FooThing", call.fromClass, "correct from class")
 		assert.Equal(t, "fooRef", call.property, "correct property")
@@ -99,7 +99,7 @@ func TestSchemaUpdaterWithSingleNetworkRefFromActinToThing(t *testing.T) {
 
 	// act
 	loc := "http://BestWeaviate/things/fbe157e9-3e4c-4be6-995d-d6d5ab49a84b"
-	err := newReferenceSchemaUpdater(context.TODO(), schemaManager, network, "FooAction", kind.ACTION_KIND).
+	err := newReferenceSchemaUpdater(context.TODO(), schemaManager, network, "FooAction", kind.Action).
 		addNetworkDataTypes(map[string]interface{}{
 			"fooRef": &models.SingleRef{
 				NrDollarCref: strfmt.URI(loc),
@@ -113,7 +113,7 @@ func TestSchemaUpdaterWithSingleNetworkRefFromActinToThing(t *testing.T) {
 
 	t.Run("correct schema udpate was triggered", func(t *testing.T) {
 		call := schemaManager.CalledWith
-		assert.Equal(t, kind.ACTION_KIND, call.kind,
+		assert.Equal(t, kind.Action, call.kind,
 			"action kind because the from class is an action")
 		assert.Equal(t, "FooAction", call.fromClass, "correct from class")
 		assert.Equal(t, "fooRef", call.property, "correct property")

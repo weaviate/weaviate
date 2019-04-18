@@ -245,7 +245,7 @@ func Test_QueryProcessor_AnalyticsEngine(t *testing.T) {
 
 func paramsWithAnalyticsProps(a cf.AnalyticsProps) aggregate.Params {
 	return aggregate.Params{
-		Kind:      kind.THING_KIND,
+		Kind:      kind.Thing,
 		ClassName: schema.ClassName("Car"),
 		Properties: []aggregate.Property{
 			aggregate.Property{

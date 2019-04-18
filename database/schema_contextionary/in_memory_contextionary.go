@@ -29,12 +29,12 @@ import (
 func BuildInMemoryContextionaryFromSchema(schema schema.Schema, context *libcontextionary.Contextionary) (*libcontextionary.Contextionary, error) {
 	in_memory_builder := libcontextionary.InMemoryBuilder((*context).GetVectorLength())
 
-	err := add_names_from_schema_properties(context, in_memory_builder, "THING", schema.SemanticSchemaFor(kind.THING_KIND))
+	err := add_names_from_schema_properties(context, in_memory_builder, "THING", schema.SemanticSchemaFor(kind.Thing))
 	if err != nil {
 		return nil, err
 	}
 
-	err = add_names_from_schema_properties(context, in_memory_builder, "ACTION", schema.SemanticSchemaFor(kind.ACTION_KIND))
+	err = add_names_from_schema_properties(context, in_memory_builder, "ACTION", schema.SemanticSchemaFor(kind.Action))
 	if err != nil {
 		return nil, err
 	}

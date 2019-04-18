@@ -71,7 +71,7 @@ func Test_ResolveKinds(t *testing.T) {
 				{
 					SearchType: contextionary.SearchTypeClass,
 					Name:       "bestclass",
-					Kind:       kind.THING_KIND,
+					Kind:       kind.Thing,
 					Certainty:  0.8,
 					Keywords: models.SemanticSchemaKeywords{{
 						Keyword: "foo",
@@ -81,7 +81,7 @@ func Test_ResolveKinds(t *testing.T) {
 				{
 					SearchType: contextionary.SearchTypeProperty,
 					Name:       "bestproperty",
-					Kind:       kind.THING_KIND,
+					Kind:       kind.Thing,
 					Certainty:  0.8,
 					Keywords: models.SemanticSchemaKeywords{{
 						Keyword: "bar",
@@ -90,16 +90,16 @@ func Test_ResolveKinds(t *testing.T) {
 				},
 			},
 			expectedParamsToConnector: &Params{
-				Kind: kind.THING_KIND,
+				Kind: kind.Thing,
 				PossibleClassNames: contextionary.SearchResults{
 					Type: contextionary.SearchTypeClass,
 					Results: []contextionary.SearchResult{{
 						Name:      "bestclass",
-						Kind:      kind.THING_KIND,
+						Kind:      kind.Thing,
 						Certainty: 0.95,
 					}, {
 						Name:      "bestclassalternative",
-						Kind:      kind.THING_KIND,
+						Kind:      kind.Thing,
 						Certainty: 0.85,
 					}},
 				},
@@ -110,11 +110,11 @@ func Test_ResolveKinds(t *testing.T) {
 							Results: []contextionary.SearchResult{{
 								Name:      "bestproperty",
 								Certainty: 0.95,
-								Kind:      kind.THING_KIND,
+								Kind:      kind.Thing,
 							}, {
 								Name:      "bestpropertyalternative",
 								Certainty: 0.85,
-								Kind:      kind.THING_KIND,
+								Kind:      kind.Thing,
 							}},
 						},
 						Match: PropertyMatch{

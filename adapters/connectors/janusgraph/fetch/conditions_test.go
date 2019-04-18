@@ -319,7 +319,7 @@ func cityClassSearch() contextionary.SearchResults {
 func paramsFromSingleProp(propName string, dataType schema.DataType,
 	operator cf.Operator, value interface{}) fetch.Params {
 	return fetch.Params{
-		Kind:               kind.THING_KIND,
+		Kind:               kind.Thing,
 		PossibleClassNames: cityClassSearch(),
 		Properties:         singleProp(propName, dataType, operator, value),
 	}

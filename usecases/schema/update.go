@@ -20,13 +20,13 @@ import (
 // UpdateAction which exists
 func (m *Manager) UpdateAction(ctx context.Context, name string,
 	class *models.SemanticSchemaClass) error {
-	return m.updateClass(ctx, name, class, kind.ACTION_KIND)
+	return m.updateClass(ctx, name, class, kind.Action)
 }
 
 // UpdateThing which exists
 func (m *Manager) UpdateThing(ctx context.Context, name string,
 	class *models.SemanticSchemaClass) error {
-	return m.updateClass(ctx, name, class, kind.THING_KIND)
+	return m.updateClass(ctx, name, class, kind.Thing)
 }
 
 // TODO: gh-832: Implement full capabilities, not just keywords/naming

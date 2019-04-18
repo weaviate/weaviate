@@ -346,7 +346,7 @@ func Test_QueryProcessor(t *testing.T) {
 						NetworkKind: crossrefs.NetworkKind{
 							PeerName: "other-peer",
 							ID:       strfmt.UUID(uuid3),
-							Kind:     kind.THING_KIND,
+							Kind:     kind.Thing,
 						},
 					},
 				},
