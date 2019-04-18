@@ -25,22 +25,17 @@ import (
 // include this particular network ref class.
 func (m *Manager) AddActionReference(ctx context.Context, id strfmt.UUID,
 	propertyName string, property *models.SingleRef) error {
-	schemaLock, err := m.db.SchemaLock()
+	unlock, err := m.locks.LockSchema()
 	if err != nil {
 		return newErrInternal("could not aquire lock: %v", err)
 	}
-	defer unlock(schemaLock)
-	classSchema := schemaLock.GetSchema()
-	schemaManager := schemaLock.SchemaManager()
-	dbConnector := schemaLock.Connector()
+	defer unlock()
 
-	return m.addActionReferenceToConnectorAndSchema(ctx, id, propertyName, property,
-		dbConnector, classSchema, schemaManager)
+	return m.addActionReferenceToConnectorAndSchema(ctx, id, propertyName, property)
 }
 
 func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, id strfmt.UUID,
-	propertyName string, property *models.SingleRef, repo updateAndGetRepo, classSchema schema.Schema,
-	schemaManager schemaManager) error {
+	propertyName string, property *models.SingleRef) error {
 
 	// get action to see if it exists
 	action, err := m.getActionFromRepo(ctx, id)
@@ -48,12 +43,12 @@ func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, id
 		return err
 	}
 
-	err = m.validateReference(ctx, property, repo)
+	err = m.validateReference(ctx, property)
 	if err != nil {
 		return err
 	}
 
-	err = m.validateCanModifyReference(kind.ACTION_KIND, action.Class, propertyName, classSchema)
+	err = m.validateCanModifyReference(kind.ACTION_KIND, action.Class, propertyName)
 	if err != nil {
 		return err
 	}
@@ -71,7 +66,7 @@ func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, id
 		return newErrInternal("could not update schema for network refs: %v", err)
 	}
 
-	repo.UpdateAction(ctx, action, action.ID)
+	m.repo.UpdateAction(ctx, action, action.ID)
 	if err != nil {
 		return newErrInternal("could not store action: %v", err)
 	}
@@ -84,22 +79,17 @@ func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, id
 // include this particular network ref class.
 func (m *Manager) AddThingReference(ctx context.Context, id strfmt.UUID,
 	propertyName string, property *models.SingleRef) error {
-	schemaLock, err := m.db.SchemaLock()
+	unlock, err := m.locks.LockSchema()
 	if err != nil {
 		return newErrInternal("could not aquire lock: %v", err)
 	}
-	defer unlock(schemaLock)
-	classSchema := schemaLock.GetSchema()
-	schemaManager := schemaLock.SchemaManager()
-	dbConnector := schemaLock.Connector()
+	defer unlock()
 
-	return m.addThingReferenceToConnectorAndSchema(ctx, id, propertyName, property,
-		dbConnector, classSchema, schemaManager)
+	return m.addThingReferenceToConnectorAndSchema(ctx, id, propertyName, property)
 }
 
 func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, id strfmt.UUID,
-	propertyName string, property *models.SingleRef, repo updateAndGetRepo, classSchema schema.Schema,
-	schemaManager schemaManager) error {
+	propertyName string, property *models.SingleRef) error {
 
 	// get thing to see if it exists
 	thing, err := m.getThingFromRepo(ctx, id)
@@ -107,12 +97,12 @@ func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, id 
 		return err
 	}
 
-	err = m.validateReference(ctx, property, repo)
+	err = m.validateReference(ctx, property)
 	if err != nil {
 		return err
 	}
 
-	err = m.validateCanModifyReference(kind.THING_KIND, thing.Class, propertyName, classSchema)
+	err = m.validateCanModifyReference(kind.THING_KIND, thing.Class, propertyName)
 	if err != nil {
 		return err
 	}
@@ -130,7 +120,7 @@ func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, id 
 		return newErrInternal("could not update schema for network refs: %v", err)
 	}
 
-	repo.UpdateThing(ctx, thing, thing.ID)
+	m.repo.UpdateThing(ctx, thing, thing.ID)
 	if err != nil {
 		return newErrInternal("could not store thing: %v", err)
 	}
@@ -138,8 +128,8 @@ func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, id 
 	return nil
 }
 
-func (m *Manager) validateReference(ctx context.Context, reference *models.SingleRef, repo getRepo) error {
-	err := validation.ValidateSingleRef(ctx, m.config, reference, repo, m.network, "reference not found")
+func (m *Manager) validateReference(ctx context.Context, reference *models.SingleRef) error {
+	err := validation.ValidateSingleRef(ctx, m.config, reference, m.repo, m.network, "reference not found")
 	if err != nil {
 		return newErrInvalidUserInput("invalid reference: %v", err)
 	}
@@ -148,16 +138,17 @@ func (m *Manager) validateReference(ctx context.Context, reference *models.Singl
 }
 
 func (m *Manager) validateCanModifyReference(k kind.Kind, className string,
-	propertyName string, classSchema schema.Schema) error {
+	propertyName string) error {
 	// TODO: Use checks with error handling instead of panicking
 	class := schema.AssertValidClassName(className)
 	propName := schema.AssertValidPropertyName(propertyName)
-	err, prop := classSchema.GetProperty(k, class, propName)
+	schema := m.schemaManager.GetSchema()
+	err, prop := schema.GetProperty(k, class, propName)
 	if err != nil {
 		return newErrInvalidUserInput("Could not find property '%s': %v", propertyName, err)
 	}
 
-	propertyDataType, err := classSchema.FindPropertyDataType(prop.DataType)
+	propertyDataType, err := schema.FindPropertyDataType(prop.DataType)
 	if err != nil {
 		return newErrInternal("Could not find datatype of property '%s': %v", propertyName, err)
 	}

@@ -69,7 +69,7 @@ services:
       - "8090:8090"
   weaviate_b_fake:
     build:
-      context: ./graphqlapi/prototype
+      context: ./adapters/handlers/graphql/prototype
       dockerfile: Dockerfile
     restart: on-failure:0
     ports:

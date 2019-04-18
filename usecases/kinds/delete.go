@@ -30,11 +30,11 @@ type deleteRepo interface {
 
 // DeleteAction Class Instance from the conncected DB
 func (m *Manager) DeleteAction(ctx context.Context, id strfmt.UUID) error {
-	err := m.locks.LockConnector()
+	unlock, err := m.locks.LockConnector()
 	if err != nil {
 		return newErrInternal("could not aquire lock: %v", err)
 	}
-	defer m.locks.UnlockConnector()
+	defer unlock()
 
 	return m.deleteActionFromRepo(ctx, id)
 }
@@ -55,11 +55,11 @@ func (m *Manager) deleteActionFromRepo(ctx context.Context, id strfmt.UUID) erro
 
 // DeleteThing Class Instance from the conncected DB
 func (m *Manager) DeleteThing(ctx context.Context, id strfmt.UUID) error {
-	err := m.locks.LockConnector()
+	unlock, err := m.locks.LockConnector()
 	if err != nil {
 		return newErrInternal("could not aquire lock: %v", err)
 	}
-	defer m.locks.UnlockConnector()
+	defer unlock()
 
 	return m.deleteThingFromRepo(ctx, id)
 }

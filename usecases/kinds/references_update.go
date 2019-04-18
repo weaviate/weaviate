@@ -14,7 +14,6 @@ import (
 	"context"
 
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/usecases/kinds/validation"
 	"github.com/go-openapi/strfmt"
@@ -25,22 +24,17 @@ import (
 // include this particular network ref class.
 func (m *Manager) UpdateActionReferences(ctx context.Context, id strfmt.UUID,
 	propertyName string, refs models.MultipleRef) error {
-	schemaLock, err := m.db.SchemaLock()
+	unlock, err := m.locks.LockSchema()
 	if err != nil {
 		return newErrInternal("could not aquire lock: %v", err)
 	}
-	defer unlock(schemaLock)
-	classSchema := schemaLock.GetSchema()
-	schemaManager := schemaLock.SchemaManager()
-	dbConnector := schemaLock.Connector()
+	defer unlock()
 
-	return m.updateActionReferenceToConnectorAndSchema(ctx, id, propertyName, refs,
-		dbConnector, classSchema, schemaManager)
+	return m.updateActionReferenceToConnectorAndSchema(ctx, id, propertyName, refs)
 }
 
 func (m *Manager) updateActionReferenceToConnectorAndSchema(ctx context.Context, id strfmt.UUID,
-	propertyName string, refs models.MultipleRef, repo updateAndGetRepo, classSchema schema.Schema,
-	schemaManager schemaManager) error {
+	propertyName string, refs models.MultipleRef) error {
 
 	// get action to see if it exists
 	action, err := m.getActionFromRepo(ctx, id)
@@ -48,12 +42,12 @@ func (m *Manager) updateActionReferenceToConnectorAndSchema(ctx context.Context,
 		return err
 	}
 
-	err = m.validateReferences(ctx, refs, repo)
+	err = m.validateReferences(ctx, refs)
 	if err != nil {
 		return err
 	}
 
-	err = m.validateCanModifyReference(kind.ACTION_KIND, action.Class, propertyName, classSchema)
+	err = m.validateCanModifyReference(kind.ACTION_KIND, action.Class, propertyName)
 	if err != nil {
 		return err
 	}
@@ -71,7 +65,7 @@ func (m *Manager) updateActionReferenceToConnectorAndSchema(ctx context.Context,
 		return newErrInternal("could not update schema for network refs: %v", err)
 	}
 
-	repo.UpdateAction(ctx, action, action.ID)
+	m.repo.UpdateAction(ctx, action, action.ID)
 	if err != nil {
 		return newErrInternal("could not store action: %v", err)
 	}
@@ -84,22 +78,17 @@ func (m *Manager) updateActionReferenceToConnectorAndSchema(ctx context.Context,
 // include this particular network ref class.
 func (m *Manager) UpdateThingReferences(ctx context.Context, id strfmt.UUID,
 	propertyName string, refs models.MultipleRef) error {
-	schemaLock, err := m.db.SchemaLock()
+	unlock, err := m.locks.LockSchema()
 	if err != nil {
 		return newErrInternal("could not aquire lock: %v", err)
 	}
-	defer unlock(schemaLock)
-	classSchema := schemaLock.GetSchema()
-	schemaManager := schemaLock.SchemaManager()
-	dbConnector := schemaLock.Connector()
+	defer unlock()
 
-	return m.updateThingReferenceToConnectorAndSchema(ctx, id, propertyName, refs,
-		dbConnector, classSchema, schemaManager)
+	return m.updateThingReferenceToConnectorAndSchema(ctx, id, propertyName, refs)
 }
 
 func (m *Manager) updateThingReferenceToConnectorAndSchema(ctx context.Context, id strfmt.UUID,
-	propertyName string, refs models.MultipleRef, repo updateAndGetRepo, classSchema schema.Schema,
-	schemaManager schemaManager) error {
+	propertyName string, refs models.MultipleRef) error {
 
 	// get thing to see if it exists
 	thing, err := m.getThingFromRepo(ctx, id)
@@ -107,12 +96,12 @@ func (m *Manager) updateThingReferenceToConnectorAndSchema(ctx context.Context, 
 		return err
 	}
 
-	err = m.validateReferences(ctx, refs, repo)
+	err = m.validateReferences(ctx, refs)
 	if err != nil {
 		return err
 	}
 
-	err = m.validateCanModifyReference(kind.THING_KIND, thing.Class, propertyName, classSchema)
+	err = m.validateCanModifyReference(kind.THING_KIND, thing.Class, propertyName)
 	if err != nil {
 		return err
 	}
@@ -130,7 +119,7 @@ func (m *Manager) updateThingReferenceToConnectorAndSchema(ctx context.Context, 
 		return newErrInternal("could not update schema for network refs: %v", err)
 	}
 
-	repo.UpdateThing(ctx, thing, thing.ID)
+	m.repo.UpdateThing(ctx, thing, thing.ID)
 	if err != nil {
 		return newErrInternal("could not store thing: %v", err)
 	}
@@ -138,8 +127,8 @@ func (m *Manager) updateThingReferenceToConnectorAndSchema(ctx context.Context, 
 	return nil
 }
 
-func (m *Manager) validateReferences(ctx context.Context, references models.MultipleRef, repo getRepo) error {
-	err := validation.ValidateMultipleRef(ctx, m.config, &references, repo, m.network, "reference not found")
+func (m *Manager) validateReferences(ctx context.Context, references models.MultipleRef) error {
+	err := validation.ValidateMultipleRef(ctx, m.config, &references, m.repo, m.network, "reference not found")
 	if err != nil {
 		return newErrInvalidUserInput("invalid references: %v", err)
 	}

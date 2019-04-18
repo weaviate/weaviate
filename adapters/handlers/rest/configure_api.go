@@ -24,6 +24,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/batch"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/operations"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/state"
+	"github.com/creativesoftwarefdn/weaviate/adapters/locks"
 	"github.com/creativesoftwarefdn/weaviate/database"
 	etcdSchemaManager "github.com/creativesoftwarefdn/weaviate/database/schema_manager/etcd"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
@@ -56,7 +57,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Logger.WithField("action", "restapi_management").Infof(msg, args...)
 	}
 
-	kindsManager := kinds.NewManager(db, network, serverConfig)
+	kindsManager := kinds.NewManager(appState.Connector, appState.Locks, appState.SchemaManager, network, serverConfig)
 
 	setupSchemaHandlers(api, mainLog, schemaUC.NewManager(db))
 	setupKindHandlers(api, mainLog, kindsManager)
@@ -155,6 +156,7 @@ func startupRoutine() *state.State {
 		logger.WithField("action", "startup").WithError(err).Error("could not load config")
 		logger.Exit(1)
 	}
+	appState.Connector = dbConnector
 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("created db connector")
@@ -179,6 +181,16 @@ func startupRoutine() *state.State {
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("created etcd client")
 
+	// new lock
+	etcdLock, err := locks.NewEtcdLock(etcdClient, "/weaviate/schema-connector-rw-lock", logger)
+	if err != nil {
+		logger.WithField("action", "startup").
+			WithError(err).Error("cannot create etcd-based lock")
+		logger.Exit(1)
+	}
+	appState.Locks = etcdLock
+
+	// TODO: remove
 	s1, err := concurrency.NewSession(etcdClient)
 	if err != nil {
 		logger.WithField("action", "startup").
@@ -188,6 +200,7 @@ func startupRoutine() *state.State {
 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("created etcd session")
+		// END remove
 
 	manager, err := etcdSchemaManager.New(ctx, etcdClient, dbConnector, network, logger)
 	if err != nil {
@@ -195,6 +208,7 @@ func startupRoutine() *state.State {
 			WithError(err).Error("cannot (etcd) schema manager and initialize schema")
 		logger.Exit(1)
 	}
+	appState.SchemaManager = manager
 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("initialized schema")

@@ -28,45 +28,44 @@ type getRepo interface {
 
 // GetThing Class from the connected DB
 func (m *Manager) GetThing(ctx context.Context, id strfmt.UUID) (*models.Thing, error) {
-	err := m.locks.LockConnector()
+	unlock, err := m.locks.LockConnector()
 	if err != nil {
 		return nil, newErrInternal("could not aquire lock: %v", err)
 	}
-	defer m.locks.UnlockConnector()
+	defer unlock()
 
 	return m.getThingFromRepo(ctx, id)
 }
 
 // GetThings Class from the connected DB
 func (m *Manager) GetThings(ctx context.Context, limit int) ([]*models.Thing, error) {
-	err := m.locks.LockConnector()
+	unlock, err := m.locks.LockConnector()
 	if err != nil {
 		return nil, newErrInternal("could not aquire lock: %v", err)
 	}
-	defer m.locks.UnlockConnector()
+	defer unlock()
 
 	return m.getThingsFromRepo(ctx, limit)
 }
 
 // GetAction Class from connected DB
 func (m *Manager) GetAction(ctx context.Context, id strfmt.UUID) (*models.Action, error) {
-	dbLock, err := m.db.ConnectorLock()
+	unlock, err := m.locks.LockConnector()
 	if err != nil {
-		return nil, newErrInternal("could not get lock: %v", err)
+		return nil, newErrInternal("could not aquire lock: %v", err)
 	}
-
-	defer unlock(dbLock)
+	defer unlock()
 
 	return m.getActionFromRepo(ctx, id)
 }
 
 // GetActions Class from connected DB
 func (m *Manager) GetActions(ctx context.Context, limit int) ([]*models.Action, error) {
-	err := m.locks.LockConnector()
+	unlock, err := m.locks.LockConnector()
 	if err != nil {
 		return nil, newErrInternal("could not aquire lock: %v", err)
 	}
-	defer m.locks.UnlockConnector()
+	defer unlock()
 
 	return m.getActionsFromRepo(ctx, limit)
 }
