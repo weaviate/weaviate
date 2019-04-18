@@ -1,7 +1,7 @@
 stages:
   - name: build_tools
     if: branch = master
-  - test
+  - name: test
   - name: push
     if: branch = master
   - name: release
@@ -9,17 +9,14 @@ stages:
   - name: deploy
     if: branch = master
 
-services: 
-  - docker
+services: docker
 sudo: required
 
 addons:
-  hosts:
-    - db
+  hosts: db
 
 dist: xenial
-go: 
-  - "1.11.5"
+go: "1.11.5"
 env:
   matrix:
   # Force using modules.
@@ -106,7 +103,11 @@ jobs:
               travis_terminate 1
           fi
     - stage: deploy
-      script: echo "Deploying weavite to staging via Helm chart"
+      script: 
+        - WEAVIATE_VERSION=$(cat openapi-specs/schema.json| jq -r '.info.version')
+        - TAG=$DOCKER_ID$WEAVIATE_VERSION-$(echo $TRAVIS_COMMIT | cut -c1-7)
+        - echo "Deploying weavite version ${TAG} to staging via Helm chart"
+        # - helm upgrade weaviate --set image.tag=$TAG
 install:  
   # - curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
   # - chmod +x ./cc-test-reporter
