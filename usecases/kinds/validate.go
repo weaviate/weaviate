@@ -19,15 +19,13 @@ import (
 // ValidateThing without adding it to the database. Can be used in UIs for
 // async validation before submitting
 func (m *Manager) ValidateThing(ctx context.Context, class *models.Thing) error {
-	lock, err := m.db.ConnectorLock()
+	err := m.locks.LockConnector()
 	if err != nil {
 		return newErrInternal("could not acquire lock: %v", err)
 	}
-	defer unlock(lock)
-	dbConnector := lock.Connector()
-	schema := lock.GetSchema()
+	defer m.locks.UnlockConnector()
 
-	err = m.validateThing(ctx, schema, class, dbConnector)
+	err = m.validateThing(ctx, class)
 	if err != nil {
 		return newErrInvalidUserInput("invalid thing: %v", err)
 	}
@@ -38,15 +36,13 @@ func (m *Manager) ValidateThing(ctx context.Context, class *models.Thing) error 
 // ValidateAction without adding it to the database. Can be used in UIs for
 // async validation before submitting
 func (m *Manager) ValidateAction(ctx context.Context, class *models.Action) error {
-	lock, err := m.db.ConnectorLock()
+	err := m.locks.LockConnector()
 	if err != nil {
 		return newErrInternal("could not acquire lock: %v", err)
 	}
-	defer unlock(lock)
-	dbConnector := lock.Connector()
-	schema := lock.GetSchema()
+	defer m.locks.UnlockConnector()
 
-	err = m.validateAction(ctx, schema, class, dbConnector)
+	err = m.validateAction(ctx, class)
 	if err != nil {
 		return newErrInvalidUserInput("invalid action: %v", err)
 	}

@@ -39,11 +39,11 @@ func (m *Manager) AddActionReference(ctx context.Context, id strfmt.UUID,
 }
 
 func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, id strfmt.UUID,
-	propertyName string, property *models.SingleRef, repo updateRepo, classSchema schema.Schema,
+	propertyName string, property *models.SingleRef, repo updateAndGetRepo, classSchema schema.Schema,
 	schemaManager schemaManager) error {
 
 	// get action to see if it exists
-	action, err := m.getActionFromRepo(ctx, id, repo)
+	action, err := m.getActionFromRepo(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -66,7 +66,7 @@ func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, id
 	action.LastUpdateTimeUnix = unixNow()
 
 	// the new ref could be a network ref
-	err = m.addNetworkDataTypesForAction(ctx, schemaManager, action)
+	err = m.addNetworkDataTypesForAction(ctx, action)
 	if err != nil {
 		return newErrInternal("could not update schema for network refs: %v", err)
 	}
@@ -98,11 +98,11 @@ func (m *Manager) AddThingReference(ctx context.Context, id strfmt.UUID,
 }
 
 func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, id strfmt.UUID,
-	propertyName string, property *models.SingleRef, repo updateRepo, classSchema schema.Schema,
+	propertyName string, property *models.SingleRef, repo updateAndGetRepo, classSchema schema.Schema,
 	schemaManager schemaManager) error {
 
 	// get thing to see if it exists
-	thing, err := m.getThingFromRepo(ctx, id, repo)
+	thing, err := m.getThingFromRepo(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -125,7 +125,7 @@ func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, id 
 	thing.LastUpdateTimeUnix = unixNow()
 
 	// the new ref could be a network ref
-	err = m.addNetworkDataTypesForThing(ctx, schemaManager, thing)
+	err = m.addNetworkDataTypesForThing(ctx, thing)
 	if err != nil {
 		return newErrInternal("could not update schema for network refs: %v", err)
 	}

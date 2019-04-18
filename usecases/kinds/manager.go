@@ -24,9 +24,12 @@ import (
 // Manager Manages schema changes at a use-case level, i.e. agnostic of
 // underlying databases or storage providers
 type Manager struct {
-	db      db
-	network network.Network
-	config  *config.WeaviateConfig
+	db            db
+	network       network.Network
+	config        *config.WeaviateConfig
+	repo          repo
+	locks         locks
+	schemaManager schemaManager
 }
 
 type db interface {
@@ -34,6 +37,20 @@ type db interface {
 	// arch principles
 	SchemaLock() (database.SchemaLock, error)
 	ConnectorLock() (database.ConnectorLock, error)
+}
+
+type repo interface {
+	addRepo
+	getRepo
+	updateRepo
+	deleteRepo
+}
+
+type locks interface {
+	LockConnector() error
+	UnlockConnector() error
+	LockSchema() error
+	UnlockSchema() error
 }
 
 // NewManager creates a new manager

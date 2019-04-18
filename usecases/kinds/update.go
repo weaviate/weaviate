@@ -19,11 +19,15 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-type updateRepo interface {
+type updateAndGetRepo interface {
 	// The validation package needs to be able to get existing classes as well
 	getRepo
 
 	// methods to update new items
+	updateRepo
+}
+
+type updateRepo interface {
 	UpdateAction(ctx context.Context, class *models.Action, id strfmt.UUID) error
 	UpdateThing(ctx context.Context, class *models.Thing, id strfmt.UUID) error
 }
@@ -44,23 +48,23 @@ func (m *Manager) UpdateAction(ctx context.Context, id strfmt.UUID, class *model
 }
 
 func (m *Manager) updateActionToConnectorAndSchema(ctx context.Context, id strfmt.UUID,
-	class *models.Action, updateRepo updateRepo, schemaManager database.SchemaManager) (*models.Action,
+	class *models.Action, updateRepo updateAndGetRepo, schemaManager database.SchemaManager) (*models.Action,
 	error) {
 	if id != class.ID {
 		return nil, newErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
 
-	_, err := m.getActionFromRepo(ctx, id, updateRepo)
+	_, err := m.getActionFromRepo(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
-	err = m.validateAction(ctx, schemaManager.GetSchema(), class, updateRepo)
+	err = m.validateAction(ctx, class)
 	if err != nil {
 		return nil, newErrInvalidUserInput("invalid action: %v", err)
 	}
 
-	err = m.addNetworkDataTypesForAction(ctx, schemaManager, class)
+	err = m.addNetworkDataTypesForAction(ctx, class)
 	if err != nil {
 		return nil, newErrInternal("could not update schema for network refs: %v", err)
 	}
@@ -90,23 +94,23 @@ func (m *Manager) UpdateThing(ctx context.Context, id strfmt.UUID, class *models
 }
 
 func (m *Manager) updateThingToConnectorAndSchema(ctx context.Context, id strfmt.UUID,
-	class *models.Thing, updateRepo updateRepo, schemaManager database.SchemaManager) (*models.Thing,
+	class *models.Thing, updateRepo updateAndGetRepo, schemaManager database.SchemaManager) (*models.Thing,
 	error) {
 	if id != class.ID {
 		return nil, newErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
 
-	_, err := m.getThingFromRepo(ctx, id, updateRepo)
+	_, err := m.getThingFromRepo(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
-	err = m.validateThing(ctx, schemaManager.GetSchema(), class, updateRepo)
+	err = m.validateThing(ctx, class)
 	if err != nil {
 		return nil, newErrInvalidUserInput("invalid thing: %v", err)
 	}
 
-	err = m.addNetworkDataTypesForThing(ctx, schemaManager, class)
+	err = m.addNetworkDataTypesForThing(ctx, class)
 	if err != nil {
 		return nil, newErrInternal("could not update schema for network refs: %v", err)
 	}
