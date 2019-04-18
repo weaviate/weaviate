@@ -28,28 +28,24 @@ type getRepo interface {
 
 // GetThing Class from the connected DB
 func (m *Manager) GetThing(ctx context.Context, id strfmt.UUID) (*models.Thing, error) {
-	dbLock, err := m.db.ConnectorLock()
+	err := m.locks.LockConnector()
 	if err != nil {
-		return nil, newErrInternal("could not get lock: %v", err)
+		return nil, newErrInternal("could not aquire lock: %v", err)
 	}
+	defer m.locks.UnlockConnector()
 
-	defer unlock(dbLock)
-	dbConnector := dbLock.Connector()
-
-	return m.getThingFromRepo(ctx, id, dbConnector)
+	return m.getThingFromRepo(ctx, id)
 }
 
 // GetThings Class from the connected DB
 func (m *Manager) GetThings(ctx context.Context, limit int) ([]*models.Thing, error) {
-	dbLock, err := m.db.ConnectorLock()
+	err := m.locks.LockConnector()
 	if err != nil {
-		return nil, newErrInternal("could not get lock: %v", err)
+		return nil, newErrInternal("could not aquire lock: %v", err)
 	}
+	defer m.locks.UnlockConnector()
 
-	defer unlock(dbLock)
-	dbConnector := dbLock.Connector()
-
-	return m.getThingsFromRepo(ctx, limit, dbConnector)
+	return m.getThingsFromRepo(ctx, limit)
 }
 
 // GetAction Class from connected DB
@@ -60,29 +56,25 @@ func (m *Manager) GetAction(ctx context.Context, id strfmt.UUID) (*models.Action
 	}
 
 	defer unlock(dbLock)
-	dbConnector := dbLock.Connector()
 
-	return m.getActionFromRepo(ctx, id, dbConnector)
+	return m.getActionFromRepo(ctx, id)
 }
 
 // GetActions Class from connected DB
 func (m *Manager) GetActions(ctx context.Context, limit int) ([]*models.Action, error) {
-	dbLock, err := m.db.ConnectorLock()
+	err := m.locks.LockConnector()
 	if err != nil {
-		return nil, newErrInternal("could not get lock: %v", err)
+		return nil, newErrInternal("could not aquire lock: %v", err)
 	}
+	defer m.locks.UnlockConnector()
 
-	defer unlock(dbLock)
-	dbConnector := dbLock.Connector()
-
-	return m.getActionsFromRepo(ctx, limit, dbConnector)
+	return m.getActionsFromRepo(ctx, limit)
 }
 
-func (m *Manager) getThingFromRepo(ctx context.Context, id strfmt.UUID,
-	repo getRepo) (*models.Thing, error) {
+func (m *Manager) getThingFromRepo(ctx context.Context, id strfmt.UUID) (*models.Thing, error) {
 	thing := models.Thing{}
 	thing.Schema = map[string]models.JSONObject{}
-	err := repo.GetThing(ctx, id, &thing)
+	err := m.repo.GetThing(ctx, id, &thing)
 	if err != nil {
 		switch err {
 		// TODO: Replace with structured error
@@ -96,11 +88,10 @@ func (m *Manager) getThingFromRepo(ctx context.Context, id strfmt.UUID,
 	return &thing, nil
 }
 
-func (m *Manager) getThingsFromRepo(ctx context.Context, limit int,
-	repo getRepo) ([]*models.Thing, error) {
+func (m *Manager) getThingsFromRepo(ctx context.Context, limit int) ([]*models.Thing, error) {
 	thingsResponse := models.ThingsListResponse{}
 	thingsResponse.Things = []*models.Thing{}
-	err := repo.ListThings(ctx, limit, &thingsResponse)
+	err := m.repo.ListThings(ctx, limit, &thingsResponse)
 	if err != nil {
 		return nil, newErrInternal("could not list things: %v", err)
 	}
@@ -108,11 +99,10 @@ func (m *Manager) getThingsFromRepo(ctx context.Context, limit int,
 	return thingsResponse.Things, nil
 }
 
-func (m *Manager) getActionFromRepo(ctx context.Context, id strfmt.UUID,
-	repo getRepo) (*models.Action, error) {
+func (m *Manager) getActionFromRepo(ctx context.Context, id strfmt.UUID) (*models.Action, error) {
 	action := models.Action{}
 	action.Schema = map[string]models.JSONObject{}
-	err := repo.GetAction(ctx, id, &action)
+	err := m.repo.GetAction(ctx, id, &action)
 	if err != nil {
 		switch err {
 		// TODO: Replace with structured error
@@ -126,11 +116,10 @@ func (m *Manager) getActionFromRepo(ctx context.Context, id strfmt.UUID,
 	return &action, nil
 }
 
-func (m *Manager) getActionsFromRepo(ctx context.Context, limit int,
-	repo getRepo) ([]*models.Action, error) {
+func (m *Manager) getActionsFromRepo(ctx context.Context, limit int) ([]*models.Action, error) {
 	actionsResponse := models.ActionsListResponse{}
 	actionsResponse.Actions = []*models.Action{}
-	err := repo.ListActions(ctx, limit, &actionsResponse)
+	err := m.repo.ListActions(ctx, limit, &actionsResponse)
 	if err != nil {
 		return nil, newErrInternal("could not list actions: %v", err)
 	}

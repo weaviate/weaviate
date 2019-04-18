@@ -17,10 +17,12 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-type deleteRepo interface {
-	// delete depends on getRepo for a not-found check
+type deleteAndGetRepo interface {
+	deleteRepo
 	getRepo
+}
 
+type deleteRepo interface {
 	// TODO: Delete unnecessary 2nd arg
 	DeleteThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error
 	DeleteAction(ctx context.Context, thing *models.Action, UUID strfmt.UUID) error
@@ -28,25 +30,22 @@ type deleteRepo interface {
 
 // DeleteAction Class Instance from the conncected DB
 func (m *Manager) DeleteAction(ctx context.Context, id strfmt.UUID) error {
-	dbLock, err := m.db.ConnectorLock()
+	err := m.locks.LockConnector()
 	if err != nil {
 		return newErrInternal("could not aquire lock: %v", err)
 	}
-	defer unlock(dbLock)
+	defer m.locks.UnlockConnector()
 
-	dbConnector := dbLock.Connector()
-	return m.deleteActionFromRepo(ctx, id, dbConnector)
+	return m.deleteActionFromRepo(ctx, id)
 }
 
-func (m *Manager) deleteActionFromRepo(ctx context.Context, id strfmt.UUID,
-	repo deleteRepo) error {
-
-	_, err := m.getActionFromRepo(ctx, id, repo)
+func (m *Manager) deleteActionFromRepo(ctx context.Context, id strfmt.UUID) error {
+	_, err := m.getActionFromRepo(ctx, id)
 	if err != nil {
 		return err
 	}
 
-	repo.DeleteAction(ctx, nil, id)
+	m.repo.DeleteAction(ctx, nil, id)
 	if err != nil {
 		return newErrInternal("could not delete action: %v", err)
 	}
@@ -56,25 +55,23 @@ func (m *Manager) deleteActionFromRepo(ctx context.Context, id strfmt.UUID,
 
 // DeleteThing Class Instance from the conncected DB
 func (m *Manager) DeleteThing(ctx context.Context, id strfmt.UUID) error {
-	dbLock, err := m.db.ConnectorLock()
+	err := m.locks.LockConnector()
 	if err != nil {
 		return newErrInternal("could not aquire lock: %v", err)
 	}
-	defer unlock(dbLock)
+	defer m.locks.UnlockConnector()
 
-	dbConnector := dbLock.Connector()
-	return m.deleteThingFromRepo(ctx, id, dbConnector)
+	return m.deleteThingFromRepo(ctx, id)
 }
 
-func (m *Manager) deleteThingFromRepo(ctx context.Context, id strfmt.UUID,
-	repo deleteRepo) error {
+func (m *Manager) deleteThingFromRepo(ctx context.Context, id strfmt.UUID) error {
 
-	_, err := m.getThingFromRepo(ctx, id, repo)
+	_, err := m.getThingFromRepo(ctx, id)
 	if err != nil {
 		return err
 	}
 
-	repo.DeleteThing(ctx, nil, id)
+	m.repo.DeleteThing(ctx, nil, id)
 	if err != nil {
 		return newErrInternal("could not delete thing: %v", err)
 	}

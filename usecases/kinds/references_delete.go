@@ -35,11 +35,11 @@ func (m *Manager) DeleteActionReference(ctx context.Context, id strfmt.UUID,
 }
 
 func (m *Manager) deleteActionReferenceFromConnector(ctx context.Context, id strfmt.UUID,
-	propertyName string, property *models.SingleRef, repo updateRepo,
+	propertyName string, property *models.SingleRef, repo updateAndGetRepo,
 	classSchema schema.Schema) error {
 
 	// get action to see if it exists
-	action, err := m.getActionFromRepo(ctx, id, repo)
+	action, err := m.getActionFromRepo(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -82,11 +82,11 @@ func (m *Manager) DeleteThingReference(ctx context.Context, id strfmt.UUID,
 }
 
 func (m *Manager) deleteThingReferenceFromConnector(ctx context.Context, id strfmt.UUID,
-	propertyName string, property *models.SingleRef, repo updateRepo,
+	propertyName string, property *models.SingleRef, repo updateAndGetRepo,
 	classSchema schema.Schema) error {
 
 	// get thing to see if it exists
-	thing, err := m.getThingFromRepo(ctx, id, repo)
+	thing, err := m.getThingFromRepo(ctx, id)
 	if err != nil {
 		return err
 	}
