@@ -32,9 +32,9 @@ func New() *graphql.Object {
 			Description: descriptions.NetworkFetchActions,
 			Type:        graphql.NewList(actionsFields),
 			Args: graphql.FieldConfigArgument{
-				"where": fetch.NewFilterBuilder(kind.ACTION_KIND, "WeaviateNetwork").Build(),
+				"where": fetch.NewFilterBuilder(kind.Action, "WeaviateNetwork").Build(),
 			},
-			Resolve: makeResolveKind(kind.ACTION_KIND),
+			Resolve: makeResolveKind(kind.Action),
 		},
 
 		"Things": &graphql.Field{
@@ -42,9 +42,9 @@ func New() *graphql.Object {
 			Description: descriptions.NetworkFetchThings,
 			Type:        graphql.NewList(thingsFields),
 			Args: graphql.FieldConfigArgument{
-				"where": fetch.NewFilterBuilder(kind.THING_KIND, "WeaviateNetwork").Build(),
+				"where": fetch.NewFilterBuilder(kind.Thing, "WeaviateNetwork").Build(),
 			},
-			Resolve: makeResolveKind(kind.THING_KIND),
+			Resolve: makeResolveKind(kind.Thing),
 		},
 
 		"Fuzzy": &graphql.Field{

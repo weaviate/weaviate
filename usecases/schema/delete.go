@@ -18,12 +18,12 @@ import (
 
 // DeleteAction Class to the schema
 func (m *Manager) DeleteAction(ctx context.Context, class string) error {
-	return m.deleteClass(ctx, class, kind.ACTION_KIND)
+	return m.deleteClass(ctx, class, kind.Action)
 }
 
 // DeleteThing Class to the schema
 func (m *Manager) DeleteThing(ctx context.Context, class string) error {
-	return m.deleteClass(ctx, class, kind.THING_KIND)
+	return m.deleteClass(ctx, class, kind.Thing)
 }
 
 func (m *Manager) deleteClass(ctx context.Context, class string, k kind.Kind) error {

@@ -26,7 +26,7 @@ func Test_QueryBuilder(t *testing.T) {
 		{
 			name: "with a single class name, single property name, string type",
 			inputParams: fetch.Params{
-				Kind: kind.THING_KIND,
+				Kind: kind.Thing,
 				PossibleClassNames: contextionary.SearchResults{
 					Results: []contextionary.SearchResult{
 						{
@@ -48,7 +48,7 @@ func Test_QueryBuilder(t *testing.T) {
 		{
 			name: "with a single class name, single property name, int type, operator Equal",
 			inputParams: fetch.Params{
-				Kind: kind.THING_KIND,
+				Kind: kind.Thing,
 				PossibleClassNames: contextionary.SearchResults{
 					Results: []contextionary.SearchResult{
 						{
@@ -70,7 +70,7 @@ func Test_QueryBuilder(t *testing.T) {
 		{
 			name: "with the field type not matching the property type",
 			inputParams: fetch.Params{
-				Kind: kind.THING_KIND,
+				Kind: kind.Thing,
 				PossibleClassNames: contextionary.SearchResults{
 					Results: []contextionary.SearchResult{
 						{
@@ -114,7 +114,7 @@ func Test_QueryBuilder(t *testing.T) {
 		{
 			name: "with multiple class/property combinations, correct type",
 			inputParams: fetch.Params{
-				Kind: kind.THING_KIND,
+				Kind: kind.Thing,
 				PossibleClassNames: contextionary.SearchResults{
 					Results: []contextionary.SearchResult{
 						{
@@ -163,7 +163,7 @@ func Test_QueryBuilder(t *testing.T) {
 		{
 			name: "with a single property with no valid combination of class and props",
 			inputParams: fetch.Params{
-				Kind: kind.THING_KIND,
+				Kind: kind.Thing,
 				PossibleClassNames: contextionary.SearchResults{
 					Results: []contextionary.SearchResult{
 						{

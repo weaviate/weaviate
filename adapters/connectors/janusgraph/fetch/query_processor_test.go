@@ -59,7 +59,7 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		k := kind.THING_KIND
+		k := kind.Thing
 		peerName := "my-super-peer"
 
 		result, err := NewProcessor(executor, k, peerName, &fakeNameSource{}).Process(gremlin.New())

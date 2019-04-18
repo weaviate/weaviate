@@ -20,13 +20,13 @@ import (
 // UpdateActionProperty of an existing Action Property
 func (m *Manager) UpdateActionProperty(ctx context.Context, class string, name string,
 	property *models.SemanticSchemaClassProperty) error {
-	return m.updateClassProperty(ctx, class, name, property, kind.ACTION_KIND)
+	return m.updateClassProperty(ctx, class, name, property, kind.Action)
 }
 
 // UpdateThingProperty of an existing Thing Property
 func (m *Manager) UpdateThingProperty(ctx context.Context, class string, name string,
 	property *models.SemanticSchemaClassProperty) error {
-	return m.updateClassProperty(ctx, class, name, property, kind.THING_KIND)
+	return m.updateClassProperty(ctx, class, name, property, kind.Thing)
 }
 
 // TODO: gh-832: Implement full capabilities, not just keywords/naming

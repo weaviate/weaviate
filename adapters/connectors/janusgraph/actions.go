@@ -25,7 +25,7 @@ import (
 
 func (j *Janusgraph) AddAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error {
 	sanitizedClassName := schema.AssertValidClassName(action.Class)
-	return j.addClass(kind.ACTION_KIND, sanitizedClassName, UUID, action.CreationTimeUnix, action.LastUpdateTimeUnix, action.Schema)
+	return j.addClass(kind.Action, sanitizedClassName, UUID, action.CreationTimeUnix, action.LastUpdateTimeUnix, action.Schema)
 }
 
 func (j *Janusgraph) AddActionsBatch(ctx context.Context, actions batchmodels.Actions) error {
@@ -33,7 +33,7 @@ func (j *Janusgraph) AddActionsBatch(ctx context.Context, actions batchmodels.Ac
 }
 
 func (j *Janusgraph) GetAction(ctx context.Context, UUID strfmt.UUID, actionResponse *models.Action) error {
-	return j.getClass(kind.ACTION_KIND, UUID,
+	return j.getClass(kind.Action, UUID,
 		&actionResponse.Class,
 		&actionResponse.ID,
 		&actionResponse.CreationTimeUnix,
@@ -45,7 +45,7 @@ func (j *Janusgraph) ListActions(ctx context.Context, limit int, response *model
 	response.TotalResults = 0
 	response.Actions = make([]*models.Action, 0)
 
-	return j.listClass(kind.ACTION_KIND, nil, limit, nil, func(uuid strfmt.UUID) {
+	return j.listClass(kind.Action, nil, limit, nil, func(uuid strfmt.UUID) {
 		var action_response models.Action
 		err := j.GetAction(ctx, uuid, &action_response)
 
@@ -60,9 +60,9 @@ func (j *Janusgraph) ListActions(ctx context.Context, limit int, response *model
 
 func (j *Janusgraph) UpdateAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error {
 	sanitizedClassName := schema.AssertValidClassName(action.Class)
-	return j.updateClass(kind.ACTION_KIND, sanitizedClassName, UUID, action.LastUpdateTimeUnix, action.Schema)
+	return j.updateClass(kind.Action, sanitizedClassName, UUID, action.LastUpdateTimeUnix, action.Schema)
 }
 
 func (j *Janusgraph) DeleteAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error {
-	return j.deleteClass(kind.ACTION_KIND, UUID)
+	return j.deleteClass(kind.Action, UUID)
 }

@@ -228,7 +228,12 @@ func (p *Processor) refTypeFromEdge(edgeMap map[string]interface{}) (*crossref.R
 		return nil, fmt.Errorf("expected edge object to be have key 'refType', but got %#v", edgeMap)
 	}
 
-	ref := crossref.New(location.(string), strfmt.UUID(uuid.(string)), kind.KindByName(refType.(string)))
+	k, err := kind.Parse(refType.(string))
+	if err != nil {
+		return nil, fmt.Errorf("could not parse kind: %s", err)
+	}
+
+	ref := crossref.New(location.(string), strfmt.UUID(uuid.(string)), k)
 	return ref, nil
 }
 

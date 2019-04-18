@@ -28,7 +28,7 @@ import (
 func TestGetKindWithoutPeers(t *testing.T) {
 	peers := Peers{}
 	thing := crossrefs.NetworkKind{
-		Kind:     kind.THING_KIND,
+		Kind:     kind.Thing,
 		PeerName: "WeaviateB",
 		ID:       "doesnt-matter",
 	}
@@ -58,7 +58,7 @@ func TestGetKindHappyPathWithThings(t *testing.T) {
 		},
 	}
 	thing := crossrefs.NetworkKind{
-		Kind:     kind.THING_KIND,
+		Kind:     kind.Thing,
 		PeerName: "WeaviateB",
 		ID:       "best-uuid",
 	}
@@ -114,7 +114,7 @@ func TestGetKindHappyPathWithActions(t *testing.T) {
 		},
 	}
 	action := crossrefs.NetworkKind{
-		Kind:     kind.ACTION_KIND,
+		Kind:     kind.Action,
 		PeerName: "WeaviateB",
 		ID:       "best-uuid-2",
 	}
@@ -170,7 +170,7 @@ func TestGetKindSchemaMismatch(t *testing.T) {
 		},
 	}
 	action := crossrefs.NetworkKind{
-		Kind:     kind.ACTION_KIND,
+		Kind:     kind.Action,
 		PeerName: "WeaviateB",
 		ID:       "best-uuid-2",
 	}
@@ -202,7 +202,7 @@ func TestGetKindNotFound(t *testing.T) {
 		},
 	}
 	action := crossrefs.NetworkKind{
-		Kind:     kind.ACTION_KIND,
+		Kind:     kind.Action,
 		PeerName: "WeaviateB",
 		ID:       "best-uuid-2",
 	}

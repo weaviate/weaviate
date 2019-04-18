@@ -28,7 +28,7 @@ func Test_ParamsHashing(t *testing.T) {
 			IncludeMetaCount: true,
 			ClassName:        schema.ClassName("MyBestClass"),
 			Filters:          nil,
-			Kind:             kind.THING_KIND,
+			Kind:             kind.Thing,
 			Properties: []MetaProperty{
 				MetaProperty{
 					Name:                schema.PropertyName("bestprop"),

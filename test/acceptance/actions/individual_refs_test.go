@@ -41,7 +41,7 @@ func TestCanAddAPropertyIndividually(t *testing.T) {
 	params := actions.NewWeaviateActionsReferencesCreateParams().
 		WithID(uuid).
 		WithPropertyName("testCrefs").
-		WithBody(crossref.New("localhost", toPointToUuid, kind.ACTION_KIND).SingleRef())
+		WithBody(crossref.New("localhost", toPointToUuid, kind.Action).SingleRef())
 
 	updateResp, err := helper.Client(t).Actions.WeaviateActionsReferencesCreate(params, nil)
 	helper.AssertRequestOk(t, updateResp, err, nil)
@@ -62,7 +62,7 @@ func TestCanReplaceAllProperties(t *testing.T) {
 
 	uuid := assertCreateAction(t, "TestActionTwo", map[string]interface{}{
 		"testCrefs": &models.MultipleRef{
-			crossref.New("localhost", toPointToUuidFirst, kind.ACTION_KIND).SingleRef(),
+			crossref.New("localhost", toPointToUuidFirst, kind.Action).SingleRef(),
 		},
 	})
 
@@ -76,7 +76,7 @@ func TestCanReplaceAllProperties(t *testing.T) {
 		WithID(uuid).
 		WithPropertyName("testCrefs").
 		WithBody(models.MultipleRef{
-			crossref.New("localhost", toPointToUuidLater, kind.ACTION_KIND).SingleRef(),
+			crossref.New("localhost", toPointToUuidLater, kind.Action).SingleRef(),
 		})
 
 	updateResp, err := helper.Client(t).Actions.WeaviateActionsReferencesUpdate(params, nil)
@@ -96,7 +96,7 @@ func TestRemovePropertyIndividually(t *testing.T) {
 
 	uuid := assertCreateAction(t, "TestActionTwo", map[string]interface{}{
 		"testCrefs": &models.MultipleRef{
-			crossref.New("localhost", toPointToUuid, kind.ACTION_KIND).SingleRef(),
+			crossref.New("localhost", toPointToUuid, kind.Action).SingleRef(),
 		},
 	})
 
@@ -110,7 +110,7 @@ func TestRemovePropertyIndividually(t *testing.T) {
 		WithID(uuid).
 		WithPropertyName("testCrefs").
 		WithBody(
-			crossref.New("localhost", toPointToUuid, kind.ACTION_KIND).SingleRef(),
+			crossref.New("localhost", toPointToUuid, kind.Action).SingleRef(),
 		)
 
 	updateResp, err := helper.Client(t).Actions.WeaviateActionsReferencesDelete(params, nil)

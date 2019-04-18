@@ -27,7 +27,7 @@ func TestSimpleFieldParamsOK(t *testing.T) {
 	t.Parallel()
 	resolver := newMockResolver(emptyPeers())
 	expectedParams := &Params{
-		Kind:       kind.ACTION_KIND,
+		Kind:       kind.Action,
 		ClassName:  "SomeAction",
 		Properties: []SelectProperty{{Name: "intField", IsPrimitive: true}},
 	}
@@ -44,7 +44,7 @@ func TestExtractIntField(t *testing.T) {
 	resolver := newMockResolver(emptyPeers())
 
 	expectedParams := &Params{
-		Kind:       kind.ACTION_KIND,
+		Kind:       kind.Action,
 		ClassName:  "SomeAction",
 		Properties: []SelectProperty{{Name: "intField", IsPrimitive: true}},
 	}
@@ -62,7 +62,7 @@ func TestExtractGeoCoordinatesField(t *testing.T) {
 	resolver := newMockResolver(emptyPeers())
 
 	expectedParams := &Params{
-		Kind:       kind.ACTION_KIND,
+		Kind:       kind.Action,
 		ClassName:  "SomeAction",
 		Properties: []SelectProperty{{Name: "location", IsPrimitive: true}},
 	}
@@ -95,7 +95,7 @@ func TestExtractPagination(t *testing.T) {
 	resolver := newMockResolver(emptyPeers())
 
 	expectedParams := &Params{
-		Kind:       kind.ACTION_KIND,
+		Kind:       kind.Action,
 		ClassName:  "SomeAction",
 		Properties: []SelectProperty{{Name: "intField", IsPrimitive: true}},
 		Pagination: &common.Pagination{
@@ -117,7 +117,7 @@ func TestGetRelation(t *testing.T) {
 		resolver := newMockResolver(emptyPeers())
 
 		expectedParams := &Params{
-			Kind:      kind.ACTION_KIND,
+			Kind:      kind.Action,
 			ClassName: "SomeAction",
 			Properties: []SelectProperty{
 				{
@@ -164,7 +164,7 @@ func TestGetRelation(t *testing.T) {
 		resolver := newMockResolver(emptyPeers())
 
 		expectedParams := &Params{
-			Kind:      kind.ACTION_KIND,
+			Kind:      kind.Action,
 			ClassName: "SomeAction",
 			Properties: []SelectProperty{
 				{
@@ -196,7 +196,7 @@ func TestGetRelation(t *testing.T) {
 		resolver := newMockResolver(emptyPeers())
 
 		expectedParams := &Params{
-			Kind:      kind.ACTION_KIND,
+			Kind:      kind.Action,
 			ClassName: "SomeAction",
 			Properties: []SelectProperty{
 				{

@@ -117,11 +117,11 @@ func (m *Manager) validateThing(ctx context.Context, class *models.Thing) error 
 }
 
 func (m *Manager) addNetworkDataTypesForThing(ctx context.Context, class *models.Thing) error {
-	refSchemaUpdater := newReferenceSchemaUpdater(ctx, m.schemaManager, m.network, class.Class, kind.THING_KIND)
+	refSchemaUpdater := newReferenceSchemaUpdater(ctx, m.schemaManager, m.network, class.Class, kind.Thing)
 	return refSchemaUpdater.addNetworkDataTypes(class.Schema)
 }
 
 func (m *Manager) addNetworkDataTypesForAction(ctx context.Context, class *models.Action) error {
-	refSchemaUpdater := newReferenceSchemaUpdater(ctx, m.schemaManager, m.network, class.Class, kind.ACTION_KIND)
+	refSchemaUpdater := newReferenceSchemaUpdater(ctx, m.schemaManager, m.network, class.Class, kind.Action)
 	return refSchemaUpdater.addNetworkDataTypes(class.Schema)
 }

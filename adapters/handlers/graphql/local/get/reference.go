@@ -175,7 +175,7 @@ func makeResolveRefField(peers peers.Peers) graphql.FieldResolveFn {
 }
 func extractSchemaFromKind(v NetworkRef, result interface{}) (map[string]interface{}, error) {
 	switch v.Kind {
-	case kind.THING_KIND:
+	case kind.Thing:
 		thing, ok := result.(*models.Thing)
 		if !ok {
 			return nil, fmt.Errorf("expected a models.Thing, but remote instance returned %#v", result)
@@ -188,7 +188,7 @@ func extractSchemaFromKind(v NetworkRef, result interface{}) (map[string]interfa
 		schema["__refClassName"] = thing.Class
 
 		return schema, nil
-	case kind.ACTION_KIND:
+	case kind.Action:
 		action, ok := result.(models.Action)
 		if !ok {
 			return nil, fmt.Errorf("expected a models.Action, but remote instance returned %#v", result)

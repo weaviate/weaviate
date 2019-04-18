@@ -70,7 +70,7 @@ func (j *Janusgraph) addThingsBatch(things batchmodels.Things) error {
 	}
 
 	for _, chunk := range chunked {
-		k := kind.THING_KIND
+		k := kind.Thing
 
 		q := gremlin.New().Raw("g")
 
@@ -146,7 +146,7 @@ func (j *Janusgraph) addActionsBatch(actions batchmodels.Actions) error {
 	}
 
 	for _, chunk := range chunked {
-		k := kind.ACTION_KIND
+		k := kind.Action
 
 		q := gremlin.New().Raw("g")
 

@@ -71,9 +71,9 @@ type state struct {
 
 func (l *state) SchemaFor(k kind.Kind) *models.SemanticSchema {
 	switch k {
-	case kind.THING_KIND:
+	case kind.Thing:
 		return l.ThingSchema
-	case kind.ACTION_KIND:
+	case kind.Action:
 		return l.ActionSchema
 	default:
 		// It is fine to panic here, as this indicates an unrecoverable error in

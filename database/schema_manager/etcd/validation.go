@@ -62,13 +62,13 @@ func (l *etcdSchemaManager) validateCanAddClass(knd kind.Kind, class *models.Sem
 }
 
 func (l *etcdSchemaManager) validateClassNameUniqueness(className string) error {
-	for _, otherClass := range l.schemaState.SchemaFor(kind.ACTION_KIND).Classes {
+	for _, otherClass := range l.schemaState.SchemaFor(kind.Action).Classes {
 		if className == otherClass.Class {
 			return fmt.Errorf("Name '%s' already used as a name for an Action class", className)
 		}
 	}
 
-	for _, otherClass := range l.schemaState.SchemaFor(kind.THING_KIND).Classes {
+	for _, otherClass := range l.schemaState.SchemaFor(kind.Thing).Classes {
 		if className == otherClass.Class {
 			return fmt.Errorf("Name '%s' already used as a name for a Thing class", className)
 		}

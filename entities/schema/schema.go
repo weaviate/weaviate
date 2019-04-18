@@ -57,9 +57,9 @@ func Empty() Schema {
 // Return one of the semantic schema's
 func (s *Schema) SemanticSchemaFor(k kind.Kind) *models.SemanticSchema {
 	switch k {
-	case kind.THING_KIND:
+	case kind.Thing:
 		return s.Things
-	case kind.ACTION_KIND:
+	case kind.Action:
 		return s.Actions
 	default:
 		panic(fmt.Sprintf("No such kind '%s'", k))

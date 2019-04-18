@@ -271,14 +271,14 @@ func (j *Janusgraph) singleLocalRef(ref *crossref.Ref, propType schema.PropertyD
 	result := edgeFromRefProp{}
 
 	switch ref.Kind {
-	case kind.ACTION_KIND:
+	case kind.Action:
 		var singleRefValue models.Action
 		err := j.GetAction(nil, ref.TargetID, &singleRefValue)
 		if err != nil {
 			return result, fmt.Errorf("Illegal value for property %s; could not resolve action with UUID: %v", ref.TargetID.String(), err)
 		}
 		refClassName = schema.AssertValidClassName(singleRefValue.Class)
-	case kind.THING_KIND:
+	case kind.Thing:
 		var singleRefValue models.Thing
 		err := j.GetThing(nil, ref.TargetID, &singleRefValue)
 		if err != nil {

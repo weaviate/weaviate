@@ -36,7 +36,7 @@ func Test_QueryBuilder(t *testing.T) {
 						Name:        "name",
 					},
 				},
-				Kind: kind.THING_KIND,
+				Kind: kind.Thing,
 				Pagination: &common.Pagination{
 					Limit: 33,
 				},
@@ -56,7 +56,7 @@ func Test_QueryBuilder(t *testing.T) {
 						Name:        "name",
 					},
 				},
-				Kind: kind.THING_KIND,
+				Kind: kind.Thing,
 			},
 			expectedQuery: `
 			g.V().has("kind", "thing").hasLabel("class_18")
@@ -73,7 +73,7 @@ func Test_QueryBuilder(t *testing.T) {
 						Name:        "name",
 					},
 				},
-				Kind: kind.THING_KIND,
+				Kind: kind.Thing,
 				Pagination: &common.Pagination{
 					Limit: 33,
 				},
@@ -122,7 +122,7 @@ func Test_QueryBuilder(t *testing.T) {
 						},
 					},
 				},
-				Kind: kind.THING_KIND,
+				Kind: kind.Thing,
 				Pagination: &common.Pagination{
 					Limit: 33,
 				},
@@ -162,7 +162,7 @@ func Test_QueryBuilder(t *testing.T) {
 						},
 					},
 				},
-				Kind: kind.THING_KIND,
+				Kind: kind.Thing,
 				Pagination: &common.Pagination{
 					Limit: 33,
 				},
@@ -224,7 +224,7 @@ func Test_QueryBuilder(t *testing.T) {
 						},
 					},
 				},
-				Kind: kind.THING_KIND,
+				Kind: kind.Thing,
 				Pagination: &common.Pagination{
 					Limit: 33,
 				},

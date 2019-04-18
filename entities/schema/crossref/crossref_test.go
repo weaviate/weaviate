@@ -41,7 +41,7 @@ func Test_ParsingFromString(t *testing.T) {
 		})
 
 		t.Run("the kind is 'thing'", func(t *testing.T) {
-			assert.Equal(t, ref.Kind, kind.THING_KIND)
+			assert.Equal(t, ref.Kind, kind.Thing)
 		})
 	})
 
@@ -64,7 +64,7 @@ func Test_ParsingFromString(t *testing.T) {
 		})
 
 		t.Run("the kind is 'thing'", func(t *testing.T) {
-			assert.Equal(t, ref.Kind, kind.ACTION_KIND)
+			assert.Equal(t, ref.Kind, kind.Action)
 		})
 	})
 
@@ -87,7 +87,7 @@ func Test_ParsingFromString(t *testing.T) {
 		})
 
 		t.Run("the kind is 'thing'", func(t *testing.T) {
-			assert.Equal(t, ref.Kind, kind.ACTION_KIND)
+			assert.Equal(t, ref.Kind, kind.Action)
 		})
 	})
 
@@ -153,7 +153,7 @@ func Test_ParsingFromSingleRef(t *testing.T) {
 		})
 
 		t.Run("the kind is 'thing'", func(t *testing.T) {
-			assert.Equal(t, ref.Kind, kind.THING_KIND)
+			assert.Equal(t, ref.Kind, kind.Thing)
 		})
 	})
 }

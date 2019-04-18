@@ -39,21 +39,21 @@ func fetchObj() *graphql.Object {
 		"Actions": &graphql.Field{
 			Name:        "WeaviateLocalFetchActions",
 			Description: descriptions.LocalFetchActions,
-			Type:        graphql.NewList(kindFieldsObj(kind.ACTION_KIND)),
+			Type:        graphql.NewList(kindFieldsObj(kind.Action)),
 			Args: graphql.FieldConfigArgument{
-				"where": fetch.NewFilterBuilder(kind.ACTION_KIND, "WeaviateLocal").Build(),
+				"where": fetch.NewFilterBuilder(kind.Action, "WeaviateLocal").Build(),
 			},
-			Resolve: makeResolveClass(kind.ACTION_KIND),
+			Resolve: makeResolveClass(kind.Action),
 		},
 
 		"Things": &graphql.Field{
 			Name:        "WeaviateLocalFetchThings",
 			Description: descriptions.LocalFetchThings,
-			Type:        graphql.NewList(kindFieldsObj(kind.THING_KIND)),
+			Type:        graphql.NewList(kindFieldsObj(kind.Thing)),
 			Args: graphql.FieldConfigArgument{
-				"where": fetch.NewFilterBuilder(kind.THING_KIND, "WeaviateLocal").Build(),
+				"where": fetch.NewFilterBuilder(kind.Thing, "WeaviateLocal").Build(),
 			},
-			Resolve: makeResolveClass(kind.THING_KIND),
+			Resolve: makeResolveClass(kind.Thing),
 		},
 
 		"Fuzzy": &graphql.Field{
@@ -104,9 +104,9 @@ func kindFieldsObj(k kind.Kind) *graphql.Object {
 
 	var desc string
 	switch k {
-	case kind.THING_KIND:
+	case kind.Thing:
 		desc = descriptions.LocalFetchThingsObj
-	case kind.ACTION_KIND:
+	case kind.Action:
 		desc = descriptions.LocalFetchActionsObj
 	}
 

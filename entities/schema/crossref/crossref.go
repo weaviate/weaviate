@@ -88,9 +88,9 @@ func New(peerName string, target strfmt.UUID, k kind.Kind) *Ref {
 func parseKind(kinds string) (kind.Kind, error) {
 	switch kinds {
 	case "things":
-		return kind.THING_KIND, nil
+		return kind.Thing, nil
 	case "actions":
-		return kind.ACTION_KIND, nil
+		return kind.Action, nil
 	default:
 		return "", fmt.Errorf("invalid kind, expected 'things' or 'actions', but got '%s'", kinds)
 	}

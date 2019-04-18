@@ -229,7 +229,7 @@ func Test_QueryProcessor_AnalyticsEngine(t *testing.T) {
 
 func paramsWithAnalyticsProps(a cf.AnalyticsProps) getmeta.Params {
 	return getmeta.Params{
-		Kind:      kind.THING_KIND,
+		Kind:      kind.Thing,
 		ClassName: schema.ClassName("Car"),
 		Properties: []getmeta.MetaProperty{
 			{

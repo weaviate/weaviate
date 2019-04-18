@@ -41,7 +41,7 @@ func Test_Source_ParsingFromString(t *testing.T) {
 		})
 
 		t.Run("the kind is 'thing'", func(t *testing.T) {
-			assert.Equal(t, ref.Kind, kind.THING_KIND)
+			assert.Equal(t, ref.Kind, kind.Thing)
 		})
 
 		t.Run("the class name is correct", func(t *testing.T) {
@@ -72,7 +72,7 @@ func Test_Source_ParsingFromString(t *testing.T) {
 		})
 
 		t.Run("the kind is 'thing'", func(t *testing.T) {
-			assert.Equal(t, ref.Kind, kind.ACTION_KIND)
+			assert.Equal(t, ref.Kind, kind.Action)
 		})
 
 		t.Run("the class name is correct", func(t *testing.T) {
@@ -103,7 +103,7 @@ func Test_Source_ParsingFromString(t *testing.T) {
 		})
 
 		t.Run("the kind is 'thing'", func(t *testing.T) {
-			assert.Equal(t, ref.Kind, kind.ACTION_KIND)
+			assert.Equal(t, ref.Kind, kind.Action)
 		})
 
 		t.Run("the class name is correct", func(t *testing.T) {

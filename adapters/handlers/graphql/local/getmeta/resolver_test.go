@@ -257,7 +257,7 @@ func Test_Resolve(t *testing.T) {
 		},
 	}
 
-	tests.AssertExtraction(t, kind.THING_KIND, "Car")
+	tests.AssertExtraction(t, kind.Thing, "Car")
 }
 
 func (tests testCases) AssertExtraction(t *testing.T, k kind.Kind, className string) {

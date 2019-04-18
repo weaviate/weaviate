@@ -48,7 +48,7 @@ func (p Peers) getRemoteThingOrAction(kind crossrefs.NetworkKind,
 	client *client.WeaviateDecentralisedKnowledgeGraph) (interface{}, error) {
 	result := models.Thing{}
 	switch kind.Kind {
-	case libkind.THING_KIND:
+	case libkind.Thing:
 		params := things.NewWeaviateThingsGetParams().
 			WithTimeout(1 * time.Second).
 			WithID(kind.ID)
@@ -65,7 +65,7 @@ func (p Peers) getRemoteThingOrAction(kind crossrefs.NetworkKind,
 		}
 
 		return ok.Payload, nil
-	case libkind.ACTION_KIND:
+	case libkind.Action:
 		params := actions.NewWeaviateActionsGetParams().
 			WithTimeout(1 * time.Second).
 			WithID(kind.ID)

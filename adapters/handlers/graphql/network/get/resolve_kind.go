@@ -37,16 +37,16 @@ func resolveKind(k kind.Kind) func(p graphql.ResolveParams) (interface{}, error)
 }
 
 // ResolveAction as part of a network query: Network -> Get -> Action -> <nameOfAction>
-var ResolveAction = resolveKind(kind.ACTION_KIND)
+var ResolveAction = resolveKind(kind.Action)
 
 // ResolveThing as part of a network query: Network -> Get -> Thing -> <nameOfThing>
-var ResolveThing = resolveKind(kind.THING_KIND)
+var ResolveThing = resolveKind(kind.Thing)
 
 func kindNameInResult(k kind.Kind) string {
 	switch k {
-	case kind.THING_KIND:
+	case kind.Thing:
 		return "Things"
-	case kind.ACTION_KIND:
+	case kind.Action:
 		return "Actions"
 	default:
 		return ""
