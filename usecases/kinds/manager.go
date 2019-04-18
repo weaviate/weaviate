@@ -25,12 +25,13 @@ import (
 type Manager struct {
 	network       network.Network
 	config        *config.WeaviateConfig
-	repo          repo
+	repo          Repo
 	locks         locks
 	schemaManager schemaManager
 }
 
-type repo interface {
+// Repo describes the requirements the kinds UC has to the connected database
+type Repo interface {
 	addRepo
 	getRepo
 	updateRepo
@@ -43,7 +44,7 @@ type locks interface {
 }
 
 // NewManager creates a new manager
-func NewManager(repo repo, locks locks, schemaManager schemaManager, network network.Network, config *config.WeaviateConfig) *Manager {
+func NewManager(repo Repo, locks locks, schemaManager schemaManager, network network.Network, config *config.WeaviateConfig) *Manager {
 	return &Manager{
 		network:       network,
 		config:        config,
