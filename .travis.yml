@@ -1,5 +1,5 @@
 stages:
-  - build_tools
+  - name: build_tools
     if: branch = master
   - test
   - name: push
@@ -105,7 +105,8 @@ jobs:
               echo "The release tag ($TRAVIS_TAG) and Weaviate version ($WEAVIATE_VERSION) are not equal! Can't release."
               travis_terminate 1
           fi
-
+    - stage: deploy
+      script: echo "Deploying weavite to staging via Helm chart"
 install:  
   # - curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
   # - chmod +x ./cc-test-reporter
