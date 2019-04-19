@@ -18,7 +18,6 @@ import (
 	"github.com/sirupsen/logrus"
 
 	graphqlapiLocal "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local"
-	batchmodels "github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/batch/models"
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	"github.com/creativesoftwarefdn/weaviate/database/schema_migrator"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
@@ -39,11 +38,6 @@ type BaseConnector interface {
 	// kinds.Repo describes required methods to add, get, update and delete
 	// things and actions
 	kinds.Repo
-
-	// TODO: gh-836: restructe batch management
-	AddThingsBatch(ctx context.Context, things batchmodels.Things) error
-	AddActionsBatch(ctx context.Context, things batchmodels.Actions) error
-	AddBatchReferences(ctx context.Context, references batchmodels.References) error
 }
 
 // DatabaseConnector is the interface that all DB-connectors should have

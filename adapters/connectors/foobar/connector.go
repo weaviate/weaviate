@@ -45,12 +45,12 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/fetch"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/get"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
-	batchmodels "github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/batch/models"
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
 // Foobar has some basic variables.
@@ -223,7 +223,7 @@ func (f *Foobar) AddThing(ctx context.Context, thing *models.Thing, UUID strfmt.
 // makes this cut at 50 items as this has proven to be a good threshold for
 // that particular connector.
 //
-// Note that every thing in the batchmodels.Things list also has an error
+// Note that every thing in the kinds.BatchThings list also has an error
 // field. The connector must check whether there already is an error in one of
 // the items. This error could for example indicate a failed validation. Items
 // that have failed prior to making it to the connector are not removed on
@@ -233,7 +233,7 @@ func (f *Foobar) AddThing(ctx context.Context, thing *models.Thing, UUID strfmt.
 // The connector can decide - based on the batching consistency promises it
 // makes to the user - whether to fail (and not import) the entire batch or only
 // to skip the ones which failed validation
-func (f *Foobar) AddThingsBatch(ctx context.Context, things batchmodels.Things) error {
+func (f *Foobar) AddThingsBatch(ctx context.Context, things kinds.BatchThings) error {
 	// If success return nil, otherwise return the error
 	return nil
 }
@@ -284,7 +284,7 @@ func (f *Foobar) DeleteThing(ctx context.Context, thing *models.Thing, UUID strf
 // makes this cut at 50 items as this has proven to be a good threshold for
 // that particular connector.
 //
-// Note that every action in the batchmodels.Actions list also has an error
+// Note that every action in the kinds.BatchActions list also has an error
 // field. The connector must check whether there already is an error in one of
 // the items. This error could for example indicate a failed validation. Items
 // that have failed prior to making it to the connector are not removed on
@@ -294,7 +294,7 @@ func (f *Foobar) DeleteThing(ctx context.Context, thing *models.Thing, UUID strf
 // The connector can decide - based on the batching consistency promises it
 // makes to the user - whether to fail (and not import) the entire batch or
 // only to skip the ones which failed validation
-func (f *Foobar) AddActionsBatch(ctx context.Context, actions batchmodels.Actions) error {
+func (f *Foobar) AddActionsBatch(ctx context.Context, actions kinds.BatchActions) error {
 	// If success return nil, otherwise return the error
 	return nil
 }
@@ -346,7 +346,7 @@ func (f *Foobar) DeleteAction(ctx context.Context, action *models.Action, UUID s
 // the Janusgraph connector makes this cut at 50 items as this has proven to be
 // a good threshold for that particular connector.
 //
-// Note that every thing in the batchmodels.References list also has an error
+// Note that every thing in the kinds.BatchReferences list also has an error
 // field. The connector must check whether there already is an error in one of
 // the items. This error could for example indicate a failed validation. Items
 // that have failed prior to making it to the connector are not removed on
@@ -363,7 +363,7 @@ func (f *Foobar) DeleteAction(ctx context.Context, action *models.Action, UUID s
 // patterns, such as "read before write". This means that we have no guarantuee
 // that the source uuid exists and/or matches the specified class name and
 // property.
-func (f *Foobar) AddBatchReferences(ctx context.Context, refs batchmodels.References) error {
+func (f *Foobar) AddBatchReferences(ctx context.Context, refs kinds.BatchReferences) error {
 	// If success return nil, otherwise return the error
 	return nil
 }

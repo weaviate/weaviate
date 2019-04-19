@@ -8,7 +8,13 @@
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
  * CONTACT: hello@creativesoftwarefdn.org
- */package kinds
+ */
+
+// Package kinds provides managers for all kind-related items, such as things
+// and actions. Manager provides methods for "regular" interaction, such as
+// add, get, delete, update, etc. Additionally BatchManager allows for
+// effecient batch-adding of thing/action instances and references.
+package kinds
 
 import (
 	"fmt"
@@ -20,7 +26,7 @@ import (
 	uuid "github.com/satori/go.uuid"
 )
 
-// Manager Manages schema changes at a use-case level, i.e. agnostic of
+// Manager manages kind changes at a use-case level, i.e. agnostic of
 // underlying databases or storage providers
 type Manager struct {
 	network       network.Network
@@ -36,6 +42,7 @@ type Repo interface {
 	getRepo
 	updateRepo
 	deleteRepo
+	batchRepo
 }
 
 type locks interface {
