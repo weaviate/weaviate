@@ -27,12 +27,18 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
-func setupC11yHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog) {
+type c11yProvider interface {
+	GetContextionary() libcontextionary.Contextionary
+}
+
+func setupC11yHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog, c11yProvider c11yProvider) {
 	/*
 	 * HANDLE C11Y
 	 */
 
 	api.ContextionaryAPIWeaviateC11yWordsHandler = contextionary_api.WeaviateC11yWordsHandlerFunc(func(params contextionary_api.WeaviateC11yWordsParams, principal *models.Principal) middleware.Responder {
+
+		contextionary := c11yProvider.GetContextionary()
 
 		// the word(s) from the request
 		words := params.Words

@@ -23,6 +23,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/fetch"
 	graphqlnetwork "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/state"
+	"github.com/creativesoftwarefdn/weaviate/contextionary"
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
 	"github.com/creativesoftwarefdn/weaviate/database"
 	databaseSchema "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
@@ -44,22 +45,31 @@ import (
 // If you need to modify a config, store server instance to stop it individually later, this is the place.
 // This function can be called multiple times, depending on the number of serving schemes.
 // scheme value will be set accordingly: "http", "https" or "unix"
-func configureServer(s *http.Server, scheme, addr string) {
-	// Add properties to the config
-	appState.ServerConfig.Hostname = addr
-	appState.ServerConfig.Scheme = scheme
-}
+//
+// we will set it through configureAPI() as it needs access to resources that
+// are only available within there
+var configureServer func(*http.Server, string, string)
 
 func makeUpdateSchemaCall(logger logrus.FieldLogger, appState *state.State) func(schema.Schema) {
 	return func(updatedSchema schema.Schema) {
 		// Note that this is thread safe; we're running in a single go-routine, because the event
 		// handlers are called when the SchemaLock is still held.
-		if err := rebuildContextionary(updatedSchema, logger); err != nil {
+		c11y, err := rebuildContextionary(updatedSchema, logger, appState)
+		if err != nil {
 			logger.WithField("action", "contextionary_rebuild").
 				WithError(err).Fatal("could not (re)build contextionary")
 		}
+		appState.Contextionary = c11y
 
-		gql, err := rebuildGraphQL(updatedSchema, logger, appState.Network, appState.ServerConfig.Config)
+		gql, err := rebuildGraphQL(
+			updatedSchema,
+			logger,
+			appState.Network,
+			appState.ServerConfig.Config,
+			appState.Contextionary,
+			appState.Database,
+			appState.TelemetryLogger,
+		)
 		if err != nil {
 			logger.WithField("action", "graphql_rebuild").
 				WithError(err).Error("could not (re)build graphql provider")
@@ -68,36 +78,37 @@ func makeUpdateSchemaCall(logger logrus.FieldLogger, appState *state.State) func
 	}
 }
 
-func rebuildContextionary(updatedSchema schema.Schema, logger logrus.FieldLogger) error {
+func rebuildContextionary(updatedSchema schema.Schema, logger logrus.FieldLogger,
+	appState *state.State) (contextionary.Contextionary, error) {
 	// build new contextionary extended by the local schema
-	schemaContextionary, err := databaseSchema.BuildInMemoryContextionaryFromSchema(updatedSchema, &rawContextionary)
+	schemaContextionary, err := databaseSchema.BuildInMemoryContextionaryFromSchema(updatedSchema, &appState.RawContextionary)
 	if err != nil {
-		return fmt.Errorf("Could not build in-memory contextionary from schema; %v", err)
+		return nil, fmt.Errorf("Could not build in-memory contextionary from schema; %v", err)
 	}
 
 	// Combine contextionaries
-	contextionaries := []libcontextionary.Contextionary{rawContextionary, *schemaContextionary}
+	contextionaries := []libcontextionary.Contextionary{appState.RawContextionary, *schemaContextionary}
 	combined, err := libcontextionary.CombineVectorIndices(contextionaries)
 
 	if err != nil {
-		return fmt.Errorf("Could not combine the contextionary database with the in-memory generated contextionary; %v", err)
+		return nil, fmt.Errorf("Could not combine the contextionary database with the in-memory generated contextionary; %v", err)
 	}
 
 	logger.WithField("action", "contextionary_rebuild").Debug("contextionary extended with new schema")
 
-	contextionary = libcontextionary.Contextionary(combined)
-	return nil
+	return libcontextionary.Contextionary(combined), nil
 }
 
 func rebuildGraphQL(updatedSchema schema.Schema, logger logrus.FieldLogger,
-	network network.Network, config config.Config) (graphql.GraphQL, error) {
+	network network.Network, config config.Config, contextionary contextionary.Contextionary,
+	db database.Database, telemetryLogger *telemetry.RequestsLog) (graphql.GraphQL, error) {
 	peers, err := network.ListPeers()
 	if err != nil {
 		return nil, fmt.Errorf("could not list network peers to regenerate schema: %v", err)
 	}
 
 	c11y := schemaContextionary.New(contextionary)
-	root := graphQLRoot{Database: db, Network: network, contextionary: c11y, log: mainLog}
+	root := graphQLRoot{Database: db, Network: network, contextionary: c11y, log: telemetryLogger}
 	updatedGraphQL, err := graphql.Build(&updatedSchema, peers, root, logger, config)
 	if err != nil {
 		return nil, fmt.Errorf("Could not re-generate GraphQL schema, because: %v", err)
@@ -167,7 +178,7 @@ func timeTillDeadline(ctx context.Context) string {
 
 // This function loads the Contextionary database, and creates
 // an in-memory database for the centroids of the classes / properties in the Schema.
-func loadContextionary(logger *logrus.Logger, config config.Config) {
+func loadContextionary(logger *logrus.Logger, config config.Config) contextionary.Contextionary {
 	// First load the file backed contextionary
 	if config.Contextionary.KNNFile == "" {
 		logger.WithField("action", "startup").Error("contextionary KNN file not set")
@@ -189,7 +200,7 @@ func loadContextionary(logger *logrus.Logger, config config.Config) {
 	}
 
 	logger.Debug("contextionary loaded")
-	rawContextionary = mmapedContextionary
+	return mmapedContextionary
 }
 
 func connectToNetwork(logger *logrus.Logger, config config.Config) network.Network {
