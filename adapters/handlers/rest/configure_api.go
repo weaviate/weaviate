@@ -56,15 +56,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Logger.WithField("action", "restapi_management").Infof(msg, args...)
 	}
 
-	kindsManager := kinds.NewManager(appState.Connector, appState.Locks, appState.SchemaManager, network, serverConfig)
-	batchKindsManager := kinds.NewBatchManager(appState.Connector, appState.Locks, appState.SchemaManager, network, serverConfig)
+	kindsManager := kinds.NewManager(appState.Connector, appState.Locks, appState.SchemaManager, appState.Network, appState.ServerConfig)
+	batchKindsManager := kinds.NewBatchManager(appState.Connector, appState.Locks, appState.SchemaManager, appState.Network, appState.ServerConfig)
 
 	setupSchemaHandlers(api, mainLog, schemaUC.NewManager(db))
 	setupKindHandlers(api, mainLog, kindsManager)
 	setupKindBatchHandlers(api, mainLog, batchKindsManager)
 	setupC11yHandlers(api, mainLog)
-	setupGraphQLHandlers(api, mainLog)
-	setupMiscHandlers(api, mainLog)
+	setupGraphQLHandlers(api, mainLog, appState)
+	setupMiscHandlers(api, mainLog, appState.ServerConfig, appState.Network)
 
 	api.ServerShutdown = func() {}
 
@@ -91,7 +91,7 @@ func startupRoutine() *state.State {
 		Debug("created startup context, nothing done so far")
 
 	// Load the config using the flags
-	serverConfig = &config.WeaviateConfig{}
+	serverConfig := &config.WeaviateConfig{}
 	appState.ServerConfig = serverConfig
 	err := serverConfig.LoadConfig(connectorOptionGroup, logger)
 	if err != nil {
@@ -130,11 +130,11 @@ func startupRoutine() *state.State {
 	mainLog.Debug = loggingDebug
 	mainLog.Disabled = loggingDisabled
 
-	loadContextionary(logger)
+	loadContextionary(logger, appState.ServerConfig.Config)
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("contextionary loaded")
 
-	connectToNetwork(logger)
+	appState.Network = connectToNetwork(logger, appState.ServerConfig.Config)
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("network configured")
 
@@ -191,7 +191,7 @@ func startupRoutine() *state.State {
 		Debug("created etcd session")
 		// END remove
 
-	manager, err := etcdSchemaManager.New(ctx, etcdClient, dbConnector, network, logger)
+	manager, err := etcdSchemaManager.New(ctx, etcdClient, dbConnector, appState.Network, logger)
 	if err != nil {
 		logger.WithField("action", "startup").
 			WithError(err).Error("cannot (etcd) schema manager and initialize schema")
@@ -202,7 +202,7 @@ func startupRoutine() *state.State {
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("initialized schema")
 
-	updateSchemaCallback := makeUpdateSchemaCallBackWithLogger(logger)
+	updateSchemaCallback := makeUpdateSchemaCall(logger, appState)
 	manager.RegisterSchemaUpdateCallback(updateSchemaCallback)
 
 	// Initialize a non-expiring context for the reporter
@@ -239,11 +239,11 @@ func startupRoutine() *state.State {
 	appState.Database = db
 
 	manager.TriggerSchemaUpdateCallbacks()
-	network.RegisterUpdatePeerCallback(func(peers peers.Peers) {
+	appState.Network.RegisterUpdatePeerCallback(func(peers peers.Peers) {
 		manager.TriggerSchemaUpdateCallbacks()
 	})
 
-	network.RegisterSchemaGetter(&schemaGetter{db: db})
+	appState.Network.RegisterSchemaGetter(&schemaGetter{db: db})
 
 	return appState
 }

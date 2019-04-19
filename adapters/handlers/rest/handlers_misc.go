@@ -18,12 +18,15 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/operations/p2_p"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
+	"github.com/creativesoftwarefdn/weaviate/usecases/config"
+	"github.com/creativesoftwarefdn/weaviate/usecases/network"
 	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
 	"github.com/creativesoftwarefdn/weaviate/usecases/telemetry"
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
-func setupMiscHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog) {
+func setupMiscHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog,
+	serverConfig *config.WeaviateConfig, network network.Network) {
 	api.MetaWeaviateMetaGetHandler = meta.WeaviateMetaGetHandlerFunc(func(params meta.WeaviateMetaGetParams, principal *models.Principal) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {

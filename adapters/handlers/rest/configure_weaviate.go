@@ -23,13 +23,11 @@ import (
 	"github.com/go-openapi/swag"
 	"google.golang.org/grpc/grpclog"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/operations"
 	"github.com/creativesoftwarefdn/weaviate/database"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
-	libnetwork "github.com/creativesoftwarefdn/weaviate/usecases/network"
 )
 
 var connectorOptionGroup *swag.CommandLineOptionsGroup
@@ -42,9 +40,6 @@ var rawContextionary libcontextionary.Contextionary
 
 // contextionary is the contextionary we keep amending on every schema change
 var contextionary libcontextionary.Contextionary
-var network libnetwork.Network
-var serverConfig *config.WeaviateConfig
-var graphQL graphql.GraphQL
 
 var appState *state.State
 

@@ -14,6 +14,7 @@ package state
 
 import (
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql"
 	"github.com/creativesoftwarefdn/weaviate/database"
 	"github.com/creativesoftwarefdn/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/creativesoftwarefdn/weaviate/usecases/auth/authentication/oidc"
@@ -36,4 +37,14 @@ type State struct {
 	Connector       connectors.DatabaseConnector
 	Locks           locks.ConnectorSchemaLock
 	Logger          *logrus.Logger
+	GraphQL         graphql.GraphQL
+}
+
+// GetGraphQL is the safe way to retrieve GraphQL from the state as it can be
+// replaced at runtime. Instead of passing appState.GraphQL to your adapters,
+// pass appState itself which you can abstract with a local interface such as:
+//
+// type gqlProvider interface { GetGraphQL graphql.GraphQL }
+func (s *State) GetGraphQL() graphql.GraphQL {
+	return s.GraphQL
 }

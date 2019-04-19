@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"sync"
 
+	libgraphql "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/operations"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/operations/graphql"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/rest_api_utils"
@@ -29,7 +30,11 @@ import (
 
 const error422 string = "The request is well-formed but was unable to be followed due to semantic errors."
 
-func setupGraphQLHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog) {
+type graphQLProvider interface {
+	GetGraphQL() libgraphql.GraphQL
+}
+
+func setupGraphQLHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog, gqlProvider graphQLProvider) {
 	api.GraphqlWeaviateGraphqlPostHandler = graphql.WeaviateGraphqlPostHandlerFunc(func(params graphql.WeaviateGraphqlPostParams, principal *models.Principal) middleware.Responder {
 		errorResponse := &models.ErrorResponse{}
 
@@ -52,6 +57,7 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 			variables = params.Body.Variables.(map[string]interface{})
 		}
 
+		graphQL := gqlProvider.GetGraphQL()
 		if graphQL == nil {
 			errorResponse.Error = []*models.ErrorResponseErrorItems0{
 				&models.ErrorResponseErrorItems0{
@@ -106,10 +112,11 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 
 		wg := new(sync.WaitGroup)
 
+		graphQL := gqlProvider.GetGraphQL()
 		// Generate a goroutine for each separate request
 		for requestIndex, unbatchedRequest := range params.Body {
 			wg.Add(1)
-			go handleUnbatchedGraphQLRequest(wg, context.Background(), unbatchedRequest, requestIndex, &requestResults, requestsLog)
+			go handleUnbatchedGraphQLRequest(params.HTTPRequest.Context(), wg, graphQL, unbatchedRequest, requestIndex, &requestResults, requestsLog)
 		}
 
 		wg.Wait()
@@ -128,7 +135,7 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 }
 
 // Handle a single unbatched GraphQL request, return a tuple containing the index of the request in the batch and either the response or an error
-func handleUnbatchedGraphQLRequest(wg *sync.WaitGroup, ctx context.Context, unbatchedRequest *models.GraphQLQuery, requestIndex int, requestResults *chan rest_api_utils.UnbatchedRequestResponse, requestsLog *telemetry.RequestsLog) {
+func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, graphQL libgraphql.GraphQL, unbatchedRequest *models.GraphQLQuery, requestIndex int, requestResults *chan rest_api_utils.UnbatchedRequestResponse, requestsLog *telemetry.RequestsLog) {
 	defer wg.Done()
 
 	// Get all input from the body of the request

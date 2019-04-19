@@ -140,7 +140,7 @@ func (h *kindHandlers) getAction(params actions.WeaviateActionsGetParams,
 
 func (h *kindHandlers) getThings(params things.WeaviateThingsListParams,
 	principal *models.Principal) middleware.Responder {
-	list, err := h.manager.GetThings(params.HTTPRequest.Context(), getLimit(params.Limit))
+	list, err := h.manager.GetThings(params.HTTPRequest.Context(), params.Limit)
 	if err != nil {
 		return things.NewWeaviateThingsListInternalServerError().
 			WithPayload(errPayloadFromSingleErr(err))
@@ -157,7 +157,7 @@ func (h *kindHandlers) getThings(params things.WeaviateThingsListParams,
 
 func (h *kindHandlers) getActions(params actions.WeaviateActionsListParams,
 	principal *models.Principal) middleware.Responder {
-	list, err := h.manager.GetActions(params.HTTPRequest.Context(), getLimit(params.Limit))
+	list, err := h.manager.GetActions(params.HTTPRequest.Context(), params.Limit)
 	if err != nil {
 		return actions.NewWeaviateActionsListInternalServerError().
 			WithPayload(errPayloadFromSingleErr(err))

@@ -40,9 +40,8 @@ func TestBatchGraphQLResultsOrder(t *testing.T) {
 
 	// perform the query
 	gqlResponse, err := queryBatchEndpoint(t)
-
 	if err != nil {
-		t.Fatal("The returned schema is not an JSON object")
+		t.Fatalf("The returned schema is not an JSON object: %v", err)
 	}
 	// check if the batch response contains two batched responses
 	assert.Equal(t, 2, len(gqlResponse))

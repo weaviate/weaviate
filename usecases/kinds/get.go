@@ -13,6 +13,7 @@
 import (
 	"context"
 	"errors"
+	"math"
 
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/go-openapi/strfmt"
@@ -38,7 +39,7 @@ func (m *Manager) GetThing(ctx context.Context, id strfmt.UUID) (*models.Thing, 
 }
 
 // GetThings Class from the connected DB
-func (m *Manager) GetThings(ctx context.Context, limit int) ([]*models.Thing, error) {
+func (m *Manager) GetThings(ctx context.Context, limit *int64) ([]*models.Thing, error) {
 	unlock, err := m.locks.LockConnector()
 	if err != nil {
 		return nil, newErrInternal("could not aquire lock: %v", err)
@@ -60,7 +61,7 @@ func (m *Manager) GetAction(ctx context.Context, id strfmt.UUID) (*models.Action
 }
 
 // GetActions Class from connected DB
-func (m *Manager) GetActions(ctx context.Context, limit int) ([]*models.Action, error) {
+func (m *Manager) GetActions(ctx context.Context, limit *int64) ([]*models.Action, error) {
 	unlock, err := m.locks.LockConnector()
 	if err != nil {
 		return nil, newErrInternal("could not aquire lock: %v", err)
@@ -87,10 +88,10 @@ func (m *Manager) getThingFromRepo(ctx context.Context, id strfmt.UUID) (*models
 	return &thing, nil
 }
 
-func (m *Manager) getThingsFromRepo(ctx context.Context, limit int) ([]*models.Thing, error) {
+func (m *Manager) getThingsFromRepo(ctx context.Context, limit *int64) ([]*models.Thing, error) {
 	thingsResponse := models.ThingsListResponse{}
 	thingsResponse.Things = []*models.Thing{}
-	err := m.repo.ListThings(ctx, limit, &thingsResponse)
+	err := m.repo.ListThings(ctx, m.localLimitOrGlobalLimit(limit), &thingsResponse)
 	if err != nil {
 		return nil, newErrInternal("could not list things: %v", err)
 	}
@@ -115,13 +116,24 @@ func (m *Manager) getActionFromRepo(ctx context.Context, id strfmt.UUID) (*model
 	return &action, nil
 }
 
-func (m *Manager) getActionsFromRepo(ctx context.Context, limit int) ([]*models.Action, error) {
+func (m *Manager) getActionsFromRepo(ctx context.Context, limit *int64) ([]*models.Action, error) {
 	actionsResponse := models.ActionsListResponse{}
 	actionsResponse.Actions = []*models.Action{}
-	err := m.repo.ListActions(ctx, limit, &actionsResponse)
+	err := m.repo.ListActions(ctx, m.localLimitOrGlobalLimit(limit), &actionsResponse)
 	if err != nil {
 		return nil, newErrInternal("could not list actions: %v", err)
 	}
 
 	return actionsResponse.Actions, nil
+}
+
+func (m *Manager) localLimitOrGlobalLimit(paramMaxResults *int64) int {
+	maxResults := m.config.Config.QueryDefaults.Limit
+	// Get the max results from params, if exists
+	if paramMaxResults != nil {
+		maxResults = *paramMaxResults
+	}
+
+	// Max results form URL, otherwise max = config.Limit.
+	return int(math.Min(float64(maxResults), float64(m.config.Config.QueryDefaults.Limit)))
 }
