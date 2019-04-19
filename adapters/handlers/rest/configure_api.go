@@ -38,8 +38,13 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-var mainLog *telemetry.RequestsLog
-var reporter *telemetry.Reporter
+func makeConfigureServer(appState *state.State) func(*http.Server, string, string) {
+	return func(s *http.Server, scheme, addr string) {
+		// Add properties to the config
+		appState.ServerConfig.Hostname = addr
+		appState.ServerConfig.Scheme = scheme
+	}
+}
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	appState := startupRoutine()
@@ -59,20 +64,23 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	kindsManager := kinds.NewManager(appState.Connector, appState.Locks, appState.SchemaManager, appState.Network, appState.ServerConfig)
 	batchKindsManager := kinds.NewBatchManager(appState.Connector, appState.Locks, appState.SchemaManager, appState.Network, appState.ServerConfig)
 
-	setupSchemaHandlers(api, mainLog, schemaUC.NewManager(db))
-	setupKindHandlers(api, mainLog, kindsManager)
-	setupKindBatchHandlers(api, mainLog, batchKindsManager)
-	setupC11yHandlers(api, mainLog)
-	setupGraphQLHandlers(api, mainLog, appState)
-	setupMiscHandlers(api, mainLog, appState.ServerConfig, appState.Network)
+	setupSchemaHandlers(api, appState.TelemetryLogger, schemaUC.NewManager(appState.Database))
+	setupKindHandlers(api, appState.TelemetryLogger, kindsManager)
+	setupKindBatchHandlers(api, appState.TelemetryLogger, batchKindsManager)
+	setupC11yHandlers(api, appState.TelemetryLogger, appState)
+	setupGraphQLHandlers(api, appState.TelemetryLogger, appState)
+	setupMiscHandlers(api, appState.TelemetryLogger, appState.ServerConfig, appState.Network, appState.Database)
 
 	api.ServerShutdown = func() {}
-
+	configureServer = makeConfigureServer(appState)
+	setupMiddlewares := makeSetupMiddlewares(appState)
+	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState)
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
 }
 
 // TODO: Split up and don't write into global variables. Instead return an appState
 func startupRoutine() *state.State {
+	appState := &state.State{}
 	// context for the startup procedure. (So far the only subcommand respecting
 	// the context is the schema initialization, as this uses the etcd client
 	// requiring context. Nevertheless it would make sense to have everything
@@ -108,29 +116,7 @@ func startupRoutine() *state.State {
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("configured OIDC and anonymous access client")
 
-	// Extract environment variables needed for logging
-	mainLog = telemetry.NewLog()
-	loggingInterval := appState.ServerConfig.Config.Telemetry.Interval
-	loggingURL := appState.ServerConfig.Config.Telemetry.RemoteURL
-	loggingDisabled := appState.ServerConfig.Config.Telemetry.Disabled
-	loggingDebug := appState.ServerConfig.Config.Debug
-
-	if loggingURL == "" {
-		loggingURL = telemetry.DefaultURL
-	}
-
-	if loggingInterval == 0 {
-		loggingInterval = telemetry.DefaultInterval
-	}
-
-	// Propagate the peer name (if any), debug toggle and the enabled toggle to the requestsLog
-	if appState.ServerConfig.Config.Network != nil {
-		mainLog.PeerName = appState.ServerConfig.Config.Network.PeerName
-	}
-	mainLog.Debug = loggingDebug
-	mainLog.Disabled = loggingDisabled
-
-	loadContextionary(logger, appState.ServerConfig.Config)
+	rawContextionary := loadContextionary(logger, appState.ServerConfig.Config)
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("contextionary loaded")
 
@@ -170,6 +156,8 @@ func startupRoutine() *state.State {
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("created etcd client")
 
+	appState.TelemetryLogger = configureTelemetry(appState, etcdClient, logger)
+
 	// new lock
 	etcdLock, err := locks.NewEtcdLock(etcdClient, "/weaviate/schema-connector-rw-lock", logger)
 	if err != nil {
@@ -205,18 +193,9 @@ func startupRoutine() *state.State {
 	updateSchemaCallback := makeUpdateSchemaCall(logger, appState)
 	manager.RegisterSchemaUpdateCallback(updateSchemaCallback)
 
-	// Initialize a non-expiring context for the reporter
-	reportingContext := context.Background()
-	// Initialize the reporter
-	reporter = telemetry.NewReporter(reportingContext, mainLog, loggingInterval, loggingURL, loggingDisabled, loggingDebug, etcdClient, logger)
-
-	// Start reporting
-	go func() {
-		reporter.Start()
-	}()
-
 	// initialize the contextinoary with the rawContextionary, it will get updated on each schema update
-	contextionary = rawContextionary
+	appState.Contextionary = rawContextionary
+	appState.RawContextionary = rawContextionary
 
 	// Now instantiate a database, with the configured lock, manager and connector.
 	dbParams := &database.Params{
@@ -224,10 +203,10 @@ func startupRoutine() *state.State {
 		LockerSession: s1,
 		SchemaManager: manager,
 		Connector:     dbConnector,
-		Contextionary: contextionary,
+		Contextionary: appState.Contextionary,
 		Logger:        logger,
 	}
-	db, err = database.New(ctx, dbParams)
+	db, err := database.New(ctx, dbParams)
 	if err != nil {
 		logger.
 			WithField("action", "startup").
@@ -246,6 +225,43 @@ func startupRoutine() *state.State {
 	appState.Network.RegisterSchemaGetter(&schemaGetter{db: db})
 
 	return appState
+}
+
+func configureTelemetry(appState *state.State, etcdClient *clientv3.Client,
+	logger logrus.FieldLogger) *telemetry.RequestsLog {
+	// Extract environment variables needed for logging
+	mainLog := telemetry.NewLog()
+	loggingInterval := appState.ServerConfig.Config.Telemetry.Interval
+	loggingURL := appState.ServerConfig.Config.Telemetry.RemoteURL
+	loggingDisabled := appState.ServerConfig.Config.Telemetry.Disabled
+	loggingDebug := appState.ServerConfig.Config.Debug
+
+	if loggingURL == "" {
+		loggingURL = telemetry.DefaultURL
+	}
+
+	if loggingInterval == 0 {
+		loggingInterval = telemetry.DefaultInterval
+	}
+
+	// Propagate the peer name (if any), debug toggle and the enabled toggle to the requestsLog
+	if appState.ServerConfig.Config.Network != nil {
+		mainLog.PeerName = appState.ServerConfig.Config.Network.PeerName
+	}
+	mainLog.Debug = loggingDebug
+	mainLog.Disabled = loggingDisabled
+
+	// Initialize a non-expiring context for the reporter
+	reportingContext := context.Background()
+	// Initialize the reporter
+	reporter := telemetry.NewReporter(reportingContext, mainLog, loggingInterval, loggingURL, loggingDisabled, loggingDebug, etcdClient, logger)
+
+	// Start reporting
+	go func() {
+		reporter.Start()
+	}()
+
+	return mainLog
 }
 
 // logger does not parse the regular config object, as logging needs to be

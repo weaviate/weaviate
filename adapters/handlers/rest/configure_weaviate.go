@@ -15,43 +15,14 @@ package rest
 
 import (
 	"crypto/tls"
-	"io/ioutil"
-	"log"
-
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/state"
 
 	"github.com/go-openapi/swag"
-	"google.golang.org/grpc/grpclog"
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/operations"
-	"github.com/creativesoftwarefdn/weaviate/database"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"
-
-	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
 )
 
 var connectorOptionGroup *swag.CommandLineOptionsGroup
-
-// rawContextionary is the contextionary as we read it from the files. It is
-// not extended by schema builds. It is important to keep this untouched copy,
-// so that we can rebuild a clean contextionary on every schema change based on
-// this contextionary and the current schema
-var rawContextionary libcontextionary.Contextionary
-
-// contextionary is the contextionary we keep amending on every schema change
-var contextionary libcontextionary.Contextionary
-
-var appState *state.State
-
-var db database.Database
-
-func init() {
-	appState = &state.State{}
-
-	discard := ioutil.Discard
-	myGRPCLogger := log.New(discard, "", log.LstdFlags)
-	grpclog.SetLogger(myGRPCLogger)
-}
 
 // configureAPI -> see configure_api.go
 
