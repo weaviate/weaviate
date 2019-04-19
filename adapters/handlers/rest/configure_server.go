@@ -30,6 +30,8 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/creativesoftwarefdn/weaviate/usecases/auth/authentication/oidc"
+	"github.com/creativesoftwarefdn/weaviate/usecases/config"
+	"github.com/creativesoftwarefdn/weaviate/usecases/network"
 	libnetwork "github.com/creativesoftwarefdn/weaviate/usecases/network"
 	libnetworkFake "github.com/creativesoftwarefdn/weaviate/usecases/network/fake"
 	libnetworkP2P "github.com/creativesoftwarefdn/weaviate/usecases/network/p2p"
@@ -44,11 +46,11 @@ import (
 // scheme value will be set accordingly: "http", "https" or "unix"
 func configureServer(s *http.Server, scheme, addr string) {
 	// Add properties to the config
-	serverConfig.Hostname = addr
-	serverConfig.Scheme = scheme
+	appState.ServerConfig.Hostname = addr
+	appState.ServerConfig.Scheme = scheme
 }
 
-func makeUpdateSchemaCallBackWithLogger(logger logrus.FieldLogger) func(schema.Schema) {
+func makeUpdateSchemaCall(logger logrus.FieldLogger, appState *state.State) func(schema.Schema) {
 	return func(updatedSchema schema.Schema) {
 		// Note that this is thread safe; we're running in a single go-routine, because the event
 		// handlers are called when the SchemaLock is still held.
@@ -57,10 +59,12 @@ func makeUpdateSchemaCallBackWithLogger(logger logrus.FieldLogger) func(schema.S
 				WithError(err).Fatal("could not (re)build contextionary")
 		}
 
-		if err := rebuildGraphQL(updatedSchema, logger); err != nil {
+		gql, err := rebuildGraphQL(updatedSchema, logger, appState.Network, appState.ServerConfig.Config)
+		if err != nil {
 			logger.WithField("action", "graphql_rebuild").
 				WithError(err).Error("could not (re)build graphql provider")
 		}
+		appState.GraphQL = gql
 	}
 }
 
@@ -85,24 +89,22 @@ func rebuildContextionary(updatedSchema schema.Schema, logger logrus.FieldLogger
 	return nil
 }
 
-func rebuildGraphQL(updatedSchema schema.Schema, logger logrus.FieldLogger) error {
+func rebuildGraphQL(updatedSchema schema.Schema, logger logrus.FieldLogger,
+	network network.Network, config config.Config) (graphql.GraphQL, error) {
 	peers, err := network.ListPeers()
 	if err != nil {
-		graphQL = nil
-		return fmt.Errorf("could not list network peers to regenerate schema: %v", err)
+		return nil, fmt.Errorf("could not list network peers to regenerate schema: %v", err)
 	}
 
 	c11y := schemaContextionary.New(contextionary)
 	root := graphQLRoot{Database: db, Network: network, contextionary: c11y, log: mainLog}
-	updatedGraphQL, err := graphql.Build(&updatedSchema, peers, root, logger, serverConfig.Config)
+	updatedGraphQL, err := graphql.Build(&updatedSchema, peers, root, logger, config)
 	if err != nil {
-		graphQL = nil
-		return fmt.Errorf("Could not re-generate GraphQL schema, because: %v", err)
+		return nil, fmt.Errorf("Could not re-generate GraphQL schema, because: %v", err)
 	}
 
-	graphQL = updatedGraphQL
 	logger.WithField("action", "graphql_rebuild").Debug("successfully rebuild graphql schema")
-	return nil
+	return updatedGraphQL, nil
 }
 
 type schemaGetter struct {
@@ -165,20 +167,20 @@ func timeTillDeadline(ctx context.Context) string {
 
 // This function loads the Contextionary database, and creates
 // an in-memory database for the centroids of the classes / properties in the Schema.
-func loadContextionary(logger *logrus.Logger) {
+func loadContextionary(logger *logrus.Logger, config config.Config) {
 	// First load the file backed contextionary
-	if serverConfig.Config.Contextionary.KNNFile == "" {
+	if config.Contextionary.KNNFile == "" {
 		logger.WithField("action", "startup").Error("contextionary KNN file not set")
 		logger.Exit(1)
 	}
 
-	if serverConfig.Config.Contextionary.IDXFile == "" {
+	if config.Contextionary.IDXFile == "" {
 		logger.WithField("action", "startup").Error("contextionary IDX file not set")
 		logger.Exit(1)
 	}
 
 	mmapedContextionary, err := libcontextionary.LoadVectorFromDisk(
-		serverConfig.Config.Contextionary.KNNFile, serverConfig.Config.Contextionary.IDXFile)
+		config.Contextionary.KNNFile, config.Contextionary.IDXFile)
 	if err != nil {
 		logger.WithField("action", "startup").
 			WithError(err).
@@ -190,29 +192,27 @@ func loadContextionary(logger *logrus.Logger) {
 	rawContextionary = mmapedContextionary
 }
 
-func connectToNetwork(logger *logrus.Logger) {
-	if serverConfig.Config.Network == nil {
+func connectToNetwork(logger *logrus.Logger, config config.Config) network.Network {
+	if config.Network == nil {
 		logger.Info("No network configured. Not Joining one.")
-		network = libnetworkFake.FakeNetwork{}
-		appState.Network = network
-	} else {
-		genesis_url := strfmt.URI(serverConfig.Config.Network.GenesisURL)
-		public_url := strfmt.URI(serverConfig.Config.Network.PublicURL)
-		peer_name := serverConfig.Config.Network.PeerName
-
-		logger.
-			WithField("peer_name", peer_name).
-			WithField("genesis_url", genesis_url).
-			Info("Network configured. Attempting to join.")
-		new_net, err := libnetworkP2P.BootstrapNetwork(logger, genesis_url, public_url, peer_name)
-		if err != nil {
-			logger.WithField("action", "startup").
-				WithError(err).
-				Error("could not connect to network")
-			logger.Exit(1)
-		} else {
-			network = new_net
-			appState.Network = new_net
-		}
+		return libnetworkFake.FakeNetwork{}
 	}
+
+	genesisURL := strfmt.URI(config.Network.GenesisURL)
+	publicURL := strfmt.URI(config.Network.PublicURL)
+	peerName := config.Network.PeerName
+
+	logger.
+		WithField("peer_name", peerName).
+		WithField("genesis_url", genesisURL).
+		Info("Network configured. Attempting to join.")
+	newnet, err := libnetworkP2P.BootstrapNetwork(logger, genesisURL, publicURL, peerName)
+	if err != nil {
+		logger.WithField("action", "startup").
+			WithError(err).
+			Error("could not connect to network")
+		logger.Exit(1)
+	}
+
+	return newnet
 }
