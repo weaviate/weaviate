@@ -14,23 +14,23 @@ import (
 	"context"
 	"fmt"
 
-	batchmodels "github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/batch/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
 // AddBatchReferences in bulk.
-func (j *Janusgraph) AddBatchReferences(ctx context.Context, refs batchmodels.References) error {
+func (j *Janusgraph) AddBatchReferences(ctx context.Context, refs kinds.BatchReferences) error {
 	return j.addBatchReferences(ctx, refs)
 }
 
-func (j *Janusgraph) addBatchReferences(ctx context.Context, references batchmodels.References) error {
+func (j *Janusgraph) addBatchReferences(ctx context.Context, references kinds.BatchReferences) error {
 	chunkSize := MaximumBatchItemsPerQuery
 	chunks := len(references) / chunkSize
 	if len(references) < chunkSize {
 		chunks = 1
 	}
-	chunked := make([][]batchmodels.Reference, chunks)
+	chunked := make([][]kinds.BatchReference, chunks)
 	chunk := 0
 
 	for i := 0; i < len(references); i++ {
@@ -43,7 +43,7 @@ func (j *Janusgraph) addBatchReferences(ctx context.Context, references batchmod
 			if len(references)-i < chunkSize {
 				currentChunkSize = len(references) - i
 			}
-			chunked[chunk] = make([]batchmodels.Reference, currentChunkSize)
+			chunked[chunk] = make([]kinds.BatchReference, currentChunkSize)
 		}
 		chunked[chunk][i%chunkSize] = references[i]
 	}
@@ -59,7 +59,7 @@ func (j *Janusgraph) addBatchReferences(ctx context.Context, references batchmod
 	return nil
 }
 
-func (j *Janusgraph) addBatchReferencesChunk(ctx context.Context, references batchmodels.References) error {
+func (j *Janusgraph) addBatchReferencesChunk(ctx context.Context, references kinds.BatchReferences) error {
 	q := gremlin.New().Raw("g")
 
 	for _, ref := range references {
@@ -95,7 +95,7 @@ func (j *Janusgraph) addBatchReferencesChunk(ctx context.Context, references bat
 	return nil
 }
 
-func (j *Janusgraph) addOneBatchedRef(q *gremlin.Query, ref batchmodels.Reference) (*gremlin.Query, error) {
+func (j *Janusgraph) addOneBatchedRef(q *gremlin.Query, ref kinds.BatchReference) (*gremlin.Query, error) {
 	className := schema.AssertValidClassName(string(ref.From.Class))
 	propertyName := schema.AssertValidPropertyName(string(ref.From.Property))
 	mappedPropertyName, err := j.state.GetMappedPropertyName(className, propertyName)

@@ -21,7 +21,6 @@ import (
 
 	"github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/clientv3/concurrency"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/batch"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/operations"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/state"
 	"github.com/creativesoftwarefdn/weaviate/adapters/locks"
@@ -58,10 +57,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	kindsManager := kinds.NewManager(appState.Connector, appState.Locks, appState.SchemaManager, network, serverConfig)
+	batchKindsManager := kinds.NewBatchManager(appState.Connector, appState.Locks, appState.SchemaManager, network, serverConfig)
 
 	setupSchemaHandlers(api, mainLog, schemaUC.NewManager(db))
 	setupKindHandlers(api, mainLog, kindsManager)
-	setupBatchHandlers(api, mainLog)
+	setupKindBatchHandlers(api, mainLog, batchKindsManager)
 	setupC11yHandlers(api, mainLog)
 	setupGraphQLHandlers(api, mainLog)
 	setupMiscHandlers(api, mainLog)
@@ -69,17 +69,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.ServerShutdown = func() {}
 
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
-}
-
-func setupBatchHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog) {
-	batchAPI := batch.New(appState, requestsLog)
-
-	api.WeaviateBatchingThingsCreateHandler = operations.
-		WeaviateBatchingThingsCreateHandlerFunc(batchAPI.ThingsCreate)
-	api.WeaviateBatchingActionsCreateHandler = operations.
-		WeaviateBatchingActionsCreateHandlerFunc(batchAPI.ActionsCreate)
-	api.WeaviateBatchingReferencesCreateHandler = operations.
-		WeaviateBatchingReferencesCreateHandlerFunc(batchAPI.References)
 }
 
 // TODO: Split up and don't write into global variables. Instead return an appState

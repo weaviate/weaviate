@@ -17,10 +17,10 @@ import (
 
 	"github.com/go-openapi/strfmt"
 
-	batchmodels "github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/batch/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
 func (j *Janusgraph) AddThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error {
@@ -28,7 +28,7 @@ func (j *Janusgraph) AddThing(ctx context.Context, thing *models.Thing, UUID str
 	return j.addClass(kind.Thing, sanitizedClassName, UUID, thing.CreationTimeUnix, thing.LastUpdateTimeUnix, thing.Schema)
 }
 
-func (j *Janusgraph) AddThingsBatch(ctx context.Context, things batchmodels.Things) error {
+func (j *Janusgraph) AddThingsBatch(ctx context.Context, things kinds.BatchThings) error {
 	return j.addThingsBatch(things)
 }
 

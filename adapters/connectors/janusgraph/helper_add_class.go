@@ -12,10 +12,10 @@
 package janusgraph
 
 import (
-	batchmodels "github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/batch/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 	"github.com/go-openapi/strfmt"
 )
 
@@ -45,13 +45,13 @@ func (j *Janusgraph) addClass(k kind.Kind, className schema.ClassName, UUID strf
 // into smaller chunks so we avoid StackOverflowExceptions in the Janus backend
 const MaximumBatchItemsPerQuery = 50
 
-func (j *Janusgraph) addThingsBatch(things batchmodels.Things) error {
+func (j *Janusgraph) addThingsBatch(things kinds.BatchThings) error {
 	chunkSize := MaximumBatchItemsPerQuery
 	chunks := len(things) / chunkSize
 	if len(things) < chunkSize {
 		chunks = 1
 	}
-	chunked := make([][]batchmodels.Thing, chunks)
+	chunked := make([][]kinds.BatchThing, chunks)
 	chunk := 0
 
 	for i := 0; i < len(things); i++ {
@@ -64,7 +64,7 @@ func (j *Janusgraph) addThingsBatch(things batchmodels.Things) error {
 			if len(things)-i < chunkSize {
 				currentChunkSize = len(things) - i
 			}
-			chunked[chunk] = make([]batchmodels.Thing, currentChunkSize)
+			chunked[chunk] = make([]kinds.BatchThing, currentChunkSize)
 		}
 		chunked[chunk][i%chunkSize] = things[i]
 	}
@@ -121,13 +121,13 @@ func (j *Janusgraph) addThingsBatch(things batchmodels.Things) error {
 	return nil
 }
 
-func (j *Janusgraph) addActionsBatch(actions batchmodels.Actions) error {
+func (j *Janusgraph) addActionsBatch(actions kinds.BatchActions) error {
 	chunkSize := MaximumBatchItemsPerQuery
 	chunks := len(actions) / chunkSize
 	if len(actions) < chunkSize {
 		chunks = 1
 	}
-	chunked := make([][]batchmodels.Action, chunks)
+	chunked := make([][]kinds.BatchAction, chunks)
 	chunk := 0
 
 	for i := 0; i < len(actions); i++ {
@@ -140,7 +140,7 @@ func (j *Janusgraph) addActionsBatch(actions batchmodels.Actions) error {
 			if len(actions)-i < chunkSize {
 				currentChunkSize = len(actions) - i
 			}
-			chunked[chunk] = make([]batchmodels.Action, currentChunkSize)
+			chunked[chunk] = make([]kinds.BatchAction, currentChunkSize)
 		}
 		chunked[chunk][i%chunkSize] = actions[i]
 	}
