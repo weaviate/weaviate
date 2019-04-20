@@ -18,6 +18,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
 func Test_ExtractAnalyticsPropsFromGetMeta(t *testing.T) {
@@ -34,13 +35,13 @@ func Test_ExtractAnalyticsPropsFromGetMeta(t *testing.T) {
 			Enabled: true,
 		},
 	}
-	expectedParams := &Params{
+	expectedParams := &kinds.GetMetaParams{
 		Kind:      kind.Thing,
 		ClassName: schema.ClassName("Car"),
-		Properties: []MetaProperty{
+		Properties: []kinds.MetaProperty{
 			{
 				Name:                "horsepower",
-				StatisticalAnalyses: []StatisticalAnalysis{Mean},
+				StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Mean},
 			},
 		},
 		Analytics: analytics,

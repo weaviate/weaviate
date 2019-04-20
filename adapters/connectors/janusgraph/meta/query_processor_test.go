@@ -14,8 +14,8 @@ package meta
 import (
 	"testing"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -46,16 +46,16 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		params := &getmeta.Params{
-			Properties: []getmeta.MetaProperty{
-				getmeta.MetaProperty{
+		params := &kinds.GetMetaParams{
+			Properties: []kinds.MetaProperty{
+				kinds.MetaProperty{
 					Name: "myBoolProp",
-					StatisticalAnalyses: []getmeta.StatisticalAnalysis{
-						getmeta.Count,
-						getmeta.PercentageTrue,
-						getmeta.PercentageFalse,
-						getmeta.TotalTrue,
-						getmeta.TotalFalse,
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{
+						kinds.Count,
+						kinds.PercentageTrue,
+						kinds.PercentageFalse,
+						kinds.TotalTrue,
+						kinds.TotalFalse,
 					},
 				}},
 		}
@@ -93,16 +93,16 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		params := &getmeta.Params{
-			Properties: []getmeta.MetaProperty{
-				getmeta.MetaProperty{
+		params := &kinds.GetMetaParams{
+			Properties: []kinds.MetaProperty{
+				kinds.MetaProperty{
 					Name: "myBoolProp",
-					StatisticalAnalyses: []getmeta.StatisticalAnalysis{
-						getmeta.Count,
-						getmeta.PercentageTrue,
-						getmeta.PercentageFalse,
-						getmeta.TotalTrue,
-						getmeta.TotalFalse,
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{
+						kinds.Count,
+						kinds.PercentageTrue,
+						kinds.PercentageFalse,
+						kinds.TotalTrue,
+						kinds.TotalFalse,
 					},
 				}},
 		}
@@ -140,16 +140,16 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		params := &getmeta.Params{
-			Properties: []getmeta.MetaProperty{
-				getmeta.MetaProperty{
+		params := &kinds.GetMetaParams{
+			Properties: []kinds.MetaProperty{
+				kinds.MetaProperty{
 					Name: "myBoolProp",
-					StatisticalAnalyses: []getmeta.StatisticalAnalysis{
-						getmeta.Count,
-						getmeta.PercentageTrue,
-						getmeta.PercentageFalse,
-						getmeta.TotalTrue,
-						getmeta.TotalFalse,
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{
+						kinds.Count,
+						kinds.PercentageTrue,
+						kinds.PercentageFalse,
+						kinds.TotalTrue,
+						kinds.TotalFalse,
 					},
 				}},
 		}
@@ -178,7 +178,7 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), nil, &getmeta.Params{})
+		result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), nil, &kinds.GetMetaParams{})
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -212,7 +212,7 @@ func Test_QueryProcessor(t *testing.T) {
 				},
 			}
 
-			result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), typeInput, &getmeta.Params{})
+			result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), typeInput, &kinds.GetMetaParams{})
 
 			require.Nil(t, err, "should not error")
 			assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -244,7 +244,7 @@ func Test_QueryProcessor(t *testing.T) {
 				},
 			}
 
-			result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), typeInput, &getmeta.Params{})
+			result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), typeInput, &kinds.GetMetaParams{})
 
 			require.Nil(t, err, "should not error")
 			assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -267,7 +267,7 @@ func Test_QueryProcessor(t *testing.T) {
 				},
 			}
 
-			result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), typeInput, &getmeta.Params{})
+			result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), typeInput, &kinds.GetMetaParams{})
 			require.Nil(t, err, "should not error")
 			assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
 		})
@@ -308,7 +308,7 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), nil, &getmeta.Params{})
+		result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), nil, &kinds.GetMetaParams{})
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -352,7 +352,7 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), nil, &getmeta.Params{})
+		result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), nil, &kinds.GetMetaParams{})
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")

@@ -12,13 +12,13 @@
 package meta
 
 import (
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
-func (b *Query) crefProp(prop getmeta.MetaProperty) (*gremlin.Query, error) {
+func (b *Query) crefProp(prop kinds.MetaProperty) (*gremlin.Query, error) {
 	for _, analysis := range prop.StatisticalAnalyses {
-		if analysis != getmeta.Count {
+		if analysis != kinds.Count {
 			continue
 		}
 
@@ -27,7 +27,7 @@ func (b *Query) crefProp(prop getmeta.MetaProperty) (*gremlin.Query, error) {
 	return nil, nil
 }
 
-func (b *Query) crefCountQuery(prop getmeta.MetaProperty) *gremlin.Query {
+func (b *Query) crefCountQuery(prop kinds.MetaProperty) *gremlin.Query {
 	return gremlin.New().
 		OutEWithLabel(b.mappedPropertyName(b.params.ClassName, untitle(prop.Name))).Count().
 		Project("count").Project(string(prop.Name))

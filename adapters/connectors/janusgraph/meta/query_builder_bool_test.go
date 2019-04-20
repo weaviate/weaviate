@@ -14,17 +14,17 @@ package meta
 import (
 	"testing"
 
-	gm "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
 func Test_QueryBuilder_BoolProps(t *testing.T) {
 	tests := testCases{
 		testCase{
 			name: "with only a boolean, with only count",
-			inputProps: []gm.MetaProperty{
-				gm.MetaProperty{
+			inputProps: []kinds.MetaProperty{
+				kinds.MetaProperty{
 					Name:                "isCapital",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.Count},
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Count},
 				},
 			},
 			expectedQuery: `
@@ -43,10 +43,10 @@ func Test_QueryBuilder_BoolProps(t *testing.T) {
 
 		testCase{
 			name: "with count and type",
-			inputProps: []gm.MetaProperty{
-				gm.MetaProperty{
+			inputProps: []kinds.MetaProperty{
+				kinds.MetaProperty{
 					Name:                "isCapital",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.Count, gm.Type},
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Count, kinds.Type},
 				},
 			},
 			expectedQuery: `
@@ -65,10 +65,10 @@ func Test_QueryBuilder_BoolProps(t *testing.T) {
 
 		testCase{
 			name: "with only a boolean, with only totalTrue",
-			inputProps: []gm.MetaProperty{
-				gm.MetaProperty{
+			inputProps: []kinds.MetaProperty{
+				kinds.MetaProperty{
 					Name:                "isCapital",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.TotalTrue},
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.TotalTrue},
 				},
 			},
 			expectedQuery: `
@@ -87,11 +87,11 @@ func Test_QueryBuilder_BoolProps(t *testing.T) {
 
 		testCase{
 			name: "with all boolean props combined",
-			inputProps: []gm.MetaProperty{
-				gm.MetaProperty{
+			inputProps: []kinds.MetaProperty{
+				kinds.MetaProperty{
 					Name: "isCapital",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{
-						gm.Count, gm.TotalTrue, gm.TotalFalse, gm.PercentageTrue, gm.PercentageFalse,
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{
+						kinds.Count, kinds.TotalTrue, kinds.TotalFalse, kinds.PercentageTrue, kinds.PercentageFalse,
 					},
 				},
 			},
@@ -111,11 +111,11 @@ func Test_QueryBuilder_BoolProps(t *testing.T) {
 		},
 		testCase{
 			name: "with only a boolean, with only all true/false props",
-			inputProps: []gm.MetaProperty{
-				gm.MetaProperty{
+			inputProps: []kinds.MetaProperty{
+				kinds.MetaProperty{
 					Name: "isCapital",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{
-						gm.TotalTrue, gm.TotalFalse, gm.PercentageTrue, gm.PercentageFalse,
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{
+						kinds.TotalTrue, kinds.TotalFalse, kinds.PercentageTrue, kinds.PercentageFalse,
 					},
 				},
 			},
@@ -142,10 +142,10 @@ func Test_QueryBuilderWithNamesource(t *testing.T) {
 	tests := testCases{
 		testCase{
 			name: "with only a boolean, with only count",
-			inputProps: []gm.MetaProperty{
-				gm.MetaProperty{
+			inputProps: []kinds.MetaProperty{
+				kinds.MetaProperty{
 					Name:                "isCapital",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.Count},
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Count},
 				},
 			},
 			expectedQuery: `

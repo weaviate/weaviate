@@ -13,8 +13,6 @@
 // Package descriptions provides the descriptions as used by the graphql endpoint for Weaviate
 package descriptions
 
-import ()
-
 // NETWORK
 const NetworkIntrospect string = "Get Introspection information about Things, Actions and/or Beacons in a Weaviate network"
 const NetworkIntrospectObj string = "An object used to perform an Introspection query on a Weaviate network"

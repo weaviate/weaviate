@@ -13,8 +13,6 @@
 // Package descriptions provides the descriptions as used by the graphql endpoint for Weaviate
 package descriptions
 
-import ()
-
 // ROOT
 const WeaviateObj string = "The location of the root query"
 const WeaviateLocal string = "Query a local Weaviate"

@@ -8,7 +8,9 @@
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
  * CONTACT: hello@creativesoftwarefdn.org
- */package getmeta
+ */
+
+package kinds
 
 import (
 	"testing"
@@ -20,10 +22,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_ParamsHashing(t *testing.T) {
-
-	params := func() Params {
-		return Params{
+func Test_GetMetaParamsHashing(t *testing.T) {
+	params := func() GetMetaParams {
+		return GetMetaParams{
 			Analytics:        cf.AnalyticsProps{UseAnaltyicsEngine: true},
 			IncludeMetaCount: true,
 			ClassName:        schema.ClassName("MyBestClass"),

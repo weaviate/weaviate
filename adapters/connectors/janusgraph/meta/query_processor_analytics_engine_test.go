@@ -20,10 +20,10 @@ import (
 	"github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/mvcc/mvccpb"
 	cf "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -227,14 +227,14 @@ func Test_QueryProcessor_AnalyticsEngine(t *testing.T) {
 	})
 }
 
-func paramsWithAnalyticsProps(a cf.AnalyticsProps) getmeta.Params {
-	return getmeta.Params{
+func paramsWithAnalyticsProps(a cf.AnalyticsProps) kinds.GetMetaParams {
+	return kinds.GetMetaParams{
 		Kind:      kind.Thing,
 		ClassName: schema.ClassName("Car"),
-		Properties: []getmeta.MetaProperty{
+		Properties: []kinds.MetaProperty{
 			{
 				Name:                "horsepower",
-				StatisticalAnalyses: []getmeta.StatisticalAnalysis{getmeta.Mean},
+				StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Mean},
 			},
 		},
 		Analytics: a,

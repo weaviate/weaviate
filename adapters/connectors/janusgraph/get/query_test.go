@@ -18,20 +18,20 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/common"
 	cf "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/fetch"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/get"
 	contextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
 func Test_QueryBuilder(t *testing.T) {
 	tests := testCases{
 		{
 			name: "with a Thing.City with a single primitive prop 'name'",
-			inputParams: get.Params{
+			inputParams: kinds.LocalGetParams{
 				ClassName: "City",
-				Properties: []get.SelectProperty{
-					get.SelectProperty{
+				Properties: []kinds.SelectProperty{
+					kinds.SelectProperty{
 						IsPrimitive: true,
 						Name:        "name",
 					},
@@ -48,10 +48,10 @@ func Test_QueryBuilder(t *testing.T) {
 		},
 		{
 			name: "without an explicit limit specified",
-			inputParams: get.Params{
+			inputParams: kinds.LocalGetParams{
 				ClassName: "City",
-				Properties: []get.SelectProperty{
-					get.SelectProperty{
+				Properties: []kinds.SelectProperty{
+					kinds.SelectProperty{
 						IsPrimitive: true,
 						Name:        "name",
 					},
@@ -65,10 +65,10 @@ func Test_QueryBuilder(t *testing.T) {
 		},
 		{
 			name: "with a Thing.City with a single primitive prop 'name' and a where filter",
-			inputParams: get.Params{
+			inputParams: kinds.LocalGetParams{
 				ClassName: "City",
-				Properties: []get.SelectProperty{
-					get.SelectProperty{
+				Properties: []kinds.SelectProperty{
+					kinds.SelectProperty{
 						IsPrimitive: true,
 						Name:        "name",
 					},
@@ -99,21 +99,21 @@ func Test_QueryBuilder(t *testing.T) {
 		},
 		{
 			name: "with a Thing.City with a ref prop one level deep",
-			inputParams: get.Params{
+			inputParams: kinds.LocalGetParams{
 				ClassName: "City",
-				Properties: []get.SelectProperty{
-					get.SelectProperty{
+				Properties: []kinds.SelectProperty{
+					kinds.SelectProperty{
 						IsPrimitive: true,
 						Name:        "name",
 					},
-					get.SelectProperty{
+					kinds.SelectProperty{
 						IsPrimitive: false,
 						Name:        "inCountry",
-						Refs: []get.SelectClass{
-							get.SelectClass{
+						Refs: []kinds.SelectClass{
+							kinds.SelectClass{
 								ClassName: "Country",
-								RefProperties: []get.SelectProperty{
-									get.SelectProperty{
+								RefProperties: []kinds.SelectProperty{
+									kinds.SelectProperty{
 										IsPrimitive: true,
 										Name:        "name",
 									},
@@ -139,21 +139,21 @@ func Test_QueryBuilder(t *testing.T) {
 		},
 		{
 			name: "with a Thing.City with a network ref prop one level deep",
-			inputParams: get.Params{
+			inputParams: kinds.LocalGetParams{
 				ClassName: "City",
-				Properties: []get.SelectProperty{
-					get.SelectProperty{
+				Properties: []kinds.SelectProperty{
+					kinds.SelectProperty{
 						IsPrimitive: true,
 						Name:        "name",
 					},
-					get.SelectProperty{
+					kinds.SelectProperty{
 						IsPrimitive: false,
 						Name:        "inCountry",
-						Refs: []get.SelectClass{
-							get.SelectClass{
+						Refs: []kinds.SelectClass{
+							kinds.SelectClass{
 								ClassName: "WeaviateB__Country",
-								RefProperties: []get.SelectProperty{
-									get.SelectProperty{
+								RefProperties: []kinds.SelectProperty{
+									kinds.SelectProperty{
 										IsPrimitive: true,
 										Name:        "name",
 									},
@@ -179,35 +179,35 @@ func Test_QueryBuilder(t *testing.T) {
 		},
 		{
 			name: "with a Thing.City with a ref prop three levels deep",
-			inputParams: get.Params{
+			inputParams: kinds.LocalGetParams{
 				ClassName: "City",
-				Properties: []get.SelectProperty{
-					get.SelectProperty{
+				Properties: []kinds.SelectProperty{
+					kinds.SelectProperty{
 						IsPrimitive: true,
 						Name:        "name",
 					},
-					get.SelectProperty{
+					kinds.SelectProperty{
 						IsPrimitive: false,
 						Name:        "inCountry",
-						Refs: []get.SelectClass{
-							get.SelectClass{
+						Refs: []kinds.SelectClass{
+							kinds.SelectClass{
 								ClassName: "Country",
-								RefProperties: []get.SelectProperty{
-									get.SelectProperty{
+								RefProperties: []kinds.SelectProperty{
+									kinds.SelectProperty{
 										IsPrimitive: false,
 										Name:        "inContinent",
-										Refs: []get.SelectClass{
-											get.SelectClass{
+										Refs: []kinds.SelectClass{
+											kinds.SelectClass{
 												ClassName: "Continent",
-												RefProperties: []get.SelectProperty{
-													get.SelectProperty{
+												RefProperties: []kinds.SelectProperty{
+													kinds.SelectProperty{
 														IsPrimitive: false,
 														Name:        "onPlanet",
-														Refs: []get.SelectClass{
-															get.SelectClass{
+														Refs: []kinds.SelectClass{
+															kinds.SelectClass{
 																ClassName: "Planet",
-																RefProperties: []get.SelectProperty{
-																	get.SelectProperty{
+																RefProperties: []kinds.SelectProperty{
+																	kinds.SelectProperty{
 																		IsPrimitive: true,
 																		Name:        "name",
 																	},

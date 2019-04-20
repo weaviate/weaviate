@@ -20,6 +20,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 	"github.com/creativesoftwarefdn/weaviate/usecases/telemetry"
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
@@ -29,83 +30,13 @@ import (
 // form the overall GraphQL API main interface. All data-base connectors that
 // want to support the GetMeta feature must implement this interface.
 type Resolver interface {
-	LocalGetMeta(info *Params) (interface{}, error)
+	LocalGetMeta(info *kinds.GetMetaParams) (interface{}, error)
 }
 
 // RequestsLog is a local abstraction on the RequestsLog that needs to be
 // provided to the graphQL API in order to log Local.GetMeta queries.
 type RequestsLog interface {
 	Register(requestType string, identifier string)
-}
-
-// Params to describe the Local->GetMeta->Kind->Class query. Will be passed to
-// the individual connector methods responsible for resolving the GetMeta
-// query.
-type Params struct {
-	Kind             kind.Kind
-	Filters          *common_filters.LocalFilter
-	Analytics        common_filters.AnalyticsProps
-	ClassName        schema.ClassName
-	Properties       []MetaProperty
-	IncludeMetaCount bool
-}
-
-// StatisticalAnalysis is the desired computation that the database connector
-// should perform on this property
-type StatisticalAnalysis string
-
-const (
-	// Type can be applied to any field and will return the type of the field,
-	// such as "int" or "string"
-	Type StatisticalAnalysis = "type"
-
-	// Count the occurence of this property
-	Count StatisticalAnalysis = "count"
-
-	// Sum of all the values of the prop (i.e. sum of all Ints or Numbers)
-	Sum StatisticalAnalysis = "sum"
-
-	// Mean calculates the mean of an Int or Number
-	Mean StatisticalAnalysis = "mean"
-
-	// Maximum selects the maximum value of an Int or Number
-	Maximum StatisticalAnalysis = "maximum"
-
-	// Minimum selects the maximum value of an Int or Number
-	Minimum StatisticalAnalysis = "minimum"
-
-	// TotalTrue is the sum of all boolean fields, that are true
-	TotalTrue StatisticalAnalysis = "totalTrue"
-
-	// TotalFalse is the sum of all boolean fields, that are false
-	TotalFalse StatisticalAnalysis = "totalFalse"
-
-	// PercentageTrue is the percentage of all boolean fields, that are true
-	PercentageTrue StatisticalAnalysis = "percentageTrue"
-
-	// PercentageFalse is the percentage of all boolean fields, that are false
-	PercentageFalse StatisticalAnalysis = "percentageFalse"
-
-	// PointingTo is the list of all classes that this reference prop points to
-	PointingTo StatisticalAnalysis = "pointingTo"
-
-	// TopOccurrences of strings, selection can be made more specific with
-	// TopOccurrencesValues for now. In the future there might also be other
-	// sub-props.
-	TopOccurrences StatisticalAnalysis = "topOccurrences"
-
-	// TopOccurrencesValue is a sub-prop of TopOccurrences
-	TopOccurrencesValue StatisticalAnalysis = "value"
-
-	// TopOccurrencesOccurs is a sub-prop of TopOccurrences
-	TopOccurrencesOccurs StatisticalAnalysis = "occurs"
-)
-
-// MetaProperty is any property of a class that we want to retrieve meta
-// information about
-type MetaProperty struct {
-	Name                schema.PropertyName
-	StatisticalAnalyses []StatisticalAnalysis
 }
 
 func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
@@ -147,7 +78,7 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 			return nil, fmt.Errorf("could not extract analytics props: %s", err)
 		}
 
-		params := &Params{
+		params := &kinds.GetMetaParams{
 			Kind:       kind,
 			Filters:    filters,
 			ClassName:  className,
@@ -165,8 +96,8 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 	}
 }
 
-func extractMetaProperties(selections *ast.SelectionSet) ([]MetaProperty, error) {
-	var properties []MetaProperty
+func extractMetaProperties(selections *ast.SelectionSet) ([]kinds.MetaProperty, error) {
+	var properties []kinds.MetaProperty
 
 	for _, selection := range selections.Selections {
 		field := selection.(*ast.Field)
@@ -175,7 +106,7 @@ func extractMetaProperties(selections *ast.SelectionSet) ([]MetaProperty, error)
 			continue
 		}
 
-		property := MetaProperty{Name: schema.PropertyName(name)}
+		property := kinds.MetaProperty{Name: schema.PropertyName(name)}
 		analysesProps, err := extractPropertyAnalyses(field.SelectionSet)
 		if err != nil {
 			return nil, err
@@ -195,8 +126,8 @@ func extractMetaProperties(selections *ast.SelectionSet) ([]MetaProperty, error)
 	return properties, nil
 }
 
-func extractPropertyAnalyses(selections *ast.SelectionSet) ([]StatisticalAnalysis, error) {
-	analyses := []StatisticalAnalysis{}
+func extractPropertyAnalyses(selections *ast.SelectionSet) ([]kinds.StatisticalAnalysis, error) {
+	analyses := []kinds.StatisticalAnalysis{}
 	for _, selection := range selections.Selections {
 		field := selection.(*ast.Field)
 		name := field.Name.Value
@@ -207,12 +138,12 @@ func extractPropertyAnalyses(selections *ast.SelectionSet) ([]StatisticalAnalysi
 			continue
 		}
 
-		property, err := parseAnalysisProp(name)
+		property, err := kinds.ParseAnalysisProp(name)
 		if err != nil {
 			return nil, err
 		}
 
-		if property == TopOccurrences {
+		if property == kinds.TopOccurrences {
 			// TopOccurrences is the only nested prop for now. It does have two
 			// subprops which we predict to be computed in the same query with
 			// neglible additional cost. In this case, we can save the effort of
@@ -221,7 +152,7 @@ func extractPropertyAnalyses(selections *ast.SelectionSet) ([]StatisticalAnalysi
 			// always only wants one of the two props (unlikely, as one is
 			// meaningless without the other), then we can improve this and actually
 			// parse the values.
-			analyses = append(analyses, TopOccurrencesValue, TopOccurrencesOccurs)
+			analyses = append(analyses, kinds.TopOccurrencesValue, kinds.TopOccurrencesOccurs)
 			continue
 		}
 
@@ -229,35 +160,4 @@ func extractPropertyAnalyses(selections *ast.SelectionSet) ([]StatisticalAnalysi
 	}
 
 	return analyses, nil
-}
-
-func parseAnalysisProp(name string) (StatisticalAnalysis, error) {
-	switch name {
-	case string(Type):
-		return Type, nil
-	case string(Mean):
-		return Mean, nil
-	case string(Maximum):
-		return Maximum, nil
-	case string(Minimum):
-		return Minimum, nil
-	case string(Count):
-		return Count, nil
-	case string(Sum):
-		return Sum, nil
-	case string(TotalTrue):
-		return TotalTrue, nil
-	case string(TotalFalse):
-		return TotalFalse, nil
-	case string(PercentageTrue):
-		return PercentageTrue, nil
-	case string(PercentageFalse):
-		return PercentageFalse, nil
-	case string(PointingTo):
-		return PointingTo, nil
-	case string(TopOccurrences):
-		return TopOccurrences, nil
-	default:
-		return "", fmt.Errorf("unrecognized statistical prop '%s'", name)
-	}
 }

@@ -16,21 +16,21 @@ import (
 	"strings"
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/state"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
 type Query struct {
-	params       *getmeta.Params
+	params       *kinds.GetMetaParams
 	nameSource   nameSource
 	typeSource   typeSource
 	filterSource filterSource
 }
 
-func NewQuery(params *getmeta.Params, nameSource nameSource, typeSource typeSource,
+func NewQuery(params *kinds.GetMetaParams, nameSource nameSource, typeSource typeSource,
 	filterSource filterSource) *Query {
 	return &Query{
 		params:       params,
@@ -95,7 +95,7 @@ func idempotentLeadWithDot(q *gremlin.Query) string {
 	return fmt.Sprintf(".%s", stringified)
 }
 
-func (b *Query) prop(prop getmeta.MetaProperty) (*gremlin.Query, error) {
+func (b *Query) prop(prop kinds.MetaProperty) (*gremlin.Query, error) {
 	if prop.Name == MetaProp {
 		return b.metaProp(prop)
 	}

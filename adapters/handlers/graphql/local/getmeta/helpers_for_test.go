@@ -16,6 +16,7 @@ import (
 
 	testhelper "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
 type mockRequestsLog struct{}
@@ -45,7 +46,7 @@ func newMockResolver(cfg config.Config) *mockResolver {
 	return mocker
 }
 
-func (m *mockResolver) LocalGetMeta(params *Params) (interface{}, error) {
+func (m *mockResolver) LocalGetMeta(params *kinds.GetMetaParams) (interface{}, error) {
 	args := m.Called(params)
 	return args.Get(0), args.Error(1)
 }

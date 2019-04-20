@@ -14,7 +14,7 @@ package meta
 import (
 	"testing"
 
-	gm "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
 // This file contains only a single test to verify that combining multiple
@@ -26,17 +26,17 @@ func Test_QueryBuilder_MultipleProps(t *testing.T) {
 	tests := testCases{
 		testCase{
 			name: "with multiple props",
-			inputProps: []gm.MetaProperty{
-				gm.MetaProperty{
+			inputProps: []kinds.MetaProperty{
+				kinds.MetaProperty{
 					Name: "isCapital",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{
-						gm.Count, gm.TotalTrue, gm.TotalFalse, gm.PercentageTrue, gm.PercentageFalse,
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{
+						kinds.Count, kinds.TotalTrue, kinds.TotalFalse, kinds.PercentageTrue, kinds.PercentageFalse,
 					},
 				},
-				gm.MetaProperty{
+				kinds.MetaProperty{
 					Name: "population",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{
-						gm.Mean, gm.Sum, gm.Maximum, gm.Minimum, gm.Count,
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{
+						kinds.Mean, kinds.Sum, kinds.Maximum, kinds.Minimum, kinds.Count,
 					},
 				},
 			},
@@ -70,17 +70,17 @@ func Test_QueryBuilder_MultiplePropsWithFilter(t *testing.T) {
 	tests := testCases{
 		testCase{
 			name: "with multiple props",
-			inputProps: []gm.MetaProperty{
-				gm.MetaProperty{
+			inputProps: []kinds.MetaProperty{
+				kinds.MetaProperty{
 					Name: "isCapital",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{
-						gm.Count, gm.TotalTrue, gm.TotalFalse, gm.PercentageTrue, gm.PercentageFalse,
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{
+						kinds.Count, kinds.TotalTrue, kinds.TotalFalse, kinds.PercentageTrue, kinds.PercentageFalse,
 					},
 				},
-				gm.MetaProperty{
+				kinds.MetaProperty{
 					Name: "population",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{
-						gm.Mean, gm.Sum, gm.Maximum, gm.Minimum, gm.Count,
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{
+						kinds.Mean, kinds.Sum, kinds.Maximum, kinds.Minimum, kinds.Count,
 					},
 				},
 			},

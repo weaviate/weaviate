@@ -14,9 +14,9 @@ package meta
 import (
 	"fmt"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
 const (
@@ -26,7 +26,7 @@ const (
 	MetaProp schema.PropertyName = "meta"
 )
 
-func (b *Query) metaProp(prop getmeta.MetaProperty) (*gremlin.Query, error) {
+func (b *Query) metaProp(prop kinds.MetaProperty) (*gremlin.Query, error) {
 	if len(prop.StatisticalAnalyses) != 1 {
 		return nil, fmt.Errorf(
 			"meta prop only supports exactly one statistical analysis prop 'count', but have: %#v",
@@ -34,7 +34,7 @@ func (b *Query) metaProp(prop getmeta.MetaProperty) (*gremlin.Query, error) {
 	}
 
 	analysis := prop.StatisticalAnalyses[0]
-	if analysis != getmeta.Count {
+	if analysis != kinds.Count {
 		return nil, fmt.Errorf(
 			"meta prop only supports statistical analysis prop 'count', but have '%s'", analysis)
 	}

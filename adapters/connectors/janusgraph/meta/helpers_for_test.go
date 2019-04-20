@@ -18,10 +18,10 @@ import (
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/state"
-	gm "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -121,7 +121,7 @@ func (s *fakeFilterSource) String() (string, error) {
 
 type testCase struct {
 	name          string
-	inputProps    []gm.MetaProperty
+	inputProps    []kinds.MetaProperty
 	expectedQuery string
 }
 
@@ -136,7 +136,7 @@ func (tests testCases) AssertQueryWithFilterSource(t *testing.T, nameSource name
 	filterSource filterSource) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			params := &gm.Params{
+			params := &kinds.GetMetaParams{
 				Properties: test.inputProps,
 			}
 			query, err := NewQuery(params, nameSource, &fakeTypeSource{}, filterSource).String()
