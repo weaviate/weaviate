@@ -1,7 +1,7 @@
 package kinds
 
 import (
-	contextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
+	contextionary "github.com/creativesoftwarefdn/weaviate/contextionary/schema"
 )
 
 // Traverser can be used to dynamically traverse the knowledge graph

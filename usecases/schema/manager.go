@@ -27,7 +27,7 @@ import (
 // Manager Manages schema changes at a use-case level, i.e. agnostic of
 // underlying databases or storage providers
 type Manager struct {
-	migrator      migrator
+	migrator      Migrator
 	repo          Repo
 	contextionary contextionary
 	locks         locks.ConnectorSchemaLock
@@ -37,7 +37,7 @@ type Manager struct {
 	logger        logrus.FieldLogger
 }
 
-type migrator interface {
+type Migrator interface {
 	AddClass(ctx context.Context, kind kind.Kind, class *models.SemanticSchemaClass) error
 	DropClass(ctx context.Context, kind kind.Kind, className string) error
 	UpdateClass(ctx context.Context, kind kind.Kind, className string,
@@ -67,7 +67,7 @@ type contextionary interface {
 }
 
 // NewManager creates a new manager
-func NewManager(migrator migrator, repo Repo, locks locks.ConnectorSchemaLock,
+func NewManager(migrator Migrator, repo Repo, locks locks.ConnectorSchemaLock,
 	network network.Network, logger logrus.FieldLogger) (*Manager, error) {
 	m := &Manager{
 		migrator: migrator,

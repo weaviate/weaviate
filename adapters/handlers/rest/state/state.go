@@ -16,8 +16,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql"
 	"github.com/creativesoftwarefdn/weaviate/contextionary"
-	"github.com/creativesoftwarefdn/weaviate/database"
-	schema_contextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
+	schema_contextionary "github.com/creativesoftwarefdn/weaviate/contextionary/schema"
 	"github.com/creativesoftwarefdn/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/creativesoftwarefdn/weaviate/usecases/auth/authentication/oidc"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"
@@ -35,7 +34,6 @@ type State struct {
 	OIDC             *oidc.Client
 	AnonymousAccess  *anonymous.Client
 	ServerConfig     *config.WeaviateConfig
-	SchemaManager    database.SchemaManager
 	Connector        connectors.DatabaseConnector
 	Locks            locks.ConnectorSchemaLock
 	Logger           *logrus.Logger
