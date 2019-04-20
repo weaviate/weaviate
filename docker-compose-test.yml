@@ -15,6 +15,7 @@ services:
      - "8080:8080"
     environment:
       DEVELOPMENT_UI: "on"
+      LOG_LEVEL: "debug"
   genesis_fake:
     build:
       context: .

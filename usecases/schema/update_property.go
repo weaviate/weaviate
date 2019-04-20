@@ -111,8 +111,7 @@ func (m *Manager) UpdatePropertyAddDataType(ctx context.Context, kind kind.Kind,
 	}
 
 	prop.DataType = append(prop.DataType, newDataType)
-	// err = l.saveSchema(ctx)
-
+	err = m.saveSchema(ctx)
 	if err != nil {
 		return nil
 	}

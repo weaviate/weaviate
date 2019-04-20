@@ -31,6 +31,9 @@ type StateManager interface {
 
 // Implemented by a connector
 type Connector interface {
+	// Called by the state manager, when an external state update is happening.
+	SetState(ctx context.Context, state json.RawMessage)
+
 	// Link a StateManager to this connector, so that when a connector is updating it's own state, it can propagate these changes to othr Weaviate instances.
 	SetStateManager(manager StateManager)
 }

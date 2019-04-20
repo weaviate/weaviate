@@ -492,7 +492,10 @@ func TestSchema(t *testing.T) {
 // New Local Schema *Manager
 func newSchemaManager() *Manager {
 	logger, _ := test.NewNullLogger()
-	sm := NewManager(&NilMigrator{}, newFakeRepo(), newFakeLocks(), nil, logger)
+	sm, err := NewManager(&NilMigrator{}, newFakeRepo(), newFakeLocks(), nil, logger)
+	if err != nil {
+		panic(err.Error())
+	}
 
 	return sm
 }

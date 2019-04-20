@@ -19,6 +19,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
 )
 
@@ -47,17 +48,17 @@ func TestLocalGetWithNetworkRef(t *testing.T) {
 	}
 	resolver := newMockResolver(peers)
 
-	expectedParams := &Params{
+	expectedParams := &kinds.LocalGetParams{
 		Kind:      kind.Thing,
 		ClassName: "SomeThing",
-		Properties: []SelectProperty{
+		Properties: []kinds.SelectProperty{
 			{
 				Name:        "NetworkRefField",
 				IsPrimitive: false,
-				Refs: []SelectClass{
+				Refs: []kinds.SelectClass{
 					{
 						ClassName: "OtherInstance__SomeRemoteClass",
-						RefProperties: []SelectProperty{
+						RefProperties: []kinds.SelectProperty{
 							{
 								Name:        "bestString",
 								IsPrimitive: true,

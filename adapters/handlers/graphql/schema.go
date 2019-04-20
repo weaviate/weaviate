@@ -59,8 +59,13 @@ type graphQL struct {
 func Build(schema *schema.Schema, peers peers.Peers, traverser Traverser,
 	networkTraverser NetworkTraverser, requestsLogger RequestsLogger,
 	logger logrus.FieldLogger, config config.Config) (GraphQL, error) {
-	graphqlSchema, err := buildGraphqlSchema(schema, peers, logger, config)
 
+	logger.WithField("action", "graphql_rebuild").
+		WithField("peers", peers).
+		WithField("schema", schema).
+		Debug("rebuilding the graphql schema")
+
+	graphqlSchema, err := buildGraphqlSchema(schema, peers, logger, config)
 	if err != nil {
 		return nil, err
 	}
