@@ -14,19 +14,19 @@ package aggregate
 import (
 	"testing"
 
-	ag "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/aggregate"
 	cf "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
 func Test_QueryBuilder_IntProps(t *testing.T) {
 	tests := testCases{
 		testCase{
 			name: "with only an int, with only count, grouped by a primitive prop",
-			inputProps: []ag.Property{
-				ag.Property{
+			inputProps: []kinds.AggregateProperty{
+				kinds.AggregateProperty{
 					Name:        "population",
-					Aggregators: []ag.Aggregator{ag.Count},
+					Aggregators: []kinds.Aggregator{kinds.CountAggregator},
 				},
 			},
 			inputGroupBy: &cf.Path{
@@ -46,10 +46,10 @@ func Test_QueryBuilder_IntProps(t *testing.T) {
 
 		testCase{
 			name: "with only an int, with all possible int props (except median), grouped by a primitive prop",
-			inputProps: []ag.Property{
-				ag.Property{
+			inputProps: []kinds.AggregateProperty{
+				kinds.AggregateProperty{
 					Name:        "population",
-					Aggregators: []ag.Aggregator{ag.Count, ag.Mean, ag.Sum, ag.Maximum, ag.Minimum, ag.Mode},
+					Aggregators: []kinds.Aggregator{kinds.CountAggregator, kinds.MeanAggregator, kinds.SumAggregator, kinds.MaximumAggregator, kinds.MinimumAggregator, kinds.ModeAggregator},
 				},
 			},
 			inputGroupBy: &cf.Path{

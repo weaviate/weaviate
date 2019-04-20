@@ -16,6 +16,7 @@ package aggregate
 import (
 	"fmt"
 
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 	"github.com/creativesoftwarefdn/weaviate/usecases/telemetry"
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
@@ -35,59 +36,13 @@ const GroupedByFieldName = "groupedBy"
 // form the overall GraphQL API main interface. All data-base connectors that
 // want to support the GetMeta feature must implement this interface.
 type Resolver interface {
-	LocalAggregate(info *Params) (interface{}, error)
+	LocalAggregate(info *kinds.AggregateParams) (interface{}, error)
 }
 
 // RequestsLog is a local abstraction on the RequestsLog that needs to be
 // provided to the graphQL API in order to log Local.Get queries.
 type RequestsLog interface {
 	Register(requestType string, identifier string)
-}
-
-// Params to describe the Local->GetMeta->Kind->Class query. Will be passed to
-// the individual connector methods responsible for resolving the GetMeta
-// query.
-type Params struct {
-	Kind       kind.Kind
-	Filters    *common_filters.LocalFilter
-	Analytics  common_filters.AnalyticsProps
-	ClassName  schema.ClassName
-	Properties []Property
-	GroupBy    *common_filters.Path
-}
-
-// Aggregator is the desired computation that the database connector
-// should perform on this property
-type Aggregator string
-
-const (
-	// Count the occurence of this property
-	Count Aggregator = "count"
-
-	// Sum of all the values of the prop (i.e. sum of all Ints or Numbers)
-	Sum Aggregator = "sum"
-
-	// Mean calculates the mean of an Int or Number
-	Mean Aggregator = "mean"
-
-	// Mode calculates the mode (most occurring value) of an Int or Number
-	Mode Aggregator = "mode"
-
-	// Median calculates the median (most occurring value) of an Int or Number
-	Median Aggregator = "median"
-
-	// Maximum selects the maximum value of an Int or Number
-	Maximum Aggregator = "maximum"
-
-	// Minimum selects the maximum value of an Int or Number
-	Minimum Aggregator = "minimum"
-)
-
-// Property is any property of a class that we want to retrieve meta
-// information about
-type Property struct {
-	Name        schema.PropertyName
-	Aggregators []Aggregator
 }
 
 func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
@@ -147,7 +102,7 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 			return nil, fmt.Errorf("could not extract filters: %s", err)
 		}
 
-		params := &Params{
+		params := &kinds.AggregateParams{
 			Kind:       kind,
 			Filters:    filters,
 			ClassName:  className,
@@ -160,8 +115,8 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 	}
 }
 
-func extractProperties(selections *ast.SelectionSet) ([]Property, error) {
-	properties := []Property{}
+func extractProperties(selections *ast.SelectionSet) ([]kinds.AggregateProperty, error) {
+	properties := []kinds.AggregateProperty{}
 
 	for _, selection := range selections.Selections {
 		field := selection.(*ast.Field)
@@ -177,7 +132,7 @@ func extractProperties(selections *ast.SelectionSet) ([]Property, error) {
 			continue
 		}
 
-		property := Property{Name: schema.PropertyName(name)}
+		property := kinds.AggregateProperty{Name: schema.PropertyName(name)}
 		aggregators, err := extractAggregators(field.SelectionSet)
 		if err != nil {
 			return nil, err
@@ -190,12 +145,12 @@ func extractProperties(selections *ast.SelectionSet) ([]Property, error) {
 	return properties, nil
 }
 
-func extractAggregators(selections *ast.SelectionSet) ([]Aggregator, error) {
-	analyses := []Aggregator{}
+func extractAggregators(selections *ast.SelectionSet) ([]kinds.Aggregator, error) {
+	analyses := []kinds.Aggregator{}
 	for _, selection := range selections.Selections {
 		field := selection.(*ast.Field)
 		name := field.Name.Value
-		property, err := parseAnalysisProp(name)
+		property, err := kinds.ParseAggregatorProp(name)
 		if err != nil {
 			return nil, err
 		}
@@ -204,27 +159,6 @@ func extractAggregators(selections *ast.SelectionSet) ([]Aggregator, error) {
 	}
 
 	return analyses, nil
-}
-
-func parseAnalysisProp(name string) (Aggregator, error) {
-	switch name {
-	case string(Mean):
-		return Mean, nil
-	case string(Median):
-		return Median, nil
-	case string(Mode):
-		return Mode, nil
-	case string(Maximum):
-		return Maximum, nil
-	case string(Minimum):
-		return Minimum, nil
-	case string(Count):
-		return Count, nil
-	case string(Sum):
-		return Sum, nil
-	default:
-		return "", fmt.Errorf("unrecognized aggregator prop '%s'", name)
-	}
 }
 
 func extractGroupBy(args map[string]interface{}, rootClass string) (*common_filters.Path, error) {

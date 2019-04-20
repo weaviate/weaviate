@@ -15,12 +15,12 @@ package janusgraph
 import (
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/aggregate"
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/filters"
-	graphql_aggregate "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/aggregate"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
 // LocalAggregate based on GraphQL Query params
-func (j *Janusgraph) LocalAggregate(params *graphql_aggregate.Params) (interface{}, error) {
+func (j *Janusgraph) LocalAggregate(params *kinds.AggregateParams) (interface{}, error) {
 	className := j.state.MustGetMappedClassName(params.ClassName)
 	q := gremlin.New().Raw(`g.V()`).
 		HasString("kind", params.Kind.Name()).

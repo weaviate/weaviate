@@ -18,11 +18,11 @@ import (
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/state"
-	ag "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/aggregate"
 	cf "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -137,7 +137,7 @@ func (s *fakeFilterSource) String() (string, error) {
 
 type testCase struct {
 	name          string
-	inputProps    []ag.Property
+	inputProps    []kinds.AggregateProperty
 	inputGroupBy  *cf.Path
 	expectedQuery string
 }
@@ -153,7 +153,7 @@ func (tests testCases) AssertQueryWithFilterSource(t *testing.T, nameSource name
 	filterSource filterSource) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			params := &ag.Params{
+			params := &kinds.AggregateParams{
 				Properties: test.inputProps,
 				GroupBy:    test.inputGroupBy,
 			}

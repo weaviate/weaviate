@@ -17,21 +17,21 @@ import (
 	"strings"
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/state"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/aggregate"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
 type Query struct {
-	params       *aggregate.Params
+	params       *kinds.AggregateParams
 	nameSource   nameSource
 	typeSource   typeSource
 	filterSource filterSource
 }
 
-func NewQuery(params *aggregate.Params, nameSource nameSource, typeSource typeSource,
+func NewQuery(params *kinds.AggregateParams, nameSource nameSource, typeSource typeSource,
 	filterSource filterSource) *Query {
 	return &Query{
 		params:       params,
@@ -148,7 +148,7 @@ type propertyAggregation struct {
 	selections         []string
 }
 
-func (b *Query) prop(prop aggregate.Property) (*propertyAggregation, error) {
+func (b *Query) prop(prop kinds.AggregateProperty) (*propertyAggregation, error) {
 	err, parsed := b.typeSource.GetProperty(b.params.Kind, b.params.ClassName, untitle(prop.Name))
 	if err != nil {
 		return nil, fmt.Errorf("could not find property '%s' in schema: %s", prop.Name, err)

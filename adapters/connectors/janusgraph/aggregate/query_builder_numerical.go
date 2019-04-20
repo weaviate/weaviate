@@ -15,8 +15,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/aggregate"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
 type aggregation struct {
@@ -24,7 +24,7 @@ type aggregation struct {
 	aggregation *gremlin.Query
 }
 
-func (b *Query) numericalProp(prop aggregate.Property) (*propertyAggregation, error) {
+func (b *Query) numericalProp(prop kinds.AggregateProperty) (*propertyAggregation, error) {
 	aggregators := []*aggregation{}
 	for _, aggregator := range prop.Aggregators {
 
@@ -43,22 +43,22 @@ func (b *Query) numericalProp(prop aggregate.Property) (*propertyAggregation, er
 	return b.mergeAggregators(aggregators, prop)
 }
 
-func (b *Query) numericalPropAggregators(aggregator aggregate.Aggregator) (*aggregation, error) {
+func (b *Query) numericalPropAggregators(aggregator kinds.Aggregator) (*aggregation, error) {
 	switch aggregator {
-	case aggregate.Count:
+	case kinds.CountAggregator:
 		return &aggregation{label: string(aggregator), aggregation: gremlin.New().Count()}, nil
-	case aggregate.Mean:
+	case kinds.MeanAggregator:
 		return &aggregation{label: string(aggregator), aggregation: gremlin.New().Mean()}, nil
-	case aggregate.Mode:
+	case kinds.ModeAggregator:
 		return &aggregation{
 			label:       string(aggregator),
 			aggregation: gremlin.New().GroupCount().OrderLocalByValuesSelectKeysLimit("decr", 1),
 		}, nil
-	case aggregate.Sum:
+	case kinds.SumAggregator:
 		return &aggregation{label: string(aggregator), aggregation: gremlin.New().Sum()}, nil
-	case aggregate.Maximum:
+	case kinds.MaximumAggregator:
 		return &aggregation{label: string(aggregator), aggregation: gremlin.New().Max()}, nil
-	case aggregate.Minimum:
+	case kinds.MinimumAggregator:
 		return &aggregation{label: string(aggregator), aggregation: gremlin.New().Min()}, nil
 	default:
 		return nil, fmt.Errorf("analysis '%s' not supported for int prop", aggregator)
@@ -66,7 +66,7 @@ func (b *Query) numericalPropAggregators(aggregator aggregate.Aggregator) (*aggr
 }
 
 func (b *Query) mergeAggregators(aggregationQueries []*aggregation,
-	prop aggregate.Property) (*propertyAggregation, error) {
+	prop kinds.AggregateProperty) (*propertyAggregation, error) {
 	selections := []string{}
 	matchFragments := []string{}
 

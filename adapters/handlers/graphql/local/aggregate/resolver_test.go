@@ -18,13 +18,14 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 	"github.com/stretchr/testify/assert"
 )
 
 type testCase struct {
 	name                string
 	query               string
-	expectedProps       []Property
+	expectedProps       []kinds.AggregateProperty
 	resolverReturn      interface{}
 	expectedResults     []result
 	expectedGroupBy     *common_filters.Path
@@ -56,10 +57,10 @@ func Test_Resolve(t *testing.T) {
 		testCase{
 			name:  "single prop: mean",
 			query: `{ Aggregate { Things { Car(groupBy:["madeBy", "Manufacturer", "name"]) { horsepower { mean } } } } }`,
-			expectedProps: []Property{
+			expectedProps: []kinds.AggregateProperty{
 				{
 					Name:        "horsepower",
-					Aggregators: []Aggregator{Mean},
+					Aggregators: []kinds.Aggregator{kinds.MeanAggregator},
 				},
 			},
 			resolverReturn: []interface{}{
@@ -84,10 +85,10 @@ func Test_Resolve(t *testing.T) {
 		testCase{
 			name:  "single prop: mean with groupedBy path/value",
 			query: `{ Aggregate { Things { Car(groupBy:["madeBy", "Manufacturer", "name"]) { horsepower { mean } groupedBy { value path } } } } }`,
-			expectedProps: []Property{
+			expectedProps: []kinds.AggregateProperty{
 				{
 					Name:        "horsepower",
-					Aggregators: []Aggregator{Mean},
+					Aggregators: []kinds.Aggregator{kinds.MeanAggregator},
 				},
 			},
 			resolverReturn: []interface{}{
@@ -137,10 +138,10 @@ func Test_Resolve(t *testing.T) {
 					} 
 				} 
 			}`,
-			expectedProps: []Property{
+			expectedProps: []kinds.AggregateProperty{
 				{
 					Name:        "horsepower",
-					Aggregators: []Aggregator{Mean},
+					Aggregators: []kinds.Aggregator{kinds.MeanAggregator},
 				},
 			},
 			resolverReturn: []interface{}{
@@ -179,10 +180,10 @@ func Test_Resolve(t *testing.T) {
 		testCase{
 			name:  "all int props",
 			query: `{ Aggregate { Things { Car(groupBy:["madeBy", "Manufacturer", "name"]) { horsepower { mean, median, mode, maximum, minimum, count, sum } } } } }`,
-			expectedProps: []Property{
+			expectedProps: []kinds.AggregateProperty{
 				{
 					Name:        "horsepower",
-					Aggregators: []Aggregator{Mean, Median, Mode, Maximum, Minimum, Count, Sum},
+					Aggregators: []kinds.Aggregator{kinds.MeanAggregator, kinds.MedianAggregator, kinds.ModeAggregator, kinds.MaximumAggregator, kinds.MinimumAggregator, kinds.CountAggregator, kinds.SumAggregator},
 				},
 			},
 			resolverReturn: []interface{}{
@@ -221,10 +222,10 @@ func Test_Resolve(t *testing.T) {
 		testCase{
 			name:  "single prop: string",
 			query: `{ Aggregate { Things { Car(groupBy:["madeBy", "Manufacturer", "name"]) { modelName { count } } } } }`,
-			expectedProps: []Property{
+			expectedProps: []kinds.AggregateProperty{
 				{
 					Name:        "modelName",
-					Aggregators: []Aggregator{Count},
+					Aggregators: []kinds.Aggregator{kinds.CountAggregator},
 				},
 			},
 			resolverReturn: []interface{}{
@@ -256,7 +257,7 @@ func (tests testCases) AssertExtraction(t *testing.T, k kind.Kind, className str
 		t.Run(testCase.name, func(t *testing.T) {
 			resolver := newMockResolver(config.Config{})
 
-			expectedParams := &Params{
+			expectedParams := &kinds.AggregateParams{
 				Kind:       k,
 				ClassName:  schema.ClassName(className),
 				Properties: testCase.expectedProps,

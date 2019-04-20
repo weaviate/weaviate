@@ -15,11 +15,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/aggregate"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
-func (b *Query) crefProp(prop aggregate.Property) (*propertyAggregation, error) {
+func (b *Query) crefProp(prop kinds.AggregateProperty) (*propertyAggregation, error) {
 	aggregators := []*aggregation{}
 	for _, aggregator := range prop.Aggregators {
 
@@ -38,9 +38,9 @@ func (b *Query) crefProp(prop aggregate.Property) (*propertyAggregation, error) 
 	return b.mergeCrefAggregators(aggregators, prop)
 }
 
-func (b *Query) crefPropAggregators(aggregator aggregate.Aggregator) (*aggregation, error) {
+func (b *Query) crefPropAggregators(aggregator kinds.Aggregator) (*aggregation, error) {
 	switch aggregator {
-	case aggregate.Count:
+	case kinds.CountAggregator:
 		return &aggregation{label: string(aggregator), aggregation: gremlin.New().Count()}, nil
 	default:
 		return nil, fmt.Errorf("analysis '%s' not supported for non-numerical prop", aggregator)
@@ -48,7 +48,7 @@ func (b *Query) crefPropAggregators(aggregator aggregate.Aggregator) (*aggregati
 }
 
 func (b *Query) mergeCrefAggregators(aggregationQueries []*aggregation,
-	prop aggregate.Property) (*propertyAggregation, error) {
+	prop kinds.AggregateProperty) (*propertyAggregation, error) {
 	selections := []string{}
 	matchFragments := []string{}
 

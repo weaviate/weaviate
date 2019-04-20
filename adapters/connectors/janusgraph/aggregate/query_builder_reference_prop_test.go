@@ -14,19 +14,19 @@ package aggregate
 import (
 	"testing"
 
-	ag "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/aggregate"
 	cf "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
 func Test_QueryBuilder_ReferenceProps(t *testing.T) {
 	tests := testCases{
 		testCase{
 			name: "counting a ref prop, grouped by a primitive prop",
-			inputProps: []ag.Property{
-				ag.Property{
+			inputProps: []kinds.AggregateProperty{
+				kinds.AggregateProperty{
 					Name:        "inCountry",
-					Aggregators: []ag.Aggregator{ag.Count},
+					Aggregators: []kinds.Aggregator{kinds.CountAggregator},
 				},
 			},
 			inputGroupBy: &cf.Path{

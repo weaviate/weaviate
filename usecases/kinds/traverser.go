@@ -9,4 +9,5 @@ type Traverser struct {
 type traverserRepo interface {
 	LocalGetClass(LocalGetParams) (interface{}, error)
 	LocalGetMeta(GetMetaParams) (interface{}, error)
+	LocalAggregate(AggregateParams) (interface{}, error)
 }

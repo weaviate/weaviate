@@ -16,11 +16,11 @@ import (
 	"time"
 
 	analytics "github.com/SeMI-network/janus-spark-analytics/clients/go"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/aggregate"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
-func (p *Processor) getResultFromAnalyticsEngine(query *gremlin.Query, params *aggregate.Params) ([]interface{}, error) {
+func (p *Processor) getResultFromAnalyticsEngine(query *gremlin.Query, params *kinds.AggregateParams) ([]interface{}, error) {
 	// TODO: gh-697: use existing context, don't recreate new context here
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()

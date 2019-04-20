@@ -1,14 +1,4 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
- * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
- */package aggregate
+package kinds
 
 import (
 	"testing"
@@ -21,17 +11,16 @@ import (
 )
 
 func Test_ParamsHashing(t *testing.T) {
-
-	params := func() Params {
-		return Params{
+	params := func() AggregateParams {
+		return AggregateParams{
 			Analytics: cf.AnalyticsProps{UseAnaltyicsEngine: true},
 			ClassName: schema.ClassName("MyBestClass"),
 			Filters:   nil,
 			Kind:      kind.Thing,
-			Properties: []Property{
-				Property{
+			Properties: []AggregateProperty{
+				AggregateProperty{
 					Name:        schema.PropertyName("bestprop"),
-					Aggregators: []Aggregator{Count},
+					Aggregators: []Aggregator{CountAggregator},
 				},
 			},
 		}
@@ -55,7 +44,7 @@ func Test_ParamsHashing(t *testing.T) {
 
 	t.Run("it generates a different hash if a prop is changed", func(t *testing.T) {
 		p := params()
-		p.Properties[0].Aggregators[0] = Maximum
+		p.Properties[0].Aggregators[0] = MaximumAggregator
 		h, err := p.AnalyticsHash()
 		require.Nil(t, err)
 		assert.NotEqual(t, hash(), h)
