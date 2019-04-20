@@ -173,8 +173,8 @@ type dummySchemaGetter struct {
 	schema schema.Schema
 }
 
-func (d *dummySchemaGetter) Schema() (schema.Schema, error) {
-	return d.schema, nil
+func (d *dummySchemaGetter) GetSchema() schema.Schema {
+	return d.schema
 }
 
 func fakeGenesis(t *testing.T, matchers ...requestMatcher) *httptest.Server {

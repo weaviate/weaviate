@@ -25,6 +25,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/adapters/locks"
 	"github.com/creativesoftwarefdn/weaviate/adapters/repos/etcd"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	"github.com/creativesoftwarefdn/weaviate/usecases/connstate"
 	dblisting "github.com/creativesoftwarefdn/weaviate/usecases/connswitch"
@@ -86,9 +87,28 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	appState.Connector.SetStateManager(connstateManager)
+	appState.Connector.SetLogger(appState.Logger)
+	appState.Connector.SetSchema(schemaManager.GetSchema())
+	initialState := connstateManager.GetInitialState()
+	appState.Connector.SetState(context.Background(), initialState)
+	if err := appState.Connector.Connect(); err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("could not connect connector")
+		os.Exit(1)
+	}
+	if err := appState.Connector.Init(context.Background()); err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("could not init connector")
+		os.Exit(1)
+	}
 
 	updateSchemaCallback := makeUpdateSchemaCall(appState.Logger, appState, kindsTraverser)
 	schemaManager.RegisterSchemaUpdateCallback(updateSchemaCallback)
+	schemaManager.RegisterSchemaUpdateCallback(func(updatedSchema schema.Schema) {
+		appState.Connector.SetSchema(updatedSchema)
+	})
 
 	appState.Network.RegisterUpdatePeerCallback(func(peers peers.Peers) {
 		schemaManager.TriggerSchemaUpdateCallbacks()
@@ -162,7 +182,6 @@ func startupRoutine() (*state.State, *clientv3.Client) {
 		logger.WithField("action", "startup").WithError(err).Error("could not load config")
 		logger.Exit(1)
 	}
-	dbConnector.SetStateManager(nil)
 	appState.Connector = dbConnector
 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).

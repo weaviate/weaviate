@@ -20,16 +20,17 @@ import (
 	test_helper "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestSimpleFieldParamsOK(t *testing.T) {
 	t.Parallel()
 	resolver := newMockResolver(emptyPeers())
-	expectedParams := &Params{
+	expectedParams := &kinds.LocalGetParams{
 		Kind:       kind.Action,
 		ClassName:  "SomeAction",
-		Properties: []SelectProperty{{Name: "intField", IsPrimitive: true}},
+		Properties: []kinds.SelectProperty{{Name: "intField", IsPrimitive: true}},
 	}
 
 	resolver.On("LocalGetClass", expectedParams).
@@ -43,10 +44,10 @@ func TestExtractIntField(t *testing.T) {
 
 	resolver := newMockResolver(emptyPeers())
 
-	expectedParams := &Params{
+	expectedParams := &kinds.LocalGetParams{
 		Kind:       kind.Action,
 		ClassName:  "SomeAction",
-		Properties: []SelectProperty{{Name: "intField", IsPrimitive: true}},
+		Properties: []kinds.SelectProperty{{Name: "intField", IsPrimitive: true}},
 	}
 
 	resolver.On("LocalGetClass", expectedParams).
@@ -61,10 +62,10 @@ func TestExtractGeoCoordinatesField(t *testing.T) {
 
 	resolver := newMockResolver(emptyPeers())
 
-	expectedParams := &Params{
+	expectedParams := &kinds.LocalGetParams{
 		Kind:       kind.Action,
 		ClassName:  "SomeAction",
-		Properties: []SelectProperty{{Name: "location", IsPrimitive: true}},
+		Properties: []kinds.SelectProperty{{Name: "location", IsPrimitive: true}},
 	}
 
 	resolverReturn := []interface{}{
@@ -94,10 +95,10 @@ func TestExtractPagination(t *testing.T) {
 
 	resolver := newMockResolver(emptyPeers())
 
-	expectedParams := &Params{
+	expectedParams := &kinds.LocalGetParams{
 		Kind:       kind.Action,
 		ClassName:  "SomeAction",
-		Properties: []SelectProperty{{Name: "intField", IsPrimitive: true}},
+		Properties: []kinds.SelectProperty{{Name: "intField", IsPrimitive: true}},
 		Pagination: &common.Pagination{
 			Limit: 10,
 		},
@@ -116,17 +117,17 @@ func TestGetRelation(t *testing.T) {
 	t.Run("without using custom fragments", func(t *testing.T) {
 		resolver := newMockResolver(emptyPeers())
 
-		expectedParams := &Params{
+		expectedParams := &kinds.LocalGetParams{
 			Kind:      kind.Action,
 			ClassName: "SomeAction",
-			Properties: []SelectProperty{
+			Properties: []kinds.SelectProperty{
 				{
 					Name:        "HasAction",
 					IsPrimitive: false,
-					Refs: []SelectClass{
+					Refs: []kinds.SelectClass{
 						{
 							ClassName: "SomeAction",
-							RefProperties: []SelectProperty{
+							RefProperties: []kinds.SelectProperty{
 								{
 									Name:        "intField",
 									IsPrimitive: true,
@@ -134,10 +135,10 @@ func TestGetRelation(t *testing.T) {
 								{
 									Name:        "HasAction",
 									IsPrimitive: false,
-									Refs: []SelectClass{
+									Refs: []kinds.SelectClass{
 										{
 											ClassName: "SomeAction",
-											RefProperties: []SelectProperty{
+											RefProperties: []kinds.SelectProperty{
 												{
 													Name:        "intField",
 													IsPrimitive: true,
@@ -163,17 +164,17 @@ func TestGetRelation(t *testing.T) {
 	t.Run("with a custom fragment one level deep", func(t *testing.T) {
 		resolver := newMockResolver(emptyPeers())
 
-		expectedParams := &Params{
+		expectedParams := &kinds.LocalGetParams{
 			Kind:      kind.Action,
 			ClassName: "SomeAction",
-			Properties: []SelectProperty{
+			Properties: []kinds.SelectProperty{
 				{
 					Name:        "HasAction",
 					IsPrimitive: false,
-					Refs: []SelectClass{
+					Refs: []kinds.SelectClass{
 						{
 							ClassName: "SomeAction",
-							RefProperties: []SelectProperty{
+							RefProperties: []kinds.SelectProperty{
 								{
 									Name:        "intField",
 									IsPrimitive: true,
@@ -195,17 +196,17 @@ func TestGetRelation(t *testing.T) {
 	t.Run("with a custom fragment multiple levels deep", func(t *testing.T) {
 		resolver := newMockResolver(emptyPeers())
 
-		expectedParams := &Params{
+		expectedParams := &kinds.LocalGetParams{
 			Kind:      kind.Action,
 			ClassName: "SomeAction",
-			Properties: []SelectProperty{
+			Properties: []kinds.SelectProperty{
 				{
 					Name:        "HasAction",
 					IsPrimitive: false,
-					Refs: []SelectClass{
+					Refs: []kinds.SelectClass{
 						{
 							ClassName: "SomeAction",
-							RefProperties: []SelectProperty{
+							RefProperties: []kinds.SelectProperty{
 								{
 									Name:        "intField",
 									IsPrimitive: true,
@@ -213,10 +214,10 @@ func TestGetRelation(t *testing.T) {
 								{
 									Name:        "HasAction",
 									IsPrimitive: false,
-									Refs: []SelectClass{
+									Refs: []kinds.SelectClass{
 										{
 											ClassName: "SomeAction",
-											RefProperties: []SelectProperty{
+											RefProperties: []kinds.SelectProperty{
 												{
 													Name:        "intField",
 													IsPrimitive: true,

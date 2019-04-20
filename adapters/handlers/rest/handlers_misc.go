@@ -25,6 +25,10 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
+type schemaManager interface {
+	GetSchema() schema.Schema
+}
+
 func setupMiscHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog,
 	serverConfig *config.WeaviateConfig, network network.Network, schemaManager schemaManager) {
 	api.MetaWeaviateMetaGetHandler = meta.WeaviateMetaGetHandlerFunc(func(params meta.WeaviateMetaGetParams, principal *models.Principal) middleware.Responder {
