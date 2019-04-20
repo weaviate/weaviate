@@ -1,4 +1,9 @@
 {
+  "authentication": {
+    "anonymous_access": {
+      "enabled": true
+    }
+  },
   "database": {
     "name": "janusgraph",
     "database_config": {
@@ -17,5 +22,8 @@
   "debug": false,
   "telemetry": {
     "disabled": true
+  },
+  "query_defaults": {
+    "limit": 25
   }
 }
