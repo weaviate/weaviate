@@ -43,7 +43,6 @@ import (
 	dbconnector "github.com/creativesoftwarefdn/weaviate/adapters/connectors"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/aggregate"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/fetch"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/get"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
@@ -400,7 +399,7 @@ func (f *Foobar) SetStateManager(manager connector_state.StateManager) {
 //	  "population": 600000,
 //	 },
 //	}
-func (f *Foobar) LocalGetClass(info *get.Params) (interface{}, error) {
+func (f *Foobar) LocalGetClass(info *kinds.LocalGetParams) (interface{}, error) {
 	return nil, nil
 }
 

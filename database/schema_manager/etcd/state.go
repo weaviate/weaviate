@@ -11,23 +11,16 @@
  */
 package etcd
 
-import (
-	"context"
-	"encoding/json"
+// // Only supposed to be used during initialization of the connector.
+// func (l *etcdSchemaManager) GetInitialConnectorState() json.RawMessage {
+// 	return l.connectorState
+// }
 
-	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
-)
+// func (l *etcdSchemaManager) SetState(ctx context.Context, state json.RawMessage) error {
+// 	l.connectorState = state
+// 	return l.saveConnectorState(ctx)
+// }
 
-// Only supposed to be used during initialization of the connector.
-func (l *etcdSchemaManager) GetInitialConnectorState() json.RawMessage {
-	return l.connectorState
-}
-
-func (l *etcdSchemaManager) SetState(ctx context.Context, state json.RawMessage) error {
-	l.connectorState = state
-	return l.saveConnectorState(ctx)
-}
-
-func (l *etcdSchemaManager) SetStateConnector(stateConnector connector_state.Connector) {
-	l.connectorStateSetter = stateConnector
-}
+// func (l *etcdSchemaManager) SetStateConnector(stateConnector connector_state.Connector) {
+// 	l.connectorStateSetter = stateConnector
+// }

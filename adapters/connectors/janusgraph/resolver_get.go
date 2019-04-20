@@ -16,9 +16,9 @@ import (
 	"runtime/debug"
 
 	jget "github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/get"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/get"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
 type resolveResult struct {
@@ -27,7 +27,7 @@ type resolveResult struct {
 }
 
 // Implement the Local->Get->KIND->CLASS lookup.
-func (j *Janusgraph) LocalGetClass(params *get.Params) (interface{}, error) {
+func (j *Janusgraph) LocalGetClass(params *kinds.LocalGetParams) (interface{}, error) {
 	ch := make(chan resolveResult, 1)
 
 	go func() {
@@ -55,7 +55,7 @@ func (j *Janusgraph) LocalGetClass(params *get.Params) (interface{}, error) {
 	return result.results, nil
 }
 
-func (j *Janusgraph) doLocalGetClass(params *get.Params) ([]interface{}, error) {
+func (j *Janusgraph) doLocalGetClass(params *kinds.LocalGetParams) ([]interface{}, error) {
 	q, err := jget.NewQuery(*params, &j.state, &j.schema, j.appConfig.QueryDefaults).String()
 	if err != nil {
 		return nil, fmt.Errorf("could not build query: %s", err)

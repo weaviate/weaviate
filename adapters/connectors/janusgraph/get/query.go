@@ -19,18 +19,18 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/filters"
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/state"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/get"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
 // Query prepares a Local->Fetch Query. Can be built with String(). Create with
 // NewQuery() to be sure that all required properties are set
 type Query struct {
-	params     get.Params
+	params     kinds.LocalGetParams
 	nameSource nameSource
 	typeSource typeSource
 	defaults   config.QueryDefaults
@@ -43,7 +43,7 @@ func init() {
 }
 
 // NewQuery is the preferred way to create a query
-func NewQuery(p get.Params, ns nameSource, ts typeSource, d config.QueryDefaults) *Query {
+func NewQuery(p kinds.LocalGetParams, ns nameSource, ts typeSource, d config.QueryDefaults) *Query {
 	return &Query{
 		params:     p,
 		nameSource: ns,
@@ -111,7 +111,7 @@ func (b *Query) refPropQueryWrapper() (string, error) {
 	return "." + gremlin.New().Union(queries...).String(), nil
 }
 
-func (b *Query) refPropQueries(props []get.SelectProperty, className string) []*gremlin.Query {
+func (b *Query) refPropQueries(props []kinds.SelectProperty, className string) []*gremlin.Query {
 	var queries []*gremlin.Query
 	for _, prop := range props {
 		if propQueries := b.refPropQuery(prop, className); propQueries != nil {
@@ -122,7 +122,7 @@ func (b *Query) refPropQueries(props []get.SelectProperty, className string) []*
 	return queries
 }
 
-func (b *Query) refPropQuery(prop get.SelectProperty, className string) []*gremlin.Query {
+func (b *Query) refPropQuery(prop kinds.SelectProperty, className string) []*gremlin.Query {
 	if prop.IsPrimitive {
 		return nil
 	}

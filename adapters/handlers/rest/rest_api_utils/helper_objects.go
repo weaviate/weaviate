@@ -15,7 +15,6 @@ package rest_api_utils
 
 import (
 	dbconnector "github.com/creativesoftwarefdn/weaviate/adapters/connectors"
-	"github.com/creativesoftwarefdn/weaviate/database"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/lib/delayed_unlock"
 )
@@ -40,7 +39,6 @@ type BatchedThingsCreateRequestResponse struct {
 
 // A struct supporting batched request handling by enabling easy transfer of dbconnector locks
 type RequestLocks struct {
-	DBLock      database.ConnectorLock
 	DelayedLock delayed_unlock.DelayedUnlockable
 	DBConnector dbconnector.DatabaseConnector
 }

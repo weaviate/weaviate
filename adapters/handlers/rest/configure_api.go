@@ -64,7 +64,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	kindsManager := kinds.NewManager(appState.Connector, appState.Locks, appState.SchemaManager, appState.Network, appState.ServerConfig)
 	batchKindsManager := kinds.NewBatchManager(appState.Connector, appState.Locks, appState.SchemaManager, appState.Network, appState.ServerConfig)
 
-	setupSchemaHandlers(api, appState.TelemetryLogger, schemaUC.NewManager(appState.Database))
+	setupSchemaHandlers(api, appState.TelemetryLogger, schemaUC.NewManager(appState.Connector, nil, appState.Locks, appState.Network))
 	setupKindHandlers(api, appState.TelemetryLogger, kindsManager)
 	setupKindBatchHandlers(api, appState.TelemetryLogger, batchKindsManager)
 	setupC11yHandlers(api, appState.TelemetryLogger, appState)

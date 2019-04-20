@@ -12,7 +12,9 @@
 
 import (
 	"context"
+	"fmt"
 
+	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 )
 
@@ -26,17 +28,43 @@ func (m *Manager) DeleteThingProperty(ctx context.Context, class string, propert
 	return m.deleteClassProperty(ctx, class, property, kind.Thing)
 }
 
-func (m *Manager) deleteClassProperty(ctx context.Context, class string, property string, k kind.Kind) error {
-	schemaLock, err := m.db.SchemaLock()
+func (m *Manager) deleteClassProperty(ctx context.Context, className string, propName string, k kind.Kind) error {
+	unlock, err := m.locks.LockSchema()
 	if err != nil {
 		return err
 	}
-	defer unlock(schemaLock)
+	defer unlock()
 
-	schemaManager := schemaLock.SchemaManager()
-	err = schemaManager.DropProperty(ctx, k, class, property)
+	err = m.migrator.DropProperty(ctx, k, className, propName)
+	if err != nil {
+		return fmt.Errorf("could not migrate database schema: %v", err)
+	}
+
+	semanticSchema := m.state.SchemaFor(k)
+	class, err := schema.GetClassByName(semanticSchema, className)
 	if err != nil {
 		return err
+	}
+
+	var propIdx = -1
+	for idx, prop := range class.Properties {
+		if prop.Name == propName {
+			propIdx = idx
+			break
+		}
+	}
+
+	if propIdx == -1 {
+		return fmt.Errorf("could not find property '%s' - it might have already been deleted?", propName)
+	}
+
+	class.Properties[propIdx] = class.Properties[len(class.Properties)-1]
+	class.Properties[len(class.Properties)-1] = nil // to prevent leaking this pointer.
+	class.Properties = class.Properties[:len(class.Properties)-1]
+
+	err = m.saveSchema(ctx)
+	if err != nil {
+		return fmt.Errorf("could not persists schema change in configuration: %v", err)
 	}
 
 	return nil

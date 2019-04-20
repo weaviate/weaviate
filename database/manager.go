@@ -16,22 +16,16 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/contextionary"
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
-	"github.com/creativesoftwarefdn/weaviate/database/schema_migrator"
 	db_schema "github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/go-openapi/strfmt"
 )
 
 type SchemaManager interface {
-	schema_migrator.Migrator
 	connector_state.StateManager
 
 	// Update the Thing or Action schema's meta data.
 	UpdateMeta(ctx context.Context, kind kind.Kind, atContext strfmt.URI, maintainer strfmt.Email, name string) error
-
-	// Return a reference to the database schema.
-	// Note that this function can be both called from having a ConnectorLock as a SchemaLock.
-	GetSchema() db_schema.Schema
 
 	// Register callbacks that will be called when the schema has been updated. These callbacks
 	// will be invoked before the migration methods return.

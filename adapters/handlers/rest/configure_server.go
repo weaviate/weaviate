@@ -25,7 +25,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/state"
 	"github.com/creativesoftwarefdn/weaviate/contextionary"
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
-	"github.com/creativesoftwarefdn/weaviate/database"
 	databaseSchema "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
 	schemaContextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
@@ -101,7 +100,7 @@ func rebuildContextionary(updatedSchema schema.Schema, logger logrus.FieldLogger
 
 func rebuildGraphQL(updatedSchema schema.Schema, logger logrus.FieldLogger,
 	network network.Network, config config.Config, contextionary contextionary.Contextionary,
-	db database.Database, telemetryLogger *telemetry.RequestsLog) (graphql.GraphQL, error) {
+	telemetryLogger *telemetry.RequestsLog) (graphql.GraphQL, error) {
 	peers, err := network.ListPeers()
 	if err != nil {
 		return nil, fmt.Errorf("could not list network peers to regenerate schema: %v", err)
@@ -119,21 +118,14 @@ func rebuildGraphQL(updatedSchema schema.Schema, logger logrus.FieldLogger,
 }
 
 type schemaGetter struct {
-	db database.Database
+	schemaManager schemaManager
 }
 
 func (s *schemaGetter) Schema() (schema.Schema, error) {
-	dbLock, err := s.db.ConnectorLock()
-	if err != nil {
-		return schema.Schema{}, err
-	}
-
-	defer dbLock.Unlock()
-	return dbLock.GetSchema(), nil
+	s.schemaManager.GetSchema()
 }
 
 type graphQLRoot struct {
-	database.Database
 	libnetwork.Network
 	contextionary *schemaContextionary.Contextionary
 	log           *telemetry.RequestsLog

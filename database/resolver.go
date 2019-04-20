@@ -12,42 +12,34 @@
 
 package database
 
-import (
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/aggregate"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/fetch"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/get"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
-)
+// type dbClosingResolver struct {
+// }
 
-type dbClosingResolver struct {
-	connectorLock ConnectorLock
-}
+// func (dbcr *dbClosingResolver) Close() {
+// 	// dbcr.connectorLock.Unlock()
+// }
 
-func (dbcr *dbClosingResolver) Close() {
-	dbcr.connectorLock.Unlock()
-}
+// func (dbcr *dbClosingResolver) LocalGetClass(info *get.Params) (interface{}, error) {
+// 	connector := dbcr.connectorLock.Connector()
+// 	return connector.LocalGetClass(info)
+// }
 
-func (dbcr *dbClosingResolver) LocalGetClass(info *get.Params) (interface{}, error) {
-	connector := dbcr.connectorLock.Connector()
-	return connector.LocalGetClass(info)
-}
+// func (dbcr *dbClosingResolver) LocalGetMeta(info *getmeta.Params) (interface{}, error) {
+// 	connector := dbcr.connectorLock.Connector()
+// 	return connector.LocalGetMeta(info)
+// }
 
-func (dbcr *dbClosingResolver) LocalGetMeta(info *getmeta.Params) (interface{}, error) {
-	connector := dbcr.connectorLock.Connector()
-	return connector.LocalGetMeta(info)
-}
+// func (dbcr *dbClosingResolver) LocalAggregate(info *aggregate.Params) (interface{}, error) {
+// 	connector := dbcr.connectorLock.Connector()
+// 	return connector.LocalAggregate(info)
+// }
 
-func (dbcr *dbClosingResolver) LocalAggregate(info *aggregate.Params) (interface{}, error) {
-	connector := dbcr.connectorLock.Connector()
-	return connector.LocalAggregate(info)
-}
+// func (dbcr *dbClosingResolver) LocalFetchKindClass(info *fetch.Params) (interface{}, error) {
+// 	connector := dbcr.connectorLock.Connector()
+// 	return connector.LocalFetchKindClass(info)
+// }
 
-func (dbcr *dbClosingResolver) LocalFetchKindClass(info *fetch.Params) (interface{}, error) {
-	connector := dbcr.connectorLock.Connector()
-	return connector.LocalFetchKindClass(info)
-}
-
-func (dbcr *dbClosingResolver) LocalFetchFuzzy(words []string) (interface{}, error) {
-	connector := dbcr.connectorLock.Connector()
-	return connector.LocalFetchFuzzy(words)
-}
+// func (dbcr *dbClosingResolver) LocalFetchFuzzy(words []string) (interface{}, error) {
+// 	connector := dbcr.connectorLock.Connector()
+// 	return connector.LocalFetchFuzzy(words)
+// }
