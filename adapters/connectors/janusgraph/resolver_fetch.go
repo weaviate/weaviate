@@ -17,12 +17,12 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/fetch"
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/fetchfuzzy"
-	graphqlfetch "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/fetch"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
 // LocalFetchKindClass based on GraphQL Query params
-func (j *Janusgraph) LocalFetchKindClass(params *graphqlfetch.Params) (interface{}, error) {
+func (j *Janusgraph) LocalFetchKindClass(params *kinds.FetchParams) (interface{}, error) {
 	q, err := fetch.NewQuery(*params, &j.state, &j.schema).String()
 	if err != nil {
 		return nil, fmt.Errorf("could not build query: %s", err)

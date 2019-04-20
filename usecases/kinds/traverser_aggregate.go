@@ -19,7 +19,7 @@ func (t *Traverser) LocalAggregate(params AggregateParams) (interface{}, error) 
 	}
 	defer unlock()
 
-	return t.repo.LocalAggregate(params)
+	return t.repo.LocalAggregate(&params)
 }
 
 // AggregateParams to describe the Local->GetMeta->Kind->Class query. Will be passed to

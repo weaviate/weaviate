@@ -72,8 +72,6 @@ func (g *graphQL) Resolve(query string, operationName string, variables map[stri
 
 	networkResolver := g.resolverProvider.GetNetworkResolver()
 
-	contextionary := g.resolverProvider.GetContextionary()
-
 	requestsLog := g.resolverProvider.GetRequestsLog()
 
 	return graphql.Do(graphql.Params{
@@ -82,7 +80,6 @@ func (g *graphQL) Resolve(query string, operationName string, variables map[stri
 			"Resolver":        resolver,
 			"NetworkResolver": networkResolver,
 			"NetworkPeers":    g.networkPeers,
-			"Contextionary":   contextionary,
 			"RequestsLog":     requestsLog,
 			"Config":          g.config,
 		},

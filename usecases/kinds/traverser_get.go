@@ -17,7 +17,7 @@ func (t *Traverser) LocalGetClass(params LocalGetParams) (interface{}, error) {
 	}
 	defer unlock()
 
-	return t.repo.LocalGetClass(params)
+	return t.repo.LocalGetClass(&params)
 }
 
 type LocalGetParams struct {

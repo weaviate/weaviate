@@ -17,7 +17,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	graphqlapiLocal "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local"
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	"github.com/creativesoftwarefdn/weaviate/database/schema_migrator"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
@@ -44,5 +43,5 @@ type BaseConnector interface {
 type DatabaseConnector interface {
 	BaseConnector
 	connector_state.Connector
-	graphqlapiLocal.Resolver
+	kinds.TraverserRepo
 }

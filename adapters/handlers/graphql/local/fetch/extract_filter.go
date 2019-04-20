@@ -17,19 +17,10 @@ import (
 	contextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
-type whereFilter struct {
-	class      contextionary.SearchParams
-	properties []whereProperty
-}
-
-type whereProperty struct {
-	search contextionary.SearchParams
-	match  PropertyMatch
-}
-
-func parseWhere(args map[string]interface{}, kind kind.Kind) (*whereFilter, error) {
+func parseWhere(args map[string]interface{}, kind kind.Kind) (*kinds.FetchSearch, error) {
 	// the structure is already guaranteed by graphQL, we can therefore make
 	// plenty of assertions without having to check. If required fields are not
 	// set, graphQL will error before already and we won't get here.
@@ -38,7 +29,7 @@ func parseWhere(args map[string]interface{}, kind kind.Kind) (*whereFilter, erro
 	classKeywords := extractKeywords(classMap["keywords"])
 
 	propertiesRaw := where["properties"].([]interface{})
-	properties := make([]whereProperty, len(propertiesRaw), len(propertiesRaw))
+	properties := make([]kinds.FetchSearchProperty, len(propertiesRaw), len(propertiesRaw))
 
 	for i, prop := range propertiesRaw {
 		propertiesMap := prop.(map[string]interface{})
@@ -56,21 +47,21 @@ func parseWhere(args map[string]interface{}, kind kind.Kind) (*whereFilter, erro
 			return nil, fmt.Errorf("could not extract operator and matching value: %s", err)
 		}
 
-		properties[i] = whereProperty{
-			search: search,
-			match:  match,
+		properties[i] = kinds.FetchSearchProperty{
+			Search: search,
+			Match:  match,
 		}
 	}
 
-	return &whereFilter{
-		class: contextionary.SearchParams{
+	return &kinds.FetchSearch{
+		Class: contextionary.SearchParams{
 			SearchType: contextionary.SearchTypeClass,
 			Name:       classMap["name"].(string),
 			Certainty:  float32(classMap["certainty"].(float64)),
 			Keywords:   classKeywords,
 			Kind:       kind,
 		},
-		properties: properties,
+		Properties: properties,
 	}, nil
 }
 
@@ -92,25 +83,24 @@ func extractKeywords(kw interface{}) models.SemanticSchemaKeywords {
 	return result
 }
 
-func extractMatch(prop map[string]interface{}) (PropertyMatch, error) {
+func extractMatch(prop map[string]interface{}) (kinds.FetchPropertyMatch, error) {
 	operator, err := parseOperator(prop["operator"].(string))
 	if err != nil {
-		return PropertyMatch{}, fmt.Errorf("could not parse operator: %s", err)
+		return kinds.FetchPropertyMatch{}, fmt.Errorf("could not parse operator: %s", err)
 	}
 
 	value, err := common_filters.ParseValue(prop)
 	if err != nil {
-		return PropertyMatch{}, fmt.Errorf("could not parse value: %s", err)
+		return kinds.FetchPropertyMatch{}, fmt.Errorf("could not parse value: %s", err)
 	}
 
-	return PropertyMatch{
+	return kinds.FetchPropertyMatch{
 		Operator: operator,
 		Value:    value,
 	}, nil
 }
 
 func parseOperator(op string) (common_filters.Operator, error) {
-
 	switch op {
 	case "Equal":
 		return common_filters.OperatorEqual, nil

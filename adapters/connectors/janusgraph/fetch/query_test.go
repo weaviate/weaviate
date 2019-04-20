@@ -15,17 +15,17 @@ import (
 	"testing"
 
 	cf "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/fetch"
 	contextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
 func Test_QueryBuilder(t *testing.T) {
 	tests := testCases{
 		{
 			name: "with a single class name, single property name, string type",
-			inputParams: fetch.Params{
+			inputParams: kinds.FetchParams{
 				Kind: kind.Thing,
 				PossibleClassNames: contextionary.SearchResults{
 					Results: []contextionary.SearchResult{
@@ -47,7 +47,7 @@ func Test_QueryBuilder(t *testing.T) {
 		},
 		{
 			name: "with a single class name, single property name, int type, operator Equal",
-			inputParams: fetch.Params{
+			inputParams: kinds.FetchParams{
 				Kind: kind.Thing,
 				PossibleClassNames: contextionary.SearchResults{
 					Results: []contextionary.SearchResult{
@@ -69,7 +69,7 @@ func Test_QueryBuilder(t *testing.T) {
 		},
 		{
 			name: "with the field type not matching the property type",
-			inputParams: fetch.Params{
+			inputParams: kinds.FetchParams{
 				Kind: kind.Thing,
 				PossibleClassNames: contextionary.SearchResults{
 					Results: []contextionary.SearchResult{
@@ -79,7 +79,7 @@ func Test_QueryBuilder(t *testing.T) {
 						},
 					},
 				},
-				Properties: []fetch.Property{
+				Properties: []kinds.FetchProperty{
 					{
 						PossibleNames: contextionary.SearchResults{
 							Results: []contextionary.SearchResult{
@@ -93,7 +93,7 @@ func Test_QueryBuilder(t *testing.T) {
 								},
 							},
 						},
-						Match: fetch.PropertyMatch{
+						Match: kinds.FetchPropertyMatch{
 							Operator: cf.OperatorEqual,
 							Value: &cf.Value{
 								Value: "Amsterdam",
@@ -113,7 +113,7 @@ func Test_QueryBuilder(t *testing.T) {
 		},
 		{
 			name: "with multiple class/property combinations, correct type",
-			inputParams: fetch.Params{
+			inputParams: kinds.FetchParams{
 				Kind: kind.Thing,
 				PossibleClassNames: contextionary.SearchResults{
 					Results: []contextionary.SearchResult{
@@ -127,7 +127,7 @@ func Test_QueryBuilder(t *testing.T) {
 						},
 					},
 				},
-				Properties: []fetch.Property{
+				Properties: []kinds.FetchProperty{
 					{
 						PossibleNames: contextionary.SearchResults{
 							Results: []contextionary.SearchResult{
@@ -141,7 +141,7 @@ func Test_QueryBuilder(t *testing.T) {
 								},
 							},
 						},
-						Match: fetch.PropertyMatch{
+						Match: kinds.FetchPropertyMatch{
 							Operator: cf.OperatorEqual,
 							Value: &cf.Value{
 								Value: "Amsterdam",
@@ -162,7 +162,7 @@ func Test_QueryBuilder(t *testing.T) {
 		},
 		{
 			name: "with a single property with no valid combination of class and props",
-			inputParams: fetch.Params{
+			inputParams: kinds.FetchParams{
 				Kind: kind.Thing,
 				PossibleClassNames: contextionary.SearchResults{
 					Results: []contextionary.SearchResult{
@@ -172,7 +172,7 @@ func Test_QueryBuilder(t *testing.T) {
 						},
 					},
 				},
-				Properties: []fetch.Property{
+				Properties: []kinds.FetchProperty{
 					{
 						PossibleNames: contextionary.SearchResults{
 							Results: []contextionary.SearchResult{
@@ -182,7 +182,7 @@ func Test_QueryBuilder(t *testing.T) {
 								},
 							},
 						},
-						Match: fetch.PropertyMatch{
+						Match: kinds.FetchPropertyMatch{
 							Operator: cf.OperatorEqual,
 							Value: &cf.Value{
 								Value: "Amsterdam",
@@ -204,8 +204,8 @@ func Test_QueryBuilder(t *testing.T) {
 }
 
 func singleProp(propName string, dataType schema.DataType, operator cf.Operator,
-	searchValue interface{}) []fetch.Property {
-	return []fetch.Property{
+	searchValue interface{}) []kinds.FetchProperty {
+	return []kinds.FetchProperty{
 		{
 			PossibleNames: contextionary.SearchResults{
 				Results: []contextionary.SearchResult{
@@ -215,7 +215,7 @@ func singleProp(propName string, dataType schema.DataType, operator cf.Operator,
 					},
 				},
 			},
-			Match: fetch.PropertyMatch{
+			Match: kinds.FetchPropertyMatch{
 				Operator: operator,
 				Value: &cf.Value{
 					Value: searchValue,
