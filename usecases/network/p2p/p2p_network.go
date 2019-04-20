@@ -181,13 +181,7 @@ func (n *network) ping() {
 		return
 	}
 
-	currentSchema, err := n.schemaGetter.Schema()
-	if err != nil {
-		n.logger.
-			WithField("action", "network_ping").
-			WithError(err).
-			Error("cannot ping gensis server")
-	}
+	currentSchema := n.schemaGetter.GetSchema()
 
 	n.Lock()
 	params := client_ops.NewGenesisPeersPingParams()

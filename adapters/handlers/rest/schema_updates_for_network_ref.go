@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/crossref"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
@@ -29,6 +30,7 @@ type peersLister interface {
 
 type schemaManager interface {
 	UpdatePropertyAddDataType(context.Context, kind.Kind, string, string, string) error
+	GetSchema() schema.Schema
 }
 
 type referenceSchemaUpdater struct {

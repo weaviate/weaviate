@@ -10,19 +10,20 @@ import (
 
 // TODO: move contextionary and schema contextionary into uc, so we don't depend on db
 
-func (t *Traverser) LocalFetchKindsClass(params FetchSearch) (interface{}, error) {
+func (t *Traverser) LocalFetchKindClass(params *FetchSearch) (interface{}, error) {
 	unlock, err := t.locks.LockConnector()
 	if err != nil {
 		return nil, fmt.Errorf("could not acquire lock: %v", err)
 	}
 	defer unlock()
 
-	possibleClasses, err := t.contextionary.SchemaSearch(params.Class)
+	contextionary := t.contextionaryProvider.GetSchemaContextionary()
+	possibleClasses, err := contextionary.SchemaSearch(params.Class)
 	if err != nil {
 		return nil, err
 	}
 
-	properties, err := t.addPossibleNamesToProperties(params.Properties)
+	properties, err := t.addPossibleNamesToProperties(params.Properties, contextionary)
 	if err != nil {
 		return nil, err
 	}
@@ -48,10 +49,10 @@ func (t *Traverser) LocalFetchKindsClass(params FetchSearch) (interface{}, error
 	return t.repo.LocalFetchKindClass(connectorParams)
 }
 
-func (t *Traverser) addPossibleNamesToProperties(props []FetchSearchProperty) ([]FetchProperty, error) {
+func (t *Traverser) addPossibleNamesToProperties(props []FetchSearchProperty, c11y c11y) ([]FetchProperty, error) {
 	properties := make([]FetchProperty, len(props), len(props))
 	for i, prop := range props {
-		possibleNames, err := t.contextionary.SchemaSearch(prop.Search)
+		possibleNames, err := c11y.SchemaSearch(prop.Search)
 		if err != nil {
 			return nil, err
 		}

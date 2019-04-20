@@ -20,12 +20,9 @@ import (
 	"time"
 
 	"github.com/coreos/etcd/clientv3"
-	"github.com/coreos/etcd/clientv3/concurrency"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/operations"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/state"
 	"github.com/creativesoftwarefdn/weaviate/adapters/locks"
-	"github.com/creativesoftwarefdn/weaviate/database"
-	etcdSchemaManager "github.com/creativesoftwarefdn/weaviate/database/schema_manager/etcd"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	dblisting "github.com/creativesoftwarefdn/weaviate/usecases/connswitch"
@@ -60,9 +57,23 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.Logger = func(msg string, args ...interface{}) {
 		appState.Logger.WithField("action", "restapi_management").Infof(msg, args...)
 	}
-	schemaManager := schemaUC.NewManager(appState.Connector, nil, appState.Locks, appState.Network, appState.Logger)
-	kindsManager := kinds.NewManager(appState.Connector, appState.Locks, schemaManager, appState.Network, appState.ServerConfig)
-	batchKindsManager := kinds.NewBatchManager(appState.Connector, appState.Locks, schemaManager, appState.Network, appState.ServerConfig)
+
+	schemaManager := schemaUC.NewManager(appState.Connector, nil,
+		appState.Locks, appState.Network, appState.Logger)
+	kindsManager := kinds.NewManager(appState.Connector, appState.Locks,
+		schemaManager, appState.Network, appState.ServerConfig)
+	batchKindsManager := kinds.NewBatchManager(appState.Connector, appState.Locks,
+		schemaManager, appState.Network, appState.ServerConfig)
+	kindsTraverser := kinds.NewTraverser(appState.Locks, appState.Connector,
+		appState)
+
+	updateSchemaCallback := makeUpdateSchemaCall(appState.Logger, appState, kindsTraverser)
+	schemaManager.RegisterSchemaUpdateCallback(updateSchemaCallback)
+
+	appState.Network.RegisterUpdatePeerCallback(func(peers peers.Peers) {
+		schemaManager.TriggerSchemaUpdateCallbacks()
+	})
+	appState.Network.RegisterSchemaGetter(schemaManager)
 
 	setupSchemaHandlers(api, appState.TelemetryLogger, schemaManager)
 	setupKindHandlers(api, appState.TelemetryLogger, kindsManager)
@@ -167,62 +178,16 @@ func startupRoutine() *state.State {
 	}
 	appState.Locks = etcdLock
 
-	// TODO: remove
-	s1, err := concurrency.NewSession(etcdClient)
-	if err != nil {
-		logger.WithField("action", "startup").
-			WithError(err).Error("cannot create etcd session")
-		logger.Exit(1)
-	}
-
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("created etcd session")
 		// END remove
 
-	manager, err := etcdSchemaManager.New(ctx, etcdClient, dbConnector, appState.Network, logger)
-	if err != nil {
-		logger.WithField("action", "startup").
-			WithError(err).Error("cannot (etcd) schema manager and initialize schema")
-		logger.Exit(1)
-	}
-	appState.SchemaManager = manager
-
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("initialized schema")
-
-	updateSchemaCallback := makeUpdateSchemaCall(logger, appState)
-	manager.RegisterSchemaUpdateCallback(updateSchemaCallback)
 
 	// initialize the contextinoary with the rawContextionary, it will get updated on each schema update
 	appState.Contextionary = rawContextionary
 	appState.RawContextionary = rawContextionary
-
-	// Now instantiate a database, with the configured lock, manager and connector.
-	dbParams := &database.Params{
-		LockerKey:     "/weaviate/schema-connector-rw-lock",
-		LockerSession: s1,
-		SchemaManager: manager,
-		Connector:     dbConnector,
-		Contextionary: appState.Contextionary,
-		Logger:        logger,
-	}
-	db, err := database.New(ctx, dbParams)
-	if err != nil {
-		logger.
-			WithField("action", "startup").
-			WithField("params", dbParams).
-			WithError(err).
-			Error("cannot initialize connected db")
-		logger.Exit(1)
-	}
-	appState.Database = db
-
-	manager.TriggerSchemaUpdateCallbacks()
-	appState.Network.RegisterUpdatePeerCallback(func(peers peers.Peers) {
-		manager.TriggerSchemaUpdateCallbacks()
-	})
-
-	appState.Network.RegisterSchemaGetter(&schemaGetter{db: db})
 
 	return appState
 }

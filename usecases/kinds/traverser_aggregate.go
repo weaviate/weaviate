@@ -12,14 +12,14 @@ import (
 )
 
 // LocalAggregate resolves meta queries
-func (t *Traverser) LocalAggregate(params AggregateParams) (interface{}, error) {
+func (t *Traverser) LocalAggregate(params *AggregateParams) (interface{}, error) {
 	unlock, err := t.locks.LockConnector()
 	if err != nil {
 		return nil, fmt.Errorf("could not acquire lock: %v", err)
 	}
 	defer unlock()
 
-	return t.repo.LocalAggregate(&params)
+	return t.repo.LocalAggregate(params)
 }
 
 // AggregateParams to describe the Local->GetMeta->Kind->Class query. Will be passed to
