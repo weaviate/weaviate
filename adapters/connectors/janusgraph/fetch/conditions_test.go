@@ -15,10 +15,10 @@ import (
 	"time"
 
 	cf "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/fetch"
 	contextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
 func Test_QueryBuilder_StringAllOperators(t *testing.T) {
@@ -317,8 +317,8 @@ func cityClassSearch() contextionary.SearchResults {
 }
 
 func paramsFromSingleProp(propName string, dataType schema.DataType,
-	operator cf.Operator, value interface{}) fetch.Params {
-	return fetch.Params{
+	operator cf.Operator, value interface{}) kinds.FetchParams {
+	return kinds.FetchParams{
 		Kind:               kind.Thing,
 		PossibleClassNames: cityClassSearch(),
 		Properties:         singleProp(propName, dataType, operator, value),

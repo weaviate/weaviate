@@ -41,7 +41,6 @@ import (
 	"github.com/sirupsen/logrus"
 
 	dbconnector "github.com/creativesoftwarefdn/weaviate/adapters/connectors"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/fetch"
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
@@ -478,7 +477,7 @@ func (f *Foobar) LocalAggregate(info *kinds.AggregateParams) (interface{}, error
 // completed and the connector is presented with a list of possible class
 // names, as well as a list of possible property names. In additional a filter
 // criterium (to be applied on those classes/properties) is present. For
-// details on the input parameteres, see fetch.Params
+// details on the input parameteres, see kinds.FetchParams
 //
 // The connector must respond with a list of short-form beacon and certainty
 // tuples as maps. Note that the concept of how to calculate certainity has not
@@ -493,7 +492,7 @@ func (f *Foobar) LocalAggregate(info *kinds.AggregateParams) (interface{}, error
 //			},
 //		},
 //	}
-func (f *Foobar) LocalFetchKindClass(info *fetch.Params) (interface{}, error) {
+func (f *Foobar) LocalFetchKindClass(info *kinds.FetchParams) (interface{}, error) {
 	return nil, nil
 }
 

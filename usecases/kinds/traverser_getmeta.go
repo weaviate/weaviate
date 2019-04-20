@@ -19,7 +19,7 @@ func (t *Traverser) LocalGetMeta(params GetMetaParams) (interface{}, error) {
 	}
 	defer unlock()
 
-	return t.repo.LocalGetMeta(params)
+	return t.repo.LocalGetMeta(&params)
 }
 
 // GetMetaParams to describe the Local->GetMeta->Kind->Class query. Will be

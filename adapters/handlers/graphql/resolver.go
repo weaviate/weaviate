@@ -36,7 +36,6 @@ type ClosingResolver interface {
 type ResolverProvider interface {
 	DatabaseResolverProvider
 	NetworkResolverProvider
-	ContextionaryProvider
 	RequestsLogProvider
 }
 
@@ -46,10 +45,6 @@ type DatabaseResolverProvider interface {
 
 type NetworkResolverProvider interface {
 	GetNetworkResolver() network.Resolver
-}
-
-type ContextionaryProvider interface {
-	GetContextionary() fetch.Contextionary
 }
 
 type RequestsLogProvider interface {

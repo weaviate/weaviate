@@ -15,24 +15,24 @@ import (
 	"strings"
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/state"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/fetch"
 	contextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
 // Query prepares a Local->Fetch Query. Can be built with String(). Create with
 // NewQuery() to be sure that all required properties are set
 type Query struct {
-	params     fetch.Params
+	params     kinds.FetchParams
 	nameSource nameSource
 	typeSource typeSource
 }
 
 // NewQuery is the preferred way to create a query
-func NewQuery(p fetch.Params, ns nameSource, ts typeSource) *Query {
+func NewQuery(p kinds.FetchParams, ns nameSource, ts typeSource) *Query {
 	return &Query{
 		params:     p,
 		nameSource: ns,
@@ -99,7 +99,7 @@ func (b *Query) properties() ([]*gremlin.Query, error) {
 	return queries, nil
 }
 
-func (b *Query) property(prop fetch.Property) (*gremlin.Query, error) {
+func (b *Query) property(prop kinds.FetchProperty) (*gremlin.Query, error) {
 	var filterAlternatives []*gremlin.Query
 
 	for _, className := range b.params.PossibleClassNames.Results {
@@ -122,7 +122,7 @@ func (b *Query) property(prop fetch.Property) (*gremlin.Query, error) {
 }
 
 func (b *Query) combineClassWithPropNames(className string, propNames []contextionary.SearchResult,
-	match fetch.PropertyMatch) *gremlin.Query {
+	match kinds.FetchPropertyMatch) *gremlin.Query {
 	var combinations []string
 
 	for _, propName := range propNames {
@@ -142,7 +142,7 @@ func (b *Query) combineClassWithPropNames(className string, propNames []contexti
 }
 
 func (b *Query) combineClassWithPropName(className string, propName string,
-	match fetch.PropertyMatch) *gremlin.Query {
+	match kinds.FetchPropertyMatch) *gremlin.Query {
 	class := schema.ClassName(className)
 	prop := schema.PropertyName(propName)
 

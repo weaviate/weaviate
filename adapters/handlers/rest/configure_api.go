@@ -60,16 +60,16 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.Logger = func(msg string, args ...interface{}) {
 		appState.Logger.WithField("action", "restapi_management").Infof(msg, args...)
 	}
+	schemaManager := schemaUC.NewManager(appState.Connector, nil, appState.Locks, appState.Network, appState.Logger)
+	kindsManager := kinds.NewManager(appState.Connector, appState.Locks, schemaManager, appState.Network, appState.ServerConfig)
+	batchKindsManager := kinds.NewBatchManager(appState.Connector, appState.Locks, schemaManager, appState.Network, appState.ServerConfig)
 
-	kindsManager := kinds.NewManager(appState.Connector, appState.Locks, appState.SchemaManager, appState.Network, appState.ServerConfig)
-	batchKindsManager := kinds.NewBatchManager(appState.Connector, appState.Locks, appState.SchemaManager, appState.Network, appState.ServerConfig)
-
-	setupSchemaHandlers(api, appState.TelemetryLogger, schemaUC.NewManager(appState.Connector, nil, appState.Locks, appState.Network))
+	setupSchemaHandlers(api, appState.TelemetryLogger, schemaManager)
 	setupKindHandlers(api, appState.TelemetryLogger, kindsManager)
 	setupKindBatchHandlers(api, appState.TelemetryLogger, batchKindsManager)
 	setupC11yHandlers(api, appState.TelemetryLogger, appState)
 	setupGraphQLHandlers(api, appState.TelemetryLogger, appState)
-	setupMiscHandlers(api, appState.TelemetryLogger, appState.ServerConfig, appState.Network, appState.Database)
+	setupMiscHandlers(api, appState.TelemetryLogger, appState.ServerConfig, appState.Network, schemaManager)
 
 	api.ServerShutdown = func() {}
 	configureServer = makeConfigureServer(appState)

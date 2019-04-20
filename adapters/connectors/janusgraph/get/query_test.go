@@ -17,8 +17,6 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/common"
 	cf "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/fetch"
-	contextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
@@ -242,27 +240,4 @@ func Test_QueryBuilder(t *testing.T) {
 	}
 
 	tests.AssertQuery(t)
-}
-
-func singleProp(propName string, dataType schema.DataType, operator cf.Operator,
-	searchValue interface{}) []fetch.Property {
-	return []fetch.Property{
-		{
-			PossibleNames: contextionary.SearchResults{
-				Results: []contextionary.SearchResult{
-					{
-						Name:      propName,
-						Certainty: 1.0,
-					},
-				},
-			},
-			Match: fetch.PropertyMatch{
-				Operator: operator,
-				Value: &cf.Value{
-					Value: searchValue,
-					Type:  dataType,
-				},
-			},
-		},
-	}
 }
