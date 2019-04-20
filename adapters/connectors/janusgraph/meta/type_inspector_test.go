@@ -14,20 +14,20 @@ package meta
 import (
 	"testing"
 
-	gm "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func Test_TypeInspector_WithReferenceProp(t *testing.T) {
 	t.Run("when the user askes for 'pointingTo'", func(t *testing.T) {
-		input := gm.Params{
+		input := kinds.GetMetaParams{
 			ClassName: schema.ClassName("City"),
-			Properties: []gm.MetaProperty{
-				gm.MetaProperty{
+			Properties: []kinds.MetaProperty{
+				kinds.MetaProperty{
 					Name:                "InCountry",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.PointingTo},
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.PointingTo},
 				},
 			},
 		}
@@ -47,12 +47,12 @@ func Test_TypeInspector_WithReferenceProp(t *testing.T) {
 	})
 
 	t.Run("when the user askes for type", func(t *testing.T) {
-		input := gm.Params{
+		input := kinds.GetMetaParams{
 			ClassName: schema.ClassName("City"),
-			Properties: []gm.MetaProperty{
-				gm.MetaProperty{
+			Properties: []kinds.MetaProperty{
+				kinds.MetaProperty{
 					Name:                "InCountry",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.Type},
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Type},
 				},
 			},
 		}
@@ -70,12 +70,12 @@ func Test_TypeInspector_WithReferenceProp(t *testing.T) {
 	})
 
 	t.Run("when the user asks for both 'type' and 'pointingTo'", func(t *testing.T) {
-		input := gm.Params{
+		input := kinds.GetMetaParams{
 			ClassName: schema.ClassName("City"),
-			Properties: []gm.MetaProperty{
-				gm.MetaProperty{
+			Properties: []kinds.MetaProperty{
+				kinds.MetaProperty{
 					Name:                "InCountry",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.PointingTo, gm.Type},
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.PointingTo, kinds.Type},
 				},
 			},
 		}
@@ -96,12 +96,12 @@ func Test_TypeInspector_WithReferenceProp(t *testing.T) {
 	})
 
 	t.Run("when the user askes for both 'count' and 'pointingTo'", func(t *testing.T) {
-		input := gm.Params{
+		input := kinds.GetMetaParams{
 			ClassName: schema.ClassName("City"),
-			Properties: []gm.MetaProperty{
-				gm.MetaProperty{
+			Properties: []kinds.MetaProperty{
+				kinds.MetaProperty{
 					Name:                "InCountry",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.Count, gm.PointingTo},
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Count, kinds.PointingTo},
 				},
 			},
 		}
@@ -121,12 +121,12 @@ func Test_TypeInspector_WithReferenceProp(t *testing.T) {
 	})
 
 	t.Run("when the user askes for unrelated statisticals props (count)", func(t *testing.T) {
-		input := gm.Params{
+		input := kinds.GetMetaParams{
 			ClassName: schema.ClassName("City"),
-			Properties: []gm.MetaProperty{
-				gm.MetaProperty{
+			Properties: []kinds.MetaProperty{
+				kinds.MetaProperty{
 					Name:                "InCountry",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.Count},
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Count},
 				},
 			},
 		}
@@ -141,9 +141,9 @@ func Test_TypeInspector_WithReferenceProp(t *testing.T) {
 }
 
 func Test_TypeInspector_WithoutProperties(t *testing.T) {
-	input := gm.Params{
+	input := kinds.GetMetaParams{
 		ClassName:  schema.ClassName("City"),
-		Properties: []gm.MetaProperty{},
+		Properties: []kinds.MetaProperty{},
 	}
 
 	expectedOutput := map[string]interface{}{}
@@ -155,12 +155,12 @@ func Test_TypeInspector_WithoutProperties(t *testing.T) {
 }
 
 func Test_TypeInspector_WithMetaProperties(t *testing.T) {
-	input := gm.Params{
+	input := kinds.GetMetaParams{
 		ClassName: schema.ClassName("City"),
-		Properties: []gm.MetaProperty{
-			gm.MetaProperty{
+		Properties: []kinds.MetaProperty{
+			kinds.MetaProperty{
 				Name:                "meta",
-				StatisticalAnalyses: []gm.StatisticalAnalysis{gm.Count},
+				StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Count},
 			},
 		},
 	}
@@ -175,12 +175,12 @@ func Test_TypeInspector_WithMetaProperties(t *testing.T) {
 
 func Test_TypeInspector_WithPrimitiveProps(t *testing.T) {
 	t.Run("on an int with only 'type'", func(t *testing.T) {
-		input := gm.Params{
+		input := kinds.GetMetaParams{
 			ClassName: schema.ClassName("City"),
-			Properties: []gm.MetaProperty{
-				gm.MetaProperty{
+			Properties: []kinds.MetaProperty{
+				kinds.MetaProperty{
 					Name:                "population",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.Type},
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Type},
 				},
 			},
 		}
@@ -198,12 +198,12 @@ func Test_TypeInspector_WithPrimitiveProps(t *testing.T) {
 	})
 
 	t.Run("on an int with 'type' and other statistical analyses", func(t *testing.T) {
-		input := gm.Params{
+		input := kinds.GetMetaParams{
 			ClassName: schema.ClassName("City"),
-			Properties: []gm.MetaProperty{
-				gm.MetaProperty{
+			Properties: []kinds.MetaProperty{
+				kinds.MetaProperty{
 					Name:                "population",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.Mean, gm.Type, gm.Count},
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Mean, kinds.Type, kinds.Count},
 				},
 			},
 		}
@@ -223,16 +223,16 @@ func Test_TypeInspector_WithPrimitiveProps(t *testing.T) {
 
 func Test_TypeInspector_WithMultiplePropsOfDifferentTypes(t *testing.T) {
 	t.Run("with mixed prop types and mixed statistical analysis types", func(t *testing.T) {
-		input := gm.Params{
+		input := kinds.GetMetaParams{
 			ClassName: schema.ClassName("City"),
-			Properties: []gm.MetaProperty{
-				gm.MetaProperty{
+			Properties: []kinds.MetaProperty{
+				kinds.MetaProperty{
 					Name:                "InCountry",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.PointingTo, gm.Count},
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.PointingTo, kinds.Count},
 				},
-				gm.MetaProperty{
+				kinds.MetaProperty{
 					Name:                "population",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.Mean, gm.Type, gm.Count},
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Mean, kinds.Type, kinds.Count},
 				},
 			},
 		}

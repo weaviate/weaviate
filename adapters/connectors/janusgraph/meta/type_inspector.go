@@ -14,8 +14,8 @@ package meta
 import (
 	"fmt"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
 // TypeInspector can process the types of each specified props
@@ -30,7 +30,7 @@ func NewTypeInspector(typeSource typeSource) *TypeInspector {
 
 // Process returns a simple map where each property is the key, the value
 // contains the analysis prop that the user asked for through the graphQL API
-func (t *TypeInspector) Process(params *getmeta.Params) (map[string]interface{}, error) {
+func (t *TypeInspector) Process(params *kinds.GetMetaParams) (map[string]interface{}, error) {
 	result := map[string]interface{}{}
 	for _, prop := range params.Properties {
 		if prop.Name == MetaProp {
@@ -54,8 +54,8 @@ func (t *TypeInspector) Process(params *getmeta.Params) (map[string]interface{},
 	return result, nil
 }
 
-func (t *TypeInspector) analyzeAll(params *getmeta.Params,
-	prop getmeta.MetaProperty) (map[string]interface{}, error) {
+func (t *TypeInspector) analyzeAll(params *kinds.GetMetaParams,
+	prop kinds.MetaProperty) (map[string]interface{}, error) {
 	results := []map[string]interface{}{}
 	for _, analysis := range prop.StatisticalAnalyses {
 		result, err := t.analyze(params, prop, analysis)
@@ -88,8 +88,8 @@ func (t *TypeInspector) analyzeAll(params *getmeta.Params,
 	}
 }
 
-func (t *TypeInspector) analyze(params *getmeta.Params, prop getmeta.MetaProperty,
-	analysis getmeta.StatisticalAnalysis) (map[string]interface{}, error) {
+func (t *TypeInspector) analyze(params *kinds.GetMetaParams, prop kinds.MetaProperty,
+	analysis kinds.StatisticalAnalysis) (map[string]interface{}, error) {
 	err, schemaProp := t.typeSource.GetProperty(params.Kind, params.ClassName, untitle(prop.Name))
 	if err != nil {
 		return nil, fmt.Errorf(
@@ -103,15 +103,15 @@ func (t *TypeInspector) analyze(params *getmeta.Params, prop getmeta.MetaPropert
 	}
 
 	switch analysis {
-	case getmeta.PointingTo:
+	case kinds.PointingTo:
 		return t.analyzeRefProp(params, propType)
-	case getmeta.Type:
+	case kinds.Type:
 		return t.analyzePrimitiveProp(params, propType)
 	default:
 		return nil, nil
 	}
 }
-func (t *TypeInspector) analyzePrimitiveProp(params *getmeta.Params,
+func (t *TypeInspector) analyzePrimitiveProp(params *kinds.GetMetaParams,
 	propType schema.PropertyDataType) (map[string]interface{}, error) {
 	var typeName string
 	if propType.IsPrimitive() {
@@ -121,11 +121,11 @@ func (t *TypeInspector) analyzePrimitiveProp(params *getmeta.Params,
 	}
 
 	return map[string]interface{}{
-		string(getmeta.Type): typeName,
+		string(kinds.Type): typeName,
 	}, nil
 }
 
-func (t *TypeInspector) analyzeRefProp(params *getmeta.Params,
+func (t *TypeInspector) analyzeRefProp(params *kinds.GetMetaParams,
 	propType schema.PropertyDataType) (map[string]interface{}, error) {
 
 	if !propType.IsReference() {
@@ -133,7 +133,7 @@ func (t *TypeInspector) analyzeRefProp(params *getmeta.Params,
 	}
 
 	return map[string]interface{}{
-		string(getmeta.PointingTo): classSliceToInterfaceSlice(propType.Classes()),
+		string(kinds.PointingTo): classSliceToInterfaceSlice(propType.Classes()),
 	}, nil
 }
 

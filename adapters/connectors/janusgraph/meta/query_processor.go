@@ -17,8 +17,8 @@ import (
 
 	analytics "github.com/SeMI-network/janus-spark-analytics/clients/go"
 	"github.com/coreos/etcd/clientv3"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
 const AnalyticsAPICachePrefix = "/weaviate/janusgraph-connector/analytics-cache/"
@@ -49,7 +49,7 @@ func NewProcessor(executor executor, cache etcdClient, analytics analyticsClient
 }
 
 func (p *Processor) Process(query *gremlin.Query, typeInfo map[string]interface{},
-	params *getmeta.Params) (interface{}, error) {
+	params *kinds.GetMetaParams) (interface{}, error) {
 
 	result, err := p.getResult(query, params)
 	if err != nil {
@@ -65,7 +65,7 @@ func (p *Processor) Process(query *gremlin.Query, typeInfo map[string]interface{
 	return merged, nil
 }
 
-func (p *Processor) getResult(query *gremlin.Query, params *getmeta.Params) ([]interface{}, error) {
+func (p *Processor) getResult(query *gremlin.Query, params *kinds.GetMetaParams) ([]interface{}, error) {
 	if params.Analytics.UseAnaltyicsEngine == false {
 		result, err := p.executor.Execute(query)
 		if err != nil {
@@ -79,7 +79,7 @@ func (p *Processor) getResult(query *gremlin.Query, params *getmeta.Params) ([]i
 }
 
 func (p *Processor) mergeResults(input []interface{},
-	typeInfo map[string]interface{}, params *getmeta.Params) (interface{}, error) {
+	typeInfo map[string]interface{}, params *kinds.GetMetaParams) (interface{}, error) {
 	result := map[string]interface{}{}
 
 	for _, datum := range input {
@@ -130,7 +130,7 @@ func (p *Processor) mergeResults(input []interface{},
 }
 
 func (p *Processor) postProcess(propName string, m map[string]interface{},
-	params *getmeta.Params) (map[string]interface{}, error) {
+	params *kinds.GetMetaParams) (map[string]interface{}, error) {
 
 	if hasBoolAnalyses(propName, params) {
 		return p.postProcessBoolGroupCount(m)
@@ -168,7 +168,7 @@ func datumsToSlice(g *gremlin.Response) []interface{} {
 	return res
 }
 
-func hasBoolAnalyses(propName string, params *getmeta.Params) bool {
+func hasBoolAnalyses(propName string, params *kinds.GetMetaParams) bool {
 	for _, prop := range params.Properties {
 		if string(prop.Name) == propName && hasAtLeastOneBooleanAnalysis(prop.StatisticalAnalyses) {
 			return true
@@ -178,12 +178,12 @@ func hasBoolAnalyses(propName string, params *getmeta.Params) bool {
 	return false
 }
 
-func hasAtLeastOneBooleanAnalysis(analyses []getmeta.StatisticalAnalysis) bool {
+func hasAtLeastOneBooleanAnalysis(analyses []kinds.StatisticalAnalysis) bool {
 	for _, analysis := range analyses {
-		if analysis == getmeta.PercentageTrue ||
-			analysis == getmeta.PercentageFalse ||
-			analysis == getmeta.TotalTrue ||
-			analysis == getmeta.TotalFalse {
+		if analysis == kinds.PercentageTrue ||
+			analysis == kinds.PercentageFalse ||
+			analysis == kinds.TotalTrue ||
+			analysis == kinds.TotalFalse {
 			return true
 		}
 	}

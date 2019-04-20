@@ -14,12 +14,12 @@ package janusgraph
 import (
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/filters"
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/meta"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
 // LocalGetMeta based on GraphQL Query params
-func (j *Janusgraph) LocalGetMeta(params *getmeta.Params) (interface{}, error) {
+func (j *Janusgraph) LocalGetMeta(params *kinds.GetMetaParams) (interface{}, error) {
 	className := j.state.MustGetMappedClassName(params.ClassName)
 	q := gremlin.New().Raw(`g.V()`).
 		HasString("kind", params.Kind.Name()).

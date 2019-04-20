@@ -12,9 +12,10 @@
 package main
 
 import (
+	"os"
+
 	"github.com/creativesoftwarefdn/weaviate/contextionary/generator"
 	flags "github.com/jessevdk/go-flags"
-	"os"
 )
 
 func main() {

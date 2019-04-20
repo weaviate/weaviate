@@ -12,8 +12,9 @@
 package schema
 
 import (
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"testing"
+
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 )
 
 func TestDetectPrimitiveTypes(t *testing.T) {

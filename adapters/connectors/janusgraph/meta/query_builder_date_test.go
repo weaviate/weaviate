@@ -14,17 +14,17 @@ package meta
 import (
 	"testing"
 
-	gm "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
 func Test_QueryBuilder_DateProps(t *testing.T) {
 	tests := testCases{
 		testCase{
 			name: "with only a string, with only topOccurrences.value",
-			inputProps: []gm.MetaProperty{
-				gm.MetaProperty{
+			inputProps: []kinds.MetaProperty{
+				kinds.MetaProperty{
 					Name:                "dateOfFirstApperance",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.TopOccurrencesValue},
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.TopOccurrencesValue},
 				},
 			},
 			expectedQuery: `
@@ -42,10 +42,10 @@ func Test_QueryBuilder_DateProps(t *testing.T) {
 
 		testCase{
 			name: "with only a string, with only both topOccurrences.value and .occurs",
-			inputProps: []gm.MetaProperty{
-				gm.MetaProperty{
+			inputProps: []kinds.MetaProperty{
+				kinds.MetaProperty{
 					Name:                "dateOfFirstApperance",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.TopOccurrencesValue, gm.TopOccurrencesOccurs},
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.TopOccurrencesValue, kinds.TopOccurrencesOccurs},
 				},
 			},
 			expectedQuery: `
@@ -63,10 +63,10 @@ func Test_QueryBuilder_DateProps(t *testing.T) {
 
 		testCase{
 			name: "with only a string, with all possible props",
-			inputProps: []gm.MetaProperty{
-				gm.MetaProperty{
+			inputProps: []kinds.MetaProperty{
+				kinds.MetaProperty{
 					Name:                "dateOfFirstApperance",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.Type, gm.Count, gm.TopOccurrencesValue, gm.TopOccurrencesOccurs},
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Type, kinds.Count, kinds.TopOccurrencesValue, kinds.TopOccurrencesOccurs},
 				},
 			},
 			expectedQuery: `

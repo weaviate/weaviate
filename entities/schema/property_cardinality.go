@@ -13,6 +13,7 @@ package schema
 
 import (
 	"fmt"
+
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 )
 

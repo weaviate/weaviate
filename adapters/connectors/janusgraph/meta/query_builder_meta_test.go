@@ -14,17 +14,17 @@ package meta
 import (
 	"testing"
 
-	gm "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
 func Test_QueryBuilder_MetaProps(t *testing.T) {
 	tests := testCases{
 		testCase{
 			name: "with meta.count",
-			inputProps: []gm.MetaProperty{
-				gm.MetaProperty{
+			inputProps: []kinds.MetaProperty{
+				kinds.MetaProperty{
 					Name:                "meta",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.Count},
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Count},
 				},
 			},
 			expectedQuery: `

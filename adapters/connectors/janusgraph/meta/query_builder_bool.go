@@ -14,11 +14,11 @@ package meta
 import (
 	"fmt"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
-func (b *Query) booleanProp(prop getmeta.MetaProperty) (*gremlin.Query, error) {
+func (b *Query) booleanProp(prop kinds.MetaProperty) (*gremlin.Query, error) {
 	q := gremlin.New()
 
 	// retrieving the total true and total false values is a single operation in
@@ -55,23 +55,23 @@ func (b *Query) booleanProp(prop getmeta.MetaProperty) (*gremlin.Query, error) {
 	return q, nil
 }
 
-func isBooleanTotalsProp(analysis getmeta.StatisticalAnalysis) bool {
+func isBooleanTotalsProp(analysis kinds.StatisticalAnalysis) bool {
 	switch analysis {
-	case getmeta.TotalTrue, getmeta.TotalFalse, getmeta.PercentageTrue, getmeta.PercentageFalse:
+	case kinds.TotalTrue, kinds.TotalFalse, kinds.PercentageTrue, kinds.PercentageFalse:
 		return true
 	default:
 		return false
 	}
 }
 
-func (b *Query) booleanPropAnalysis(prop getmeta.MetaProperty,
-	analysis getmeta.StatisticalAnalysis) (*gremlin.Query, error) {
+func (b *Query) booleanPropAnalysis(prop kinds.MetaProperty,
+	analysis kinds.StatisticalAnalysis) (*gremlin.Query, error) {
 	switch analysis {
-	case getmeta.Count:
+	case kinds.Count:
 		return b.booleanPropCount(prop)
-	case getmeta.TotalTrue, getmeta.TotalFalse, getmeta.PercentageTrue, getmeta.PercentageFalse:
+	case kinds.TotalTrue, kinds.TotalFalse, kinds.PercentageTrue, kinds.PercentageFalse:
 		return b.booleanPropTotals(prop)
-	case getmeta.Type:
+	case kinds.Type:
 		// type is handled by the type inspector, not coming from the db
 		return nil, nil
 	default:
@@ -79,7 +79,7 @@ func (b *Query) booleanPropAnalysis(prop getmeta.MetaProperty,
 	}
 }
 
-func (b *Query) booleanPropCount(prop getmeta.MetaProperty) (*gremlin.Query, error) {
+func (b *Query) booleanPropCount(prop kinds.MetaProperty) (*gremlin.Query, error) {
 	q := gremlin.New()
 
 	q = q.Count().Project("count").Project(string(prop.Name))
@@ -87,7 +87,7 @@ func (b *Query) booleanPropCount(prop getmeta.MetaProperty) (*gremlin.Query, err
 	return q, nil
 }
 
-func (b *Query) booleanPropTotals(prop getmeta.MetaProperty) (*gremlin.Query, error) {
+func (b *Query) booleanPropTotals(prop kinds.MetaProperty) (*gremlin.Query, error) {
 	q := gremlin.New()
 
 	q = q.GroupCount().Unfold().Project(string(prop.Name))

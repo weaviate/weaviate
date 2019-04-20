@@ -13,9 +13,10 @@ package test
 
 import (
 	"encoding/json"
+	"testing"
+
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 func TestLocalGetSimple(t *testing.T) {

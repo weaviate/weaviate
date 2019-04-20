@@ -18,11 +18,11 @@ import (
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/state"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/get"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -208,7 +208,7 @@ func (p *fakeDataType) ContainsClass(needle schema.ClassName) bool {
 
 type testCase struct {
 	name          string
-	inputParams   get.Params
+	inputParams   kinds.LocalGetParams
 	expectedQuery string
 	expectedErr   error
 }

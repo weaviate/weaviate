@@ -17,13 +17,14 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 	"github.com/stretchr/testify/assert"
 )
 
 type testCase struct {
 	name            string
 	query           string
-	expectedProps   []MetaProperty
+	expectedProps   []kinds.MetaProperty
 	resolverReturn  interface{}
 	expectedResults []result
 }
@@ -42,10 +43,10 @@ func Test_Resolve(t *testing.T) {
 		testCase{
 			name:  "single prop: mean",
 			query: "{ GetMeta { Things { Car { horsepower { mean } } } } }",
-			expectedProps: []MetaProperty{
+			expectedProps: []kinds.MetaProperty{
 				{
 					Name:                "horsepower",
-					StatisticalAnalyses: []StatisticalAnalysis{Mean},
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Mean},
 				},
 			},
 			resolverReturn: map[string]interface{}{
@@ -62,10 +63,10 @@ func Test_Resolve(t *testing.T) {
 		testCase{
 			name:  "single prop: type",
 			query: "{ GetMeta { Things { Car { horsepower { type } } } } }",
-			expectedProps: []MetaProperty{
+			expectedProps: []kinds.MetaProperty{
 				{
 					Name:                "horsepower",
-					StatisticalAnalyses: []StatisticalAnalysis{Type},
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Type},
 				},
 			},
 			resolverReturn: map[string]interface{}{
@@ -82,10 +83,11 @@ func Test_Resolve(t *testing.T) {
 		testCase{
 			name:  "two props: maximum, minimum, remaining int props",
 			query: "{ GetMeta { Things { Car { horsepower { maximum, minimum, count, sum } } } } }",
-			expectedProps: []MetaProperty{
+			expectedProps: []kinds.MetaProperty{
 				{
-					Name:                "horsepower",
-					StatisticalAnalyses: []StatisticalAnalysis{Maximum, Minimum, Count, Sum},
+					Name: "horsepower",
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Maximum, kinds.Minimum,
+						kinds.Count, kinds.Sum},
 				},
 			},
 			resolverReturn: map[string]interface{}{
@@ -116,10 +118,11 @@ func Test_Resolve(t *testing.T) {
 			query: `{ GetMeta { Things { Car { stillInProduction {
 					count, totalTrue, totalFalse, percentageTrue, percentageFalse
 				} } } } }`,
-			expectedProps: []MetaProperty{
+			expectedProps: []kinds.MetaProperty{
 				{
-					Name:                "stillInProduction",
-					StatisticalAnalyses: []StatisticalAnalysis{Count, TotalTrue, TotalFalse, PercentageTrue, PercentageFalse},
+					Name: "stillInProduction",
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Count, kinds.TotalTrue,
+						kinds.TotalFalse, kinds.PercentageTrue, kinds.PercentageFalse},
 				},
 			},
 			resolverReturn: map[string]interface{}{
@@ -152,10 +155,11 @@ func Test_Resolve(t *testing.T) {
 		testCase{
 			name:  "single prop: string",
 			query: "{ GetMeta { Things { Car { modelName { topOccurrences { value, occurs } } } } } }",
-			expectedProps: []MetaProperty{
+			expectedProps: []kinds.MetaProperty{
 				{
-					Name:                "modelName",
-					StatisticalAnalyses: []StatisticalAnalysis{TopOccurrencesValue, TopOccurrencesOccurs},
+					Name: "modelName",
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.TopOccurrencesValue,
+						kinds.TopOccurrencesOccurs},
 				},
 			},
 			resolverReturn: map[string]interface{}{
@@ -178,10 +182,11 @@ func Test_Resolve(t *testing.T) {
 		testCase{
 			name:  "single prop: date",
 			query: "{ GetMeta { Things { Car { startOfProduction { topOccurrences { value, occurs } } } } } }",
-			expectedProps: []MetaProperty{
+			expectedProps: []kinds.MetaProperty{
 				{
-					Name:                "startOfProduction",
-					StatisticalAnalyses: []StatisticalAnalysis{TopOccurrencesValue, TopOccurrencesOccurs},
+					Name: "startOfProduction",
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.TopOccurrencesValue,
+						kinds.TopOccurrencesOccurs},
 				},
 			},
 			resolverReturn: map[string]interface{}{
@@ -204,10 +209,10 @@ func Test_Resolve(t *testing.T) {
 		testCase{
 			name:  "single prop: refprop",
 			query: "{ GetMeta { Things { Car { MadeBy { pointingTo } } } } }",
-			expectedProps: []MetaProperty{
+			expectedProps: []kinds.MetaProperty{
 				{
 					Name:                "MadeBy",
-					StatisticalAnalyses: []StatisticalAnalysis{PointingTo},
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.PointingTo},
 				},
 			},
 			resolverReturn: map[string]interface{}{
@@ -226,10 +231,10 @@ func Test_Resolve(t *testing.T) {
 		testCase{
 			name:  "single prop: meta",
 			query: "{ GetMeta { Things { Car { meta { count } } } } }",
-			expectedProps: []MetaProperty{
+			expectedProps: []kinds.MetaProperty{
 				{
 					Name:                "meta",
-					StatisticalAnalyses: []StatisticalAnalysis{Count},
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Count},
 				},
 			},
 			resolverReturn: map[string]interface{}{
@@ -265,7 +270,7 @@ func (tests testCases) AssertExtraction(t *testing.T, k kind.Kind, className str
 		t.Run(testCase.name, func(t *testing.T) {
 			resolver := newMockResolver(config.Config{})
 
-			expectedParams := &Params{
+			expectedParams := &kinds.GetMetaParams{
 				Kind:       k,
 				ClassName:  schema.ClassName(className),
 				Properties: testCase.expectedProps,

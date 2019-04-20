@@ -14,17 +14,17 @@ package meta
 import (
 	"testing"
 
-	gm "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
 func Test_QueryBuilder_RefProps(t *testing.T) {
 	tests := testCases{
 		testCase{
 			name: "with ref prop and only count",
-			inputProps: []gm.MetaProperty{
-				gm.MetaProperty{
+			inputProps: []kinds.MetaProperty{
+				kinds.MetaProperty{
 					Name:                "InCountry",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.Count},
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Count},
 				},
 			},
 			expectedQuery: `
@@ -41,10 +41,10 @@ func Test_QueryBuilder_RefProps(t *testing.T) {
 
 		testCase{
 			name: "with ref prop and: pointingTo, count",
-			inputProps: []gm.MetaProperty{
-				gm.MetaProperty{
+			inputProps: []kinds.MetaProperty{
+				kinds.MetaProperty{
 					Name:                "InCountry",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.PointingTo, gm.Count},
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.PointingTo, kinds.Count},
 				},
 			},
 			expectedQuery: `
@@ -61,10 +61,10 @@ func Test_QueryBuilder_RefProps(t *testing.T) {
 
 		testCase{
 			name: "with only pointingTo",
-			inputProps: []gm.MetaProperty{
-				gm.MetaProperty{
+			inputProps: []kinds.MetaProperty{
+				kinds.MetaProperty{
 					Name:                "InCountry",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.PointingTo},
+					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.PointingTo},
 				},
 			},
 			expectedQuery: `

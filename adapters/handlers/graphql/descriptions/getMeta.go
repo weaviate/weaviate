@@ -13,8 +13,6 @@
 // Package descriptions provides the descriptions as used by the graphql endpoint for Weaviate
 package descriptions
 
-import ()
-
 // Local
 const LocalGetMetaActions string = "Get Meta information about Actions on a local Weaviate"
 const LocalGetMetaThings string = "Get Meta information about Things on a local Weaviate"

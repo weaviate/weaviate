@@ -43,7 +43,6 @@ import (
 	dbconnector "github.com/creativesoftwarefdn/weaviate/adapters/connectors"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/aggregate"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/fetch"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
@@ -424,7 +423,7 @@ func (f *Foobar) LocalGetClass(info *kinds.LocalGetParams) (interface{}, error) 
 //			"count": 4,
 //		},
 //	}
-func (f *Foobar) LocalGetMeta(info *getmeta.Params) (interface{}, error) {
+func (f *Foobar) LocalGetMeta(info *kinds.GetMetaParams) (interface{}, error) {
 	return nil, nil
 }
 

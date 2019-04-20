@@ -19,12 +19,12 @@ package database
 // 	// dbcr.connectorLock.Unlock()
 // }
 
-// func (dbcr *dbClosingResolver) LocalGetClass(info *get.Params) (interface{}, error) {
+// func (dbcr *dbClosingResolver) LocalGetClass(info *kinds.LocalGetParams) (interface{}, error) {
 // 	connector := dbcr.connectorLock.Connector()
 // 	return connector.LocalGetClass(info)
 // }
 
-// func (dbcr *dbClosingResolver) LocalGetMeta(info *getmeta.Params) (interface{}, error) {
+// func (dbcr *dbClosingResolver) LocalGetMeta(info *kinds.GetMetaParams) (interface{}, error) {
 // 	connector := dbcr.connectorLock.Connector()
 // 	return connector.LocalGetMeta(info)
 // }
