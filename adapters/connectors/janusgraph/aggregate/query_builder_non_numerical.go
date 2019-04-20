@@ -14,11 +14,11 @@ package aggregate
 import (
 	"fmt"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/aggregate"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
-func (b *Query) nonNumericalProp(prop aggregate.Property) (*propertyAggregation, error) {
+func (b *Query) nonNumericalProp(prop kinds.AggregateProperty) (*propertyAggregation, error) {
 	aggregators := []*aggregation{}
 	for _, aggregator := range prop.Aggregators {
 
@@ -37,9 +37,9 @@ func (b *Query) nonNumericalProp(prop aggregate.Property) (*propertyAggregation,
 	return b.mergeAggregators(aggregators, prop)
 }
 
-func (b *Query) nonNumericalPropAggregators(aggregator aggregate.Aggregator) (*aggregation, error) {
+func (b *Query) nonNumericalPropAggregators(aggregator kinds.Aggregator) (*aggregation, error) {
 	switch aggregator {
-	case aggregate.Count:
+	case kinds.CountAggregator:
 		return &aggregation{label: string(aggregator), aggregation: gremlin.New().Count()}, nil
 	default:
 		return nil, fmt.Errorf("analysis '%s' not supported for non-numerical prop", aggregator)

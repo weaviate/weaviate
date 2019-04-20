@@ -14,9 +14,9 @@ package aggregate
 import (
 	"testing"
 
-	ag "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/aggregate"
 	cf "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
 // These tests only assert that multiple props work together correctly. See the
@@ -26,14 +26,14 @@ func Test_QueryBuilder_MultipleProps(t *testing.T) {
 	tests := testCases{
 		testCase{
 			name: "counting a stirng prop, grouped by a primitive prop",
-			inputProps: []ag.Property{
-				ag.Property{
+			inputProps: []kinds.AggregateProperty{
+				kinds.AggregateProperty{
 					Name:        "name",
-					Aggregators: []ag.Aggregator{ag.Count},
+					Aggregators: []kinds.Aggregator{kinds.CountAggregator},
 				},
-				ag.Property{
+				kinds.AggregateProperty{
 					Name:        "population",
-					Aggregators: []ag.Aggregator{ag.Count},
+					Aggregators: []kinds.Aggregator{kinds.CountAggregator},
 				},
 			},
 			inputGroupBy: &cf.Path{

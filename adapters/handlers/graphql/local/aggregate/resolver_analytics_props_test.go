@@ -17,6 +17,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
 func Test_ExtractAnalyticsPropsFromAggregate(t *testing.T) {
@@ -39,13 +40,13 @@ func Test_ExtractAnalyticsPropsFromAggregate(t *testing.T) {
 		},
 	}
 
-	expectedParams := &Params{
+	expectedParams := &kinds.AggregateParams{
 		Kind:      kind.Thing,
 		ClassName: schema.ClassName("Car"),
-		Properties: []Property{
+		Properties: []kinds.AggregateProperty{
 			{
 				Name:        "horsepower",
-				Aggregators: []Aggregator{Mean},
+				Aggregators: []kinds.Aggregator{kinds.MeanAggregator},
 			},
 		},
 		GroupBy:   groupCarByMadeByManufacturerName(),

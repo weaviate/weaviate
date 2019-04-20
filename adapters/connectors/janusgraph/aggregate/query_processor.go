@@ -19,9 +19,9 @@ import (
 
 	analytics "github.com/SeMI-network/janus-spark-analytics/clients/go"
 	"github.com/coreos/etcd/clientv3"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/aggregate"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
 // AnalyticsAPICachePrefix is prepended to the ids to form the keys in the
@@ -58,7 +58,7 @@ func NewProcessor(executor executor, cache etcdClient, analytics analyticsClient
 // the structure we get from janusgraph into the structure we need for the
 // graphQL API
 func (p *Processor) Process(query *gremlin.Query, groupBy *common_filters.Path,
-	params *aggregate.Params) (interface{}, error) {
+	params *kinds.AggregateParams) (interface{}, error) {
 
 	result, err := p.getResult(query, params)
 	if err != nil {
@@ -74,7 +74,7 @@ func (p *Processor) Process(query *gremlin.Query, groupBy *common_filters.Path,
 	return sliced, nil
 }
 
-func (p *Processor) getResult(query *gremlin.Query, params *aggregate.Params) ([]interface{}, error) {
+func (p *Processor) getResult(query *gremlin.Query, params *kinds.AggregateParams) ([]interface{}, error) {
 	if params.Analytics.UseAnaltyicsEngine == false {
 		result, err := p.executor.Execute(query)
 		if err != nil {

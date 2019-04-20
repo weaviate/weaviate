@@ -29,7 +29,7 @@ package database
 // 	return connector.LocalGetMeta(info)
 // }
 
-// func (dbcr *dbClosingResolver) LocalAggregate(info *aggregate.Params) (interface{}, error) {
+// func (dbcr *dbClosingResolver) LocalAggregate(info *kinds.AggregateParams) (interface{}, error) {
 // 	connector := dbcr.connectorLock.Connector()
 // 	return connector.LocalAggregate(info)
 // }
