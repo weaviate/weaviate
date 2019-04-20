@@ -23,8 +23,10 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/operations"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/state"
 	"github.com/creativesoftwarefdn/weaviate/adapters/locks"
+	"github.com/creativesoftwarefdn/weaviate/adapters/repos/etcd"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"
+	"github.com/creativesoftwarefdn/weaviate/usecases/connstate"
 	dblisting "github.com/creativesoftwarefdn/weaviate/usecases/connswitch"
 	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
@@ -44,7 +46,7 @@ func makeConfigureServer(appState *state.State) func(*http.Server, string, strin
 }
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
-	appState := startupRoutine()
+	appState, etcdClient := startupRoutine()
 
 	api.ServeError = errors.ServeError
 
@@ -58,14 +60,32 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Logger.WithField("action", "restapi_management").Infof(msg, args...)
 	}
 
-	schemaManager := schemaUC.NewManager(appState.Connector, nil,
+	schemaRepo := etcd.NewSchemaRepo(etcdClient)
+	connstateRepo := etcd.NewConnStateRepo(etcdClient)
+
+	schemaManager, err := schemaUC.NewManager(appState.Connector, schemaRepo,
 		appState.Locks, appState.Network, appState.Logger)
+	if err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("could not initialize schema manager")
+		os.Exit(1)
+	}
 	kindsManager := kinds.NewManager(appState.Connector, appState.Locks,
 		schemaManager, appState.Network, appState.ServerConfig)
 	batchKindsManager := kinds.NewBatchManager(appState.Connector, appState.Locks,
 		schemaManager, appState.Network, appState.ServerConfig)
 	kindsTraverser := kinds.NewTraverser(appState.Locks, appState.Connector,
 		appState)
+	connstateManager, err := connstate.NewManager(connstateRepo, appState.Logger)
+	if err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("could not initialize connector state manager")
+		os.Exit(1)
+	}
+
+	appState.Connector.SetStateManager(connstateManager)
 
 	updateSchemaCallback := makeUpdateSchemaCall(appState.Logger, appState, kindsTraverser)
 	schemaManager.RegisterSchemaUpdateCallback(updateSchemaCallback)
@@ -90,7 +110,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 }
 
 // TODO: Split up and don't write into global variables. Instead return an appState
-func startupRoutine() *state.State {
+func startupRoutine() (*state.State, *clientv3.Client) {
 	appState := &state.State{}
 	// context for the startup procedure. (So far the only subcommand respecting
 	// the context is the schema initialization, as this uses the etcd client
@@ -142,6 +162,7 @@ func startupRoutine() *state.State {
 		logger.WithField("action", "startup").WithError(err).Error("could not load config")
 		logger.Exit(1)
 	}
+	dbConnector.SetStateManager(nil)
 	appState.Connector = dbConnector
 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
@@ -189,7 +210,7 @@ func startupRoutine() *state.State {
 	appState.Contextionary = rawContextionary
 	appState.RawContextionary = rawContextionary
 
-	return appState
+	return appState, etcdClient
 }
 
 func configureTelemetry(appState *state.State, etcdClient *clientv3.Client,

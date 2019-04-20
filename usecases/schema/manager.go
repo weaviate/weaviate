@@ -68,7 +68,7 @@ type contextionary interface {
 
 // NewManager creates a new manager
 func NewManager(migrator migrator, repo Repo, locks locks.ConnectorSchemaLock,
-	network network.Network, logger logrus.FieldLogger) *Manager {
+	network network.Network, logger logrus.FieldLogger) (*Manager, error) {
 	m := &Manager{
 		migrator: migrator,
 		repo:     repo,
@@ -78,8 +78,12 @@ func NewManager(migrator migrator, repo Repo, locks locks.ConnectorSchemaLock,
 		logger:   logger,
 	}
 
-	m.loadOrInitializeSchema(context.Background())
-	return m
+	err := m.loadOrInitializeSchema(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("could not laod or initialize schema: %v", err)
+	}
+
+	return m, nil
 }
 
 type unlocker interface {
