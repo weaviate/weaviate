@@ -19,7 +19,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/client/schema"
 	"github.com/creativesoftwarefdn/weaviate/client/things"
-	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	gql "github.com/creativesoftwarefdn/weaviate/test/acceptance/graphql_resolvers"
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
 )

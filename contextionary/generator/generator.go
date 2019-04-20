@@ -17,12 +17,13 @@ import (
 	"encoding/binary"
 	"encoding/gob"
 	"encoding/json"
-	annoy "github.com/creativesoftwarefdn/weaviate/contextionary/annoyindex"
-	"github.com/syndtr/goleveldb/leveldb"
 	"log"
 	"os"
 	"strconv"
 	"strings"
+
+	annoy "github.com/creativesoftwarefdn/weaviate/contextionary/annoyindex"
+	"github.com/syndtr/goleveldb/leveldb"
 )
 
 type Options struct {
