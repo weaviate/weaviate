@@ -15,9 +15,9 @@ import (
 	"os"
 
 	"github.com/creativesoftwarefdn/weaviate/contextionary"
-	"github.com/creativesoftwarefdn/weaviate/database/schema"
-	schemaContextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
-	"github.com/creativesoftwarefdn/weaviate/models"
+	schemaContextionary "github.com/creativesoftwarefdn/weaviate/contextionary/schema"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 )
 
 func fatal(err error) {

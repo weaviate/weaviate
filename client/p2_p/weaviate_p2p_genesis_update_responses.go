@@ -23,7 +23,7 @@ import (
 
 	strfmt "github.com/go-openapi/strfmt"
 
-	models "github.com/creativesoftwarefdn/weaviate/models"
+	models "github.com/creativesoftwarefdn/weaviate/entities/models"
 )
 
 // WeaviateP2pGenesisUpdateReader is a Reader for the WeaviateP2pGenesisUpdate structure.

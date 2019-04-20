@@ -13,9 +13,10 @@ package http_client
 
 import (
 	"fmt"
+	"net/http"
+
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/sirupsen/logrus"
-	"net/http"
 
 	"io/ioutil"
 )
