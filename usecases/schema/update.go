@@ -14,6 +14,7 @@ import (
 	"context"
 
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 )
 
@@ -30,19 +31,18 @@ func (m *Manager) UpdateThing(ctx context.Context, name string,
 }
 
 // TODO: gh-832: Implement full capabilities, not just keywords/naming
-func (m *Manager) updateClass(ctx context.Context, name string,
+func (m *Manager) updateClass(ctx context.Context, className string,
 	class *models.SemanticSchemaClass, k kind.Kind) error {
-	schemaLock, err := m.db.SchemaLock()
+	unlock, err := m.locks.LockSchema()
 	if err != nil {
 		return err
 	}
-	defer unlock(schemaLock)
+	defer unlock()
 
-	schemaManager := schemaLock.SchemaManager()
 	var newName *string
 	var newKeywords *models.SemanticSchemaKeywords
 
-	if class.Class != name {
+	if class.Class != className {
 		// the name in the URI and body don't match, so we assume the user wants to rename
 		newName = &class.Class
 	}
@@ -52,10 +52,43 @@ func (m *Manager) updateClass(ctx context.Context, name string,
 		newKeywords = &class.Keywords
 	}
 
-	err = schemaManager.UpdateClass(ctx, k, name, newName, newKeywords)
+	semanticSchema := m.state.SchemaFor(k)
+
+	class, err = schema.GetClassByName(semanticSchema, className)
 	if err != nil {
 		return err
 	}
 
-	return nil
+	classNameAfterUpdate := className
+	keywordsAfterUpdate := class.Keywords
+
+	// First validate the request
+	if newName != nil {
+		err = m.validateClassNameUniqueness(*newName)
+		classNameAfterUpdate = *newName
+		if err != nil {
+			return err
+		}
+	}
+
+	if newKeywords != nil {
+		keywordsAfterUpdate = *newKeywords
+	}
+
+	// Validate name / keywords in contextionary
+	if err = m.validateClassNameOrKeywordsCorrect(k, classNameAfterUpdate, keywordsAfterUpdate); err != nil {
+		return err
+	}
+
+	// Validated! Now apply the changes.
+	class.Class = classNameAfterUpdate
+	class.Keywords = keywordsAfterUpdate
+
+	err = m.saveSchema(ctx)
+
+	if err != nil {
+		return nil
+	}
+
+	return m.migrator.UpdateClass(ctx, k, className, newName, newKeywords)
 }

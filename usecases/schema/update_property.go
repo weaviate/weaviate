@@ -14,6 +14,7 @@ import (
 	"context"
 
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 )
 
@@ -30,15 +31,14 @@ func (m *Manager) UpdateThingProperty(ctx context.Context, class string, name st
 }
 
 // TODO: gh-832: Implement full capabilities, not just keywords/naming
-func (m *Manager) updateClassProperty(ctx context.Context, class string, name string,
+func (m *Manager) updateClassProperty(ctx context.Context, className string, name string,
 	property *models.SemanticSchemaClassProperty, k kind.Kind) error {
-	schemaLock, err := m.db.SchemaLock()
+	unlock, err := m.locks.LockSchema()
 	if err != nil {
 		return err
 	}
-	defer unlock(schemaLock)
+	defer unlock()
 
-	schemaManager := schemaLock.SchemaManager()
 	var newName *string
 	var newKeywords *models.SemanticSchemaKeywords
 
@@ -51,10 +51,80 @@ func (m *Manager) updateClassProperty(ctx context.Context, class string, name st
 	if len(property.Keywords) > 0 {
 		newKeywords = &property.Keywords
 	}
-	err = schemaManager.UpdateProperty(ctx, k, class, name, newName, newKeywords)
+
+	semanticSchema := m.state.SchemaFor(k)
+	class, err := schema.GetClassByName(semanticSchema, className)
 	if err != nil {
 		return err
 	}
 
-	return nil
+	prop, err := schema.GetPropertyByName(class, name)
+	if err != nil {
+		return err
+	}
+
+	propNameAfterUpdate := name
+	keywordsAfterUpdate := prop.Keywords
+	if newName != nil {
+		// verify uniqueness
+		err = validatePropertyNameUniqueness(*newName, class)
+		propNameAfterUpdate = *newName
+		if err != nil {
+			return err
+		}
+	}
+
+	if newKeywords != nil {
+		keywordsAfterUpdate = *newKeywords
+	}
+
+	// Validate name / keywords in contextionary
+	m.validatePropertyNameOrKeywordsCorrect(className, propNameAfterUpdate, keywordsAfterUpdate)
+
+	// Validated! Now apply the changes.
+	prop.Name = propNameAfterUpdate
+	prop.Keywords = keywordsAfterUpdate
+
+	err = m.saveSchema(ctx)
+	if err != nil {
+		return nil
+	}
+
+	return m.migrator.UpdateProperty(ctx, k, className, name, newName, newKeywords)
+}
+
+// UpdatePropertyAddDataType adds another data type to a property. Warning: It does not lock on its own, assumes that it is called from when a schema lock is already held!
+func (m *Manager) UpdatePropertyAddDataType(ctx context.Context, kind kind.Kind, className string, propName string, newDataType string) error {
+	semanticSchema := m.state.SchemaFor(kind)
+	class, err := schema.GetClassByName(semanticSchema, className)
+	if err != nil {
+		return err
+	}
+
+	prop, err := schema.GetPropertyByName(class, propName)
+	if err != nil {
+		return err
+	}
+
+	if dataTypeAlreadyContained(prop.DataType, newDataType) {
+		return nil
+	}
+
+	prop.DataType = append(prop.DataType, newDataType)
+	// err = l.saveSchema(ctx)
+
+	if err != nil {
+		return nil
+	}
+
+	return m.migrator.UpdatePropertyAddDataType(ctx, kind, className, propName, newDataType)
+}
+
+func dataTypeAlreadyContained(haystack []string, needle string) bool {
+	for _, hay := range haystack {
+		if hay == needle {
+			return true
+		}
+	}
+	return false
 }

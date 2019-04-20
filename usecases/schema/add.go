@@ -12,6 +12,7 @@
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
@@ -28,17 +29,62 @@ func (m *Manager) AddThing(ctx context.Context, class *models.SemanticSchemaClas
 }
 
 func (m *Manager) addClass(ctx context.Context, class *models.SemanticSchemaClass, k kind.Kind) error {
-	schemaLock, err := m.db.SchemaLock()
+	unlock, err := m.locks.LockSchema()
 	if err != nil {
 		return err
 	}
-	defer unlock(schemaLock)
+	defer unlock()
 
-	schemaManager := schemaLock.SchemaManager()
-	err = schemaManager.AddClass(ctx, k, class)
+	err = m.validateCanAddClass(k, class)
 	if err != nil {
 		return err
 	}
 
+	semanticSchema := m.state.SchemaFor(k)
+	semanticSchema.Classes = append(semanticSchema.Classes, class)
+	err = m.saveSchema(ctx)
+	if err != nil {
+		return err
+	}
+
+	return m.migrator.AddClass(ctx, k, class)
+	// TODO gh-846: Rollback state upate if migration fails
+}
+
+func (m *Manager) validateCanAddClass(knd kind.Kind, class *models.SemanticSchemaClass) error {
+	// First check if there is a name clash.
+	err := m.validateClassNameUniqueness(class.Class)
+	if err != nil {
+		return err
+	}
+
+	err = m.validateClassNameOrKeywordsCorrect(knd, class.Class, class.Keywords)
+	if err != nil {
+		return err
+	}
+
+	// Check properties
+	foundNames := map[string]bool{}
+	for _, property := range class.Properties {
+		err = m.validatePropertyNameOrKeywordsCorrect(class.Class, property.Name, property.Keywords)
+		if err != nil {
+			return err
+		}
+
+		if foundNames[property.Name] == true {
+			return fmt.Errorf("Name '%s' already in use as a property name for class '%s'", property.Name, class.Class)
+		}
+
+		foundNames[property.Name] = true
+
+		// Validate data type of property.
+		schema := m.GetSchema()
+		_, err := (&schema).FindPropertyDataType(property.DataType)
+		if err != nil {
+			return fmt.Errorf("Data type fo property '%s' is invalid; %v", property.Name, err)
+		}
+	}
+
+	// all is fine!
 	return nil
 }

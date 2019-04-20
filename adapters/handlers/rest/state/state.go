@@ -30,7 +30,6 @@ import (
 // NOTE: This is not true yet, se gh-723
 // TODO: remove dependencies to anything that's not an ent or uc
 type State struct {
-	Database         database.Database
 	Network          network.Network
 	OIDC             *oidc.Client
 	AnonymousAccess  *anonymous.Client

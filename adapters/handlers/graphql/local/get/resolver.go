@@ -12,77 +12,15 @@
 
 package get
 
-import (
-	"fmt"
-	"regexp"
+import "github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/common"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
-)
-
+// Resolver is a local abstraction of the required UC resolvers
 type Resolver interface {
-	LocalGetClass(info *Params) (interface{}, error)
+	LocalGetClass(info *kinds.LocalGetParams) (interface{}, error)
 }
 
-// // RequestsLog is a local abstraction on the RequestsLog that needs to be
-// // provided to the graphQL API in order to log Local.Get queries.
+// RequestsLog is a local abstraction on the RequestsLog that needs to be
+// provided to the graphQL API in order to log Local.Get queries.
 type RequestsLog interface {
 	Register(requestType string, identifier string)
-}
-
-type Params struct {
-	Kind       kind.Kind
-	Filters    *common_filters.LocalFilter
-	ClassName  string
-	Pagination *common.Pagination
-	Properties []SelectProperty
-}
-
-type SelectProperty struct {
-	Name string
-
-	IsPrimitive bool
-
-	// Include the __typename in all the Refs below.
-	IncludeTypeName bool
-
-	// Not a primitive type? Then select these properties.
-	Refs []SelectClass
-}
-
-type SelectClass struct {
-	ClassName     string
-	RefProperties []SelectProperty
-}
-
-// Internal struct to bubble data through the resolvers.
-type filtersAndResolver struct {
-	filters  *common_filters.LocalFilter
-	resolver Resolver
-}
-
-// FindSelectClass by specifying the exact class name
-func (sp SelectProperty) FindSelectClass(className schema.ClassName) *SelectClass {
-	for _, selectClass := range sp.Refs {
-		if selectClass.ClassName == string(className) {
-			return &selectClass
-		}
-	}
-
-	return nil
-}
-
-// HasPeer returns true if any of the referenced classes are from the specified
-// peer
-func (sp SelectProperty) HasPeer(peerName string) bool {
-	r := regexp.MustCompile(fmt.Sprintf("^%s__", peerName))
-	for _, selectClass := range sp.Refs {
-		if r.MatchString(selectClass.ClassName) {
-			return true
-		}
-	}
-
-	return false
 }

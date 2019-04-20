@@ -12,6 +12,7 @@
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 )
@@ -26,18 +27,35 @@ func (m *Manager) DeleteThing(ctx context.Context, class string) error {
 	return m.deleteClass(ctx, class, kind.Thing)
 }
 
-func (m *Manager) deleteClass(ctx context.Context, class string, k kind.Kind) error {
-	schemaLock, err := m.db.SchemaLock()
+func (m *Manager) deleteClass(ctx context.Context, className string, k kind.Kind) error {
+	unlock, err := m.locks.LockSchema()
 	if err != nil {
 		return err
 	}
-	defer unlock(schemaLock)
+	defer unlock()
 
-	schemaManager := schemaLock.SchemaManager()
-	err = schemaManager.DropClass(ctx, k, class)
+	semanticSchema := m.state.SchemaFor(k)
+	var classIdx = -1
+	for idx, class := range semanticSchema.Classes {
+		if class.Class == className {
+			classIdx = idx
+			break
+		}
+	}
+
+	if classIdx == -1 {
+		return fmt.Errorf("could not find class '%s'", className)
+	}
+
+	semanticSchema.Classes[classIdx] = semanticSchema.Classes[len(semanticSchema.Classes)-1]
+	semanticSchema.Classes[len(semanticSchema.Classes)-1] = nil // to prevent leaking this pointer.
+	semanticSchema.Classes = semanticSchema.Classes[:len(semanticSchema.Classes)-1]
+
+	err = m.saveSchema(ctx)
 	if err != nil {
 		return err
 	}
 
-	return nil
+	return m.migrator.DropClass(ctx, k, className)
+	//TODO gh-846: rollback state update if migration fails
 }

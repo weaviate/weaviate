@@ -106,12 +106,7 @@ func (s *schemaHandlers) updateAction(params schema.WeaviateSchemaActionsUpdateP
 }
 
 func (s *schemaHandlers) getSchema(params schema.WeaviateSchemaDumpParams, principal *models.Principal) middleware.Responder {
-	dbSchema, err := s.manager.GetSchema()
-	if err != nil {
-		return schema.NewWeaviateSchemaDumpInternalServerError().
-			WithPayload(errPayloadFromSingleErr(err))
-	}
-
+	dbSchema := s.manager.GetSchema()
 	payload := &schema.WeaviateSchemaDumpOKBody{
 		Actions: dbSchema.Actions,
 		Things:  dbSchema.Things,

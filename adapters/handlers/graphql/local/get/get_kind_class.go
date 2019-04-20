@@ -24,6 +24,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
 	"github.com/creativesoftwarefdn/weaviate/usecases/telemetry"
 
@@ -234,7 +235,7 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 			return nil, fmt.Errorf("could not extract filters: %s", err)
 		}
 
-		params := Params{
+		params := kinds.LocalGetParams{
 			Filters:    filters,
 			Kind:       k,
 			ClassName:  className,
@@ -277,13 +278,13 @@ func isPrimitive(selectionSet *ast.SelectionSet) bool {
 	return false
 }
 
-func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.Definition) ([]SelectProperty, error) {
-	var properties []SelectProperty
+func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.Definition) ([]kinds.SelectProperty, error) {
+	var properties []kinds.SelectProperty
 
 	for _, selection := range selections.Selections {
 		field := selection.(*ast.Field)
 		name := field.Name.Value
-		property := SelectProperty{Name: name}
+		property := kinds.SelectProperty{Name: name}
 
 		property.IsPrimitive = isPrimitive(field.SelectionSet)
 		if !property.IsPrimitive {
@@ -328,10 +329,10 @@ func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.De
 	return properties, nil
 }
 
-func extractInlineFragment(fragment *ast.InlineFragment, fragments map[string]ast.Definition) (SelectClass, error) {
+func extractInlineFragment(fragment *ast.InlineFragment, fragments map[string]ast.Definition) (kinds.SelectClass, error) {
 	var className schema.ClassName
 	var err error
-	var result SelectClass
+	var result kinds.SelectClass
 
 	if strings.Contains(fragment.TypeCondition.Name.Value, "__") {
 		// is a helper type for a network ref
@@ -354,8 +355,8 @@ func extractInlineFragment(fragment *ast.InlineFragment, fragments map[string]as
 	return result, nil
 }
 
-func extractFragmentSpread(spread *ast.FragmentSpread, fragments map[string]ast.Definition) (SelectClass, error) {
-	var result SelectClass
+func extractFragmentSpread(spread *ast.FragmentSpread, fragments map[string]ast.Definition) (kinds.SelectClass, error) {
+	var result kinds.SelectClass
 	name := spread.Name.Value
 
 	def, ok := fragments[name]
