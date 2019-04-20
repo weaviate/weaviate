@@ -20,19 +20,16 @@ import (
 	"time"
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/fetch"
-	graphqlnetwork "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/state"
 	"github.com/creativesoftwarefdn/weaviate/contextionary"
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
 	databaseSchema "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
-	schemaContextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/creativesoftwarefdn/weaviate/usecases/auth/authentication/oidc"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 	"github.com/creativesoftwarefdn/weaviate/usecases/network"
-	libnetwork "github.com/creativesoftwarefdn/weaviate/usecases/network"
 	libnetworkFake "github.com/creativesoftwarefdn/weaviate/usecases/network/fake"
 	libnetworkP2P "github.com/creativesoftwarefdn/weaviate/usecases/network/p2p"
 	"github.com/creativesoftwarefdn/weaviate/usecases/telemetry"
@@ -49,7 +46,7 @@ import (
 // are only available within there
 var configureServer func(*http.Server, string, string)
 
-func makeUpdateSchemaCall(logger logrus.FieldLogger, appState *state.State) func(schema.Schema) {
+func makeUpdateSchemaCall(logger logrus.FieldLogger, appState *state.State, traverser *kinds.Traverser) func(schema.Schema) {
 	return func(updatedSchema schema.Schema) {
 		// Note that this is thread safe; we're running in a single go-routine, because the event
 		// handlers are called when the SchemaLock is still held.
@@ -65,8 +62,7 @@ func makeUpdateSchemaCall(logger logrus.FieldLogger, appState *state.State) func
 			logger,
 			appState.Network,
 			appState.ServerConfig.Config,
-			appState.Contextionary,
-			appState.Database,
+			traverser,
 			appState.TelemetryLogger,
 		)
 		if err != nil {
@@ -99,48 +95,20 @@ func rebuildContextionary(updatedSchema schema.Schema, logger logrus.FieldLogger
 }
 
 func rebuildGraphQL(updatedSchema schema.Schema, logger logrus.FieldLogger,
-	network network.Network, config config.Config, contextionary contextionary.Contextionary,
+	network network.Network, config config.Config, traverser *kinds.Traverser,
 	telemetryLogger *telemetry.RequestsLog) (graphql.GraphQL, error) {
 	peers, err := network.ListPeers()
 	if err != nil {
 		return nil, fmt.Errorf("could not list network peers to regenerate schema: %v", err)
 	}
 
-	c11y := schemaContextionary.New(contextionary)
-	root := graphQLRoot{Database: db, Network: network, contextionary: c11y, log: telemetryLogger}
-	updatedGraphQL, err := graphql.Build(&updatedSchema, peers, root, logger, config)
+	updatedGraphQL, err := graphql.Build(&updatedSchema, peers, traverser, network, telemetryLogger, logger, config)
 	if err != nil {
 		return nil, fmt.Errorf("Could not re-generate GraphQL schema, because: %v", err)
 	}
 
 	logger.WithField("action", "graphql_rebuild").Debug("successfully rebuild graphql schema")
 	return updatedGraphQL, nil
-}
-
-type schemaGetter struct {
-	schemaManager schemaManager
-}
-
-func (s *schemaGetter) Schema() (schema.Schema, error) {
-	s.schemaManager.GetSchema()
-}
-
-type graphQLRoot struct {
-	libnetwork.Network
-	contextionary *schemaContextionary.Contextionary
-	log           *telemetry.RequestsLog
-}
-
-func (r graphQLRoot) GetNetworkResolver() graphqlnetwork.Resolver {
-	return r.Network
-}
-
-func (r graphQLRoot) GetContextionary() fetch.Contextionary {
-	return r.contextionary
-}
-
-func (r graphQLRoot) GetRequestsLog() fetch.RequestsLog {
-	return r.log
 }
 
 // configureOIDC will always be called, even if OIDC is disabled, this way the

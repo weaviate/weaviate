@@ -122,7 +122,7 @@ func (m *Manager) saveSchema(ctx context.Context) error {
 
 	m.repo.SaveSchema(ctx, m.state)
 
-	m.triggerSchemaUpdateCallbacks()
+	m.TriggerSchemaUpdateCallbacks()
 	return nil
 }
 
@@ -133,7 +133,7 @@ func (m *Manager) RegisterSchemaUpdateCallback(callback func(updatedSchema schem
 	m.callbacks = append(m.callbacks, callback)
 }
 
-func (m *Manager) triggerSchemaUpdateCallbacks() {
+func (m *Manager) TriggerSchemaUpdateCallbacks() {
 	schema := m.GetSchema()
 
 	for _, cb := range m.callbacks {

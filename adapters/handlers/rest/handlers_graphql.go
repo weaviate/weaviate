@@ -67,7 +67,8 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 			return graphql.NewWeaviateGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
 		}
 
-		result := graphQL.Resolve(query, operationName, variables, nil)
+		result := graphQL.Resolve(params.HTTPRequest.Context(), query,
+			operationName, variables)
 
 		// Marshal the JSON
 		resultJSON, jsonErr := json.Marshal(result)
@@ -166,7 +167,7 @@ func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, grap
 		if graphQL == nil {
 			panic("graphql is nil!")
 		}
-		result := graphQL.Resolve(query, operationName, variables, ctx)
+		result := graphQL.Resolve(ctx, query, operationName, variables)
 
 		// Marshal the JSON
 		resultJSON, jsonErr := json.Marshal(result)

@@ -6,9 +6,18 @@ import (
 
 // Traverser can be used to dynamically traverse the knowledge graph
 type Traverser struct {
-	locks         locks
-	repo          TraverserRepo
-	contextionary c11y
+	locks                 locks
+	repo                  TraverserRepo
+	contextionaryProvider c11yProvider
+}
+
+// NewTraverser to traverse the knowledge graph
+func NewTraverser(locks locks, repo TraverserRepo, c11y c11yProvider) *Traverser {
+	return &Traverser{
+		locks:                 locks,
+		contextionaryProvider: c11y,
+		repo:                  repo,
+	}
 }
 
 // TraverserRepo describes the dependencies of the Traverser UC to the
@@ -19,6 +28,10 @@ type TraverserRepo interface {
 	LocalAggregate(*AggregateParams) (interface{}, error)
 	LocalFetchKindClass(*FetchParams) (interface{}, error)
 	LocalFetchFuzzy([]string) (interface{}, error)
+}
+
+type c11yProvider interface {
+	GetSchemaContextionary() *contextionary.Contextionary
 }
 
 // c11y is a local abstraction on the contextionary that needs to be

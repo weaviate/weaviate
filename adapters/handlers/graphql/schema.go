@@ -19,33 +19,47 @@ import (
 	"runtime/debug"
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local"
+	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/fetch"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
-	"github.com/creativesoftwarefdn/weaviate/usecases/telemetry"
 	"github.com/graphql-go/graphql"
 	"github.com/sirupsen/logrus"
 )
 
+type Traverser interface {
+	local.Resolver
+}
+
+type NetworkTraverser interface {
+	network.Resolver
+}
+
+type RequestsLogger interface {
+	fetch.RequestsLog
+}
+
 // The communication interface between the REST API and the GraphQL API.
 type GraphQL interface {
 	// Resolve the GraphQL query in 'query'.
-	Resolve(query string, operationName string, variables map[string]interface{}, context context.Context) *graphql.Result
+	Resolve(context context.Context, query string, operationName string, variables map[string]interface{}) *graphql.Result
 }
 
 type graphQL struct {
 	schema           graphql.Schema
-	resolverProvider ResolverProvider
+	traverser        Traverser
+	networkTraverser NetworkTraverser
+	requestsLogger   RequestsLogger
 	networkPeers     peers.Peers
-	requestsLog      *telemetry.RequestsLog
 	config           config.Config
 }
 
 // Construct a GraphQL API from the database schema, and resolver interface.
-func Build(dbSchema *schema.Schema, peers peers.Peers, resolverProvider ResolverProvider, logger logrus.FieldLogger,
-	config config.Config) (GraphQL, error) {
-	graphqlSchema, err := buildGraphqlSchema(dbSchema, peers, logger, config)
+func Build(schema *schema.Schema, peers peers.Peers, traverser Traverser,
+	networkTraverser NetworkTraverser, requestsLogger RequestsLogger,
+	logger logrus.FieldLogger, config config.Config) (GraphQL, error) {
+	graphqlSchema, err := buildGraphqlSchema(schema, peers, logger, config)
 
 	if err != nil {
 		return nil, err
@@ -53,34 +67,23 @@ func Build(dbSchema *schema.Schema, peers peers.Peers, resolverProvider Resolver
 
 	return &graphQL{
 		schema:           graphqlSchema,
-		resolverProvider: resolverProvider,
+		traverser:        traverser,
+		networkTraverser: networkTraverser,
+		requestsLogger:   requestsLogger,
 		networkPeers:     peers,
 		config:           config,
 	}, nil
 }
 
-func (g *graphQL) Resolve(query string, operationName string, variables map[string]interface{}, context context.Context) *graphql.Result {
-	if g.resolverProvider == nil {
-		panic("Empty resolver provider")
-	}
-
-	resolver, err := g.resolverProvider.GetResolver()
-	if err != nil {
-		panic(err)
-	}
-	defer resolver.Close()
-
-	networkResolver := g.resolverProvider.GetNetworkResolver()
-
-	requestsLog := g.resolverProvider.GetRequestsLog()
-
+// Resolve at query time
+func (g *graphQL) Resolve(context context.Context, query string, operationName string, variables map[string]interface{}) *graphql.Result {
 	return graphql.Do(graphql.Params{
 		Schema: g.schema,
 		RootObject: map[string]interface{}{
-			"Resolver":        resolver,
-			"NetworkResolver": networkResolver,
+			"Resolver":        g.traverser,
+			"NetworkResolver": g.networkTraverser,
 			"NetworkPeers":    g.networkPeers,
-			"RequestsLog":     requestsLog,
+			"RequestsLog":     g.requestsLogger,
 			"Config":          g.config,
 		},
 		RequestString:  query,

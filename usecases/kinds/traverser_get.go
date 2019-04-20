@@ -10,14 +10,14 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 )
 
-func (t *Traverser) LocalGetClass(params LocalGetParams) (interface{}, error) {
+func (t *Traverser) LocalGetClass(params *LocalGetParams) (interface{}, error) {
 	unlock, err := t.locks.LockConnector()
 	if err != nil {
 		return nil, fmt.Errorf("could not acquire lock: %v", err)
 	}
 	defer unlock()
 
-	return t.repo.LocalGetClass(&params)
+	return t.repo.LocalGetClass(params)
 }
 
 type LocalGetParams struct {

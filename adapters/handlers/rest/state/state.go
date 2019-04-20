@@ -17,6 +17,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql"
 	"github.com/creativesoftwarefdn/weaviate/contextionary"
 	"github.com/creativesoftwarefdn/weaviate/database"
+	schema_contextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
 	"github.com/creativesoftwarefdn/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/creativesoftwarefdn/weaviate/usecases/auth/authentication/oidc"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"
@@ -60,4 +61,15 @@ func (s *State) GetGraphQL() graphql.GraphQL {
 // type gqlProvider interface { GetContextionary contextionary.Contextionary }
 func (s *State) GetContextionary() contextionary.Contextionary {
 	return s.Contextionary
+}
+
+// GetSchemaContextionary is the safe way to retrieve SchemaContextionary from
+// the state as it can be replaced at runtime. Instead of passing
+// appState.SchemaContextionary to your adapters, pass appState itself which
+// you can abstract with a local interface such as:
+//
+// type gqlProvider interface { GetSchemaContextionary
+// schema_contextionary.Contextionary }
+func (s *State) GetSchemaContextionary() *schema_contextionary.Contextionary {
+	return schema_contextionary.New(s.Contextionary)
 }
