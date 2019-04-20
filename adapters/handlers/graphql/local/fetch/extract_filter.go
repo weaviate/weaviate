@@ -14,7 +14,7 @@ import (
 	"fmt"
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
-	contextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
+	contextionary "github.com/creativesoftwarefdn/weaviate/contextionary/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"

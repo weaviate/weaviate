@@ -14,34 +14,61 @@ package connectors
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
-	"github.com/creativesoftwarefdn/weaviate/database/schema_migrator"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
+	schemaUC "github.com/creativesoftwarefdn/weaviate/usecases/schema"
 )
 
-// BaseConnector is the interface that all connectors should have
-type BaseConnector interface {
-	// TODO: gh-836: restructure migrator and schema manager UCs
-	schema_migrator.Migrator
+type StateManager interface {
+	// Called by a connector when it has updated it's internal state that needs to be shared across all connectors in other Weaviate instances.
+	SetState(ctx context.Context, state json.RawMessage) error
 
+	// Used by a connector to get the initial state.
+	GetInitialState() json.RawMessage
+
+	// Link a connector to this state manager.
+	// When the internal state of some connector is updated, this state connector will call SetState on the provided conn.
+	// SetStateConnector(conn Connector)
+}
+
+type stateManagement interface {
+	// Called by the state manager, when an external state update is happening.
+	SetState(ctx context.Context, state json.RawMessage)
+
+	// Link a StateManager to this connector, so that when a connector is updating it's own state, it can propagate these changes to othr Weaviate instances.
+	SetStateManager(manager StateManager)
+}
+
+type initialization interface {
 	Connect() error
 	Init(ctx context.Context) error
 	SetServerAddress(serverAddress string)
 	SetSchema(s schema.Schema)
 	SetLogger(l logrus.FieldLogger)
+}
+
+//DatabaseConnector is the interface that all connectors should have
+type DatabaseConnector interface {
+	// initialization methods that will be called to configure and init the
+	// connector
+	initialization
 
 	// kinds.Repo describes required methods to add, get, update and delete
 	// things and actions
 	kinds.Repo
-}
 
-// DatabaseConnector is the interface that all DB-connectors should have
-type DatabaseConnector interface {
-	BaseConnector
-	connector_state.Connector
+	// kinds.TraverserRepo describes required method to traverse the graph
 	kinds.TraverserRepo
+
+	// Migrator describes methods that will be called when the user changes the
+	// schema. If the connected db is schemaless these have to return nil
+	schemaUC.Migrator
+
+	// stateManagement provdies the app with methods to update the state inside
+	// the connector based on external events
+	stateManagement
 }

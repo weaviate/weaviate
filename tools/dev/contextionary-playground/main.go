@@ -15,7 +15,7 @@ import (
 	"os"
 
 	"github.com/creativesoftwarefdn/weaviate/contextionary"
-	schemaContextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
+	schemaContextionary "github.com/creativesoftwarefdn/weaviate/contextionary/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 )

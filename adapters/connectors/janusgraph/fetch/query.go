@@ -15,7 +15,7 @@ import (
 	"strings"
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/state"
-	contextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
+	contextionary "github.com/creativesoftwarefdn/weaviate/contextionary/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"

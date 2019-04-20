@@ -18,9 +18,9 @@ import (
 
 	client "github.com/SeMI-network/janus-spark-analytics/clients/go"
 	"github.com/coreos/etcd/clientv3"
+	"github.com/creativesoftwarefdn/weaviate/adapters/connectors"
 	dbconnector "github.com/creativesoftwarefdn/weaviate/adapters/connectors"
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/state"
-	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 
@@ -36,7 +36,7 @@ type Janusgraph struct {
 	kind   string
 
 	initialized  bool
-	stateManager connector_state.StateManager
+	stateManager connectors.StateManager
 
 	state state.JanusGraphConnectorState
 
@@ -142,6 +142,6 @@ func (f *Janusgraph) Connect() error {
 
 // Link a connector to this state manager.
 // When the internal state of some connector is updated, this state connector will call SetState on the provided conn.
-func (j *Janusgraph) SetStateManager(manager connector_state.StateManager) {
+func (j *Janusgraph) SetStateManager(manager connectors.StateManager) {
 	j.stateManager = manager
 }
