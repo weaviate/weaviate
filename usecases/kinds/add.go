@@ -50,8 +50,13 @@ func (m *Manager) AddAction(ctx context.Context, class *models.Action) (*models.
 }
 
 func (m *Manager) addActionToConnectorAndSchema(ctx context.Context, class *models.Action) (*models.Action, error) {
-	class.ID = generateUUID()
-	err := m.validateAction(ctx, class)
+	id, err := generateUUID()
+	if err != nil {
+		return nil, newErrInternal("could not generate id: %v", err)
+	}
+	class.ID = id
+
+	err = m.validateAction(ctx, class)
 	if err != nil {
 		return nil, newErrInvalidUserInput("invalid action: %v", err)
 	}
@@ -90,8 +95,13 @@ func (m *Manager) AddThing(ctx context.Context, class *models.Thing) (*models.Th
 }
 
 func (m *Manager) addThingToConnectorAndSchema(ctx context.Context, class *models.Thing) (*models.Thing, error) {
-	class.ID = generateUUID()
-	err := m.validateThing(ctx, class)
+	id, err := generateUUID()
+	if err != nil {
+		return nil, newErrInternal("could not generate id: %v", err)
+	}
+	class.ID = id
+
+	err = m.validateThing(ctx, class)
 	if err != nil {
 		return nil, newErrInvalidUserInput("invalid thing: %v", err)
 	}

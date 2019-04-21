@@ -26,25 +26,25 @@ func init() {
 	validateNetworkClassRegex = regexp.MustCompile(`^([A-Za-z]+)+/([A-Z][a-z]+)+$`)
 }
 
-// Validates that this string is a valid class name (formate wise)
-func ValidateClassName(name string) (error, ClassName) {
+// ValidateClassName validates that this string is a valid class name (formate
+// wise)
+func ValidateClassName(name string) (ClassName, error) {
 	if validateClassNameRegex.MatchString(name) {
-		return nil, ClassName(name)
-	} else {
-		return fmt.Errorf("'%s' is not a valid class name", name), ""
+		return ClassName(name), nil
 	}
+	return "", fmt.Errorf("'%s' is not a valid class name", name)
 }
 
-// Validates that this string is a valid property name
-func ValidatePropertyName(name string) (error, PropertyName) {
+// ValidatePropertyName validates that this string is a valid property name
+func ValidatePropertyName(name string) (PropertyName, error) {
 	if validatePropertyNameRegex.MatchString(name) {
-		return nil, PropertyName(name)
-	} else {
-		return fmt.Errorf("'%s' is not a valid property name", name), ""
+		return PropertyName(name), nil
 	}
+
+	return "", fmt.Errorf("'%s' is not a valid property name", name)
 }
 
-// ValidClassName verifies if the specified class is a valid
+// ValidNetworkClassName verifies if the specified class is a valid
 // crossReference name. This does not mean the class currently exists
 // on the specified instance or that the instance exist, but simply
 // that the name is valid.
@@ -54,18 +54,20 @@ func ValidNetworkClassName(name string) bool {
 	return validateNetworkClassRegex.MatchString(name)
 }
 
-// Assert that this string is a valid class name
+// AssertValidClassName assert that this string is a valid class name or
+// panics and should therefore most likely not be used
 func AssertValidClassName(name string) ClassName {
-	err, n := ValidateClassName(name)
+	n, err := ValidateClassName(name)
 	if err != nil {
 		panic(fmt.Sprintf("Did not expect to be handled '%s', an invalid class name", name))
 	}
 	return n
 }
 
-// Assert that this string is a valid property name
+// AssertValidPropertyName asserts that this string is a valid property name or
+// panics and should therefore most likely never be used.
 func AssertValidPropertyName(name string) PropertyName {
-	err, n := ValidatePropertyName(name)
+	n, err := ValidatePropertyName(name)
 	if err != nil {
 		panic(fmt.Sprintf("Did not expect to be handled '%s', an invalid property name", name))
 	}

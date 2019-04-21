@@ -136,7 +136,7 @@ func (s *Schema) FindPropertyDataType(dataType []string) (PropertyDataType, erro
 			classes = append(classes, ClassName(someDataType))
 		} else {
 			// this is a local reference
-			err, className := ValidateClassName(someDataType)
+			className, err := ValidateClassName(someDataType)
 			if err != nil {
 				return nil, err
 			}

@@ -63,7 +63,7 @@ func (m *Manager) addClassProperty(ctx context.Context, className string,
 
 func (m *Manager) validateCanAddProperty(property *models.SemanticSchemaClassProperty, class *models.SemanticSchemaClass) error {
 	// Verify format of property.
-	err, _ := schema.ValidatePropertyName(property.Name)
+	_, err := schema.ValidatePropertyName(property.Name)
 	if err != nil {
 		return err
 	}
