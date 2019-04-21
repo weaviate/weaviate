@@ -339,7 +339,7 @@ func extractInlineFragment(fragment *ast.InlineFragment, fragments map[string]as
 		// don't validate anything as of now
 		className = schema.ClassName(fragment.TypeCondition.Name.Value)
 	} else {
-		err, className = schema.ValidateClassName(fragment.TypeCondition.Name.Value)
+		className, err = schema.ValidateClassName(fragment.TypeCondition.Name.Value)
 		if err != nil {
 			return result, fmt.Errorf("the inline fragment type name '%s' is not a valid class name", fragment.TypeCondition.Name.Value)
 		}

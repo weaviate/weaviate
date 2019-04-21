@@ -76,7 +76,7 @@ func (b *BatchManager) validateAction(ctx context.Context, wg *sync.WaitGroup, a
 	defer wg.Done()
 
 	// Generate UUID for the new object
-	uuid := generateUUID()
+	uuid, err := generateUUID()
 
 	// Validate schema given in body with the weaviate schema
 	databaseSchema := schema.HackFromDatabaseSchema(b.schemaManager.GetSchema())
@@ -95,8 +95,10 @@ func (b *BatchManager) validateAction(ctx context.Context, wg *sync.WaitGroup, a
 		action.CreationTimeUnix = unixNow()
 	}
 
-	err := validation.ValidateActionBody(ctx, actionCreate, databaseSchema, b.repo,
-		b.network, b.config)
+	if err == nil {
+		err = validation.ValidateActionBody(ctx, actionCreate, databaseSchema, b.repo,
+			b.network, b.config)
+	}
 
 	*resultsC <- BatchAction{
 		UUID:          uuid,
@@ -171,7 +173,7 @@ func (b *BatchManager) validateThing(ctx context.Context, wg *sync.WaitGroup, th
 	defer wg.Done()
 
 	// Generate UUID for the new object
-	uuid := generateUUID()
+	uuid, err := generateUUID()
 
 	// Validate schema given in body with the weaviate schema
 	databaseSchema := schema.HackFromDatabaseSchema(b.schemaManager.GetSchema())
@@ -190,8 +192,10 @@ func (b *BatchManager) validateThing(ctx context.Context, wg *sync.WaitGroup, th
 		thing.CreationTimeUnix = unixNow()
 	}
 
-	err := validation.ValidateThingBody(ctx, thingCreate, databaseSchema, b.repo,
-		b.network, b.config)
+	if err == nil {
+		err = validation.ValidateThingBody(ctx, thingCreate, databaseSchema, b.repo,
+			b.network, b.config)
+	}
 
 	*resultsC <- BatchThing{
 		UUID:          uuid,

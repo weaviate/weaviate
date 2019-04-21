@@ -139,9 +139,16 @@ func (m *Manager) validateReference(ctx context.Context, reference *models.Singl
 
 func (m *Manager) validateCanModifyReference(k kind.Kind, className string,
 	propertyName string) error {
-	// TODO: Use checks with error handling instead of panicking
-	class := schema.AssertValidClassName(className)
-	propName := schema.AssertValidPropertyName(propertyName)
+	class, err := schema.ValidateClassName(className)
+	if err != nil {
+		return newErrInvalidUserInput("invalid class name in reference: %v", err)
+	}
+
+	propName, err := schema.ValidatePropertyName(propertyName)
+	if err != nil {
+		return newErrInvalidUserInput("invalid property name in reference: %v", err)
+	}
+
 	schema := m.schemaManager.GetSchema()
 	err, prop := schema.GetProperty(k, class, propName)
 	if err != nil {

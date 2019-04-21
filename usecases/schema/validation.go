@@ -40,7 +40,7 @@ func (m *Manager) validateClassNameUniqueness(className string) error {
 // Check that the format of the name is correct
 // Check that the name is acceptable according to the contextionary
 func (m *Manager) validateClassNameOrKeywordsCorrect(knd kind.Kind, className string, keywords models.SemanticSchemaKeywords) error {
-	err, _ := schema.ValidateClassName(className)
+	_, err := schema.ValidateClassName(className)
 	if err != nil {
 		return err
 	}
@@ -84,7 +84,7 @@ func validatePropertyNameUniqueness(propertyName string, class *models.SemanticS
 // Check that the format of the name is correct
 // Check that the name is acceptable according to the contextionary
 func (m *Manager) validatePropertyNameOrKeywordsCorrect(className string, propertyName string, keywords models.SemanticSchemaKeywords) error {
-	err, _ := schema.ValidatePropertyName(propertyName)
+	_, err := schema.ValidatePropertyName(propertyName)
 	if err != nil {
 		return err
 	}

@@ -16,48 +16,48 @@ import (
 )
 
 func TestValidateOKClassName(t *testing.T) {
-	err, _ := ValidateClassName("FooBar")
+	_, err := ValidateClassName("FooBar")
 	if err != nil {
 		t.Fail()
 	}
 }
 
 func TestFailValidateBadClassName(t *testing.T) {
-	err, _ := ValidateClassName("Foo Bar")
+	_, err := ValidateClassName("Foo Bar")
 	if err == nil {
 		t.Fail()
 	}
 
-	err, _ = ValidateClassName("foo")
+	_, err = ValidateClassName("foo")
 	if err == nil {
 		t.Fail()
 	}
 
-	err, _ = ValidateClassName("fooBar")
+	_, err = ValidateClassName("fooBar")
 	if err == nil {
 		t.Fail()
 	}
 }
 
 func TestValidateOKPropertyName(t *testing.T) {
-	err, _ := ValidatePropertyName("fooBar")
+	_, err := ValidatePropertyName("fooBar")
 	if err != nil {
 		t.Fail()
 	}
 }
 
 func TestFailValidateBadPropertyName(t *testing.T) {
-	err, _ := ValidatePropertyName("foo Bar")
+	_, err := ValidatePropertyName("foo Bar")
 	if err == nil {
 		t.Fail()
 	}
 
-	err, _ = ValidatePropertyName("Foo")
+	_, err = ValidatePropertyName("Foo")
 	if err == nil {
 		t.Fail()
 	}
 
-	err, _ = ValidatePropertyName("FooBar")
+	_, err = ValidatePropertyName("FooBar")
 	if err == nil {
 		t.Fail()
 	}

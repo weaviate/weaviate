@@ -72,11 +72,11 @@ func unlock(l unlocker) {
 	}
 }
 
-func generateUUID() strfmt.UUID {
+func generateUUID() (strfmt.UUID, error) {
 	uuid, err := uuid.NewV4()
 	if err != nil {
-		panic("PANIC: Can't create UUID")
+		return "", fmt.Errorf("could not generate uuid v4: %v", err)
 	}
 
-	return strfmt.UUID(fmt.Sprintf("%v", uuid))
+	return strfmt.UUID(fmt.Sprintf("%v", uuid)), nil
 }

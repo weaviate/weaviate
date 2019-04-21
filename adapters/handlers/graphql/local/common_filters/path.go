@@ -95,19 +95,18 @@ func ParsePath(pathElements []interface{}, rootClass string) (*Path, error) {
 			return nil, fmt.Errorf("element %v is not a string", i+2)
 		}
 
-		err, className := schema.ValidateClassName(rawClassName)
+		className, err := schema.ValidateClassName(rawClassName)
 		if err != nil {
 			return nil, fmt.Errorf("Expected a valid class name in 'path' field for the filter but got '%s'", rawClassName)
 		}
 
-		err, propertyName := schema.ValidatePropertyName(rawPropertyName)
+		propertyName, err := schema.ValidatePropertyName(rawPropertyName)
 
 		// Invalid property name?
 		// Try to parse it as as a reference.
 		if err != nil {
 			untitlizedPropertyName := strings.ToLower(rawPropertyName[0:1]) + rawPropertyName[1:len(rawPropertyName)]
-			err, propertyName = schema.ValidatePropertyName(untitlizedPropertyName)
-
+			propertyName, err = schema.ValidatePropertyName(untitlizedPropertyName)
 			if err != nil {
 				return nil, fmt.Errorf("Expected a valid property name in 'path' field for the filter, but got '%s'", rawPropertyName)
 			}
