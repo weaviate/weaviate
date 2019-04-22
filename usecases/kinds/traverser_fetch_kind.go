@@ -14,8 +14,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
 	contextionary "github.com/creativesoftwarefdn/weaviate/contextionary/schema"
+	"github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 )
 
@@ -94,8 +94,8 @@ type FetchSearchProperty struct {
 // FetchPropertyMatch defines how in the db connector this property should be used
 // as a filter
 type FetchPropertyMatch struct {
-	Operator common_filters.Operator
-	Value    *common_filters.Value
+	Operator filters.Operator
+	Value    *filters.Value
 }
 
 // FetchParams to describe the Local->GetMeta->Kind->Class query. Will be passed to

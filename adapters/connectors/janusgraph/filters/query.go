@@ -15,14 +15,14 @@ import (
 	"fmt"
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/state"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 )
 
 // FilterQuery from filter params. Can be appended to any GremlinFilterQuery
 type FilterQuery struct {
-	filter     *common_filters.LocalFilter
+	filter     *filters.LocalFilter
 	nameSource nameSource
 }
 
@@ -32,7 +32,7 @@ type nameSource interface {
 }
 
 // New FilterQuery from local filter params
-func New(filter *common_filters.LocalFilter, nameSource nameSource) *FilterQuery {
+func New(filter *filters.LocalFilter, nameSource nameSource) *FilterQuery {
 	return &FilterQuery{
 		filter:     filter,
 		nameSource: nameSource,
@@ -61,20 +61,20 @@ func (f *FilterQuery) String() (string, error) {
 // 2.) If we instead encounter an operand clause (with operators such as 'And'
 // or 'Or'), then it can combine subClauses. Each sub-clause must in turn meet
 // these two conditions.
-func (f *FilterQuery) buildClause(clause *common_filters.Clause) (*gremlin.Query, error) {
+func (f *FilterQuery) buildClause(clause *filters.Clause) (*gremlin.Query, error) {
 	if clause.Operator.OnValue() {
 		return f.buildValueClause(clause)
 	}
 
 	switch clause.Operator {
-	case common_filters.OperatorAnd, common_filters.OperatorOr:
+	case filters.OperatorAnd, filters.OperatorOr:
 		return f.buildOperandClause(clause)
 	default:
 		return nil, fmt.Errorf("unknown operator '%#v'", clause.Operator)
 	}
 }
 
-func (f *FilterQuery) buildValueClause(clause *common_filters.Clause) (*gremlin.Query, error) {
+func (f *FilterQuery) buildValueClause(clause *filters.Clause) (*gremlin.Query, error) {
 	if clause.On.Child == nil {
 		return f.buildPrimitiveValueClause(clause)
 	}
@@ -88,7 +88,7 @@ func (f *FilterQuery) buildValueClause(clause *common_filters.Clause) (*gremlin.
 // Independent of that they can be appended to a reference prop which consists
 // of an edge path (i.e. how to get the final class) and a primitive value
 // clause (i.e. once I'm there what should I filter)
-func (f *FilterQuery) buildPrimitiveValueClause(clause *common_filters.Clause) (*gremlin.Query, error) {
+func (f *FilterQuery) buildPrimitiveValueClause(clause *filters.Clause) (*gremlin.Query, error) {
 	q := &gremlin.Query{}
 	predicate, err := gremlinPredicateFromOperator(clause.Operator, clause.Value)
 	if err != nil {
@@ -113,7 +113,7 @@ func (f *FilterQuery) buildPrimitiveValueClause(clause *common_filters.Clause) (
 //
 // However an edge path can also be longer, the above example shows 1 hop deep.
 // See the unit tests for a full example.
-func (f *FilterQuery) buildReferenceValueClause(clause *common_filters.Clause) (*gremlin.Query, error) {
+func (f *FilterQuery) buildReferenceValueClause(clause *filters.Clause) (*gremlin.Query, error) {
 	q := gremlin.New()
 
 	pathToEdge, err := f.buildEdgePath(clause.On)
@@ -140,7 +140,7 @@ func (f *FilterQuery) buildReferenceValueClause(clause *common_filters.Clause) (
 // An example for a 2-level deep edge path looks like so:
 // outE("inCity").inV().has("classId", "City").outE("inCountry").inV().has("classId", "Country")
 // See the unit tests for a full example.
-func (f *FilterQuery) buildEdgePath(path *common_filters.Path) (*gremlin.Query, error) {
+func (f *FilterQuery) buildEdgePath(path *filters.Path) (*gremlin.Query, error) {
 	q := gremlin.New()
 	edgeLabel := f.mappedPropertyName(path.Class, path.Property)
 	referencedClass := f.mappedClassName(path.Child.Class)
@@ -164,7 +164,7 @@ func (f *FilterQuery) buildEdgePath(path *common_filters.Path) (*gremlin.Query, 
 // An operandClause has the form of
 // <combinator>(<valueClause1>, <valueClause2>, ...<valueClauseN>)
 // where the combinator is either 'and' or 'or'
-func (f *FilterQuery) buildOperandClause(clause *common_filters.Clause) (*gremlin.Query, error) {
+func (f *FilterQuery) buildOperandClause(clause *filters.Clause) (*gremlin.Query, error) {
 	q := &gremlin.Query{}
 	individualQueries := make([]*gremlin.Query, len(clause.Operands), len(clause.Operands))
 	for i, operand := range clause.Operands {
@@ -176,10 +176,10 @@ func (f *FilterQuery) buildOperandClause(clause *common_filters.Clause) (*gremli
 	}
 
 	switch clause.Operator {
-	case common_filters.OperatorAnd:
+	case filters.OperatorAnd:
 		q = q.And(individualQueries...)
 		return q, nil
-	case common_filters.OperatorOr:
+	case filters.OperatorOr:
 		q = q.Or(individualQueries...)
 		return q, nil
 	}

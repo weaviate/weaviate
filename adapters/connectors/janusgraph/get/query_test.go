@@ -15,8 +15,7 @@ package get
 import (
 	"testing"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/common"
-	cf "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
@@ -35,7 +34,7 @@ func Test_QueryBuilder(t *testing.T) {
 					},
 				},
 				Kind: kind.Thing,
-				Pagination: &common.Pagination{
+				Pagination: &filters.Pagination{
 					Limit: 33,
 				},
 			},
@@ -72,20 +71,20 @@ func Test_QueryBuilder(t *testing.T) {
 					},
 				},
 				Kind: kind.Thing,
-				Pagination: &common.Pagination{
+				Pagination: &filters.Pagination{
 					Limit: 33,
 				},
-				Filters: &cf.LocalFilter{
-					Root: &cf.Clause{
-						Value: &cf.Value{
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Value: &filters.Value{
 							Value: "Amsterdam",
 							Type:  schema.DataTypeString,
 						},
-						On: &cf.Path{
+						On: &filters.Path{
 							Class:    schema.ClassName("City"),
 							Property: schema.PropertyName("name"),
 						},
-						Operator: cf.OperatorEqual,
+						Operator: filters.OperatorEqual,
 					},
 				},
 			},
@@ -121,7 +120,7 @@ func Test_QueryBuilder(t *testing.T) {
 					},
 				},
 				Kind: kind.Thing,
-				Pagination: &common.Pagination{
+				Pagination: &filters.Pagination{
 					Limit: 33,
 				},
 			},
@@ -161,7 +160,7 @@ func Test_QueryBuilder(t *testing.T) {
 					},
 				},
 				Kind: kind.Thing,
-				Pagination: &common.Pagination{
+				Pagination: &filters.Pagination{
 					Limit: 33,
 				},
 			},
@@ -223,7 +222,7 @@ func Test_QueryBuilder(t *testing.T) {
 					},
 				},
 				Kind: kind.Thing,
-				Pagination: &common.Pagination{
+				Pagination: &filters.Pagination{
 					Limit: 33,
 				},
 			},

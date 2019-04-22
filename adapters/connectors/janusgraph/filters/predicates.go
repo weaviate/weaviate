@@ -15,13 +15,13 @@ import (
 	"fmt"
 	"time"
 
-	cf "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 )
 
-func gremlinPredicateFromOperator(operator cf.Operator,
-	value *cf.Value) (*gremlin.Query, error) {
+func gremlinPredicateFromOperator(operator filters.Operator,
+	value *filters.Value) (*gremlin.Query, error) {
 	switch value.Type {
 	case schema.DataTypeInt:
 		return gremlinIntPredicateFromOperator(operator, value.Value)
@@ -40,105 +40,105 @@ func gremlinPredicateFromOperator(operator cf.Operator,
 	}
 }
 
-func gremlinIntPredicateFromOperator(operator cf.Operator, value interface{}) (*gremlin.Query, error) {
+func gremlinIntPredicateFromOperator(operator filters.Operator, value interface{}) (*gremlin.Query, error) {
 	valueTyped, ok := value.(int)
 	if !ok {
 		return nil, fmt.Errorf("expected value to be an int64, but was %t", value)
 	}
 
 	switch operator {
-	case cf.OperatorEqual:
+	case filters.OperatorEqual:
 		return gremlin.EqInt(valueTyped), nil
-	case cf.OperatorNotEqual:
+	case filters.OperatorNotEqual:
 		return gremlin.NeqInt(valueTyped), nil
-	case cf.OperatorLessThan:
+	case filters.OperatorLessThan:
 		return gremlin.LtInt(valueTyped), nil
-	case cf.OperatorLessThanEqual:
+	case filters.OperatorLessThanEqual:
 		return gremlin.LteInt(valueTyped), nil
-	case cf.OperatorGreaterThan:
+	case filters.OperatorGreaterThan:
 		return gremlin.GtInt(valueTyped), nil
-	case cf.OperatorGreaterThanEqual:
+	case filters.OperatorGreaterThanEqual:
 		return gremlin.GteInt(valueTyped), nil
 	default:
 		return nil, fmt.Errorf("unrecoginzed operator %v", operator)
 	}
 }
 
-func gremlinFloatPredicateFromOperator(operator cf.Operator, value interface{}) (*gremlin.Query, error) {
+func gremlinFloatPredicateFromOperator(operator filters.Operator, value interface{}) (*gremlin.Query, error) {
 	valueTyped, ok := value.(float64)
 	if !ok {
 		return nil, fmt.Errorf("expected value to be an int64, but was %t", value)
 	}
 
 	switch operator {
-	case cf.OperatorEqual:
+	case filters.OperatorEqual:
 		return gremlin.EqFloat(float64(valueTyped)), nil
-	case cf.OperatorNotEqual:
+	case filters.OperatorNotEqual:
 		return gremlin.NeqFloat(float64(valueTyped)), nil
-	case cf.OperatorLessThan:
+	case filters.OperatorLessThan:
 		return gremlin.LtFloat(float64(valueTyped)), nil
-	case cf.OperatorLessThanEqual:
+	case filters.OperatorLessThanEqual:
 		return gremlin.LteFloat(float64(valueTyped)), nil
-	case cf.OperatorGreaterThan:
+	case filters.OperatorGreaterThan:
 		return gremlin.GtFloat(float64(valueTyped)), nil
-	case cf.OperatorGreaterThanEqual:
+	case filters.OperatorGreaterThanEqual:
 		return gremlin.GteFloat(float64(valueTyped)), nil
 	default:
 		return nil, fmt.Errorf("unrecoginzed operator %v", operator)
 	}
 }
 
-func gremlinDatePredicateFromOperator(operator cf.Operator, value interface{}) (*gremlin.Query, error) {
+func gremlinDatePredicateFromOperator(operator filters.Operator, value interface{}) (*gremlin.Query, error) {
 	valueTyped, ok := value.(time.Time)
 	if !ok {
 		return nil, fmt.Errorf("expected value to be an int64, but was %t", value)
 	}
 
 	switch operator {
-	case cf.OperatorEqual:
+	case filters.OperatorEqual:
 		return gremlin.EqDate(valueTyped), nil
-	case cf.OperatorNotEqual:
+	case filters.OperatorNotEqual:
 		return gremlin.NeqDate(valueTyped), nil
-	case cf.OperatorLessThan:
+	case filters.OperatorLessThan:
 		return gremlin.LtDate(valueTyped), nil
-	case cf.OperatorLessThanEqual:
+	case filters.OperatorLessThanEqual:
 		return gremlin.LteDate(valueTyped), nil
-	case cf.OperatorGreaterThan:
+	case filters.OperatorGreaterThan:
 		return gremlin.GtDate(valueTyped), nil
-	case cf.OperatorGreaterThanEqual:
+	case filters.OperatorGreaterThanEqual:
 		return gremlin.GteDate(valueTyped), nil
 	default:
 		return nil, fmt.Errorf("unrecoginzed operator %v", operator)
 	}
 }
 
-func gremlinGeoCoordinatesPredicateFromOperator(operator cf.Operator, value interface{}) (*gremlin.Query, error) {
-	r, ok := value.(cf.GeoRange)
+func gremlinGeoCoordinatesPredicateFromOperator(operator filters.Operator, value interface{}) (*gremlin.Query, error) {
+	r, ok := value.(filters.GeoRange)
 	if !ok {
 		return nil, fmt.Errorf("expected value to be a GeoRange, but was %t", value)
 	}
 
 	switch operator {
-	case cf.OperatorWithinGeoRange:
+	case filters.OperatorWithinGeoRange:
 		return gremlin.GeoWithinCircle(r.Latitude, r.Longitude, r.Distance), nil
 	default:
 		return nil, fmt.Errorf("geoCoordinates only supports WithinGeoRange operator, but got %v", operator)
 	}
 }
 
-func gremlinStringPredicateFromOperator(operator cf.Operator, value interface{}) (*gremlin.Query, error) {
+func gremlinStringPredicateFromOperator(operator filters.Operator, value interface{}) (*gremlin.Query, error) {
 	valueTyped, ok := value.(string)
 	if !ok {
 		return nil, fmt.Errorf("expected value to be an int64, but was %t", value)
 	}
 
 	switch operator {
-	case cf.OperatorEqual:
+	case filters.OperatorEqual:
 		return gremlin.EqString(valueTyped), nil
-	case cf.OperatorNotEqual:
+	case filters.OperatorNotEqual:
 		return gremlin.NeqString(valueTyped), nil
-	case cf.OperatorLessThan, cf.OperatorLessThanEqual,
-		cf.OperatorGreaterThan, cf.OperatorGreaterThanEqual:
+	case filters.OperatorLessThan, filters.OperatorLessThanEqual,
+		filters.OperatorGreaterThan, filters.OperatorGreaterThanEqual:
 		// this is different from an unrecognized operator, in that we recognize
 		// the operator exists, but cannot apply it on a this type. We can safely
 		// call operator.Name() on it to improve the error message, whereas that
@@ -149,19 +149,19 @@ func gremlinStringPredicateFromOperator(operator cf.Operator, value interface{})
 	}
 }
 
-func gremlinBoolPredicateFromOperator(operator cf.Operator, value interface{}) (*gremlin.Query, error) {
+func gremlinBoolPredicateFromOperator(operator filters.Operator, value interface{}) (*gremlin.Query, error) {
 	valueTyped, ok := value.(bool)
 	if !ok {
 		return nil, fmt.Errorf("expected value to be an int64, but was %t", value)
 	}
 
 	switch operator {
-	case cf.OperatorEqual:
+	case filters.OperatorEqual:
 		return gremlin.EqBool(valueTyped), nil
-	case cf.OperatorNotEqual:
+	case filters.OperatorNotEqual:
 		return gremlin.NeqBool(valueTyped), nil
-	case cf.OperatorLessThan, cf.OperatorLessThanEqual,
-		cf.OperatorGreaterThan, cf.OperatorGreaterThanEqual:
+	case filters.OperatorLessThan, filters.OperatorLessThanEqual,
+		filters.OperatorGreaterThan, filters.OperatorGreaterThanEqual:
 		// this is different from an unrecognized operator, in that we recognize
 		// the operator exists, but cannot apply it on a this type. We can safely
 		// call operator.Name() on it to improve the error message, whereas that

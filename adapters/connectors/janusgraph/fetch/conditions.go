@@ -14,7 +14,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
@@ -41,9 +41,9 @@ func (b *Query) conditionQuery(match kinds.FetchPropertyMatch) (*gremlin.Query, 
 
 func (b *Query) stringCondition(match kinds.FetchPropertyMatch) (*gremlin.Query, error) {
 	switch match.Operator {
-	case common_filters.OperatorEqual:
+	case filters.OperatorEqual:
 		return gremlin.EqString(match.Value.Value.(string)), nil
-	case common_filters.OperatorNotEqual:
+	case filters.OperatorNotEqual:
 		return gremlin.NeqString(match.Value.Value.(string)), nil
 	}
 
@@ -52,9 +52,9 @@ func (b *Query) stringCondition(match kinds.FetchPropertyMatch) (*gremlin.Query,
 
 func (b *Query) boolCondition(match kinds.FetchPropertyMatch) (*gremlin.Query, error) {
 	switch match.Operator {
-	case common_filters.OperatorEqual:
+	case filters.OperatorEqual:
 		return gremlin.EqBool(match.Value.Value.(bool)), nil
-	case common_filters.OperatorNotEqual:
+	case filters.OperatorNotEqual:
 		return gremlin.NeqBool(match.Value.Value.(bool)), nil
 	}
 
@@ -63,17 +63,17 @@ func (b *Query) boolCondition(match kinds.FetchPropertyMatch) (*gremlin.Query, e
 
 func (b *Query) intCondition(match kinds.FetchPropertyMatch) (*gremlin.Query, error) {
 	switch match.Operator {
-	case common_filters.OperatorEqual:
+	case filters.OperatorEqual:
 		return gremlin.EqInt(match.Value.Value.(int)), nil
-	case common_filters.OperatorNotEqual:
+	case filters.OperatorNotEqual:
 		return gremlin.NeqInt(match.Value.Value.(int)), nil
-	case common_filters.OperatorLessThan:
+	case filters.OperatorLessThan:
 		return gremlin.LtInt(match.Value.Value.(int)), nil
-	case common_filters.OperatorGreaterThan:
+	case filters.OperatorGreaterThan:
 		return gremlin.GtInt(match.Value.Value.(int)), nil
-	case common_filters.OperatorLessThanEqual:
+	case filters.OperatorLessThanEqual:
 		return gremlin.LteInt(match.Value.Value.(int)), nil
-	case common_filters.OperatorGreaterThanEqual:
+	case filters.OperatorGreaterThanEqual:
 		return gremlin.GteInt(match.Value.Value.(int)), nil
 	}
 
@@ -82,17 +82,17 @@ func (b *Query) intCondition(match kinds.FetchPropertyMatch) (*gremlin.Query, er
 
 func (b *Query) numberCondition(match kinds.FetchPropertyMatch) (*gremlin.Query, error) {
 	switch match.Operator {
-	case common_filters.OperatorEqual:
+	case filters.OperatorEqual:
 		return gremlin.EqFloat(match.Value.Value.(float64)), nil
-	case common_filters.OperatorNotEqual:
+	case filters.OperatorNotEqual:
 		return gremlin.NeqFloat(match.Value.Value.(float64)), nil
-	case common_filters.OperatorLessThan:
+	case filters.OperatorLessThan:
 		return gremlin.LtFloat(match.Value.Value.(float64)), nil
-	case common_filters.OperatorGreaterThan:
+	case filters.OperatorGreaterThan:
 		return gremlin.GtFloat(match.Value.Value.(float64)), nil
-	case common_filters.OperatorLessThanEqual:
+	case filters.OperatorLessThanEqual:
 		return gremlin.LteFloat(match.Value.Value.(float64)), nil
-	case common_filters.OperatorGreaterThanEqual:
+	case filters.OperatorGreaterThanEqual:
 		return gremlin.GteFloat(match.Value.Value.(float64)), nil
 	}
 
@@ -101,17 +101,17 @@ func (b *Query) numberCondition(match kinds.FetchPropertyMatch) (*gremlin.Query,
 
 func (b *Query) dateCondition(match kinds.FetchPropertyMatch) (*gremlin.Query, error) {
 	switch match.Operator {
-	case common_filters.OperatorEqual:
+	case filters.OperatorEqual:
 		return gremlin.EqDate(match.Value.Value.(time.Time)), nil
-	case common_filters.OperatorNotEqual:
+	case filters.OperatorNotEqual:
 		return gremlin.NeqDate(match.Value.Value.(time.Time)), nil
-	case common_filters.OperatorLessThan:
+	case filters.OperatorLessThan:
 		return gremlin.LtDate(match.Value.Value.(time.Time)), nil
-	case common_filters.OperatorGreaterThan:
+	case filters.OperatorGreaterThan:
 		return gremlin.GtDate(match.Value.Value.(time.Time)), nil
-	case common_filters.OperatorLessThanEqual:
+	case filters.OperatorLessThanEqual:
 		return gremlin.LteDate(match.Value.Value.(time.Time)), nil
-	case common_filters.OperatorGreaterThanEqual:
+	case filters.OperatorGreaterThanEqual:
 		return gremlin.GteDate(match.Value.Value.(time.Time)), nil
 	}
 

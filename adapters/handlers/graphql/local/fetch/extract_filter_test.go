@@ -14,7 +14,7 @@ package fetch
 import (
 	"testing"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
@@ -40,11 +40,11 @@ func Test_Filter_ExtractOperatorsAndValues(t *testing.T) {
 				valueString: "some-value"
 			`,
 			expectedMatch: kinds.FetchPropertyMatch{
-				Value: &common_filters.Value{
+				Value: &filters.Value{
 					Value: "some-value",
 					Type:  schema.DataTypeString,
 				},
-				Operator: common_filters.OperatorEqual,
+				Operator: filters.OperatorEqual,
 			},
 		},
 		filterTestCase{
@@ -54,11 +54,11 @@ func Test_Filter_ExtractOperatorsAndValues(t *testing.T) {
 				valueString: "some-value"
 			`,
 			expectedMatch: kinds.FetchPropertyMatch{
-				Value: &common_filters.Value{
+				Value: &filters.Value{
 					Value: "some-value",
 					Type:  schema.DataTypeString,
 				},
-				Operator: common_filters.OperatorNotEqual,
+				Operator: filters.OperatorNotEqual,
 			},
 		},
 		filterTestCase{
@@ -68,11 +68,11 @@ func Test_Filter_ExtractOperatorsAndValues(t *testing.T) {
 				valueInt: 123
 			`,
 			expectedMatch: kinds.FetchPropertyMatch{
-				Value: &common_filters.Value{
+				Value: &filters.Value{
 					Value: 123,
 					Type:  schema.DataTypeInt,
 				},
-				Operator: common_filters.OperatorEqual,
+				Operator: filters.OperatorEqual,
 			},
 		},
 		filterTestCase{
@@ -82,11 +82,11 @@ func Test_Filter_ExtractOperatorsAndValues(t *testing.T) {
 				valueInt: 123
 			`,
 			expectedMatch: kinds.FetchPropertyMatch{
-				Value: &common_filters.Value{
+				Value: &filters.Value{
 					Value: 123,
 					Type:  schema.DataTypeInt,
 				},
-				Operator: common_filters.OperatorNotEqual,
+				Operator: filters.OperatorNotEqual,
 			},
 		},
 		filterTestCase{
@@ -96,11 +96,11 @@ func Test_Filter_ExtractOperatorsAndValues(t *testing.T) {
 				valueInt: 123
 			`,
 			expectedMatch: kinds.FetchPropertyMatch{
-				Value: &common_filters.Value{
+				Value: &filters.Value{
 					Value: 123,
 					Type:  schema.DataTypeInt,
 				},
-				Operator: common_filters.OperatorLessThan,
+				Operator: filters.OperatorLessThan,
 			},
 		},
 		filterTestCase{
@@ -110,11 +110,11 @@ func Test_Filter_ExtractOperatorsAndValues(t *testing.T) {
 				valueInt: 123
 			`,
 			expectedMatch: kinds.FetchPropertyMatch{
-				Value: &common_filters.Value{
+				Value: &filters.Value{
 					Value: 123,
 					Type:  schema.DataTypeInt,
 				},
-				Operator: common_filters.OperatorLessThanEqual,
+				Operator: filters.OperatorLessThanEqual,
 			},
 		},
 		filterTestCase{
@@ -124,11 +124,11 @@ func Test_Filter_ExtractOperatorsAndValues(t *testing.T) {
 				valueInt: 123
 			`,
 			expectedMatch: kinds.FetchPropertyMatch{
-				Value: &common_filters.Value{
+				Value: &filters.Value{
 					Value: 123,
 					Type:  schema.DataTypeInt,
 				},
-				Operator: common_filters.OperatorGreaterThan,
+				Operator: filters.OperatorGreaterThan,
 			},
 		},
 		filterTestCase{
@@ -138,11 +138,11 @@ func Test_Filter_ExtractOperatorsAndValues(t *testing.T) {
 				valueInt: 123
 			`,
 			expectedMatch: kinds.FetchPropertyMatch{
-				Value: &common_filters.Value{
+				Value: &filters.Value{
 					Value: 123,
 					Type:  schema.DataTypeInt,
 				},
-				Operator: common_filters.OperatorGreaterThanEqual,
+				Operator: filters.OperatorGreaterThanEqual,
 			},
 		},
 	}

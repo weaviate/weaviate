@@ -14,8 +14,8 @@ import (
 	"errors"
 	"testing"
 
-	cf "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
 	contextionary "github.com/creativesoftwarefdn/weaviate/contextionary/schema"
+	"github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
@@ -35,7 +35,7 @@ func Test_QueryBuilder(t *testing.T) {
 						},
 					},
 				},
-				Properties: singleProp("name", schema.DataTypeString, cf.OperatorEqual, "Amsterdam"),
+				Properties: singleProp("name", schema.DataTypeString, filters.OperatorEqual, "Amsterdam"),
 			},
 			expectedQuery: `
 				g.V().has("kind", "thing").and(
@@ -57,7 +57,7 @@ func Test_QueryBuilder(t *testing.T) {
 						},
 					},
 				},
-				Properties: singleProp("population", schema.DataTypeInt, cf.OperatorEqual, 2000),
+				Properties: singleProp("population", schema.DataTypeInt, filters.OperatorEqual, 2000),
 			},
 			expectedQuery: `
 				g.V().has("kind", "thing").and(
@@ -94,8 +94,8 @@ func Test_QueryBuilder(t *testing.T) {
 							},
 						},
 						Match: kinds.FetchPropertyMatch{
-							Operator: cf.OperatorEqual,
-							Value: &cf.Value{
+							Operator: filters.OperatorEqual,
+							Value: &filters.Value{
 								Value: "Amsterdam",
 								Type:  schema.DataTypeString,
 							},
@@ -142,8 +142,8 @@ func Test_QueryBuilder(t *testing.T) {
 							},
 						},
 						Match: kinds.FetchPropertyMatch{
-							Operator: cf.OperatorEqual,
-							Value: &cf.Value{
+							Operator: filters.OperatorEqual,
+							Value: &filters.Value{
 								Value: "Amsterdam",
 								Type:  schema.DataTypeString,
 							},
@@ -183,8 +183,8 @@ func Test_QueryBuilder(t *testing.T) {
 							},
 						},
 						Match: kinds.FetchPropertyMatch{
-							Operator: cf.OperatorEqual,
-							Value: &cf.Value{
+							Operator: filters.OperatorEqual,
+							Value: &filters.Value{
 								Value: "Amsterdam",
 								Type:  schema.DataTypeString,
 							},
@@ -203,7 +203,7 @@ func Test_QueryBuilder(t *testing.T) {
 	tests.AssertQuery(t)
 }
 
-func singleProp(propName string, dataType schema.DataType, operator cf.Operator,
+func singleProp(propName string, dataType schema.DataType, operator filters.Operator,
 	searchValue interface{}) []kinds.FetchProperty {
 	return []kinds.FetchProperty{
 		{
@@ -217,7 +217,7 @@ func singleProp(propName string, dataType schema.DataType, operator cf.Operator,
 			},
 			Match: kinds.FetchPropertyMatch{
 				Operator: operator,
-				Value: &cf.Value{
+				Value: &filters.Value{
 					Value: searchValue,
 					Type:  dataType,
 				},

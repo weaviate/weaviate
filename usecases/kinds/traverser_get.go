@@ -15,8 +15,7 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/common"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 )
@@ -33,9 +32,9 @@ func (t *Traverser) LocalGetClass(ctx context.Context, params *LocalGetParams) (
 
 type LocalGetParams struct {
 	Kind       kind.Kind
-	Filters    *common_filters.LocalFilter
+	Filters    *filters.LocalFilter
 	ClassName  string
-	Pagination *common.Pagination
+	Pagination *filters.Pagination
 	Properties []SelectProperty
 }
 

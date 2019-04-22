@@ -13,20 +13,13 @@
 import (
 	"fmt"
 
+	"github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 )
 
-// AnalyticsProps will be extracted from the graphql args of analytics
-// functions (such as GetMeta and Aggregate). They tell the connectors whether
-// to use an external analytics engine if such an engine is configured.
-type AnalyticsProps struct {
-	UseAnaltyicsEngine bool
-	ForceRecalculate   bool
-}
-
 // ExtractAnalyticsProps from GraphQL arguments
-func ExtractAnalyticsProps(args map[string]interface{}, cfg config.AnalyticsEngine) (AnalyticsProps, error) {
-	var res = AnalyticsProps{}
+func ExtractAnalyticsProps(args map[string]interface{}, cfg config.AnalyticsEngine) (filters.AnalyticsProps, error) {
+	var res = filters.AnalyticsProps{}
 
 	if !cfg.Enabled {
 		return res, nil

@@ -16,8 +16,8 @@ package get
 import (
 	"testing"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/common"
 	test_helper "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/test/helper"
+	"github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
@@ -99,7 +99,7 @@ func TestExtractPagination(t *testing.T) {
 		Kind:       kind.Action,
 		ClassName:  "SomeAction",
 		Properties: []kinds.SelectProperty{{Name: "intField", IsPrimitive: true}},
-		Pagination: &common.Pagination{
+		Pagination: &filters.Pagination{
 			Limit: 10,
 		},
 	}

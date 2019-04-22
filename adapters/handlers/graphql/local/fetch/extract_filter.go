@@ -15,6 +15,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
 	contextionary "github.com/creativesoftwarefdn/weaviate/contextionary/schema"
+	"github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
@@ -100,20 +101,20 @@ func extractMatch(prop map[string]interface{}) (kinds.FetchPropertyMatch, error)
 	}, nil
 }
 
-func parseOperator(op string) (common_filters.Operator, error) {
+func parseOperator(op string) (filters.Operator, error) {
 	switch op {
 	case "Equal":
-		return common_filters.OperatorEqual, nil
+		return filters.OperatorEqual, nil
 	case "NotEqual":
-		return common_filters.OperatorNotEqual, nil
+		return filters.OperatorNotEqual, nil
 	case "LessThan":
-		return common_filters.OperatorLessThan, nil
+		return filters.OperatorLessThan, nil
 	case "LessThanEqual":
-		return common_filters.OperatorLessThanEqual, nil
+		return filters.OperatorLessThanEqual, nil
 	case "GreaterThan":
-		return common_filters.OperatorGreaterThan, nil
+		return filters.OperatorGreaterThan, nil
 	case "GreaterThanEqual":
-		return common_filters.OperatorGreaterThanEqual, nil
+		return filters.OperatorGreaterThanEqual, nil
 	}
 
 	return -1, fmt.Errorf("unknown operator '%s'", op)

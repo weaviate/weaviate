@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	test_helper "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/test/helper"
+	"github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/graphql-go/graphql/gqlerrors"
@@ -28,19 +29,19 @@ func TestExtractFilterToplevelField(t *testing.T) {
 
 	resolver := newMockResolver()
 	/*localfilter is a struct containing a clause struct
-		type Clause struct {
+		type filters.Clause struct {
 		Operator Operator
-		On       *Path
-		Value    *Value
-		Operands []Clause
+		On       *filters.Path
+		filters.Value    *filters.Value
+		Operands []filters.Clause
 	}*/
-	expectedParams := &LocalFilter{Root: &Clause{
-		Operator: OperatorEqual,
-		On: &Path{
+	expectedParams := &filters.LocalFilter{Root: &filters.Clause{
+		Operator: filters.OperatorEqual,
+		On: &filters.Path{
 			Class:    schema.AssertValidClassName("SomeAction"),
 			Property: schema.AssertValidPropertyName("intField"),
 		},
-		Value: &Value{
+		Value: &filters.Value{
 			Value: 42,
 			Type:  schema.DataTypeInt,
 		},
@@ -58,14 +59,14 @@ func TestExtractFilterGeoLocation(t *testing.T) {
 
 	t.Run("with all fields set as required", func(t *testing.T) {
 		resolver := newMockResolver()
-		expectedParams := &LocalFilter{Root: &Clause{
-			Operator: OperatorWithinGeoRange,
-			On: &Path{
+		expectedParams := &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorWithinGeoRange,
+			On: &filters.Path{
 				Class:    schema.AssertValidClassName("SomeAction"),
 				Property: schema.AssertValidPropertyName("location"),
 			},
-			Value: &Value{
-				Value: GeoRange{
+			Value: &filters.Value{
+				Value: filters.GeoRange{
 					GeoCoordinates: &models.GeoCoordinates{
 						Latitude:  0.5,
 						Longitude: 0.6,
@@ -89,14 +90,14 @@ func TestExtractFilterGeoLocation(t *testing.T) {
 
 	t.Run("with only some of the fields set", func(t *testing.T) {
 		resolver := newMockResolver()
-		expectedParams := &LocalFilter{Root: &Clause{
-			Operator: OperatorWithinGeoRange,
-			On: &Path{
+		expectedParams := &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorWithinGeoRange,
+			On: &filters.Path{
 				Class:    schema.AssertValidClassName("SomeAction"),
 				Property: schema.AssertValidPropertyName("location"),
 			},
-			Value: &Value{
-				Value: GeoRange{
+			Value: &filters.Value{
+				Value: filters.GeoRange{
 					GeoCoordinates: &models.GeoCoordinates{
 						Latitude:  0.5,
 						Longitude: 0.6,
@@ -131,17 +132,17 @@ func TestExtractFilterNestedField(t *testing.T) {
 
 	resolver := newMockResolver()
 
-	expectedParams := &LocalFilter{Root: &Clause{
-		Operator: OperatorEqual,
-		On: &Path{
+	expectedParams := &filters.LocalFilter{Root: &filters.Clause{
+		Operator: filters.OperatorEqual,
+		On: &filters.Path{
 			Class:    schema.AssertValidClassName("SomeAction"),
 			Property: schema.AssertValidPropertyName("hasAction"),
-			Child: &Path{
+			Child: &filters.Path{
 				Class:    schema.AssertValidClassName("SomeAction"),
 				Property: schema.AssertValidPropertyName("intField"),
 			},
 		},
-		Value: &Value{
+		Value: &filters.Value{
 			Value: 42,
 			Type:  schema.DataTypeInt,
 		},
@@ -159,30 +160,30 @@ func TestExtractOperand(t *testing.T) {
 
 	resolver := newMockResolver()
 
-	expectedParams := &LocalFilter{Root: &Clause{
-		Operator: OperatorAnd,
-		Operands: []Clause{Clause{
-			Operator: OperatorEqual,
-			On: &Path{
+	expectedParams := &filters.LocalFilter{Root: &filters.Clause{
+		Operator: filters.OperatorAnd,
+		Operands: []filters.Clause{filters.Clause{
+			Operator: filters.OperatorEqual,
+			On: &filters.Path{
 				Class:    schema.AssertValidClassName("SomeAction"),
 				Property: schema.AssertValidPropertyName("intField"),
 			},
-			Value: &Value{
+			Value: &filters.Value{
 				Value: 42,
 				Type:  schema.DataTypeInt,
 			},
 		},
-			Clause{
-				Operator: OperatorEqual,
-				On: &Path{
+			filters.Clause{
+				Operator: filters.OperatorEqual,
+				On: &filters.Path{
 					Class:    schema.AssertValidClassName("SomeAction"),
 					Property: schema.AssertValidPropertyName("hasAction"),
-					Child: &Path{
+					Child: &filters.Path{
 						Class:    schema.AssertValidClassName("SomeAction"),
 						Property: schema.AssertValidPropertyName("intField"),
 					},
 				},
-				Value: &Value{
+				Value: &filters.Value{
 					Value: 4242,
 					Type:  schema.DataTypeInt,
 				},

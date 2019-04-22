@@ -16,12 +16,13 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 )
 
 // Extract the filters from the arguments of a Local->Get or Local->GetMeta query.
-func ExtractFilters(args map[string]interface{}, rootClass string) (*LocalFilter, error) {
+func ExtractFilters(args map[string]interface{}, rootClass string) (*filters.LocalFilter, error) {
 	where, wherePresent := args["where"]
 	if !wherePresent {
 		// No filters; all is fine!
@@ -32,42 +33,42 @@ func ExtractFilters(args map[string]interface{}, rootClass string) (*LocalFilter
 		if err != nil {
 			return nil, err
 		} else {
-			return &LocalFilter{Root: rootClause}, nil
+			return &filters.LocalFilter{Root: rootClause}, nil
 		}
 	}
 }
 
 // Parse a single clause
-func parseClause(args map[string]interface{}, rootClass string) (*Clause, error) {
+func parseClause(args map[string]interface{}, rootClass string) (*filters.Clause, error) {
 	operator, operatorOk := args["operator"]
 	if !operatorOk {
 		return nil, fmt.Errorf("operand is missing in clause %s", jsonify(args))
 	}
 
-	var clause *Clause
+	var clause *filters.Clause
 	var err error
 
 	switch operator {
 	case "And":
-		clause, err = parseOperandsOp(args, OperatorAnd, rootClass)
+		clause, err = parseOperandsOp(args, filters.OperatorAnd, rootClass)
 	case "Or":
-		clause, err = parseOperandsOp(args, OperatorOr, rootClass)
+		clause, err = parseOperandsOp(args, filters.OperatorOr, rootClass)
 	case "Not":
-		clause, err = parseOperandsOp(args, OperatorOr, rootClass)
+		clause, err = parseOperandsOp(args, filters.OperatorOr, rootClass)
 	case "Equal":
-		clause, err = parseCompareOp(args, OperatorEqual, rootClass)
+		clause, err = parseCompareOp(args, filters.OperatorEqual, rootClass)
 	case "NotEqual":
-		clause, err = parseCompareOp(args, OperatorNotEqual, rootClass)
+		clause, err = parseCompareOp(args, filters.OperatorNotEqual, rootClass)
 	case "GreaterThan":
-		clause, err = parseCompareOp(args, OperatorGreaterThan, rootClass)
+		clause, err = parseCompareOp(args, filters.OperatorGreaterThan, rootClass)
 	case "GreaterThanEqual":
-		clause, err = parseCompareOp(args, OperatorGreaterThanEqual, rootClass)
+		clause, err = parseCompareOp(args, filters.OperatorGreaterThanEqual, rootClass)
 	case "LessThan":
-		clause, err = parseCompareOp(args, OperatorLessThan, rootClass)
+		clause, err = parseCompareOp(args, filters.OperatorLessThan, rootClass)
 	case "LessThanEqual":
-		clause, err = parseCompareOp(args, OperatorLessThanEqual, rootClass)
+		clause, err = parseCompareOp(args, filters.OperatorLessThanEqual, rootClass)
 	case "WithinGeoRange":
-		clause, err = parseCompareOp(args, OperatorWithinGeoRange, rootClass)
+		clause, err = parseCompareOp(args, filters.OperatorWithinGeoRange, rootClass)
 	default:
 		err = fmt.Errorf("Unknown operator '%s' in clause %s", operator, jsonify(args))
 	}
@@ -80,7 +81,7 @@ func parseClause(args map[string]interface{}, rootClass string) (*Clause, error)
 // 1. The operator applied (e.g. Equal, LessThanEqual)
 // 2. A value (valueString, valueDate)
 // 3. The path ["SomeAction", "color"]
-func parseCompareOp(args map[string]interface{}, operator Operator, rootClass string) (*Clause, error) {
+func parseCompareOp(args map[string]interface{}, operator filters.Operator, rootClass string) (*filters.Clause, error) {
 	_, operandsPresent := args["operands"]
 
 	if operandsPresent {
@@ -97,7 +98,7 @@ func parseCompareOp(args map[string]interface{}, operator Operator, rootClass st
 		return nil, err
 	}
 
-	return &Clause{
+	return &filters.Clause{
 		Operator: operator,
 		On:       path,
 		Value:    value,
@@ -109,7 +110,7 @@ func parseCompareOp(args map[string]interface{}, operator Operator, rootClass st
 // 1. The operator appied (e.g. And, Or)
 // 2. The operands (e.g. a list of operands)
 //    Each operand will be parsed as a new clause.
-func parseOperandsOp(args map[string]interface{}, operator Operator, rootClass string) (*Clause, error) {
+func parseOperandsOp(args map[string]interface{}, operator filters.Operator, rootClass string) (*filters.Clause, error) {
 	_, pathPresent := args["path"]
 
 	if pathPresent {
@@ -126,7 +127,7 @@ func parseOperandsOp(args map[string]interface{}, operator Operator, rootClass s
 		return nil, fmt.Errorf("The operands in clause '%s' are not a list", jsonify(args))
 	}
 
-	var operands []Clause
+	var operands []filters.Clause
 
 	for _, rawOperand := range rawOperandsList {
 		rawOperandMap, ok := rawOperand.(map[string]interface{})
@@ -147,13 +148,13 @@ func parseOperandsOp(args map[string]interface{}, operator Operator, rootClass s
 		return nil, fmt.Errorf("Empty clause given")
 	}
 
-	return &Clause{
+	return &filters.Clause{
 		Operator: operator,
 		Operands: operands,
 	}, nil
 }
 
-func parsePathFromArgs(args map[string]interface{}, rootClass string) (*Path, error) {
+func parsePathFromArgs(args map[string]interface{}, rootClass string) (*filters.Path, error) {
 	rawPath, ok := args["path"]
 	if !ok {
 		return nil, fmt.Errorf("Missing the 'path' field for the filter '%s'", jsonify(args))
@@ -164,7 +165,7 @@ func parsePathFromArgs(args map[string]interface{}, rootClass string) (*Path, er
 		return nil, fmt.Errorf("The 'path' field for the filter '%s' is not a list of strings", jsonify(args))
 	}
 
-	path, err := ParsePath(pathElements, rootClass)
+	path, err := filters.ParsePath(pathElements, rootClass)
 	if err != nil {
 		return nil, fmt.Errorf("invalid 'path' field for filter '%s': %s", jsonify(args), err)
 	}
@@ -173,12 +174,12 @@ func parsePathFromArgs(args map[string]interface{}, rootClass string) (*Path, er
 }
 
 // ParseValue used in a comparator operator.
-func ParseValue(args map[string]interface{}) (*Value, error) {
+func ParseValue(args map[string]interface{}) (*filters.Value, error) {
 	// Split into this two parts:
 	// 1. This function that loops over the extractors and ensures exactly one value is found
 	// 2. A list of extractors that test if any of them matches (valueExtractors)
 
-	var value *Value
+	var value *filters.Value
 
 	for _, extractor := range valueExtractors {
 		foundValue, err := extractor(args)
@@ -205,9 +206,9 @@ func ParseValue(args map[string]interface{}) (*Value, error) {
 }
 
 // List of functions that can potentially extract a Value from the various valueXXXX fields in a clause.
-var valueExtractors [](func(args map[string]interface{}) (*Value, error)) = [](func(args map[string]interface{}) (*Value, error)){
+var valueExtractors [](func(args map[string]interface{}) (*filters.Value, error)) = [](func(args map[string]interface{}) (*filters.Value, error)){
 	// Ints
-	func(args map[string]interface{}) (*Value, error) {
+	func(args map[string]interface{}) (*filters.Value, error) {
 		rawVal, ok := args["valueInt"]
 		if !ok {
 			return nil, nil
@@ -217,14 +218,14 @@ var valueExtractors [](func(args map[string]interface{}) (*Value, error)) = [](f
 		if !ok {
 			return nil, fmt.Errorf("the provided valueInt is not an int")
 		} else {
-			return &Value{
+			return &filters.Value{
 				Type:  schema.DataTypeInt,
 				Value: val,
 			}, nil
 		}
 	},
 	// Number
-	func(args map[string]interface{}) (*Value, error) {
+	func(args map[string]interface{}) (*filters.Value, error) {
 		rawVal, ok := args["valueNumber"]
 		if !ok {
 			return nil, nil
@@ -235,13 +236,13 @@ var valueExtractors [](func(args map[string]interface{}) (*Value, error)) = [](f
 			return nil, fmt.Errorf("the provided valueNumber is not a float")
 		}
 
-		return &Value{
+		return &filters.Value{
 			Type:  schema.DataTypeNumber,
 			Value: val,
 		}, nil
 	},
 	// Boolean
-	func(args map[string]interface{}) (*Value, error) {
+	func(args map[string]interface{}) (*filters.Value, error) {
 		rawVal, ok := args["valueBoolean"]
 		if !ok {
 			return nil, nil
@@ -252,13 +253,13 @@ var valueExtractors [](func(args map[string]interface{}) (*Value, error)) = [](f
 			return nil, fmt.Errorf("the provided valueBool is not a boolean")
 		}
 
-		return &Value{
+		return &filters.Value{
 			Type:  schema.DataTypeBoolean,
 			Value: val,
 		}, nil
 	},
 	// Strings
-	func(args map[string]interface{}) (*Value, error) {
+	func(args map[string]interface{}) (*filters.Value, error) {
 		rawVal, ok := args["valueString"]
 		if !ok {
 			return nil, nil
@@ -269,12 +270,12 @@ var valueExtractors [](func(args map[string]interface{}) (*Value, error)) = [](f
 			return nil, fmt.Errorf("the provided valueString is not a string")
 		}
 
-		return &Value{
+		return &filters.Value{
 			Type:  schema.DataTypeString,
 			Value: val,
 		}, nil
 	},
-	func(args map[string]interface{}) (*Value, error) {
+	func(args map[string]interface{}) (*filters.Value, error) {
 		rawVal, ok := args["valueGeoRange"]
 		if !ok {
 			return nil, nil
@@ -291,9 +292,9 @@ var valueExtractors [](func(args map[string]interface{}) (*Value, error)) = [](f
 		distance := geoMap["distance"].(map[string]interface{})
 		maxDist := distance["max"].(float64)
 
-		return &Value{
+		return &filters.Value{
 			Type: schema.DataTypeGeoCoordinates,
-			Value: GeoRange{
+			Value: filters.GeoRange{
 				GeoCoordinates: &models.GeoCoordinates{
 					Latitude:  float32(lat),
 					Longitude: float32(lon),
@@ -303,7 +304,7 @@ var valueExtractors [](func(args map[string]interface{}) (*Value, error)) = [](f
 		}, nil
 	},
 	// Dates
-	func(args map[string]interface{}) (*Value, error) {
+	func(args map[string]interface{}) (*filters.Value, error) {
 		rawVal, ok := args["valueDate"]
 		if !ok {
 			return nil, nil
@@ -320,7 +321,7 @@ var valueExtractors [](func(args map[string]interface{}) (*Value, error)) = [](f
 			return nil, fmt.Errorf("failed to parse the value '%s' as a date in valueDate", stringVal)
 		}
 
-		return &Value{
+		return &filters.Value{
 			Type:  schema.DataTypeDate,
 			Value: date,
 		}, nil

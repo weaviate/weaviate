@@ -19,7 +19,7 @@ import (
 
 	analytics "github.com/SeMI-network/janus-spark-analytics/clients/go"
 	"github.com/coreos/etcd/clientv3"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
@@ -57,7 +57,7 @@ func NewProcessor(executor executor, cache etcdClient, analytics analyticsClient
 // Process the query (i.e. execute it), then post-process it, i.e. transform
 // the structure we get from janusgraph into the structure we need for the
 // graphQL API
-func (p *Processor) Process(ctx context.Context, query *gremlin.Query, groupBy *common_filters.Path,
+func (p *Processor) Process(ctx context.Context, query *gremlin.Query, groupBy *filters.Path,
 	params *kinds.AggregateParams) (interface{}, error) {
 
 	result, err := p.getResult(ctx, query, params)
@@ -87,7 +87,7 @@ func (p *Processor) getResult(ctx context.Context, query *gremlin.Query, params 
 	return p.getResultFromAnalyticsEngine(ctx, query, params)
 }
 
-func (p *Processor) sliceResults(input []interface{}, groupBy *common_filters.Path) ([]interface{}, error) {
+func (p *Processor) sliceResults(input []interface{}, groupBy *filters.Path) ([]interface{}, error) {
 	if len(input) != 1 {
 		return nil, fmt.Errorf("expected exactly one Datum from janus, but got: %#v", input)
 	}

@@ -15,7 +15,7 @@ package kinds
 import (
 	"testing"
 
-	cf "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/stretchr/testify/assert"
@@ -25,7 +25,7 @@ import (
 func Test_GetMetaParamsHashing(t *testing.T) {
 	params := func() GetMetaParams {
 		return GetMetaParams{
-			Analytics:        cf.AnalyticsProps{UseAnaltyicsEngine: true},
+			Analytics:        filters.AnalyticsProps{UseAnaltyicsEngine: true},
 			IncludeMetaCount: true,
 			ClassName:        schema.ClassName("MyBestClass"),
 			Filters:          nil,
@@ -65,7 +65,7 @@ func Test_GetMetaParamsHashing(t *testing.T) {
 
 	t.Run("it generates a different hash if where filter is added", func(t *testing.T) {
 		p := params()
-		p.Filters = &cf.LocalFilter{Root: &cf.Clause{Value: &cf.Value{Value: "foo"}}}
+		p.Filters = &filters.LocalFilter{Root: &filters.Clause{Value: &filters.Value{Value: "foo"}}}
 		h, err := p.AnalyticsHash()
 		require.Nil(t, err)
 		assert.NotEqual(t, hash(), h)

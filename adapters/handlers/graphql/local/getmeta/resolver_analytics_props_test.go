@@ -14,7 +14,7 @@ package getmeta
 import (
 	"testing"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"
@@ -26,7 +26,7 @@ func Test_ExtractAnalyticsPropsFromGetMeta(t *testing.T) {
 
 	query :=
 		"{ GetMeta { Things { Car(forceRecalculate: true, useAnalyticsEngine: true) { horsepower { mean } } } } }"
-	analytics := common_filters.AnalyticsProps{
+	analytics := filters.AnalyticsProps{
 		UseAnaltyicsEngine: true,
 		ForceRecalculate:   true,
 	}

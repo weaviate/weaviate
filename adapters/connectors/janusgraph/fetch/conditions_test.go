@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	cf "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
 	contextionary "github.com/creativesoftwarefdn/weaviate/contextionary/schema"
+	"github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
@@ -25,7 +25,7 @@ func Test_QueryBuilder_StringAllOperators(t *testing.T) {
 	tests := testCases{
 		{
 			name:        "string Equal",
-			inputParams: paramsFromSingleProp("name", schema.DataTypeString, cf.OperatorEqual, "Amsterdam"),
+			inputParams: paramsFromSingleProp("name", schema.DataTypeString, filters.OperatorEqual, "Amsterdam"),
 			expectedQuery: `
 				g.V().has("kind", "thing").and(
 					or(
@@ -36,7 +36,7 @@ func Test_QueryBuilder_StringAllOperators(t *testing.T) {
 		},
 		{
 			name:        "string NotEqual",
-			inputParams: paramsFromSingleProp("name", schema.DataTypeString, cf.OperatorNotEqual, "Amsterdam"),
+			inputParams: paramsFromSingleProp("name", schema.DataTypeString, filters.OperatorNotEqual, "Amsterdam"),
 			expectedQuery: `
 				g.V().has("kind", "thing").and(
 					or(
@@ -54,7 +54,7 @@ func Test_QueryBuilder_BooleanAllOperators(t *testing.T) {
 	tests := testCases{
 		{
 			name:        "Boolean Equal",
-			inputParams: paramsFromSingleProp("isCapital", schema.DataTypeBoolean, cf.OperatorEqual, true),
+			inputParams: paramsFromSingleProp("isCapital", schema.DataTypeBoolean, filters.OperatorEqual, true),
 			expectedQuery: `
 				g.V().has("kind", "thing").and(
 					or(
@@ -65,7 +65,7 @@ func Test_QueryBuilder_BooleanAllOperators(t *testing.T) {
 		},
 		{
 			name:        "Boolean NotEqual",
-			inputParams: paramsFromSingleProp("isCapital", schema.DataTypeBoolean, cf.OperatorNotEqual, true),
+			inputParams: paramsFromSingleProp("isCapital", schema.DataTypeBoolean, filters.OperatorNotEqual, true),
 			expectedQuery: `
 				g.V().has("kind", "thing").and(
 					or(
@@ -83,7 +83,7 @@ func Test_QueryBuilder_IntAllOperators(t *testing.T) {
 	tests := testCases{
 		{
 			name:        "with a single class name, single property name, int type, operator Equal",
-			inputParams: paramsFromSingleProp("population", schema.DataTypeInt, cf.OperatorEqual, 2000),
+			inputParams: paramsFromSingleProp("population", schema.DataTypeInt, filters.OperatorEqual, 2000),
 			expectedQuery: `
 				g.V().has("kind", "thing").and(
 					or(
@@ -94,7 +94,7 @@ func Test_QueryBuilder_IntAllOperators(t *testing.T) {
 		},
 		{
 			name:        "with a single class name, single property name, int type, operator NotEqual",
-			inputParams: paramsFromSingleProp("population", schema.DataTypeInt, cf.OperatorNotEqual, 2000),
+			inputParams: paramsFromSingleProp("population", schema.DataTypeInt, filters.OperatorNotEqual, 2000),
 			expectedQuery: `
 				g.V().has("kind", "thing").and(
 					or(
@@ -105,7 +105,7 @@ func Test_QueryBuilder_IntAllOperators(t *testing.T) {
 		},
 		{
 			name:        "with a single class name, single property name, int type, operator LessThan",
-			inputParams: paramsFromSingleProp("population", schema.DataTypeInt, cf.OperatorLessThan, 2000),
+			inputParams: paramsFromSingleProp("population", schema.DataTypeInt, filters.OperatorLessThan, 2000),
 			expectedQuery: `
 				g.V().has("kind", "thing").and(
 					or(
@@ -116,7 +116,7 @@ func Test_QueryBuilder_IntAllOperators(t *testing.T) {
 		},
 		{
 			name:        "with a single class name, single property name, int type, operator GreaterThan",
-			inputParams: paramsFromSingleProp("population", schema.DataTypeInt, cf.OperatorGreaterThan, 2000),
+			inputParams: paramsFromSingleProp("population", schema.DataTypeInt, filters.OperatorGreaterThan, 2000),
 			expectedQuery: `
 				g.V().has("kind", "thing").and(
 					or(
@@ -127,7 +127,7 @@ func Test_QueryBuilder_IntAllOperators(t *testing.T) {
 		},
 		{
 			name:        "with a single class name, single property name, int type, operator LessThanEqual",
-			inputParams: paramsFromSingleProp("population", schema.DataTypeInt, cf.OperatorLessThanEqual, 2000),
+			inputParams: paramsFromSingleProp("population", schema.DataTypeInt, filters.OperatorLessThanEqual, 2000),
 			expectedQuery: `
 				g.V().has("kind", "thing").and(
 					or(
@@ -138,7 +138,7 @@ func Test_QueryBuilder_IntAllOperators(t *testing.T) {
 		},
 		{
 			name:        "with a single class name, single property name, int type, operator GreaterThanEqual",
-			inputParams: paramsFromSingleProp("population", schema.DataTypeInt, cf.OperatorGreaterThanEqual, 2000),
+			inputParams: paramsFromSingleProp("population", schema.DataTypeInt, filters.OperatorGreaterThanEqual, 2000),
 			expectedQuery: `
 				g.V().has("kind", "thing").and(
 					or(
@@ -156,7 +156,7 @@ func Test_QueryBuilder_NumberAllOperators(t *testing.T) {
 	tests := testCases{
 		{
 			name:        "with a single class name, single property name, Number type, operator Equal",
-			inputParams: paramsFromSingleProp("area", schema.DataTypeNumber, cf.OperatorEqual, float64(2000)),
+			inputParams: paramsFromSingleProp("area", schema.DataTypeNumber, filters.OperatorEqual, float64(2000)),
 			expectedQuery: `
 				g.V().has("kind", "thing").and(
 					or(
@@ -167,7 +167,7 @@ func Test_QueryBuilder_NumberAllOperators(t *testing.T) {
 		},
 		{
 			name:        "with a single class name, single property name, Number type, operator NotEqual",
-			inputParams: paramsFromSingleProp("area", schema.DataTypeNumber, cf.OperatorNotEqual, float64(2000)),
+			inputParams: paramsFromSingleProp("area", schema.DataTypeNumber, filters.OperatorNotEqual, float64(2000)),
 			expectedQuery: `
 				g.V().has("kind", "thing").and(
 					or(
@@ -178,7 +178,7 @@ func Test_QueryBuilder_NumberAllOperators(t *testing.T) {
 		},
 		{
 			name:        "with a single class name, single property name, Number type, operator LessThan",
-			inputParams: paramsFromSingleProp("area", schema.DataTypeNumber, cf.OperatorLessThan, float64(2000)),
+			inputParams: paramsFromSingleProp("area", schema.DataTypeNumber, filters.OperatorLessThan, float64(2000)),
 			expectedQuery: `
 				g.V().has("kind", "thing").and(
 					or(
@@ -189,7 +189,7 @@ func Test_QueryBuilder_NumberAllOperators(t *testing.T) {
 		},
 		{
 			name:        "with a single class name, single property name, Number type, operator GreaterThan",
-			inputParams: paramsFromSingleProp("area", schema.DataTypeNumber, cf.OperatorGreaterThan, float64(2000)),
+			inputParams: paramsFromSingleProp("area", schema.DataTypeNumber, filters.OperatorGreaterThan, float64(2000)),
 			expectedQuery: `
 				g.V().has("kind", "thing").and(
 					or(
@@ -200,7 +200,7 @@ func Test_QueryBuilder_NumberAllOperators(t *testing.T) {
 		},
 		{
 			name:        "with a single class name, single property name, Number type, operator LessThanEqual",
-			inputParams: paramsFromSingleProp("area", schema.DataTypeNumber, cf.OperatorLessThanEqual, float64(2000)),
+			inputParams: paramsFromSingleProp("area", schema.DataTypeNumber, filters.OperatorLessThanEqual, float64(2000)),
 			expectedQuery: `
 				g.V().has("kind", "thing").and(
 					or(
@@ -211,7 +211,7 @@ func Test_QueryBuilder_NumberAllOperators(t *testing.T) {
 		},
 		{
 			name:        "with a single class name, single property name, Number type, operator GreaterThanEqual",
-			inputParams: paramsFromSingleProp("area", schema.DataTypeNumber, cf.OperatorGreaterThanEqual, float64(2000)),
+			inputParams: paramsFromSingleProp("area", schema.DataTypeNumber, filters.OperatorGreaterThanEqual, float64(2000)),
 			expectedQuery: `
 				g.V().has("kind", "thing").and(
 					or(
@@ -230,7 +230,7 @@ func Test_QueryBuilder_DateAllOperators(t *testing.T) {
 	tests := testCases{
 		{
 			name:        "with a single class name, single property name, Date type, operator Equal",
-			inputParams: paramsFromSingleProp("dateOfFirstAppearance", schema.DataTypeDate, cf.OperatorEqual, sampleDate()),
+			inputParams: paramsFromSingleProp("dateOfFirstAppearance", schema.DataTypeDate, filters.OperatorEqual, sampleDate()),
 			expectedQuery: `
 				g.V().has("kind", "thing").and(
 					or(
@@ -241,7 +241,7 @@ func Test_QueryBuilder_DateAllOperators(t *testing.T) {
 		},
 		{
 			name:        "with a single class name, single property name, Date type, operator NotEqual",
-			inputParams: paramsFromSingleProp("dateOfFirstAppearance", schema.DataTypeDate, cf.OperatorNotEqual, sampleDate()),
+			inputParams: paramsFromSingleProp("dateOfFirstAppearance", schema.DataTypeDate, filters.OperatorNotEqual, sampleDate()),
 			expectedQuery: `
 				g.V().has("kind", "thing").and(
 					or(
@@ -252,7 +252,7 @@ func Test_QueryBuilder_DateAllOperators(t *testing.T) {
 		},
 		{
 			name:        "with a single class name, single property name, Date type, operator LessThan",
-			inputParams: paramsFromSingleProp("dateOfFirstAppearance", schema.DataTypeDate, cf.OperatorLessThan, sampleDate()),
+			inputParams: paramsFromSingleProp("dateOfFirstAppearance", schema.DataTypeDate, filters.OperatorLessThan, sampleDate()),
 			expectedQuery: `
 				g.V().has("kind", "thing").and(
 					or(
@@ -263,7 +263,7 @@ func Test_QueryBuilder_DateAllOperators(t *testing.T) {
 		},
 		{
 			name:        "with a single class name, single property name, Date type, operator GreaterThan",
-			inputParams: paramsFromSingleProp("dateOfFirstAppearance", schema.DataTypeDate, cf.OperatorGreaterThan, sampleDate()),
+			inputParams: paramsFromSingleProp("dateOfFirstAppearance", schema.DataTypeDate, filters.OperatorGreaterThan, sampleDate()),
 			expectedQuery: `
 				g.V().has("kind", "thing").and(
 					or(
@@ -274,7 +274,7 @@ func Test_QueryBuilder_DateAllOperators(t *testing.T) {
 		},
 		{
 			name:        "with a single class name, single property name, Date type, operator LessThanEqual",
-			inputParams: paramsFromSingleProp("dateOfFirstAppearance", schema.DataTypeDate, cf.OperatorLessThanEqual, sampleDate()),
+			inputParams: paramsFromSingleProp("dateOfFirstAppearance", schema.DataTypeDate, filters.OperatorLessThanEqual, sampleDate()),
 			expectedQuery: `
 				g.V().has("kind", "thing").and(
 					or(
@@ -285,7 +285,7 @@ func Test_QueryBuilder_DateAllOperators(t *testing.T) {
 		},
 		{
 			name:        "with a single class name, single property name, Date type, operator GreaterThanEqual",
-			inputParams: paramsFromSingleProp("dateOfFirstAppearance", schema.DataTypeDate, cf.OperatorGreaterThanEqual, sampleDate()),
+			inputParams: paramsFromSingleProp("dateOfFirstAppearance", schema.DataTypeDate, filters.OperatorGreaterThanEqual, sampleDate()),
 			expectedQuery: `
 				g.V().has("kind", "thing").and(
 					or(
@@ -317,7 +317,7 @@ func cityClassSearch() contextionary.SearchResults {
 }
 
 func paramsFromSingleProp(propName string, dataType schema.DataType,
-	operator cf.Operator, value interface{}) kinds.FetchParams {
+	operator filters.Operator, value interface{}) kinds.FetchParams {
 	return kinds.FetchParams{
 		Kind:               kind.Thing,
 		PossibleClassNames: cityClassSearch(),

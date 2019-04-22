@@ -16,8 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
-	cf "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 )
@@ -38,11 +37,11 @@ func (t *Traverser) LocalAggregate(ctx context.Context, params *AggregateParams)
 // query.
 type AggregateParams struct {
 	Kind       kind.Kind
-	Filters    *common_filters.LocalFilter
-	Analytics  common_filters.AnalyticsProps
+	Filters    *filters.LocalFilter
+	Analytics  filters.AnalyticsProps
 	ClassName  schema.ClassName
 	Properties []AggregateProperty
-	GroupBy    *common_filters.Path
+	GroupBy    *filters.Path
 }
 
 // Aggregator is the desired computation that the database connector
@@ -93,7 +92,7 @@ func (p AggregateParams) AnalyticsHash() (string, error) {
 	params := p
 	// always override analytical props to make sure they don't influence the
 	// hash
-	params.Analytics = cf.AnalyticsProps{}
+	params.Analytics = filters.AnalyticsProps{}
 
 	return params.md5()
 }
