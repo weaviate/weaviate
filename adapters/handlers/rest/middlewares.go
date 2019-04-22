@@ -15,10 +15,8 @@ package rest
 import (
 	"net/http"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/graphiql"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/state"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/swagger_middleware"
-	"github.com/creativesoftwarefdn/weaviate/lib/feature_flags"
 	"github.com/rs/cors"
 	"github.com/sirupsen/logrus"
 )
@@ -47,12 +45,7 @@ func makeSetupGlobalMiddleware(appState *state.State) func(http.Handler) http.Ha
 			AllowedMethods:     []string{"POST", "PUT", "DELETE", "GET", "PATCH"},
 		}).Handler
 		handler = handleCORS(handler)
-
-		if feature_flags.EnableDevUI {
-			handler = graphiql.AddMiddleware(handler)
-			handler = swagger_middleware.AddMiddleware([]byte(SwaggerJSON), handler)
-		}
-
+		handler = swagger_middleware.AddMiddleware([]byte(SwaggerJSON), handler)
 		handler = makeAddLogging(appState.Logger)(handler)
 		handler = addPreflight(handler)
 
