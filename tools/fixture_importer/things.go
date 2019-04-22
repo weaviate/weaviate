@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/creativesoftwarefdn/weaviate/client/things"
-	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	spew "github.com/davecgh/go-spew/spew"
 	"github.com/go-openapi/strfmt"
 )

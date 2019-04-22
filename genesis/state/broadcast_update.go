@@ -14,7 +14,7 @@ package state
 import (
 	weaviate_client "github.com/creativesoftwarefdn/weaviate/client"
 	weaviate_p2p "github.com/creativesoftwarefdn/weaviate/client/p2_p"
-	weaviate_models "github.com/creativesoftwarefdn/weaviate/models"
+	weaviate_models "github.com/creativesoftwarefdn/weaviate/entities/models"
 
 	"net/url"
 
