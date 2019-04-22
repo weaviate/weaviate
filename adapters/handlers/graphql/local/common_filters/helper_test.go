@@ -13,6 +13,7 @@ package common_filters
 
 import (
 	test_helper "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/test/helper"
+	"github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/graphql-go/graphql"
 )
 
@@ -57,7 +58,7 @@ func newMockResolver() *mockResolver {
 	return mocker
 }
 
-func (m *mockResolver) ReportFilters(filter *LocalFilter) (interface{}, error) {
+func (m *mockResolver) ReportFilters(filter *filters.LocalFilter) (interface{}, error) {
 	args := m.Called(filter)
 	return args.Get(0), args.Error(1)
 }

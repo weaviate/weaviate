@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,7 +28,7 @@ func Test_ExtractAnalyticsProps(t *testing.T) {
 			DefaultUseAnalyticsEngine: false,
 		}
 		args := map[string]interface{}{}
-		expected := AnalyticsProps{
+		expected := filters.AnalyticsProps{
 			UseAnaltyicsEngine: false,
 			ForceRecalculate:   false,
 		}
@@ -47,7 +48,7 @@ func Test_ExtractAnalyticsProps(t *testing.T) {
 			"useAnalyticsEngine": false,
 			"forceRecalculate":   false,
 		}
-		expected := AnalyticsProps{
+		expected := filters.AnalyticsProps{
 			UseAnaltyicsEngine: false,
 			ForceRecalculate:   false,
 		}
@@ -67,7 +68,7 @@ func Test_ExtractAnalyticsProps(t *testing.T) {
 			"useAnalyticsEngine": true,
 			"forceRecalculate":   false,
 		}
-		expected := AnalyticsProps{
+		expected := filters.AnalyticsProps{
 			UseAnaltyicsEngine: true,
 			ForceRecalculate:   false,
 		}
@@ -87,7 +88,7 @@ func Test_ExtractAnalyticsProps(t *testing.T) {
 			"useAnalyticsEngine": true,
 			"forceRecalculate":   true,
 		}
-		expected := AnalyticsProps{
+		expected := filters.AnalyticsProps{
 			UseAnaltyicsEngine: true,
 			ForceRecalculate:   true,
 		}

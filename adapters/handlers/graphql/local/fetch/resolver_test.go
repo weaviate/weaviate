@@ -97,11 +97,11 @@ package fetch
 // 							}},
 // 						},
 // 						Match: PropertyMatch{
-// 							Value: &common_filters.Value{
+// 							Value: &filters.Operator{
 // 								Value: "some-value",
 // 								Type:  schema.DataTypeString,
 // 							},
-// 							Operator: common_filters.OperatorEqual,
+// 							Operator: filters.OperatorEqual,
 // 						},
 // 					},
 // 				},

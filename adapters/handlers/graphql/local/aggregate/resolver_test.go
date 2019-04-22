@@ -14,7 +14,7 @@ package aggregate
 import (
 	"testing"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"
@@ -28,8 +28,8 @@ type testCase struct {
 	expectedProps       []kinds.AggregateProperty
 	resolverReturn      interface{}
 	expectedResults     []result
-	expectedGroupBy     *common_filters.Path
-	expectedWhereFilter *common_filters.LocalFilter
+	expectedGroupBy     *filters.Path
+	expectedWhereFilter *filters.LocalFilter
 }
 
 type testCases []testCase
@@ -39,11 +39,11 @@ type result struct {
 	expectedValue interface{}
 }
 
-func groupCarByMadeByManufacturerName() *common_filters.Path {
-	return &common_filters.Path{
+func groupCarByMadeByManufacturerName() *filters.Path {
+	return &filters.Path{
 		Class:    schema.ClassName("Car"),
 		Property: schema.PropertyName("madeBy"),
-		Child: &common_filters.Path{
+		Child: &filters.Path{
 			Class:    schema.ClassName("Manufacturer"),
 			Property: schema.PropertyName("name"),
 		},
@@ -162,17 +162,17 @@ func Test_Resolve(t *testing.T) {
 					},
 				},
 			}},
-			expectedWhereFilter: &common_filters.LocalFilter{
-				Root: &common_filters.Clause{
-					On: &common_filters.Path{
+			expectedWhereFilter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					On: &filters.Path{
 						Class:    schema.ClassName("Car"),
 						Property: schema.PropertyName("horsepower"),
 					},
-					Value: &common_filters.Value{
+					Value: &filters.Value{
 						Value: 200,
 						Type:  schema.DataTypeInt,
 					},
-					Operator: common_filters.OperatorLessThan,
+					Operator: filters.OperatorLessThan,
 				},
 			},
 		},

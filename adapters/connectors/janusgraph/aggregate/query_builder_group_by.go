@@ -15,7 +15,7 @@ package aggregate
 import (
 	"fmt"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 )
 
@@ -41,7 +41,7 @@ func (b *Query) groupByReferenceProperty() *gremlin.Query {
 		ByQuery(edgePath)
 }
 
-func (b *Query) buildEdgePath(path *common_filters.Path) *gremlin.Query {
+func (b *Query) buildEdgePath(path *filters.Path) *gremlin.Query {
 	q := gremlin.New()
 	edgeLabel := b.mappedPropertyName(path.Class, path.Property)
 	referencedClass := b.mappedClassName(path.Child.Class)

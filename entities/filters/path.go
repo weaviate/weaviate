@@ -10,7 +10,7 @@
  * CONTACT: hello@creativesoftwarefdn.org
  */
 
-package common_filters
+package filters
 
 import (
 	"fmt"

@@ -15,7 +15,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
@@ -44,7 +44,7 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 		executor := &fakeExecutor{result: janusResponse}
-		groupBy := &common_filters.Path{
+		groupBy := &filters.Path{
 			Class:    schema.ClassName("City"),
 			Property: schema.PropertyName("isCapital"),
 		}

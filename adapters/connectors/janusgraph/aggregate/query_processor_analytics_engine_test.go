@@ -19,7 +19,7 @@ import (
 	analytics "github.com/SeMI-network/janus-spark-analytics/clients/go"
 	"github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/mvcc/mvccpb"
-	cf "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
@@ -31,7 +31,7 @@ import (
 
 func Test_QueryProcessor_AnalyticsEngine(t *testing.T) {
 	t.Run("when params specify not to use the analytics engine", func(t *testing.T) {
-		params := paramsWithAnalyticsProps(cf.AnalyticsProps{})
+		params := paramsWithAnalyticsProps(filters.AnalyticsProps{})
 		janusResponse := &gremlin.Response{
 			Data: []gremlin.Datum{
 				gremlin.Datum{
@@ -73,7 +73,7 @@ func Test_QueryProcessor_AnalyticsEngine(t *testing.T) {
 	})
 
 	t.Run("when analytics engine should be used and cache is present", func(t *testing.T) {
-		params := paramsWithAnalyticsProps(cf.AnalyticsProps{UseAnaltyicsEngine: true})
+		params := paramsWithAnalyticsProps(filters.AnalyticsProps{UseAnaltyicsEngine: true})
 		executorResponse := &gremlin.Response{Data: []gremlin.Datum{}}
 		executor := &fakeExecutor{result: executorResponse}
 		expectedResult := []interface{}{
@@ -118,7 +118,7 @@ func Test_QueryProcessor_AnalyticsEngine(t *testing.T) {
 	})
 
 	t.Run("when analytics engine should be used and there is no cache at all", func(t *testing.T) {
-		params := paramsWithAnalyticsProps(cf.AnalyticsProps{UseAnaltyicsEngine: true})
+		params := paramsWithAnalyticsProps(filters.AnalyticsProps{UseAnaltyicsEngine: true})
 		executorResponse := &gremlin.Response{Data: []gremlin.Datum{}}
 		executor := &fakeExecutor{result: executorResponse}
 		hash, err := params.AnalyticsHash()
@@ -152,7 +152,7 @@ func Test_QueryProcessor_AnalyticsEngine(t *testing.T) {
 	})
 
 	t.Run("when analytics engine should be used and a job is ongoing", func(t *testing.T) {
-		params := paramsWithAnalyticsProps(cf.AnalyticsProps{UseAnaltyicsEngine: true})
+		params := paramsWithAnalyticsProps(filters.AnalyticsProps{UseAnaltyicsEngine: true})
 		executorResponse := &gremlin.Response{Data: []gremlin.Datum{}}
 		executor := &fakeExecutor{result: executorResponse}
 		hash, err := params.AnalyticsHash()
@@ -179,7 +179,7 @@ func Test_QueryProcessor_AnalyticsEngine(t *testing.T) {
 	})
 
 	t.Run("when analytics engine has failed", func(t *testing.T) {
-		params := paramsWithAnalyticsProps(cf.AnalyticsProps{UseAnaltyicsEngine: true})
+		params := paramsWithAnalyticsProps(filters.AnalyticsProps{UseAnaltyicsEngine: true})
 		executorResponse := &gremlin.Response{Data: []gremlin.Datum{}}
 		executor := &fakeExecutor{result: executorResponse}
 		hash, err := params.AnalyticsHash()
@@ -207,7 +207,7 @@ func Test_QueryProcessor_AnalyticsEngine(t *testing.T) {
 	})
 
 	t.Run("when forceRecalculate is set", func(t *testing.T) {
-		params := paramsWithAnalyticsProps(cf.AnalyticsProps{
+		params := paramsWithAnalyticsProps(filters.AnalyticsProps{
 			UseAnaltyicsEngine: true,
 			ForceRecalculate:   true,
 		})
@@ -243,7 +243,7 @@ func Test_QueryProcessor_AnalyticsEngine(t *testing.T) {
 	})
 }
 
-func paramsWithAnalyticsProps(a cf.AnalyticsProps) kinds.AggregateParams {
+func paramsWithAnalyticsProps(a filters.AnalyticsProps) kinds.AggregateParams {
 	return kinds.AggregateParams{
 		Kind:      kind.Thing,
 		ClassName: schema.ClassName("Car"),
@@ -255,7 +255,7 @@ func paramsWithAnalyticsProps(a cf.AnalyticsProps) kinds.AggregateParams {
 				},
 			},
 		},
-		GroupBy: &cf.Path{
+		GroupBy: &filters.Path{
 			Class:    schema.ClassName("Car"),
 			Property: schema.PropertyName("convertible"),
 		},

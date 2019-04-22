@@ -14,7 +14,7 @@ package aggregate
 import (
 	"testing"
 
-	cf "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
@@ -29,7 +29,7 @@ func Test_QueryBuilder_IntProps(t *testing.T) {
 					Aggregators: []kinds.Aggregator{kinds.CountAggregator},
 				},
 			},
-			inputGroupBy: &cf.Path{
+			inputGroupBy: &filters.Path{
 				Class:    schema.ClassName("City"),
 				Property: schema.PropertyName("isCapital"),
 			},
@@ -52,7 +52,7 @@ func Test_QueryBuilder_IntProps(t *testing.T) {
 					Aggregators: []kinds.Aggregator{kinds.CountAggregator, kinds.MeanAggregator, kinds.SumAggregator, kinds.MaximumAggregator, kinds.MinimumAggregator, kinds.ModeAggregator},
 				},
 			},
-			inputGroupBy: &cf.Path{
+			inputGroupBy: &filters.Path{
 				Class:    schema.ClassName("City"),
 				Property: schema.PropertyName("isCapital"),
 			},

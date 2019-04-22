@@ -17,10 +17,10 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/common"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/get/refclasses"
+	"github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
@@ -214,7 +214,7 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 			return nil, fmt.Errorf("expected source map to have a usable Resolver, but got %#v", source["Resolver"])
 		}
 
-		pagination, err := common.ExtractPaginationFromArgs(p.Args)
+		pagination, err := filters.ExtractPaginationFromArgs(p.Args)
 		if err != nil {
 			return nil, err
 		}

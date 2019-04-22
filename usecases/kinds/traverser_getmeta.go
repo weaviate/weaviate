@@ -16,8 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
-	cf "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 )
@@ -38,8 +37,8 @@ func (t *Traverser) LocalGetMeta(ctx context.Context, params *GetMetaParams) (in
 // GetMeta query.
 type GetMetaParams struct {
 	Kind             kind.Kind
-	Filters          *common_filters.LocalFilter
-	Analytics        common_filters.AnalyticsProps
+	Filters          *filters.LocalFilter
+	Analytics        filters.AnalyticsProps
 	ClassName        schema.ClassName
 	Properties       []MetaProperty
 	IncludeMetaCount bool
@@ -149,7 +148,7 @@ func (p GetMetaParams) AnalyticsHash() (string, error) {
 	params := p
 	// always override analytical props to make sure they don't influence the
 	// hash
-	params.Analytics = cf.AnalyticsProps{}
+	params.Analytics = filters.AnalyticsProps{}
 
 	return params.md5()
 }

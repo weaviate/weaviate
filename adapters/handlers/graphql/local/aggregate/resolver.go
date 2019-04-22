@@ -21,6 +21,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/usecases/telemetry"
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"
@@ -162,7 +163,7 @@ func extractAggregators(selections *ast.SelectionSet) ([]kinds.Aggregator, error
 	return analyses, nil
 }
 
-func extractGroupBy(args map[string]interface{}, rootClass string) (*common_filters.Path, error) {
+func extractGroupBy(args map[string]interface{}, rootClass string) (*filters.Path, error) {
 	groupBy, ok := args["groupBy"]
 	if !ok {
 		return nil, fmt.Errorf("no groupBy present in args")
@@ -173,5 +174,5 @@ func extractGroupBy(args map[string]interface{}, rootClass string) (*common_filt
 		return nil, fmt.Errorf("no groupBy must be a list, instead got: %#v", groupBy)
 	}
 
-	return common_filters.ParsePath(pathSegments, rootClass)
+	return filters.ParsePath(pathSegments, rootClass)
 }

@@ -15,7 +15,7 @@ package aggregate
 import (
 	"testing"
 
-	cf "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
@@ -51,7 +51,7 @@ func Test_QueryBuilder_VariousGroupingStrategies_WithNameSource(t *testing.T) {
 		testCase{
 			name:       "group by single primitive prop",
 			inputProps: propList(),
-			inputGroupBy: &cf.Path{
+			inputGroupBy: &filters.Path{
 				Class:    schema.ClassName("City"),
 				Property: schema.PropertyName("isCapital"),
 			},
@@ -60,10 +60,10 @@ func Test_QueryBuilder_VariousGroupingStrategies_WithNameSource(t *testing.T) {
 		testCase{
 			name:       "group by reference one level deep",
 			inputProps: propList(),
-			inputGroupBy: &cf.Path{
+			inputGroupBy: &filters.Path{
 				Class:    schema.ClassName("City"),
 				Property: schema.PropertyName("inCountry"),
-				Child: &cf.Path{
+				Child: &filters.Path{
 					Class:    schema.ClassName("Country"),
 					Property: schema.PropertyName("name"),
 				},
@@ -73,13 +73,13 @@ func Test_QueryBuilder_VariousGroupingStrategies_WithNameSource(t *testing.T) {
 		testCase{
 			name:       "group by reference 2 levels deep",
 			inputProps: propList(),
-			inputGroupBy: &cf.Path{
+			inputGroupBy: &filters.Path{
 				Class:    schema.ClassName("City"),
 				Property: schema.PropertyName("inCountry"),
-				Child: &cf.Path{
+				Child: &filters.Path{
 					Class:    schema.ClassName("Country"),
 					Property: schema.PropertyName("inContinent"),
-					Child: &cf.Path{
+					Child: &filters.Path{
 						Class:    schema.ClassName("Continent"),
 						Property: schema.PropertyName("name"),
 					},

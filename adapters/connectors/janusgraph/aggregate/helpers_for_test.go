@@ -18,7 +18,7 @@ import (
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/state"
-	cf "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
@@ -138,7 +138,7 @@ func (s *fakeFilterSource) String() (string, error) {
 type testCase struct {
 	name          string
 	inputProps    []kinds.AggregateProperty
-	inputGroupBy  *cf.Path
+	inputGroupBy  *filters.Path
 	expectedQuery string
 }
 

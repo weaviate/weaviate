@@ -20,7 +20,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/filters"
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/state"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
+	entfilters "github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/crossref"
@@ -196,7 +196,7 @@ func (j *Janusgraph) getClass(ctx context.Context, k kind.Kind, searchUUID strfm
 }
 
 func (j *Janusgraph) getClasses(ctx context.Context, k kind.Kind, className *schema.ClassName, first int, offset int,
-	filter *common_filters.LocalFilter) ([]kindClass, error) {
+	filter *entfilters.LocalFilter) ([]kindClass, error) {
 
 	q := gremlin.G.V().
 		HasString(PROP_KIND, k.Name())
@@ -351,7 +351,7 @@ func (j *Janusgraph) getClasses(ctx context.Context, k kind.Kind, className *sch
 }
 
 func (j *Janusgraph) listClass(ctx context.Context, k kind.Kind, className *schema.ClassName,
-	limit int, filter *common_filters.LocalFilter, yield func(id strfmt.UUID)) error {
+	limit int, filter *entfilters.LocalFilter, yield func(id strfmt.UUID)) error {
 	q := gremlin.G.V().
 		HasString(PROP_KIND, k.Name())
 
