@@ -22,13 +22,17 @@ import (
 	libgraphql "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/operations"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/operations/graphql"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/rest_api_utils"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/usecases/telemetry"
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
 const error422 string = "The request is well-formed but was unable to be followed due to semantic errors."
+
+type gqlUnbatchedRequestResponse struct {
+	RequestIndex int
+	Response     *models.GraphQLResponse
+}
 
 type graphQLProvider interface {
 	GetGraphQL() libgraphql.GraphQL
@@ -109,7 +113,7 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 		if amountOfBatchedRequests == 0 {
 			return graphql.NewWeaviateGraphqlBatchUnprocessableEntity().WithPayload(errorResponse)
 		}
-		requestResults := make(chan rest_api_utils.UnbatchedRequestResponse, amountOfBatchedRequests)
+		requestResults := make(chan gqlUnbatchedRequestResponse, amountOfBatchedRequests)
 
 		wg := new(sync.WaitGroup)
 
@@ -136,7 +140,7 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 }
 
 // Handle a single unbatched GraphQL request, return a tuple containing the index of the request in the batch and either the response or an error
-func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, graphQL libgraphql.GraphQL, unbatchedRequest *models.GraphQLQuery, requestIndex int, requestResults *chan rest_api_utils.UnbatchedRequestResponse, requestsLog *telemetry.RequestsLog) {
+func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, graphQL libgraphql.GraphQL, unbatchedRequest *models.GraphQLQuery, requestIndex int, requestResults *chan gqlUnbatchedRequestResponse, requestsLog *telemetry.RequestsLog) {
 	defer wg.Done()
 
 	// Get all input from the body of the request
@@ -152,7 +156,7 @@ func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, grap
 		errorMessage := fmt.Sprintf("%s: %s", errorCode, error422)
 		errors := []*models.GraphQLError{&models.GraphQLError{Message: errorMessage}}
 		graphQLResponse := models.GraphQLResponse{Data: nil, Errors: errors}
-		*requestResults <- rest_api_utils.UnbatchedRequestResponse{
+		*requestResults <- gqlUnbatchedRequestResponse{
 			requestIndex,
 			&graphQLResponse,
 		}
@@ -180,7 +184,7 @@ func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, grap
 			errorMessage := fmt.Sprintf("%s: %s", errorCode, error422)
 			errors := []*models.GraphQLError{&models.GraphQLError{Message: errorMessage}}
 			graphQLResponse := models.GraphQLResponse{Data: nil, Errors: errors}
-			*requestResults <- rest_api_utils.UnbatchedRequestResponse{
+			*requestResults <- gqlUnbatchedRequestResponse{
 				requestIndex,
 				&graphQLResponse,
 			}
@@ -197,13 +201,13 @@ func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, grap
 				errorMessage := fmt.Sprintf("%s: %s", errorCode, error422)
 				errors := []*models.GraphQLError{&models.GraphQLError{Message: errorMessage}}
 				graphQLResponse := models.GraphQLResponse{Data: nil, Errors: errors}
-				*requestResults <- rest_api_utils.UnbatchedRequestResponse{
+				*requestResults <- gqlUnbatchedRequestResponse{
 					requestIndex,
 					&graphQLResponse,
 				}
 			} else {
 				// Return the GraphQL response
-				*requestResults <- rest_api_utils.UnbatchedRequestResponse{
+				*requestResults <- gqlUnbatchedRequestResponse{
 					requestIndex,
 					graphQLResponse,
 				}

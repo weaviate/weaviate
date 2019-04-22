@@ -90,8 +90,4 @@ func (c *Client) Execute(query gremlin.Gremlin) (*gremlin.Response, error) {
 	default:
 		return nil, fmt.Errorf("Unexpected status code %v", http_response.StatusCode)
 	}
-
-	// should not reach this; default case in switch should handle everything.
-	panic("unreachable")
-	return nil, nil
 }
