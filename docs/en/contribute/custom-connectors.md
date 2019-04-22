@@ -17,7 +17,7 @@ as expected.
 The most important directory and file you will be working with are;
 - The [/database/connectors](../../../database/connectors) directory. And;
 - The
-  [/database/listing/connectors.go](../../../database/listing/connectors.go)
+  [/usecases/connswitch/connectors.go](../../../usecases/connswitch/connectors.go)
   file.
 
 In the database directory, you will be doing most of your work. The listing
@@ -39,7 +39,7 @@ functions that you need to populate.
 If you have created a new connector in the
 [/database/connectors/\<sampleconnector\>](../../../database/connectors) folder,
 you need to edit the
-[/database/listing/connectors.go](../../../database/connectors/connectors.go)
+[/usecases/connswitch/connectors.go](../../../database/connectors/connectors.go)
 file to include your connector.
 
 For example, adding a new `sampleconnector` would look like this:

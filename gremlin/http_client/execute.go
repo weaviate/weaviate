@@ -13,6 +13,7 @@ package http_client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/prometheus/common/log"
+	"golang.org/x/net/context/ctxhttp"
 )
 
 type gremlin_http_query struct {
@@ -41,7 +43,7 @@ type gremlinResponse struct {
 	Result gremlinResponseResult `json:"result"`
 }
 
-func (c *Client) Execute(query gremlin.Gremlin) (*gremlin.Response, error) {
+func (c *Client) Execute(ctx context.Context, query gremlin.Gremlin) (*gremlin.Response, error) {
 	queryString := query.String()
 
 	q := gremlin_http_query{
@@ -54,8 +56,8 @@ func (c *Client) Execute(query gremlin.Gremlin) (*gremlin.Response, error) {
 		return nil, fmt.Errorf("Could not create query because %v", err)
 	}
 
-	bytes_reader := bytes.NewReader(json_bytes)
-	req, err := http.NewRequest("POST", c.endpoint, bytes_reader)
+	bytesReader := bytes.NewReader(json_bytes)
+	req, err := http.NewRequest("POST", c.endpoint, bytesReader)
 	if err != nil {
 		log.Errorf("Could not create HTTP request, because %v", err)
 		return nil, fmt.Errorf("Could not create HTTP request to resolve a Gremlin query; %v", err)
@@ -64,34 +66,29 @@ func (c *Client) Execute(query gremlin.Gremlin) (*gremlin.Response, error) {
 	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add("Accept", "application/json")
 
-	http_response, err := c.client.Do(req)
+	res, err := ctxhttp.Do(ctx, &c.client, req)
 	if err != nil {
 		return nil, fmt.Errorf("Could not peform HTTP request to JanusGraph, because %v", err)
 	}
 
-	defer http_response.Body.Close()
+	defer res.Body.Close()
+	buf, err := ioutil.ReadAll(res.Body)
+	var resData gremlinResponse
+	json.Unmarshal(buf, &resData)
 
-	buf, err := ioutil.ReadAll(http_response.Body)
-	var response_data gremlinResponse
-	json.Unmarshal(buf, &response_data)
-
-	switch http_response.StatusCode {
+	switch res.StatusCode {
 	case 200:
 		data := make([]gremlin.Datum, 0)
 
-		for _, d := range response_data.Result.Data {
+		for _, d := range resData.Result.Data {
 			data = append(data, gremlin.Datum{Datum: d})
 		}
 
-		client_response := gremlin.Response{Data: data}
-		return &client_response, nil
+		clientRes := gremlin.Response{Data: data}
+		return &clientRes, nil
 	case 500:
-		return nil, fmt.Errorf("Server error: %s", string(buf))
+		return nil, fmt.Errorf("server error: %s", string(buf))
 	default:
-		return nil, fmt.Errorf("Unexpected status code %v", http_response.StatusCode)
+		return nil, fmt.Errorf("unexpected status code: %v", res.StatusCode)
 	}
-
-	// should not reach this; default case in switch should handle everything.
-	panic("unreachable")
-	return nil, nil
 }

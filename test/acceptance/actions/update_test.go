@@ -19,7 +19,7 @@ import (
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/client/actions"
-	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
 )
 
@@ -36,6 +36,7 @@ func TestCanUpdateActionSetNumber(t *testing.T) {
 	update := models.Action{}
 	update.Schema = schema
 	update.Class = "TestAction"
+	update.ID = uuid
 
 	params := actions.NewWeaviateActionUpdateParams().WithID(uuid).WithBody(&update)
 	updateResp, err := helper.Client(t).Actions.WeaviateActionUpdate(params, nil)
@@ -66,6 +67,7 @@ func TestCanUpdateActionSetString(t *testing.T) {
 	update := models.Action{}
 	update.Schema = schema
 	update.Class = "TestAction"
+	update.ID = uuid
 
 	params := actions.NewWeaviateActionUpdateParams().WithID(uuid).WithBody(&update)
 	updateResp, err := helper.Client(t).Actions.WeaviateActionUpdate(params, nil)
@@ -91,6 +93,7 @@ func TestCanUpdateActionSetBool(t *testing.T) {
 	update := models.Action{}
 	update.Schema = schema
 	update.Class = "TestAction"
+	update.ID = uuid
 
 	params := actions.NewWeaviateActionUpdateParams().WithID(uuid).WithBody(&update)
 	updateResp, err := helper.Client(t).Actions.WeaviateActionUpdate(params, nil)
