@@ -13,6 +13,7 @@
 package get
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"strings"
@@ -37,7 +38,7 @@ type Processor struct {
 }
 
 type executor interface {
-	Execute(query gremlin.Gremlin) (*gremlin.Response, error)
+	Execute(ctx context.Context, query gremlin.Gremlin) (*gremlin.Response, error)
 }
 
 var isAProp *regexp.Regexp
@@ -53,8 +54,8 @@ func NewProcessor(executor executor, nameSource nameSource, className schema.Cla
 
 // Process the query by executing it and then transforming the results to
 // include the beacon structure
-func (p *Processor) Process(query *gremlin.Query) ([]interface{}, error) {
-	result, err := p.executor.Execute(query)
+func (p *Processor) Process(ctx context.Context, query *gremlin.Query) ([]interface{}, error) {
+	result, err := p.executor.Execute(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("could not process fetch query: executing the query failed: %s", err)
 	}

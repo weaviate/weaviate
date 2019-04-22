@@ -25,15 +25,15 @@ import (
 
 func (j *Janusgraph) AddThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error {
 	sanitizedClassName := schema.AssertValidClassName(thing.Class)
-	return j.addClass(kind.Thing, sanitizedClassName, UUID, thing.CreationTimeUnix, thing.LastUpdateTimeUnix, thing.Schema)
+	return j.addClass(ctx, kind.Thing, sanitizedClassName, UUID, thing.CreationTimeUnix, thing.LastUpdateTimeUnix, thing.Schema)
 }
 
 func (j *Janusgraph) AddThingsBatch(ctx context.Context, things kinds.BatchThings) error {
-	return j.addThingsBatch(things)
+	return j.addThingsBatch(ctx, things)
 }
 
 func (j *Janusgraph) GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.Thing) error {
-	return j.getClass(kind.Thing, UUID,
+	return j.getClass(ctx, kind.Thing, UUID,
 		&thingResponse.Class,
 		&thingResponse.ID,
 		&thingResponse.CreationTimeUnix,
@@ -45,7 +45,7 @@ func (j *Janusgraph) ListThings(ctx context.Context, limit int, response *models
 	response.TotalResults = 0
 	response.Things = make([]*models.Thing, 0)
 
-	return j.listClass(kind.Thing, nil, limit, nil, func(uuid strfmt.UUID) {
+	return j.listClass(ctx, kind.Thing, nil, limit, nil, func(uuid strfmt.UUID) {
 		var thing_response models.Thing
 		err := j.GetThing(ctx, uuid, &thing_response)
 
@@ -60,9 +60,9 @@ func (j *Janusgraph) ListThings(ctx context.Context, limit int, response *models
 
 func (j *Janusgraph) UpdateThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error {
 	sanitizedClassName := schema.AssertValidClassName(thing.Class)
-	return j.updateClass(kind.Thing, sanitizedClassName, UUID, thing.LastUpdateTimeUnix, thing.Schema)
+	return j.updateClass(ctx, kind.Thing, sanitizedClassName, UUID, thing.LastUpdateTimeUnix, thing.Schema)
 }
 
 func (j *Janusgraph) DeleteThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error {
-	return j.deleteClass(kind.Thing, UUID)
+	return j.deleteClass(ctx, kind.Thing, UUID)
 }

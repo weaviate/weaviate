@@ -12,11 +12,15 @@
 
 package get
 
-import "github.com/creativesoftwarefdn/weaviate/usecases/kinds"
+import (
+	"context"
+
+	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
+)
 
 // Resolver is a local abstraction of the required UC resolvers
 type Resolver interface {
-	LocalGetClass(info *kinds.LocalGetParams) (interface{}, error)
+	LocalGetClass(ctx context.Context, info *kinds.LocalGetParams) (interface{}, error)
 }
 
 // RequestsLog is a local abstraction on the RequestsLog that needs to be

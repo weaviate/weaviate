@@ -50,7 +50,7 @@ func (j *Janusgraph) ensureBasicSchema(ctx context.Context) error {
 		query.MakePropertyKey(PROP_REF_EDGE_TYPE, gremlin_schema_query.DATATYPE_STRING, gremlin_schema_query.CARDINALITY_SINGLE)
 
 		query.Commit()
-		_, err := j.client.Execute(query)
+		_, err := j.client.Execute(ctx, query)
 		if err != nil {
 			return fmt.Errorf("could not initialize the basic Janus schema: %s", spew.Sdump(err))
 		}
@@ -108,7 +108,7 @@ func (j *Janusgraph) AddClass(ctx context.Context, kind kind.Kind, class *models
 
 	query.Commit()
 
-	_, err := j.client.Execute(query)
+	_, err := j.client.Execute(ctx, query)
 
 	if err != nil {
 		return fmt.Errorf("could not create vertex/property types in JanusGraph")
@@ -131,7 +131,7 @@ func (j *Janusgraph) DropClass(ctx context.Context, kind kind.Kind, name string)
 		HasString(PROP_CLASS_ID, string(vertexLabel)).
 		Drop()
 
-	_, err := j.client.Execute(query)
+	_, err := j.client.Execute(ctx, query)
 	if err != nil {
 		return fmt.Errorf("could not remove all data of the dropped class in JanusGraph: %s", err)
 	}
@@ -177,7 +177,7 @@ func (j *Janusgraph) AddUnindexedProperty(ctx context.Context, kind kind.Kind, c
 
 	query.Commit()
 
-	_, err = j.client.Execute(query)
+	_, err = j.client.Execute(ctx, query)
 
 	if err != nil {
 		return fmt.Errorf("could not create property type in JanusGraph")
@@ -216,7 +216,7 @@ func (j *Janusgraph) AddProperty(ctx context.Context, kind kind.Kind, className 
 
 	query.Commit()
 
-	_, err = j.client.Execute(query)
+	_, err = j.client.Execute(ctx, query)
 
 	if err != nil {
 		return fmt.Errorf("could not create property type in JanusGraph")
@@ -282,7 +282,7 @@ func (j *Janusgraph) DropProperty(ctx context.Context, kind kind.Kind, className
 			Drop()
 	}
 
-	_, err = j.client.Execute(query)
+	_, err = j.client.Execute(ctx, query)
 	if err != nil {
 		return fmt.Errorf("could not remove all data of the dropped class in JanusGraph: %s", err)
 	}

@@ -11,6 +11,7 @@
  */package kinds
 
 import (
+	"context"
 	"crypto/md5"
 	"encoding/json"
 	"fmt"
@@ -22,14 +23,14 @@ import (
 )
 
 // LocalGetMeta resolves meta queries
-func (t *Traverser) LocalGetMeta(params *GetMetaParams) (interface{}, error) {
+func (t *Traverser) LocalGetMeta(ctx context.Context, params *GetMetaParams) (interface{}, error) {
 	unlock, err := t.locks.LockConnector()
 	if err != nil {
 		return nil, fmt.Errorf("could not acquire lock: %v", err)
 	}
 	defer unlock()
 
-	return t.repo.LocalGetMeta(params)
+	return t.repo.LocalGetMeta(ctx, params)
 }
 
 // GetMetaParams to describe the Local->GetMeta->Kind->Class query. Will be

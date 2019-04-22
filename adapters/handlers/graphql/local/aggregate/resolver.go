@@ -14,6 +14,7 @@
 package aggregate
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
@@ -36,7 +37,7 @@ const GroupedByFieldName = "groupedBy"
 // form the overall GraphQL API main interface. All data-base connectors that
 // want to support the GetMeta feature must implement this interface.
 type Resolver interface {
-	LocalAggregate(info *kinds.AggregateParams) (interface{}, error)
+	LocalAggregate(ctx context.Context, info *kinds.AggregateParams) (interface{}, error)
 }
 
 // RequestsLog is a local abstraction on the RequestsLog that needs to be
@@ -111,7 +112,7 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 			Analytics:  analytics,
 		}
 
-		return resolver.LocalAggregate(params)
+		return resolver.LocalAggregate(p.Context, params)
 	}
 }
 

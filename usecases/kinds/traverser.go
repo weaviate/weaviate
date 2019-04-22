@@ -11,6 +11,8 @@
  */package kinds
 
 import (
+	"context"
+
 	contextionary "github.com/creativesoftwarefdn/weaviate/contextionary/schema"
 )
 
@@ -33,11 +35,11 @@ func NewTraverser(locks locks, repo TraverserRepo, c11y c11yProvider) *Traverser
 // TraverserRepo describes the dependencies of the Traverser UC to the
 // connected database
 type TraverserRepo interface {
-	LocalGetClass(*LocalGetParams) (interface{}, error)
-	LocalGetMeta(*GetMetaParams) (interface{}, error)
-	LocalAggregate(*AggregateParams) (interface{}, error)
-	LocalFetchKindClass(*FetchParams) (interface{}, error)
-	LocalFetchFuzzy([]string) (interface{}, error)
+	LocalGetClass(context.Context, *LocalGetParams) (interface{}, error)
+	LocalGetMeta(context.Context, *GetMetaParams) (interface{}, error)
+	LocalAggregate(context.Context, *AggregateParams) (interface{}, error)
+	LocalFetchKindClass(context.Context, *FetchParams) (interface{}, error)
+	LocalFetchFuzzy(context.Context, []string) (interface{}, error)
 }
 
 type c11yProvider interface {

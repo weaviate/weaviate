@@ -54,7 +54,7 @@ func Test_QueryProcessor_AnalyticsEngine(t *testing.T) {
 		analytics := &analyticsAPIMock{}
 
 		result, err := NewProcessor(executor, etcd, analytics).
-			Process(gremlin.New(), nil, &params)
+			Process(context.Background(), gremlin.New(), nil, &params)
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be directly computed without the engine")
@@ -91,7 +91,7 @@ func Test_QueryProcessor_AnalyticsEngine(t *testing.T) {
 		analytics := &analyticsAPIMock{}
 
 		result, err := NewProcessor(executor, etcd, analytics).
-			Process(gremlin.New(), nil, &params)
+			Process(context.Background(), gremlin.New(), nil, &params)
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be directly computed without the engine")
@@ -122,7 +122,7 @@ func Test_QueryProcessor_AnalyticsEngine(t *testing.T) {
 			Return(nil)
 
 		_, err = NewProcessor(executor, etcd, analytics).
-			Process(gremlin.New().Raw("g.V().count()"), nil, &params)
+			Process(context.Background(), gremlin.New().Raw("g.V().count()"), nil, &params)
 
 		etcd.AssertExpectations(t)
 		analytics.AssertExpectations(t)
@@ -150,7 +150,7 @@ func Test_QueryProcessor_AnalyticsEngine(t *testing.T) {
 		analytics := &analyticsAPIMock{}
 
 		_, err = NewProcessor(executor, etcd, analytics).
-			Process(gremlin.New().Raw("g.V().count()"), nil, &params)
+			Process(context.Background(), gremlin.New().Raw("g.V().count()"), nil, &params)
 
 		etcd.AssertExpectations(t)
 		analytics.AssertNotCalled(t, "Schedule")
@@ -178,7 +178,7 @@ func Test_QueryProcessor_AnalyticsEngine(t *testing.T) {
 		analytics := &analyticsAPIMock{}
 
 		_, err = NewProcessor(executor, etcd, analytics).
-			Process(gremlin.New().Raw("g.V().count()"), nil, &params)
+			Process(context.Background(), gremlin.New().Raw("g.V().count()"), nil, &params)
 
 		etcd.AssertExpectations(t)
 		analytics.AssertNotCalled(t, "Schedule")
@@ -211,7 +211,7 @@ func Test_QueryProcessor_AnalyticsEngine(t *testing.T) {
 			Return(nil)
 
 		_, err = NewProcessor(executor, etcd, analytics).
-			Process(gremlin.New().Raw("g.V().count()"), nil, &params)
+			Process(context.Background(), gremlin.New().Raw("g.V().count()"), nil, &params)
 
 		analytics.AssertExpectations(t)
 

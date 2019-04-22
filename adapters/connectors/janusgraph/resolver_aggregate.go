@@ -13,6 +13,8 @@
 package janusgraph
 
 import (
+	"context"
+
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/aggregate"
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/filters"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
@@ -20,7 +22,7 @@ import (
 )
 
 // LocalAggregate based on GraphQL Query params
-func (j *Janusgraph) LocalAggregate(params *kinds.AggregateParams) (interface{}, error) {
+func (j *Janusgraph) LocalAggregate(ctx context.Context, params *kinds.AggregateParams) (interface{}, error) {
 	className := j.state.MustGetMappedClassName(params.ClassName)
 	q := gremlin.New().Raw(`g.V()`).
 		HasString("kind", params.Kind.Name()).
@@ -35,5 +37,5 @@ func (j *Janusgraph) LocalAggregate(params *kinds.AggregateParams) (interface{},
 
 	q = q.Raw(metaQuery)
 
-	return aggregate.NewProcessor(j.client, j.etcdClient, j.analyticsClient).Process(q, params.GroupBy, params)
+	return aggregate.NewProcessor(j.client, j.etcdClient, j.analyticsClient).Process(ctx, q, params.GroupBy, params)
 }

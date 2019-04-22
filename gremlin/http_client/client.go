@@ -12,6 +12,7 @@
 package http_client
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 
@@ -46,7 +47,7 @@ func (c *Client) SetLogger(logger *logrus.Logger) {
 
 func (c *Client) Ping() error {
 	q := gremlin.RawQuery("1+41")
-	response, err := c.Execute(q)
+	response, err := c.Execute(context.Background(), q)
 	if err != nil {
 		return err
 	}

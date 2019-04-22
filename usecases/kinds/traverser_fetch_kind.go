@@ -11,6 +11,7 @@
  */package kinds
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
@@ -18,9 +19,8 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 )
 
-// TODO: move contextionary and schema contextionary into uc, so we don't depend on db
-
-func (t *Traverser) LocalFetchKindClass(params *FetchSearch) (interface{}, error) {
+// LocalFetchKindClass searches for a specific class based on FetchSearch params
+func (t *Traverser) LocalFetchKindClass(ctx context.Context, params *FetchSearch) (interface{}, error) {
 	unlock, err := t.locks.LockConnector()
 	if err != nil {
 		return nil, fmt.Errorf("could not acquire lock: %v", err)
@@ -56,7 +56,7 @@ func (t *Traverser) LocalFetchKindClass(params *FetchSearch) (interface{}, error
 			"the desired certainty")
 	}
 
-	return t.repo.LocalFetchKindClass(connectorParams)
+	return t.repo.LocalFetchKindClass(ctx, connectorParams)
 }
 
 func (t *Traverser) addPossibleNamesToProperties(props []FetchSearchProperty, c11y c11y) ([]FetchProperty, error) {
@@ -75,18 +75,23 @@ func (t *Traverser) addPossibleNamesToProperties(props []FetchSearchProperty, c1
 	return properties, nil
 }
 
+// FetchSearch describes the search params for a specific class, as well as a
+// list of properties which should match
 type FetchSearch struct {
 	Class      contextionary.SearchParams
 	Properties []FetchSearchProperty
 }
 
+// FetchSearchProperty describes both the search params, as well as the match
+// criteria for a single property as part of a search
 type FetchSearchProperty struct {
 	Search contextionary.SearchParams
 	Match  FetchPropertyMatch
 }
 
 // TODO: don't depend on a gql package, move filters to entities
-// FetchSearchPropertyMatch defines how in the db connector this property should be used
+
+// FetchPropertyMatch defines how in the db connector this property should be used
 // as a filter
 type FetchPropertyMatch struct {
 	Operator common_filters.Operator

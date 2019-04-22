@@ -10,14 +10,16 @@
  * CONTACT: hello@creativesoftwarefdn.org
  */package kinds
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+)
 
-// TODO: move contextionary and schema contextionary into uc, so we don't depend on db
-
-func (t *Traverser) LocalFetchFuzzy(params FetchFuzzySearch) (interface{}, error) {
+// LocalFetchFuzzy with Search
+func (t *Traverser) LocalFetchFuzzy(ctx context.Context, params FetchFuzzySearch) (interface{}, error) {
 	words := t.contextionaryProvider.GetSchemaContextionary().
 		SafeGetSimilarWordsWithCertainty(params.Value, params.Certainty)
-	res, err := t.repo.LocalFetchFuzzy(words)
+	res, err := t.repo.LocalFetchFuzzy(ctx, words)
 	if err != nil {
 		return nil, fmt.Errorf("could not perform fuzzy search in connector: %v", err)
 	}
@@ -25,6 +27,7 @@ func (t *Traverser) LocalFetchFuzzy(params FetchFuzzySearch) (interface{}, error
 	return res, nil
 }
 
+// FetchFuzzySearch fro LocalFetchFuzzy
 type FetchFuzzySearch struct {
 	Value     string
 	Certainty float32

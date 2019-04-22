@@ -12,6 +12,7 @@
 package janusgraph
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -35,7 +36,7 @@ type edgeFromRefProp struct {
 	edgesToDrop  []string
 }
 
-func (j *Janusgraph) addEdgesToQuery(q *gremlin.Query, k kind.Kind, className schema.ClassName,
+func (j *Janusgraph) addEdgesToQuery(ctx context.Context, q *gremlin.Query, k kind.Kind, className schema.ClassName,
 	rawProperties interface{}, janusSourceClassLabel string) (*gremlin.Query, error) {
 
 	var localEdges []edge
@@ -70,7 +71,7 @@ func (j *Janusgraph) addEdgesToQuery(q *gremlin.Query, k kind.Kind, className sc
 				return q, err
 			}
 		} else {
-			result, err := j.edgesFromReferenceProp(property, value, propType, janusPropertyName, sanitizedPropertyName)
+			result, err := j.edgesFromReferenceProp(ctx, property, value, propType, janusPropertyName, sanitizedPropertyName)
 			if err != nil {
 				return q, err
 			}
@@ -215,22 +216,22 @@ func addPrimitivePropToQuery(q *gremlin.Query, propType schema.PropertyDataType,
 	return q, nil
 }
 
-func (j *Janusgraph) edgesFromReferenceProp(property *models.SemanticSchemaClassProperty,
+func (j *Janusgraph) edgesFromReferenceProp(ctx context.Context, property *models.SemanticSchemaClassProperty,
 	value interface{}, propType schema.PropertyDataType, janusPropertyName string, sanitizedPropertyName schema.PropertyName) (edgeFromRefProp, error) {
 	result := edgeFromRefProp{}
 
 	switch schema.CardinalityOfProperty(property) {
 	case schema.CardinalityAtMostOne:
-		return j.singleRef(value, propType, janusPropertyName, sanitizedPropertyName)
+		return j.singleRef(ctx, value, propType, janusPropertyName, sanitizedPropertyName)
 	case schema.CardinalityMany:
-		return j.multipleRefs(value, propType, janusPropertyName, sanitizedPropertyName)
+		return j.multipleRefs(ctx, value, propType, janusPropertyName, sanitizedPropertyName)
 	default:
 		return result, fmt.Errorf("Unexpected cardinality %v",
 			schema.CardinalityOfProperty(property))
 	}
 }
 
-func (j *Janusgraph) singleRef(value interface{}, propType schema.PropertyDataType,
+func (j *Janusgraph) singleRef(ctx context.Context, value interface{}, propType schema.PropertyDataType,
 	janusPropertyName string, sanitizedPropertyName schema.PropertyName) (edgeFromRefProp, error) {
 	result := edgeFromRefProp{}
 	switch ref := value.(type) {
@@ -241,17 +242,17 @@ func (j *Janusgraph) singleRef(value interface{}, propType schema.PropertyDataTy
 		}
 
 		if parsedRef.Local {
-			return j.singleLocalRef(parsedRef, propType, janusPropertyName, sanitizedPropertyName)
+			return j.singleLocalRef(ctx, parsedRef, propType, janusPropertyName, sanitizedPropertyName)
 		}
-		return j.singleNetworkRef(parsedRef, janusPropertyName)
+		return j.singleNetworkRef(ctx, parsedRef, janusPropertyName)
 
 	default:
 		return result, fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
 	}
 }
 
-func (j *Janusgraph) singleNetworkRef(ref *crossref.Ref, janusPropertyName string,
-) (edgeFromRefProp, error) {
+func (j *Janusgraph) singleNetworkRef(ctx context.Context, ref *crossref.Ref,
+	janusPropertyName string) (edgeFromRefProp, error) {
 	result := edgeFromRefProp{}
 	// We can't do any business-validation in here (such as does this
 	// NetworkThing/Action really exist on that particular network instance?), as
@@ -265,7 +266,7 @@ func (j *Janusgraph) singleNetworkRef(ref *crossref.Ref, janusPropertyName strin
 	return result, nil
 }
 
-func (j *Janusgraph) singleLocalRef(ref *crossref.Ref, propType schema.PropertyDataType,
+func (j *Janusgraph) singleLocalRef(ctx context.Context, ref *crossref.Ref, propType schema.PropertyDataType,
 	janusPropertyName string, sanitizedPropertyName schema.PropertyName) (edgeFromRefProp, error) {
 	var refClassName schema.ClassName
 	result := edgeFromRefProp{}
@@ -273,14 +274,14 @@ func (j *Janusgraph) singleLocalRef(ref *crossref.Ref, propType schema.PropertyD
 	switch ref.Kind {
 	case kind.Action:
 		var singleRefValue models.Action
-		err := j.GetAction(nil, ref.TargetID, &singleRefValue)
+		err := j.GetAction(ctx, ref.TargetID, &singleRefValue)
 		if err != nil {
 			return result, fmt.Errorf("Illegal value for property %s; could not resolve action with UUID: %v", ref.TargetID.String(), err)
 		}
 		refClassName = schema.AssertValidClassName(singleRefValue.Class)
 	case kind.Thing:
 		var singleRefValue models.Thing
-		err := j.GetThing(nil, ref.TargetID, &singleRefValue)
+		err := j.GetThing(ctx, ref.TargetID, &singleRefValue)
 		if err != nil {
 			return result, fmt.Errorf("Illegal value for property %s; could not resolve thing with UUID: %v", ref.TargetID.String(), err)
 		}
@@ -299,7 +300,7 @@ func (j *Janusgraph) singleLocalRef(ref *crossref.Ref, propType schema.PropertyD
 	return result, nil
 }
 
-func (j *Janusgraph) multipleRefs(value interface{}, propType schema.PropertyDataType,
+func (j *Janusgraph) multipleRefs(ctx context.Context, value interface{}, propType schema.PropertyDataType,
 	janusPropertyName string, sanitizedPropertyName schema.PropertyName) (edgeFromRefProp, error) {
 	result := edgeFromRefProp{}
 	result.edgesToDrop = []string{janusPropertyName}
@@ -307,7 +308,7 @@ func (j *Janusgraph) multipleRefs(value interface{}, propType schema.PropertyDat
 	case models.MultipleRef, *models.MultipleRef:
 		refs := derefMultipleRefsIfNeeded(t)
 		for _, ref := range refs {
-			singleRef, err := j.singleRef(ref, propType, janusPropertyName, sanitizedPropertyName)
+			singleRef, err := j.singleRef(ctx, ref, propType, janusPropertyName, sanitizedPropertyName)
 			if err != nil {
 				return result, err
 			}
@@ -323,7 +324,7 @@ func (j *Janusgraph) multipleRefs(value interface{}, propType schema.PropertyDat
 					"illegal value for property %s: expected a list of single refs, but current item is %#v",
 					sanitizedPropertyName, ref)
 			}
-			singleRef, err := j.singleRef(ref, propType, janusPropertyName, sanitizedPropertyName)
+			singleRef, err := j.singleRef(ctx, ref, propType, janusPropertyName, sanitizedPropertyName)
 			if err != nil {
 				return result, err
 			}

@@ -13,6 +13,7 @@
 package fetch
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
@@ -25,8 +26,8 @@ import (
 // form the overall GraphQL API main interface. All data-base connectors that
 // want to support the GetMeta feature must implement this interface.
 type Resolver interface {
-	LocalFetchKindClass(info *kinds.FetchSearch) (interface{}, error)
-	LocalFetchFuzzy(info kinds.FetchFuzzySearch) (interface{}, error)
+	LocalFetchKindClass(ctx context.Context, info *kinds.FetchSearch) (interface{}, error)
+	LocalFetchFuzzy(ctx context.Context, info kinds.FetchFuzzySearch) (interface{}, error)
 }
 
 // RequestsLog is a local abstraction on the RequestsLog that needs to be
@@ -52,7 +53,7 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 		}()
 
 		return func() (interface{}, error) {
-			return resources.resolver.LocalFetchKindClass(params)
+			return resources.resolver.LocalFetchKindClass(p.Context, params)
 		}, nil
 
 	}
@@ -95,7 +96,7 @@ func resolveFuzzy(p graphql.ResolveParams) (interface{}, error) {
 
 	// words := resources.contextionary.SafeGetSimilarWordsWithCertainty(args.value, args.certainty)
 
-	return resources.resolver.LocalFetchFuzzy(params)
+	return resources.resolver.LocalFetchFuzzy(p.Context, params)
 }
 
 func extractFuzzyArgs(p graphql.ResolveParams) kinds.FetchFuzzySearch {

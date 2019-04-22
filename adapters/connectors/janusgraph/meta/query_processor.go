@@ -41,17 +41,17 @@ type analyticsClient interface {
 }
 
 type executor interface {
-	Execute(query gremlin.Gremlin) (*gremlin.Response, error)
+	Execute(ctx context.Context, query gremlin.Gremlin) (*gremlin.Response, error)
 }
 
 func NewProcessor(executor executor, cache etcdClient, analytics analyticsClient) *Processor {
 	return &Processor{executor: executor, cache: cache, analytics: analytics}
 }
 
-func (p *Processor) Process(query *gremlin.Query, typeInfo map[string]interface{},
+func (p *Processor) Process(ctx context.Context, query *gremlin.Query, typeInfo map[string]interface{},
 	params *kinds.GetMetaParams) (interface{}, error) {
 
-	result, err := p.getResult(query, params)
+	result, err := p.getResult(ctx, query, params)
 	if err != nil {
 		return nil, fmt.Errorf("could not process meta query: %v", err)
 	}
@@ -65,9 +65,9 @@ func (p *Processor) Process(query *gremlin.Query, typeInfo map[string]interface{
 	return merged, nil
 }
 
-func (p *Processor) getResult(query *gremlin.Query, params *kinds.GetMetaParams) ([]interface{}, error) {
+func (p *Processor) getResult(ctx context.Context, query *gremlin.Query, params *kinds.GetMetaParams) ([]interface{}, error) {
 	if params.Analytics.UseAnaltyicsEngine == false {
-		result, err := p.executor.Execute(query)
+		result, err := p.executor.Execute(ctx, query)
 		if err != nil {
 			return nil, fmt.Errorf("executing query against janusgraph failed: %s", err)
 		}
@@ -75,7 +75,7 @@ func (p *Processor) getResult(query *gremlin.Query, params *kinds.GetMetaParams)
 		return datumsToSlice(result), nil
 	}
 
-	return p.getResultFromAnalyticsEngine(query, params)
+	return p.getResultFromAnalyticsEngine(ctx, query, params)
 }
 
 func (p *Processor) mergeResults(input []interface{},

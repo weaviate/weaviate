@@ -12,6 +12,7 @@
 package janusgraph
 
 import (
+	"context"
 	"fmt"
 	"runtime/debug"
 
@@ -26,8 +27,8 @@ type resolveResult struct {
 	err     error
 }
 
-// Implement the Local->Get->KIND->CLASS lookup.
-func (j *Janusgraph) LocalGetClass(params *kinds.LocalGetParams) (interface{}, error) {
+// LocalGetClass Implements the Local->Get->KIND->CLASS lookup.
+func (j *Janusgraph) LocalGetClass(ctx context.Context, params *kinds.LocalGetParams) (interface{}, error) {
 	ch := make(chan resolveResult, 1)
 
 	go func() {
@@ -39,7 +40,7 @@ func (j *Janusgraph) LocalGetClass(params *kinds.LocalGetParams) (interface{}, e
 			close(ch)
 		}()
 
-		results, err := j.doLocalGetClass(params)
+		results, err := j.doLocalGetClass(ctx, params)
 
 		if err != nil {
 			ch <- resolveResult{err: fmt.Errorf("Janusgraph.LocalGetClass: %#v", err)}
@@ -55,12 +56,12 @@ func (j *Janusgraph) LocalGetClass(params *kinds.LocalGetParams) (interface{}, e
 	return result.results, nil
 }
 
-func (j *Janusgraph) doLocalGetClass(params *kinds.LocalGetParams) ([]interface{}, error) {
+func (j *Janusgraph) doLocalGetClass(ctx context.Context, params *kinds.LocalGetParams) ([]interface{}, error) {
 	q, err := jget.NewQuery(*params, &j.state, &j.schema, j.appConfig.QueryDefaults).String()
 	if err != nil {
 		return nil, fmt.Errorf("could not build query: %s", err)
 	}
 
 	return jget.NewProcessor(j.client, &j.state, schema.ClassName(params.ClassName)).
-		Process(gremlin.New().Raw(q))
+		Process(ctx, gremlin.New().Raw(q))
 }
