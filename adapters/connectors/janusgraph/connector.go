@@ -24,7 +24,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 
-	"github.com/creativesoftwarefdn/weaviate/gremlin/http_client"
+	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/gremlin/http_client"
 
 	"github.com/sirupsen/logrus"
 )

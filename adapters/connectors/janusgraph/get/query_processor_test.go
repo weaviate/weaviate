@@ -15,11 +15,11 @@ import (
 	"context"
 	"testing"
 
+	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/get"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
-	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/usecases/network/crossrefs"
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"

@@ -15,8 +15,8 @@ import (
 	"context"
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/filters"
+	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/meta"
-	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 

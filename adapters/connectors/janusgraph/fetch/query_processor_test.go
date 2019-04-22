@@ -15,8 +15,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
-	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

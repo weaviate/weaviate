@@ -17,7 +17,7 @@ import (
 
 	analytics "github.com/SeMI-network/janus-spark-analytics/clients/go"
 	"github.com/coreos/etcd/clientv3"
-	"github.com/creativesoftwarefdn/weaviate/gremlin"
+	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 

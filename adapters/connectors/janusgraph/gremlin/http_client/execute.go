@@ -19,7 +19,7 @@ import (
 	"io/ioutil"
 	"net/http"
 
-	"github.com/creativesoftwarefdn/weaviate/gremlin"
+	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/gremlin"
 	"github.com/prometheus/common/log"
 	"golang.org/x/net/context/ctxhttp"
 )

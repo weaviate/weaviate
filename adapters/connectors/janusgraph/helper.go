@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/filters"
+	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/state"
 	entfilters "github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
@@ -26,7 +27,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/crossref"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	libkind "github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
-	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/go-openapi/strfmt"
 )
 

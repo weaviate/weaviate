@@ -14,8 +14,8 @@ package meta
 import (
 	"fmt"
 
+	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
-	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 

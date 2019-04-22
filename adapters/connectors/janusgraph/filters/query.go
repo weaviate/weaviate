@@ -14,10 +14,10 @@ package filters
 import (
 	"fmt"
 
+	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/state"
 	"github.com/creativesoftwarefdn/weaviate/entities/filters"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
-	"github.com/creativesoftwarefdn/weaviate/gremlin"
 )
 
 // FilterQuery from filter params. Can be appended to any GremlinFilterQuery

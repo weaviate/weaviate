@@ -18,7 +18,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/fetch"
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/fetchfuzzy"
-	"github.com/creativesoftwarefdn/weaviate/gremlin"
+	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
