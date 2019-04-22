@@ -46,7 +46,7 @@ type analyticsClient interface {
 }
 
 type executor interface {
-	Execute(query gremlin.Gremlin) (*gremlin.Response, error)
+	Execute(ctx context.Context, query gremlin.Gremlin) (*gremlin.Response, error)
 }
 
 //NewProcessor of type Processor
@@ -57,10 +57,10 @@ func NewProcessor(executor executor, cache etcdClient, analytics analyticsClient
 // Process the query (i.e. execute it), then post-process it, i.e. transform
 // the structure we get from janusgraph into the structure we need for the
 // graphQL API
-func (p *Processor) Process(query *gremlin.Query, groupBy *common_filters.Path,
+func (p *Processor) Process(ctx context.Context, query *gremlin.Query, groupBy *common_filters.Path,
 	params *kinds.AggregateParams) (interface{}, error) {
 
-	result, err := p.getResult(query, params)
+	result, err := p.getResult(ctx, query, params)
 	if err != nil {
 		return nil, fmt.Errorf("could not process aggregate query: %v", err)
 	}
@@ -74,9 +74,9 @@ func (p *Processor) Process(query *gremlin.Query, groupBy *common_filters.Path,
 	return sliced, nil
 }
 
-func (p *Processor) getResult(query *gremlin.Query, params *kinds.AggregateParams) ([]interface{}, error) {
+func (p *Processor) getResult(ctx context.Context, query *gremlin.Query, params *kinds.AggregateParams) ([]interface{}, error) {
 	if params.Analytics.UseAnaltyicsEngine == false {
-		result, err := p.executor.Execute(query)
+		result, err := p.executor.Execute(ctx, query)
 		if err != nil {
 			return nil, fmt.Errorf("executing query against janusgraph failed: %s", err)
 		}
@@ -84,7 +84,7 @@ func (p *Processor) getResult(query *gremlin.Query, params *kinds.AggregateParam
 		return datumsToSlice(result), nil
 	}
 
-	return p.getResultFromAnalyticsEngine(query, params)
+	return p.getResultFromAnalyticsEngine(ctx, query, params)
 }
 
 func (p *Processor) sliceResults(input []interface{}, groupBy *common_filters.Path) ([]interface{}, error) {

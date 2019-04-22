@@ -13,6 +13,7 @@
 package get
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -48,7 +49,7 @@ func newMockResolver(peers peers.Peers) *mockResolver {
 	return mocker
 }
 
-func (m *mockResolver) LocalGetClass(params *kinds.LocalGetParams) (interface{}, error) {
+func (m *mockResolver) LocalGetClass(ctx context.Context, params *kinds.LocalGetParams) (interface{}, error) {
 	args := m.Called(params)
 	return args.Get(0), args.Error(1)
 }

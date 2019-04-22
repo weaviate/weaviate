@@ -13,6 +13,7 @@
 package fetchfuzzy
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/state"
@@ -29,7 +30,7 @@ type Processor struct {
 }
 
 type executor interface {
-	Execute(query gremlin.Gremlin) (*gremlin.Response, error)
+	Execute(ctx context.Context, query gremlin.Gremlin) (*gremlin.Response, error)
 }
 
 //NewProcessor from a gremlin executer. See Processor for details.
@@ -39,8 +40,8 @@ func NewProcessor(executor executor, peer string, ns nameSource) *Processor {
 
 // Process the query by executing it and then transforming the results to
 // include the beacon structure
-func (p *Processor) Process(query *gremlin.Query) (interface{}, error) {
-	result, err := p.executor.Execute(query)
+func (p *Processor) Process(ctx context.Context, query *gremlin.Query) (interface{}, error) {
+	result, err := p.executor.Execute(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"could not process fetch fuzzy query: executing the query failed: %s", err)

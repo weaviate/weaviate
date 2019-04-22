@@ -12,6 +12,8 @@
 package janusgraph
 
 import (
+	"context"
+
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/filters"
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/meta"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
@@ -19,7 +21,7 @@ import (
 )
 
 // LocalGetMeta based on GraphQL Query params
-func (j *Janusgraph) LocalGetMeta(params *kinds.GetMetaParams) (interface{}, error) {
+func (j *Janusgraph) LocalGetMeta(ctx context.Context, params *kinds.GetMetaParams) (interface{}, error) {
 	className := j.state.MustGetMappedClassName(params.ClassName)
 	q := gremlin.New().Raw(`g.V()`).
 		HasString("kind", params.Kind.Name()).
@@ -39,5 +41,5 @@ func (j *Janusgraph) LocalGetMeta(params *kinds.GetMetaParams) (interface{}, err
 		return nil, err
 	}
 
-	return meta.NewProcessor(j.client, j.etcdClient, j.analyticsClient).Process(q, typeInfo, params)
+	return meta.NewProcessor(j.client, j.etcdClient, j.analyticsClient).Process(ctx, q, typeInfo, params)
 }

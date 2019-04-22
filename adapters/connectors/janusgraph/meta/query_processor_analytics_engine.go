@@ -13,18 +13,14 @@
 import (
 	"context"
 	"fmt"
-	"time"
 
 	analytics "github.com/SeMI-network/janus-spark-analytics/clients/go"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 )
 
-func (p *Processor) getResultFromAnalyticsEngine(query *gremlin.Query, params *kinds.GetMetaParams) ([]interface{}, error) {
-	// TODO: gh-697: use existing context, don't recreate new context here
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
-
+func (p *Processor) getResultFromAnalyticsEngine(ctx context.Context, query *gremlin.Query,
+	params *kinds.GetMetaParams) ([]interface{}, error) {
 	hash, err := params.AnalyticsHash()
 	if params.Analytics.ForceRecalculate {
 		// no need to even check the cache, the user wants to start a new job

@@ -12,13 +12,16 @@
 package janusgraph
 
 import (
+	"context"
+
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/go-openapi/strfmt"
 )
 
-func (j *Janusgraph) updateClass(k kind.Kind, className schema.ClassName, UUID strfmt.UUID, lastUpdateTimeUnix int64, rawProperties interface{}) error {
+func (j *Janusgraph) updateClass(ctx context.Context, k kind.Kind, className schema.ClassName,
+	UUID strfmt.UUID, lastUpdateTimeUnix int64, rawProperties interface{}) error {
 	vertexLabel := j.state.MustGetMappedClassName(className)
 
 	sourceClassAlias := "classToBeUpdated"
@@ -30,11 +33,11 @@ func (j *Janusgraph) updateClass(k kind.Kind, className schema.ClassName, UUID s
 		StringProperty(PROP_CLASS_ID, string(vertexLabel)).
 		Int64Property(PROP_LAST_UPDATE_TIME_UNIX, lastUpdateTimeUnix)
 
-	q, err := j.addEdgesToQuery(q, k, className, rawProperties, sourceClassAlias)
+	q, err := j.addEdgesToQuery(ctx, q, k, className, rawProperties, sourceClassAlias)
 	if err != nil {
 		return err
 	}
 
-	_, err = j.client.Execute(q)
+	_, err = j.client.Execute(ctx, q)
 	return err
 }

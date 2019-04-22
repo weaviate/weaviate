@@ -14,6 +14,7 @@
 package getmeta
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
@@ -30,7 +31,7 @@ import (
 // form the overall GraphQL API main interface. All data-base connectors that
 // want to support the GetMeta feature must implement this interface.
 type Resolver interface {
-	LocalGetMeta(info *kinds.GetMetaParams) (interface{}, error)
+	LocalGetMeta(ctx context.Context, info *kinds.GetMetaParams) (interface{}, error)
 }
 
 // RequestsLog is a local abstraction on the RequestsLog that needs to be
@@ -92,7 +93,7 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 			requestsLog.Register(telemetry.TypeGQL, telemetry.LocalQueryMeta)
 		}()
 
-		return resolver.LocalGetMeta(params)
+		return resolver.LocalGetMeta(p.Context, params)
 	}
 }
 

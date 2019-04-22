@@ -87,7 +87,7 @@ func (j *Janusgraph) addBatchReferencesChunk(ctx context.Context, references kin
 		return nil
 	}
 
-	_, err := j.client.Execute(q)
+	_, err := j.client.Execute(ctx, q)
 	if err != nil {
 		return err
 	}

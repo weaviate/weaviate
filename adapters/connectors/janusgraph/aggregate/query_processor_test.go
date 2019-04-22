@@ -12,6 +12,7 @@
 package aggregate
 
 import (
+	"context"
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/common_filters"
@@ -69,7 +70,7 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), groupBy, &kinds.AggregateParams{})
+		result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), groupBy, &kinds.AggregateParams{})
 
 		require.Nil(t, err, "should not error")
 		assert.ElementsMatch(t, expectedResult, result, "result should be merged and post-processed")
@@ -81,6 +82,6 @@ type fakeExecutor struct {
 	result *gremlin.Response
 }
 
-func (f *fakeExecutor) Execute(query gremlin.Gremlin) (*gremlin.Response, error) {
+func (f *fakeExecutor) Execute(ctx context.Context, query gremlin.Gremlin) (*gremlin.Response, error) {
 	return f.result, nil
 }

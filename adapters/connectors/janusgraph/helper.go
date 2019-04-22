@@ -13,6 +13,7 @@
 package janusgraph
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -47,7 +48,7 @@ type kindClass struct {
 	lastUpdateTimeUnix int64
 }
 
-func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *string, foundUUID *strfmt.UUID, creationTimeUnix *int64, lastUpdateTimeUnix *int64, properties *models.Schema) error {
+func (j *Janusgraph) getClass(ctx context.Context, k kind.Kind, searchUUID strfmt.UUID, atClass *string, foundUUID *strfmt.UUID, creationTimeUnix *int64, lastUpdateTimeUnix *int64, properties *models.Schema) error {
 	// Fetch the class, it's key, and it's relations.
 	q := gremlin.G.V().
 		HasString(PROP_KIND, k.Name()).
@@ -56,7 +57,7 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 		V().
 		HasString(PROP_UUID, string(searchUUID)).
 		Raw(`.optional(outE().has("refId").as("ref")).choose(select("ref"), select("class", "ref"), identity().project("class").by(select("class")))`)
-	result, err := j.client.Execute(q)
+	result, err := j.client.Execute(ctx, q)
 
 	if err != nil {
 		return err
@@ -194,7 +195,7 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 	return nil
 }
 
-func (j *Janusgraph) getClasses(k kind.Kind, className *schema.ClassName, first int, offset int,
+func (j *Janusgraph) getClasses(ctx context.Context, k kind.Kind, className *schema.ClassName, first int, offset int,
 	filter *common_filters.LocalFilter) ([]kindClass, error) {
 
 	q := gremlin.G.V().
@@ -216,7 +217,7 @@ func (j *Janusgraph) getClasses(k kind.Kind, className *schema.ClassName, first 
 		Range(offset, first).
 		AsProjectBy("class")
 		// Raw(`.local(optional(outE().has("refId").as("ref")).choose(select("ref"), select("class", "ref"), identity().project("class").by(select("class"))))`)
-	result, err := j.client.Execute(q)
+	result, err := j.client.Execute(ctx, q)
 
 	if err != nil {
 		return nil, err
@@ -349,8 +350,8 @@ func (j *Janusgraph) getClasses(k kind.Kind, className *schema.ClassName, first 
 	return classes, nil
 }
 
-func (j *Janusgraph) listClass(k kind.Kind, className *schema.ClassName, limit int, filter *common_filters.LocalFilter, yield func(id strfmt.UUID)) error {
-
+func (j *Janusgraph) listClass(ctx context.Context, k kind.Kind, className *schema.ClassName,
+	limit int, filter *common_filters.LocalFilter, yield func(id strfmt.UUID)) error {
 	q := gremlin.G.V().
 		HasString(PROP_KIND, k.Name())
 
@@ -370,7 +371,7 @@ func (j *Janusgraph) listClass(k kind.Kind, className *schema.ClassName, limit i
 		Limit(limit).
 		Values([]string{PROP_UUID})
 
-	result, err := j.client.Execute(q)
+	result, err := j.client.Execute(ctx, q)
 	if err != nil {
 		return err
 	}
@@ -385,12 +386,12 @@ func (j *Janusgraph) listClass(k kind.Kind, className *schema.ClassName, limit i
 	return nil
 }
 
-func (j *Janusgraph) deleteClass(k kind.Kind, UUID strfmt.UUID) error {
+func (j *Janusgraph) deleteClass(ctx context.Context, k kind.Kind, UUID strfmt.UUID) error {
 	q := gremlin.G.V().HasString(PROP_KIND, k.Name()).
 		HasString(PROP_UUID, string(UUID)).
 		Drop()
 
-	_, err := j.client.Execute(q)
+	_, err := j.client.Execute(ctx, q)
 
 	return err
 }

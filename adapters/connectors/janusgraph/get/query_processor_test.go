@@ -12,6 +12,7 @@
 package get
 
 import (
+	"context"
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/get"
@@ -109,7 +110,7 @@ func Test_QueryProcessor(t *testing.T) {
 		}
 
 		result, err := NewProcessor(executor, &fakeNameSource{}, schema.ClassName("City")).
-			Process(gremlin.New())
+			Process(context.Background(), gremlin.New())
 
 		require.Nil(t, err, "should not error")
 		assert.ElementsMatch(t, expectedResult, result, "result should be merged and post-processed")
@@ -180,7 +181,7 @@ func Test_QueryProcessor(t *testing.T) {
 		}
 
 		result, err := NewProcessor(executor, &fakeNameSource{}, schema.ClassName("City")).
-			Process(gremlin.New())
+			Process(context.Background(), gremlin.New())
 
 		require.Nil(t, err, "should not error")
 		assert.ElementsMatch(t, expectedResult, result, "result should be merged and post-processed")
@@ -292,7 +293,7 @@ func Test_QueryProcessor(t *testing.T) {
 		}
 
 		result, err := NewProcessor(executor, &fakeNameSource{}, schema.ClassName("City")).
-			Process(gremlin.New())
+			Process(context.Background(), gremlin.New())
 		require.Nil(t, err, "should not error")
 
 		subResult, err := extractResult(result, []interface{}{0, "InCountry"})
@@ -354,7 +355,7 @@ func Test_QueryProcessor(t *testing.T) {
 		}
 
 		result, err := NewProcessor(executor, &fakeNameSource{}, schema.ClassName("City")).
-			Process(gremlin.New())
+			Process(context.Background(), gremlin.New())
 
 		require.Nil(t, err, "should not error")
 		assert.ElementsMatch(t, expectedResult, result, "result should be merged and post-processed")
@@ -473,7 +474,7 @@ func Test_QueryProcessor(t *testing.T) {
 		}
 
 		result, err := NewProcessor(executor, &fakeNameSource{}, schema.ClassName("City")).
-			Process(gremlin.New())
+			Process(context.Background(), gremlin.New())
 
 		require.Nil(t, err, "should not error")
 		assert.ElementsMatch(t, expectedResult, result, "result should be merged and post-processed")
@@ -647,7 +648,7 @@ func Test_QueryProcessor(t *testing.T) {
 		}
 
 		result, err := NewProcessor(executor, &fakeNameSource{}, schema.ClassName("City")).
-			Process(gremlin.New())
+			Process(context.Background(), gremlin.New())
 		require.Nil(t, err, "should not error")
 
 		subResult, err := extractResult(result,
@@ -662,6 +663,6 @@ type fakeExecutor struct {
 	result *gremlin.Response
 }
 
-func (f *fakeExecutor) Execute(query gremlin.Gremlin) (*gremlin.Response, error) {
+func (f *fakeExecutor) Execute(ctx context.Context, query gremlin.Gremlin) (*gremlin.Response, error) {
 	return f.result, nil
 }

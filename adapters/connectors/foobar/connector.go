@@ -396,7 +396,7 @@ func (f *Foobar) SetStateManager(manager connectors.StateManager) {
 //	  "population": 600000,
 //	 },
 //	}
-func (f *Foobar) LocalGetClass(info *kinds.LocalGetParams) (interface{}, error) {
+func (f *Foobar) LocalGetClass(ctx context.Context, info *kinds.LocalGetParams) (interface{}, error) {
 	return nil, nil
 }
 
@@ -421,7 +421,7 @@ func (f *Foobar) LocalGetClass(info *kinds.LocalGetParams) (interface{}, error) 
 //			"count": 4,
 //		},
 //	}
-func (f *Foobar) LocalGetMeta(info *kinds.GetMetaParams) (interface{}, error) {
+func (f *Foobar) LocalGetMeta(ctx context.Context, info *kinds.GetMetaParams) (interface{}, error) {
 	return nil, nil
 }
 
@@ -467,7 +467,7 @@ func (f *Foobar) LocalGetMeta(info *kinds.GetMetaParams) (interface{}, error) {
 //			},
 //		},
 //	}
-func (f *Foobar) LocalAggregate(info *kinds.AggregateParams) (interface{}, error) {
+func (f *Foobar) LocalAggregate(ctx context.Context, info *kinds.AggregateParams) (interface{}, error) {
 	return nil, nil
 }
 
@@ -492,7 +492,7 @@ func (f *Foobar) LocalAggregate(info *kinds.AggregateParams) (interface{}, error
 //			},
 //		},
 //	}
-func (f *Foobar) LocalFetchKindClass(info *kinds.FetchParams) (interface{}, error) {
+func (f *Foobar) LocalFetchKindClass(ctx context.Context, info *kinds.FetchParams) (interface{}, error) {
 	return nil, nil
 }
 
@@ -515,6 +515,6 @@ func (f *Foobar) LocalFetchKindClass(info *kinds.FetchParams) (interface{}, erro
 //			},
 //		},
 //	}
-func (f *Foobar) LocalFetchFuzzy(words []string) (interface{}, error) {
+func (f *Foobar) LocalFetchFuzzy(ctx context.Context, words []string) (interface{}, error) {
 	return nil, nil
 }

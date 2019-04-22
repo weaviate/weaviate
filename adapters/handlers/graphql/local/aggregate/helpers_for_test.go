@@ -12,6 +12,7 @@
 package aggregate
 
 import (
+	"context"
 	"fmt"
 
 	testhelper "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/test/helper"
@@ -46,7 +47,7 @@ func newMockResolver(cfg config.Config) *mockResolver {
 	return mocker
 }
 
-func (m *mockResolver) LocalAggregate(params *kinds.AggregateParams) (interface{}, error) {
+func (m *mockResolver) LocalAggregate(ctx context.Context, params *kinds.AggregateParams) (interface{}, error) {
 	args := m.Called(params)
 	return args.Get(0), args.Error(1)
 }

@@ -12,6 +12,7 @@
 package fetch
 
 import (
+	"context"
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
@@ -62,7 +63,7 @@ func Test_QueryProcessor(t *testing.T) {
 		k := kind.Thing
 		peerName := "my-super-peer"
 
-		result, err := NewProcessor(executor, k, peerName, &fakeNameSource{}).Process(gremlin.New())
+		result, err := NewProcessor(executor, k, peerName, &fakeNameSource{}).Process(context.Background(), gremlin.New())
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -74,6 +75,6 @@ type fakeExecutor struct {
 	result *gremlin.Response
 }
 
-func (f *fakeExecutor) Execute(query gremlin.Gremlin) (*gremlin.Response, error) {
+func (f *fakeExecutor) Execute(ctx context.Context, query gremlin.Gremlin) (*gremlin.Response, error) {
 	return f.result, nil
 }

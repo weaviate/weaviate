@@ -12,6 +12,8 @@
 package fetch
 
 import (
+	"context"
+
 	testhelper "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
 	"github.com/stretchr/testify/mock"
@@ -40,12 +42,12 @@ func newMockResolver() *mockResolver {
 	return mocker
 }
 
-func (m *mockResolver) LocalFetchKindClass(params *kinds.FetchSearch) (interface{}, error) {
+func (m *mockResolver) LocalFetchKindClass(ctx context.Context, params *kinds.FetchSearch) (interface{}, error) {
 	args := m.Called(params)
 	return args.Get(0), args.Error(1)
 }
 
-func (m *mockResolver) LocalFetchFuzzy(params kinds.FetchFuzzySearch) (interface{}, error) {
+func (m *mockResolver) LocalFetchFuzzy(ctx context.Context, params kinds.FetchFuzzySearch) (interface{}, error) {
 	args := m.Called(params)
 	return args.Get(0), args.Error(1)
 }
@@ -57,47 +59,3 @@ func newMockContextionary() *mockContextionary {
 type mockContextionary struct {
 	mock.Mock
 }
-
-// func (m *mockContextionary) SchemaSearch(p contextionary.SearchParams) (contextionary.SearchResults, error) {
-// 	m.Called(p)
-// 	return contextionary.SearchResults{
-// 		Type: p.SearchType,
-// 		Results: []contextionary.SearchResult{
-// 			{
-// 				Name:      p.Name,
-// 				Certainty: 0.95,
-// 				Kind:      p.Kind,
-// 			},
-// 			{
-// 				Name:      p.Name + "alternative",
-// 				Certainty: 0.85,
-// 				Kind:      p.Kind,
-// 			},
-// 		},
-// 	}, nil
-// }
-
-// func (m *mockContextionary) SafeGetSimilarWordsWithCertainty(word string, certainty float32) []string {
-// 	m.Called(word, certainty)
-// 	return []string{word, word + "alt1", word + "alt2"}
-// }
-
-// func newEmptyContextionary() *emptyContextionary {
-// 	return &emptyContextionary{}
-// }
-
-// type emptyContextionary struct {
-// 	mock.Mock
-// }
-
-// func (m *emptyContextionary) SchemaSearch(p contextionary.SearchParams) (contextionary.SearchResults, error) {
-// 	m.Called(p)
-// 	return contextionary.SearchResults{
-// 		Type:    p.SearchType,
-// 		Results: []contextionary.SearchResult{},
-// 	}, nil
-// }
-
-// func (m *emptyContextionary) SafeGetSimilarWordsWithCertainty(word string, certainty float32) []string {
-// 	panic("not implemented")
-// }

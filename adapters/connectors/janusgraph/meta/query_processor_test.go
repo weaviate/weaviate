@@ -12,6 +12,7 @@
 package meta
 
 import (
+	"context"
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
@@ -59,7 +60,7 @@ func Test_QueryProcessor(t *testing.T) {
 					},
 				}},
 		}
-		result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), nil, params)
+		result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), nil, params)
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -106,7 +107,7 @@ func Test_QueryProcessor(t *testing.T) {
 					},
 				}},
 		}
-		result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), nil, params)
+		result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), nil, params)
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -153,7 +154,7 @@ func Test_QueryProcessor(t *testing.T) {
 					},
 				}},
 		}
-		result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), nil, params)
+		result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), nil, params)
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -178,7 +179,7 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), nil, &kinds.GetMetaParams{})
+		result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), nil, &kinds.GetMetaParams{})
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -212,7 +213,7 @@ func Test_QueryProcessor(t *testing.T) {
 				},
 			}
 
-			result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), typeInput, &kinds.GetMetaParams{})
+			result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), typeInput, &kinds.GetMetaParams{})
 
 			require.Nil(t, err, "should not error")
 			assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -244,7 +245,7 @@ func Test_QueryProcessor(t *testing.T) {
 				},
 			}
 
-			result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), typeInput, &kinds.GetMetaParams{})
+			result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), typeInput, &kinds.GetMetaParams{})
 
 			require.Nil(t, err, "should not error")
 			assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -267,7 +268,7 @@ func Test_QueryProcessor(t *testing.T) {
 				},
 			}
 
-			result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), typeInput, &kinds.GetMetaParams{})
+			result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), typeInput, &kinds.GetMetaParams{})
 			require.Nil(t, err, "should not error")
 			assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
 		})
@@ -308,7 +309,7 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), nil, &kinds.GetMetaParams{})
+		result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), nil, &kinds.GetMetaParams{})
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -352,7 +353,7 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		result, err := NewProcessor(executor, nil, nil).Process(gremlin.New(), nil, &kinds.GetMetaParams{})
+		result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), nil, &kinds.GetMetaParams{})
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -364,6 +365,6 @@ type fakeExecutor struct {
 	result *gremlin.Response
 }
 
-func (f *fakeExecutor) Execute(query gremlin.Gremlin) (*gremlin.Response, error) {
+func (f *fakeExecutor) Execute(ctx context.Context, query gremlin.Gremlin) (*gremlin.Response, error) {
 	return f.result, nil
 }

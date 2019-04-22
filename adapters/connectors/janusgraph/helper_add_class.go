@@ -12,6 +12,8 @@
 package janusgraph
 
 import (
+	"context"
+
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
@@ -19,7 +21,8 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-func (j *Janusgraph) addClass(k kind.Kind, className schema.ClassName, UUID strfmt.UUID, creationTimeUnix int64, lastUpdateTimeUnix int64, rawProperties interface{}) error {
+func (j *Janusgraph) addClass(ctx context.Context, k kind.Kind, className schema.ClassName,
+	UUID strfmt.UUID, creationTimeUnix int64, lastUpdateTimeUnix int64, rawProperties interface{}) error {
 	vertexLabel := j.state.MustGetMappedClassName(className)
 	sourceClassAlias := "classToBeAdded"
 
@@ -31,12 +34,12 @@ func (j *Janusgraph) addClass(k kind.Kind, className schema.ClassName, UUID strf
 		Int64Property(PROP_CREATION_TIME_UNIX, creationTimeUnix).
 		Int64Property(PROP_LAST_UPDATE_TIME_UNIX, lastUpdateTimeUnix)
 
-	q, err := j.addEdgesToQuery(q, k, className, rawProperties, sourceClassAlias)
+	q, err := j.addEdgesToQuery(ctx, q, k, className, rawProperties, sourceClassAlias)
 	if err != nil {
 		return err
 	}
 
-	_, err = j.client.Execute(q)
+	_, err = j.client.Execute(ctx, q)
 
 	return err
 }
@@ -45,7 +48,7 @@ func (j *Janusgraph) addClass(k kind.Kind, className schema.ClassName, UUID strf
 // into smaller chunks so we avoid StackOverflowExceptions in the Janus backend
 const MaximumBatchItemsPerQuery = 50
 
-func (j *Janusgraph) addThingsBatch(things kinds.BatchThings) error {
+func (j *Janusgraph) addThingsBatch(ctx context.Context, things kinds.BatchThings) error {
 	chunkSize := MaximumBatchItemsPerQuery
 	chunks := len(things) / chunkSize
 	if len(things) < chunkSize {
@@ -99,7 +102,7 @@ func (j *Janusgraph) addThingsBatch(things kinds.BatchThings) error {
 				Int64Property(PROP_LAST_UPDATE_TIME_UNIX, thing.Thing.LastUpdateTimeUnix)
 
 			var err error
-			q, err = j.addEdgesToQuery(q, k, className, thing.Thing.Schema, sourceClassAlias)
+			q, err = j.addEdgesToQuery(ctx, q, k, className, thing.Thing.Schema, sourceClassAlias)
 			if err != nil {
 				return err
 			}
@@ -112,7 +115,7 @@ func (j *Janusgraph) addThingsBatch(things kinds.BatchThings) error {
 			return nil
 		}
 
-		_, err := j.client.Execute(q)
+		_, err := j.client.Execute(ctx, q)
 		if err != nil {
 			return err
 		}
@@ -121,7 +124,7 @@ func (j *Janusgraph) addThingsBatch(things kinds.BatchThings) error {
 	return nil
 }
 
-func (j *Janusgraph) addActionsBatch(actions kinds.BatchActions) error {
+func (j *Janusgraph) addActionsBatch(ctx context.Context, actions kinds.BatchActions) error {
 	chunkSize := MaximumBatchItemsPerQuery
 	chunks := len(actions) / chunkSize
 	if len(actions) < chunkSize {
@@ -175,7 +178,7 @@ func (j *Janusgraph) addActionsBatch(actions kinds.BatchActions) error {
 				Int64Property(PROP_LAST_UPDATE_TIME_UNIX, action.Action.LastUpdateTimeUnix)
 
 			var err error
-			q, err = j.addEdgesToQuery(q, k, className, action.Action.Schema, sourceClassAlias)
+			q, err = j.addEdgesToQuery(ctx, q, k, className, action.Action.Schema, sourceClassAlias)
 			if err != nil {
 				return err
 			}
@@ -188,7 +191,7 @@ func (j *Janusgraph) addActionsBatch(actions kinds.BatchActions) error {
 			return nil
 		}
 
-		_, err := j.client.Execute(q)
+		_, err := j.client.Execute(ctx, q)
 		if err != nil {
 			return err
 		}
