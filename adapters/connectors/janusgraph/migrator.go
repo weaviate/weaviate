@@ -15,12 +15,12 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/gremlin"
+	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/gremlin/gremlin_schema_query"
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/state"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
-	"github.com/creativesoftwarefdn/weaviate/gremlin"
-	"github.com/creativesoftwarefdn/weaviate/gremlin/gremlin_schema_query"
 	"github.com/davecgh/go-spew/spew"
 	log "github.com/sirupsen/logrus"
 )

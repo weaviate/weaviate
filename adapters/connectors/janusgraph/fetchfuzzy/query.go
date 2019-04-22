@@ -13,9 +13,9 @@
 import (
 	"fmt"
 
+	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/state"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
-	"github.com/creativesoftwarefdn/weaviate/gremlin"
 )
 
 // Query prepares a Local->Fetch Query. Can be built with String(). Create with

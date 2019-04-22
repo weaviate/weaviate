@@ -15,8 +15,8 @@ package aggregate
 import (
 	"fmt"
 
+	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/entities/filters"
-	"github.com/creativesoftwarefdn/weaviate/gremlin"
 )
 
 func (b *Query) groupByQuery() *gremlin.Query {
