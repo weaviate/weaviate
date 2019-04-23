@@ -12,9 +12,9 @@
         {
           "name": "testString",
           "keywords": [
-            {"keyword": "test", "weight": 2.0},
-            {"keyword": "word", "weight": 1.0},
-            {"keyword": "list", "weight": 1.5}
+            {"keyword": "test", "weight": 1.0},
+            {"keyword": "word", "weight": 0.5},
+            {"keyword": "list", "weight": 0.75}
           ],
           "dataType": ["string"],
           "description": "Value of testString."
@@ -80,9 +80,9 @@
         {
           "name": "testString",
           "keywords": [
-            {"keyword": "test", "weight": 2.0},
-            {"keyword": "word", "weight": 1.0},
-            {"keyword": "list", "weight": 1.5}
+            {"keyword": "test", "weight": 1.0},
+            {"keyword": "word", "weight": 0.5},
+            {"keyword": "list", "weight": 0.75}
           ],
           "dataType": ["string"],
           "description": "Value of testString."
