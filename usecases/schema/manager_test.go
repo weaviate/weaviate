@@ -66,9 +66,11 @@ var schemaTests = []struct {
 	{name: "UpdateClassName", fn: testUpdateClassName},
 	{name: "UpdateClassNameCollision", fn: testUpdateClassNameCollision},
 	{name: "AddThingClassWithKeywords", fn: testAddThingClassWithKeywords},
+	{name: "AddThingClassWithInvalidKeywordWeights", fn: testAddThingClassWithInvalidKeywordWeights},
 	{name: "UpdateClassKeywords", fn: testUpdateClassKeywords},
 	{name: "AddPropertyDuringCreation", fn: testAddPropertyDuringCreation},
 	{name: "AddInvalidPropertyDuringCreation", fn: testAddInvalidPropertyDuringCreation},
+	{name: "AddPropertyDWithInvalidKeywordWeightsDuringCreation", fn: testAddPropertyWithInvalidKeywordWeightsDuringCreation},
 	{name: "DropProperty", fn: testDropProperty},
 	{name: "UpdatePropertyName", fn: testUpdatePropertyName},
 	{name: "UpdatePropertyNameCollision", fn: testUpdatePropertyNameCollision},
@@ -221,6 +223,40 @@ func testAddThingClassWithKeywords(t *testing.T, lsm *Manager) {
 	assert.Equal(t, thingClasses[0].Keywords[1].Weight, float32(0.4))
 }
 
+func testAddThingClassWithInvalidKeywordWeights(t *testing.T, lsm *Manager) {
+	t.Parallel()
+
+	// weight larger than 1.0
+	keywords := models.SemanticSchemaKeywords{
+		{Keyword: "vehicle", Weight: 1.2},
+	}
+	err := lsm.AddThing(context.TODO(), &models.SemanticSchemaClass{
+		Class:    "Car",
+		Keywords: keywords,
+	})
+	assert.NotNil(t, err)
+
+	// weight smaller than 0
+	keywords = models.SemanticSchemaKeywords{
+		{Keyword: "vehicle", Weight: -0.1},
+	}
+	err = lsm.AddThing(context.TODO(), &models.SemanticSchemaClass{
+		Class:    "Car",
+		Keywords: keywords,
+	})
+	assert.NotNil(t, err)
+
+	// weight exactly 1 should NOT error
+	keywords = models.SemanticSchemaKeywords{
+		{Keyword: "vehicle", Weight: 1},
+	}
+	err = lsm.AddThing(context.TODO(), &models.SemanticSchemaClass{
+		Class:    "Car",
+		Keywords: keywords,
+	})
+	assert.Nil(t, err)
+}
+
 func testUpdateClassKeywords(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
@@ -274,7 +310,6 @@ func testAddPropertyDuringCreation(t *testing.T, lsm *Manager) {
 }
 
 func testAddInvalidPropertyDuringCreation(t *testing.T, lsm *Manager) {
-	t.Skip("Validation")
 	t.Parallel()
 
 	var properties []*models.SemanticSchemaClassProperty = []*models.SemanticSchemaClassProperty{
@@ -286,6 +321,64 @@ func testAddInvalidPropertyDuringCreation(t *testing.T, lsm *Manager) {
 		Properties: properties,
 	})
 	assert.NotNil(t, err)
+}
+
+func testAddPropertyWithInvalidKeywordWeightsDuringCreation(t *testing.T, lsm *Manager) {
+	t.Parallel()
+
+	// keyword larger than 1
+	var properties = []*models.SemanticSchemaClassProperty{
+		{
+			Name:     "color",
+			DataType: []string{"string"},
+			Keywords: models.SemanticSchemaKeywords{{
+				Keyword: "paint",
+				Weight:  1.2,
+			}},
+		},
+	}
+
+	err := lsm.AddThing(context.TODO(), &models.SemanticSchemaClass{
+		Class:      "Car",
+		Properties: properties,
+	})
+	assert.NotNil(t, err)
+
+	// keyword smaller than 0
+	properties = []*models.SemanticSchemaClassProperty{
+		{
+			Name:     "color",
+			DataType: []string{"string"},
+			Keywords: models.SemanticSchemaKeywords{{
+				Keyword: "paint",
+				Weight:  -0.1,
+			}},
+		},
+	}
+
+	err = lsm.AddThing(context.TODO(), &models.SemanticSchemaClass{
+		Class:      "Car",
+		Properties: properties,
+	})
+	assert.NotNil(t, err)
+
+	// keyword exactly 1 should NOT error
+	properties = []*models.SemanticSchemaClassProperty{
+		{
+			Name:     "color",
+			DataType: []string{"string"},
+			Keywords: models.SemanticSchemaKeywords{{
+				Keyword: "paint",
+				Weight:  1,
+			}},
+		},
+	}
+
+	err = lsm.AddThing(context.TODO(), &models.SemanticSchemaClass{
+		Class:      "Car",
+		Properties: properties,
+	})
+	assert.Nil(t, err)
 }
 
 func testDropProperty(t *testing.T, lsm *Manager) {

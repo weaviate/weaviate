@@ -48,6 +48,9 @@ func (m *Manager) validateClassNameOrKeywordsCorrect(knd kind.Kind, className st
 	if len(keywords) > 0 {
 		for _, keyword := range keywords {
 			word := strings.ToLower(keyword.Keyword)
+			if err := validateWeight(keyword); err != nil {
+				return fmt.Errorf("invalid keyword %s: %v", keyword.Keyword, err)
+			}
 			if m.contextionary != nil {
 				idx := m.contextionary.WordToItemIndex(word)
 				if !idx.IsPresent() {
@@ -81,6 +84,14 @@ func validatePropertyNameUniqueness(propertyName string, class *models.SemanticS
 	return nil
 }
 
+func validateWeight(keyword *models.SemanticSchemaKeywordsItems0) error {
+	if 0 <= keyword.Weight && keyword.Weight <= 1 {
+		return nil
+	}
+
+	return fmt.Errorf("weight must be between 0 and 1, but got %v", keyword.Weight)
+}
+
 // Check that the format of the name is correct
 // Check that the name is acceptable according to the contextionary
 func (m *Manager) validatePropertyNameOrKeywordsCorrect(className string, propertyName string, keywords models.SemanticSchemaKeywords) error {
@@ -92,6 +103,9 @@ func (m *Manager) validatePropertyNameOrKeywordsCorrect(className string, proper
 	if len(keywords) > 0 {
 		for _, keyword := range keywords {
 			word := strings.ToLower(keyword.Keyword)
+			if err := validateWeight(keyword); err != nil {
+				return fmt.Errorf("invalid keyword %s: %v", keyword.Keyword, err)
+			}
 			if m.contextionary != nil {
 				idx := m.contextionary.WordToItemIndex(word)
 				if !idx.IsPresent() {
