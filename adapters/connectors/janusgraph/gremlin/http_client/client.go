@@ -25,7 +25,7 @@ import (
 type Client struct {
 	endpoint string
 	client   http.Client
-	logger   *logrus.Logger
+	logger   logrus.FieldLogger
 }
 
 func NewClient(endpoint string) *Client {
@@ -41,7 +41,7 @@ func NewClient(endpoint string) *Client {
 	return &c
 }
 
-func (c *Client) SetLogger(logger *logrus.Logger) {
+func (c *Client) SetLogger(logger logrus.FieldLogger) {
 	c.logger = logger
 }
 

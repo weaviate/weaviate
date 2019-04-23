@@ -91,7 +91,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	appState.Connector.SetSchema(schemaManager.GetSchema())
 	initialState := connstateManager.GetInitialState()
 	appState.Connector.SetState(context.Background(), initialState)
-	if err := appState.Connector.Connect(); err != nil {
+	// allow up to 2 minutes for the connected db to be ready
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	if err := appState.Connector.Connect(ctx); err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
 			Fatal("could not connect connector")

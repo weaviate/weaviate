@@ -44,7 +44,7 @@ type stateManagement interface {
 }
 
 type initialization interface {
-	Connect() error
+	Connect(ctx context.Context) error
 	Init(ctx context.Context) error
 	SetServerAddress(serverAddress string)
 	SetSchema(s schema.Schema)
