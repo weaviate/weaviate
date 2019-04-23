@@ -22,7 +22,7 @@ import (
 	"testing"
 
 	graphql_client "github.com/creativesoftwarefdn/weaviate/client/graphql"
-	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
 	"github.com/stretchr/testify/assert"
 )
@@ -40,9 +40,8 @@ func TestBatchGraphQLResultsOrder(t *testing.T) {
 
 	// perform the query
 	gqlResponse, err := queryBatchEndpoint(t)
-
 	if err != nil {
-		t.Fatal("The returned schema is not an JSON object")
+		t.Fatalf("The returned schema is not an JSON object: %v", err)
 	}
 	// check if the batch response contains two batched responses
 	assert.Equal(t, 2, len(gqlResponse))

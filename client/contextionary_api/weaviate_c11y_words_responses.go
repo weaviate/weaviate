@@ -23,7 +23,7 @@ import (
 
 	strfmt "github.com/go-openapi/strfmt"
 
-	models "github.com/creativesoftwarefdn/weaviate/models"
+	models "github.com/creativesoftwarefdn/weaviate/entities/models"
 )
 
 // WeaviateC11yWordsReader is a Reader for the WeaviateC11yWords structure.

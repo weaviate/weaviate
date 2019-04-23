@@ -6,8 +6,10 @@ CONFIG=${1:-local-development}
 cd "$( dirname "${BASH_SOURCE[0]}" )"/../..
 
 export GO111MODULE=on
-
 export DEVELOPMENT_UI=on
+export LOG_LEVEL=debug
+export LOG_FORMAT=text
+
 go run ./cmd/weaviate-server \
   --scheme http \
   --host "127.0.0.1" \
