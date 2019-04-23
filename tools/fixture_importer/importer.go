@@ -22,7 +22,7 @@ import (
 	"strings"
 
 	apiclient "github.com/creativesoftwarefdn/weaviate/client"
-	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/go-openapi/runtime"
 	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"

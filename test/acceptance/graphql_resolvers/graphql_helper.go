@@ -18,7 +18,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/client/graphql"
 	graphql_client "github.com/creativesoftwarefdn/weaviate/client/graphql"
-	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
 	"github.com/go-openapi/runtime"
 )

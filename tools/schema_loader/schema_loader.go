@@ -14,10 +14,12 @@ package main
 
 import (
 	"flag"
+	"net/url"
+
+	"github.com/creativesoftwarefdn/weaviate/client/schema"
 	"github.com/creativesoftwarefdn/weaviate/tools/schema_loader/loader"
 	httptransport "github.com/go-openapi/runtime/client"
 	log "github.com/sirupsen/logrus"
-	"net/url"
 )
 
 func main() {
@@ -69,6 +71,9 @@ func main() {
 	err = loader.Load()
 
 	if err != nil {
+		if errParsed, ok := err.(*schema.WeaviateSchemaThingsPropertiesAddUnprocessableEntity); ok {
+			panic(errParsed.Payload.Error[0].Message)
+		}
 		panic(err.Error())
 	}
 }

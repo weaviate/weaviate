@@ -22,7 +22,7 @@ import (
 	"github.com/go-openapi/strfmt"
 
 	"github.com/creativesoftwarefdn/weaviate/client/actions"
-	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
