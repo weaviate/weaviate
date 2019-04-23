@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"time"
 
 	client "github.com/SeMI-network/janus-spark-analytics/clients/go"
 	"github.com/coreos/etcd/clientv3"
@@ -121,27 +122,41 @@ func (f *Janusgraph) Init(ctx context.Context) error {
 	return nil
 }
 
-// Connect connects to the Janusgraph websocket
-func (f *Janusgraph) Connect() error {
+// Connect tries to connect to the Gremlin server, if it fails it will retry
+// until the context expires
+func (f *Janusgraph) Connect(ctx context.Context) error {
 	f.client = http_client.NewClient(f.config.URL)
-	logger := logrus.New()
-	logger.Level = logrus.DebugLevel
-	f.client.SetLogger(logger)
-
-	err := f.client.Ping()
-	if err != nil {
-		return fmt.Errorf("Could not connect to Gremlin server; %v", err)
-	}
+	f.client.SetLogger(f.logger)
 
 	f.logger.WithField("action", "database_init").
 		WithField("connector", "janusgraph").
-		Debug("established connection to Gremlin server")
+		Info("waiting to establish database connection, this can take some time")
 
-	return nil
+	for {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("could not connect to gremlin connector: %v", err)
+		}
+
+		err := f.client.Ping()
+		if err == nil {
+			f.logger.WithField("action", "database_init").
+				WithField("connector", "janusgraph").
+				Debug("established connection to Gremlin server")
+
+			return nil
+		}
+
+		f.logger.WithField("action", "database_init").
+			WithField("connector", "janusgraph").
+			WithError(err).
+			Debug("database not ready yet - trying again in 3 seconds")
+
+		time.Sleep(3 * time.Second)
+	}
 }
 
-// Link a connector to this state manager.
+// SetStateManager links a connector to this state manager.
 // When the internal state of some connector is updated, this state connector will call SetState on the provided conn.
-func (j *Janusgraph) SetStateManager(manager connectors.StateManager) {
-	j.stateManager = manager
+func (f *Janusgraph) SetStateManager(manager connectors.StateManager) {
+	f.stateManager = manager
 }

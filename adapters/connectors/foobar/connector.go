@@ -137,7 +137,10 @@ func (f *Foobar) SetServerAddress(addr string) {
 // Connect creates a connection to the database and tables if not already
 // available. The connections could not be closed because it is used more
 // often.
-func (f *Foobar) Connect() error {
+//
+// Connect should block until either the connection could successfully
+// established or the context expired
+func (f *Foobar) Connect(ctx context.Context) error {
 
 	/*
 	 * NOTE: EXAMPLE FOR WEBSOCKETS
@@ -154,7 +157,7 @@ func (f *Foobar) Connect() error {
 
 	// f.client = clientConn
 
-	// If success return nil, otherwise return the error (also see above)
+	// If success return nil, otherwise retry as long as the context is still valid
 	return nil
 }
 
