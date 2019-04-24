@@ -15,25 +15,27 @@ after_success:
         # releasing a prerelease
         if [ "$TRAVIS_BRANCH" = "master" ]; then
             TAG=$DOCKER_ID$WEAVIATE_VERSION-$(echo $TRAVIS_COMMIT | cut -c1-7)
+            LATESTTAG="${DOCKER_ID}latest"
             DOCKERTARGET=janus # <=== using JanusGraph by default now
             echo "preparing pre-release: " $TAG " for target: " $DOCKERTARGET
             # execute the Docker build
-            travis_wait 30 docker build -f "Dockerfile-prod" -t $TAG --target $DOCKERTARGET .
+            travis_wait 30 docker build -f "Dockerfile-prod" -t $TAG -t $LATESTTAG --target $DOCKERTARGET .
             # push the release
             travis_wait 30 docker push $TAG
-            travis_wait 30 docker push $DOCKER_IDlatest
+            travis_wait 30 docker push $LATESTTAG
         # do a release
         elif [ -n "$TRAVIS_TAG" ]; then
             TAG=$DOCKER_ID$TRAVIS_TAG
+            LATESTTAG="${DOCKER_ID}latest"
             DOCKERTARGET=janus # <=== using JanusGraph by default now
             echo "preparing release: " $TAG " for target: " $DOCKERTARGET
             # validate if the tag is equal to the Weaviate version
             if [ "$TRAVIS_TAG" = "$WEAVIATE_VERSION" ]; then
                 # execute the Docker build
-                travis_wait 30 docker build -f "Dockerfile-prod" -t $TAG -t ${DOCKER_ID}latest --target $DOCKERTARGET .
+                travis_wait 30 docker build -f "Dockerfile-prod" -t $TAG -t $LATESTTAG --target $DOCKERTARGET .
                 # push the release
                 travis_wait 30 docker push $TAG
-                travis_wait 30 docker push ${DOCKER_ID}latest
+                travis_wait 30 docker push $LATESTTAG
             # something is wrong with the tags!
             else
                 echo "The release tag ($TRAVIS_TAG) and Weaviate version ($WEAVIATE_VERSION) are not equal! Can't release."
