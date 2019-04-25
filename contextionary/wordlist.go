@@ -91,7 +91,9 @@ func (w *Wordlist) FindIndexByWord(_needle string) ItemIndex {
 
 	for low <= high {
 		var midpoint ItemIndex = (low + high) / 2
-		word_ptr := w.getWordPtr(midpoint)[0:len(bytes_needle)]
+
+		// ignore the first 8 bytes as they are reserved for occurrence
+		word_ptr := w.getWordPtr(midpoint)[8 : 8+len(bytes_needle)]
 
 		var cmp = bytes.Compare(bytes_needle, word_ptr)
 
@@ -114,13 +116,14 @@ func (w *Wordlist) getWordPtr(index ItemIndex) []byte {
 	return w.mmap[word_address:]
 }
 
-func (w *Wordlist) getWord(index ItemIndex) string {
+func (w *Wordlist) getWord(index ItemIndex) (string, uint64) {
 	ptr := w.getWordPtr(index)
-	for i := 0; i < len(ptr); i++ {
+	occurrence := binary.LittleEndian.Uint64(ptr[0:8])
+	for i := 8; i < len(ptr); i++ {
 		if ptr[i] == '\x00' {
-			return string(ptr[0:i])
+			return string(ptr[8:i]), occurrence
 		}
 	}
 
-	return ""
+	return "", 0
 }

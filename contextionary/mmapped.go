@@ -37,7 +37,9 @@ func (m *mmappedIndex) WordToItemIndex(word string) ItemIndex {
 
 func (m *mmappedIndex) ItemIndexToWord(item ItemIndex) (string, error) {
 	if item >= 0 && item <= m.word_index.GetNumberOfWords() {
-		return m.word_index.getWord(item), nil
+		w, occ := m.word_index.getWord(item)
+		fmt.Printf("occurrence for %s is %d", w, occ)
+		return w, nil
 	} else {
 		return "", fmt.Errorf("Index out of bounds")
 	}
