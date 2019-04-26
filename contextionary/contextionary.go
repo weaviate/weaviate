@@ -40,6 +40,9 @@ type Contextionary interface {
 	// Based on an index, return the assosiated word.
 	ItemIndexToWord(item ItemIndex) (string, error)
 
+	// Based on an index, return the assosiated word.
+	ItemIndexToOccurrence(item ItemIndex) (uint64, error)
+
 	// Get the vector of an item index.
 	GetVectorForItemIndex(item ItemIndex) (*Vector, error)
 

@@ -133,6 +133,10 @@ func (ci *CombinedIndex) ItemIndexToWord(item ItemIndex) (string, error) {
 	return word, err
 }
 
+func (ci *CombinedIndex) ItemIndexToOccurrence(item ItemIndex) (uint64, error) {
+	panic("not implemented for combined index")
+}
+
 func (ci *CombinedIndex) GetVectorForItemIndex(item ItemIndex) (*Vector, error) {
 	offsetted_index, vi, err := ci.find_vector_index_for_item_index(item)
 
