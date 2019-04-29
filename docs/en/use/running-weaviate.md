@@ -20,7 +20,7 @@ development purposes.
 
 #### Important information
 1. The docker-compose setup contains the entire weaviate stack, including a
-   Janusgraph/Elasticsearch connector. To run the entire stack you should have
+   Janusgraph/Elasticsearch connector. To run this stack you should have
    at least **1 CPU and 3 GB of memory available**. If you are planning to
    import large amounts of data, a larger setup is recommended.
 2. It takes some time to start up the whole infrastructure. During this time,
@@ -28,7 +28,7 @@ development purposes.
    attach to the log-output of the entire setup, but only to those of weaviate
    as described here. Weaviate will will wait up to 2 minutes for the backing
    databases to come up. This is indicated by logging `waiting to establish
-   database connection, this can take some time`. You will now that the entire
+   database connection, this can take some time`. You will know that the entire
    stack is ready when weaviate logs the bind address and port it is listenting
    on.
 3. The configuration values used in the docker-compose setup reflect a "Try it
@@ -38,7 +38,7 @@ development purposes.
 
 #### Running the latest version
 
-#### Attaching to the log output of all containers
+##### Attaching to the log output of all containers
 
 Warning: The output is quite verbose, for an alternative see [attaching to only
 the log output of weaviate](#attaching-to-the-log-output-of-only-weaviate).
@@ -48,7 +48,7 @@ $ curl -s https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/
 $ docker-compose up
 ```
 
-#### Attaching to the log output of only weaviate
+##### Attaching to the log output of only weaviate
 The log output of weaviate's backing databases can be quite verbose. We instead
 recommend to attach only to weaviate itself. In this case run `docker-compose
 up` like so:
