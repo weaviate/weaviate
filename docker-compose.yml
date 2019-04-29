@@ -112,6 +112,8 @@ services:
     ports:
      - "9200:9200"
      - "9300:9300"
+    environment:
+     - ES_JAVA_OPTS=-Xms500m -Xmx500m
     volumes:
      - ./data/elasticsearch/data:/usr/share/elasticsearch/data
   etcd:
