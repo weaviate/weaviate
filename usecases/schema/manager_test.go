@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/creativesoftwarefdn/weaviate/contextionary"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 )
@@ -582,10 +583,17 @@ func TestSchema(t *testing.T) {
 	})
 }
 
+type fakeC11yProvider struct {
+}
+
+func (f *fakeC11yProvider) GetContextionary() contextionary.Contextionary {
+	return nil
+}
+
 // New Local Schema *Manager
 func newSchemaManager() *Manager {
 	logger, _ := test.NewNullLogger()
-	sm, err := NewManager(&NilMigrator{}, newFakeRepo(), newFakeLocks(), nil, logger)
+	sm, err := NewManager(&NilMigrator{}, newFakeRepo(), newFakeLocks(), nil, logger, &fakeC11yProvider{})
 	if err != nil {
 		panic(err.Error())
 	}

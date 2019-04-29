@@ -51,8 +51,8 @@ func (m *Manager) validateClassNameOrKeywordsCorrect(knd kind.Kind, className st
 			if err := validateWeight(keyword); err != nil {
 				return fmt.Errorf("invalid keyword %s: %v", keyword.Keyword, err)
 			}
-			if m.contextionary != nil {
-				idx := m.contextionary.WordToItemIndex(word)
+			if m.contextionaryProvider.GetContextionary() != nil {
+				idx := m.contextionaryProvider.GetContextionary().WordToItemIndex(word)
 				if !idx.IsPresent() {
 					return fmt.Errorf("Could not find the keyword '%s' for class '%s' in the contextionary", word, className)
 				}
@@ -62,8 +62,8 @@ func (m *Manager) validateClassNameOrKeywordsCorrect(knd kind.Kind, className st
 		camelParts := camelcase.Split(className)
 		for _, part := range camelParts {
 			word := strings.ToLower(part)
-			if m.contextionary != nil {
-				idx := m.contextionary.WordToItemIndex(word)
+			if m.contextionaryProvider.GetContextionary() != nil {
+				idx := m.contextionaryProvider.GetContextionary().WordToItemIndex(word)
 				if !idx.IsPresent() {
 					return fmt.Errorf("Could not find the word '%s' from the class name '%s' in the contextionary. Consider using keywords to define the semantic meaning of this class.", word, className)
 				}
@@ -106,8 +106,8 @@ func (m *Manager) validatePropertyNameOrKeywordsCorrect(className string, proper
 			if err := validateWeight(keyword); err != nil {
 				return fmt.Errorf("invalid keyword %s: %v", keyword.Keyword, err)
 			}
-			if m.contextionary != nil {
-				idx := m.contextionary.WordToItemIndex(word)
+			if m.contextionaryProvider.GetContextionary() != nil {
+				idx := m.contextionaryProvider.GetContextionary().WordToItemIndex(word)
 				if !idx.IsPresent() {
 					return fmt.Errorf("Could not find the keyword '%s' for property '%s' in the class '%s' in the contextionary", word, propertyName, className)
 				}
@@ -117,8 +117,8 @@ func (m *Manager) validatePropertyNameOrKeywordsCorrect(className string, proper
 		camelParts := camelcase.Split(propertyName)
 		for _, part := range camelParts {
 			word := strings.ToLower(part)
-			if m.contextionary != nil {
-				idx := m.contextionary.WordToItemIndex(word)
+			if m.contextionaryProvider.GetContextionary() != nil {
+				idx := m.contextionaryProvider.GetContextionary().WordToItemIndex(word)
 				if !idx.IsPresent() {
 					return fmt.Errorf("Could not find the word '%s' from the property '%s' in the class name '%s' in the contextionary. Consider using keywords to define the semantic meaning of this class.", word, propertyName, className)
 				}

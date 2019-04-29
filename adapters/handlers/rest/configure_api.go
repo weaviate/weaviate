@@ -65,7 +65,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	connstateRepo := etcd.NewConnStateRepo(etcdClient)
 
 	schemaManager, err := schemaUC.NewManager(appState.Connector, schemaRepo,
-		appState.Locks, appState.Network, appState.Logger)
+		appState.Locks, appState.Network, appState.Logger, appState)
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
