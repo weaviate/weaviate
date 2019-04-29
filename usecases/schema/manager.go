@@ -15,7 +15,7 @@ import (
 	"fmt"
 	"log"
 
-	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
+	"github.com/creativesoftwarefdn/weaviate/contextionary"
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
@@ -27,14 +27,14 @@ import (
 // Manager Manages schema changes at a use-case level, i.e. agnostic of
 // underlying databases or storage providers
 type Manager struct {
-	migrator      Migrator
-	repo          Repo
-	contextionary contextionary
-	locks         locks.ConnectorSchemaLock
-	state         State
-	network       network.Network
-	callbacks     []func(updatedSchema schema.Schema)
-	logger        logrus.FieldLogger
+	migrator              Migrator
+	repo                  Repo
+	contextionaryProvider contextionaryProvider
+	locks                 locks.ConnectorSchemaLock
+	state                 State
+	network               network.Network
+	callbacks             []func(updatedSchema schema.Schema)
+	logger                logrus.FieldLogger
 }
 
 type Migrator interface {
@@ -62,20 +62,25 @@ type Repo interface {
 	LoadSchema(ctx context.Context) (*State, error)
 }
 
-type contextionary interface {
-	WordToItemIndex(word string) libcontextionary.ItemIndex
+// type contextionary interface {
+// 	WordToItemIndex(word string) libcontextionary.ItemIndex
+// }
+
+type contextionaryProvider interface {
+	GetContextionary() contextionary.Contextionary
 }
 
 // NewManager creates a new manager
 func NewManager(migrator Migrator, repo Repo, locks locks.ConnectorSchemaLock,
-	network network.Network, logger logrus.FieldLogger) (*Manager, error) {
+	network network.Network, logger logrus.FieldLogger, c11yProvider contextionaryProvider) (*Manager, error) {
 	m := &Manager{
-		migrator: migrator,
-		repo:     repo,
-		locks:    locks,
-		state:    State{},
-		network:  network,
-		logger:   logger,
+		migrator:              migrator,
+		repo:                  repo,
+		locks:                 locks,
+		state:                 State{},
+		network:               network,
+		logger:                logger,
+		contextionaryProvider: c11yProvider,
 	}
 
 	err := m.loadOrInitializeSchema(context.Background())
