@@ -81,7 +81,7 @@ Weaviate is released under a [BSD-3](https://github.com/creativesoftwarefdn/weav
 More information:
 
 - Products & Services overview: [www.semi.technology](https://www.semi.technology/products/).
-- Contact: [hello@semi.technology](mailto:hello@semi.network).
+- Contact: [hello@semi.technology](mailto:hello@semi.technology).
 
 ## Build Status
 
