@@ -18,7 +18,7 @@ Cassandra) can be directly run with the Docker compose files available in this
 repo. This setup will also include the Weaviate Playground and ideal for
 development purposes.
 
-#### Important information
+### Important information
 1. The docker-compose setup contains the entire weaviate stack, including a
    Janusgraph/Elasticsearch connector. To run this stack you should have
    at least **1 CPU and 3 GB of memory available**. If you are planning to
@@ -36,9 +36,9 @@ development purposes.
    resources. Do not use the docker-compose setup below in production. For
    production setups, we recommend running the weaviate stack on Kubernetes.
 
-#### Running the latest version
+### Running the latest version
 
-##### Attaching to the log output of all containers
+#### Attaching to the log output of all containers
 
 Warning: The output is quite verbose, for an alternative see [attaching to only
 the log output of weaviate](#attaching-to-the-log-output-of-only-weaviate).
@@ -48,7 +48,7 @@ $ curl -s https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/
 $ docker-compose up
 ```
 
-##### Attaching to the log output of only weaviate
+#### Attaching to the log output of only weaviate
 The log output of weaviate's backing databases can be quite verbose. We instead
 recommend to attach only to weaviate itself. In this case run `docker-compose
 up` like so:
@@ -62,7 +62,7 @@ Alternatively you can run docker-compose entirely detached with `docker-compose
 up -d` and poll `{bind_address}:{port}/weaviate/v1/meta` until you receive
 status `200 OK`.
 
-##### Additional Information
+#### Additional Information
 
 _Note I: This Docker compose setup uses the `:latest` tag to ensure you always
 have the latest version. For production usage always use [a fixed version
@@ -86,7 +86,7 @@ _Note II: You can always enforce the latest `:latest` version by re-pulling
   [here](https://github.com/creativesoftwarefdn/weaviate/tree/master/docker-compose/runtime)
   and run `docker-compose up -d`.
 
-#### Running a specific version
+### Running a specific version
 
 ```sh
 $ curl -s https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/tools/download-docker-compose-deps.sh | bash
@@ -110,7 +110,7 @@ $ docker-compose up -d
 
 Weaviate can also be run stand-alone.
 
-#### Specific version
+### Specific version
 
 ```sh
 $ docker run creativesoftwarefdn/weaviate:$VERSION
