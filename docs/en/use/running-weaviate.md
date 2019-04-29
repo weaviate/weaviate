@@ -62,10 +62,11 @@ Alternatively you can run docker-compose entirely detached with `docker-compose
 up -d` and poll `{bind_address}:{port}/weaviate/v1/meta` until you receive
 status `200 OK`.
 
+##### Additional Information
 
 _Note I: This Docker compose setup uses the `:latest` tag to ensure you always
 have the latest version. For production usage always use [a fixed version
-number](#running-a-specific-version)_
+tag](#running-a-specific-version)_
 
 _Note II: You can always enforce the latest `:latest` version by re-pulling
 `creativesoftwarefdn/weaviate:latest` and running `$docker-compose up -d --force-recreate`_
