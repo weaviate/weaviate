@@ -11,6 +11,7 @@ require (
 	github.com/coreos/go-systemd v0.0.0-20190321100706-95778dfbb74e // indirect
 	github.com/davecgh/go-spew v1.1.1
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
+	github.com/docker/go-units v0.4.0 // indirect
 	github.com/eclipse/paho.mqtt.golang v1.1.1
 	github.com/etcd-io/etcd v3.3.11+incompatible
 	github.com/evanphx/json-patch v3.0.0+incompatible

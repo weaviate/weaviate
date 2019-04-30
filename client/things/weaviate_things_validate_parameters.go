@@ -26,7 +26,7 @@ import (
 
 	strfmt "github.com/go-openapi/strfmt"
 
-	models "github.com/creativesoftwarefdn/weaviate/models"
+	models "github.com/creativesoftwarefdn/weaviate/entities/models"
 )
 
 // NewWeaviateThingsValidateParams creates a new WeaviateThingsValidateParams object
