@@ -33,8 +33,12 @@ func clean(input string) string {
 }
 
 func main() {
-	setMapping()
-	c11y, err := contextionary.LoadVectorFromDisk("./test/contextionary/example.knn", "./test/contextionary/example.idx")
+	// setMapping()
+	folder := "---insert-here---"
+	// c1Path := folder + "/filter-after-glove"
+	c2Path := folder + "/preprocessing"
+
+	c11y, err := contextionary.LoadVectorFromDisk(c2Path+"/contextionary-en.knn", c2Path+"/contextionary-en.idx")
 	fatal(err)
 
 	for _, text := range sampleTexts {
