@@ -37,6 +37,7 @@ func (m *Manager) addClass(ctx context.Context, class *models.SemanticSchemaClas
 	defer unlock()
 
 	class.Class = upperCaseClassName(class.Class)
+	class.Properties = lowerCaseAllPropertyNames(class.Properties)
 
 	err = m.validateCanAddClass(k, class)
 	if err != nil {
@@ -102,4 +103,24 @@ func upperCaseClassName(name string) string {
 	}
 
 	return strings.ToUpper(string(name[0])) + name[1:]
+}
+
+func lowerCaseAllPropertyNames(props []*models.SemanticSchemaClassProperty) []*models.SemanticSchemaClassProperty {
+	for i, prop := range props {
+		props[i].Name = lowerCaseFirstLetter(prop.Name)
+	}
+
+	return props
+}
+
+func lowerCaseFirstLetter(name string) string {
+	if len(name) < 1 {
+		return name
+	}
+
+	if len(name) == 1 {
+		return strings.ToLower(name)
+	}
+
+	return strings.ToLower(string(name[0])) + name[1:]
 }
