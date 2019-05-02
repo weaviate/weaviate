@@ -25,9 +25,10 @@ func fatal(err error) {
 }
 
 func main() {
-	folder := "--- insert here ---"
-	c1Path := folder + "/filter-after-glove"
-	c2Path := folder + "/preprocessing"
+	root := os.Args[1]
+	c1Path := root + "/filter-after-glove"
+	c2Path := root + "/preprocessing"
+	c3Path := root + "/stopword-removal"
 
 	c1, err := contextionary.LoadVectorFromDisk(c1Path+"/contextionary-en.knn", c1Path+"/contextionary-en.idx")
 	fatal(err)
@@ -35,12 +36,16 @@ func main() {
 	c2, err := contextionary.LoadVectorFromDisk(c2Path+"/contextionary-en.knn", c2Path+"/contextionary-en.idx")
 	fatal(err)
 
-	word := "pork"
+	c3, err := contextionary.LoadVectorFromDisk(c3Path+"/contextionary-en.knn", c3Path+"/contextionary-en.idx")
+	fatal(err)
+
+	word := os.Args[2]
 	c1Dist, c1Words := kNN(word, c1)
 	c2Dist, c2Words := kNN(word, c2)
+	c3Dist, c3Words := kNN(word, c3)
 
 	for i := range c1Dist {
-		fmt.Printf("%f\t%-10s\t\t\t%f\t%-10s\n", c1Dist[i], c1Words[i], c2Dist[i], c2Words[i])
+		fmt.Printf("%f  %-15s\t\t\t%f  %-15s\t\t\t%f  %-15s\n", c1Dist[i], c1Words[i], c2Dist[i], c2Words[i], c3Dist[i], c3Words[i])
 	}
 }
 
@@ -50,7 +55,7 @@ func kNN(name string, contextionary contextionary.Contextionary) ([]float32, []s
 		fatal(fmt.Errorf("item index for %s is not present", name))
 	}
 
-	list, distances, err := contextionary.GetNnsByItem(itemIndex, 15, 3)
+	list, distances, err := contextionary.GetNnsByItem(itemIndex, 20, 3)
 	if err != nil {
 		fatal(fmt.Errorf("get nns errored: %s", err))
 	}

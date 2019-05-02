@@ -80,6 +80,11 @@ func search(v []float32) {
 		panic(err)
 	}
 
+	if res.StatusCode != 200 {
+		bb, _ := ioutil.ReadAll(res.Body)
+		panic(fmt.Errorf("status is %d: %s", res.StatusCode, bb))
+	}
+
 	defer res.Body.Close()
 	bytes, err := ioutil.ReadAll(res.Body)
 	if err != nil {
