@@ -1,6 +1,41 @@
 package schema
 
-import "github.com/creativesoftwarefdn/weaviate/contextionary"
+import (
+	"context"
+
+	"github.com/creativesoftwarefdn/weaviate/contextionary"
+)
+
+type fakeRepo struct {
+	schema *State
+}
+
+func newFakeRepo() *fakeRepo {
+	return &fakeRepo{}
+}
+
+func (f *fakeRepo) LoadSchema(context.Context) (*State, error) {
+	return f.schema, nil
+}
+
+func (f *fakeRepo) SaveSchema(ctx context.Context, schema State) error {
+	f.schema = &schema
+	return nil
+}
+
+type fakeLocks struct{}
+
+func newFakeLocks() *fakeLocks {
+	return &fakeLocks{}
+}
+
+func (f *fakeLocks) LockSchema() (func() error, error) {
+	return func() error { return nil }, nil
+}
+
+func (f *fakeLocks) LockConnector() (func() error, error) {
+	return func() error { return nil }, nil
+}
 
 type fakeC11yProvider struct {
 }
@@ -20,8 +55,12 @@ func (f *fakeC11y) GetVectorLength() int {
 	panic("not implemented")
 }
 
+// Every word in this fake c11y is present with the same position (4), except
+// for the word Carrot which is not present
 func (f *fakeC11y) WordToItemIndex(word string) contextionary.ItemIndex {
-	// only used to check if its present, so any non-negative value is fine for this fake
+	if word == "carrot" {
+		return contextionary.ItemIndex(-1)
+	}
 	return contextionary.ItemIndex(4)
 }
 
