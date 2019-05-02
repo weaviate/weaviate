@@ -33,12 +33,11 @@ func clean(input string) string {
 }
 
 func main() {
-	// setMapping()
-	folder := "---insert-here---"
-	// c1Path := folder + "/filter-after-glove"
-	c2Path := folder + "/preprocessing"
+	setMapping()
 
-	c11y, err := contextionary.LoadVectorFromDisk(c2Path+"/contextionary-en.knn", c2Path+"/contextionary-en.idx")
+	c11yRoot := os.Args[1]
+
+	c11y, err := contextionary.LoadVectorFromDisk(c11yRoot+"/contextionary-en.knn", c11yRoot+"/contextionary-en.idx")
 	fatal(err)
 
 	for _, text := range sampleTexts {
@@ -47,7 +46,7 @@ func main() {
 		fatal(err)
 	}
 
-	searchString(strings.Join(os.Args[1:], " "), c11y)
+	searchString(strings.Join(os.Args[2:], " "), c11y)
 }
 
 func vectorForText(input string, c11y contextionary.Contextionary) *contextionary.Vector {
