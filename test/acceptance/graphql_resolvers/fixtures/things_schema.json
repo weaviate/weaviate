@@ -15,12 +15,6 @@
           "description": "Official name of the city."
         },
         {
-          "name": "coordinates",
-          "dataType": ["string"],
-          "description": "The city's longitude and latitude",
-          "keywords": [{"keyword": "location", "weight": 1.0}]
-        },
-        {
           "name": "inCountry",
           "dataType": ["Country"],
           "description": "The country the city lies in"
@@ -41,7 +35,7 @@
           "description": "Visitors opinions about the city"
         },
         {
-          "name": "geolocation",
+          "name": "location",
           "dataType": ["geoCoordinates"],
           "description": "The city's longitude and latitude",
           "keywords": [{"keyword": "location", "weight": 1.0}]
@@ -68,7 +62,7 @@
           "description": "Name of the person"
         },
         {
-          "name": "nationality",
+          "name": "ofNation",
           "dataType": ["Country"],
           "description": "Nationality of the person",
           "keywords": [
