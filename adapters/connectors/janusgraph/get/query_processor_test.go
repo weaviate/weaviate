@@ -97,10 +97,10 @@ func Test_QueryProcessor(t *testing.T) {
 		executor := &fakeExecutor{result: janusResponse}
 		expectedResult := []interface{}{
 			map[string]interface{}{
-				"uuid":        uuid1,
-				"name":        "Amsterdam",
-				"population":  800000,
-				"geolocation": &models.GeoCoordinates{Latitude: 0.5, Longitude: 0.6},
+				"uuid":       uuid1,
+				"name":       "Amsterdam",
+				"population": 800000,
+				"location":   &models.GeoCoordinates{Latitude: 0.5, Longitude: 0.6},
 			},
 			map[string]interface{}{
 				"uuid":       uuid2,
