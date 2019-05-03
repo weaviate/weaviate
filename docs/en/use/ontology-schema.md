@@ -185,7 +185,7 @@ is no limit on the amount of keywords per class or per class property.
     `given_name`, `given%$!*name`
 * For keywords:
   * valid: `car`, `dealership`, `sales`, `person`, `selling`, `automobiles`
-  * invalid: `carDealershop`, `car dealershop`, `sales-person`,
+  * invalid: `carDealership`, `car dealership`, `sales-person`,
     `selling_automobiles`
 
 ## Property Data Types
