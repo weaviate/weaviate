@@ -74,7 +74,7 @@ func (m *Manager) validateCanAddProperty(property *models.SemanticSchemaClassPro
 		return err
 	}
 
-	err = m.validatePropertyNameOrKeywordsCorrect(class.Class, property.Name, property.Keywords)
+	err = m.validatePropertyNameAndKeywords(class.Class, property.Name, property.Keywords)
 	if err != nil {
 		return err
 	}

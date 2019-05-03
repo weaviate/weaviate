@@ -70,7 +70,7 @@ func (m *Manager) validateCanAddClass(knd kind.Kind, class *models.SemanticSchem
 	// Check properties
 	foundNames := map[string]bool{}
 	for _, property := range class.Properties {
-		err = m.validatePropertyNameOrKeywordsCorrect(class.Class, property.Name, property.Keywords)
+		err = m.validatePropertyNameAndKeywords(class.Class, property.Name, property.Keywords)
 		if err != nil {
 			return err
 		}
