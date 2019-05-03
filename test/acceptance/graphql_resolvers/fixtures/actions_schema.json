@@ -55,7 +55,7 @@
       "description": "An agent buys an object, product, or service from a seller for a price.",
       "properties": [
         {
-          "name": "seller",
+          "name": "salesPerson",
           "dataType": ["Airline", "Person"],
           "description": "The seller of the thing",
           "keywords": [
@@ -69,9 +69,9 @@
           "description": "The offer price of a product"
         },
         {
-          "name": "buyer",
+          "name": "recipient",
           "dataType": ["Person"],
-          "description": "The buyer of the good",
+          "description": "The recipient of the good",
           "keywords": [
             {"keyword": "buy", "weight": 0.5},
             {"keyword": "person", "weight": 0.5}

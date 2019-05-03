@@ -74,6 +74,9 @@ func main() {
 		if errParsed, ok := err.(*schema.WeaviateSchemaThingsPropertiesAddUnprocessableEntity); ok {
 			panic(errParsed.Payload.Error[0].Message)
 		}
+		if errParsed, ok := err.(*schema.WeaviateSchemaActionsPropertiesAddUnprocessableEntity); ok {
+			panic(errParsed.Payload.Error[0].Message)
+		}
 		panic(err.Error())
 	}
 }

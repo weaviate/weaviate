@@ -44,7 +44,7 @@ func TestBatchThingsCreateResultsOrder(t *testing.T) {
 	thing2 := &models.Thing{
 		Class: classTwoName,
 		Schema: map[string]interface{}{
-			"testInt": 1,
+			"testWholeNumber": 1,
 		},
 	}
 

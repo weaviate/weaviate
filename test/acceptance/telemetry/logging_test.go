@@ -80,11 +80,11 @@ func sendCreateActionRequest(t *testing.T) {
 		&models.Action{
 			Class: "TestAction",
 			Schema: map[string]interface{}{
-				"testString":   actionTestString,
-				"testInt":      actionTestInt,
-				"testBoolean":  actionTestBoolean,
-				"testNumber":   actionTestNumber,
-				"testDateTime": actionTestDate,
+				"testString":      actionTestString,
+				"testWholeNumber": actionTestInt,
+				"testTrueFalse":   actionTestBoolean,
+				"testNumber":      actionTestNumber,
+				"testDateTime":    actionTestDate,
 			},
 		})
 
@@ -100,13 +100,13 @@ func sendCreateActionRequest(t *testing.T) {
 			t.Fatal("The returned schema is not an JSON object")
 		}
 
-		testInt, _ := schema["testInt"].(json.Number).Int64()
+		testWholeNumber, _ := schema["testWholeNumber"].(json.Number).Int64()
 		testNumber, _ := schema["testNumber"].(json.Number).Float64()
 
 		// Check whether the returned information is the same as the data added.
 		assert.Equal(t, actionTestString, schema["testString"])
-		assert.Equal(t, actionTestInt, int(testInt))
-		assert.Equal(t, actionTestBoolean, schema["testBoolean"])
+		assert.Equal(t, actionTestInt, int(testWholeNumber))
+		assert.Equal(t, actionTestBoolean, schema["testTrueFalse"])
 		assert.Equal(t, actionTestNumber, testNumber)
 		assert.Equal(t, actionTestDate, schema["testDateTime"])
 	})

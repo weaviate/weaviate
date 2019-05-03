@@ -47,7 +47,7 @@ func TestBatchActionsCreateResultsOrder(t *testing.T) {
 	action2 := &models.Action{
 		Class: classTwoName,
 		Schema: map[string]interface{}{
-			"testInt": 1,
+			"testWholeNumber": 1,
 		},
 	}
 
