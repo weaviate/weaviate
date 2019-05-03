@@ -13,6 +13,7 @@
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
@@ -34,6 +35,9 @@ func (m *Manager) addClass(ctx context.Context, class *models.SemanticSchemaClas
 		return err
 	}
 	defer unlock()
+
+	class.Class = upperCaseClassName(class.Class)
+	class.Properties = lowerCaseAllPropertyNames(class.Properties)
 
 	err = m.validateCanAddClass(k, class)
 	if err != nil {
@@ -58,7 +62,7 @@ func (m *Manager) validateCanAddClass(knd kind.Kind, class *models.SemanticSchem
 		return err
 	}
 
-	err = m.validateClassNameOrKeywordsCorrect(knd, class.Class, class.Keywords)
+	err = m.validateClassNameAndKeywords(knd, class.Class, class.Keywords)
 	if err != nil {
 		return err
 	}
@@ -66,7 +70,7 @@ func (m *Manager) validateCanAddClass(knd kind.Kind, class *models.SemanticSchem
 	// Check properties
 	foundNames := map[string]bool{}
 	for _, property := range class.Properties {
-		err = m.validatePropertyNameOrKeywordsCorrect(class.Class, property.Name, property.Keywords)
+		err = m.validatePropertyNameAndKeywords(class.Class, property.Name, property.Keywords)
 		if err != nil {
 			return err
 		}
@@ -87,4 +91,36 @@ func (m *Manager) validateCanAddClass(knd kind.Kind, class *models.SemanticSchem
 
 	// all is fine!
 	return nil
+}
+
+func upperCaseClassName(name string) string {
+	if len(name) < 1 {
+		return name
+	}
+
+	if len(name) == 1 {
+		return strings.ToUpper(name)
+	}
+
+	return strings.ToUpper(string(name[0])) + name[1:]
+}
+
+func lowerCaseAllPropertyNames(props []*models.SemanticSchemaClassProperty) []*models.SemanticSchemaClassProperty {
+	for i, prop := range props {
+		props[i].Name = lowerCaseFirstLetter(prop.Name)
+	}
+
+	return props
+}
+
+func lowerCaseFirstLetter(name string) string {
+	if len(name) < 1 {
+		return name
+	}
+
+	if len(name) == 1 {
+		return strings.ToLower(name)
+	}
+
+	return strings.ToLower(string(name[0])) + name[1:]
 }

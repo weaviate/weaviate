@@ -28,7 +28,7 @@
                     "description": "Value of testText."
                 },
                 {
-                    "name": "testInt",
+                    "name": "testWholeNumber",
                     "keywords": [
                       { "keyword": "test", "weight": 1.0 },
                       { "keyword": "number", "weight": 1.0 }
@@ -36,10 +36,10 @@
                     "dataType": [
                         "int"
                     ],
-                    "description": "Value of testInt."
+                    "description": "Value of testWholeNumber."
                 },
                 {
-                    "name": "testBoolean",
+                    "name": "testTrueFalse",
                     "keywords": [
                       { "keyword": "test", "weight": 1.0 },
                       { "keyword": "truth", "weight": 1.0 },
@@ -48,7 +48,7 @@
                     "dataType": [
                         "boolean"
                     ],
-                    "description": "Value of testBoolean."
+                    "description": "Value of testTrueFalse."
                 },
                 {
                     "name": "testNumber",
@@ -65,7 +65,7 @@
                     "description": "Value of testDateTime."
                 },
                 {
-                    "name": "testCref",
+                    "name": "testReference",
                     "keywords": [
                       { "keyword": "test", "weight": 1.0 },
                       { "keyword": "reference", "weight": 1.0 }
@@ -73,7 +73,7 @@
                     "dataType": [
                         "TestThingTwo"
                     ],
-                    "description": "Value of testCref."
+                    "description": "Value of testReference."
                 }, {
                     "name": "testRandomType",
                     "dataType": [
@@ -111,7 +111,7 @@
                     "description": "Value of testText."
                 },
                 {
-                    "name": "testInt",
+                    "name": "testWholeNumber",
                     "keywords": [
                       { "keyword": "test", "weight": 1.0 },
                       { "keyword": "number", "weight": 1.0 }
@@ -119,10 +119,10 @@
                     "dataType": [
                         "int"
                     ],
-                    "description": "Value of testInt."
+                    "description": "Value of testWholeNumber."
                 },
                 {
-                    "name": "testBoolean",
+                    "name": "testTrueFalse",
                     "keywords": [
                       { "keyword": "test", "weight": 1.0 },
                       { "keyword": "truth", "weight": 1.0 },
@@ -131,7 +131,7 @@
                     "dataType": [
                         "boolean"
                     ],
-                    "description": "Value of testBoolean."
+                    "description": "Value of testTrueFalse."
                 },
                 {
                     "name": "testNumber",
@@ -148,7 +148,7 @@
                     "description": "Value of testDateTime."
                 },
                 {
-                    "name": "testCref",
+                    "name": "testReference",
                     "keywords": [
                       { "keyword": "test", "weight": 1.0 },
                       { "keyword": "reference", "weight": 1.0 }
@@ -156,7 +156,7 @@
                     "dataType": [
                         "TestThing"
                     ],
-                    "description": "Value of testCref."
+                    "description": "Value of testReference."
                 }, {
                     "name": "testRandomType",
                     "dataType": [

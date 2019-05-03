@@ -296,14 +296,14 @@
                     ]
                 },
                 {
-                    "name": "buyer",
+                    "name": "recipient",
                     "dataType": [
                         "Person"
                     ],
-                    "description": "The buyer of the good",
+                    "description": "The recipient of the good",
                     "keywords": [
                         {
-                            "keyword": "buyer",
+                            "keyword": "recipient",
                             "weight": 1.0
                         },
                         {
@@ -311,7 +311,7 @@
                             "weight": 0.5
                         },
                         {
-                            "keyword": "buyer",
+                            "keyword": "recipient",
                             "weight": 0.25
                         }
                     ]
