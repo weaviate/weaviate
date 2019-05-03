@@ -183,6 +183,10 @@ is no limit on the amount of keywords per class or per class property.
   * valid: `name`, `givenName`, `firstName`, `theNameThatThisPersonIsCalledBy`
   * invalid: `given Name`, `given name`, `givenname`, `given-name`,
     `given_name`, `given%$!*name`
+* For keywords:
+  * valid: `car`, `dealership`, `sales`, `person`, `selling`, `automobiles`
+  * invalid: `carDealershop`, `car dealershop`, `sales-person`,
+    `selling_automobiles`
 
 ## Property Data Types
 
