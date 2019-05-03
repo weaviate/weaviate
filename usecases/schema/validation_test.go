@@ -7,9 +7,10 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func Test_Validation_AddClass(t *testing.T) {
+func Test_Validation_ClassNames(t *testing.T) {
 	type testCase struct {
 		input    string
 		valid    bool
@@ -81,97 +82,226 @@ func Test_Validation_AddClass(t *testing.T) {
 		},
 	}
 
-	t.Run("different class names without keywords or properties", func(t *testing.T) {
+	t.Run("adding a class", func(t *testing.T) {
+		t.Run("different class names without keywords or properties", func(t *testing.T) {
 
-		for _, test := range tests {
-			t.Run(test.name+" as thing class", func(t *testing.T) {
-				class := &models.SemanticSchemaClass{
-					Class: test.input,
-				}
+			for _, test := range tests {
+				t.Run(test.name+" as thing class", func(t *testing.T) {
+					class := &models.SemanticSchemaClass{
+						Class: test.input,
+					}
 
-				m := newSchemaManager()
-				err := m.AddThing(context.Background(), class)
-				t.Log(err)
-				assert.Equal(t, test.valid, err == nil)
+					m := newSchemaManager()
+					err := m.AddThing(context.Background(), class)
+					t.Log(err)
+					assert.Equal(t, test.valid, err == nil)
 
-				// only proceed if input was supposed to be valid
-				if test.valid == false {
-					return
-				}
+					// only proceed if input was supposed to be valid
+					if test.valid == false {
+						return
+					}
 
-				classNames := testGetClassNames(m, kind.Thing)
-				assert.Contains(t, classNames, test.storedAs, "class should be stored correctly")
-			})
+					classNames := testGetClassNames(m, kind.Thing)
+					assert.Contains(t, classNames, test.storedAs, "class should be stored correctly")
+				})
 
-			t.Run(test.name+" as action class", func(t *testing.T) {
-				class := &models.SemanticSchemaClass{
-					Class: test.input,
-				}
+				t.Run(test.name+" as action class", func(t *testing.T) {
+					class := &models.SemanticSchemaClass{
+						Class: test.input,
+					}
 
-				m := newSchemaManager()
-				err := m.AddAction(context.Background(), class)
-				t.Log(err)
-				assert.Equal(t, test.valid, err == nil)
+					m := newSchemaManager()
+					err := m.AddAction(context.Background(), class)
+					t.Log(err)
+					assert.Equal(t, test.valid, err == nil)
 
-				// only proceed if input was supposed to be valid
-				if test.valid == false {
-					return
-				}
+					// only proceed if input was supposed to be valid
+					if test.valid == false {
+						return
+					}
 
-				classNames := testGetClassNames(m, kind.Action)
-				assert.Contains(t, classNames, test.storedAs, "class should be stored correctly")
-			})
-		}
+					classNames := testGetClassNames(m, kind.Action)
+					assert.Contains(t, classNames, test.storedAs, "class should be stored correctly")
+				})
+			}
+		})
+
+		t.Run("different class names with valid keywords", func(t *testing.T) {
+			for _, test := range tests {
+				t.Run(test.name+" as thing class", func(t *testing.T) {
+					class := &models.SemanticSchemaClass{
+						Class: test.input,
+						Keywords: models.SemanticSchemaKeywords{{
+							Keyword: "something",
+							Weight:  0.7,
+						}},
+					}
+
+					m := newSchemaManager()
+					err := m.AddThing(context.Background(), class)
+					t.Log(err)
+					assert.Equal(t, test.valid, err == nil)
+
+					// only proceed if input was supposed to be valid
+					if test.valid == false {
+						return
+					}
+
+					classNames := testGetClassNames(m, kind.Thing)
+					assert.Contains(t, classNames, test.storedAs, "class should be stored correctly")
+				})
+
+				t.Run(test.name+" as action class", func(t *testing.T) {
+					class := &models.SemanticSchemaClass{
+						Class: test.input,
+						Keywords: models.SemanticSchemaKeywords{{
+							Keyword: "something",
+							Weight:  0.7,
+						}},
+					}
+
+					m := newSchemaManager()
+					err := m.AddAction(context.Background(), class)
+					t.Log(err)
+					assert.Equal(t, test.valid, err == nil)
+
+					// only proceed if input was supposed to be valid
+					if test.valid == false {
+						return
+					}
+
+					classNames := testGetClassNames(m, kind.Action)
+					assert.Contains(t, classNames, test.storedAs, "class should be stored correctly")
+				})
+			}
+		})
 	})
 
-	t.Run("different class names with valid keywords", func(t *testing.T) {
-		for _, test := range tests {
-			t.Run(test.name+" as thing class", func(t *testing.T) {
-				class := &models.SemanticSchemaClass{
-					Class: test.input,
-					Keywords: models.SemanticSchemaKeywords{{
-						Keyword: "something",
-						Weight:  0.7,
-					}},
-				}
+	t.Run("updating an existing class", func(t *testing.T) {
+		t.Run("different class names without keywords or properties", func(t *testing.T) {
 
-				m := newSchemaManager()
-				err := m.AddThing(context.Background(), class)
-				t.Log(err)
-				assert.Equal(t, test.valid, err == nil)
+			for _, test := range tests {
+				originalName := "ValidOriginalName"
+				t.Run(test.name+" as thing class", func(t *testing.T) {
+					class := &models.SemanticSchemaClass{
+						Class: originalName,
+					}
 
-				// only proceed if input was supposed to be valid
-				if test.valid == false {
-					return
-				}
+					m := newSchemaManager()
+					err := m.AddThing(context.Background(), class)
+					require.Nil(t, err)
 
-				classNames := testGetClassNames(m, kind.Thing)
-				assert.Contains(t, classNames, test.storedAs, "class should be stored correctly")
-			})
+					// now try to update
+					updatedClass := &models.SemanticSchemaClass{
+						Class: test.input,
+					}
 
-			t.Run(test.name+" as action class", func(t *testing.T) {
-				class := &models.SemanticSchemaClass{
-					Class: test.input,
-					Keywords: models.SemanticSchemaKeywords{{
-						Keyword: "something",
-						Weight:  0.7,
-					}},
-				}
+					err = m.UpdateThing(context.Background(), originalName, updatedClass)
+					assert.Equal(t, test.valid, err == nil)
 
-				m := newSchemaManager()
-				err := m.AddAction(context.Background(), class)
-				t.Log(err)
-				assert.Equal(t, test.valid, err == nil)
+					// only proceed if input was supposed to be valid
+					if test.valid == false {
+						return
+					}
 
-				// only proceed if input was supposed to be valid
-				if test.valid == false {
-					return
-				}
+					classNames := testGetClassNames(m, kind.Thing)
+					assert.Contains(t, classNames, test.storedAs, "class should be stored correctly")
+				})
 
-				classNames := testGetClassNames(m, kind.Action)
-				assert.Contains(t, classNames, test.storedAs, "class should be stored correctly")
-			})
-		}
+				t.Run(test.name+" as action class", func(t *testing.T) {
+					class := &models.SemanticSchemaClass{
+						Class: originalName,
+					}
+
+					m := newSchemaManager()
+					err := m.AddAction(context.Background(), class)
+					require.Nil(t, err)
+
+					// now try to update
+					updatedClass := &models.SemanticSchemaClass{
+						Class: test.input,
+					}
+
+					err = m.UpdateAction(context.Background(), originalName, updatedClass)
+					assert.Equal(t, test.valid, err == nil)
+
+					// only proceed if input was supposed to be valid
+					if test.valid == false {
+						return
+					}
+
+					classNames := testGetClassNames(m, kind.Action)
+					assert.Contains(t, classNames, test.storedAs, "class should be stored correctly")
+				})
+
+			}
+		})
+
+		t.Run("different class names with valid keywords", func(t *testing.T) {
+			for _, test := range tests {
+				originalName := "ValidOriginalName"
+
+				t.Run(test.name+" as thing class", func(t *testing.T) {
+					class := &models.SemanticSchemaClass{
+						Class: originalName,
+						Keywords: models.SemanticSchemaKeywords{{
+							Keyword: "something",
+							Weight:  0.7,
+						}},
+					}
+
+					m := newSchemaManager()
+					err := m.AddThing(context.Background(), class)
+					require.Nil(t, err)
+
+					// now update
+					updatedClass := &models.SemanticSchemaClass{
+						Class:    test.input,
+						Keywords: class.Keywords,
+					}
+					err = m.UpdateThing(context.Background(), originalName, updatedClass)
+					assert.Equal(t, test.valid, err == nil)
+
+					// only proceed if input was supposed to be valid
+					if test.valid == false {
+						return
+					}
+
+					classNames := testGetClassNames(m, kind.Thing)
+					assert.Contains(t, classNames, test.storedAs, "class should be stored correctly")
+				})
+
+				t.Run(test.name+" as action class", func(t *testing.T) {
+					class := &models.SemanticSchemaClass{
+						Class: originalName,
+						Keywords: models.SemanticSchemaKeywords{{
+							Keyword: "someaction",
+							Weight:  0.7,
+						}},
+					}
+
+					m := newSchemaManager()
+					err := m.AddAction(context.Background(), class)
+					require.Nil(t, err)
+
+					// now update
+					updatedClass := &models.SemanticSchemaClass{
+						Class:    test.input,
+						Keywords: class.Keywords,
+					}
+					err = m.UpdateAction(context.Background(), originalName, updatedClass)
+					assert.Equal(t, test.valid, err == nil)
+
+					// only proceed if input was supposed to be valid
+					if test.valid == false {
+						return
+					}
+
+					classNames := testGetClassNames(m, kind.Action)
+					assert.Contains(t, classNames, test.storedAs, "class should be stored correctly")
+				})
+			}
+		})
 	})
 }
 
