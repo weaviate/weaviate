@@ -127,7 +127,28 @@ Example:
 ...
 ```
 
-## CamelCase
+## CamelCase and camelCase in class and property names
+
+Spaces are not allowed in either class or property names. However, you can
+chain multiple words using `CamelCase` (or "upper camel case") for class names.
+Similiarly you can use `camelCase` (or "lower camel case") to chain multiple
+words together for property names.
+
+Keywords cannot be chained, they have to match exactly one word. However, there
+is no limit on the amount of keywords per class or per class property.
+
+### Examples
+
+* For class names:
+  * valid: `Zoo`, `AnimalZoo`, `ZooWithAnimals`,
+    `VeryVerboseZooWithVerboseAnimals`
+  * invalid: `animalzoo`, `animal zoo`, `animal Zoo`, `zoo-with-animals`,
+    `ZooWithAnimales` (the last example is properly cased, but the typo in
+    `Animal(e)s` is not a contextionary-valid word)
+* For property names:
+  * valid: `name`, `givenName`, `firstName`, `theNameThatThisPersonIsCalledBy`
+  * invalid: `given Name`, `given name`, `givenname`, `given-name`,
+    `given_name`, `given%$!*name`
 
 If you create properties with multiple words (for example `inCountry`) make sure to use CamelCase to divide them. `in-country` or `incountry` will be handled as one word by the contextionary and result in a Weaviate failing to boot or creating a reference to the wrong word.
 
