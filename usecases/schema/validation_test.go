@@ -596,4 +596,131 @@ func Test_Validation_PropertyNames(t *testing.T) {
 		})
 	})
 
+	t.Run("when updating an existing property with a new prop name", func(t *testing.T) {
+		t.Run("different property names without keywords for the prop", func(t *testing.T) {
+
+			for _, test := range tests {
+				originalName := "validPropertyName"
+
+				t.Run(test.name+" as thing class", func(t *testing.T) {
+					class := &models.SemanticSchemaClass{
+						Class: "ValidName",
+						Properties: []*models.SemanticSchemaClassProperty{
+							&models.SemanticSchemaClassProperty{
+								DataType: []string{"string"},
+								Name:     originalName,
+							},
+						},
+					}
+
+					m := newSchemaManager()
+					err := m.AddThing(context.Background(), class)
+					require.Nil(t, err)
+
+					updatedProperty := &models.SemanticSchemaClassProperty{
+						DataType: []string{"string"},
+						Name:     test.input,
+					}
+					err = m.UpdateThingProperty(context.Background(), "ValidName", originalName, updatedProperty)
+					t.Log(err)
+					require.Equal(t, test.valid, err == nil)
+
+					// only proceed if input was supposed to be valid
+					if test.valid == false {
+						return
+					}
+
+					propName := m.GetSchema().Things.Classes[0].Properties[0].Name
+					assert.Equal(t, propName, test.storedAs, "class should be stored correctly")
+				})
+
+				t.Run(test.name+" as action class", func(t *testing.T) {
+					class := &models.SemanticSchemaClass{
+						Class: "ValidName",
+						Properties: []*models.SemanticSchemaClassProperty{
+							&models.SemanticSchemaClassProperty{
+								DataType: []string{"string"},
+								Name:     originalName,
+							},
+						},
+					}
+
+					m := newSchemaManager()
+					err := m.AddAction(context.Background(), class)
+					require.Nil(t, err)
+
+					updatedProperty := &models.SemanticSchemaClassProperty{
+						DataType: []string{"string"},
+						Name:     test.input,
+					}
+					err = m.UpdateActionProperty(context.Background(), "ValidName", originalName, updatedProperty)
+					t.Log(err)
+					require.Equal(t, test.valid, err == nil)
+
+					// only proceed if input was supposed to be valid
+					if test.valid == false {
+						return
+					}
+
+					propName := m.GetSchema().Actions.Classes[0].Properties[0].Name
+					assert.Equal(t, propName, test.storedAs, "class should be stored correctly")
+				})
+
+			}
+		})
+
+		t.Run("different property names  with valid keywords for the prop", func(t *testing.T) {
+
+			for _, test := range tests {
+				t.Run(test.name+" as thing class", func(t *testing.T) {
+					class := &models.SemanticSchemaClass{
+						Class: "ValidName",
+						Properties: []*models.SemanticSchemaClassProperty{{
+							DataType: []string{"string"},
+							Name:     test.input,
+							Keywords: models.SemanticSchemaKeywords{{Keyword: "something", Weight: 0.7}},
+						}},
+					}
+
+					m := newSchemaManager()
+					err := m.AddThing(context.Background(), class)
+					t.Log(err)
+					assert.Equal(t, test.valid, err == nil)
+
+					// only proceed if input was supposed to be valid
+					if test.valid == false {
+						return
+					}
+
+					propName := m.GetSchema().Things.Classes[0].Properties[0].Name
+					assert.Equal(t, propName, test.storedAs, "class should be stored correctly")
+				})
+
+				t.Run(test.name+" as action class", func(t *testing.T) {
+					class := &models.SemanticSchemaClass{
+						Class: "ValidName",
+						Properties: []*models.SemanticSchemaClassProperty{{
+							DataType: []string{"string"},
+							Name:     test.input,
+							Keywords: models.SemanticSchemaKeywords{{Keyword: "something", Weight: 0.7}},
+						}},
+					}
+
+					m := newSchemaManager()
+					err := m.AddAction(context.Background(), class)
+					t.Log(err)
+					assert.Equal(t, test.valid, err == nil)
+
+					// only proceed if input was supposed to be valid
+					if test.valid == false {
+						return
+					}
+
+					propName := m.GetSchema().Actions.Classes[0].Properties[0].Name
+					assert.Equal(t, propName, test.storedAs, "class should be stored correctly")
+				})
+			}
+		})
+	})
+
 }
