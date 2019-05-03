@@ -44,7 +44,8 @@ func (m *Manager) updateClassProperty(ctx context.Context, className string, nam
 
 	if property.Name != name {
 		// the name in the URI and body don't match, so we assume the user wants to rename
-		newName = &property.Name
+		n := lowerCaseFirstLetter(property.Name)
+		newName = &n
 	}
 
 	// TODO gh-619: This implies that we can't undo setting keywords, because we can't detect if keywords is not present, or empty.
@@ -79,7 +80,10 @@ func (m *Manager) updateClassProperty(ctx context.Context, className string, nam
 	}
 
 	// Validate name / keywords in contextionary
-	m.validatePropertyNameAndKeywords(className, propNameAfterUpdate, keywordsAfterUpdate)
+	err = m.validatePropertyNameAndKeywords(className, propNameAfterUpdate, keywordsAfterUpdate)
+	if err != nil {
+		return err
+	}
 
 	// Validated! Now apply the changes.
 	prop.Name = propNameAfterUpdate
