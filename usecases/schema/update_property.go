@@ -79,7 +79,7 @@ func (m *Manager) updateClassProperty(ctx context.Context, className string, nam
 	}
 
 	// Validate name / keywords in contextionary
-	m.validatePropertyNameOrKeywordsCorrect(className, propNameAfterUpdate, keywordsAfterUpdate)
+	m.validatePropertyNameAndKeywords(className, propNameAfterUpdate, keywordsAfterUpdate)
 
 	// Validated! Now apply the changes.
 	prop.Name = propNameAfterUpdate
