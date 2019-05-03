@@ -45,6 +45,8 @@ func (m *Manager) addClassProperty(ctx context.Context, className string,
 		return err
 	}
 
+	prop.Name = lowerCaseFirstLetter(prop.Name)
+
 	err = m.validateCanAddProperty(prop, class)
 	if err != nil {
 		return err
