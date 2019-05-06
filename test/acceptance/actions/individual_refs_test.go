@@ -32,15 +32,15 @@ func TestCanAddAPropertyIndividually(t *testing.T) {
 
 	uuid := assertCreateAction(t, "TestActionTwo", map[string]interface{}{})
 
-	// Verify that testCrefs is empty
+	// Verify that testReferences is empty
 	updatedAction := assertGetActionEventually(t, uuid)
 	updatedSchema := updatedAction.Schema.(map[string]interface{})
-	assert.Nil(t, updatedSchema["testCrefs"])
+	assert.Nil(t, updatedSchema["testReferences"])
 
 	// Append a property reference
 	params := actions.NewWeaviateActionsReferencesCreateParams().
 		WithID(uuid).
-		WithPropertyName("testCrefs").
+		WithPropertyName("testReferences").
 		WithBody(crossref.New("localhost", toPointToUuid, kind.Action).SingleRef())
 
 	updateResp, err := helper.Client(t).Actions.WeaviateActionsReferencesCreate(params, nil)
@@ -49,7 +49,7 @@ func TestCanAddAPropertyIndividually(t *testing.T) {
 	// Get the property again.
 	updatedAction = assertGetAction(t, uuid)
 	updatedSchema = updatedAction.Schema.(map[string]interface{})
-	assert.NotNil(t, updatedSchema["testCrefs"])
+	assert.NotNil(t, updatedSchema["testReferences"])
 }
 
 func TestCanReplaceAllProperties(t *testing.T) {
@@ -61,20 +61,20 @@ func TestCanReplaceAllProperties(t *testing.T) {
 	assertGetActionEventually(t, toPointToUuidLater)
 
 	uuid := assertCreateAction(t, "TestActionTwo", map[string]interface{}{
-		"testCrefs": &models.MultipleRef{
+		"testReferences": &models.MultipleRef{
 			crossref.New("localhost", toPointToUuidFirst, kind.Action).SingleRef(),
 		},
 	})
 
-	// Verify that testCrefs is empty
+	// Verify that testReferences is empty
 	updatedAction := assertGetActionEventually(t, uuid)
 	updatedSchema := updatedAction.Schema.(map[string]interface{})
-	assert.NotNil(t, updatedSchema["testCrefs"])
+	assert.NotNil(t, updatedSchema["testReferences"])
 
 	// Replace
 	params := actions.NewWeaviateActionsReferencesUpdateParams().
 		WithID(uuid).
-		WithPropertyName("testCrefs").
+		WithPropertyName("testReferences").
 		WithBody(models.MultipleRef{
 			crossref.New("localhost", toPointToUuidLater, kind.Action).SingleRef(),
 		})
@@ -85,7 +85,7 @@ func TestCanReplaceAllProperties(t *testing.T) {
 	// Get the property again.
 	updatedAction = assertGetAction(t, uuid)
 	updatedSchema = updatedAction.Schema.(map[string]interface{})
-	assert.NotNil(t, updatedSchema["testCrefs"])
+	assert.NotNil(t, updatedSchema["testReferences"])
 }
 
 func TestRemovePropertyIndividually(t *testing.T) {
@@ -95,20 +95,20 @@ func TestRemovePropertyIndividually(t *testing.T) {
 	assertGetActionEventually(t, toPointToUuid)
 
 	uuid := assertCreateAction(t, "TestActionTwo", map[string]interface{}{
-		"testCrefs": &models.MultipleRef{
+		"testReferences": &models.MultipleRef{
 			crossref.New("localhost", toPointToUuid, kind.Action).SingleRef(),
 		},
 	})
 
-	// Verify that testCrefs is not empty
+	// Verify that testReferences is not empty
 	updatedAction := assertGetActionEventually(t, uuid)
 	updatedSchema := updatedAction.Schema.(map[string]interface{})
-	assert.NotNil(t, updatedSchema["testCrefs"])
+	assert.NotNil(t, updatedSchema["testReferences"])
 
 	// Delete a property reference
 	params := actions.NewWeaviateActionsReferencesDeleteParams().
 		WithID(uuid).
-		WithPropertyName("testCrefs").
+		WithPropertyName("testReferences").
 		WithBody(
 			crossref.New("localhost", toPointToUuid, kind.Action).SingleRef(),
 		)
@@ -119,5 +119,5 @@ func TestRemovePropertyIndividually(t *testing.T) {
 	// Get the property again.
 	updatedAction = assertGetAction(t, uuid)
 	updatedSchema = updatedAction.Schema.(map[string]interface{})
-	assert.Nil(t, updatedSchema["testCrefs"])
+	assert.Nil(t, updatedSchema["testReferences"])
 }

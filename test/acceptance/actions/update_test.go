@@ -87,7 +87,7 @@ func TestCanUpdateActionSetBool(t *testing.T) {
 	assertGetActionEventually(t, uuid)
 
 	schema := models.Schema(map[string]interface{}{
-		"testBoolean": true,
+		"testTrueFalse": true,
 	})
 
 	update := models.Action{}
@@ -103,7 +103,7 @@ func TestCanUpdateActionSetBool(t *testing.T) {
 	actualThunk := func() interface{} {
 		updatedAction := assertGetAction(t, uuid)
 		updatedSchema := updatedAction.Schema.(map[string]interface{})
-		return updatedSchema["testBoolean"]
+		return updatedSchema["testTrueFalse"]
 	}
 	helper.AssertEventuallyEqual(t, true, actualThunk)
 }
@@ -117,7 +117,7 @@ func TestCanPatchActionsSetCref(t *testing.T) {
 	assertGetActionEventually(t, actionID)
 
 	op := "add"
-	path := "/schema/testCref"
+	path := "/schema/testReference"
 
 	patch := &models.PatchDocument{
 		Op:   &op,
@@ -137,7 +137,7 @@ func TestCanPatchActionsSetCref(t *testing.T) {
 	actualThunk := func() interface{} {
 		patchedAction := assertGetAction(t, actionID)
 
-		rawCref := patchedAction.Schema.(map[string]interface{})["testCref"]
+		rawCref := patchedAction.Schema.(map[string]interface{})["testReference"]
 		cref := rawCref.(map[string]interface{})
 
 		return cref["$cref"]

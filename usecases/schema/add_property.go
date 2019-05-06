@@ -45,6 +45,8 @@ func (m *Manager) addClassProperty(ctx context.Context, className string,
 		return err
 	}
 
+	prop.Name = lowerCaseFirstLetter(prop.Name)
+
 	err = m.validateCanAddProperty(prop, class)
 	if err != nil {
 		return err
@@ -74,7 +76,7 @@ func (m *Manager) validateCanAddProperty(property *models.SemanticSchemaClassPro
 		return err
 	}
 
-	err = m.validatePropertyNameOrKeywordsCorrect(class.Class, property.Name, property.Keywords)
+	err = m.validatePropertyNameAndKeywords(class.Class, property.Name, property.Keywords)
 	if err != nil {
 		return err
 	}
