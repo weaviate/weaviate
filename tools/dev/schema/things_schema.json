@@ -30,13 +30,7 @@
           "description": "Reviews by people who have visited the city"
         },
         {
-          "name": "coordinates",
-          "dataType": ["string"],
-          "description": "The city's longitude and latitude",
-          "keywords": [{"keyword": "location", "weight": 1.0}]
-        },
-        {
-          "name": "geolocation",
+          "name": "location",
           "dataType": ["geoCoordinates"],
           "description": "The city's longitude and latitude",
           "keywords": [{"keyword": "location", "weight": 1.0}]
@@ -79,7 +73,7 @@
           "description": "Name of the person"
         },
         {
-          "name": "nationality",
+          "name": "ofNation",
           "dataType": ["Country"],
           "description": "Nationality of the person",
           "keywords": [

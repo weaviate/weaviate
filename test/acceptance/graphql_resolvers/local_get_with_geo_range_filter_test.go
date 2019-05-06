@@ -28,11 +28,11 @@ func TestLocalGetWithWithinGeoRangeFilter(t *testing.T) {
 					Things {
 						City(where:{
 							operator: WithinGeoRange
-							path: ["geolocation"]
+							path: ["location"]
 							valueGeoRange: { geoCoordinates: {latitude: 51.225556, longitude: 6.782778} distance: { max: 100 } }
 						}){
 							name
-							geolocation {
+							location {
 								latitude
 								longitude
 							}
@@ -48,7 +48,7 @@ func TestLocalGetWithWithinGeoRangeFilter(t *testing.T) {
 		expectedResults := []interface{}{
 			map[string]interface{}{
 				"name": "Dusseldorf",
-				"geolocation": map[string]interface{}{
+				"location": map[string]interface{}{
 					"latitude":  json.Number("51.225555"),
 					"longitude": json.Number("6.782778"),
 				},
@@ -66,11 +66,11 @@ func TestLocalGetWithWithinGeoRangeFilter(t *testing.T) {
 					Things {
 						City(where:{
 							operator: WithinGeoRange
-							path: ["geolocation"]
+							path: ["location"]
 							valueGeoRange: { geoCoordinates: {latitude: 51.225556, longitude: 6.782778} distance: { max: 200 } }
 						}){
 							name
-							geolocation {
+							location {
 								latitude
 								longitude
 							}
@@ -86,14 +86,14 @@ func TestLocalGetWithWithinGeoRangeFilter(t *testing.T) {
 		expectedResults := []interface{}{
 			map[string]interface{}{
 				"name": "Dusseldorf",
-				"geolocation": map[string]interface{}{
+				"location": map[string]interface{}{
 					"latitude":  json.Number("51.225555"),
 					"longitude": json.Number("6.782778"),
 				},
 			},
 			map[string]interface{}{
 				"name": "Amsterdam",
-				"geolocation": map[string]interface{}{
+				"location": map[string]interface{}{
 					"latitude":  json.Number("52.36667"),
 					"longitude": json.Number("4.9"),
 				},
