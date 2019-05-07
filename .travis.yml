@@ -11,7 +11,7 @@ after_success:
         # Login to dockerhub
         echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
         # prepare release id's
-        DOCKER_ID="creativesoftwarefdn/weaviate:"
+        DOCKER_ID="semi-technologies/weaviate:"
         # releasing a prerelease
         if [ "$TRAVIS_BRANCH" = "master" ]; then
             TAG=$DOCKER_ID$WEAVIATE_VERSION-$(echo $TRAVIS_COMMIT | cut -c1-7)
@@ -70,7 +70,7 @@ language: go
 install:  
   # - curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
   # - chmod +x ./cc-test-reporter
-  - wget https://raw.githubusercontent.com/creativesoftwarefdn/semver-tool/master/src/semver
+  - wget https://raw.githubusercontent.com/semi-technologies/semver-tool/master/src/semver
   - chmod +x semver
 before_script:
   - sudo apt-get -qq -y update

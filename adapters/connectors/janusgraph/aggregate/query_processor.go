@@ -5,9 +5,9 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */
 
 package aggregate
@@ -19,9 +19,9 @@ import (
 
 	analytics "github.com/SeMI-network/janus-spark-analytics/clients/go"
 	"github.com/coreos/etcd/clientv3"
-	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/gremlin"
-	"github.com/creativesoftwarefdn/weaviate/entities/filters"
-	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/gremlin"
+	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/semi-technologies/weaviate/usecases/kinds"
 )
 
 // AnalyticsAPICachePrefix is prepended to the ids to form the keys in the

@@ -39,8 +39,8 @@ To see the latest version, run on of the following [jq](https://stedolan.github.
 | Description | Command |
 | ----------- | ------- |
 | From current local branch | `$ jq -r '.info.version' ./openapi-specs/schema.json` |
-| Get current `tree/develop` version | `$ curl -sS https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/openapi-specs/schema.json \| jq -r ".info.version"` |
-| Get current `tree/master` |  version `$ curl -sS https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/openapi-specs/schema.json \| jq -r '.info.version' ` |
+| Get current `tree/develop` version | `$ curl -sS https://raw.githubusercontent.com/semi-technologies/weaviate/develop/openapi-specs/schema.json \| jq -r ".info.version"` |
+| Get current `tree/master` |  version `$ curl -sS https://raw.githubusercontent.com/semi-technologies/weaviate/develop/openapi-specs/schema.json \| jq -r '.info.version' ` |
 
 ### Using Git
 
@@ -96,9 +96,9 @@ docker run --net=host --rm weaviate/new_acceptance_test -args -server-port=8080 
 
 The Docker image naming structure works as follows:
 
-- `creativesoftwarefdn/weaviate-dev-server:latest` = Master branch.
-- `creativesoftwarefdn/weaviate-dev-server:unstable` = Develop branch (note our [Gitflow](#gitflow) process).
-- `creativesoftwarefdn/weaviate-dev-server:vx.y.z` = Specific [release](https://github.com/creativesoftwarefdn/weaviate/releases).
+- `semi-technologies/weaviate-dev-server:latest` = Master branch.
+- `semi-technologies/weaviate-dev-server:unstable` = Develop branch (note our [Gitflow](#gitflow) process).
+- `semi-technologies/weaviate-dev-server:vx.y.z` = Specific [release](https://github.com/semi-technologies/weaviate/releases).
 
 # Contribute to documentation
 
