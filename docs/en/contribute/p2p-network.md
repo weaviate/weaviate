@@ -8,7 +8,7 @@
 
 Networks are designed to be pluggable, however they're not fully pluggable at
 the moment. There is an [issue to resolve
-this](https://github.com/creativesoftwarefdn/weaviate/issues/621). However,
+this](https://github.com/semi-technologies/weaviate/issues/621). However,
 this only becomes urgent once we decide we need a different network style.
 
 As of now, whenever we talk about network, we mean the [Hybrid P2P Network over
@@ -67,16 +67,16 @@ As an example look at the following query.
 
 ### Resolve `Network.GetMeta.<peerName>.<kind>.<className>`
 
-Not implemented yet, see [issue #644](https://github.com/creativesoftwarefdn/weaviate/issues/644).
+Not implemented yet, see [issue #644](https://github.com/semi-technologies/weaviate/issues/644).
 
 ### Resolve `Network.Fetch.<kind>`
 
-Not implemented yet, see [issue #645](https://github.com/creativesoftwarefdn/weaviate/issues/645).
+Not implemented yet, see [issue #645](https://github.com/semi-technologies/weaviate/issues/645).
 
 ### Resolve `Network.Fetch.Fuzzy`
 
-Not implemented yet, see [issue #647](https://github.com/creativesoftwarefdn/weaviate/issues/647).
+Not implemented yet, see [issue #647](https://github.com/semi-technologies/weaviate/issues/647).
 
 ### Resolve `Network.Fetch.Fuzzy`
 
-Not implemented yet, see [issue #648](https://github.com/creativesoftwarefdn/weaviate/issues/648).
+Not implemented yet, see [issue #648](https://github.com/semi-technologies/weaviate/issues/648).

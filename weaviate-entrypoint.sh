@@ -7,7 +7,7 @@
 #  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 #
 # Copyright © 2016 - 2018 Weaviate. All rights reserved.
-# LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+# LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
 # AUTHOR: Bob van Luijt (bob@kub.design)
 # See www.creativesoftwarefdn.org for details
 # Contact: @CreativeSofwFdn / bob@kub.design

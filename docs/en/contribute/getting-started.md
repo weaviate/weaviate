@@ -11,7 +11,7 @@ $ docker-compose -f ./docker-compose/runtime-dev/docker-compose.yml up
 Clone weaviate:
 
 ```bash
-$ git clone https://github.com/creativesoftwarefdn/weaviate
+$ git clone https://github.com/semi-technologies/weaviate
 ```
 
 From the Weaviate root, download the contextionary:

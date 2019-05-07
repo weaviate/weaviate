@@ -11,7 +11,7 @@ after_success:
         # Login to dockerhub
         echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
         # prepare release id's
-        DOCKER_ID="creativesoftwarefdn/weaviate:"
+        DOCKER_ID="semitechnologies/weaviate:"
         # releasing a prerelease
         if [ "$TRAVIS_BRANCH" = "master" ]; then
             TAG=$DOCKER_ID$WEAVIATE_VERSION-$(echo $TRAVIS_COMMIT | cut -c1-7)

@@ -5,9 +5,9 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */
 
 // Package connswitch allows for switching the plugged in database at startup
@@ -16,10 +16,10 @@ package connswitch
 import (
 	"fmt"
 
-	dbconnector "github.com/creativesoftwarefdn/weaviate/adapters/connectors"
-	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/foobar"
-	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph"
-	"github.com/creativesoftwarefdn/weaviate/usecases/config"
+	dbconnector "github.com/semi-technologies/weaviate/adapters/connectors"
+	"github.com/semi-technologies/weaviate/adapters/connectors/foobar"
+	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph"
+	"github.com/semi-technologies/weaviate/usecases/config"
 )
 
 // NewConnector builds a new connector based on it's name or errors
