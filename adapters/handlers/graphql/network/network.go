@@ -5,9 +5,9 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */
 
 // Package network provides the network graphql endpoint for Weaviate
@@ -16,16 +16,16 @@ package network
 import (
 	"fmt"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/descriptions"
-	network_aggregate "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network/aggregate"
-	network_fetch "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network/fetch"
-	network_get "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network/get"
-	network_getmeta "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network/getmeta"
-	network_introspect "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network/introspect"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/utils"
-	"github.com/creativesoftwarefdn/weaviate/usecases/config"
-	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
 	"github.com/graphql-go/graphql"
+	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
+	network_aggregate "github.com/semi-technologies/weaviate/adapters/handlers/graphql/network/aggregate"
+	network_fetch "github.com/semi-technologies/weaviate/adapters/handlers/graphql/network/fetch"
+	network_get "github.com/semi-technologies/weaviate/adapters/handlers/graphql/network/get"
+	network_getmeta "github.com/semi-technologies/weaviate/adapters/handlers/graphql/network/getmeta"
+	network_introspect "github.com/semi-technologies/weaviate/adapters/handlers/graphql/network/introspect"
+	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/utils"
+	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 )
 
 type schemaDependentObjects struct {

@@ -5,9 +5,9 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */package getmeta
 
 import (
@@ -15,10 +15,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/network/common"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/test/helper"
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/graphql-go/graphql"
+	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/network/common"
+	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/test/helper"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )

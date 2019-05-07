@@ -2,7 +2,7 @@
     "type": "thing",
     "version": "1.0.0",
     "name": "example.org - Thing Test",
-    "maintainer": "hello@creativesoftwarefdn.org",
+    "maintainer": "hello@semi.technology",
     "classes": [
         {
             "class": "TestThing",

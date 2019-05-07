@@ -5,19 +5,19 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */
 package janusgraph
 
 import (
 	"context"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/filters"
-	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/gremlin"
-	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/meta"
-	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/filters"
+	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/gremlin"
+	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/meta"
+	"github.com/semi-technologies/weaviate/usecases/kinds"
 )
 
 // LocalGetMeta based on GraphQL Query params

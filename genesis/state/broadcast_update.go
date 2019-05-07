@@ -5,16 +5,16 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */
 package state
 
 import (
-	weaviate_client "github.com/creativesoftwarefdn/weaviate/client"
-	weaviate_p2p "github.com/creativesoftwarefdn/weaviate/client/p2_p"
-	weaviate_models "github.com/creativesoftwarefdn/weaviate/entities/models"
+	weaviate_client "github.com/semi-technologies/weaviate/client"
+	weaviate_p2p "github.com/semi-technologies/weaviate/client/p2_p"
+	weaviate_models "github.com/semi-technologies/weaviate/entities/models"
 
 	"net/url"
 

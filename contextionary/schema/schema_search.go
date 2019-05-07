@@ -5,9 +5,9 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */package schema
 
 import (
@@ -15,9 +15,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/creativesoftwarefdn/weaviate/contextionary"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
 	"github.com/fatih/camelcase"
+	"github.com/semi-technologies/weaviate/contextionary"
+	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 // SearchResult is a single search result. See wrapping Search Results for the Type
