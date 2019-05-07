@@ -266,6 +266,6 @@ Adding data:
 ## Example
 
 A full blown example can be found
-[here](https://github.com/creativesoftwarefdn/weaviate-demo-zoo). The [getting
+[here](https://github.com/semi-technologies/weaviate-demo-zoo). The [getting
 started guide](./getting-started.md) also contains examples of creating an
 ontology schema.

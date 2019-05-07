@@ -5,9 +5,9 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */
 package janusgraph
 
@@ -17,11 +17,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/gremlin"
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema/crossref"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/gremlin"
+	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/schema/crossref"
+	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 // map properties in thing.Schema according to the mapping.

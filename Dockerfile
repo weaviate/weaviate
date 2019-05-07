@@ -7,7 +7,7 @@
 # Base build image
 FROM golang:1.11-alpine AS build_base
 RUN apk add bash ca-certificates git gcc g++ libc-dev
-WORKDIR /go/src/github.com/creativesoftwarefdn/weaviate
+WORKDIR /go/src/github.com/semi-technologies/weaviate
 ENV GO111MODULE=on
 # Populate the module cache based on the go.{mod,sum} files.
 COPY go.mod .
@@ -75,8 +75,8 @@ RUN ./test/contextionary/gen_simple_contextionary.sh
 FROM alpine AS weaviate_base
 COPY --from=server_builder /go/bin/weaviate-server /bin/weaviate
 COPY --from=build_base /etc/ssl/certs /etc/ssl/certs
-COPY --from=contextionary_fixture_builder /go/src/github.com/creativesoftwarefdn/weaviate/test/contextionary/example.idx /contextionary/contextionary.idx
-COPY --from=contextionary_fixture_builder /go/src/github.com/creativesoftwarefdn/weaviate/test/contextionary/example.knn /contextionary/contextionary.knn
+COPY --from=contextionary_fixture_builder /go/src/github.com/semi-technologies/weaviate/test/contextionary/example.idx /contextionary/contextionary.idx
+COPY --from=contextionary_fixture_builder /go/src/github.com/semi-technologies/weaviate/test/contextionary/example.knn /contextionary/contextionary.knn
 ENTRYPOINT ["/bin/weaviate"]
 
 ###############################################################################
