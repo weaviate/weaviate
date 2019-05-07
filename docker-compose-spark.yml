@@ -75,7 +75,7 @@ services:
     ports:
       - "8081:8081"
   janus:
-    image: semi-technologies/janusgraph-docker:0.3.1
+    image: semitechnologies/janusgraph-docker:0.3.1
     depends_on:
       - db
       - index
