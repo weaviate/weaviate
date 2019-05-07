@@ -6,7 +6,7 @@ If you want to create, manipulate or inspect individual nodes in Weaviate or if 
 
 **Useful Links:**<br>
 - <a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/" target="_blank">SwaggerHub publication</a>
-- <a href="https://github.com/creativesoftwarefdn/weaviate/blob/master/openapi-specs/schema.json" target="_blank">Original OpenAPI specs</a>
+- <a href="https://github.com/semi-technologies/weaviate/blob/master/openapi-specs/schema.json" target="_blank">Original OpenAPI specs</a>
 
 ## Overview
 

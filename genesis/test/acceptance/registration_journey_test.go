@@ -5,9 +5,9 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */
 package test
 
@@ -25,9 +25,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/creativesoftwarefdn/weaviate/genesis/client"
-	"github.com/creativesoftwarefdn/weaviate/genesis/client/operations"
-	"github.com/creativesoftwarefdn/weaviate/genesis/models"
+	"github.com/semi-technologies/weaviate/genesis/client"
+	"github.com/semi-technologies/weaviate/genesis/client/operations"
+	"github.com/semi-technologies/weaviate/genesis/models"
 	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"

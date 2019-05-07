@@ -39,14 +39,14 @@ If you do not have Docker installed, you can read
 operating systems.
 
 You are now ready to get started! If you run into issues, please use the:
-1. [Knowledge base of old issues](https://github.com/creativesoftwarefdn/weaviate/issues?utf8=%E2%9C%93&q=label%3Abug). Or,
+1. [Knowledge base of old issues](https://github.com/semi-technologies/weaviate/issues?utf8=%E2%9C%93&q=label%3Abug). Or,
 2. For questions: [Stackoverflow](https://stackoverflow.com/questions/tagged/weaviate) . Or,
-3. For issues: [Github](//github.com/creativesoftwarefdn/weaviate/issues).
+3. For issues: [Github](//github.com/semi-technologies/weaviate/issues).
 
 ## Running Weaviate with Docker-compose
 
 All elements inside Weaviate are loosely coupled, meaning that you can use or
-[create](https://github.com/creativesoftwarefdn/weaviate/blob/develop/docs/en/contribute/custom-connectors.md)
+[create](https://github.com/semi-technologies/weaviate/blob/develop/docs/en/contribute/custom-connectors.md)
 multiple database connectors. In this setup, we will be using the JanusGraph
 connector because it contains the most features for scaling Weaviate.
 
@@ -100,7 +100,7 @@ You are now ready to start using Weaviate!
 
 The ontology describes how the knowledge graph is structured on which semantic elements it is based, you can read more in-depth what the Weaviate ontology entails [here](ontology-schema.md).
 
-In this example, we are going to create a [knowledge graph of a zoo](https://github.com/creativesoftwarefdn/weaviate-demo-zoo). Although you can [automate the import of an ontology](#adding-a-full-blown-zoo-with-weaviate-cli) we will do it manually now to get an understanding of how the ontology is structured.
+In this example, we are going to create a [knowledge graph of a zoo](https://github.com/semi-technologies/weaviate-demo-zoo). Although you can [automate the import of an ontology](#adding-a-full-blown-zoo-with-weaviate-cli) we will do it manually now to get an understanding of how the ontology is structured.
 
 First, we will create the `Zoo` as a Weaviate-thing like this;
 

@@ -161,7 +161,7 @@ combined_index, err := contextionary.CombineVectorIndices(indices_to_be_combined
 There are a few helper functions available that you can call.
 
 ```golang
-import libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
+import libcontextionary "github.com/semi-technologies/weaviate/contextionary"
 ```
 
 Overview of the API

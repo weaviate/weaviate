@@ -5,9 +5,9 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */
 
 package common
@@ -68,7 +68,7 @@ func resolveParams(input interface{}) graphql.ResolveParams {
 func TestNumberFieldNotPresent(t *testing.T) {
 	// shouldn't return anything, but also not error. This can otherwise lead to
 	// odd behavior when no entries are present, yet we asked for int props and
-	// type, see https://github.com/creativesoftwarefdn/weaviate/issues/775
+	// type, see https://github.com/semi-technologies/weaviate/issues/775
 	params := graphql.ResolveParams{
 		Source: map[string]interface{}{},
 		Info:   graphql.ResolveInfo{FieldName: "myField"},
