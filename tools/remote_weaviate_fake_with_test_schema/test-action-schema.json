@@ -2,7 +2,7 @@
     "type": "action",
     "version": "1.0.0",
     "name": "example.org - Action Test",
-    "maintainer": "hello@creativesoftwarefdn.org",
+    "maintainer": "hello@semi.technology",
     "classes": [
         {
             "class": "TestAction",

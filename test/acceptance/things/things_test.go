@@ -5,9 +5,9 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */
 package test
 
@@ -22,10 +22,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/creativesoftwarefdn/weaviate/client/things"
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema"
-	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
+	"github.com/semi-technologies/weaviate/client/things"
+	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 )
 
 const fakeThingId strfmt.UUID = "11111111-1111-1111-1111-111111111111"

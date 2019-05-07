@@ -8,8 +8,8 @@
 This document describes how to run Weaviate for users. If you want to run a
 development version of Weaviate for contributors, click
 [here](../contribute/running-weaviate.md). Encountering issues? See the
-[overview of known issues](https://github.com/creativesoftwarefdn/weaviate/issues?utf8=%E2%9C%93&q=label%3Adocker+label%3Abug+)
-or ask [here](https://github.com/creativesoftwarefdn/weaviate#questions).
+[overview of known issues](https://github.com/semi-technologies/weaviate/issues?utf8=%E2%9C%93&q=label%3Adocker+label%3Abug+)
+or ask [here](https://github.com/semi-technologies/weaviate#questions).
 
 ## Run full stack with Docker-compose
 
@@ -44,7 +44,7 @@ Warning: The output is quite verbose, for an alternative see [attaching to only
 the log output of weaviate](#attaching-to-the-log-output-of-only-weaviate).
 
 ```sh
-$ curl -s https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/tools/download-docker-compose-deps.sh | bash
+$ curl -s https://raw.githubusercontent.com/semi-technologies/weaviate/master/tools/download-docker-compose-deps.sh | bash
 $ docker-compose up
 ```
 
@@ -54,7 +54,7 @@ recommend to attach only to weaviate itself. In this case run `docker-compose
 up` like so:
 
 ```sh
-$ curl -s https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/tools/download-docker-compose-deps.sh | bash
+$ curl -s https://raw.githubusercontent.com/semi-technologies/weaviate/master/tools/download-docker-compose-deps.sh | bash
 $ docker-compose up -d && docker-compose logs -f weaviate
 ```
 
@@ -69,12 +69,12 @@ have the latest version. For production usage always use [a fixed version
 tag](#running-a-specific-version)_
 
 _Note II: You can always enforce the latest `:latest` version by re-pulling
-`creativesoftwarefdn/weaviate:latest` and running `$docker-compose up -d --force-recreate`_
+`semi-technologies/weaviate:latest` and running `$docker-compose up -d --force-recreate`_
 
 - Releases can be found
-  [here](https://github.com/creativesoftwarefdn/weaviate/releases).
+  [here](https://github.com/semi-technologies/weaviate/releases).
 - Docker tags can be found
-  [here](https://hub.docker.com/r/creativesoftwarefdn/weaviate/tags).
+  [here](https://hub.docker.com/r/semi-technologies/weaviate/tags).
 - Based on `tree/master` on Github
 - Runs with the latest open source Contextionary. More in-depth information
   about the contextionary can be found [here](../contribute/contextionary.md).
@@ -83,19 +83,19 @@ _Note II: You can always enforce the latest `:latest` version by re-pulling
 - The Weaviate Playground becomes available as an HTTP service on port 80 on
   `http://{IP}`.
 - If you want to manually download the files, download all files from
-  [here](https://github.com/creativesoftwarefdn/weaviate/tree/master/docker-compose/runtime)
+  [here](https://github.com/semi-technologies/weaviate/tree/master/docker-compose/runtime)
   and run `docker-compose up -d`.
 
 ### Running a specific version
 
 ```sh
-$ curl -s https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/tools/download-docker-compose-deps.sh | bash
+$ curl -s https://raw.githubusercontent.com/semi-technologies/weaviate/master/tools/download-docker-compose-deps.sh | bash
 ```
 
 Open `docker-compose.yml` and replace `latest` in the image (`image:
-creativesoftwarefdn/weaviate:latest`) with the preferred version number. An
+semi-technologies/weaviate:latest`) with the preferred version number. An
 overview can be found on
-[Dockerhub](https://hub.docker.com/r/creativesoftwarefdn/weaviate/tags).
+[Dockerhub](https://hub.docker.com/r/semi-technologies/weaviate/tags).
 
 ```sh
 $ docker-compose up -d
@@ -113,11 +113,11 @@ Weaviate can also be run stand-alone.
 ### Specific version
 
 ```sh
-$ docker run creativesoftwarefdn/weaviate:$VERSION
+$ docker run semi-technologies/weaviate:$VERSION
 ```
 
 - Releases can be found
-  [here](https://github.com/creativesoftwarefdn/weaviate/releases).
+  [here](https://github.com/semi-technologies/weaviate/releases).
 - Runs with the latest open source Contextionary. More in-depth information
   about the contextionary can be found [here](../contribute/contextionary.md).
 - Weaviate becomes available as an HTTP service on port 8080 on
@@ -156,7 +156,7 @@ or a different port) you can take the following steps.
 
 ```sh
 # Clone the repo
-$ git clone https://github.com/creativesoftwarefdn/weaviate
+$ git clone https://github.com/semi-technologies/weaviate
 # Select the correct branch,
 ```
 

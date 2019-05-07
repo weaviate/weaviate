@@ -5,9 +5,9 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */
 
 // Package kinds provides managers for all kind-related items, such as things
@@ -20,10 +20,10 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/creativesoftwarefdn/weaviate/usecases/config"
-	"github.com/creativesoftwarefdn/weaviate/usecases/network"
 	"github.com/go-openapi/strfmt"
 	uuid "github.com/satori/go.uuid"
+	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/network"
 )
 
 // Manager manages kind changes at a use-case level, i.e. agnostic of

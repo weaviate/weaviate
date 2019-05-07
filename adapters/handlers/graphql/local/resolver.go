@@ -5,18 +5,18 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */
 
 package local
 
 import (
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/aggregate"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/fetch"
-	get "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/get"
-	getmeta "github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/getmeta"
+	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/aggregate"
+	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/fetch"
+	get "github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get"
+	getmeta "github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/getmeta"
 )
 
 // Resolver for local GraphQL queries

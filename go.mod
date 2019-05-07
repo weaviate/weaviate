@@ -1,4 +1,4 @@
-module github.com/creativesoftwarefdn/weaviate
+module github.com/semi-technologies/weaviate
 
 require (
 	github.com/2tvenom/cbor v0.0.0-20171016170723-384e799bd841

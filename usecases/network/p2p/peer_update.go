@@ -5,17 +5,17 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */
 package p2p
 
 import (
 	"reflect"
 
-	libnetwork "github.com/creativesoftwarefdn/weaviate/usecases/network"
-	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
+	libnetwork "github.com/semi-technologies/weaviate/usecases/network"
+	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 )
 
 func (n *network) UpdatePeers(newPeers peers.Peers) error {
