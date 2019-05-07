@@ -1,13 +1,13 @@
 version: '3.4'
 services:
   weaviate-playground:
-    image: semi-technologies/weaviate-playground:latest
+    image: semitechnologies/weaviate-playground:latest
     depends_on:
       - weaviate
     ports:
      - "80:80"
   weaviate:
-    image: semi-technologies/weaviate:latest
+    image: semitechnologies/weaviate:latest
     command: ["--host", "0.0.0.0", "--port", "8080", "--scheme", "http" ]
     depends_on:
       - janus
@@ -17,7 +17,7 @@ services:
     volumes:
      - ./config.json:/weaviate.conf.json
   janus:
-    image: semi-technologies/janusgraph-docker:0.3.1
+    image: semitechnologies/janusgraph-docker:0.3.1
     depends_on:
       - db
       - index
