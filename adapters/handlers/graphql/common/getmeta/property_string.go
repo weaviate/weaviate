@@ -5,19 +5,19 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */
 package getmeta
 
 import (
 	"fmt"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/common"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/descriptions"
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/graphql-go/graphql"
+	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/common"
+	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 func stringPropertyFields(class *models.SemanticSchemaClass,

@@ -5,9 +5,9 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */
 
 /*
@@ -40,13 +40,13 @@ import (
 	"github.com/mitchellh/mapstructure"
 	"github.com/sirupsen/logrus"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/connectors"
-	dbconnector "github.com/creativesoftwarefdn/weaviate/adapters/connectors"
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
-	"github.com/creativesoftwarefdn/weaviate/usecases/config"
-	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/adapters/connectors"
+	dbconnector "github.com/semi-technologies/weaviate/adapters/connectors"
+	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/kinds"
 )
 
 // Foobar has some basic variables.
@@ -485,7 +485,7 @@ func (f *Foobar) LocalAggregate(ctx context.Context, info *kinds.AggregateParams
 // The connector must respond with a list of short-form beacon and certainty
 // tuples as maps. Note that the concept of how to calculate certainity has not
 // been finalized yet:
-// https://github.com/creativesoftwarefdn/weaviate/issues/710
+// https://github.com/semi-technologies/weaviate/issues/710
 //
 // An example return value could look like this:
 //	[]interface{}{
@@ -508,7 +508,7 @@ func (f *Foobar) LocalFetchKindClass(ctx context.Context, info *kinds.FetchParam
 // The connector must respond with a list of short-form beacon and certainty
 // tuples as maps. Note that the concept of how to calculate certainity has not
 // been finalized yet:
-// https://github.com/creativesoftwarefdn/weaviate/issues/710
+// https://github.com/semi-technologies/weaviate/issues/710
 //
 // An example return value could look like this:
 //	[]interface{}{

@@ -395,7 +395,7 @@
       "type": "object"
     },
     "SemanticSchema": {
-      "description": "Definitions of semantic schemas (also see: https://github.com/creativesoftwarefdn/weaviate-semantic-schemas).",
+      "description": "Definitions of semantic schemas (also see: https://github.com/semi-technologies/weaviate-semantic-schemas).",
       "properties": {
         "classes": {
           "description": "Semantic classes that are available.",
@@ -628,13 +628,13 @@
     }
   },
   "externalDocs": {
-    "url": "https://github.com/creativesoftwarefdn/weaviate"
+    "url": "https://github.com/semi-technologies/weaviate"
   },
   "info": {
     "contact": {
-      "email": "hello@creativesoftwarefdn.org",
+      "email": "hello@semi.technology",
       "name": "Weaviate",
-      "url": "https://github.com/creativesoftwarefdn"
+      "url": "https://github.com/semi-technologies"
     },
     "description": "Decentralised Knowledge Graph",
     "title": "Weaviate - Decentralised Knowledge Graph",
@@ -2595,7 +2595,7 @@
     },
     "/c11y/words/{words}": {
       "get": {
-        "description": "Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/creativesoftwarefdn/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase",
+        "description": "Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase",
         "operationId": "weaviate.c11y.words",
         "x-serviceIds": ["weaviate.c11y.words.get"],
         "parameters": [

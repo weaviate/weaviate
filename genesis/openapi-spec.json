@@ -2,9 +2,9 @@
   "swagger": "2.0",
   "info": {
     "contact": {
-      "email": "hello@creativesoftwarefdn.org",
+      "email": "hello@semi.technology",
       "name": "Weaviate",
-      "url": "https://github.com/creativesoftwarefdn"
+      "url": "https://github.com/semi-technologies"
     },
     "description": "The Weaviate Genesis Server is used to bootstrap the P2P network of Weaviate instances",
     "title": "Weaviate Genesis Server",

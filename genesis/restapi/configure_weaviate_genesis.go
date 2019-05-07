@@ -5,9 +5,9 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */
 
 package restapi
@@ -21,9 +21,9 @@ import (
 	runtime "github.com/go-openapi/runtime"
 	middleware "github.com/go-openapi/runtime/middleware"
 
-	"github.com/creativesoftwarefdn/weaviate/genesis/models"
-	"github.com/creativesoftwarefdn/weaviate/genesis/restapi/operations"
-	libstate "github.com/creativesoftwarefdn/weaviate/genesis/state"
+	"github.com/semi-technologies/weaviate/genesis/models"
+	"github.com/semi-technologies/weaviate/genesis/restapi/operations"
+	libstate "github.com/semi-technologies/weaviate/genesis/state"
 
 	log "github.com/sirupsen/logrus"
 )
