@@ -15,10 +15,10 @@ package getmeta
 import (
 	"fmt"
 
+	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/common"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/graphql-go/graphql"
 )
 
 func booleanPropertyFields(class *models.SemanticSchemaClass,

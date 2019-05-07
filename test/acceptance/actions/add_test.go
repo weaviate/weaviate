@@ -18,10 +18,10 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/client/actions"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
-	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 )
 

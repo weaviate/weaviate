@@ -15,9 +15,9 @@ import (
 	"fmt"
 	"net/url"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/client"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/go-openapi/strfmt"
 )
 
 // Peer represents a known peer, given to us by the Genesis service.

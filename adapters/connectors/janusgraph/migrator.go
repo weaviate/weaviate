@@ -15,13 +15,13 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/gremlin"
 	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/gremlin/gremlin_schema_query"
 	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/state"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/davecgh/go-spew/spew"
 	log "github.com/sirupsen/logrus"
 )
 

@@ -17,13 +17,13 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/graphql-go/graphql"
 	commonGetMeta "github.com/semi-technologies/weaviate/adapters/handlers/graphql/common/getmeta"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/graphql-go/graphql"
 )
 
 // Build the dynamically generated GetMeta Things part of the schema

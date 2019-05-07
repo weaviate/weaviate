@@ -13,8 +13,8 @@
 import (
 	"fmt"
 
-	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/mitchellh/mapstructure"
+	"github.com/semi-technologies/weaviate/usecases/config"
 )
 
 // Config represents the config outline for Janusgraph. The Database config shoud be of the following form:

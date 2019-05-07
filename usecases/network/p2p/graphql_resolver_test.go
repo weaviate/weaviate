@@ -19,10 +19,10 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/network/common"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/network/fetch"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
-	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 )
 

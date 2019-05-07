@@ -16,11 +16,11 @@ package fetch
 import (
 	"fmt"
 
+	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/common"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/common/fetch"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/graphql-go/graphql"
 )
 
 // Build builds the object containing the Local->Fetch Fields, such as Things/Actions

@@ -13,9 +13,9 @@
 import (
 	"fmt"
 
+	"github.com/fatih/camelcase"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/fatih/camelcase"
 )
 
 // SearchType to search for either class names or property names

@@ -12,9 +12,9 @@
 package common_filters
 
 import (
+	"github.com/graphql-go/graphql"
 	test_helper "github.com/semi-technologies/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/graphql-go/graphql"
 )
 
 type mockResolver struct {

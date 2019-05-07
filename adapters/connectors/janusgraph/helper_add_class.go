@@ -14,11 +14,11 @@ package janusgraph
 import (
 	"context"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/gremlin"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
-	"github.com/go-openapi/strfmt"
 )
 
 func (j *Janusgraph) addClass(ctx context.Context, k kind.Kind, className schema.ClassName,

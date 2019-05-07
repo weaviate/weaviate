@@ -15,9 +15,9 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/fatih/camelcase"
 	"github.com/semi-technologies/weaviate/contextionary"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/fatih/camelcase"
 )
 
 // SearchResult is a single search result. See wrapping Search Results for the Type

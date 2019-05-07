@@ -13,6 +13,7 @@
 package rest
 
 import (
+	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/meta"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/p2_p"
@@ -22,7 +23,6 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/network"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
-	middleware "github.com/go-openapi/runtime/middleware"
 )
 
 type schemaManager interface {

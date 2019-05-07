@@ -17,10 +17,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
-	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 )
 

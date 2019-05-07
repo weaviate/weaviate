@@ -19,8 +19,8 @@ import (
 	"io/ioutil"
 	"net/http"
 
-	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/gremlin"
 	"github.com/prometheus/common/log"
+	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/gremlin"
 	"golang.org/x/net/context/ctxhttp"
 )
 

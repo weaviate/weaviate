@@ -17,11 +17,11 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/graphql-go/graphql"
 )
 
 // Build the dynamically generated Get Actions part of the schema

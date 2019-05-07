@@ -18,13 +18,13 @@ import (
 	"fmt"
 	"runtime/debug"
 
+	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/fetch"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/network"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
-	"github.com/graphql-go/graphql"
 	"github.com/sirupsen/logrus"
 )
 

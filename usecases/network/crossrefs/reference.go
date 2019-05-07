@@ -15,9 +15,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/go-openapi/strfmt"
 )
 
 // NetworkClass references one class in a remote peer

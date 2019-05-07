@@ -14,11 +14,11 @@ package test
 import (
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/client/schema"
 	"github.com/semi-technologies/weaviate/client/things"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
-	"github.com/go-openapi/strfmt"
 )
 
 func assertCreateThing(t *testing.T, className string, schema map[string]interface{}) strfmt.UUID {

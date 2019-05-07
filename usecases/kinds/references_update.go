@@ -13,10 +13,10 @@
 import (
 	"context"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/kinds/validation"
-	"github.com/go-openapi/strfmt"
 )
 
 // UpdateActionReferences Class Instance to the connected DB. If the class contains a network

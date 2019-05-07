@@ -16,11 +16,11 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/go-openapi/runtime"
 	"github.com/semi-technologies/weaviate/client/graphql"
 	graphql_client "github.com/semi-technologies/weaviate/client/graphql"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
-	"github.com/go-openapi/runtime"
 )
 
 type GraphQLResult struct {

@@ -17,10 +17,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/gqlerrors"
+	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )

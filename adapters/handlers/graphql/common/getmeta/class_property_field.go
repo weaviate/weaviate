@@ -17,11 +17,11 @@ package getmeta
 import (
 	"fmt"
 
+	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/common"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/graphql-go/graphql"
 )
 
 // ClassPropertyField builds one class field for a GetMeta Query based on the

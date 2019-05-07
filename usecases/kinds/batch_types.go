@@ -11,9 +11,9 @@
  */package kinds
 
 import (
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
-	"github.com/go-openapi/strfmt"
 )
 
 // BatchAction is a helper type that groups all the info about one action in a
