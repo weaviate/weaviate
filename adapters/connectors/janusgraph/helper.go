@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/filters"
 	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/gremlin"
 	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/state"
@@ -27,7 +28,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	libkind "github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/go-openapi/strfmt"
 )
 
 // kindClass is a helper struct that is independent of fixed types such as

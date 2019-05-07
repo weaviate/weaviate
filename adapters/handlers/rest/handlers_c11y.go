@@ -21,10 +21,10 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
 
+	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/contextionary_api"
 	libcontextionary "github.com/semi-technologies/weaviate/contextionary"
-	middleware "github.com/go-openapi/runtime/middleware"
 )
 
 type c11yProvider interface {

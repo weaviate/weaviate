@@ -14,8 +14,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 type updateAndGetRepo interface {

@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	genesis_client "github.com/semi-technologies/weaviate/genesis/client"
 	client_ops "github.com/semi-technologies/weaviate/genesis/client/operations"
@@ -27,7 +28,6 @@ import (
 	libnetwork "github.com/semi-technologies/weaviate/usecases/network"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	p2pschema "github.com/semi-technologies/weaviate/usecases/network/p2p/schema"
-	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 )
 

@@ -20,6 +20,8 @@ import (
 	"time"
 
 	"github.com/coreos/etcd/clientv3"
+	"github.com/go-openapi/errors"
+	"github.com/go-openapi/runtime"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
 	"github.com/semi-technologies/weaviate/adapters/locks"
@@ -33,8 +35,6 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
-	"github.com/go-openapi/errors"
-	"github.com/go-openapi/runtime"
 	"github.com/sirupsen/logrus"
 )
 

@@ -14,8 +14,8 @@ package network_get
 import (
 	"fmt"
 
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/graphql-go/graphql"
+	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 func resolveKind(k kind.Kind) func(p graphql.ResolveParams) (interface{}, error) {

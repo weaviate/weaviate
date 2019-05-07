@@ -16,9 +16,9 @@ import (
 	"strings"
 
 	"github.com/coreos/go-oidc"
+	errors "github.com/go-openapi/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	errors "github.com/go-openapi/errors"
 )
 
 // Client handles the OIDC setup at startup and provides a middleware to tbe

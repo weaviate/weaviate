@@ -13,9 +13,9 @@
 import (
 	"context"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/go-openapi/strfmt"
 )
 
 // DeleteActionReference from connected DB

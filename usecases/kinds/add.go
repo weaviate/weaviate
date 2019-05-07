@@ -13,11 +13,11 @@
 import (
 	"context"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/kinds/validation"
-	"github.com/go-openapi/strfmt"
 )
 
 type addAndGetRepo interface {

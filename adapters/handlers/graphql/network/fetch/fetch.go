@@ -12,12 +12,12 @@
 package fetch
 
 import (
+	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/common"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/common/fetch"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/utils"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/graphql-go/graphql"
 )
 
 // New Network Fetch Object

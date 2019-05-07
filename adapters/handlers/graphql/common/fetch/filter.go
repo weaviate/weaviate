@@ -15,10 +15,10 @@ package fetch
 import (
 	"fmt"
 
+	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/graphql-go/graphql"
 )
 
 // FilterBuilder can build where filters for both local and

@@ -15,10 +15,10 @@ package rest
 import (
 	"log"
 
+	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/schema"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
-	middleware "github.com/go-openapi/runtime/middleware"
 
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"

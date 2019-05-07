@@ -13,8 +13,8 @@
 import (
 	"context"
 
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 // UpdateMeta for a kind

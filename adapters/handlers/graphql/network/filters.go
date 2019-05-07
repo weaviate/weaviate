@@ -14,10 +14,10 @@
 package network
 
 import (
+	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	network_introspect "github.com/semi-technologies/weaviate/adapters/handlers/graphql/network/introspect"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/utils"
-	"github.com/graphql-go/graphql"
 )
 
 func genNetworkWhereOperatorEnum() *graphql.Enum {

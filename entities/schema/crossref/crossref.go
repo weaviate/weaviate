@@ -16,9 +16,9 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/go-openapi/strfmt"
 )
 
 // Ref is an abstraction of the cross-refs which are specified in a URI format

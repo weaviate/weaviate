@@ -16,10 +16,10 @@ import (
 	"fmt"
 	"regexp"
 
+	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/network/common"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
-	"github.com/graphql-go/graphql"
 )
 
 // Resolver describes the dependencies of this package

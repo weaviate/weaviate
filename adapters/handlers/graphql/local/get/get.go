@@ -16,13 +16,13 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get/refclasses"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
-	"github.com/graphql-go/graphql"
 	"github.com/sirupsen/logrus"
 )
 

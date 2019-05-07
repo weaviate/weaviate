@@ -18,11 +18,11 @@ package getmeta
 import (
 	"testing"
 
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/network/common"
-	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
 	"github.com/graphql-go/graphql/language/source"
+	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/network/common"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 type mockRequestsLog struct{}

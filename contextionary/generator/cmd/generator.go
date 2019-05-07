@@ -14,8 +14,8 @@ package main
 import (
 	"os"
 
-	"github.com/semi-technologies/weaviate/contextionary/generator"
 	flags "github.com/jessevdk/go-flags"
+	"github.com/semi-technologies/weaviate/contextionary/generator"
 )
 
 func main() {

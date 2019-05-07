@@ -16,6 +16,7 @@ package network
 import (
 	"fmt"
 
+	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	network_aggregate "github.com/semi-technologies/weaviate/adapters/handlers/graphql/network/aggregate"
 	network_fetch "github.com/semi-technologies/weaviate/adapters/handlers/graphql/network/fetch"
@@ -25,7 +26,6 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/utils"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
-	"github.com/graphql-go/graphql"
 )
 
 type schemaDependentObjects struct {

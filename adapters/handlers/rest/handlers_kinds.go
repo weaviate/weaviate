@@ -15,14 +15,14 @@ package rest
 import (
 	"encoding/json"
 
+	jsonpatch "github.com/evanphx/json-patch"
+	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/actions"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/things"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
-	jsonpatch "github.com/evanphx/json-patch"
-	middleware "github.com/go-openapi/runtime/middleware"
 )
 
 type kindHandlers struct {

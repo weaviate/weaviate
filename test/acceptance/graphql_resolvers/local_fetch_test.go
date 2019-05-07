@@ -16,8 +16,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

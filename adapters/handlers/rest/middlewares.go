@@ -15,9 +15,9 @@ package rest
 import (
 	"net/http"
 
+	"github.com/rs/cors"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/swagger_middleware"
-	"github.com/rs/cors"
 	"github.com/sirupsen/logrus"
 )
 

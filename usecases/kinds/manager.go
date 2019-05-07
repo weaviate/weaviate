@@ -20,10 +20,10 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/network"
 	"github.com/go-openapi/strfmt"
 	uuid "github.com/satori/go.uuid"
+	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/network"
 )
 
 // Manager manages kind changes at a use-case level, i.e. agnostic of

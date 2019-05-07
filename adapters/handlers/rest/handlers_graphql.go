@@ -19,12 +19,12 @@ import (
 	"strconv"
 	"sync"
 
+	middleware "github.com/go-openapi/runtime/middleware"
 	libgraphql "github.com/semi-technologies/weaviate/adapters/handlers/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/graphql"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
-	middleware "github.com/go-openapi/runtime/middleware"
 )
 
 const error422 string = "The request is well-formed but was unable to be followed due to semantic errors."

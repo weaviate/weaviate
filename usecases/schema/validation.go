@@ -14,11 +14,11 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/fatih/camelcase"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/network/crossrefs"
-	"github.com/fatih/camelcase"
 )
 
 func (m *Manager) validateClassNameUniqueness(className string) error {

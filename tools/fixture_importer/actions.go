@@ -16,10 +16,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/semi-technologies/weaviate/client/actions"
-	"github.com/semi-technologies/weaviate/entities/models"
 	spew "github.com/davecgh/go-spew/spew"
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/client/actions"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 func createActions() {

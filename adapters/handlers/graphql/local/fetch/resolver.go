@@ -16,10 +16,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
-	"github.com/graphql-go/graphql"
 )
 
 // Resolver is a local interface that can be composed with other interfaces to

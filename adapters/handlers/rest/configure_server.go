@@ -19,6 +19,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
 	"github.com/semi-technologies/weaviate/contextionary"
@@ -33,7 +34,6 @@ import (
 	libnetworkFake "github.com/semi-technologies/weaviate/usecases/network/fake"
 	libnetworkP2P "github.com/semi-technologies/weaviate/usecases/network/p2p"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
-	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 )
 

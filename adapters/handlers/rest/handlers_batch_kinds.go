@@ -13,12 +13,12 @@
 package rest
 
 import (
+	middleware "github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
-	middleware "github.com/go-openapi/runtime/middleware"
-	"github.com/go-openapi/strfmt"
 )
 
 type batchKindHandlers struct {

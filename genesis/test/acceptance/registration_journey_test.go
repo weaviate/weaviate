@@ -25,11 +25,11 @@ import (
 	"testing"
 	"time"
 
+	httptransport "github.com/go-openapi/runtime/client"
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/genesis/client"
 	"github.com/semi-technologies/weaviate/genesis/client/operations"
 	"github.com/semi-technologies/weaviate/genesis/models"
-	httptransport "github.com/go-openapi/runtime/client"
-	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 )
 

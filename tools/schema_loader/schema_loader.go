@@ -16,9 +16,9 @@ import (
 	"flag"
 	"net/url"
 
+	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/semi-technologies/weaviate/client/schema"
 	"github.com/semi-technologies/weaviate/tools/schema_loader/loader"
-	httptransport "github.com/go-openapi/runtime/client"
 	log "github.com/sirupsen/logrus"
 )
 

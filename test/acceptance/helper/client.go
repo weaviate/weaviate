@@ -33,10 +33,10 @@ import (
 	"fmt"
 	"testing"
 
-	apiclient "github.com/semi-technologies/weaviate/client"
 	"github.com/go-openapi/runtime"
 	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
+	apiclient "github.com/semi-technologies/weaviate/client"
 )
 
 // Create a client that logs with t.Logf, if a *testing.T is provided.
