@@ -5,17 +5,17 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */package anonymous
 
 import (
 	"net/http"
 	"strings"
 
-	"github.com/creativesoftwarefdn/weaviate/usecases/config"
 	"github.com/go-openapi/runtime"
+	"github.com/semi-technologies/weaviate/usecases/config"
 )
 
 // Client for anonymous access
