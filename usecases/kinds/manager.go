@@ -24,6 +24,7 @@ import (
 	uuid "github.com/satori/go.uuid"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/network"
+	"github.com/sirupsen/logrus"
 )
 
 // Manager manages kind changes at a use-case level, i.e. agnostic of
@@ -34,6 +35,7 @@ type Manager struct {
 	repo          Repo
 	locks         locks
 	schemaManager schemaManager
+	logger        logrus.FieldLogger
 }
 
 // Repo describes the requirements the kinds UC has to the connected database
@@ -51,13 +53,15 @@ type locks interface {
 }
 
 // NewManager creates a new manager
-func NewManager(repo Repo, locks locks, schemaManager schemaManager, network network.Network, config *config.WeaviateConfig) *Manager {
+func NewManager(repo Repo, locks locks, schemaManager schemaManager, network network.Network,
+	config *config.WeaviateConfig, logger logrus.FieldLogger) *Manager {
 	return &Manager{
 		network:       network,
 		config:        config,
 		repo:          repo,
 		locks:         locks,
 		schemaManager: schemaManager,
+		logger:        logger,
 	}
 }
 

@@ -286,7 +286,6 @@ func (h *kindHandlers) patchThing(params things.WeaviateThingsPatchParams, princ
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
 
-	// Returns accepted so a Go routine can process in the background
 	return things.NewWeaviateThingsPatchOK().WithPayload(updated)
 }
 
