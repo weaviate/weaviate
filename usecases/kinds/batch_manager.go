@@ -14,13 +14,12 @@ import (
 	"context"
 
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/network"
 )
 
 // BatchManager manages kind changes in batch at a use-case level , i.e.
 // agnostic of underlying databases or storage providers
 type BatchManager struct {
-	network       network.Network
+	network       network
 	config        *config.WeaviateConfig
 	repo          batchAndGetRepo
 	locks         locks
@@ -40,7 +39,7 @@ type batchAndGetRepo interface {
 }
 
 // NewBatchManager creates a new manager
-func NewBatchManager(repo Repo, locks locks, schemaManager schemaManager, network network.Network, config *config.WeaviateConfig) *BatchManager {
+func NewBatchManager(repo Repo, locks locks, schemaManager schemaManager, network network, config *config.WeaviateConfig) *BatchManager {
 	return &BatchManager{
 		network:       network,
 		config:        config,

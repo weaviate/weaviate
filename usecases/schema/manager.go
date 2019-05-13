@@ -129,7 +129,10 @@ func (m *Manager) saveSchema(ctx context.Context) error {
 		WithField("configuration_store", "etcd").
 		Debug("saving updated schema to configuration store")
 
-	m.repo.SaveSchema(ctx, m.state)
+	err := m.repo.SaveSchema(ctx, m.state)
+	if err != nil {
+		return err
+	}
 
 	m.TriggerSchemaUpdateCallbacks()
 	return nil

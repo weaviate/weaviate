@@ -317,12 +317,12 @@ func (j *Janusgraph) multipleRefs(ctx context.Context, value interface{}, propTy
 		}
 		return result, nil
 	case []interface{}:
-		for _, ref := range t {
-			ref, ok := ref.(*models.SingleRef)
+		for _, raw := range t {
+			ref, ok := raw.(*models.SingleRef)
 			if !ok {
 				return result, fmt.Errorf(
 					"illegal value for property %s: expected a list of single refs, but current item is %#v",
-					sanitizedPropertyName, ref)
+					sanitizedPropertyName, raw)
 			}
 			singleRef, err := j.singleRef(ctx, ref, propType, janusPropertyName, sanitizedPropertyName)
 			if err != nil {

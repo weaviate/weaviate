@@ -45,7 +45,7 @@ func (m *Manager) deleteActionFromRepo(ctx context.Context, id strfmt.UUID) erro
 		return err
 	}
 
-	m.repo.DeleteAction(ctx, nil, id)
+	err = m.repo.DeleteAction(ctx, nil, id)
 	if err != nil {
 		return newErrInternal("could not delete action: %v", err)
 	}
@@ -71,7 +71,7 @@ func (m *Manager) deleteThingFromRepo(ctx context.Context, id strfmt.UUID) error
 		return err
 	}
 
-	m.repo.DeleteThing(ctx, nil, id)
+	err = m.repo.DeleteThing(ctx, nil, id)
 	if err != nil {
 		return newErrInternal("could not delete thing: %v", err)
 	}

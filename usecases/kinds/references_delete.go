@@ -53,7 +53,7 @@ func (m *Manager) deleteActionReferenceFromConnector(ctx context.Context, id str
 	action.Schema = extended
 	action.LastUpdateTimeUnix = unixNow()
 
-	m.repo.UpdateAction(ctx, action, action.ID)
+	err = m.repo.UpdateAction(ctx, action, action.ID)
 	if err != nil {
 		return newErrInternal("could not store action: %v", err)
 	}
@@ -96,7 +96,7 @@ func (m *Manager) deleteThingReferenceFromConnector(ctx context.Context, id strf
 	thing.Schema = extended
 	thing.LastUpdateTimeUnix = unixNow()
 
-	m.repo.UpdateThing(ctx, thing, thing.ID)
+	err = m.repo.UpdateThing(ctx, thing, thing.ID)
 	if err != nil {
 		return newErrInternal("could not store thing: %v", err)
 	}
@@ -129,19 +129,17 @@ func (m *Manager) removeReferenceFromClassProps(props interface{}, propertyName 
 }
 
 func removeRef(refs []interface{}, property *models.SingleRef) []interface{} {
-	crefStr := string(property.NrDollarCref)
-
 	// Remove if this reference is found.
 	for i, current := range refs {
-		currentMap := current.(map[string]interface{})
-		if currentMap["$cref"].(string) != crefStr {
+		currentRef := current.(*models.SingleRef)
+		if currentRef.NrDollarCref != property.NrDollarCref {
 			continue
 		}
 
 		// remove this one without memory leaks, see
 		// https://github.com/golang/go/wiki/SliceTricks#delete
 		copy(refs[i:], refs[i+1:])
-		refs[len(refs)-1] = nil // or the zero vrefslue of T
+		refs[len(refs)-1] = nil // or the zero value of T
 		refs = refs[:len(refs)-1]
 		break // we can only remove one at the same time, so break the loop.
 	}
