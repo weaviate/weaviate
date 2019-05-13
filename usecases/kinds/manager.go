@@ -23,14 +23,14 @@ import (
 	"github.com/go-openapi/strfmt"
 	uuid "github.com/satori/go.uuid"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/network"
+	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	"github.com/sirupsen/logrus"
 )
 
 // Manager manages kind changes at a use-case level, i.e. agnostic of
 // underlying databases or storage providers
 type Manager struct {
-	network       network.Network
+	network       network
 	config        *config.WeaviateConfig
 	repo          Repo
 	locks         locks
@@ -52,8 +52,12 @@ type locks interface {
 	LockSchema() (func() error, error)
 }
 
+type network interface {
+	ListPeers() (peers.Peers, error)
+}
+
 // NewManager creates a new manager
-func NewManager(repo Repo, locks locks, schemaManager schemaManager, network network.Network,
+func NewManager(repo Repo, locks locks, schemaManager schemaManager, network network,
 	config *config.WeaviateConfig, logger logrus.FieldLogger) *Manager {
 	return &Manager{
 		network:       network,

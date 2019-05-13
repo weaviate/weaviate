@@ -160,13 +160,13 @@ func (j *Janusgraph) getClass(ctx context.Context, k kind.Kind, searchUUID strfm
 		}
 
 		if propType.IsReference() {
-			ref := make(map[string]interface{})
+			ref := &models.SingleRef{}
 			refKind, err := libkind.Parse(type_)
 			if err != nil {
 				return fmt.Errorf("could not parse kind for ref with id '%s': %v", uuid, err)
 			}
 			crefURI := crossref.New(locationUrl, strfmt.UUID(uuid), refKind).String()
-			ref["$cref"] = crefURI
+			ref.NrDollarCref = strfmt.URI(crefURI)
 			switch schema.CardinalityOfProperty(property) {
 			case schema.CardinalityAtMostOne:
 				classSchema[propertyName.String()] = ref

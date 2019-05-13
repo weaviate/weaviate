@@ -65,7 +65,7 @@ func (m *Manager) updateActionReferenceToConnectorAndSchema(ctx context.Context,
 		return newErrInternal("could not update schema for network refs: %v", err)
 	}
 
-	m.repo.UpdateAction(ctx, action, action.ID)
+	err = m.repo.UpdateAction(ctx, action, action.ID)
 	if err != nil {
 		return newErrInternal("could not store action: %v", err)
 	}
@@ -119,7 +119,7 @@ func (m *Manager) updateThingReferenceToConnectorAndSchema(ctx context.Context, 
 		return newErrInternal("could not update schema for network refs: %v", err)
 	}
 
-	m.repo.UpdateThing(ctx, thing, thing.ID)
+	err = m.repo.UpdateThing(ctx, thing, thing.ID)
 	if err != nil {
 		return newErrInternal("could not store thing: %v", err)
 	}

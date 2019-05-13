@@ -22,13 +22,17 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/network"
+	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	"github.com/semi-technologies/weaviate/usecases/network/crossrefs"
 )
 
 type getRepo interface {
 	GetThing(context.Context, strfmt.UUID, *models.Thing) error
 	GetAction(context.Context, strfmt.UUID, *models.Action) error
+}
+
+type peerLister interface {
+	ListPeers() (peers.Peers, error)
 }
 
 const (
@@ -66,7 +70,7 @@ const (
 
 // ValidateThingBody Validates a thing body using the 'Thing' object.
 func ValidateThingBody(ctx context.Context, thing *models.Thing, databaseSchema schema.WeaviateSchema,
-	dbConnector getRepo, network network.Network, serverConfig *config.WeaviateConfig) error {
+	dbConnector getRepo, network peerLister, serverConfig *config.WeaviateConfig) error {
 	// Validate the body
 	bve := validateBody(thing.Class)
 
@@ -84,7 +88,7 @@ func ValidateThingBody(ctx context.Context, thing *models.Thing, databaseSchema 
 
 // ValidateActionBody Validates a action body using the 'Action' object.
 func ValidateActionBody(ctx context.Context, action *models.Action, databaseSchema schema.WeaviateSchema,
-	dbConnector getRepo, network network.Network, serverConfig *config.WeaviateConfig,
+	dbConnector getRepo, network peerLister, serverConfig *config.WeaviateConfig,
 ) error {
 	// Validate the body
 	bve := validateBody(action.Class)
@@ -118,7 +122,7 @@ func validateRefType(s string) bool {
 }
 
 // ValidateSingleRef validates a single ref based on location URL and existence of the object in the database
-func ValidateSingleRef(ctx context.Context, serverConfig *config.WeaviateConfig, cref *models.SingleRef, dbConnector getRepo, network network.Network, errorVal string) error {
+func ValidateSingleRef(ctx context.Context, serverConfig *config.WeaviateConfig, cref *models.SingleRef, dbConnector getRepo, network peerLister, errorVal string) error {
 
 	ref, err := crossref.ParseSingleRef(cref)
 	if err != nil {
@@ -151,7 +155,7 @@ func validateLocalRef(ctx context.Context, dbConnector getRepo, ref *crossref.Re
 	return nil
 }
 
-func validateNetworkRef(network network.Network, ref *crossref.Ref) error {
+func validateNetworkRef(network peerLister, ref *crossref.Ref) error {
 	// Network ref
 	peers, err := network.ListPeers()
 	if err != nil {
@@ -167,7 +171,7 @@ func validateNetworkRef(network network.Network, ref *crossref.Ref) error {
 }
 
 func ValidateMultipleRef(ctx context.Context, serverConfig *config.WeaviateConfig,
-	refs *models.MultipleRef, dbConnector getRepo, network network.Network,
+	refs *models.MultipleRef, dbConnector getRepo, network peerLister,
 	errorVal string) error {
 	if refs == nil {
 		return nil

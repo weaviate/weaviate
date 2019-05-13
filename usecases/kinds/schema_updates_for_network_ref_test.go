@@ -20,9 +20,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -118,58 +116,6 @@ func TestSchemaUpdaterWithSingleNetworkRefFromActinToThing(t *testing.T) {
 		assert.Equal(t, "fooRef", call.property, "correct property")
 		assert.Equal(t, "BestWeaviate/BestThing", call.toClass, "correct to class")
 	})
-}
-
-type fakeNetwork struct {
-	peerURI string
-}
-
-func (f *fakeNetwork) ListPeers() (peers.Peers, error) {
-	myPeers := peers.Peers{
-		peers.Peer{
-			Name: "BestWeaviate",
-			URI:  strfmt.URI(f.peerURI),
-			Schema: schema.Schema{
-				Things: &models.SemanticSchema{
-					Classes: []*models.SemanticSchemaClass{
-						&models.SemanticSchemaClass{
-							Class: "BestThing",
-						},
-					},
-				},
-			},
-		},
-	}
-
-	return myPeers, nil
-}
-
-type fakeSchemaManager struct {
-	CalledWith struct {
-		kind      kind.Kind
-		fromClass string
-		property  string
-		toClass   string
-	}
-}
-
-func (f *fakeSchemaManager) UpdatePropertyAddDataType(ctx context.Context, k kind.Kind, fromClass, property, toClass string) error {
-	f.CalledWith = struct {
-		kind      kind.Kind
-		fromClass string
-		property  string
-		toClass   string
-	}{
-		kind:      k,
-		fromClass: fromClass,
-		property:  property,
-		toClass:   toClass,
-	}
-	return nil
-}
-
-func (f *fakeSchemaManager) GetSchema() schema.Schema {
-	panic("not implemented")
 }
 
 func newFakeServer(t *testing.T) *fakeServer {
