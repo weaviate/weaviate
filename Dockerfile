@@ -14,18 +14,6 @@ COPY go.mod .
 COPY go.sum .
 RUN go mod download
 
-###############################################################################
-# This image builds the old acceptance testss
-FROM build_base AS acceptance_test
-COPY . .
-ENTRYPOINT ["go", "test", "./test/full_test.go"]
-
-###############################################################################
-# This image builds the new acceptance testss
-FROM build_base AS new_acceptance_test
-COPY . .
-ENTRYPOINT ["go", "test", "./test/acceptance"]
-
 
 ###############################################################################
 # This image builds the weavaite server
@@ -40,11 +28,11 @@ COPY . .
 RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go install -a -tags netgo -ldflags '-w -extldflags "-static"' ./genesis/cmd/weaviate-genesis-server/
 ENTRYPOINT ["/go/bin/weaviate-genesis-server"]
 
-###############################################################################
-# This creates an image that can be run to import the demo dataset for development
-FROM build_base AS data_importer
-COPY . .
-ENTRYPOINT ["./tools/dev/import_demo_data.sh"]
+# ###############################################################################
+# # This creates an image that can be run to import the demo dataset for development
+# FROM build_base AS data_importer
+# COPY . .
+# ENTRYPOINT ["./tools/dev/import_demo_data.sh"]
 
 ###############################################################################
 # This creates an image that can be used to fake a genesis for a local network setup

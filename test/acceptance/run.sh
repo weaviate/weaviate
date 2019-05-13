@@ -35,8 +35,6 @@ function main() {
   echo_green "Run acceptance tests..."
   run_acceptance_tests "$@"
 
-  echo_green "Prepare coverage output for code climate"
-  prepare_coverage_for_cc
   echo "Done!"
 }
 
@@ -45,23 +43,15 @@ function run_unit_tests() {
 }
 
 function run_acceptance_tests() {
-  if [[ "$*" == *--no-coverage* ]]; then
-    go test -race ./...
-  else
-    for pkg in $(go list ./... | grep -v main); do
-          if ! go test -race -coverprofile=$(echo $pkg | tr / -).cover $pkg; then
+  # for now we need to run the tests sequentially, there seems to be some sort of issues with running them in parallel
+    for pkg in $(go list ./... | grep 'test/acceptance'); do
+          if ! go test -race "$pkg"; then
             echo "Test for $pkg failed" >&2
             return 1
           fi
       done
-  fi
 }
 
-function prepare_coverage_for_cc() {
-    echo "mode: set" > c.out
-    grep -h -v "^mode:" ./*.cover >> c.out
-    rm -f ./*.cover
-}
 
 function import_test_fixtures() {
   # Load the test schema in weaviate.
