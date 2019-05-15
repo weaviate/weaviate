@@ -7,24 +7,12 @@
 # Base build image
 FROM golang:1.11-alpine AS build_base
 RUN apk add bash ca-certificates git gcc g++ libc-dev
-WORKDIR /go/src/github.com/creativesoftwarefdn/weaviate
+WORKDIR /go/src/github.com/semi-technologies/weaviate
 ENV GO111MODULE=on
 # Populate the module cache based on the go.{mod,sum} files.
 COPY go.mod .
 COPY go.sum .
 RUN go mod download
-
-###############################################################################
-# This image builds the old acceptance testss
-FROM build_base AS acceptance_test
-COPY . .
-ENTRYPOINT ["go", "test", "./test/full_test.go"]
-
-###############################################################################
-# This image builds the new acceptance testss
-FROM build_base AS new_acceptance_test
-COPY . .
-ENTRYPOINT ["go", "test", "./test/acceptance"]
 
 
 ###############################################################################
@@ -40,11 +28,11 @@ COPY . .
 RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go install -a -tags netgo -ldflags '-w -extldflags "-static"' ./genesis/cmd/weaviate-genesis-server/
 ENTRYPOINT ["/go/bin/weaviate-genesis-server"]
 
-###############################################################################
-# This creates an image that can be run to import the demo dataset for development
-FROM build_base AS data_importer
-COPY . .
-ENTRYPOINT ["./tools/dev/import_demo_data.sh"]
+# ###############################################################################
+# # This creates an image that can be run to import the demo dataset for development
+# FROM build_base AS data_importer
+# COPY . .
+# ENTRYPOINT ["./tools/dev/import_demo_data.sh"]
 
 ###############################################################################
 # This creates an image that can be used to fake a genesis for a local network setup
@@ -75,8 +63,8 @@ RUN ./test/contextionary/gen_simple_contextionary.sh
 FROM alpine AS weaviate_base
 COPY --from=server_builder /go/bin/weaviate-server /bin/weaviate
 COPY --from=build_base /etc/ssl/certs /etc/ssl/certs
-COPY --from=contextionary_fixture_builder /go/src/github.com/creativesoftwarefdn/weaviate/test/contextionary/example.idx /contextionary/contextionary.idx
-COPY --from=contextionary_fixture_builder /go/src/github.com/creativesoftwarefdn/weaviate/test/contextionary/example.knn /contextionary/contextionary.knn
+COPY --from=contextionary_fixture_builder /go/src/github.com/semi-technologies/weaviate/test/contextionary/example.idx /contextionary/contextionary.idx
+COPY --from=contextionary_fixture_builder /go/src/github.com/semi-technologies/weaviate/test/contextionary/example.knn /contextionary/contextionary.knn
 ENTRYPOINT ["/bin/weaviate"]
 
 ###############################################################################

@@ -1,4 +1,4 @@
-# Weaviate <img alt='Weaviate logo' src='https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/19de0956c69b66c5552447e84d016f4fe29d12c9/docs/assets/weaviate-logo.png' width='180' align='right' />
+# Weaviate <img alt='Weaviate logo' src='https://raw.githubusercontent.com/semi-technologies/weaviate/19de0956c69b66c5552447e84d016f4fe29d12c9/docs/assets/weaviate-logo.png' width='180' align='right' />
 
 _The Decentralized Knowledge Graph & The Decentralized Knowledge P2P Network_
 
@@ -72,23 +72,23 @@ We highly recommend starting with the _Getting Started_ (for [users](./docs/en/u
 ## Questions
 
 - General questions: [Stackoverflow.com](https://stackoverflow.com/questions/tagged/weaviate).
-- Issues: [Github](https://github.com/creativesoftwarefdn/weaviate/issues).
+- Issues: [Github](https://github.com/semi-technologies/weaviate/issues).
 
 ## Commercial use
 
-Weaviate is released under a [BSD-3](https://github.com/creativesoftwarefdn/weaviate/blob/master/LICENSE.md) license by the Creative Software Foundation. [SeMI](https://www.semi.network) offers a suite of enterprise and whitelabel platform products and managed services based on Weaviate.
+Weaviate is released under a [BSD-3](https://github.com/semi-technologies/weaviate/blob/master/LICENSE.md) license by the Creative Software Foundation. [SeMI](https://www.semi.network) offers a suite of enterprise and whitelabel platform products and managed services based on Weaviate.
 
 More information:
 
-- Products & Services overview: [www.semi.network](https://www.semi.network/products/).
-- Contact: [hello@semi.network](mailto:hello@semi.network).
+- Products & Services overview: [www.semi.technology](https://www.semi.technology/products/).
+- Contact: [hello@semi.technology](mailto:hello@semi.technology).
 
 ## Build Status
 
 | Branch   | Status        |
 | -------- |:-------------:|
-| Master   | [![Build Status](https://api.travis-ci.org/creativesoftwarefdn/weaviate.svg?branch=master)](https://travis-ci.org/creativesoftwarefdn/weaviate/branches)
-| Develop  | [![Build Status](https://api.travis-ci.org/creativesoftwarefdn/weaviate.svg?branch=develop)](https://travis-ci.org/creativesoftwarefdn/weaviate/branches)
+| Master   | [![Build Status](https://api.travis-ci.org/semi-technologies/weaviate.svg?branch=master)](https://travis-ci.org/semi-technologies/weaviate/branches)
+| Develop  | [![Build Status](https://api.travis-ci.org/semi-technologies/weaviate.svg?branch=develop)](https://travis-ci.org/semi-technologies/weaviate/branches)
 
 ## Query Example
 

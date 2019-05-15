@@ -5,9 +5,9 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */
 package get
 
@@ -15,13 +15,13 @@ import (
 	"context"
 	"testing"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/gremlin"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql/local/get"
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
-	"github.com/creativesoftwarefdn/weaviate/usecases/network/crossrefs"
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/gremlin"
+	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get"
+	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/usecases/network/crossrefs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -97,10 +97,10 @@ func Test_QueryProcessor(t *testing.T) {
 		executor := &fakeExecutor{result: janusResponse}
 		expectedResult := []interface{}{
 			map[string]interface{}{
-				"uuid":        uuid1,
-				"name":        "Amsterdam",
-				"population":  800000,
-				"geolocation": &models.GeoCoordinates{Latitude: 0.5, Longitude: 0.6},
+				"uuid":       uuid1,
+				"name":       "Amsterdam",
+				"population": 800000,
+				"location":   &models.GeoCoordinates{Latitude: 0.5, Longitude: 0.6},
 			},
 			map[string]interface{}{
 				"uuid":       uuid2,

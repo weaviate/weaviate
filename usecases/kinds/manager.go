@@ -5,9 +5,9 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */
 
 // Package kinds provides managers for all kind-related items, such as things
@@ -20,20 +20,22 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/creativesoftwarefdn/weaviate/usecases/config"
-	"github.com/creativesoftwarefdn/weaviate/usecases/network"
 	"github.com/go-openapi/strfmt"
 	uuid "github.com/satori/go.uuid"
+	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
+	"github.com/sirupsen/logrus"
 )
 
 // Manager manages kind changes at a use-case level, i.e. agnostic of
 // underlying databases or storage providers
 type Manager struct {
-	network       network.Network
+	network       network
 	config        *config.WeaviateConfig
 	repo          Repo
 	locks         locks
 	schemaManager schemaManager
+	logger        logrus.FieldLogger
 }
 
 // Repo describes the requirements the kinds UC has to the connected database
@@ -50,14 +52,20 @@ type locks interface {
 	LockSchema() (func() error, error)
 }
 
+type network interface {
+	ListPeers() (peers.Peers, error)
+}
+
 // NewManager creates a new manager
-func NewManager(repo Repo, locks locks, schemaManager schemaManager, network network.Network, config *config.WeaviateConfig) *Manager {
+func NewManager(repo Repo, locks locks, schemaManager schemaManager, network network,
+	config *config.WeaviateConfig, logger logrus.FieldLogger) *Manager {
 	return &Manager{
 		network:       network,
 		config:        config,
 		repo:          repo,
 		locks:         locks,
 		schemaManager: schemaManager,
+		logger:        logger,
 	}
 }
 

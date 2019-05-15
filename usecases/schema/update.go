@@ -5,17 +5,17 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */package schema
 
 import (
 	"context"
 
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 // UpdateAction which exists
@@ -44,7 +44,8 @@ func (m *Manager) updateClass(ctx context.Context, className string,
 
 	if class.Class != className {
 		// the name in the URI and body don't match, so we assume the user wants to rename
-		newName = &class.Class
+		n := upperCaseClassName(class.Class)
+		newName = &n
 	}
 
 	// TODO gh-619: This implies that we can't undo setting keywords, because we can't detect if keywords is not present, or empty.
@@ -76,7 +77,7 @@ func (m *Manager) updateClass(ctx context.Context, className string,
 	}
 
 	// Validate name / keywords in contextionary
-	if err = m.validateClassNameOrKeywordsCorrect(k, classNameAfterUpdate, keywordsAfterUpdate); err != nil {
+	if err = m.validateClassNameAndKeywords(k, classNameAfterUpdate, keywordsAfterUpdate); err != nil {
 		return err
 	}
 

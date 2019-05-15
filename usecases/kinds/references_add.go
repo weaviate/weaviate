@@ -5,19 +5,19 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */package kinds
 
 import (
 	"context"
 
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
-	"github.com/creativesoftwarefdn/weaviate/usecases/kinds/validation"
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/usecases/kinds/validation"
 )
 
 // AddActionReference Class Instance to the connected DB. If the class contains a network
@@ -66,7 +66,7 @@ func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, id
 		return newErrInternal("could not update schema for network refs: %v", err)
 	}
 
-	m.repo.UpdateAction(ctx, action, action.ID)
+	err = m.repo.UpdateAction(ctx, action, action.ID)
 	if err != nil {
 		return newErrInternal("could not store action: %v", err)
 	}
@@ -120,7 +120,7 @@ func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, id 
 		return newErrInternal("could not update schema for network refs: %v", err)
 	}
 
-	m.repo.UpdateThing(ctx, thing, thing.ID)
+	err = m.repo.UpdateThing(ctx, thing, thing.ID)
 	if err != nil {
 		return newErrInternal("could not store thing: %v", err)
 	}

@@ -5,9 +5,9 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */
 
 package validation
@@ -18,12 +18,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema/crossref"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
-	"github.com/creativesoftwarefdn/weaviate/usecases/config"
-	"github.com/creativesoftwarefdn/weaviate/usecases/network"
+	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/schema/crossref"
+	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/usecases/config"
 )
 
 const (
@@ -43,7 +42,7 @@ const (
 
 // ValidateSchemaInBody Validate the schema in the given body
 func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSchema, object interface{},
-	k kind.Kind, dbConnector getRepo, network network.Network,
+	k kind.Kind, dbConnector getRepo, network peerLister,
 	serverConfig *config.WeaviateConfig) error {
 	var isp interface{}
 	var className string
@@ -96,7 +95,7 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSc
 	return nil
 }
 
-func extractAndValidateProperty(ctx context.Context, pv interface{}, dbConnector getRepo, network network.Network,
+func extractAndValidateProperty(ctx context.Context, pv interface{}, dbConnector getRepo, network peerLister,
 	serverConfig *config.WeaviateConfig, className, propertyName string, dataType *schema.DataType) (interface{}, error) {
 	var (
 		data interface{}
@@ -151,7 +150,7 @@ func extractAndValidateProperty(ctx context.Context, pv interface{}, dbConnector
 	return data, nil
 }
 
-func cRef(ctx context.Context, pv interface{}, dbConnector getRepo, network network.Network,
+func cRef(ctx context.Context, pv interface{}, dbConnector getRepo, network peerLister,
 	serverConfig *config.WeaviateConfig, className, propertyName string) (interface{}, error) {
 	switch refValue := pv.(type) {
 	case map[string]interface{}:
@@ -323,7 +322,7 @@ func parseCoordinate(raw interface{}) (float64, error) {
 	}
 }
 
-func parseAndValidateSingleRef(ctx context.Context, dbConnector getRepo, network network.Network,
+func parseAndValidateSingleRef(ctx context.Context, dbConnector getRepo, network peerLister,
 	serverConfig *config.WeaviateConfig, pvcr map[string]interface{},
 	className, propertyName string) (*models.SingleRef, error) {
 

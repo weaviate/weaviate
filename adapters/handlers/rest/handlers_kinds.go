@@ -5,9 +5,9 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */
 
 package rest
@@ -15,14 +15,14 @@ package rest
 import (
 	"encoding/json"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/operations"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/operations/actions"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/operations/things"
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
-	"github.com/creativesoftwarefdn/weaviate/usecases/telemetry"
 	jsonpatch "github.com/evanphx/json-patch"
 	middleware "github.com/go-openapi/runtime/middleware"
+	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
+	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/actions"
+	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/things"
+	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/telemetry"
 )
 
 type kindHandlers struct {
@@ -286,7 +286,6 @@ func (h *kindHandlers) patchThing(params things.WeaviateThingsPatchParams, princ
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
 
-	// Returns accepted so a Go routine can process in the background
 	return things.NewWeaviateThingsPatchOK().WithPayload(updated)
 }
 

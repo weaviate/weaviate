@@ -7,7 +7,7 @@ Weaviate logs calls to its GraphQL and REST endpoints. It converts these logs to
 
 Note:
 - Weaviate only logs the types of the internal functions that are called to handle incoming requests, **the underlying data is never exposed.**
-- Telemetry is enabled by default, and it should be on for enterprise customers. However, if you are contributing you should [disable it](https://github.com/creativesoftwarefdn/weaviate/edit/feature/monitoring-service/docs/en/contribute/telemetry.md#line51).
+- Telemetry is enabled by default, and it should be on for enterprise customers. However, if you are contributing you should [disable it](https://github.com/semi-technologies/weaviate/edit/feature/monitoring-service/docs/en/contribute/telemetry.md#line51).
 
 ## 2 How does it work?
 
@@ -49,7 +49,7 @@ Weaviate POSTs its converted logs as `"application/cbor"`, with the CBOR byte ar
 If a POST to the logging endpoint does not return a `200` status code then Weaviate stores the CBOR-encoded log in its [etcd key value store](https://coreos.com/etcd/). It stores the encoded log as a string using `"[POST failed] yy-mm-dd hh:mm:ss"` as key to allow easy grouping and retrieval.
 
 ## 3 Configure
-You can configure Weaviate's Telemetry by tweaking three variables in the config files (found [here](https://github.com/creativesoftwarefdn/weaviate/tree/master/tools/dev)). 
+You can configure Weaviate's Telemetry by tweaking three variables in the config files (found [here](https://github.com/semi-technologies/weaviate/tree/master/tools/dev)). 
 	
 ### 3.1 Disabled
 The disabled variable disables Telemetry if set to true. It is set to false by default. Disable Telemetry if you are contributing to Weaviate and/or not an enterprise user.

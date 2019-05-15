@@ -5,9 +5,9 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */
 package test
 
@@ -22,10 +22,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/creativesoftwarefdn/weaviate/client/things"
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema"
-	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
+	"github.com/semi-technologies/weaviate/client/things"
+	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 )
 
 const fakeThingId strfmt.UUID = "11111111-1111-1111-1111-111111111111"
@@ -44,11 +44,11 @@ func TestCreateThingWorks(t *testing.T) {
 		&models.Thing{
 			Class: "TestThing",
 			Schema: map[string]interface{}{
-				"testString":   thingTestString,
-				"testInt":      thingTestInt,
-				"testBoolean":  thingTestBoolean,
-				"testNumber":   thingTestNumber,
-				"testDateTime": thingTestDate,
+				"testString":      thingTestString,
+				"testWholeNumber": thingTestInt,
+				"testTrueFalse":   thingTestBoolean,
+				"testNumber":      thingTestNumber,
+				"testDateTime":    thingTestDate,
 			},
 		})
 
@@ -64,13 +64,13 @@ func TestCreateThingWorks(t *testing.T) {
 			t.Fatal("The returned schema is not an JSON object")
 		}
 
-		testInt, _ := schema["testInt"].(json.Number).Int64()
+		testWholeNumber, _ := schema["testWholeNumber"].(json.Number).Int64()
 		testNumber, _ := schema["testNumber"].(json.Number).Float64()
 
 		// Check whether the returned information is the same as the data added
 		assert.Equal(t, thingTestString, schema["testString"])
-		assert.Equal(t, thingTestInt, int(testInt))
-		assert.Equal(t, thingTestBoolean, schema["testBoolean"])
+		assert.Equal(t, thingTestInt, int(testWholeNumber))
+		assert.Equal(t, thingTestBoolean, schema["testTrueFalse"])
 		assert.Equal(t, thingTestNumber, testNumber)
 		assert.Equal(t, thingTestDate, schema["testDateTime"])
 	})
@@ -181,7 +181,7 @@ var invalidThingTestCases = []struct {
 			return &models.Thing{
 				Class: "TestThing",
 				Schema: map[string]interface{}{
-					"testCref": map[string]interface{}{
+					"testReference": map[string]interface{}{
 						"$cref": fakeThingId,
 						"x":     nil,
 						"type":  "Thing",

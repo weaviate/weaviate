@@ -20,7 +20,12 @@
 
 ## Preparation
 
-If you want to learn more about the general concept of the Knowledge Graphs and Knowledge Networks you can read that [here](#). This getting started guide uses the dockerized versions of Weaviate. For more advanced usage or configuration, you can use the binaries and data connectors directly. This is covered in the [running Weaviate](running-weaviate.md#run-weaviate-stand-alone-with-docker) documentation.
+If you want to learn more about the general concept of the Knowledge Graphs and
+Knowledge Networks you can read that [here](#). This getting started guide uses
+the dockerized versions of Weaviate. For more advanced usage or configuration,
+you can use the binaries and data connectors directly. This is covered in the
+[running Weaviate](running-weaviate.md#run-weaviate-stand-alone-with-docker)
+documentation.
 
 Check you have Docker and Docker-compose installed:
 
@@ -29,24 +34,43 @@ $ docker --version
 $ docker-compose --version
 ```
 
-If you do not have Docker installed, you can read [here](https://docs.docker.com/install/) how to do this on a multitude of operating systems.
+If you do not have Docker installed, you can read
+[here](https://docs.docker.com/install/) how to do this on a multitude of
+operating systems.
 
 You are now ready to get started! If you run into issues, please use the:
-1. [Knowledge base of old issues](https://github.com/creativesoftwarefdn/weaviate/issues?utf8=%E2%9C%93&q=label%3Abug). Or,
+1. [Knowledge base of old issues](https://github.com/semi-technologies/weaviate/issues?utf8=%E2%9C%93&q=label%3Abug). Or,
 2. For questions: [Stackoverflow](https://stackoverflow.com/questions/tagged/weaviate) . Or,
-3. For issues: [Github](//github.com/creativesoftwarefdn/weaviate/issues).
+3. For issues: [Github](//github.com/semi-technologies/weaviate/issues).
 
 ## Running Weaviate with Docker-compose
 
-All elements inside Weaviate are loosely coupled, meaning that you can use or [create](https://github.com/creativesoftwarefdn/weaviate/blob/develop/docs/en/contribute/custom-connectors.md) multiple database connectors. In this setup, we will be using the JanusGraph connector because it contains the most features for scaling Weaviate.
+All elements inside Weaviate are loosely coupled, meaning that you can use or
+[create](https://github.com/semi-technologies/weaviate/blob/develop/docs/en/contribute/custom-connectors.md)
+multiple database connectors. In this setup, we will be using the JanusGraph
+connector because it contains the most features for scaling Weaviate.
 
-Important to know;
-1. The whole setup uses a decent amount of memory. In case of issues, try increasing the memory limit that Docker has available. The setup runs from 2 CPU 12Gig memory. In case of issues check [this issue](https://github.com/creativesoftwarefdn/weaviate/issues/742).
-2. It takes some time to start up the whole infrastructure.
+#### Important information
+1. The docker-compose setup contains the entire weaviate stack, including a
+   Janusgraph/Elasticsearch connector. To run this stack you should have
+   at least **1 CPU and 3 GB of memory available**. If you are planning to import
+   large amounts of data, a larger setup is recommended.
+2. It takes some time to start up the whole infrastructure. During this time,
+   the backing databases will produce plenty of log output. We recommend to not
+   attach to the log-output of the entire setup, but only to those of weaviate.
+   Weaviate will will wait up to 2 minutes for the backing databases to come
+   up. This is indicated by logging `waiting to establish database connection,
+   this can take some time`. You will know that the entire stack is ready when
+   weaviate logs the bind address and port it is listenting on.
+3. The configuration values used in the docker-compose setup reflect a "Try it
+   out" or development setup. Production usage requires considerably more
+   resources. Do not use the docker-compose setup below in production. For
+   production setups, we recommend running the weaviate stack on Kubernetes.
 
 #### Starting Weaviate with Docker-compose
 
-You can find [here](running-weaviate.md#run-full-stack-with-docker-compose) how to run Weaviate with Docker-compose.
+You can find [here](running-weaviate.md#run-full-stack-with-docker-compose) how
+to run Weaviate with Docker-compose.
 
 Check if Weaviate is up and running by using the following curl command:
 
@@ -76,7 +100,7 @@ You are now ready to start using Weaviate!
 
 The ontology describes how the knowledge graph is structured on which semantic elements it is based, you can read more in-depth what the Weaviate ontology entails [here](ontology-schema.md).
 
-In this example, we are going to create a [knowledge graph of a zoo](https://github.com/creativesoftwarefdn/weaviate-demo-zoo). Although you can [automate the import of an ontology](#adding-a-full-blown-zoo-with-weaviate-cli) we will do it manually now to get an understanding of how the ontology is structured.
+In this example, we are going to create a [knowledge graph of a zoo](https://github.com/semi-technologies/weaviate-demo-zoo). Although you can [automate the import of an ontology](#adding-a-full-blown-zoo-with-weaviate-cli) we will do it manually now to get an understanding of how the ontology is structured.
 
 First, we will create the `Zoo` as a Weaviate-thing like this;
 

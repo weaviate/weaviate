@@ -5,9 +5,9 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */
 
 package get
@@ -17,12 +17,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/state"
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
-	"github.com/creativesoftwarefdn/weaviate/usecases/config"
-	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/state"
+	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -77,7 +77,7 @@ func (f *fakeNameSource) MustGetPropertyNameFromMapped(className schema.ClassNam
 	case state.MappedPropertyName("prop_3"):
 		return "inCountry"
 	case state.MappedPropertyName("prop_9"):
-		return "geolocation"
+		return "location"
 	case state.MappedPropertyName("prop_13"):
 		return "inContinent"
 	case state.MappedPropertyName("prop_23"):

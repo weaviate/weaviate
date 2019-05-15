@@ -5,9 +5,9 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */
 
 package rest
@@ -19,21 +19,21 @@ import (
 	"os"
 	"time"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/graphql"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/state"
-	"github.com/creativesoftwarefdn/weaviate/contextionary"
-	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
-	databaseSchema "github.com/creativesoftwarefdn/weaviate/contextionary/schema"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema"
-	"github.com/creativesoftwarefdn/weaviate/usecases/auth/authentication/anonymous"
-	"github.com/creativesoftwarefdn/weaviate/usecases/auth/authentication/oidc"
-	"github.com/creativesoftwarefdn/weaviate/usecases/config"
-	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
-	"github.com/creativesoftwarefdn/weaviate/usecases/network"
-	libnetworkFake "github.com/creativesoftwarefdn/weaviate/usecases/network/fake"
-	libnetworkP2P "github.com/creativesoftwarefdn/weaviate/usecases/network/p2p"
-	"github.com/creativesoftwarefdn/weaviate/usecases/telemetry"
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/adapters/handlers/graphql"
+	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
+	"github.com/semi-technologies/weaviate/contextionary"
+	libcontextionary "github.com/semi-technologies/weaviate/contextionary"
+	databaseSchema "github.com/semi-technologies/weaviate/contextionary/schema"
+	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/usecases/auth/authentication/anonymous"
+	"github.com/semi-technologies/weaviate/usecases/auth/authentication/oidc"
+	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/network"
+	libnetworkFake "github.com/semi-technologies/weaviate/usecases/network/fake"
+	libnetworkP2P "github.com/semi-technologies/weaviate/usecases/network/p2p"
+	"github.com/semi-technologies/weaviate/usecases/telemetry"
 	"github.com/sirupsen/logrus"
 )
 

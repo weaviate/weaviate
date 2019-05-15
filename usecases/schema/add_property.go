@@ -5,9 +5,9 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */
 
 package schema
@@ -16,9 +16,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 // AddActionProperty to an existing Action
@@ -44,6 +44,8 @@ func (m *Manager) addClassProperty(ctx context.Context, className string,
 	if err != nil {
 		return err
 	}
+
+	prop.Name = lowerCaseFirstLetter(prop.Name)
 
 	err = m.validateCanAddProperty(prop, class)
 	if err != nil {
@@ -74,7 +76,7 @@ func (m *Manager) validateCanAddProperty(property *models.SemanticSchemaClassPro
 		return err
 	}
 
-	err = m.validatePropertyNameOrKeywordsCorrect(class.Class, property.Name, property.Keywords)
+	err = m.validatePropertyNameAndKeywords(class.Class, property.Name, property.Keywords)
 	if err != nil {
 		return err
 	}

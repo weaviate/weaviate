@@ -3,7 +3,7 @@
   "type": "action",
   "version": "1.0.0",
   "name": "example.org - Action Test",
-  "maintainer": "hello@creativesoftwarefdn.org",
+  "maintainer": "hello@semi.technology",
   "classes": [
     {
       "class": "TestAction",
@@ -20,23 +20,23 @@
           "description": "Value of testText."
         },
         {
-          "name": "testInt",
+          "name": "testWholeNumber",
           "keywords": [
             {"keyword": "test", "weight": 1.0},
             {"keyword": "number", "weight": 1.0}
           ],
           "dataType": ["int"],
-          "description": "Value of testInt."
+          "description": "Value of testWholeNumber."
         },
         {
-          "name": "testBoolean",
+          "name": "testTrueFalse",
           "keywords": [
             {"keyword": "test", "weight": 1.0},
             {"keyword": "truth", "weight": 1.0},
             {"keyword": "value", "weight": 1.0}
           ],
           "dataType": ["boolean"],
-          "description": "Value of testBoolean."
+          "description": "Value of testTrueFalse."
         },
         {
           "name": "testNumber",
@@ -49,13 +49,13 @@
           "description": "Value of testDateTime."
         },
         {
-          "name": "testCref",
+          "name": "testReference",
           "keywords": [
             {"keyword": "test", "weight": 1.0},
             {"keyword": "reference", "weight": 1.0}
           ],
           "dataType": ["TestThing"],
-          "description": "Value of testCref."
+          "description": "Value of testReference."
         }
       ]
     },
@@ -74,23 +74,23 @@
           "description": "Value of testText."
         },
         {
-          "name": "testInt",
+          "name": "testWholeNumber",
           "dataType": ["int"],
           "keywords": [
             {"keyword": "test", "weight": 1.0},
             {"keyword": "number", "weight": 1.0}
           ],
-          "description": "Value of testInt."
+          "description": "Value of testWholeNumber."
         },
         {
-          "name": "testBoolean",
+          "name": "testTrueFalse",
           "keywords": [
             {"keyword": "test", "weight": 1.0},
             {"keyword": "truth", "weight": 1.0},
             {"keyword": "value", "weight": 1.0}
           ],
           "dataType": ["boolean"],
-          "description": "Value of testBoolean."
+          "description": "Value of testTrueFalse."
         },
         {
           "name": "testNumber",
@@ -103,23 +103,23 @@
           "description": "Value of testDateTime."
         },
         {
-          "name": "testCref",
+          "name": "testReference",
           "keywords": [
             {"keyword": "test", "weight": 1.0},
             {"keyword": "reference", "weight": 1.0}
           ],
           "dataType": ["TestAction"],
-          "description": "Value of testCref."
+          "description": "Value of testReference."
         },
         {
-          "name": "testCrefs",
+          "name": "testReferences",
           "cardinality": "many",
           "keywords": [
             {"keyword": "test", "weight": 1.0},
             {"keyword": "reference", "weight": 1.0}
           ],
           "dataType": ["TestAction"],
-          "description": "Value of testCref."
+          "description": "Value of testReference."
         }
       ]
     }

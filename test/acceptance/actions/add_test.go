@@ -5,9 +5,9 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */
 package test
 
@@ -18,10 +18,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/creativesoftwarefdn/weaviate/client/actions"
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/client/actions"
+	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -39,11 +39,11 @@ func TestCanCreateAction(t *testing.T) {
 		&models.Action{
 			Class: "TestAction",
 			Schema: map[string]interface{}{
-				"testString":   actionTestString,
-				"testInt":      actionTestInt,
-				"testBoolean":  actionTestBoolean,
-				"testNumber":   actionTestNumber,
-				"testDateTime": actionTestDate,
+				"testString":      actionTestString,
+				"testWholeNumber": actionTestInt,
+				"testTrueFalse":   actionTestBoolean,
+				"testNumber":      actionTestNumber,
+				"testDateTime":    actionTestDate,
 			},
 		})
 
@@ -59,13 +59,13 @@ func TestCanCreateAction(t *testing.T) {
 			t.Fatal("The returned schema is not an JSON object")
 		}
 
-		testInt, _ := schema["testInt"].(json.Number).Int64()
+		testWholeNumber, _ := schema["testWholeNumber"].(json.Number).Int64()
 		testNumber, _ := schema["testNumber"].(json.Number).Float64()
 
 		// Check whether the returned information is the same as the data added
 		assert.Equal(t, actionTestString, schema["testString"])
-		assert.Equal(t, actionTestInt, int(testInt))
-		assert.Equal(t, actionTestBoolean, schema["testBoolean"])
+		assert.Equal(t, actionTestInt, int(testWholeNumber))
+		assert.Equal(t, actionTestBoolean, schema["testTrueFalse"])
 		assert.Equal(t, actionTestNumber, testNumber)
 		assert.Equal(t, actionTestDate, schema["testDateTime"])
 	})
@@ -81,11 +81,11 @@ func TestCanCreateAndGetAction(t *testing.T) {
 	actionTestDate := "2017-10-06T08:15:30+01:00"
 
 	actionID := assertCreateAction(t, "TestAction", map[string]interface{}{
-		"testString":   actionTestString,
-		"testInt":      actionTestInt,
-		"testBoolean":  actionTestBoolean,
-		"testNumber":   actionTestNumber,
-		"testDateTime": actionTestDate,
+		"testString":      actionTestString,
+		"testWholeNumber": actionTestInt,
+		"testTrueFalse":   actionTestBoolean,
+		"testNumber":      actionTestNumber,
+		"testDateTime":    actionTestDate,
 	})
 	assertGetActionEventually(t, actionID)
 
@@ -100,13 +100,13 @@ func TestCanCreateAndGetAction(t *testing.T) {
 			t.Fatal("The returned schema is not an JSON object")
 		}
 
-		testInt, _ := schema["testInt"].(json.Number).Int64()
+		testWholeNumber, _ := schema["testWholeNumber"].(json.Number).Int64()
 		testNumber, _ := schema["testNumber"].(json.Number).Float64()
 
 		// Check whether the returned information is the same as the data added
 		assert.Equal(t, actionTestString, schema["testString"])
-		assert.Equal(t, actionTestInt, int(testInt))
-		assert.Equal(t, actionTestBoolean, schema["testBoolean"])
+		assert.Equal(t, actionTestInt, int(testWholeNumber))
+		assert.Equal(t, actionTestBoolean, schema["testTrueFalse"])
 		assert.Equal(t, actionTestNumber, testNumber)
 		assert.Equal(t, actionTestDate, schema["testDateTime"])
 	})
@@ -119,13 +119,13 @@ func TestCanAddSingleRefAction(t *testing.T) {
 
 	secondID := assertCreateAction(t, "TestActionTwo", map[string]interface{}{
 		"testString": "stringy",
-		"testCref": map[string]interface{}{
+		"testReference": map[string]interface{}{
 			"$cref": fmt.Sprintf("weaviate://localhost/actions/%s", firstID),
 		},
 	})
 
 	secondAction := assertGetActionEventually(t, secondID)
 
-	singleRef := secondAction.Schema.(map[string]interface{})["testCref"].(map[string]interface{})
+	singleRef := secondAction.Schema.(map[string]interface{})["testReference"].(map[string]interface{})
 	assert.Equal(t, singleRef["$cref"].(string), fmt.Sprintf("weaviate://localhost/actions/%s", firstID))
 }

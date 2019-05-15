@@ -1,4 +1,3 @@
-
 addons:
   hosts:
     - db
@@ -11,7 +10,7 @@ after_success:
         # Login to dockerhub
         echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
         # prepare release id's
-        DOCKER_ID="creativesoftwarefdn/weaviate:"
+        DOCKER_ID="semitechnologies/weaviate:"
         # releasing a prerelease
         if [ "$TRAVIS_BRANCH" = "master" ]; then
             TAG=$DOCKER_ID$WEAVIATE_VERSION-$(echo $TRAVIS_COMMIT | cut -c1-7)
@@ -66,6 +65,7 @@ env:
   - secure: n4CXkJJlfkzXxBUW8lPd6nCxkRwt4+Z9q9c094OX6oJDnhBdItXqxTizFE1ClH+nG7v/KunBVK0DVbPuH19JQJ/OrcsNGJ2NBFHCW5gmAwexD7D1Zn9JFQolD711l7YufqPeC9275X8UMK/sbZK6KN8bmrAi8iBhE9U8vi9scsHZLUfe1G0YxUgjcPX8fgM8YMyJf6Y0wef0j7GyU2CK6qNtJ5QdNn7z3YzWTsQPGsy4CNCitATT69XqQhGM5rwsx08cTAxmRqHqo/j2bC4Ksy/bK+phLYqtuAT+rch1zNrEM2tAxLj/hFLQTb7Dzg1xEThhwkVmGpLQOG50HBMDW39jgirJlAfRK0LmHcu3VD/esPL6neyBUfNv/DxLNLP7K1dNGoe7wHG9hjSzzm3YmIb31J/v79hxoPGLYlLYtiF4oZOatWs2V9HD/WY2zus5y8wYMijSn7DCuUUM29pL/4nhhJipHIqD51VnzTkyVQeBCdAogskjKV6h06/SSxXJIydNeKJ/D+FUa2u8QvNRaNLqoi9f0LttqUXg5CVXB4yWQ/VLvf4Wqa2xbTXDiobv4RQ93urUMIKETvCADpqW3lSBPusOqYbp1oFal5zS6LYa6mWfHPQd4LIsvXi2+RqUa8D2EFb/jOh6ZsYwktt8fASjfKKrLnoJ309LRZwrrMU=
   - secure: md03rNDjZY1aJ0cYa9LeOVV4FA20p6UVNRmxB4PAKeY2Towb42FgpamaUckuS8g9xGC3mTlRJbNceGQzGvtbSfsgTPJx+oIEdkG6TSmVeWbzhNDd3m8FX/GfwmXX2NA0sVZi4Mr0aOvnhnhZrCQ5WInQR+DV1NdZbgo1UqXE0rXLpid8FuKuZ3wXFQa+ArnbqyNb0pBb8MtQSoj1x1kl9/zcdGINJVV0H+d8KPv4SpoB067em/XJIp8vZkb9Sf18N3B7IRLh84+t0Cg3OgZAqALEEe2GBO8vcQN9kRzN2dAvA5q+YdbTa8gS6nGIm2trGXXvWQ/WMVK7fkcVHGK9agFQCdV0Y6CtnThfKQcCSmcgTaj2NbYiJDZiUHXZWr8w2qTC7IvqOqkD87IczJZ2nPVMH1icqPNtaOLj+6FhUfZ0Md/whbb8r7O+vKp8sRwOVVk1y4O21ynAX8w3caWR1ruBF1agoUUWEHT3Wuz7klXL5ZPprHYTqtGbJmMNyT73OpTTqKavf1PAUMTX75YgHU1QOKYgTL5aaRxbYru+JuhWj4ML1H3m+75WOV0KIHiMjee2QAAgFPYWmxmFP3c1Q1fdydeHzCAr8K7Powqnj7j+SfDPxg3V1nc88ZDmHJgsTtGpENDdWVcuKfYWBQq5nqe0mzNix1yaOeLKxIrbRkg=
   - secure: ai7VYZ3hGQnSuo1cHvmq5ilmSdyXxF16ChUHzz3Rgr2JGanYP9s2qjXcsilz9kQDXWERglSF1BJ46tGsnGeIyInC9aw35cTNnnBkBlem1GwuEMW2NZXm1Jaa6ci6p0saMsLFF84s+IuABHajHLkEUhdcE5J+9SPZcJLi5OTJQEf12iGV34W55cgUHaJ2+pz1alfGrw+lnzfYUtJ2pjNBNWfPzldNuDpog2D1MR2H1S15r02dArN8e8MY6nooXqXoay46W0Vtsu7l05yKdd4sul1BqQRh8OYoFslT9C8wnzgPIClHhEPXz0YmU9g1K3BemGMaqFnM8LUGi5x1S4UTPHUCA78SF/elv+KSdSEKFzQpqsHGk/6u1KmVYhoMKZWYIu81zi6penXIHVXcBQtdgxUpRdsn0hvLtHCuZlEMggQ6OjvCsQNjTFF+doAeKxAv4u61mNPfG4U0OBiz5kZUcI37qmQcrhDby3Rq3Egx7/QNQQEiYZRfBva71/s2n2Dz49mP4VwbsctaFZJMp7mVyYmxO2TcYIeUkoPQHR6Yf71QZlY3TTs3PCckNBbiniSmF/ez2Ny0YRRdybNeC15g/NI3KjRl9IYWQTM7pe1GipEG4MeD1UdN0eTZJRXhPhXAG3cy2wZDI9vQiXXoOfRk28fLV+oRy8bjBR6j9JEc0iw=
+  - secure: lrXRmWTugnKOFFRV0GhJOpPDht4R/3dcr64Vziepkhe1YdWsvShifzElATKplrHwjXuJ6LRJesskrT2+isDrKKLGLLT/AtZ4j3SYqXCXgYtepkq5MV7YeAZbWoaNseSzX+bfGbz/Qc6unGsdEFzJm4300mCoub8Mi42spfcHKfu2eqTOaWEVExoo0P4q8VlomW5kuErQT37cMuDo+J9u1ornV79R16+hzTNs0EazpqwWIwblFOiCUygNsFusZso7fw3RQ/fJWtBP1gT9H5S2MY3PEKRWRqEiiEGTChnEegLgHb1nPgz0r2FrdGshaKMt2ZU1eyq91hFfUfIxbNoRfy3W5wZ9Sp88NsGWftSVrOEibnbkX1eIX34cMiAZGL5Nnz5SxRHTO4sEfWJi9aEvU4EeaO6zXffMR4JHaVHdp+1XwMY+qbfNo8TW7GKDiQFmJMvkn0zrcQVUEi+cUHO8TqsJezjEPuNYKd85IpFvQX3RqrRievmRIJX2/GP2FFy0PlyC4TLmQYd6ZCndQlTGsvxS+Ie5k5Zx7d2RT5bcSwcNE5ZtYuzAfzAl3B/IbB+/9tHEUJK508sl3SkDzTPDzqyttnnfVOVKSShLcWPuw5NMeK7Sdc3F9CBchD19+QZbOsrBCp0zQXboGfwVf3JugAJcKEDCWCSBtOTd1QKaNxA=
 language: go
 install:  
   # - curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter

@@ -53,7 +53,7 @@ services:
     ports:
       - "8082:8082"
   janus:
-    image: creativesoftwarefdn/janusgraph-docker:0.3.1
+    image: semitechnologies/janusgraph-docker:0.3.1
     depends_on:
       - db
       - index
@@ -90,6 +90,8 @@ services:
     ports:
      - "9200:9200"
      - "9300:9300"
+    environment:
+     - ES_JAVA_OPTS=-Xms500m -Xmx500m
     volumes:
      - ./data/elasticsearch/data:/usr/share/elasticsearch/data
   genesis: # an actual genesis - not used in the weaviate tests, but used to test the genesis itself

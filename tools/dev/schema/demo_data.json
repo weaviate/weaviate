@@ -4,10 +4,9 @@
       "class": "City",
       "uuid": "001",
       "name": "Amsterdam",
-      "coordinates": "N52, E004",
       "population": "1800000",
       "isCapital": true,
-      "geolocation": {
+      "location": {
         "latitude": 52.366667,
         "longitude": 4.9
       },
@@ -25,7 +24,6 @@
       "class": "City",
       "uuid": "002",
       "name": "Rotterdam",
-      "coordinates": "N50, E004",
       "population": "1800000",
       "isCapital": false,
       "inCountry": [
@@ -41,7 +39,6 @@
       "class": "City",
       "uuid": "003",
       "name": "Berlin",
-      "coordinates": "N52, E007",
       "population": "3470000",
       "isCapital": true,
       "inCountry": [
@@ -58,7 +55,6 @@
       "class": "City",
       "uuid": "021",
       "name": "Countryless",
-      "coordinates": "N48, E005",
       "population": "800000",
       "isCapital": false,
       "inCountry": []
@@ -67,7 +63,6 @@
       "class": "City",
       "uuid": "022",
       "name": "CantDecideWhichCountryItBelongsToo",
-      "coordinates": "N48, E005",
       "population": "600000",
       "isCapital": false,
       "inCountry": [
@@ -89,7 +84,6 @@
       "class": "City",
       "uuid": "004",
       "name": "Dusseldorf",
-      "coordinates": "N48, E005",
       "population": "600000",
       "isCapital": false,
       "inCountry": [
@@ -120,7 +114,6 @@
         "class": "City",
         "uuid": "004",
         "name": "Dusseldorf",
-        "coordinates": "N48, E005",
         "population": "600000",
         "isCapital": false,
         "inCountry": {
@@ -130,7 +123,7 @@
           "population": "83000000"
         }
       },
-      "nationality": {
+      "ofNation": {
         "class": "Country",
         "uuid": "006",
         "name": "Germany",
@@ -144,7 +137,6 @@
         "class": "City",
         "uuid": "001",
         "name": "Amsterdam",
-        "coordinates": "N52, E004",
         "population": "1800000",
         "isCapital": true,
         "inCountry": {
@@ -154,7 +146,7 @@
           "population": "17000000"
         }
       },
-      "nationality": {
+      "ofNation": {
         "class": "Country",
         "uuid": "005",
         "name": "Netherlands",
@@ -168,7 +160,6 @@
         "class": "City",
         "uuid": "001",
         "name": "Amsterdam",
-        "coordinates": "N52, E004",
         "population": "1800000",
         "isCapital": true,
         "inCountry": {
@@ -187,7 +178,6 @@
         "class": "City",
         "uuid": "002",
         "name": "Rotterdam",
-        "coordinates": "N50, E004",
         "population": "1800000",
         "isCapital": false,
         "inCountry": {
@@ -206,7 +196,6 @@
         "class": "City",
         "uuid": "004",
         "name": "Dusseldorf",
-        "coordinates": "N48, E005",
         "population": "600000",
         "isCapital": false,
         "inCountry": {
@@ -225,7 +214,6 @@
         "class": "City",
         "uuid": "003",
         "name": "Berlin",
-        "coordinates": "N52, E007",
         "population": "3470000",
         "isCapital": true,
         "inCountry": {
@@ -245,7 +233,6 @@
         "class": "City",
         "uuid": "003",
         "name": "Berlin",
-        "coordinates": "N52, E007",
         "population": "3470000",
         "isCapital": true,
         "inCountry": {
@@ -265,7 +252,6 @@
         "class": "City",
         "uuid": "001",
         "name": "Amsterdam",
-        "coordinates": "N52, E004",
         "population": "1800000",
         "isCapital": true,
         "inCountry": {
@@ -307,7 +293,6 @@
           "class": "City",
           "uuid": "003",
           "name": "Berlin",
-          "coordinates": "N52, E007",
           "population": "3470000",
           "isCapital": true,
           "inCountry": {
@@ -338,7 +323,6 @@
           "class": "City",
           "uuid": "001",
           "name": "Amsterdam",
-          "coordinates": "N52, E004",
           "population": "1800000",
           "isCapital": true,
           "inCountry": {
@@ -369,7 +353,6 @@
           "class": "City",
           "uuid": "001",
           "name": "Amsterdam",
-          "coordinates": "N52, E004",
           "population": "1800000",
           "isCapital": true,
           "inCountry": {
@@ -400,7 +383,6 @@
           "class": "City",
           "uuid": "003",
           "name": "Berlin",
-          "coordinates": "N52, E007",
           "population": "3470000",
           "isCapital": true,
           "inCountry": {
@@ -431,7 +413,6 @@
           "class": "City",
           "uuid": "004",
           "name": "Dusseldorf",
-          "coordinates": "N48, E005",
           "population": "600000",
           "isCapital": false,
           "inCountry": {
@@ -450,7 +431,6 @@
           "class": "City",
           "uuid": "003",
           "name": "Berlin",
-          "coordinates": "N52, E007",
           "population": "3470000",
           "isCapital": true,
           "inCountry": {

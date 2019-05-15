@@ -2,8 +2,8 @@
 
 > Background information regarding the licenses of Weaviate dependencies.
 
-- Weaviate's own license can be found [here](https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md).
-- The licenses of Weaviates dependency packages can be found [here](https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE-DEPENDENCIES.md).
+- Weaviate's own license can be found [here](https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md).
+- The licenses of Weaviates dependency packages can be found [here](https://github.com/semi-technologies/weaviate/blob/develop/LICENSE-DEPENDENCIES.md).
 
 ## How to read the dependency file
 

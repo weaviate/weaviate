@@ -5,9 +5,9 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */
 package peers
 
@@ -15,9 +15,9 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/creativesoftwarefdn/weaviate/client"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema"
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/client"
+	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
 // Peer represents a known peer, given to us by the Genesis service.

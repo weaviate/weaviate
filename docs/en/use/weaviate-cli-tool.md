@@ -4,7 +4,7 @@
 
 > Note: the CLI-tools are still in development.
 
-The weaviate-cli tool is used to autmomatically import or export schemas and to import large datasets. The software can be found [here](https://github.com/creativesoftwarefdn/weaviate-cli).
+The weaviate-cli tool is used to autmomatically import or export schemas and to import large datasets. The software can be found [here](https://github.com/semi-technologies/weaviate-cli).
 
 ## Run full stack with Docker-compose
 
@@ -15,7 +15,7 @@ A complete Weaviate stack based on Janusgraph (with; Elasticsearch and Cassandra
 Install by running the following command;
 
 ```sh
-$ source <(curl -s https://raw.githubusercontent.com/creativesoftwarefdn/weaviate-cli/master/install.sh)
+$ source <(curl -s https://raw.githubusercontent.com/semi-technologies/weaviate-cli/master/install.sh)
 ```
 
 _Note: this command will try to install Python, unzip, wget and pip3 if not installed and might ask for sudo rights._
@@ -25,7 +25,7 @@ _Note: tested on Ubuntu 16 and up_
 
 ```sh
 # Clone the repo
-$ git clone https://github.com/creativesoftwarefdn/weaviate-cli
+$ git clone https://github.com/semi-technologies/weaviate-cli
 # Into the repo
 $ cd weaviate-cli
 # Install deps
@@ -51,7 +51,7 @@ _Note II, the weaviate-cli will will always ping the server first`_
 
 The ontology schema importer imports an ontolgy schema to Weaviate.
 
-> You can learn how to define a schema [here](https://github.com/creativesoftwarefdn/weaviate/blob/develop/docs/en/use/ontology-schema.md).
+> You can learn how to define a schema [here](https://github.com/semi-technologies/weaviate/blob/develop/docs/en/use/ontology-schema.md).
 
 | Argument | Description |
 | -------- | ----------- |
@@ -67,7 +67,7 @@ $ weaviate-cli --schema-import --schema-import-things=$PATH_TO_SCHEMA_JSON --sch
 
 The ontology schema exporter exports an ontolgy schema from Weaviate.
 
-> You can learn how a schema is defined [here](https://github.com/creativesoftwarefdn/weaviate/blob/develop/docs/en/use/ontology-schema.md).
+> You can learn how a schema is defined [here](https://github.com/semi-technologies/weaviate/blob/develop/docs/en/use/ontology-schema.md).
 
 | Argument | Description |
 | -------- | ----------- |
