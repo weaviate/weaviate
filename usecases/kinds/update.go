@@ -5,17 +5,18 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */package kinds
 
 import (
 	"context"
 	"time"
 
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 type updateAndGetRepo interface {
@@ -50,10 +51,18 @@ func (m *Manager) updateActionToConnectorAndSchema(ctx context.Context, id strfm
 		return nil, newErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
 
-	_, err := m.getActionFromRepo(ctx, id)
+	originalAction, err := m.getActionFromRepo(ctx, id)
 	if err != nil {
 		return nil, err
 	}
+
+	m.logger.
+		WithField("action", "kinds_update_requested").
+		WithField("kind", kind.Action).
+		WithField("original", originalAction).
+		WithField("updated", class).
+		WithField("id", id).
+		Debug("received update kind request")
 
 	err = m.validateAction(ctx, class)
 	if err != nil {
@@ -66,7 +75,7 @@ func (m *Manager) updateActionToConnectorAndSchema(ctx context.Context, id strfm
 	}
 
 	class.LastUpdateTimeUnix = unixNow()
-	m.repo.UpdateAction(ctx, class, class.ID)
+	err = m.repo.UpdateAction(ctx, class, class.ID)
 	if err != nil {
 		return nil, newErrInternal("could not store updated action: %v", err)
 	}
@@ -93,10 +102,18 @@ func (m *Manager) updateThingToConnectorAndSchema(ctx context.Context, id strfmt
 		return nil, newErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
 
-	_, err := m.getThingFromRepo(ctx, id)
+	originalThing, err := m.getThingFromRepo(ctx, id)
 	if err != nil {
 		return nil, err
 	}
+
+	m.logger.
+		WithField("action", "kinds_update_requested").
+		WithField("kind", kind.Thing).
+		WithField("original", originalThing).
+		WithField("updated", class).
+		WithField("id", id).
+		Debug("received update kind request")
 
 	err = m.validateThing(ctx, class)
 	if err != nil {
@@ -109,7 +126,7 @@ func (m *Manager) updateThingToConnectorAndSchema(ctx context.Context, id strfmt
 	}
 
 	class.LastUpdateTimeUnix = unixNow()
-	m.repo.UpdateThing(ctx, class, class.ID)
+	err = m.repo.UpdateThing(ctx, class, class.ID)
 	if err != nil {
 		return nil, newErrInternal("could not store updated thing: %v", err)
 	}

@@ -5,22 +5,21 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */package kinds
 
 import (
 	"context"
 
-	"github.com/creativesoftwarefdn/weaviate/usecases/config"
-	"github.com/creativesoftwarefdn/weaviate/usecases/network"
+	"github.com/semi-technologies/weaviate/usecases/config"
 )
 
 // BatchManager manages kind changes in batch at a use-case level , i.e.
 // agnostic of underlying databases or storage providers
 type BatchManager struct {
-	network       network.Network
+	network       network
 	config        *config.WeaviateConfig
 	repo          batchAndGetRepo
 	locks         locks
@@ -40,7 +39,7 @@ type batchAndGetRepo interface {
 }
 
 // NewBatchManager creates a new manager
-func NewBatchManager(repo Repo, locks locks, schemaManager schemaManager, network network.Network, config *config.WeaviateConfig) *BatchManager {
+func NewBatchManager(repo Repo, locks locks, schemaManager schemaManager, network network, config *config.WeaviateConfig) *BatchManager {
 	return &BatchManager{
 		network:       network,
 		config:        config,

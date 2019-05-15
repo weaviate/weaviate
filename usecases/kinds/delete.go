@@ -5,16 +5,16 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */package kinds
 
 import (
 	"context"
 
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 type deleteAndGetRepo interface {
@@ -45,7 +45,7 @@ func (m *Manager) deleteActionFromRepo(ctx context.Context, id strfmt.UUID) erro
 		return err
 	}
 
-	m.repo.DeleteAction(ctx, nil, id)
+	err = m.repo.DeleteAction(ctx, nil, id)
 	if err != nil {
 		return newErrInternal("could not delete action: %v", err)
 	}
@@ -71,7 +71,7 @@ func (m *Manager) deleteThingFromRepo(ctx context.Context, id strfmt.UUID) error
 		return err
 	}
 
-	m.repo.DeleteThing(ctx, nil, id)
+	err = m.repo.DeleteThing(ctx, nil, id)
 	if err != nil {
 		return newErrInternal("could not delete thing: %v", err)
 	}

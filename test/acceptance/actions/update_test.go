@@ -5,9 +5,9 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */
 package test
 
@@ -18,9 +18,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/creativesoftwarefdn/weaviate/client/actions"
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
+	"github.com/semi-technologies/weaviate/client/actions"
+	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 )
 
 func TestCanUpdateActionSetNumber(t *testing.T) {
@@ -87,7 +87,7 @@ func TestCanUpdateActionSetBool(t *testing.T) {
 	assertGetActionEventually(t, uuid)
 
 	schema := models.Schema(map[string]interface{}{
-		"testBoolean": true,
+		"testTrueFalse": true,
 	})
 
 	update := models.Action{}
@@ -103,7 +103,7 @@ func TestCanUpdateActionSetBool(t *testing.T) {
 	actualThunk := func() interface{} {
 		updatedAction := assertGetAction(t, uuid)
 		updatedSchema := updatedAction.Schema.(map[string]interface{})
-		return updatedSchema["testBoolean"]
+		return updatedSchema["testTrueFalse"]
 	}
 	helper.AssertEventuallyEqual(t, true, actualThunk)
 }
@@ -117,7 +117,7 @@ func TestCanPatchActionsSetCref(t *testing.T) {
 	assertGetActionEventually(t, actionID)
 
 	op := "add"
-	path := "/schema/testCref"
+	path := "/schema/testReference"
 
 	patch := &models.PatchDocument{
 		Op:   &op,
@@ -137,7 +137,7 @@ func TestCanPatchActionsSetCref(t *testing.T) {
 	actualThunk := func() interface{} {
 		patchedAction := assertGetAction(t, actionID)
 
-		rawCref := patchedAction.Schema.(map[string]interface{})["testCref"]
+		rawCref := patchedAction.Schema.(map[string]interface{})["testReference"]
 		cref := rawCref.(map[string]interface{})
 
 		return cref["$cref"]

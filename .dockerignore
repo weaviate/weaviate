@@ -3,3 +3,5 @@ Dockerfile.*
 Dockerfile
 docker-compose.yml
 data/
+test/acceptance/
+

@@ -5,9 +5,9 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */
 package test
 
@@ -15,10 +15,10 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/creativesoftwarefdn/weaviate/client/actions"
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/client/actions"
+	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,7 +26,7 @@ import (
 func TestCanAddSingleNetworkRef(t *testing.T) {
 	networkRefID := "711da979-4b0b-41e2-bcb8-fcc03554c7c8"
 	actionID := assertCreateAction(t, "TestAction", map[string]interface{}{
-		"testCref": map[string]interface{}{
+		"testReference": map[string]interface{}{
 			"$cref": strfmt.UUID(fmt.Sprintf("weaviate://RemoteWeaviateForAcceptanceTest/things/%s", networkRefID)),
 		},
 	})
@@ -34,7 +34,7 @@ func TestCanAddSingleNetworkRef(t *testing.T) {
 
 	t.Run("it can query the resource again to verify the cross ref was added", func(t *testing.T) {
 		action := assertGetAction(t, actionID)
-		rawCref := action.Schema.(map[string]interface{})["testCref"]
+		rawCref := action.Schema.(map[string]interface{})["testReference"]
 		require.NotNil(t, rawCref, "cross-ref is present")
 		cref := rawCref.(map[string]interface{})
 		assert.Equal(t,
@@ -45,7 +45,7 @@ func TestCanAddSingleNetworkRef(t *testing.T) {
 		schema := assertGetSchema(t)
 		require.NotNil(t, schema.Actions)
 		class := assertClassInSchema(t, schema.Actions, "TestAction")
-		prop := assertPropertyInClass(t, class, "testCref")
+		prop := assertPropertyInClass(t, class, "testReference")
 		expectedDataType := []string{"TestThing", "RemoteWeaviateForAcceptanceTest/Instruments"}
 		assert.Equal(t, expectedDataType, prop.DataType, "prop should have old and newly added dataTypes")
 	})
@@ -59,7 +59,7 @@ func TestCanPatchSingleNetworkRef(t *testing.T) {
 	networkRefID := "711da979-4b0b-41e2-bcb8-fcc03554c7c8"
 
 	op := "add"
-	path := "/schema/testCref"
+	path := "/schema/testReference"
 
 	patch := &models.PatchDocument{
 		Op:   &op,
@@ -79,7 +79,7 @@ func TestCanPatchSingleNetworkRef(t *testing.T) {
 
 	t.Run("it can query the resource again to verify the cross ref was added", func(t *testing.T) {
 		patchedAction := assertGetAction(t, actionID)
-		rawCref := patchedAction.Schema.(map[string]interface{})["testCref"]
+		rawCref := patchedAction.Schema.(map[string]interface{})["testReference"]
 		require.NotNil(t, rawCref, "cross-ref is present")
 		cref := rawCref.(map[string]interface{})
 		assert.Equal(t, fmt.Sprintf("weaviate://RemoteWeaviateForAcceptanceTest/things/%s", networkRefID), cref["$cref"])
@@ -89,7 +89,7 @@ func TestCanPatchSingleNetworkRef(t *testing.T) {
 		schema := assertGetSchema(t)
 		require.NotNil(t, schema.Actions)
 		class := assertClassInSchema(t, schema.Actions, "TestAction")
-		prop := assertPropertyInClass(t, class, "testCref")
+		prop := assertPropertyInClass(t, class, "testReference")
 		expectedDataType := []string{"TestThing", "RemoteWeaviateForAcceptanceTest/Instruments"}
 		assert.Equal(t, expectedDataType, prop.DataType, "prop should have old and newly added dataTypes")
 	})

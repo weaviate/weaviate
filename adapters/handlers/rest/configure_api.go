@@ -5,9 +5,9 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */
 
 package rest
@@ -20,21 +20,21 @@ import (
 	"time"
 
 	"github.com/coreos/etcd/clientv3"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/operations"
-	"github.com/creativesoftwarefdn/weaviate/adapters/handlers/rest/state"
-	"github.com/creativesoftwarefdn/weaviate/adapters/locks"
-	"github.com/creativesoftwarefdn/weaviate/adapters/repos/etcd"
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema"
-	"github.com/creativesoftwarefdn/weaviate/usecases/config"
-	"github.com/creativesoftwarefdn/weaviate/usecases/connstate"
-	dblisting "github.com/creativesoftwarefdn/weaviate/usecases/connswitch"
-	"github.com/creativesoftwarefdn/weaviate/usecases/kinds"
-	"github.com/creativesoftwarefdn/weaviate/usecases/network/common/peers"
-	schemaUC "github.com/creativesoftwarefdn/weaviate/usecases/schema"
-	"github.com/creativesoftwarefdn/weaviate/usecases/telemetry"
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
+	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
+	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
+	"github.com/semi-technologies/weaviate/adapters/locks"
+	"github.com/semi-technologies/weaviate/adapters/repos/etcd"
+	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/connstate"
+	dblisting "github.com/semi-technologies/weaviate/usecases/connswitch"
+	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
+	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
+	"github.com/semi-technologies/weaviate/usecases/telemetry"
 	"github.com/sirupsen/logrus"
 )
 
@@ -65,7 +65,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	connstateRepo := etcd.NewConnStateRepo(etcdClient)
 
 	schemaManager, err := schemaUC.NewManager(appState.Connector, schemaRepo,
-		appState.Locks, appState.Network, appState.Logger)
+		appState.Locks, appState.Network, appState.Logger, appState)
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
@@ -73,7 +73,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		os.Exit(1)
 	}
 	kindsManager := kinds.NewManager(appState.Connector, appState.Locks,
-		schemaManager, appState.Network, appState.ServerConfig)
+		schemaManager, appState.Network, appState.ServerConfig, appState.Logger)
 	batchKindsManager := kinds.NewBatchManager(appState.Connector, appState.Locks,
 		schemaManager, appState.Network, appState.ServerConfig)
 	kindsTraverser := kinds.NewTraverser(appState.Locks, appState.Connector,

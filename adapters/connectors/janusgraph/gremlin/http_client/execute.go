@@ -5,9 +5,9 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */
 package http_client
 
@@ -19,8 +19,8 @@ import (
 	"io/ioutil"
 	"net/http"
 
-	"github.com/creativesoftwarefdn/weaviate/adapters/connectors/janusgraph/gremlin"
 	"github.com/prometheus/common/log"
+	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/gremlin"
 	"golang.org/x/net/context/ctxhttp"
 )
 
@@ -45,6 +45,11 @@ type gremlinResponse struct {
 
 func (c *Client) Execute(ctx context.Context, query gremlin.Gremlin) (*gremlin.Response, error) {
 	queryString := query.String()
+	c.logger.
+		WithField("action", "execute_gremlin_query").
+		WithField("event", "query_received").
+		WithField("query", queryString).
+		Debug("received gremlin query")
 
 	q := gremlin_http_query{
 		Gremlin: queryString,
@@ -75,6 +80,15 @@ func (c *Client) Execute(ctx context.Context, query gremlin.Gremlin) (*gremlin.R
 	buf, err := ioutil.ReadAll(res.Body)
 	var resData gremlinResponse
 	json.Unmarshal(buf, &resData)
+
+	c.logger.
+		WithField("action", "execute_gremlin_query").
+		WithField("event", "query_executed").
+		WithField("http_status", res.StatusCode).
+		WithField("http_response_body", string(buf)).
+		WithField("gremlin_response", resData).
+		WithField("query", queryString).
+		Debug("sent off gremlin query, received http response")
 
 	switch res.StatusCode {
 	case 200:

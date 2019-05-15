@@ -5,9 +5,9 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */
 
 package schema
@@ -21,8 +21,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 // The etcd manager requires a backend for now (to prevent lots of nil checks).
@@ -174,7 +174,7 @@ func testUpdateClassName(t *testing.T, lsm *Manager) {
 	assert.Nil(t, lsm.UpdateThing(context.TODO(), "InitialName", &updated))
 
 	thingClasses := testGetClassNames(lsm, kind.Thing)
-	assert.Len(t, thingClasses, 1)
+	require.Len(t, thingClasses, 1)
 	assert.Equal(t, thingClasses[0], "NewName")
 }
 
@@ -196,7 +196,7 @@ func testUpdateClassNameCollision(t *testing.T, lsm *Manager) {
 
 	// Should not change the original name
 	thingClasses := testGetClassNames(lsm, kind.Thing)
-	assert.Len(t, thingClasses, 1)
+	require.Len(t, thingClasses, 1)
 	assert.Equal(t, thingClasses[0], "InitialName")
 }
 
@@ -215,8 +215,8 @@ func testAddThingClassWithKeywords(t *testing.T, lsm *Manager) {
 	assert.Nil(t, err)
 
 	thingClasses := testGetClasses(lsm, kind.Thing)
-	assert.Len(t, thingClasses, 1)
-	assert.Len(t, thingClasses[0].Keywords, 2)
+	require.Len(t, thingClasses, 1)
+	require.Len(t, thingClasses[0].Keywords, 2)
 	assert.Equal(t, thingClasses[0].Keywords[0].Keyword, "vehicle")
 	assert.Equal(t, thingClasses[0].Keywords[0].Weight, float32(0.6))
 	assert.Equal(t, thingClasses[0].Keywords[1].Keyword, "transport")
@@ -283,8 +283,8 @@ func testUpdateClassKeywords(t *testing.T, lsm *Manager) {
 	err = lsm.UpdateThing(context.TODO(), "Car", &updatedKeywords)
 
 	thingClasses := testGetClasses(lsm, kind.Thing)
-	assert.Len(t, thingClasses, 1)
-	assert.Len(t, thingClasses[0].Keywords, 1)
+	require.Len(t, thingClasses, 1)
+	require.Len(t, thingClasses[0].Keywords, 1)
 	assert.Equal(t, thingClasses[0].Keywords[0].Keyword, "vehicle")
 	assert.Equal(t, thingClasses[0].Keywords[0].Weight, float32(1.0))
 }
@@ -303,7 +303,7 @@ func testAddPropertyDuringCreation(t *testing.T, lsm *Manager) {
 	assert.Nil(t, err)
 
 	thingClasses := testGetClasses(lsm, kind.Thing)
-	assert.Len(t, thingClasses, 1)
+	require.Len(t, thingClasses, 1)
 	require.Len(t, thingClasses[0].Properties, 1)
 	assert.Equal(t, thingClasses[0].Properties[0].Name, "color")
 	assert.Equal(t, thingClasses[0].Properties[0].DataType, []string{"string"})
@@ -429,7 +429,7 @@ func testUpdatePropertyName(t *testing.T, lsm *Manager) {
 
 	// Check that the name is updated
 	thingClasses := testGetClasses(lsm, kind.Thing)
-	assert.Len(t, thingClasses, 1)
+	require.Len(t, thingClasses, 1)
 	require.Len(t, thingClasses[0].Properties, 1)
 	assert.Equal(t, thingClasses[0].Properties[0].Name, "smell")
 	assert.Equal(t, thingClasses[0].Properties[0].DataType, []string{"string"})
@@ -459,7 +459,7 @@ func testUpdatePropertyNameCollision(t *testing.T, lsm *Manager) {
 
 	// Check that the name is updated
 	thingClasses := testGetClasses(lsm, kind.Thing)
-	assert.Len(t, thingClasses, 1)
+	require.Len(t, thingClasses, 1)
 	require.Len(t, thingClasses[0].Properties, 2)
 	assert.Equal(t, thingClasses[0].Properties[0].Name, "color")
 	assert.Equal(t, thingClasses[0].Properties[1].Name, "smell")
@@ -481,7 +481,7 @@ func testUpdatePropertyKeywords(t *testing.T, lsm *Manager) {
 	assert.Nil(t, err)
 
 	thingClasses := testGetClasses(lsm, kind.Thing)
-	assert.Len(t, thingClasses, 1)
+	require.Len(t, thingClasses, 1)
 	require.Len(t, thingClasses[0].Properties, 1)
 	assert.Equal(t, thingClasses[0].Properties[0].Name, "color")
 
@@ -530,7 +530,7 @@ func testUpdatePropertyAddDataTypeNew(t *testing.T, lsm *Manager) {
 
 	// Check that the name is updated
 	thingClasses := testGetClasses(lsm, kind.Thing)
-	assert.Len(t, thingClasses, 1)
+	require.Len(t, thingClasses, 1)
 	require.Len(t, thingClasses[0].Properties, 1)
 	assert.Equal(t, thingClasses[0].Properties[0].Name, "madeBy")
 	require.Len(t, thingClasses[0].Properties[0].DataType, 2)
@@ -558,7 +558,7 @@ func testUpdatePropertyAddDataTypeExisting(t *testing.T, lsm *Manager) {
 
 	// Check that the name is updated
 	thingClasses := testGetClasses(lsm, kind.Thing)
-	assert.Len(t, thingClasses, 1)
+	require.Len(t, thingClasses, 1)
 	require.Len(t, thingClasses[0].Properties, 1)
 	assert.Equal(t, thingClasses[0].Properties[0].Name, "madeBy")
 	require.Len(t, thingClasses[0].Properties[0].DataType, 1)
@@ -585,7 +585,7 @@ func TestSchema(t *testing.T) {
 // New Local Schema *Manager
 func newSchemaManager() *Manager {
 	logger, _ := test.NewNullLogger()
-	sm, err := NewManager(&NilMigrator{}, newFakeRepo(), newFakeLocks(), nil, logger)
+	sm, err := NewManager(&NilMigrator{}, newFakeRepo(), newFakeLocks(), nil, logger, &fakeC11yProvider{})
 	if err != nil {
 		panic(err.Error())
 	}

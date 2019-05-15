@@ -5,9 +5,9 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */
 // Utility to load a database schema into a Weaviate instance.
 package main
@@ -16,9 +16,9 @@ import (
 	"flag"
 	"net/url"
 
-	"github.com/creativesoftwarefdn/weaviate/client/schema"
-	"github.com/creativesoftwarefdn/weaviate/tools/schema_loader/loader"
 	httptransport "github.com/go-openapi/runtime/client"
+	"github.com/semi-technologies/weaviate/client/schema"
+	"github.com/semi-technologies/weaviate/tools/schema_loader/loader"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -72,6 +72,9 @@ func main() {
 
 	if err != nil {
 		if errParsed, ok := err.(*schema.WeaviateSchemaThingsPropertiesAddUnprocessableEntity); ok {
+			panic(errParsed.Payload.Error[0].Message)
+		}
+		if errParsed, ok := err.(*schema.WeaviateSchemaActionsPropertiesAddUnprocessableEntity); ok {
 			panic(errParsed.Payload.Error[0].Message)
 		}
 		panic(err.Error())

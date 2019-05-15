@@ -5,9 +5,9 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * CONTACT: hello@semi.technology
  */package schema
 
 import (
@@ -15,26 +15,26 @@ import (
 	"fmt"
 	"log"
 
-	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
-	"github.com/creativesoftwarefdn/weaviate/entities/models"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema"
-	"github.com/creativesoftwarefdn/weaviate/entities/schema/kind"
-	"github.com/creativesoftwarefdn/weaviate/usecases/locks"
-	"github.com/creativesoftwarefdn/weaviate/usecases/network"
+	"github.com/semi-technologies/weaviate/contextionary"
+	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/usecases/locks"
+	"github.com/semi-technologies/weaviate/usecases/network"
 	"github.com/sirupsen/logrus"
 )
 
 // Manager Manages schema changes at a use-case level, i.e. agnostic of
 // underlying databases or storage providers
 type Manager struct {
-	migrator      Migrator
-	repo          Repo
-	contextionary contextionary
-	locks         locks.ConnectorSchemaLock
-	state         State
-	network       network.Network
-	callbacks     []func(updatedSchema schema.Schema)
-	logger        logrus.FieldLogger
+	migrator              Migrator
+	repo                  Repo
+	contextionaryProvider contextionaryProvider
+	locks                 locks.ConnectorSchemaLock
+	state                 State
+	network               network.Network
+	callbacks             []func(updatedSchema schema.Schema)
+	logger                logrus.FieldLogger
 }
 
 type Migrator interface {
@@ -62,20 +62,25 @@ type Repo interface {
 	LoadSchema(ctx context.Context) (*State, error)
 }
 
-type contextionary interface {
-	WordToItemIndex(word string) libcontextionary.ItemIndex
+// type contextionary interface {
+// 	WordToItemIndex(word string) libcontextionary.ItemIndex
+// }
+
+type contextionaryProvider interface {
+	GetContextionary() contextionary.Contextionary
 }
 
 // NewManager creates a new manager
 func NewManager(migrator Migrator, repo Repo, locks locks.ConnectorSchemaLock,
-	network network.Network, logger logrus.FieldLogger) (*Manager, error) {
+	network network.Network, logger logrus.FieldLogger, c11yProvider contextionaryProvider) (*Manager, error) {
 	m := &Manager{
-		migrator: migrator,
-		repo:     repo,
-		locks:    locks,
-		state:    State{},
-		network:  network,
-		logger:   logger,
+		migrator:              migrator,
+		repo:                  repo,
+		locks:                 locks,
+		state:                 State{},
+		network:               network,
+		logger:                logger,
+		contextionaryProvider: c11yProvider,
 	}
 
 	err := m.loadOrInitializeSchema(context.Background())
@@ -124,7 +129,10 @@ func (m *Manager) saveSchema(ctx context.Context) error {
 		WithField("configuration_store", "etcd").
 		Debug("saving updated schema to configuration store")
 
-	m.repo.SaveSchema(ctx, m.state)
+	err := m.repo.SaveSchema(ctx, m.state)
+	if err != nil {
+		return err
+	}
 
 	m.TriggerSchemaUpdateCallbacks()
 	return nil
