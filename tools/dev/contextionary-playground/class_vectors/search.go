@@ -55,6 +55,15 @@ func search(v []float32) {
 	body := fmt.Sprintf(`{
   "query": {
     "function_score": {
+		  "query": {
+			  "bool": {
+				  "filter": {
+						"match": {
+						  "sampleBoolProp": false
+						}
+					}
+				}
+			},
       "boost_mode": "replace",
       "script_score": {
         "script": {

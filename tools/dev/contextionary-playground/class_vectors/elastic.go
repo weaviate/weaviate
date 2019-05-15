@@ -27,9 +27,10 @@ func convertArrayToBase64(array []float32) string {
 }
 
 type document struct {
-	ID      int    `json:"id"`
-	Name    string `json:"name"`
-	Content string `json:"content"`
+	ID             int    `json:"id"`
+	Name           string `json:"name"`
+	Content        string `json:"content"`
+	SampleBoolProp bool   `json:"sampleBoolProp"`
 }
 
 type vectorDocument struct {
@@ -72,7 +73,10 @@ func setMapping() error {
         "embedding_vector": {
 					"type": "binary",
 					"doc_values": true
-        }
+        },
+				"sampleBoolProp": {
+					"type": "boolean"
+				}
       }
     }
   }
