@@ -29,7 +29,9 @@ func Test_Validation_ClassNames(t *testing.T) {
 	}
 
 	// for all test cases keep in mind that the word "carrot" is not present in
-	// the fake c11y, but every other word is
+	// the fake c11y, but every other word is.
+	//
+	// Additionally, the word "the" is a stopword
 	//
 	// all inputs represent class names (!)
 	tests := []testCase{
@@ -58,6 +60,18 @@ func Test_Validation_ClassNames(t *testing.T) {
 			valid:    true,
 			storedAs: "CarGarage",
 		},
+		testCase{
+			name:     "combination of valid words and stopwords, starting with uppercase",
+			input:    "TheCarGarage",
+			valid:    true,
+			storedAs: "TheCarGarage",
+		},
+		testCase{
+			name:     "combination of valid words and stopwords starting with lowercase letter, stored as uppercase",
+			input:    "carTheGarage",
+			valid:    true,
+			storedAs: "CarTheGarage",
+		},
 
 		// inavlid names
 		testCase{
@@ -68,6 +82,16 @@ func Test_Validation_ClassNames(t *testing.T) {
 		testCase{
 			name:  "Single lowercase word NOT present in the c11y",
 			input: "carrot",
+			valid: false,
+		},
+		testCase{
+			name:  "Single uppercase stopword",
+			input: "The",
+			valid: false,
+		},
+		testCase{
+			name:  "Single lowercase stopword",
+			input: "the",
 			valid: false,
 		},
 		testCase{
@@ -88,6 +112,16 @@ func Test_Validation_ClassNames(t *testing.T) {
 		testCase{
 			name:  "combination of valid and invalid words, invalid word first uppercased",
 			input: "CarrotPotato",
+			valid: false,
+		},
+		testCase{
+			name:  "combination of only stopwords, starting with lowercase",
+			input: "theThe",
+			valid: false,
+		},
+		testCase{
+			name:  "combination of only stopwords, starting with uppercase",
+			input: "TheThe",
 			valid: false,
 		},
 	}
@@ -353,6 +387,18 @@ func Test_Validation_PropertyNames(t *testing.T) {
 			valid:    true,
 			storedAs: "brandGarage",
 		},
+		testCase{
+			name:     "combination of valid words and stop words starting with uppercase letter, stored as lowercase",
+			input:    "TheGarage",
+			valid:    true,
+			storedAs: "theGarage",
+		},
+		testCase{
+			name:     "combination of valid words and stop words starting with lowercase letter",
+			input:    "theGarage",
+			valid:    true,
+			storedAs: "theGarage",
+		},
 
 		// inavlid names
 		testCase{
@@ -363,6 +409,11 @@ func Test_Validation_PropertyNames(t *testing.T) {
 		testCase{
 			name:  "Single lowercase word NOT present in the c11y",
 			input: "carrot",
+			valid: false,
+		},
+		testCase{
+			name:  "Single lowercase stop word",
+			input: "the",
 			valid: false,
 		},
 		testCase{
@@ -383,6 +434,16 @@ func Test_Validation_PropertyNames(t *testing.T) {
 		testCase{
 			name:  "combination of valid and invalid words, invalid word first uppercased",
 			input: "CarrotPotato",
+			valid: false,
+		},
+		testCase{
+			name:  "combination of only stop words,  first lowercased",
+			input: "theThe",
+			valid: false,
+		},
+		testCase{
+			name:  "combination of only stop words, first uppercased",
+			input: "TheThe",
 			valid: false,
 		},
 	}
