@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/creativesoftwarefdn/weaviate/contextionary"
+	"github.com/semi-technologies/weaviate/contextionary"
 )
 
 func searchString(word string, c11y contextionary.Contextionary) {

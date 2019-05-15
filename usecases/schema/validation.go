@@ -48,6 +48,10 @@ func (m *Manager) validateClassNameAndKeywords(knd kind.Kind, className string, 
 	// keywords
 	for _, keyword := range keywords {
 		word := strings.ToLower(keyword.Keyword)
+		if m.stopwordDetector.IsStopWord(word) {
+			continue
+		}
+
 		if err := validateWeight(keyword); err != nil {
 			return fmt.Errorf("invalid keyword %s: %v", keyword.Keyword, err)
 		}
@@ -59,12 +63,23 @@ func (m *Manager) validateClassNameAndKeywords(knd kind.Kind, className string, 
 
 	//class name
 	camelParts := camelcase.Split(className)
+	stopWordsFound := 0
 	for _, part := range camelParts {
 		word := strings.ToLower(part)
+		if m.stopwordDetector.IsStopWord(word) {
+			stopWordsFound++
+			continue
+		}
+
 		idx := m.contextionaryProvider.GetContextionary().WordToItemIndex(word)
 		if !idx.IsPresent() {
 			return fmt.Errorf("Could not find the word '%s' from the class name '%s' in the contextionary. Consider using keywords to define the semantic meaning of this class.", word, className)
 		}
+	}
+
+	if len(camelParts) == stopWordsFound {
+		return fmt.Errorf("the className '%s' only consists of stopwords and is therefore not a valid class name. "+
+			"Make sure at least one word in the classname is not a stop word", className)
 	}
 
 	return nil
@@ -98,6 +113,10 @@ func (m *Manager) validatePropertyNameAndKeywords(className string, propertyName
 
 	for _, keyword := range keywords {
 		word := strings.ToLower(keyword.Keyword)
+		if m.stopwordDetector.IsStopWord(word) {
+			continue
+		}
+
 		if err := validateWeight(keyword); err != nil {
 			return fmt.Errorf("invalid keyword %s: %v", keyword.Keyword, err)
 		}
@@ -107,12 +126,23 @@ func (m *Manager) validatePropertyNameAndKeywords(className string, propertyName
 		}
 	}
 	camelParts := camelcase.Split(propertyName)
+	stopWordsFound := 0
 	for _, part := range camelParts {
 		word := strings.ToLower(part)
+		if m.stopwordDetector.IsStopWord(word) {
+			stopWordsFound++
+			continue
+		}
+
 		idx := m.contextionaryProvider.GetContextionary().WordToItemIndex(word)
 		if !idx.IsPresent() {
 			return fmt.Errorf("Could not find the word '%s' from the property '%s' in the class name '%s' in the contextionary. Consider using keywords to define the semantic meaning of this class.", word, propertyName, className)
 		}
+	}
+
+	if len(camelParts) == stopWordsFound {
+		return fmt.Errorf("the propertyName '%s' only consists of stopwords and is therefore not a valid property name. "+
+			"Make sure at least one word in the propertyname is not a stop word", propertyName)
 	}
 
 	return nil
