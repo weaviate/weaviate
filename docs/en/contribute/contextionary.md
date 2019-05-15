@@ -29,10 +29,10 @@ For example: _Which Weaviate knows about the centroid of "Seal", "Mammal" and "F
 
 ## Download
 
-All Weaviate containers automatically download and install the contextionary from: contextionary.creativesoftwarefdn.org.
+All Weaviate containers automatically download and install the contextionary from: c11y.semi.technology.
 
-- All metadata regarding contextionaries can be found [here](https://contextionary.creativesoftwarefdn.org/contextionary.json).
-- Versioned urls are formatted as: `https://contextionary.creativesoftwarefdn.org/%version%/%language%` (`base_url`).
+- All metadata regarding contextionaries can be found [here](https://c11y.semi.technology/contextionary.json).
+- Versioned urls are formatted as: `https://c11y.semi.technology/%version%/%language%` (`base_url`).
 - Contextionary files include: `%base_url%/contextionary.vocab`, `%base_url%/contextionary.idx`, `%base_url%/contextionary.knn`.
 
 _Note: Contextionaries are **not** backwards compatibility_
@@ -40,7 +40,7 @@ _Note: Contextionaries are **not** backwards compatibility_
 ## Example of downloading latest vocabulary
 
 ```bash
-wget https://contextionary.creativesoftwarefdn.org/$(curl -sS https://contextionary.creativesoftwarefdn.org/contextionary.json | jq -r ".latestVersion")/en/contextionary.vocab
+wget https://c11y.semi.technology/$(curl -sS https://c11y.semi.technology/contextionary.json | jq -r ".latestVersion")/en/contextionary.vocab
 ```
 
 _Note: assumes `jq` and `curl` are installed_

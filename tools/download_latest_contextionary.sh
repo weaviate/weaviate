@@ -11,7 +11,7 @@ mkdir -p ./contextionary
 for SINGLEEXT in idx knn; do
     echo "Start Downloading $SINGLEEXT" && \
     rm -f ./contextionary/contextionary.$SINGLEEXT && \
-    wget --quiet -O ./contextionary/contextionary.$SINGLEEXT https://contextionary.creativesoftwarefdn.org/0.4.0/en/contextionary.$SINGLEEXT && \
+    wget --quiet -O ./contextionary/contextionary.$SINGLEEXT https://c11y.semi.technology/0.4.0/en/contextionary.$SINGLEEXT && \
     echo "$SINGLEEXT file = done" &
 done 
 
