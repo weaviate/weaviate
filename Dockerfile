@@ -95,9 +95,9 @@ ARG CONTEXTIONARY_LOC
 
 RUN if [ -z "$CONTEXTIONARY_LOC" ]; \
 	then if [ -z "$CONTEXTIONARY_VERSION" ]; \
-		then export CONTEXTIONARY_VERSION=$(curl -sS https://contextionary.creativesoftwarefdn.org/contextionary.json | jq -r ".latestVersion"); \
+		then export CONTEXTIONARY_VERSION=$(curl -sS https://c11y.semi.technology/contextionary.json | jq -r ".latestVersion"); \
 		fi; \
-	export CONTEXTIONARY_LOC=https://contextionary.creativesoftwarefdn.org/$CONTEXTIONARY_VERSION/en; \
+	export CONTEXTIONARY_LOC=https://c11y.semi.technology/$CONTEXTIONARY_VERSION/en; \
 	wget -O /contextionary/contextionary.vocab $CONTEXTIONARY_LOC/contextionary.vocab; \
 	wget -O /contextionary/contextionary.idx $CONTEXTIONARY_LOC/contextionary.idx; \
 	wget -O /contextionary/contextionary.knn $CONTEXTIONARY_LOC/contextionary.knn; \
