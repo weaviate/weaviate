@@ -9,6 +9,7 @@ dist
 contextionary/contextionary.vocab
 contextionary/contextionary.idx
 contextionary/contextionary.knn
+contextionary/stopwords.json
 wget-log*
 
 # ignore update files
