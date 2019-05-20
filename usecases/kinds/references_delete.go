@@ -34,11 +34,11 @@ func (m *Manager) DeleteActionReference(ctx context.Context, principal *models.P
 	}
 	defer unlock()
 
-	return m.deleteActionReferenceFromConnector(ctx, id, propertyName, property)
+	return m.deleteActionReferenceFromConnector(ctx, principal, id, propertyName, property)
 }
 
-func (m *Manager) deleteActionReferenceFromConnector(ctx context.Context, id strfmt.UUID,
-	propertyName string, property *models.SingleRef) error {
+func (m *Manager) deleteActionReferenceFromConnector(ctx context.Context, principal *models.Principal,
+	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
 
 	// get action to see if it exists
 	action, err := m.getActionFromRepo(ctx, id)
@@ -48,7 +48,7 @@ func (m *Manager) deleteActionReferenceFromConnector(ctx context.Context, id str
 
 	// NOTE: The reference itself is not being validated, to allow for deletion
 	// of broken references
-	err = m.validateCanModifyReference(kind.Action, action.Class, propertyName)
+	err = m.validateCanModifyReference(principal, kind.Action, action.Class, propertyName)
 	if err != nil {
 		return err
 	}
@@ -83,11 +83,11 @@ func (m *Manager) DeleteThingReference(ctx context.Context, principal *models.Pr
 	}
 	defer unlock()
 
-	return m.deleteThingReferenceFromConnector(ctx, id, propertyName, property)
+	return m.deleteThingReferenceFromConnector(ctx, principal, id, propertyName, property)
 }
 
-func (m *Manager) deleteThingReferenceFromConnector(ctx context.Context, id strfmt.UUID,
-	propertyName string, property *models.SingleRef) error {
+func (m *Manager) deleteThingReferenceFromConnector(ctx context.Context, principal *models.Principal,
+	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
 
 	// get thing to see if it exists
 	thing, err := m.getThingFromRepo(ctx, id)
@@ -97,7 +97,7 @@ func (m *Manager) deleteThingReferenceFromConnector(ctx context.Context, id strf
 
 	// NOTE: The reference itself is not being validated, to allow for deletion
 	// of broken references
-	err = m.validateCanModifyReference(kind.Thing, thing.Class, propertyName)
+	err = m.validateCanModifyReference(principal, kind.Thing, thing.Class, propertyName)
 	if err != nil {
 		return err
 	}

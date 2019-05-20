@@ -173,7 +173,7 @@ type dummySchemaGetter struct {
 	schema schema.Schema
 }
 
-func (d *dummySchemaGetter) GetSchema() schema.Schema {
+func (d *dummySchemaGetter) GetSchemaSkipAuth() schema.Schema {
 	return d.schema
 }
 

@@ -14,16 +14,27 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 // DeleteAction Class to the schema
-func (m *Manager) DeleteAction(ctx context.Context, class string) error {
+func (m *Manager) DeleteAction(ctx context.Context, principal *models.Principal, class string) error {
+	err := m.authorizer.Authorize(principal, "delete", "schema/actions")
+	if err != nil {
+		return err
+	}
+
 	return m.deleteClass(ctx, class, kind.Action)
 }
 
 // DeleteThing Class to the schema
-func (m *Manager) DeleteThing(ctx context.Context, class string) error {
+func (m *Manager) DeleteThing(ctx context.Context, principal *models.Principal, class string) error {
+	err := m.authorizer.Authorize(principal, "delete", "schema/things")
+	if err != nil {
+		return err
+	}
+
 	return m.deleteClass(ctx, class, kind.Thing)
 }
 

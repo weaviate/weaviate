@@ -32,8 +32,8 @@ type addRepo interface {
 
 // TODO: Can we use the schema manager UC here instead of the "whole thing"?
 type schemaManager interface {
-	UpdatePropertyAddDataType(context.Context, kind.Kind, string, string, string) error
-	GetSchema() schema.Schema
+	UpdatePropertyAddDataType(context.Context, *models.Principal, kind.Kind, string, string, string) error
+	GetSchema(principal *models.Principal) (schema.Schema, error)
 }
 
 // AddAction Class Instance to the connected DB. If the class contains a network
@@ -53,22 +53,23 @@ func (m *Manager) AddAction(ctx context.Context, principal *models.Principal,
 	}
 	defer unlock()
 
-	return m.addActionToConnectorAndSchema(ctx, class)
+	return m.addActionToConnectorAndSchema(ctx, principal, class)
 }
 
-func (m *Manager) addActionToConnectorAndSchema(ctx context.Context, class *models.Action) (*models.Action, error) {
+func (m *Manager) addActionToConnectorAndSchema(ctx context.Context, principal *models.Principal,
+	class *models.Action) (*models.Action, error) {
 	id, err := generateUUID()
 	if err != nil {
 		return nil, NewErrInternal("could not generate id: %v", err)
 	}
 	class.ID = id
 
-	err = m.validateAction(ctx, class)
+	err = m.validateAction(ctx, principal, class)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid action: %v", err)
 	}
 
-	err = m.addNetworkDataTypesForAction(ctx, class)
+	err = m.addNetworkDataTypesForAction(ctx, principal, class)
 	if err != nil {
 		return nil, NewErrInternal("could not update schema for network refs: %v", err)
 	}
@@ -81,9 +82,14 @@ func (m *Manager) addActionToConnectorAndSchema(ctx context.Context, class *mode
 	return class, nil
 }
 
-func (m *Manager) validateAction(ctx context.Context, class *models.Action) error {
+func (m *Manager) validateAction(ctx context.Context, principal *models.Principal, class *models.Action) error {
 	// Validate schema given in body with the weaviate schema
-	databaseSchema := schema.HackFromDatabaseSchema(m.schemaManager.GetSchema())
+	s, err := m.schemaManager.GetSchema(principal)
+	if err != nil {
+		return err
+	}
+
+	databaseSchema := schema.HackFromDatabaseSchema(s)
 	return validation.ValidateActionBody(
 		ctx, class, databaseSchema, m.repo, m.network, m.config)
 }
@@ -105,22 +111,23 @@ func (m *Manager) AddThing(ctx context.Context, principal *models.Principal,
 	}
 	defer unlock()
 
-	return m.addThingToConnectorAndSchema(ctx, class)
+	return m.addThingToConnectorAndSchema(ctx, principal, class)
 }
 
-func (m *Manager) addThingToConnectorAndSchema(ctx context.Context, class *models.Thing) (*models.Thing, error) {
+func (m *Manager) addThingToConnectorAndSchema(ctx context.Context, principal *models.Principal,
+	class *models.Thing) (*models.Thing, error) {
 	id, err := generateUUID()
 	if err != nil {
 		return nil, NewErrInternal("could not generate id: %v", err)
 	}
 	class.ID = id
 
-	err = m.validateThing(ctx, class)
+	err = m.validateThing(ctx, principal, class)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid thing: %v", err)
 	}
 
-	err = m.addNetworkDataTypesForThing(ctx, class)
+	err = m.addNetworkDataTypesForThing(ctx, principal, class)
 	if err != nil {
 		return nil, NewErrInternal("could not update schema for network refs: %v", err)
 	}
@@ -133,19 +140,25 @@ func (m *Manager) addThingToConnectorAndSchema(ctx context.Context, class *model
 	return class, nil
 }
 
-func (m *Manager) validateThing(ctx context.Context, class *models.Thing) error {
+func (m *Manager) validateThing(ctx context.Context, principal *models.Principal,
+	class *models.Thing) error {
+	s, err := m.schemaManager.GetSchema(principal)
+	if err != nil {
+		return err
+	}
+
 	// Validate schema given in body with the weaviate schema
-	databaseSchema := schema.HackFromDatabaseSchema(m.schemaManager.GetSchema())
+	databaseSchema := schema.HackFromDatabaseSchema(s)
 	return validation.ValidateThingBody(
 		ctx, class, databaseSchema, m.repo, m.network, m.config)
 }
 
-func (m *Manager) addNetworkDataTypesForThing(ctx context.Context, class *models.Thing) error {
-	refSchemaUpdater := newReferenceSchemaUpdater(ctx, m.schemaManager, m.network, class.Class, kind.Thing)
+func (m *Manager) addNetworkDataTypesForThing(ctx context.Context, principal *models.Principal, class *models.Thing) error {
+	refSchemaUpdater := newReferenceSchemaUpdater(ctx, principal, m.schemaManager, m.network, class.Class, kind.Thing)
 	return refSchemaUpdater.addNetworkDataTypes(class.Schema)
 }
 
-func (m *Manager) addNetworkDataTypesForAction(ctx context.Context, class *models.Action) error {
-	refSchemaUpdater := newReferenceSchemaUpdater(ctx, m.schemaManager, m.network, class.Class, kind.Action)
+func (m *Manager) addNetworkDataTypesForAction(ctx context.Context, principal *models.Principal, class *models.Action) error {
+	refSchemaUpdater := newReferenceSchemaUpdater(ctx, principal, m.schemaManager, m.network, class.Class, kind.Action)
 	return refSchemaUpdater.addNetworkDataTypes(class.Schema)
 }

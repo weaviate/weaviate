@@ -37,11 +37,11 @@ func (m *Manager) UpdateActionReferences(ctx context.Context, principal *models.
 	}
 	defer unlock()
 
-	return m.updateActionReferenceToConnectorAndSchema(ctx, id, propertyName, refs)
+	return m.updateActionReferenceToConnectorAndSchema(ctx, principal, id, propertyName, refs)
 }
 
-func (m *Manager) updateActionReferenceToConnectorAndSchema(ctx context.Context, id strfmt.UUID,
-	propertyName string, refs models.MultipleRef) error {
+func (m *Manager) updateActionReferenceToConnectorAndSchema(ctx context.Context, principal *models.Principal,
+	id strfmt.UUID, propertyName string, refs models.MultipleRef) error {
 
 	// get action to see if it exists
 	action, err := m.getActionFromRepo(ctx, id)
@@ -54,7 +54,7 @@ func (m *Manager) updateActionReferenceToConnectorAndSchema(ctx context.Context,
 		return err
 	}
 
-	err = m.validateCanModifyReference(kind.Action, action.Class, propertyName)
+	err = m.validateCanModifyReference(principal, kind.Action, action.Class, propertyName)
 	if err != nil {
 		return err
 	}
@@ -67,7 +67,7 @@ func (m *Manager) updateActionReferenceToConnectorAndSchema(ctx context.Context,
 	action.LastUpdateTimeUnix = unixNow()
 
 	// the new refs could be network refs
-	err = m.addNetworkDataTypesForAction(ctx, action)
+	err = m.addNetworkDataTypesForAction(ctx, principal, action)
 	if err != nil {
 		return NewErrInternal("could not update schema for network refs: %v", err)
 	}
@@ -97,11 +97,11 @@ func (m *Manager) UpdateThingReferences(ctx context.Context, principal *models.P
 	}
 	defer unlock()
 
-	return m.updateThingReferenceToConnectorAndSchema(ctx, id, propertyName, refs)
+	return m.updateThingReferenceToConnectorAndSchema(ctx, principal, id, propertyName, refs)
 }
 
-func (m *Manager) updateThingReferenceToConnectorAndSchema(ctx context.Context, id strfmt.UUID,
-	propertyName string, refs models.MultipleRef) error {
+func (m *Manager) updateThingReferenceToConnectorAndSchema(ctx context.Context, principal *models.Principal,
+	id strfmt.UUID, propertyName string, refs models.MultipleRef) error {
 
 	// get thing to see if it exists
 	thing, err := m.getThingFromRepo(ctx, id)
@@ -114,7 +114,7 @@ func (m *Manager) updateThingReferenceToConnectorAndSchema(ctx context.Context, 
 		return err
 	}
 
-	err = m.validateCanModifyReference(kind.Thing, thing.Class, propertyName)
+	err = m.validateCanModifyReference(principal, kind.Thing, thing.Class, propertyName)
 	if err != nil {
 		return err
 	}
@@ -127,7 +127,7 @@ func (m *Manager) updateThingReferenceToConnectorAndSchema(ctx context.Context, 
 	thing.LastUpdateTimeUnix = unixNow()
 
 	// the new refs could be network refs
-	err = m.addNetworkDataTypesForThing(ctx, thing)
+	err = m.addNetworkDataTypesForThing(ctx, principal, thing)
 	if err != nil {
 		return NewErrInternal("could not update schema for network refs: %v", err)
 	}

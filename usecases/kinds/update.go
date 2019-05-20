@@ -49,11 +49,11 @@ func (m *Manager) UpdateAction(ctx context.Context, principal *models.Principal,
 	}
 	defer unlock()
 
-	return m.updateActionToConnectorAndSchema(ctx, id, class)
+	return m.updateActionToConnectorAndSchema(ctx, principal, id, class)
 }
 
-func (m *Manager) updateActionToConnectorAndSchema(ctx context.Context, id strfmt.UUID,
-	class *models.Action) (*models.Action, error) {
+func (m *Manager) updateActionToConnectorAndSchema(ctx context.Context, principal *models.Principal,
+	id strfmt.UUID, class *models.Action) (*models.Action, error) {
 	if id != class.ID {
 		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
@@ -71,12 +71,12 @@ func (m *Manager) updateActionToConnectorAndSchema(ctx context.Context, id strfm
 		WithField("id", id).
 		Debug("received update kind request")
 
-	err = m.validateAction(ctx, class)
+	err = m.validateAction(ctx, principal, class)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid action: %v", err)
 	}
 
-	err = m.addNetworkDataTypesForAction(ctx, class)
+	err = m.addNetworkDataTypesForAction(ctx, principal, class)
 	if err != nil {
 		return nil, NewErrInternal("could not update schema for network refs: %v", err)
 	}
@@ -106,11 +106,11 @@ func (m *Manager) UpdateThing(ctx context.Context, principal *models.Principal,
 	}
 	defer unlock()
 
-	return m.updateThingToConnectorAndSchema(ctx, id, class)
+	return m.updateThingToConnectorAndSchema(ctx, principal, id, class)
 }
 
-func (m *Manager) updateThingToConnectorAndSchema(ctx context.Context, id strfmt.UUID,
-	class *models.Thing) (*models.Thing, error) {
+func (m *Manager) updateThingToConnectorAndSchema(ctx context.Context, principal *models.Principal,
+	id strfmt.UUID, class *models.Thing) (*models.Thing, error) {
 	if id != class.ID {
 		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
@@ -128,12 +128,12 @@ func (m *Manager) updateThingToConnectorAndSchema(ctx context.Context, id strfmt
 		WithField("id", id).
 		Debug("received update kind request")
 
-	err = m.validateThing(ctx, class)
+	err = m.validateThing(ctx, principal, class)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid thing: %v", err)
 	}
 
-	err = m.addNetworkDataTypesForThing(ctx, class)
+	err = m.addNetworkDataTypesForThing(ctx, principal, class)
 	if err != nil {
 		return nil, NewErrInternal("could not update schema for network refs: %v", err)
 	}

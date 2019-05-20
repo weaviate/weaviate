@@ -110,7 +110,8 @@ type fakeSchemaManager struct {
 	GetSchemaResponse schema.Schema
 }
 
-func (f *fakeSchemaManager) UpdatePropertyAddDataType(ctx context.Context, k kind.Kind, fromClass, property, toClass string) error {
+func (f *fakeSchemaManager) UpdatePropertyAddDataType(ctx context.Context, principal *models.Principal,
+	k kind.Kind, fromClass, property, toClass string) error {
 	f.CalledWith = struct {
 		kind      kind.Kind
 		fromClass string
@@ -125,8 +126,8 @@ func (f *fakeSchemaManager) UpdatePropertyAddDataType(ctx context.Context, k kin
 	return nil
 }
 
-func (f *fakeSchemaManager) GetSchema() schema.Schema {
-	return f.GetSchemaResponse
+func (f *fakeSchemaManager) GetSchema(principal *models.Principal) (schema.Schema, error) {
+	return f.GetSchemaResponse, nil
 }
 
 type fakeLocks struct{}

@@ -38,11 +38,11 @@ func (m *Manager) AddActionReference(ctx context.Context, principal *models.Prin
 	}
 	defer unlock()
 
-	return m.addActionReferenceToConnectorAndSchema(ctx, id, propertyName, property)
+	return m.addActionReferenceToConnectorAndSchema(ctx, principal, id, propertyName, property)
 }
 
-func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, id strfmt.UUID,
-	propertyName string, property *models.SingleRef) error {
+func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, principal *models.Principal,
+	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
 
 	// get action to see if it exists
 	action, err := m.getActionFromRepo(ctx, id)
@@ -55,7 +55,7 @@ func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, id
 		return err
 	}
 
-	err = m.validateCanModifyReference(kind.Action, action.Class, propertyName)
+	err = m.validateCanModifyReference(principal, kind.Action, action.Class, propertyName)
 	if err != nil {
 		return err
 	}
@@ -68,7 +68,7 @@ func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, id
 	action.LastUpdateTimeUnix = unixNow()
 
 	// the new ref could be a network ref
-	err = m.addNetworkDataTypesForAction(ctx, action)
+	err = m.addNetworkDataTypesForAction(ctx, principal, action)
 	if err != nil {
 		return NewErrInternal("could not update schema for network refs: %v", err)
 	}
@@ -98,11 +98,11 @@ func (m *Manager) AddThingReference(ctx context.Context, principal *models.Princ
 	}
 	defer unlock()
 
-	return m.addThingReferenceToConnectorAndSchema(ctx, id, propertyName, property)
+	return m.addThingReferenceToConnectorAndSchema(ctx, principal, id, propertyName, property)
 }
 
-func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, id strfmt.UUID,
-	propertyName string, property *models.SingleRef) error {
+func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, principal *models.Principal,
+	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
 
 	// get thing to see if it exists
 	thing, err := m.getThingFromRepo(ctx, id)
@@ -115,7 +115,7 @@ func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, id 
 		return err
 	}
 
-	err = m.validateCanModifyReference(kind.Thing, thing.Class, propertyName)
+	err = m.validateCanModifyReference(principal, kind.Thing, thing.Class, propertyName)
 	if err != nil {
 		return err
 	}
@@ -128,7 +128,7 @@ func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, id 
 	thing.LastUpdateTimeUnix = unixNow()
 
 	// the new ref could be a network ref
-	err = m.addNetworkDataTypesForThing(ctx, thing)
+	err = m.addNetworkDataTypesForThing(ctx, principal, thing)
 	if err != nil {
 		return NewErrInternal("could not update schema for network refs: %v", err)
 	}
@@ -150,8 +150,8 @@ func (m *Manager) validateReference(ctx context.Context, reference *models.Singl
 	return nil
 }
 
-func (m *Manager) validateCanModifyReference(k kind.Kind, className string,
-	propertyName string) error {
+func (m *Manager) validateCanModifyReference(principal *models.Principal, k kind.Kind,
+	className string, propertyName string) error {
 	class, err := schema.ValidateClassName(className)
 	if err != nil {
 		return NewErrInvalidUserInput("invalid class name in reference: %v", err)
@@ -162,7 +162,11 @@ func (m *Manager) validateCanModifyReference(k kind.Kind, className string,
 		return NewErrInvalidUserInput("invalid property name in reference: %v", err)
 	}
 
-	schema := m.schemaManager.GetSchema()
+	schema, err := m.schemaManager.GetSchema(principal)
+	if err != nil {
+		return err
+	}
+
 	err, prop := schema.GetProperty(k, class, propName)
 	if err != nil {
 		return NewErrInvalidUserInput("Could not find property '%s': %v", propertyName, err)

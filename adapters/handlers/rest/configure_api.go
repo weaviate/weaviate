@@ -65,7 +65,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	connstateRepo := etcd.NewConnStateRepo(etcdClient)
 
 	schemaManager, err := schemaUC.NewManager(appState.Connector, schemaRepo,
-		appState.Locks, appState.Network, appState.Logger, appState)
+		appState.Locks, appState.Network, appState.Logger, appState, appState.Authorizer)
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
@@ -90,7 +90,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	appState.Connector.SetStateManager(connstateManager)
 	appState.Connector.SetLogger(appState.Logger)
-	appState.Connector.SetSchema(schemaManager.GetSchema())
+	appState.Connector.SetSchema(schemaManager.GetSchemaSkipAuth())
 	initialState := connstateManager.GetInitialState()
 	appState.Connector.SetState(context.Background(), initialState)
 	// allow up to 2 minutes for the connected db to be ready
