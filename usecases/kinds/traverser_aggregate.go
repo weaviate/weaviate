@@ -17,12 +17,20 @@ import (
 	"fmt"
 
 	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 // LocalAggregate resolves meta queries
-func (t *Traverser) LocalAggregate(ctx context.Context, params *AggregateParams) (interface{}, error) {
+func (t *Traverser) LocalAggregate(ctx context.Context, principal *models.Principal,
+	params *AggregateParams) (interface{}, error) {
+
+	err := t.authorizer.Authorize(principal, "get", "traversal/*")
+	if err != nil {
+		return nil, err
+	}
+
 	unlock, err := t.locks.LockConnector()
 	if err != nil {
 		return nil, fmt.Errorf("could not acquire lock: %v", err)

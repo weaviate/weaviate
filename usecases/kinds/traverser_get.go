@@ -16,11 +16,19 @@ import (
 	"regexp"
 
 	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
-func (t *Traverser) LocalGetClass(ctx context.Context, params *LocalGetParams) (interface{}, error) {
+func (t *Traverser) LocalGetClass(ctx context.Context, principal *models.Principal,
+	params *LocalGetParams) (interface{}, error) {
+
+	err := t.authorizer.Authorize(principal, "get", "traversal/*")
+	if err != nil {
+		return nil, err
+	}
+
 	unlock, err := t.locks.LockConnector()
 	if err != nil {
 		return nil, fmt.Errorf("could not acquire lock: %v", err)

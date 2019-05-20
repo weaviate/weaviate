@@ -13,10 +13,19 @@
 import (
 	"context"
 	"fmt"
+
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 // LocalFetchFuzzy with Search
-func (t *Traverser) LocalFetchFuzzy(ctx context.Context, params FetchFuzzySearch) (interface{}, error) {
+func (t *Traverser) LocalFetchFuzzy(ctx context.Context, principal *models.Principal,
+	params FetchFuzzySearch) (interface{}, error) {
+
+	err := t.authorizer.Authorize(principal, "get", "traversal/*")
+	if err != nil {
+		return nil, err
+	}
+
 	words := t.contextionaryProvider.GetSchemaContextionary().
 		SafeGetSimilarWordsWithCertainty(params.Value, params.Certainty)
 	res, err := t.repo.LocalFetchFuzzy(ctx, words)

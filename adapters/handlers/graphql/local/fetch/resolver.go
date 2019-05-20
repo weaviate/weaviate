@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	"github.com/graphql-go/graphql"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
@@ -26,8 +27,8 @@ import (
 // form the overall GraphQL API main interface. All data-base connectors that
 // want to support the GetMeta feature must implement this interface.
 type Resolver interface {
-	LocalFetchKindClass(ctx context.Context, info *kinds.FetchSearch) (interface{}, error)
-	LocalFetchFuzzy(ctx context.Context, info kinds.FetchFuzzySearch) (interface{}, error)
+	LocalFetchKindClass(ctx context.Context, principal *models.Principal, info *kinds.FetchSearch) (interface{}, error)
+	LocalFetchFuzzy(ctx context.Context, principal *models.Principal, info kinds.FetchFuzzySearch) (interface{}, error)
 }
 
 // RequestsLog is a local abstraction on the RequestsLog that needs to be
@@ -53,7 +54,7 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 		}()
 
 		return func() (interface{}, error) {
-			return resources.resolver.LocalFetchKindClass(p.Context, params)
+			return resources.resolver.LocalFetchKindClass(p.Context, principalFromContext(p.Context), params)
 		}, nil
 
 	}
@@ -96,7 +97,7 @@ func resolveFuzzy(p graphql.ResolveParams) (interface{}, error) {
 
 	// words := resources.contextionary.SafeGetSimilarWordsWithCertainty(args.value, args.certainty)
 
-	return resources.resolver.LocalFetchFuzzy(p.Context, params)
+	return resources.resolver.LocalFetchFuzzy(p.Context, principalFromContext(p.Context), params)
 }
 
 func extractFuzzyArgs(p graphql.ResolveParams) kinds.FetchFuzzySearch {
@@ -107,4 +108,13 @@ func extractFuzzyArgs(p graphql.ResolveParams) kinds.FetchFuzzySearch {
 	args.Certainty = float32(p.Args["certainty"].(float64))
 
 	return args
+}
+
+func principalFromContext(ctx context.Context) *models.Principal {
+	principal := ctx.Value("principal")
+	if principal == nil {
+		return nil
+	}
+
+	return principal.(*models.Principal)
 }
