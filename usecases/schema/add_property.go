@@ -22,16 +22,30 @@ import (
 )
 
 // AddActionProperty to an existing Action
-func (m *Manager) AddActionProperty(ctx context.Context, class string, property *models.SemanticSchemaClassProperty) error {
-	return m.addClassProperty(ctx, class, property, kind.Action)
+func (m *Manager) AddActionProperty(ctx context.Context, principal *models.Principal,
+	class string, property *models.SemanticSchemaClassProperty) error {
+
+	err := m.authorizer.Authorize(principal, "update", "schema/actions")
+	if err != nil {
+		return err
+	}
+
+	return m.addClassProperty(ctx, principal, class, property, kind.Action)
 }
 
 // AddThingProperty to an existing Thing
-func (m *Manager) AddThingProperty(ctx context.Context, class string, property *models.SemanticSchemaClassProperty) error {
-	return m.addClassProperty(ctx, class, property, kind.Thing)
+func (m *Manager) AddThingProperty(ctx context.Context, principal *models.Principal,
+	class string, property *models.SemanticSchemaClassProperty) error {
+
+	err := m.authorizer.Authorize(principal, "update", "schema/things")
+	if err != nil {
+		return err
+	}
+
+	return m.addClassProperty(ctx, principal, class, property, kind.Thing)
 }
 
-func (m *Manager) addClassProperty(ctx context.Context, className string,
+func (m *Manager) addClassProperty(ctx context.Context, principal *models.Principal, className string,
 	prop *models.SemanticSchemaClassProperty, k kind.Kind) error {
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
@@ -47,7 +61,7 @@ func (m *Manager) addClassProperty(ctx context.Context, className string,
 
 	prop.Name = lowerCaseFirstLetter(prop.Name)
 
-	err = m.validateCanAddProperty(prop, class)
+	err = m.validateCanAddProperty(principal, prop, class)
 	if err != nil {
 		return err
 	}
@@ -63,7 +77,8 @@ func (m *Manager) addClassProperty(ctx context.Context, className string,
 	return m.migrator.AddProperty(ctx, k, className, prop)
 }
 
-func (m *Manager) validateCanAddProperty(property *models.SemanticSchemaClassProperty, class *models.SemanticSchemaClass) error {
+func (m *Manager) validateCanAddProperty(principal *models.Principal,
+	property *models.SemanticSchemaClassProperty, class *models.SemanticSchemaClass) error {
 	// Verify format of property.
 	_, err := schema.ValidatePropertyName(property.Name)
 	if err != nil {
@@ -82,7 +97,11 @@ func (m *Manager) validateCanAddProperty(property *models.SemanticSchemaClassPro
 	}
 
 	// Validate data type of property.
-	schema := m.GetSchema()
+	schema, err := m.GetSchema(principal)
+	if err != nil {
+		return err
+	}
+
 	_, err = (&schema).FindPropertyDataType(property.DataType)
 	if err != nil {
 		return fmt.Errorf("Data type of property '%s' is invalid; %v", property.Name, err)

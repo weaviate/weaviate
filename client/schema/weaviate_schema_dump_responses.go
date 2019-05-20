@@ -51,6 +51,13 @@ func (o *WeaviateSchemaDumpReader) ReadResponse(response runtime.ClientResponse,
 		}
 		return nil, result
 
+	case 403:
+		result := NewWeaviateSchemaDumpForbidden()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+
 	case 500:
 		result := NewWeaviateSchemaDumpInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -109,6 +116,35 @@ func (o *WeaviateSchemaDumpUnauthorized) Error() string {
 }
 
 func (o *WeaviateSchemaDumpUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewWeaviateSchemaDumpForbidden creates a WeaviateSchemaDumpForbidden with default headers values
+func NewWeaviateSchemaDumpForbidden() *WeaviateSchemaDumpForbidden {
+	return &WeaviateSchemaDumpForbidden{}
+}
+
+/*WeaviateSchemaDumpForbidden handles this case with default header values.
+
+Forbidden
+*/
+type WeaviateSchemaDumpForbidden struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *WeaviateSchemaDumpForbidden) Error() string {
+	return fmt.Sprintf("[GET /schema][%d] weaviateSchemaDumpForbidden  %+v", 403, o.Payload)
+}
+
+func (o *WeaviateSchemaDumpForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

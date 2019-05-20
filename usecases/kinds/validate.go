@@ -32,7 +32,7 @@ func (m *Manager) ValidateThing(ctx context.Context, principal *models.Principal
 	}
 	defer unlock()
 
-	err = m.validateThing(ctx, class)
+	err = m.validateThing(ctx, principal, class)
 	if err != nil {
 		return NewErrInvalidUserInput("invalid thing: %v", err)
 	}
@@ -56,7 +56,7 @@ func (m *Manager) ValidateAction(ctx context.Context, principal *models.Principa
 	}
 	defer unlock()
 
-	err = m.validateAction(ctx, class)
+	err = m.validateAction(ctx, principal, class)
 	if err != nil {
 		return NewErrInvalidUserInput("invalid action: %v", err)
 	}

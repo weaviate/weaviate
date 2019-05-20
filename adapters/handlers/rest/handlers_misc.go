@@ -26,13 +26,20 @@ import (
 )
 
 type schemaManager interface {
-	GetSchema() schema.Schema
+	GetSchema(principal *models.Principal) (schema.Schema, error)
+	GetSchemaSkipAuth() schema.Schema
 }
 
 func setupMiscHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog,
 	serverConfig *config.WeaviateConfig, network network.Network, schemaManager schemaManager) {
 	api.MetaWeaviateMetaGetHandler = meta.WeaviateMetaGetHandlerFunc(func(params meta.WeaviateMetaGetParams, principal *models.Principal) middleware.Responder {
-		databaseSchema := schema.HackFromDatabaseSchema(schemaManager.GetSchema())
+		s, err := schemaManager.GetSchema(principal)
+		if err != nil {
+			return meta.NewWeaviateMetaGetForbidden().WithPayload(errPayloadFromSingleErr(err))
+		}
+
+		databaseSchema := schema.HackFromDatabaseSchema(s)
+
 		// Create response object
 		metaResponse := &models.Meta{}
 
