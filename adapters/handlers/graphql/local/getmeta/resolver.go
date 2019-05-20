@@ -20,6 +20,7 @@ import (
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/config"
@@ -31,7 +32,7 @@ import (
 // form the overall GraphQL API main interface. All data-base connectors that
 // want to support the GetMeta feature must implement this interface.
 type Resolver interface {
-	LocalGetMeta(ctx context.Context, info *kinds.GetMetaParams) (interface{}, error)
+	LocalGetMeta(ctx context.Context, principal *models.Principal, info *kinds.GetMetaParams) (interface{}, error)
 }
 
 // RequestsLog is a local abstraction on the RequestsLog that needs to be
@@ -93,7 +94,7 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 			requestsLog.Register(telemetry.TypeGQL, telemetry.LocalQueryMeta)
 		}()
 
-		return resolver.LocalGetMeta(p.Context, params)
+		return resolver.LocalGetMeta(p.Context, principalFromContext(p.Context), params)
 	}
 }
 
@@ -161,4 +162,13 @@ func extractPropertyAnalyses(selections *ast.SelectionSet) ([]kinds.StatisticalA
 	}
 
 	return analyses, nil
+}
+
+func principalFromContext(ctx context.Context) *models.Principal {
+	principal := ctx.Value("principal")
+	if principal == nil {
+		return nil
+	}
+
+	return principal.(*models.Principal)
 }

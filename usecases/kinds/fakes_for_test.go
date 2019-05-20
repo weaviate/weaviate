@@ -14,6 +14,7 @@ import (
 	"context"
 
 	"github.com/go-openapi/strfmt"
+	contextionary "github.com/semi-technologies/weaviate/contextionary/schema"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
@@ -76,6 +77,26 @@ func (f *fakeRepo) AddActionsBatch(ctx context.Context, actions BatchActions) er
 }
 
 func (f *fakeRepo) AddBatchReferences(ctx context.Context, references BatchReferences) error {
+	panic("not implemented")
+}
+
+func (f *fakeRepo) LocalAggregate(ctx context.Context, params *AggregateParams) (interface{}, error) {
+	panic("not implemented")
+}
+
+func (f *fakeRepo) LocalFetchFuzzy(ctx context.Context, words []string) (interface{}, error) {
+	panic("not implemented")
+}
+
+func (f *fakeRepo) LocalFetchKindClass(ctx context.Context, params *FetchParams) (interface{}, error) {
+	panic("not implemented")
+}
+
+func (f *fakeRepo) LocalGetClass(ctx context.Context, params *LocalGetParams) (interface{}, error) {
+	panic("not implemented")
+}
+
+func (f *fakeRepo) LocalGetMeta(ctx context.Context, params *GetMetaParams) (interface{}, error) {
 	panic("not implemented")
 }
 
@@ -146,4 +167,10 @@ type fakeAuthorizer struct{}
 
 func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {
 	return nil
+}
+
+type fakeC11yProvider struct{}
+
+func (f *fakeC11yProvider) GetSchemaContextionary() *contextionary.Contextionary {
+	panic("not implemented")
 }
