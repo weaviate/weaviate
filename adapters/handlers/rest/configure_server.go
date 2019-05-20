@@ -28,6 +28,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/semi-technologies/weaviate/usecases/auth/authentication/oidc"
+	"github.com/semi-technologies/weaviate/usecases/auth/authorization"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/semi-technologies/weaviate/usecases/network"
@@ -129,6 +130,10 @@ func configureOIDC(appState *state.State) *oidc.Client {
 // anonymous requests
 func configureAnonymousAccess(appState *state.State) *anonymous.Client {
 	return anonymous.New(appState.ServerConfig.Config)
+}
+
+func configureAuthorizer(appState *state.State) authorization.Authorizer {
+	return authorization.New(appState.ServerConfig.Config)
 }
 
 func timeTillDeadline(ctx context.Context) string {

@@ -19,6 +19,7 @@ import (
 	schema_contextionary "github.com/semi-technologies/weaviate/contextionary/schema"
 	"github.com/semi-technologies/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/semi-technologies/weaviate/usecases/auth/authentication/oidc"
+	"github.com/semi-technologies/weaviate/usecases/auth/authorization"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/locks"
 	"github.com/semi-technologies/weaviate/usecases/network"
@@ -33,6 +34,7 @@ type State struct {
 	Network          network.Network
 	OIDC             *oidc.Client
 	AnonymousAccess  *anonymous.Client
+	Authorizer       authorization.Authorizer
 	ServerConfig     *config.WeaviateConfig
 	Connector        connectors.DatabaseConnector
 	Locks            locks.ConnectorSchemaLock
