@@ -166,6 +166,7 @@ func startupRoutine() (*state.State, *clientv3.Client) {
 
 	appState.OIDC = configureOIDC(appState)
 	appState.AnonymousAccess = configureAnonymousAccess(appState)
+	appState.Authorizer = configureAuthorizer(appState)
 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("configured OIDC and anonymous access client")
