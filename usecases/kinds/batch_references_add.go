@@ -24,7 +24,7 @@ import (
 func (b *BatchManager) AddReferences(ctx context.Context, refs []*models.BatchReference) (BatchReferences, error) {
 	unlock, err := b.locks.LockSchema()
 	if err != nil {
-		return nil, newErrInternal("could not aquire lock: %v", err)
+		return nil, NewErrInternal("could not aquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -34,12 +34,12 @@ func (b *BatchManager) AddReferences(ctx context.Context, refs []*models.BatchRe
 func (b *BatchManager) addReferences(ctx context.Context, refs []*models.BatchReference) (BatchReferences, error) {
 
 	if err := b.validateReferenceForm(refs); err != nil {
-		return nil, newErrInvalidUserInput("invalid params: %v", err)
+		return nil, NewErrInvalidUserInput("invalid params: %v", err)
 	}
 
 	batchReferences := b.validateReferencesConcurrently(refs)
 	if err := b.repo.AddBatchReferences(ctx, batchReferences); err != nil {
-		return nil, newErrInternal("could not add batch request to connector: %v", err)
+		return nil, NewErrInternal("could not add batch request to connector: %v", err)
 	}
 
 	return batchReferences, nil

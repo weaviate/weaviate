@@ -38,7 +38,7 @@ type updateRepo interface {
 func (m *Manager) UpdateAction(ctx context.Context, id strfmt.UUID, class *models.Action) (*models.Action, error) {
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
-		return nil, newErrInternal("could not aquire lock: %v", err)
+		return nil, NewErrInternal("could not aquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -48,7 +48,7 @@ func (m *Manager) UpdateAction(ctx context.Context, id strfmt.UUID, class *model
 func (m *Manager) updateActionToConnectorAndSchema(ctx context.Context, id strfmt.UUID,
 	class *models.Action) (*models.Action, error) {
 	if id != class.ID {
-		return nil, newErrInvalidUserInput("invalid update: field 'id' is immutable")
+		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
 
 	originalAction, err := m.getActionFromRepo(ctx, id)
@@ -66,18 +66,18 @@ func (m *Manager) updateActionToConnectorAndSchema(ctx context.Context, id strfm
 
 	err = m.validateAction(ctx, class)
 	if err != nil {
-		return nil, newErrInvalidUserInput("invalid action: %v", err)
+		return nil, NewErrInvalidUserInput("invalid action: %v", err)
 	}
 
 	err = m.addNetworkDataTypesForAction(ctx, class)
 	if err != nil {
-		return nil, newErrInternal("could not update schema for network refs: %v", err)
+		return nil, NewErrInternal("could not update schema for network refs: %v", err)
 	}
 
 	class.LastUpdateTimeUnix = unixNow()
 	err = m.repo.UpdateAction(ctx, class, class.ID)
 	if err != nil {
-		return nil, newErrInternal("could not store updated action: %v", err)
+		return nil, NewErrInternal("could not store updated action: %v", err)
 	}
 
 	return class, nil
@@ -89,7 +89,7 @@ func (m *Manager) updateActionToConnectorAndSchema(ctx context.Context, id strfm
 func (m *Manager) UpdateThing(ctx context.Context, id strfmt.UUID, class *models.Thing) (*models.Thing, error) {
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
-		return nil, newErrInternal("could not aquire lock: %v", err)
+		return nil, NewErrInternal("could not aquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -99,7 +99,7 @@ func (m *Manager) UpdateThing(ctx context.Context, id strfmt.UUID, class *models
 func (m *Manager) updateThingToConnectorAndSchema(ctx context.Context, id strfmt.UUID,
 	class *models.Thing) (*models.Thing, error) {
 	if id != class.ID {
-		return nil, newErrInvalidUserInput("invalid update: field 'id' is immutable")
+		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
 
 	originalThing, err := m.getThingFromRepo(ctx, id)
@@ -117,18 +117,18 @@ func (m *Manager) updateThingToConnectorAndSchema(ctx context.Context, id strfmt
 
 	err = m.validateThing(ctx, class)
 	if err != nil {
-		return nil, newErrInvalidUserInput("invalid thing: %v", err)
+		return nil, NewErrInvalidUserInput("invalid thing: %v", err)
 	}
 
 	err = m.addNetworkDataTypesForThing(ctx, class)
 	if err != nil {
-		return nil, newErrInternal("could not update schema for network refs: %v", err)
+		return nil, NewErrInternal("could not update schema for network refs: %v", err)
 	}
 
 	class.LastUpdateTimeUnix = unixNow()
 	err = m.repo.UpdateThing(ctx, class, class.ID)
 	if err != nil {
-		return nil, newErrInternal("could not store updated thing: %v", err)
+		return nil, NewErrInternal("could not store updated thing: %v", err)
 	}
 
 	return class, nil

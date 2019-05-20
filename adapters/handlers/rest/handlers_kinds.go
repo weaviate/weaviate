@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/actions"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/things"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
 )
@@ -106,9 +107,12 @@ func (h *kindHandlers) validateAction(params actions.WeaviateActionsValidatePara
 
 func (h *kindHandlers) getThing(params things.WeaviateThingsGetParams,
 	principal *models.Principal) middleware.Responder {
-	thing, err := h.manager.GetThing(params.HTTPRequest.Context(), params.ID)
+	thing, err := h.manager.GetThing(params.HTTPRequest.Context(), principal, params.ID)
 	if err != nil {
 		switch err.(type) {
+		case errors.Forbidden:
+			return things.NewWeaviateThingsGetForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrNotFound:
 			return things.NewWeaviateThingsGetNotFound()
 		default:
@@ -248,7 +252,7 @@ func (h *kindHandlers) deleteAction(params actions.WeaviateActionsDeleteParams,
 // Internally, this means, we need to first run the Get UC, then apply the
 // patch and then run the update UC
 func (h *kindHandlers) patchThing(params things.WeaviateThingsPatchParams, principal *models.Principal) middleware.Responder {
-	origThing, err := h.manager.GetThing(params.HTTPRequest.Context(), params.ID)
+	origThing, err := h.manager.GetThing(params.HTTPRequest.Context(), principal, params.ID)
 	if err != nil {
 		switch err.(type) {
 		case kinds.ErrNotFound:
@@ -343,30 +347,30 @@ func (h *kindHandlers) getPatchedKind(orig interface{},
 	// Get PATCH params in format RFC 6902
 	jsonBody, err := json.Marshal(patch)
 	if err != nil {
-		return kinds.ErrInternal(err)
+		return kinds.NewErrInternal(err.Error())
 	}
 
 	patchObject, err := jsonpatch.DecodePatch([]byte(jsonBody))
 	if err != nil {
-		return kinds.ErrInvalidUserInput(err)
+		return kinds.NewErrInvalidUserInput(err.Error())
 	}
 
 	// Convert Kind to JSON
 	origJSON, err := json.Marshal(orig)
 	if err != nil {
-		return kinds.ErrInternal(err)
+		return kinds.NewErrInternal(err.Error())
 	}
 
 	// Apply the patch
 	updatedJSON, err := patchObject.Apply(origJSON)
 	if err != nil {
-		return kinds.ErrInternal(err)
+		return kinds.NewErrInternal(err.Error())
 	}
 
 	// Marshal back to original format
 	err = json.Unmarshal([]byte(updatedJSON), &target)
 	if err != nil {
-		return kinds.ErrInternal(err)
+		return kinds.NewErrInternal(err.Error())
 	}
 
 	return nil

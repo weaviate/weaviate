@@ -132,16 +132,24 @@ func NewWeaviateGraphqlPostForbidden() *WeaviateGraphqlPostForbidden {
 
 /*WeaviateGraphqlPostForbidden handles this case with default header values.
 
-Insufficient permissions.
+Forbidden
 */
 type WeaviateGraphqlPostForbidden struct {
+	Payload *models.ErrorResponse
 }
 
 func (o *WeaviateGraphqlPostForbidden) Error() string {
-	return fmt.Sprintf("[POST /graphql][%d] weaviateGraphqlPostForbidden ", 403)
+	return fmt.Sprintf("[POST /graphql][%d] weaviateGraphqlPostForbidden  %+v", 403, o.Payload)
 }
 
 func (o *WeaviateGraphqlPostForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

@@ -75,7 +75,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -121,7 +124,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -169,7 +175,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -220,7 +229,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -274,7 +286,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -323,7 +338,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -384,7 +402,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -450,7 +471,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
@@ -511,7 +535,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
@@ -572,7 +599,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found.",
@@ -650,7 +680,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -709,7 +742,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -787,7 +823,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -881,7 +920,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -930,7 +972,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -985,7 +1030,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -1221,7 +1269,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Action class."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Invalid update.",
@@ -1313,7 +1364,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Action class."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Invalid property.",
@@ -1370,7 +1424,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Action class or property."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Invalid update.",
@@ -1506,7 +1563,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Thing class."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Invalid update.",
@@ -1598,7 +1658,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Thing class."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Invalid property.",
@@ -1655,7 +1718,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Thing class or property."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Invalid update.",
@@ -1702,7 +1768,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Thing class or property."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -1740,7 +1809,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -1834,7 +1906,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -1885,7 +1960,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -1939,7 +2017,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -1988,7 +2069,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -2049,7 +2133,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -2115,7 +2202,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
@@ -2176,7 +2266,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
@@ -2237,7 +2330,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found.",
@@ -3021,7 +3117,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -3067,7 +3166,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -3115,7 +3217,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -3166,7 +3271,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -3220,7 +3328,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -3269,7 +3380,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -3330,7 +3444,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -3396,7 +3513,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
@@ -3457,7 +3577,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
@@ -3518,7 +3641,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found.",
@@ -3596,7 +3722,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -3655,7 +3784,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -3733,7 +3865,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -3827,7 +3962,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -3876,7 +4014,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -3931,7 +4072,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -4167,7 +4311,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Action class."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Invalid update.",
@@ -4259,7 +4406,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Action class."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Invalid property.",
@@ -4316,7 +4466,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Action class or property."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Invalid update.",
@@ -4452,7 +4605,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Thing class."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Invalid update.",
@@ -4544,7 +4700,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Thing class."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Invalid property.",
@@ -4601,7 +4760,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Thing class or property."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Invalid update.",
@@ -4648,7 +4810,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Thing class or property."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -4690,7 +4855,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -4784,7 +4952,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -4835,7 +5006,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -4889,7 +5063,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -4938,7 +5115,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -4999,7 +5179,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -5065,7 +5248,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
@@ -5126,7 +5312,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
@@ -5187,7 +5376,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found.",

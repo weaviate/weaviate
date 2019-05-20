@@ -132,16 +132,24 @@ func NewWeaviateActionsListForbidden() *WeaviateActionsListForbidden {
 
 /*WeaviateActionsListForbidden handles this case with default header values.
 
-Insufficient permissions.
+Forbidden
 */
 type WeaviateActionsListForbidden struct {
+	Payload *models.ErrorResponse
 }
 
 func (o *WeaviateActionsListForbidden) Error() string {
-	return fmt.Sprintf("[GET /actions][%d] weaviateActionsListForbidden ", 403)
+	return fmt.Sprintf("[GET /actions][%d] weaviateActionsListForbidden  %+v", 403, o.Payload)
 }
 
 func (o *WeaviateActionsListForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

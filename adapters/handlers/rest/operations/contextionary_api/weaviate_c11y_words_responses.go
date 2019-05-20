@@ -138,11 +138,16 @@ func (o *WeaviateC11yWordsUnauthorized) WriteResponse(rw http.ResponseWriter, pr
 // WeaviateC11yWordsForbiddenCode is the HTTP code returned for type WeaviateC11yWordsForbidden
 const WeaviateC11yWordsForbiddenCode int = 403
 
-/*WeaviateC11yWordsForbidden Insufficient permissions.
+/*WeaviateC11yWordsForbidden Forbidden
 
 swagger:response weaviateC11yWordsForbidden
 */
 type WeaviateC11yWordsForbidden struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
 }
 
 // NewWeaviateC11yWordsForbidden creates WeaviateC11yWordsForbidden with default headers values
@@ -151,12 +156,27 @@ func NewWeaviateC11yWordsForbidden() *WeaviateC11yWordsForbidden {
 	return &WeaviateC11yWordsForbidden{}
 }
 
+// WithPayload adds the payload to the weaviate c11y words forbidden response
+func (o *WeaviateC11yWordsForbidden) WithPayload(payload *models.ErrorResponse) *WeaviateC11yWordsForbidden {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate c11y words forbidden response
+func (o *WeaviateC11yWordsForbidden) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
 // WriteResponse to the client
 func (o *WeaviateC11yWordsForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
 	rw.WriteHeader(403)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // WeaviateC11yWordsInternalServerErrorCode is the HTTP code returned for type WeaviateC11yWordsInternalServerError

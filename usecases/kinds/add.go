@@ -42,7 +42,7 @@ type schemaManager interface {
 func (m *Manager) AddAction(ctx context.Context, class *models.Action) (*models.Action, error) {
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
-		return nil, newErrInternal("could not aquire lock: %v", err)
+		return nil, NewErrInternal("could not aquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -52,23 +52,23 @@ func (m *Manager) AddAction(ctx context.Context, class *models.Action) (*models.
 func (m *Manager) addActionToConnectorAndSchema(ctx context.Context, class *models.Action) (*models.Action, error) {
 	id, err := generateUUID()
 	if err != nil {
-		return nil, newErrInternal("could not generate id: %v", err)
+		return nil, NewErrInternal("could not generate id: %v", err)
 	}
 	class.ID = id
 
 	err = m.validateAction(ctx, class)
 	if err != nil {
-		return nil, newErrInvalidUserInput("invalid action: %v", err)
+		return nil, NewErrInvalidUserInput("invalid action: %v", err)
 	}
 
 	err = m.addNetworkDataTypesForAction(ctx, class)
 	if err != nil {
-		return nil, newErrInternal("could not update schema for network refs: %v", err)
+		return nil, NewErrInternal("could not update schema for network refs: %v", err)
 	}
 
 	err = m.repo.AddAction(ctx, class, class.ID)
 	if err != nil {
-		return nil, newErrInternal("could not store action: %v", err)
+		return nil, NewErrInternal("could not store action: %v", err)
 	}
 
 	return class, nil
@@ -87,7 +87,7 @@ func (m *Manager) validateAction(ctx context.Context, class *models.Action) erro
 func (m *Manager) AddThing(ctx context.Context, class *models.Thing) (*models.Thing, error) {
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
-		return nil, newErrInternal("could not aquire lock: %v", err)
+		return nil, NewErrInternal("could not aquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -97,23 +97,23 @@ func (m *Manager) AddThing(ctx context.Context, class *models.Thing) (*models.Th
 func (m *Manager) addThingToConnectorAndSchema(ctx context.Context, class *models.Thing) (*models.Thing, error) {
 	id, err := generateUUID()
 	if err != nil {
-		return nil, newErrInternal("could not generate id: %v", err)
+		return nil, NewErrInternal("could not generate id: %v", err)
 	}
 	class.ID = id
 
 	err = m.validateThing(ctx, class)
 	if err != nil {
-		return nil, newErrInvalidUserInput("invalid thing: %v", err)
+		return nil, NewErrInvalidUserInput("invalid thing: %v", err)
 	}
 
 	err = m.addNetworkDataTypesForThing(ctx, class)
 	if err != nil {
-		return nil, newErrInternal("could not update schema for network refs: %v", err)
+		return nil, NewErrInternal("could not update schema for network refs: %v", err)
 	}
 
 	err = m.repo.AddThing(ctx, class, class.ID)
 	if err != nil {
-		return nil, newErrInternal("could not store thing: %v", err)
+		return nil, NewErrInternal("could not store thing: %v", err)
 	}
 
 	return class, nil
