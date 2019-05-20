@@ -21,8 +21,14 @@ import (
 )
 
 // AddActions Class Instances in batch to the connected DB
-func (b *BatchManager) AddActions(ctx context.Context, classes []*models.Action,
-	fields []*string) (BatchActions, error) {
+func (b *BatchManager) AddActions(ctx context.Context, principal *models.Principal,
+	classes []*models.Action, fields []*string) (BatchActions, error) {
+
+	err := b.authorizer.Authorize(principal, "create", "batch/actions")
+	if err != nil {
+		return nil, err
+	}
+
 	unlock, err := b.locks.LockSchema()
 	if err != nil {
 		return nil, NewErrInternal("could not aquire lock: %v", err)
@@ -118,8 +124,14 @@ func actionsChanToSlice(c chan BatchAction) BatchActions {
 }
 
 // AddThings Class Instances in batch to the connected DB
-func (b *BatchManager) AddThings(ctx context.Context, classes []*models.Thing,
-	fields []*string) (BatchThings, error) {
+func (b *BatchManager) AddThings(ctx context.Context, principal *models.Principal,
+	classes []*models.Thing, fields []*string) (BatchThings, error) {
+
+	err := b.authorizer.Authorize(principal, "create", "batch/things")
+	if err != nil {
+		return nil, err
+	}
+
 	unlock, err := b.locks.LockSchema()
 	if err != nil {
 		return nil, NewErrInternal("could not aquire lock: %v", err)

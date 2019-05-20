@@ -21,7 +21,14 @@ import (
 )
 
 // AddReferences Class Instances in batch to the connected DB
-func (b *BatchManager) AddReferences(ctx context.Context, refs []*models.BatchReference) (BatchReferences, error) {
+func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Principal,
+	refs []*models.BatchReference) (BatchReferences, error) {
+
+	err := b.authorizer.Authorize(principal, "update", "batch/*")
+	if err != nil {
+		return nil, err
+	}
+
 	unlock, err := b.locks.LockSchema()
 	if err != nil {
 		return nil, NewErrInternal("could not aquire lock: %v", err)

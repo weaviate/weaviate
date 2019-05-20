@@ -17,6 +17,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
 )
@@ -26,10 +27,15 @@ type batchKindHandlers struct {
 	requestsLog *telemetry.RequestsLog
 }
 
-func (h *batchKindHandlers) addThings(params operations.WeaviateBatchingThingsCreateParams, principal *models.Principal) middleware.Responder {
-	things, err := h.manager.AddThings(params.HTTPRequest.Context(), params.Body.Things, params.Body.Fields)
+func (h *batchKindHandlers) addThings(params operations.WeaviateBatchingThingsCreateParams,
+	principal *models.Principal) middleware.Responder {
+	things, err := h.manager.AddThings(params.HTTPRequest.Context(), principal,
+		params.Body.Things, params.Body.Fields)
 	if err != nil {
 		switch err.(type) {
+		case errors.Forbidden:
+			return operations.NewWeaviateBatchingThingsCreateForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
 			return operations.NewWeaviateBatchingThingsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -66,10 +72,15 @@ func (h *batchKindHandlers) thingsResponse(input kinds.BatchThings) []*models.Th
 	return response
 }
 
-func (h *batchKindHandlers) addActions(params operations.WeaviateBatchingActionsCreateParams, principal *models.Principal) middleware.Responder {
-	actions, err := h.manager.AddActions(params.HTTPRequest.Context(), params.Body.Actions, params.Body.Fields)
+func (h *batchKindHandlers) addActions(params operations.WeaviateBatchingActionsCreateParams,
+	principal *models.Principal) middleware.Responder {
+	actions, err := h.manager.AddActions(params.HTTPRequest.Context(), principal,
+		params.Body.Actions, params.Body.Fields)
 	if err != nil {
 		switch err.(type) {
+		case errors.Forbidden:
+			return operations.NewWeaviateBatchingActionsCreateForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
 			return operations.NewWeaviateBatchingActionsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -106,10 +117,14 @@ func (h *batchKindHandlers) actionsResponse(input kinds.BatchActions) []*models.
 	return response
 }
 
-func (h *batchKindHandlers) addReferences(params operations.WeaviateBatchingReferencesCreateParams, principal *models.Principal) middleware.Responder {
-	references, err := h.manager.AddReferences(params.HTTPRequest.Context(), params.Body)
+func (h *batchKindHandlers) addReferences(params operations.WeaviateBatchingReferencesCreateParams,
+	principal *models.Principal) middleware.Responder {
+	references, err := h.manager.AddReferences(params.HTTPRequest.Context(), principal, params.Body)
 	if err != nil {
 		switch err.(type) {
+		case errors.Forbidden:
+			return operations.NewWeaviateBatchingReferencesCreateForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
 			return operations.NewWeaviateBatchingReferencesCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))

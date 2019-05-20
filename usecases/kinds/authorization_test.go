@@ -188,6 +188,73 @@ func Test_Kinds_Authorization(t *testing.T) {
 	})
 }
 
+func Test_BatchKinds_Authorization(t *testing.T) {
+
+	type testCase struct {
+		methodName       string
+		additionalArgs   []interface{}
+		expectedVerb     string
+		expectedResource string
+	}
+
+	tests := []testCase{
+		testCase{
+			methodName:       "AddActions",
+			additionalArgs:   []interface{}{[]*models.Action{}, []*string{}},
+			expectedVerb:     "create",
+			expectedResource: "batch/actions",
+		},
+
+		testCase{
+			methodName:       "AddThings",
+			additionalArgs:   []interface{}{[]*models.Thing{}, []*string{}},
+			expectedVerb:     "create",
+			expectedResource: "batch/things",
+		},
+
+		testCase{
+			methodName:       "AddReferences",
+			additionalArgs:   []interface{}{[]*models.BatchReference{}},
+			expectedVerb:     "update",
+			expectedResource: "batch/*",
+		},
+	}
+
+	t.Run("verify that a test for every public method exists", func(t *testing.T) {
+		testedMethods := make([]string, len(tests), len(tests))
+		for i, test := range tests {
+			testedMethods[i] = test.methodName
+		}
+
+		for _, method := range allExportedMethods(&BatchManager{}) {
+			assert.Contains(t, testedMethods, method)
+		}
+	})
+
+	t.Run("verify the tested methods require correct permissions from the authorizer", func(t *testing.T) {
+		principal := &models.Principal{}
+		logger, _ := test.NewNullLogger()
+		for _, test := range tests {
+			repo := &fakeRepo{}
+			schemaManager := &fakeSchemaManager{}
+			locks := &fakeLocks{}
+			network := &fakeNetwork{}
+			cfg := &config.WeaviateConfig{}
+			authorizer := &authDenier{}
+			manager := NewBatchManager(repo, locks, schemaManager, network, cfg, logger, authorizer)
+
+			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
+			out, _ := callFuncByName(manager, test.methodName, args...)
+
+			require.Len(t, authorizer.calls, 1, "authorizer must be called")
+			assert.Equal(t, errors.New("just a test fake"), out[len(out)-1].Interface(),
+				"execution must abort with authorizer error")
+			assert.Equal(t, authorizeCall{principal, test.expectedVerb, test.expectedResource},
+				authorizer.calls[0], "correct paramteres must have been used on authorizer")
+		}
+	})
+}
+
 type authorizeCall struct {
 	principal *models.Principal
 	verb      string
@@ -204,7 +271,7 @@ func (a *authDenier) Authorize(principal *models.Principal, verb, resource strin
 }
 
 // inspired by https://stackoverflow.com/a/33008200
-func callFuncByName(manager *Manager, funcName string, params ...interface{}) (out []reflect.Value, err error) {
+func callFuncByName(manager interface{}, funcName string, params ...interface{}) (out []reflect.Value, err error) {
 	managerValue := reflect.ValueOf(manager)
 	m := managerValue.MethodByName(funcName)
 	if !m.IsValid() {
