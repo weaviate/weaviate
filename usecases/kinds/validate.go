@@ -18,7 +18,14 @@ import (
 
 // ValidateThing without adding it to the database. Can be used in UIs for
 // async validation before submitting
-func (m *Manager) ValidateThing(ctx context.Context, class *models.Thing) error {
+func (m *Manager) ValidateThing(ctx context.Context, principal *models.Principal,
+	class *models.Thing) error {
+
+	err := m.authorizer.Authorize(principal, "validate", "things")
+	if err != nil {
+		return err
+	}
+
 	unlock, err := m.locks.LockConnector()
 	if err != nil {
 		return NewErrInternal("could not acquire lock: %v", err)
@@ -35,7 +42,14 @@ func (m *Manager) ValidateThing(ctx context.Context, class *models.Thing) error 
 
 // ValidateAction without adding it to the database. Can be used in UIs for
 // async validation before submitting
-func (m *Manager) ValidateAction(ctx context.Context, class *models.Action) error {
+func (m *Manager) ValidateAction(ctx context.Context, principal *models.Principal,
+	class *models.Action) error {
+
+	err := m.authorizer.Authorize(principal, "validate", "actions")
+	if err != nil {
+		return err
+	}
+
 	unlock, err := m.locks.LockConnector()
 	if err != nil {
 		return NewErrInternal("could not acquire lock: %v", err)

@@ -18,24 +18,34 @@ import (
 )
 
 // Forbidden indicates a failed authorization
-type Forbidden error
+type Forbidden struct {
+	principal *models.Principal
+	verb      string
+	resource  string
+}
 
 // NewForbidden creates an explicit Forbidden error with details about the
 // principal and the attempted access on a specific resource
 func NewForbidden(principal *models.Principal, verb, resource string) Forbidden {
+	return Forbidden{
+		principal: principal,
+		verb:      verb,
+		resource:  resource,
+	}
+}
+
+func (f Forbidden) Error() string {
 	optionalGroups := ""
-	if len(principal.Groups) == 1 {
-		optionalGroups = fmt.Sprintf(" (of group '%s')", principal.Groups[0])
-	} else if len(principal.Groups) > 1 {
-		groups := wrapInSingleQuotes(principal.Groups)
+	if len(f.principal.Groups) == 1 {
+		optionalGroups = fmt.Sprintf(" (of group '%s')", f.principal.Groups[0])
+	} else if len(f.principal.Groups) > 1 {
+		groups := wrapInSingleQuotes(f.principal.Groups)
 		groupsList := strings.Join(groups, ", ")
 		optionalGroups = fmt.Sprintf(" (of groups %s)", groupsList)
 	}
 
-	return Forbidden(
-		fmt.Errorf("forbidden: user '%s'%s has insufficient permissions to %s %s",
-			principal.Username, optionalGroups, verb, resource),
-	)
+	return fmt.Sprintf("forbidden: user '%s'%s has insufficient permissions to %s %s",
+		f.principal.Username, optionalGroups, f.verb, f.resource)
 }
 
 func wrapInSingleQuotes(input []string) []string {

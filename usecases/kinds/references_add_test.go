@@ -68,7 +68,7 @@ func Test_ReferencesAdd_CardinalityMany(t *testing.T) {
 			},
 		}
 
-		err := manager.AddThingReference(context.Background(), strfmt.UUID("my-id"), "hasAnimals", newRef)
+		err := manager.AddThingReference(context.Background(), nil, strfmt.UUID("my-id"), "hasAnimals", newRef)
 
 		require.Nil(t, err)
 		assert.Equal(t, expectedSchema, repo.UpdateThingParameter.Schema)
@@ -103,7 +103,7 @@ func Test_ReferencesAdd_CardinalityMany(t *testing.T) {
 			},
 		}
 
-		err := manager.AddThingReference(context.Background(), strfmt.UUID("my-id"), "hasAnimals", newRef)
+		err := manager.AddThingReference(context.Background(), nil, strfmt.UUID("my-id"), "hasAnimals", newRef)
 
 		require.Nil(t, err)
 		assert.Equal(t, expectedSchema, repo.UpdateThingParameter.Schema)

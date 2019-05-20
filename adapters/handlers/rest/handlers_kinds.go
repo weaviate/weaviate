@@ -33,9 +33,12 @@ type kindHandlers struct {
 
 func (h *kindHandlers) addThing(params things.WeaviateThingsCreateParams,
 	principal *models.Principal) middleware.Responder {
-	thing, err := h.manager.AddThing(params.HTTPRequest.Context(), params.Body)
+	thing, err := h.manager.AddThing(params.HTTPRequest.Context(), principal, params.Body)
 	if err != nil {
 		switch err.(type) {
+		case errors.Forbidden:
+			return things.NewWeaviateThingsCreateForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
 			return things.NewWeaviateThingsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -52,9 +55,12 @@ func (h *kindHandlers) addThing(params things.WeaviateThingsCreateParams,
 func (h *kindHandlers) validateThing(params things.WeaviateThingsValidateParams,
 	principal *models.Principal) middleware.Responder {
 
-	err := h.manager.ValidateThing(params.HTTPRequest.Context(), params.Body)
+	err := h.manager.ValidateThing(params.HTTPRequest.Context(), principal, params.Body)
 	if err != nil {
 		switch err.(type) {
+		case errors.Forbidden:
+			return things.NewWeaviateThingsValidateForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
 			return things.NewWeaviateThingsValidateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -70,9 +76,12 @@ func (h *kindHandlers) validateThing(params things.WeaviateThingsValidateParams,
 
 func (h *kindHandlers) addAction(params actions.WeaviateActionsCreateParams,
 	principal *models.Principal) middleware.Responder {
-	action, err := h.manager.AddAction(params.HTTPRequest.Context(), params.Body)
+	action, err := h.manager.AddAction(params.HTTPRequest.Context(), principal, params.Body)
 	if err != nil {
 		switch err.(type) {
+		case errors.Forbidden:
+			return actions.NewWeaviateActionsCreateForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
 			return actions.NewWeaviateActionsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -89,9 +98,12 @@ func (h *kindHandlers) addAction(params actions.WeaviateActionsCreateParams,
 func (h *kindHandlers) validateAction(params actions.WeaviateActionsValidateParams,
 	principal *models.Principal) middleware.Responder {
 
-	err := h.manager.ValidateAction(params.HTTPRequest.Context(), params.Body)
+	err := h.manager.ValidateAction(params.HTTPRequest.Context(), principal, params.Body)
 	if err != nil {
 		switch err.(type) {
+		case errors.Forbidden:
+			return actions.NewWeaviateActionsValidateForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
 			return actions.NewWeaviateActionsValidateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -127,9 +139,12 @@ func (h *kindHandlers) getThing(params things.WeaviateThingsGetParams,
 
 func (h *kindHandlers) getAction(params actions.WeaviateActionsGetParams,
 	principal *models.Principal) middleware.Responder {
-	action, err := h.manager.GetAction(params.HTTPRequest.Context(), params.ID)
+	action, err := h.manager.GetAction(params.HTTPRequest.Context(), principal, params.ID)
 	if err != nil {
 		switch err.(type) {
+		case errors.Forbidden:
+			return actions.NewWeaviateActionsGetForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrNotFound:
 			return actions.NewWeaviateActionsGetNotFound()
 		default:
@@ -144,14 +159,19 @@ func (h *kindHandlers) getAction(params actions.WeaviateActionsGetParams,
 
 func (h *kindHandlers) getThings(params things.WeaviateThingsListParams,
 	principal *models.Principal) middleware.Responder {
-	list, err := h.manager.GetThings(params.HTTPRequest.Context(), params.Limit)
+	list, err := h.manager.GetThings(params.HTTPRequest.Context(), principal, params.Limit)
 	if err != nil {
-		return things.NewWeaviateThingsListInternalServerError().
-			WithPayload(errPayloadFromSingleErr(err))
+		switch err.(type) {
+		case errors.Forbidden:
+			return things.NewWeaviateThingsListForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return things.NewWeaviateThingsListInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
 	}
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalQuery)
-	// TODO: unify response with other verbs
 	return things.NewWeaviateThingsListOK().
 		WithPayload(&models.ThingsListResponse{
 			Things:       list,
@@ -161,14 +181,19 @@ func (h *kindHandlers) getThings(params things.WeaviateThingsListParams,
 
 func (h *kindHandlers) getActions(params actions.WeaviateActionsListParams,
 	principal *models.Principal) middleware.Responder {
-	list, err := h.manager.GetActions(params.HTTPRequest.Context(), params.Limit)
+	list, err := h.manager.GetActions(params.HTTPRequest.Context(), principal, params.Limit)
 	if err != nil {
-		return actions.NewWeaviateActionsListInternalServerError().
-			WithPayload(errPayloadFromSingleErr(err))
+		switch err.(type) {
+		case errors.Forbidden:
+			return actions.NewWeaviateActionsListForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return actions.NewWeaviateActionsListInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
 	}
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalQuery)
-	// TODO: unify response with other verbs
 	return actions.NewWeaviateActionsListOK().
 		WithPayload(&models.ActionsListResponse{
 			Actions:      list,
@@ -178,9 +203,12 @@ func (h *kindHandlers) getActions(params actions.WeaviateActionsListParams,
 
 func (h *kindHandlers) updateThing(params things.WeaviateThingsUpdateParams,
 	principal *models.Principal) middleware.Responder {
-	thing, err := h.manager.UpdateThing(params.HTTPRequest.Context(), params.ID, params.Body)
+	thing, err := h.manager.UpdateThing(params.HTTPRequest.Context(), principal, params.ID, params.Body)
 	if err != nil {
 		switch err.(type) {
+		case errors.Forbidden:
+			return things.NewWeaviateThingsUpdateForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
 			return things.NewWeaviateThingsUpdateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -196,9 +224,12 @@ func (h *kindHandlers) updateThing(params things.WeaviateThingsUpdateParams,
 
 func (h *kindHandlers) updateAction(params actions.WeaviateActionUpdateParams,
 	principal *models.Principal) middleware.Responder {
-	action, err := h.manager.UpdateAction(params.HTTPRequest.Context(), params.ID, params.Body)
+	action, err := h.manager.UpdateAction(params.HTTPRequest.Context(), principal, params.ID, params.Body)
 	if err != nil {
 		switch err.(type) {
+		case errors.Forbidden:
+			return actions.NewWeaviateActionUpdateForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
 			return actions.NewWeaviateActionUpdateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -214,9 +245,12 @@ func (h *kindHandlers) updateAction(params actions.WeaviateActionUpdateParams,
 
 func (h *kindHandlers) deleteThing(params things.WeaviateThingsDeleteParams,
 	principal *models.Principal) middleware.Responder {
-	err := h.manager.DeleteThing(params.HTTPRequest.Context(), params.ID)
+	err := h.manager.DeleteThing(params.HTTPRequest.Context(), principal, params.ID)
 	if err != nil {
 		switch err.(type) {
+		case errors.Forbidden:
+			return things.NewWeaviateThingsDeleteForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrNotFound:
 			return things.NewWeaviateThingsDeleteNotFound()
 		default:
@@ -231,9 +265,12 @@ func (h *kindHandlers) deleteThing(params things.WeaviateThingsDeleteParams,
 
 func (h *kindHandlers) deleteAction(params actions.WeaviateActionsDeleteParams,
 	principal *models.Principal) middleware.Responder {
-	err := h.manager.DeleteAction(params.HTTPRequest.Context(), params.ID)
+	err := h.manager.DeleteAction(params.HTTPRequest.Context(), principal, params.ID)
 	if err != nil {
 		switch err.(type) {
+		case errors.Forbidden:
+			return actions.NewWeaviateActionsDeleteForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrNotFound:
 			return actions.NewWeaviateActionsDeleteNotFound()
 		default:
@@ -255,6 +292,9 @@ func (h *kindHandlers) patchThing(params things.WeaviateThingsPatchParams, princ
 	origThing, err := h.manager.GetThing(params.HTTPRequest.Context(), principal, params.ID)
 	if err != nil {
 		switch err.(type) {
+		case errors.Forbidden:
+			return things.NewWeaviateThingsPatchForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrNotFound:
 			return things.NewWeaviateThingsPatchNotFound()
 		default:
@@ -267,6 +307,9 @@ func (h *kindHandlers) patchThing(params things.WeaviateThingsPatchParams, princ
 	err = h.getPatchedKind(origThing, params.Body, patched)
 	if err != nil {
 		switch err.(type) {
+		case errors.Forbidden:
+			return things.NewWeaviateThingsPatchForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
 			return things.NewWeaviateThingsPatchUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -276,9 +319,12 @@ func (h *kindHandlers) patchThing(params things.WeaviateThingsPatchParams, princ
 		}
 	}
 
-	updated, err := h.manager.UpdateThing(params.HTTPRequest.Context(), params.ID, patched)
+	updated, err := h.manager.UpdateThing(params.HTTPRequest.Context(), principal, params.ID, patched)
 	if err != nil {
 		switch err.(type) {
+		case errors.Forbidden:
+			return things.NewWeaviateThingsPatchForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
 			return things.NewWeaviateThingsUpdateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -299,9 +345,12 @@ func (h *kindHandlers) patchThing(params things.WeaviateThingsPatchParams, princ
 // Internally, this means, we need to first run the Get UC, then apply the
 // patch and then run the update UC
 func (h *kindHandlers) patchAction(params actions.WeaviateActionsPatchParams, principal *models.Principal) middleware.Responder {
-	origAction, err := h.manager.GetAction(params.HTTPRequest.Context(), params.ID)
+	origAction, err := h.manager.GetAction(params.HTTPRequest.Context(), principal, params.ID)
 	if err != nil {
 		switch err.(type) {
+		case errors.Forbidden:
+			return actions.NewWeaviateActionsPatchForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrNotFound:
 			return actions.NewWeaviateActionsPatchNotFound()
 		default:
@@ -314,6 +363,9 @@ func (h *kindHandlers) patchAction(params actions.WeaviateActionsPatchParams, pr
 	err = h.getPatchedKind(origAction, params.Body, patched)
 	if err != nil {
 		switch err.(type) {
+		case errors.Forbidden:
+			return actions.NewWeaviateActionsPatchForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
 			return actions.NewWeaviateActionsPatchUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -323,9 +375,12 @@ func (h *kindHandlers) patchAction(params actions.WeaviateActionsPatchParams, pr
 		}
 	}
 
-	updated, err := h.manager.UpdateAction(params.HTTPRequest.Context(), params.ID, patched)
+	updated, err := h.manager.UpdateAction(params.HTTPRequest.Context(), principal, params.ID, patched)
 	if err != nil {
 		switch err.(type) {
+		case errors.Forbidden:
+			return actions.NewWeaviateActionsPatchForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
 			return actions.NewWeaviateActionUpdateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -378,9 +433,12 @@ func (h *kindHandlers) getPatchedKind(orig interface{},
 
 func (h *kindHandlers) addThingReference(params things.WeaviateThingsReferencesCreateParams,
 	principal *models.Principal) middleware.Responder {
-	err := h.manager.AddThingReference(params.HTTPRequest.Context(), params.ID, params.PropertyName, params.Body)
+	err := h.manager.AddThingReference(params.HTTPRequest.Context(), principal, params.ID, params.PropertyName, params.Body)
 	if err != nil {
 		switch err.(type) {
+		case errors.Forbidden:
+			return things.NewWeaviateThingsReferencesCreateForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrNotFound, kinds.ErrInvalidUserInput:
 			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -396,9 +454,12 @@ func (h *kindHandlers) addThingReference(params things.WeaviateThingsReferencesC
 
 func (h *kindHandlers) addActionReference(params actions.WeaviateActionsReferencesCreateParams,
 	principal *models.Principal) middleware.Responder {
-	err := h.manager.AddActionReference(params.HTTPRequest.Context(), params.ID, params.PropertyName, params.Body)
+	err := h.manager.AddActionReference(params.HTTPRequest.Context(), principal, params.ID, params.PropertyName, params.Body)
 	if err != nil {
 		switch err.(type) {
+		case errors.Forbidden:
+			return actions.NewWeaviateActionsReferencesCreateForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrNotFound, kinds.ErrInvalidUserInput:
 			return actions.NewWeaviateActionsReferencesCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -414,9 +475,12 @@ func (h *kindHandlers) addActionReference(params actions.WeaviateActionsReferenc
 
 func (h *kindHandlers) updateActionReferences(params actions.WeaviateActionsReferencesUpdateParams,
 	principal *models.Principal) middleware.Responder {
-	err := h.manager.UpdateActionReferences(params.HTTPRequest.Context(), params.ID, params.PropertyName, params.Body)
+	err := h.manager.UpdateActionReferences(params.HTTPRequest.Context(), principal, params.ID, params.PropertyName, params.Body)
 	if err != nil {
 		switch err.(type) {
+		case errors.Forbidden:
+			return actions.NewWeaviateActionsReferencesUpdateForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrNotFound, kinds.ErrInvalidUserInput:
 			return actions.NewWeaviateActionsReferencesUpdateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -432,9 +496,12 @@ func (h *kindHandlers) updateActionReferences(params actions.WeaviateActionsRefe
 
 func (h *kindHandlers) updateThingReferences(params things.WeaviateThingsReferencesUpdateParams,
 	principal *models.Principal) middleware.Responder {
-	err := h.manager.UpdateThingReferences(params.HTTPRequest.Context(), params.ID, params.PropertyName, params.Body)
+	err := h.manager.UpdateThingReferences(params.HTTPRequest.Context(), principal, params.ID, params.PropertyName, params.Body)
 	if err != nil {
 		switch err.(type) {
+		case errors.Forbidden:
+			return things.NewWeaviateThingsReferencesUpdateForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrNotFound, kinds.ErrInvalidUserInput:
 			return things.NewWeaviateThingsReferencesUpdateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -450,9 +517,12 @@ func (h *kindHandlers) updateThingReferences(params things.WeaviateThingsReferen
 
 func (h *kindHandlers) deleteActionReference(params actions.WeaviateActionsReferencesDeleteParams,
 	principal *models.Principal) middleware.Responder {
-	err := h.manager.DeleteActionReference(params.HTTPRequest.Context(), params.ID, params.PropertyName, params.Body)
+	err := h.manager.DeleteActionReference(params.HTTPRequest.Context(), principal, params.ID, params.PropertyName, params.Body)
 	if err != nil {
 		switch err.(type) {
+		case errors.Forbidden:
+			return actions.NewWeaviateActionsReferencesDeleteForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrNotFound, kinds.ErrInvalidUserInput:
 			return actions.NewWeaviateActionsReferencesDeleteNotFound().
 				WithPayload(errPayloadFromSingleErr(err))
@@ -468,9 +538,12 @@ func (h *kindHandlers) deleteActionReference(params actions.WeaviateActionsRefer
 
 func (h *kindHandlers) deleteThingReference(params things.WeaviateThingsReferencesDeleteParams,
 	principal *models.Principal) middleware.Responder {
-	err := h.manager.DeleteThingReference(params.HTTPRequest.Context(), params.ID, params.PropertyName, params.Body)
+	err := h.manager.DeleteThingReference(params.HTTPRequest.Context(), principal, params.ID, params.PropertyName, params.Body)
 	if err != nil {
 		switch err.(type) {
+		case errors.Forbidden:
+			return things.NewWeaviateThingsReferencesDeleteForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrNotFound, kinds.ErrInvalidUserInput:
 			return things.NewWeaviateThingsReferencesDeleteNotFound().
 				WithPayload(errPayloadFromSingleErr(err))

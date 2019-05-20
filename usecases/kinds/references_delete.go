@@ -12,6 +12,7 @@
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -19,8 +20,14 @@ import (
 )
 
 // DeleteActionReference from connected DB
-func (m *Manager) DeleteActionReference(ctx context.Context, id strfmt.UUID,
-	propertyName string, property *models.SingleRef) error {
+func (m *Manager) DeleteActionReference(ctx context.Context, principal *models.Principal,
+	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
+
+	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("actions/%s", id.String()))
+	if err != nil {
+		return err
+	}
+
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
 		return NewErrInternal("could not aquire lock: %v", err)
@@ -62,8 +69,14 @@ func (m *Manager) deleteActionReferenceFromConnector(ctx context.Context, id str
 }
 
 // DeleteThingReference from connected DB
-func (m *Manager) DeleteThingReference(ctx context.Context, id strfmt.UUID,
-	propertyName string, property *models.SingleRef) error {
+func (m *Manager) DeleteThingReference(ctx context.Context, principal *models.Principal,
+	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
+
+	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("things/%s", id.String()))
+	if err != nil {
+		return err
+	}
+
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
 		return NewErrInternal("could not aquire lock: %v", err)

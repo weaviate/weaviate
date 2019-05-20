@@ -28,6 +28,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	libkind "github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/usecases/kinds"
 )
 
 // kindClass is a helper struct that is independent of fixed types such as
@@ -64,7 +65,7 @@ func (j *Janusgraph) getClass(ctx context.Context, k kind.Kind, searchUUID strfm
 	}
 
 	if len(result.Data) == 0 {
-		return errors.New("not found")
+		return kinds.NewErrNotFound("id %s not found", searchUUID.String())
 	}
 
 	// The outputs 'thing' and 'key' will be repeated over all results. Just get them for one for now.

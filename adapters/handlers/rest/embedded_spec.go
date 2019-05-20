@@ -1858,7 +1858,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -4904,7 +4907,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
