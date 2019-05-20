@@ -39,7 +39,14 @@ type schemaManager interface {
 // AddAction Class Instance to the connected DB. If the class contains a network
 // ref, it has a side-effect on the schema: The schema will be updated to
 // include this particular network ref class.
-func (m *Manager) AddAction(ctx context.Context, class *models.Action) (*models.Action, error) {
+func (m *Manager) AddAction(ctx context.Context, principal *models.Principal,
+	class *models.Action) (*models.Action, error) {
+
+	err := m.authorizer.Authorize(principal, "create", "actions")
+	if err != nil {
+		return nil, err
+	}
+
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
 		return nil, NewErrInternal("could not aquire lock: %v", err)
@@ -84,7 +91,14 @@ func (m *Manager) validateAction(ctx context.Context, class *models.Action) erro
 // AddThing Class Instance to the connected DB. If the class contains a network
 // ref, it has a side-effect on the schema: The schema will be updated to
 // include this particular network ref class.
-func (m *Manager) AddThing(ctx context.Context, class *models.Thing) (*models.Thing, error) {
+func (m *Manager) AddThing(ctx context.Context, principal *models.Principal,
+	class *models.Thing) (*models.Thing, error) {
+
+	err := m.authorizer.Authorize(principal, "create", "things")
+	if err != nil {
+		return nil, err
+	}
+
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
 		return nil, NewErrInternal("could not aquire lock: %v", err)

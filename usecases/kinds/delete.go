@@ -12,6 +12,7 @@
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -29,7 +30,12 @@ type deleteRepo interface {
 }
 
 // DeleteAction Class Instance from the conncected DB
-func (m *Manager) DeleteAction(ctx context.Context, id strfmt.UUID) error {
+func (m *Manager) DeleteAction(ctx context.Context, principal *models.Principal, id strfmt.UUID) error {
+	err := m.authorizer.Authorize(principal, "delete", fmt.Sprintf("actions/%s", id.String()))
+	if err != nil {
+		return err
+	}
+
 	unlock, err := m.locks.LockConnector()
 	if err != nil {
 		return NewErrInternal("could not aquire lock: %v", err)
@@ -54,7 +60,12 @@ func (m *Manager) deleteActionFromRepo(ctx context.Context, id strfmt.UUID) erro
 }
 
 // DeleteThing Class Instance from the conncected DB
-func (m *Manager) DeleteThing(ctx context.Context, id strfmt.UUID) error {
+func (m *Manager) DeleteThing(ctx context.Context, principal *models.Principal, id strfmt.UUID) error {
+	err := m.authorizer.Authorize(principal, "delete", fmt.Sprintf("things/%s", id.String()))
+	if err != nil {
+		return err
+	}
+
 	unlock, err := m.locks.LockConnector()
 	if err != nil {
 		return NewErrInternal("could not aquire lock: %v", err)

@@ -12,7 +12,6 @@
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math"
 
@@ -46,7 +45,12 @@ func (m *Manager) GetThing(ctx context.Context, principal *models.Principal,
 }
 
 // GetThings Class from the connected DB
-func (m *Manager) GetThings(ctx context.Context, limit *int64) ([]*models.Thing, error) {
+func (m *Manager) GetThings(ctx context.Context, principal *models.Principal, limit *int64) ([]*models.Thing, error) {
+	err := m.authorizer.Authorize(principal, "list", "things")
+	if err != nil {
+		return nil, err
+	}
+
 	unlock, err := m.locks.LockConnector()
 	if err != nil {
 		return nil, NewErrInternal("could not aquire lock: %v", err)
@@ -57,7 +61,12 @@ func (m *Manager) GetThings(ctx context.Context, limit *int64) ([]*models.Thing,
 }
 
 // GetAction Class from connected DB
-func (m *Manager) GetAction(ctx context.Context, id strfmt.UUID) (*models.Action, error) {
+func (m *Manager) GetAction(ctx context.Context, principal *models.Principal, id strfmt.UUID) (*models.Action, error) {
+	err := m.authorizer.Authorize(principal, "get", fmt.Sprintf("actions/%s", id.String()))
+	if err != nil {
+		return nil, err
+	}
+
 	unlock, err := m.locks.LockConnector()
 	if err != nil {
 		return nil, NewErrInternal("could not aquire lock: %v", err)
@@ -68,7 +77,12 @@ func (m *Manager) GetAction(ctx context.Context, id strfmt.UUID) (*models.Action
 }
 
 // GetActions Class from connected DB
-func (m *Manager) GetActions(ctx context.Context, limit *int64) ([]*models.Action, error) {
+func (m *Manager) GetActions(ctx context.Context, principal *models.Principal, limit *int64) ([]*models.Action, error) {
+	err := m.authorizer.Authorize(principal, "list", "actions")
+	if err != nil {
+		return nil, err
+	}
+
 	unlock, err := m.locks.LockConnector()
 	if err != nil {
 		return nil, NewErrInternal("could not aquire lock: %v", err)
@@ -83,10 +97,9 @@ func (m *Manager) getThingFromRepo(ctx context.Context, id strfmt.UUID) (*models
 	thing.Schema = map[string]models.JSONObject{}
 	err := m.repo.GetThing(ctx, id, &thing)
 	if err != nil {
-		switch err {
-		// TODO: Replace with structured error
-		case errors.New("not found"):
-			return nil, NewErrNotFound(err.Error())
+		switch err.(type) {
+		case ErrNotFound:
+			return nil, err
 		default:
 			return nil, NewErrInternal("could not get thing from db: %v", err)
 		}
@@ -111,10 +124,9 @@ func (m *Manager) getActionFromRepo(ctx context.Context, id strfmt.UUID) (*model
 	action.Schema = map[string]models.JSONObject{}
 	err := m.repo.GetAction(ctx, id, &action)
 	if err != nil {
-		switch err {
-		// TODO: Replace with structured error
-		case errors.New("not found"):
-			return nil, NewErrNotFound(err.Error())
+		switch err.(type) {
+		case ErrNotFound:
+			return nil, err
 		default:
 			return nil, NewErrInternal("could not get action from db: %v", err)
 		}

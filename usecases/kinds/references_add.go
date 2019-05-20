@@ -12,6 +12,7 @@
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -23,8 +24,14 @@ import (
 // AddActionReference Class Instance to the connected DB. If the class contains a network
 // ref, it has a side-effect on the schema: The schema will be updated to
 // include this particular network ref class.
-func (m *Manager) AddActionReference(ctx context.Context, id strfmt.UUID,
-	propertyName string, property *models.SingleRef) error {
+func (m *Manager) AddActionReference(ctx context.Context, principal *models.Principal,
+	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
+
+	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("actions/%s", id.String()))
+	if err != nil {
+		return err
+	}
+
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
 		return NewErrInternal("could not aquire lock: %v", err)
@@ -77,8 +84,14 @@ func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, id
 // AddThingReference Class Instance to the connected DB. If the class contains a network
 // ref, it has a side-effect on the schema: The schema will be updated to
 // include this particular network ref class.
-func (m *Manager) AddThingReference(ctx context.Context, id strfmt.UUID,
-	propertyName string, property *models.SingleRef) error {
+func (m *Manager) AddThingReference(ctx context.Context, principal *models.Principal,
+	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
+
+	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("things/%s", id.String()))
+	if err != nil {
+		return err
+	}
+
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
 		return NewErrInternal("could not aquire lock: %v", err)
