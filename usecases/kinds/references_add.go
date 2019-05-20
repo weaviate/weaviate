@@ -27,7 +27,7 @@ func (m *Manager) AddActionReference(ctx context.Context, id strfmt.UUID,
 	propertyName string, property *models.SingleRef) error {
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
-		return newErrInternal("could not aquire lock: %v", err)
+		return NewErrInternal("could not aquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -63,12 +63,12 @@ func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, id
 	// the new ref could be a network ref
 	err = m.addNetworkDataTypesForAction(ctx, action)
 	if err != nil {
-		return newErrInternal("could not update schema for network refs: %v", err)
+		return NewErrInternal("could not update schema for network refs: %v", err)
 	}
 
 	err = m.repo.UpdateAction(ctx, action, action.ID)
 	if err != nil {
-		return newErrInternal("could not store action: %v", err)
+		return NewErrInternal("could not store action: %v", err)
 	}
 
 	return nil
@@ -81,7 +81,7 @@ func (m *Manager) AddThingReference(ctx context.Context, id strfmt.UUID,
 	propertyName string, property *models.SingleRef) error {
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
-		return newErrInternal("could not aquire lock: %v", err)
+		return NewErrInternal("could not aquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -117,12 +117,12 @@ func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, id 
 	// the new ref could be a network ref
 	err = m.addNetworkDataTypesForThing(ctx, thing)
 	if err != nil {
-		return newErrInternal("could not update schema for network refs: %v", err)
+		return NewErrInternal("could not update schema for network refs: %v", err)
 	}
 
 	err = m.repo.UpdateThing(ctx, thing, thing.ID)
 	if err != nil {
-		return newErrInternal("could not store thing: %v", err)
+		return NewErrInternal("could not store thing: %v", err)
 	}
 
 	return nil
@@ -131,7 +131,7 @@ func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, id 
 func (m *Manager) validateReference(ctx context.Context, reference *models.SingleRef) error {
 	err := validation.ValidateSingleRef(ctx, m.config, reference, m.repo, m.network, "reference not found")
 	if err != nil {
-		return newErrInvalidUserInput("invalid reference: %v", err)
+		return NewErrInvalidUserInput("invalid reference: %v", err)
 	}
 
 	return nil
@@ -141,31 +141,31 @@ func (m *Manager) validateCanModifyReference(k kind.Kind, className string,
 	propertyName string) error {
 	class, err := schema.ValidateClassName(className)
 	if err != nil {
-		return newErrInvalidUserInput("invalid class name in reference: %v", err)
+		return NewErrInvalidUserInput("invalid class name in reference: %v", err)
 	}
 
 	propName, err := schema.ValidatePropertyName(propertyName)
 	if err != nil {
-		return newErrInvalidUserInput("invalid property name in reference: %v", err)
+		return NewErrInvalidUserInput("invalid property name in reference: %v", err)
 	}
 
 	schema := m.schemaManager.GetSchema()
 	err, prop := schema.GetProperty(k, class, propName)
 	if err != nil {
-		return newErrInvalidUserInput("Could not find property '%s': %v", propertyName, err)
+		return NewErrInvalidUserInput("Could not find property '%s': %v", propertyName, err)
 	}
 
 	propertyDataType, err := schema.FindPropertyDataType(prop.DataType)
 	if err != nil {
-		return newErrInternal("Could not find datatype of property '%s': %v", propertyName, err)
+		return NewErrInternal("Could not find datatype of property '%s': %v", propertyName, err)
 	}
 
 	if propertyDataType.IsPrimitive() {
-		return newErrInvalidUserInput("property '%s' is a primitive datatype, not a reference-type", propertyName)
+		return NewErrInvalidUserInput("property '%s' is a primitive datatype, not a reference-type", propertyName)
 	}
 
 	if prop.Cardinality == nil || *prop.Cardinality != "many" {
-		return newErrInvalidUserInput("Property '%s' has a cardinality of atMostOne", propertyName)
+		return NewErrInvalidUserInput("Property '%s' has a cardinality of atMostOne", propertyName)
 	}
 
 	return nil
@@ -188,7 +188,7 @@ func (m *Manager) extendClassPropsWithReference(props interface{}, propertyName 
 	existingRefs := propsMap[propertyName]
 	existingRefsSlice, ok := existingRefs.([]interface{})
 	if !ok {
-		return nil, newErrInternal("expected list for reference props, but got %T", existingRefs)
+		return nil, NewErrInternal("expected list for reference props, but got %T", existingRefs)
 	}
 
 	propsMap[propertyName] = append(existingRefsSlice, property)

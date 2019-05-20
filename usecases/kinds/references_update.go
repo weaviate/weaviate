@@ -26,7 +26,7 @@ func (m *Manager) UpdateActionReferences(ctx context.Context, id strfmt.UUID,
 	propertyName string, refs models.MultipleRef) error {
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
-		return newErrInternal("could not aquire lock: %v", err)
+		return NewErrInternal("could not aquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -62,12 +62,12 @@ func (m *Manager) updateActionReferenceToConnectorAndSchema(ctx context.Context,
 	// the new refs could be network refs
 	err = m.addNetworkDataTypesForAction(ctx, action)
 	if err != nil {
-		return newErrInternal("could not update schema for network refs: %v", err)
+		return NewErrInternal("could not update schema for network refs: %v", err)
 	}
 
 	err = m.repo.UpdateAction(ctx, action, action.ID)
 	if err != nil {
-		return newErrInternal("could not store action: %v", err)
+		return NewErrInternal("could not store action: %v", err)
 	}
 
 	return nil
@@ -80,7 +80,7 @@ func (m *Manager) UpdateThingReferences(ctx context.Context, id strfmt.UUID,
 	propertyName string, refs models.MultipleRef) error {
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
-		return newErrInternal("could not aquire lock: %v", err)
+		return NewErrInternal("could not aquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -116,12 +116,12 @@ func (m *Manager) updateThingReferenceToConnectorAndSchema(ctx context.Context, 
 	// the new refs could be network refs
 	err = m.addNetworkDataTypesForThing(ctx, thing)
 	if err != nil {
-		return newErrInternal("could not update schema for network refs: %v", err)
+		return NewErrInternal("could not update schema for network refs: %v", err)
 	}
 
 	err = m.repo.UpdateThing(ctx, thing, thing.ID)
 	if err != nil {
-		return newErrInternal("could not store thing: %v", err)
+		return NewErrInternal("could not store thing: %v", err)
 	}
 
 	return nil
@@ -130,7 +130,7 @@ func (m *Manager) updateThingReferenceToConnectorAndSchema(ctx context.Context, 
 func (m *Manager) validateReferences(ctx context.Context, references models.MultipleRef) error {
 	err := validation.ValidateMultipleRef(ctx, m.config, &references, m.repo, m.network, "reference not found")
 	if err != nil {
-		return newErrInvalidUserInput("invalid references: %v", err)
+		return NewErrInvalidUserInput("invalid references: %v", err)
 	}
 
 	return nil

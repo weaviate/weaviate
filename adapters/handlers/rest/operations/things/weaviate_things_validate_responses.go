@@ -74,11 +74,16 @@ func (o *WeaviateThingsValidateUnauthorized) WriteResponse(rw http.ResponseWrite
 // WeaviateThingsValidateForbiddenCode is the HTTP code returned for type WeaviateThingsValidateForbidden
 const WeaviateThingsValidateForbiddenCode int = 403
 
-/*WeaviateThingsValidateForbidden Insufficient permissions.
+/*WeaviateThingsValidateForbidden Forbidden
 
 swagger:response weaviateThingsValidateForbidden
 */
 type WeaviateThingsValidateForbidden struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
 }
 
 // NewWeaviateThingsValidateForbidden creates WeaviateThingsValidateForbidden with default headers values
@@ -87,12 +92,27 @@ func NewWeaviateThingsValidateForbidden() *WeaviateThingsValidateForbidden {
 	return &WeaviateThingsValidateForbidden{}
 }
 
+// WithPayload adds the payload to the weaviate things validate forbidden response
+func (o *WeaviateThingsValidateForbidden) WithPayload(payload *models.ErrorResponse) *WeaviateThingsValidateForbidden {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate things validate forbidden response
+func (o *WeaviateThingsValidateForbidden) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
 // WriteResponse to the client
 func (o *WeaviateThingsValidateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
 	rw.WriteHeader(403)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // WeaviateThingsValidateUnprocessableEntityCode is the HTTP code returned for type WeaviateThingsValidateUnprocessableEntity

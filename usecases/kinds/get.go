@@ -13,6 +13,7 @@
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 
 	"github.com/go-openapi/strfmt"
@@ -28,10 +29,16 @@ type getRepo interface {
 }
 
 // GetThing Class from the connected DB
-func (m *Manager) GetThing(ctx context.Context, id strfmt.UUID) (*models.Thing, error) {
+func (m *Manager) GetThing(ctx context.Context, principal *models.Principal,
+	id strfmt.UUID) (*models.Thing, error) {
+	err := m.authorizer.Authorize(principal, "get", fmt.Sprintf("things/%s", id.String()))
+	if err != nil {
+		return nil, err
+	}
+
 	unlock, err := m.locks.LockConnector()
 	if err != nil {
-		return nil, newErrInternal("could not aquire lock: %v", err)
+		return nil, NewErrInternal("could not aquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -42,7 +49,7 @@ func (m *Manager) GetThing(ctx context.Context, id strfmt.UUID) (*models.Thing, 
 func (m *Manager) GetThings(ctx context.Context, limit *int64) ([]*models.Thing, error) {
 	unlock, err := m.locks.LockConnector()
 	if err != nil {
-		return nil, newErrInternal("could not aquire lock: %v", err)
+		return nil, NewErrInternal("could not aquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -53,7 +60,7 @@ func (m *Manager) GetThings(ctx context.Context, limit *int64) ([]*models.Thing,
 func (m *Manager) GetAction(ctx context.Context, id strfmt.UUID) (*models.Action, error) {
 	unlock, err := m.locks.LockConnector()
 	if err != nil {
-		return nil, newErrInternal("could not aquire lock: %v", err)
+		return nil, NewErrInternal("could not aquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -64,7 +71,7 @@ func (m *Manager) GetAction(ctx context.Context, id strfmt.UUID) (*models.Action
 func (m *Manager) GetActions(ctx context.Context, limit *int64) ([]*models.Action, error) {
 	unlock, err := m.locks.LockConnector()
 	if err != nil {
-		return nil, newErrInternal("could not aquire lock: %v", err)
+		return nil, NewErrInternal("could not aquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -79,9 +86,9 @@ func (m *Manager) getThingFromRepo(ctx context.Context, id strfmt.UUID) (*models
 		switch err {
 		// TODO: Replace with structured error
 		case errors.New("not found"):
-			return nil, newErrNotFound(err.Error())
+			return nil, NewErrNotFound(err.Error())
 		default:
-			return nil, newErrInternal("could not get thing from db: %v", err)
+			return nil, NewErrInternal("could not get thing from db: %v", err)
 		}
 	}
 
@@ -93,7 +100,7 @@ func (m *Manager) getThingsFromRepo(ctx context.Context, limit *int64) ([]*model
 	thingsResponse.Things = []*models.Thing{}
 	err := m.repo.ListThings(ctx, m.localLimitOrGlobalLimit(limit), &thingsResponse)
 	if err != nil {
-		return nil, newErrInternal("could not list things: %v", err)
+		return nil, NewErrInternal("could not list things: %v", err)
 	}
 
 	return thingsResponse.Things, nil
@@ -107,9 +114,9 @@ func (m *Manager) getActionFromRepo(ctx context.Context, id strfmt.UUID) (*model
 		switch err {
 		// TODO: Replace with structured error
 		case errors.New("not found"):
-			return nil, newErrNotFound(err.Error())
+			return nil, NewErrNotFound(err.Error())
 		default:
-			return nil, newErrInternal("could not get action from db: %v", err)
+			return nil, NewErrInternal("could not get action from db: %v", err)
 		}
 	}
 
@@ -121,7 +128,7 @@ func (m *Manager) getActionsFromRepo(ctx context.Context, limit *int64) ([]*mode
 	actionsResponse.Actions = []*models.Action{}
 	err := m.repo.ListActions(ctx, m.localLimitOrGlobalLimit(limit), &actionsResponse)
 	if err != nil {
-		return nil, newErrInternal("could not list actions: %v", err)
+		return nil, NewErrInternal("could not list actions: %v", err)
 	}
 
 	return actionsResponse.Actions, nil

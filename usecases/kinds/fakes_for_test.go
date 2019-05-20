@@ -141,3 +141,9 @@ func (f *fakeNetwork) ListPeers() (peers.Peers, error) {
 
 	return myPeers, nil
 }
+
+type fakeAuthorizer struct{}
+
+func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {
+	return nil
+}

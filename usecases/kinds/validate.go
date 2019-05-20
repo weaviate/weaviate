@@ -21,13 +21,13 @@ import (
 func (m *Manager) ValidateThing(ctx context.Context, class *models.Thing) error {
 	unlock, err := m.locks.LockConnector()
 	if err != nil {
-		return newErrInternal("could not acquire lock: %v", err)
+		return NewErrInternal("could not acquire lock: %v", err)
 	}
 	defer unlock()
 
 	err = m.validateThing(ctx, class)
 	if err != nil {
-		return newErrInvalidUserInput("invalid thing: %v", err)
+		return NewErrInvalidUserInput("invalid thing: %v", err)
 	}
 
 	return nil
@@ -38,13 +38,13 @@ func (m *Manager) ValidateThing(ctx context.Context, class *models.Thing) error 
 func (m *Manager) ValidateAction(ctx context.Context, class *models.Action) error {
 	unlock, err := m.locks.LockConnector()
 	if err != nil {
-		return newErrInternal("could not acquire lock: %v", err)
+		return NewErrInternal("could not acquire lock: %v", err)
 	}
 	defer unlock()
 
 	err = m.validateAction(ctx, class)
 	if err != nil {
-		return newErrInvalidUserInput("invalid action: %v", err)
+		return NewErrInvalidUserInput("invalid action: %v", err)
 	}
 
 	return nil

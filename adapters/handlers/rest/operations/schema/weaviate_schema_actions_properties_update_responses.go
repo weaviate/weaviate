@@ -74,11 +74,16 @@ func (o *WeaviateSchemaActionsPropertiesUpdateUnauthorized) WriteResponse(rw htt
 // WeaviateSchemaActionsPropertiesUpdateForbiddenCode is the HTTP code returned for type WeaviateSchemaActionsPropertiesUpdateForbidden
 const WeaviateSchemaActionsPropertiesUpdateForbiddenCode int = 403
 
-/*WeaviateSchemaActionsPropertiesUpdateForbidden Could not find the Action class or property.
+/*WeaviateSchemaActionsPropertiesUpdateForbidden Forbidden
 
 swagger:response weaviateSchemaActionsPropertiesUpdateForbidden
 */
 type WeaviateSchemaActionsPropertiesUpdateForbidden struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
 }
 
 // NewWeaviateSchemaActionsPropertiesUpdateForbidden creates WeaviateSchemaActionsPropertiesUpdateForbidden with default headers values
@@ -87,12 +92,27 @@ func NewWeaviateSchemaActionsPropertiesUpdateForbidden() *WeaviateSchemaActionsP
 	return &WeaviateSchemaActionsPropertiesUpdateForbidden{}
 }
 
+// WithPayload adds the payload to the weaviate schema actions properties update forbidden response
+func (o *WeaviateSchemaActionsPropertiesUpdateForbidden) WithPayload(payload *models.ErrorResponse) *WeaviateSchemaActionsPropertiesUpdateForbidden {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate schema actions properties update forbidden response
+func (o *WeaviateSchemaActionsPropertiesUpdateForbidden) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
 // WriteResponse to the client
 func (o *WeaviateSchemaActionsPropertiesUpdateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
 	rw.WriteHeader(403)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // WeaviateSchemaActionsPropertiesUpdateUnprocessableEntityCode is the HTTP code returned for type WeaviateSchemaActionsPropertiesUpdateUnprocessableEntity

@@ -74,11 +74,16 @@ func (o *WeaviateSchemaThingsPropertiesDeleteUnauthorized) WriteResponse(rw http
 // WeaviateSchemaThingsPropertiesDeleteForbiddenCode is the HTTP code returned for type WeaviateSchemaThingsPropertiesDeleteForbidden
 const WeaviateSchemaThingsPropertiesDeleteForbiddenCode int = 403
 
-/*WeaviateSchemaThingsPropertiesDeleteForbidden Could not find the Thing class or property.
+/*WeaviateSchemaThingsPropertiesDeleteForbidden Forbidden
 
 swagger:response weaviateSchemaThingsPropertiesDeleteForbidden
 */
 type WeaviateSchemaThingsPropertiesDeleteForbidden struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
 }
 
 // NewWeaviateSchemaThingsPropertiesDeleteForbidden creates WeaviateSchemaThingsPropertiesDeleteForbidden with default headers values
@@ -87,12 +92,27 @@ func NewWeaviateSchemaThingsPropertiesDeleteForbidden() *WeaviateSchemaThingsPro
 	return &WeaviateSchemaThingsPropertiesDeleteForbidden{}
 }
 
+// WithPayload adds the payload to the weaviate schema things properties delete forbidden response
+func (o *WeaviateSchemaThingsPropertiesDeleteForbidden) WithPayload(payload *models.ErrorResponse) *WeaviateSchemaThingsPropertiesDeleteForbidden {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate schema things properties delete forbidden response
+func (o *WeaviateSchemaThingsPropertiesDeleteForbidden) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
 // WriteResponse to the client
 func (o *WeaviateSchemaThingsPropertiesDeleteForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
 	rw.WriteHeader(403)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // WeaviateSchemaThingsPropertiesDeleteInternalServerErrorCode is the HTTP code returned for type WeaviateSchemaThingsPropertiesDeleteInternalServerError

@@ -117,16 +117,24 @@ func NewWeaviateSchemaThingsPropertiesDeleteForbidden() *WeaviateSchemaThingsPro
 
 /*WeaviateSchemaThingsPropertiesDeleteForbidden handles this case with default header values.
 
-Could not find the Thing class or property.
+Forbidden
 */
 type WeaviateSchemaThingsPropertiesDeleteForbidden struct {
+	Payload *models.ErrorResponse
 }
 
 func (o *WeaviateSchemaThingsPropertiesDeleteForbidden) Error() string {
-	return fmt.Sprintf("[DELETE /schema/things/{className}/properties/{propertyName}][%d] weaviateSchemaThingsPropertiesDeleteForbidden ", 403)
+	return fmt.Sprintf("[DELETE /schema/things/{className}/properties/{propertyName}][%d] weaviateSchemaThingsPropertiesDeleteForbidden  %+v", 403, o.Payload)
 }
 
 func (o *WeaviateSchemaThingsPropertiesDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

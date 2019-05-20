@@ -135,16 +135,24 @@ func NewWeaviateBatchingThingsCreateForbidden() *WeaviateBatchingThingsCreateFor
 
 /*WeaviateBatchingThingsCreateForbidden handles this case with default header values.
 
-Insufficient permissions.
+Forbidden
 */
 type WeaviateBatchingThingsCreateForbidden struct {
+	Payload *models.ErrorResponse
 }
 
 func (o *WeaviateBatchingThingsCreateForbidden) Error() string {
-	return fmt.Sprintf("[POST /batching/things][%d] weaviateBatchingThingsCreateForbidden ", 403)
+	return fmt.Sprintf("[POST /batching/things][%d] weaviateBatchingThingsCreateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *WeaviateBatchingThingsCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

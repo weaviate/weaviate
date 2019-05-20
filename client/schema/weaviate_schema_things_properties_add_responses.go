@@ -132,16 +132,24 @@ func NewWeaviateSchemaThingsPropertiesAddForbidden() *WeaviateSchemaThingsProper
 
 /*WeaviateSchemaThingsPropertiesAddForbidden handles this case with default header values.
 
-Could not find the Thing class.
+Forbidden
 */
 type WeaviateSchemaThingsPropertiesAddForbidden struct {
+	Payload *models.ErrorResponse
 }
 
 func (o *WeaviateSchemaThingsPropertiesAddForbidden) Error() string {
-	return fmt.Sprintf("[POST /schema/things/{className}/properties][%d] weaviateSchemaThingsPropertiesAddForbidden ", 403)
+	return fmt.Sprintf("[POST /schema/things/{className}/properties][%d] weaviateSchemaThingsPropertiesAddForbidden  %+v", 403, o.Payload)
 }
 
 func (o *WeaviateSchemaThingsPropertiesAddForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

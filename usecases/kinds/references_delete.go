@@ -23,7 +23,7 @@ func (m *Manager) DeleteActionReference(ctx context.Context, id strfmt.UUID,
 	propertyName string, property *models.SingleRef) error {
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
-		return newErrInternal("could not aquire lock: %v", err)
+		return NewErrInternal("could not aquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -55,7 +55,7 @@ func (m *Manager) deleteActionReferenceFromConnector(ctx context.Context, id str
 
 	err = m.repo.UpdateAction(ctx, action, action.ID)
 	if err != nil {
-		return newErrInternal("could not store action: %v", err)
+		return NewErrInternal("could not store action: %v", err)
 	}
 
 	return nil
@@ -66,7 +66,7 @@ func (m *Manager) DeleteThingReference(ctx context.Context, id strfmt.UUID,
 	propertyName string, property *models.SingleRef) error {
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
-		return newErrInternal("could not aquire lock: %v", err)
+		return NewErrInternal("could not aquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -98,7 +98,7 @@ func (m *Manager) deleteThingReferenceFromConnector(ctx context.Context, id strf
 
 	err = m.repo.UpdateThing(ctx, thing, thing.ID)
 	if err != nil {
-		return newErrInternal("could not store thing: %v", err)
+		return NewErrInternal("could not store thing: %v", err)
 	}
 
 	return nil
@@ -121,7 +121,7 @@ func (m *Manager) removeReferenceFromClassProps(props interface{}, propertyName 
 	existingRefs := propsMap[propertyName]
 	existingRefsSlice, ok := existingRefs.([]interface{})
 	if !ok {
-		return nil, newErrInternal("expected list for reference props, but got %T", existingRefs)
+		return nil, NewErrInternal("expected list for reference props, but got %T", existingRefs)
 	}
 
 	propsMap[propertyName] = removeRef(existingRefsSlice, property)

@@ -25,7 +25,7 @@ func (b *BatchManager) AddActions(ctx context.Context, classes []*models.Action,
 	fields []*string) (BatchActions, error) {
 	unlock, err := b.locks.LockSchema()
 	if err != nil {
-		return nil, newErrInternal("could not aquire lock: %v", err)
+		return nil, NewErrInternal("could not aquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -36,12 +36,12 @@ func (b *BatchManager) addActions(ctx context.Context, classes []*models.Action,
 	fields []*string) (BatchActions, error) {
 
 	if err := b.validateActionForm(classes); err != nil {
-		return nil, newErrInvalidUserInput("invalid param 'actions': %v", err)
+		return nil, NewErrInvalidUserInput("invalid param 'actions': %v", err)
 	}
 
 	batchActions := b.validateActionsConcurrently(ctx, classes, fields)
 	if err := b.repo.AddActionsBatch(ctx, batchActions); err != nil {
-		return nil, newErrInternal("could not add batch request to connector: %v", err)
+		return nil, NewErrInternal("could not add batch request to connector: %v", err)
 	}
 
 	return batchActions, nil
@@ -122,7 +122,7 @@ func (b *BatchManager) AddThings(ctx context.Context, classes []*models.Thing,
 	fields []*string) (BatchThings, error) {
 	unlock, err := b.locks.LockSchema()
 	if err != nil {
-		return nil, newErrInternal("could not aquire lock: %v", err)
+		return nil, NewErrInternal("could not aquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -133,12 +133,12 @@ func (b *BatchManager) addThings(ctx context.Context, classes []*models.Thing,
 	fields []*string) (BatchThings, error) {
 
 	if err := b.validateThingForm(classes); err != nil {
-		return nil, newErrInvalidUserInput("invalid param 'things': %v", err)
+		return nil, NewErrInvalidUserInput("invalid param 'things': %v", err)
 	}
 
 	batchThings := b.validateThingsConcurrently(ctx, classes, fields)
 	if err := b.repo.AddThingsBatch(ctx, batchThings); err != nil {
-		return nil, newErrInternal("could not add batch request to connector: %v", err)
+		return nil, NewErrInternal("could not add batch request to connector: %v", err)
 	}
 
 	return batchThings, nil

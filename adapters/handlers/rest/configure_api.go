@@ -73,7 +73,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		os.Exit(1)
 	}
 	kindsManager := kinds.NewManager(appState.Connector, appState.Locks,
-		schemaManager, appState.Network, appState.ServerConfig, appState.Logger)
+		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,
+		appState.Authorizer)
 	batchKindsManager := kinds.NewBatchManager(appState.Connector, appState.Locks,
 		schemaManager, appState.Network, appState.ServerConfig)
 	kindsTraverser := kinds.NewTraverser(appState.Locks, appState.Connector,

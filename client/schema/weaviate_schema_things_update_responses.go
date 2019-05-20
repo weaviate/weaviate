@@ -124,16 +124,24 @@ func NewWeaviateSchemaThingsUpdateForbidden() *WeaviateSchemaThingsUpdateForbidd
 
 /*WeaviateSchemaThingsUpdateForbidden handles this case with default header values.
 
-Could not find the Thing class.
+Forbidden
 */
 type WeaviateSchemaThingsUpdateForbidden struct {
+	Payload *models.ErrorResponse
 }
 
 func (o *WeaviateSchemaThingsUpdateForbidden) Error() string {
-	return fmt.Sprintf("[PUT /schema/things/{className}][%d] weaviateSchemaThingsUpdateForbidden ", 403)
+	return fmt.Sprintf("[PUT /schema/things/{className}][%d] weaviateSchemaThingsUpdateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *WeaviateSchemaThingsUpdateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }
