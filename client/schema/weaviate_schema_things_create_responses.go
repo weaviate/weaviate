@@ -49,6 +49,13 @@ func (o *WeaviateSchemaThingsCreateReader) ReadResponse(response runtime.ClientR
 		}
 		return nil, result
 
+	case 403:
+		result := NewWeaviateSchemaThingsCreateForbidden()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+
 	case 422:
 		result := NewWeaviateSchemaThingsCreateUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -114,6 +121,35 @@ func (o *WeaviateSchemaThingsCreateUnauthorized) Error() string {
 }
 
 func (o *WeaviateSchemaThingsCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewWeaviateSchemaThingsCreateForbidden creates a WeaviateSchemaThingsCreateForbidden with default headers values
+func NewWeaviateSchemaThingsCreateForbidden() *WeaviateSchemaThingsCreateForbidden {
+	return &WeaviateSchemaThingsCreateForbidden{}
+}
+
+/*WeaviateSchemaThingsCreateForbidden handles this case with default header values.
+
+Forbidden
+*/
+type WeaviateSchemaThingsCreateForbidden struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *WeaviateSchemaThingsCreateForbidden) Error() string {
+	return fmt.Sprintf("[POST /schema/things][%d] weaviateSchemaThingsCreateForbidden  %+v", 403, o.Payload)
+}
+
+func (o *WeaviateSchemaThingsCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }
