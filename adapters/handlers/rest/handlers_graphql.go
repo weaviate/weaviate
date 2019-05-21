@@ -71,7 +71,10 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 			return graphql.NewWeaviateGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
 		}
 
-		result := graphQL.Resolve(params.HTTPRequest.Context(), query,
+		ctx := params.HTTPRequest.Context()
+		ctx = context.WithValue(ctx, "principal", principal)
+
+		result := graphQL.Resolve(ctx, query,
 			operationName, variables)
 
 		// Marshal the JSON
@@ -117,11 +120,14 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 
 		wg := new(sync.WaitGroup)
 
+		ctx := params.HTTPRequest.Context()
+		ctx = context.WithValue(ctx, "principal", principal)
+
 		graphQL := gqlProvider.GetGraphQL()
 		// Generate a goroutine for each separate request
 		for requestIndex, unbatchedRequest := range params.Body {
 			wg.Add(1)
-			go handleUnbatchedGraphQLRequest(params.HTTPRequest.Context(), wg, graphQL, unbatchedRequest, requestIndex, &requestResults, requestsLog)
+			go handleUnbatchedGraphQLRequest(ctx, wg, graphQL, unbatchedRequest, requestIndex, &requestResults, requestsLog)
 		}
 
 		wg.Wait()

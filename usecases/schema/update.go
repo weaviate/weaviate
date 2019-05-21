@@ -19,14 +19,26 @@ import (
 )
 
 // UpdateAction which exists
-func (m *Manager) UpdateAction(ctx context.Context, name string,
-	class *models.SemanticSchemaClass) error {
+func (m *Manager) UpdateAction(ctx context.Context, principal *models.Principal,
+	name string, class *models.SemanticSchemaClass) error {
+
+	err := m.authorizer.Authorize(principal, "update", "schema/actions")
+	if err != nil {
+		return err
+	}
+
 	return m.updateClass(ctx, name, class, kind.Action)
 }
 
 // UpdateThing which exists
-func (m *Manager) UpdateThing(ctx context.Context, name string,
-	class *models.SemanticSchemaClass) error {
+func (m *Manager) UpdateThing(ctx context.Context, principal *models.Principal,
+	name string, class *models.SemanticSchemaClass) error {
+
+	err := m.authorizer.Authorize(principal, "update", "schema/things")
+	if err != nil {
+		return err
+	}
+
 	return m.updateClass(ctx, name, class, kind.Thing)
 }
 

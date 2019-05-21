@@ -16,6 +16,7 @@ import (
 	"fmt"
 
 	testhelper "github.com/semi-technologies/weaviate/adapters/handlers/graphql/test/helper"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
 )
@@ -47,7 +48,8 @@ func newMockResolver(cfg config.Config) *mockResolver {
 	return mocker
 }
 
-func (m *mockResolver) LocalGetMeta(ctx context.Context, params *kinds.GetMetaParams) (interface{}, error) {
+func (m *mockResolver) LocalGetMeta(ctx context.Context, principal *models.Principal,
+	params *kinds.GetMetaParams) (interface{}, error) {
 	args := m.Called(params)
 	return args.Get(0), args.Error(1)
 }

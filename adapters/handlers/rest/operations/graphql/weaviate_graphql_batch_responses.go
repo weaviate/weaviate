@@ -97,11 +97,16 @@ func (o *WeaviateGraphqlBatchUnauthorized) WriteResponse(rw http.ResponseWriter,
 // WeaviateGraphqlBatchForbiddenCode is the HTTP code returned for type WeaviateGraphqlBatchForbidden
 const WeaviateGraphqlBatchForbiddenCode int = 403
 
-/*WeaviateGraphqlBatchForbidden Insufficient permissions.
+/*WeaviateGraphqlBatchForbidden Forbidden
 
 swagger:response weaviateGraphqlBatchForbidden
 */
 type WeaviateGraphqlBatchForbidden struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
 }
 
 // NewWeaviateGraphqlBatchForbidden creates WeaviateGraphqlBatchForbidden with default headers values
@@ -110,12 +115,27 @@ func NewWeaviateGraphqlBatchForbidden() *WeaviateGraphqlBatchForbidden {
 	return &WeaviateGraphqlBatchForbidden{}
 }
 
+// WithPayload adds the payload to the weaviate graphql batch forbidden response
+func (o *WeaviateGraphqlBatchForbidden) WithPayload(payload *models.ErrorResponse) *WeaviateGraphqlBatchForbidden {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate graphql batch forbidden response
+func (o *WeaviateGraphqlBatchForbidden) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
 // WriteResponse to the client
 func (o *WeaviateGraphqlBatchForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
 	rw.WriteHeader(403)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // WeaviateGraphqlBatchUnprocessableEntityCode is the HTTP code returned for type WeaviateGraphqlBatchUnprocessableEntity

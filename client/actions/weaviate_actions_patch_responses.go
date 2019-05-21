@@ -167,16 +167,24 @@ func NewWeaviateActionsPatchForbidden() *WeaviateActionsPatchForbidden {
 
 /*WeaviateActionsPatchForbidden handles this case with default header values.
 
-Insufficient permissions.
+Forbidden
 */
 type WeaviateActionsPatchForbidden struct {
+	Payload *models.ErrorResponse
 }
 
 func (o *WeaviateActionsPatchForbidden) Error() string {
-	return fmt.Sprintf("[PATCH /actions/{id}][%d] weaviateActionsPatchForbidden ", 403)
+	return fmt.Sprintf("[PATCH /actions/{id}][%d] weaviateActionsPatchForbidden  %+v", 403, o.Payload)
 }
 
 func (o *WeaviateActionsPatchForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

@@ -13,6 +13,7 @@
 package get
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"strings"
@@ -253,9 +254,18 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 		}()
 
 		return func() (interface{}, error) {
-			return resolver.LocalGetClass(p.Context, &params)
+			return resolver.LocalGetClass(p.Context, principalFromContext(p.Context), &params)
 		}, nil
 	}
+}
+
+func principalFromContext(ctx context.Context) *models.Principal {
+	principal := ctx.Value("principal")
+	if principal == nil {
+		return nil
+	}
+
+	return principal.(*models.Principal)
 }
 
 func isPrimitive(selectionSet *ast.SelectionSet) bool {

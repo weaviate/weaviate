@@ -56,6 +56,13 @@ func (o *WeaviateSchemaThingsDeleteReader) ReadResponse(response runtime.ClientR
 		}
 		return nil, result
 
+	case 403:
+		result := NewWeaviateSchemaThingsDeleteForbidden()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+
 	case 500:
 		result := NewWeaviateSchemaThingsDeleteInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -135,6 +142,35 @@ func (o *WeaviateSchemaThingsDeleteUnauthorized) Error() string {
 }
 
 func (o *WeaviateSchemaThingsDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewWeaviateSchemaThingsDeleteForbidden creates a WeaviateSchemaThingsDeleteForbidden with default headers values
+func NewWeaviateSchemaThingsDeleteForbidden() *WeaviateSchemaThingsDeleteForbidden {
+	return &WeaviateSchemaThingsDeleteForbidden{}
+}
+
+/*WeaviateSchemaThingsDeleteForbidden handles this case with default header values.
+
+Forbidden
+*/
+type WeaviateSchemaThingsDeleteForbidden struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *WeaviateSchemaThingsDeleteForbidden) Error() string {
+	return fmt.Sprintf("[DELETE /schema/things/{className}][%d] weaviateSchemaThingsDeleteForbidden  %+v", 403, o.Payload)
+}
+
+func (o *WeaviateSchemaThingsDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

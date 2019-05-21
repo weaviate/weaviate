@@ -117,16 +117,24 @@ func NewWeaviateSchemaActionsPropertiesDeleteForbidden() *WeaviateSchemaActionsP
 
 /*WeaviateSchemaActionsPropertiesDeleteForbidden handles this case with default header values.
 
-Could not find the Action class or property.
+Forbidden
 */
 type WeaviateSchemaActionsPropertiesDeleteForbidden struct {
+	Payload *models.ErrorResponse
 }
 
 func (o *WeaviateSchemaActionsPropertiesDeleteForbidden) Error() string {
-	return fmt.Sprintf("[DELETE /schema/actions/{className}/properties/{propertyName}][%d] weaviateSchemaActionsPropertiesDeleteForbidden ", 403)
+	return fmt.Sprintf("[DELETE /schema/actions/{className}/properties/{propertyName}][%d] weaviateSchemaActionsPropertiesDeleteForbidden  %+v", 403, o.Payload)
 }
 
 func (o *WeaviateSchemaActionsPropertiesDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }
