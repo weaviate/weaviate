@@ -74,11 +74,16 @@ func (o *WeaviateSchemaActionsPropertiesDeleteUnauthorized) WriteResponse(rw htt
 // WeaviateSchemaActionsPropertiesDeleteForbiddenCode is the HTTP code returned for type WeaviateSchemaActionsPropertiesDeleteForbidden
 const WeaviateSchemaActionsPropertiesDeleteForbiddenCode int = 403
 
-/*WeaviateSchemaActionsPropertiesDeleteForbidden Could not find the Action class or property.
+/*WeaviateSchemaActionsPropertiesDeleteForbidden Forbidden
 
 swagger:response weaviateSchemaActionsPropertiesDeleteForbidden
 */
 type WeaviateSchemaActionsPropertiesDeleteForbidden struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
 }
 
 // NewWeaviateSchemaActionsPropertiesDeleteForbidden creates WeaviateSchemaActionsPropertiesDeleteForbidden with default headers values
@@ -87,12 +92,27 @@ func NewWeaviateSchemaActionsPropertiesDeleteForbidden() *WeaviateSchemaActionsP
 	return &WeaviateSchemaActionsPropertiesDeleteForbidden{}
 }
 
+// WithPayload adds the payload to the weaviate schema actions properties delete forbidden response
+func (o *WeaviateSchemaActionsPropertiesDeleteForbidden) WithPayload(payload *models.ErrorResponse) *WeaviateSchemaActionsPropertiesDeleteForbidden {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate schema actions properties delete forbidden response
+func (o *WeaviateSchemaActionsPropertiesDeleteForbidden) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
 // WriteResponse to the client
 func (o *WeaviateSchemaActionsPropertiesDeleteForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
 	rw.WriteHeader(403)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // WeaviateSchemaActionsPropertiesDeleteInternalServerErrorCode is the HTTP code returned for type WeaviateSchemaActionsPropertiesDeleteInternalServerError
