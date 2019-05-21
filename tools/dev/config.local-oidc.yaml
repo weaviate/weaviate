@@ -20,7 +20,7 @@ authorization:
   admin_list:
     enabled: true
     users:
-      - john@doe.com
+      - differentjohn@doe.com
 analytics_engine:
   enabled: true
   defaultUseAnalyticsEngine: false
