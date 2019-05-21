@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	uuid "github.com/satori/go.uuid"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	"github.com/sirupsen/logrus"
@@ -36,6 +37,7 @@ type Manager struct {
 	locks         locks
 	schemaManager schemaManager
 	logger        logrus.FieldLogger
+	authorizer    authorizer
 }
 
 // Repo describes the requirements the kinds UC has to the connected database
@@ -52,13 +54,17 @@ type locks interface {
 	LockSchema() (func() error, error)
 }
 
+type authorizer interface {
+	Authorize(principal *models.Principal, verb, resource string) error
+}
+
 type network interface {
 	ListPeers() (peers.Peers, error)
 }
 
 // NewManager creates a new manager
 func NewManager(repo Repo, locks locks, schemaManager schemaManager, network network,
-	config *config.WeaviateConfig, logger logrus.FieldLogger) *Manager {
+	config *config.WeaviateConfig, logger logrus.FieldLogger, authorizer authorizer) *Manager {
 	return &Manager{
 		network:       network,
 		config:        config,
@@ -66,6 +72,7 @@ func NewManager(repo Repo, locks locks, schemaManager schemaManager, network net
 		locks:         locks,
 		schemaManager: schemaManager,
 		logger:        logger,
+		authorizer:    authorizer,
 	}
 }
 

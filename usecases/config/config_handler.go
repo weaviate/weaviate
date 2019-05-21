@@ -50,6 +50,7 @@ type Config struct {
 	Contextionary        Contextionary   `json:"contextionary" yaml:"contextionary"`
 	ConfigurationStorage ConfigStore     `json:"configuration_storage" yaml:"configuration_storage"`
 	Authentication       Authentication  `json:"authentication" yaml:"authentication"`
+	Authorization        Authorization   `json:"authorization" yaml:"authorization"`
 	Telemetry            Telemetry       `json:"telemetry" yaml:"telemetry"`
 }
 
@@ -154,6 +155,10 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 	f.Config = config
 
 	if err := f.Config.Authentication.Validate(); err != nil {
+		return fmt.Errorf("invalid config: %v", err)
+	}
+
+	if err := f.Config.Authorization.Validate(); err != nil {
 		return fmt.Errorf("invalid config: %v", err)
 	}
 

@@ -672,7 +672,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -714,7 +717,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -758,7 +764,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -802,7 +811,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -844,7 +856,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -901,7 +916,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -957,7 +975,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -1019,7 +1040,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
@@ -1076,7 +1100,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
@@ -1133,7 +1160,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found.",
@@ -1200,7 +1230,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -1267,7 +1300,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -1321,7 +1357,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -1374,7 +1413,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -1427,7 +1469,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -1462,6 +1507,12 @@
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -1558,6 +1609,12 @@
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
@@ -1592,6 +1649,12 @@
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Invalid Action class",
@@ -1635,6 +1698,12 @@
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
@@ -1672,7 +1741,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Action class."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Invalid update.",
@@ -1722,7 +1794,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Action class."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Invalid property.",
@@ -1767,7 +1842,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Action class or property."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -1812,7 +1890,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Action class or property."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Invalid update.",
@@ -1854,6 +1935,12 @@
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Invalid Thing class.",
@@ -1897,6 +1984,12 @@
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
@@ -1933,7 +2026,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Thing class."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Invalid update.",
@@ -1983,7 +2079,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Thing class."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Invalid property.",
@@ -2028,7 +2127,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Thing class or property."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -2073,7 +2175,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Thing class or property."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Invalid update.",
@@ -2111,7 +2216,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -2153,7 +2261,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -2197,7 +2308,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -2241,7 +2355,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -2283,7 +2400,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -2340,7 +2460,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -2396,7 +2519,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -2458,7 +2584,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
@@ -2515,7 +2644,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
@@ -2572,7 +2704,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Successful query result but no resource was found.",
@@ -2624,7 +2759,10 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Insufficient permissions."
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",

@@ -12,6 +12,7 @@
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -35,20 +36,26 @@ type updateRepo interface {
 // UpdateAction Class Instance to the connected DB. If the class contains a network
 // ref, it has a side-effect on the schema: The schema will be updated to
 // include this particular network ref class.
-func (m *Manager) UpdateAction(ctx context.Context, id strfmt.UUID, class *models.Action) (*models.Action, error) {
+func (m *Manager) UpdateAction(ctx context.Context, principal *models.Principal, id strfmt.UUID,
+	class *models.Action) (*models.Action, error) {
+	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("actions/%s", id.String()))
+	if err != nil {
+		return nil, err
+	}
+
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
-		return nil, newErrInternal("could not aquire lock: %v", err)
+		return nil, NewErrInternal("could not aquire lock: %v", err)
 	}
 	defer unlock()
 
-	return m.updateActionToConnectorAndSchema(ctx, id, class)
+	return m.updateActionToConnectorAndSchema(ctx, principal, id, class)
 }
 
-func (m *Manager) updateActionToConnectorAndSchema(ctx context.Context, id strfmt.UUID,
-	class *models.Action) (*models.Action, error) {
+func (m *Manager) updateActionToConnectorAndSchema(ctx context.Context, principal *models.Principal,
+	id strfmt.UUID, class *models.Action) (*models.Action, error) {
 	if id != class.ID {
-		return nil, newErrInvalidUserInput("invalid update: field 'id' is immutable")
+		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
 
 	originalAction, err := m.getActionFromRepo(ctx, id)
@@ -64,20 +71,20 @@ func (m *Manager) updateActionToConnectorAndSchema(ctx context.Context, id strfm
 		WithField("id", id).
 		Debug("received update kind request")
 
-	err = m.validateAction(ctx, class)
+	err = m.validateAction(ctx, principal, class)
 	if err != nil {
-		return nil, newErrInvalidUserInput("invalid action: %v", err)
+		return nil, NewErrInvalidUserInput("invalid action: %v", err)
 	}
 
-	err = m.addNetworkDataTypesForAction(ctx, class)
+	err = m.addNetworkDataTypesForAction(ctx, principal, class)
 	if err != nil {
-		return nil, newErrInternal("could not update schema for network refs: %v", err)
+		return nil, NewErrInternal("could not update schema for network refs: %v", err)
 	}
 
 	class.LastUpdateTimeUnix = unixNow()
 	err = m.repo.UpdateAction(ctx, class, class.ID)
 	if err != nil {
-		return nil, newErrInternal("could not store updated action: %v", err)
+		return nil, NewErrInternal("could not store updated action: %v", err)
 	}
 
 	return class, nil
@@ -86,20 +93,26 @@ func (m *Manager) updateActionToConnectorAndSchema(ctx context.Context, id strfm
 // UpdateThing Class Instance to the connected DB. If the class contains a network
 // ref, it has a side-effect on the schema: The schema will be updated to
 // include this particular network ref class.
-func (m *Manager) UpdateThing(ctx context.Context, id strfmt.UUID, class *models.Thing) (*models.Thing, error) {
+func (m *Manager) UpdateThing(ctx context.Context, principal *models.Principal,
+	id strfmt.UUID, class *models.Thing) (*models.Thing, error) {
+	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("things/%s", id.String()))
+	if err != nil {
+		return nil, err
+	}
+
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
-		return nil, newErrInternal("could not aquire lock: %v", err)
+		return nil, NewErrInternal("could not aquire lock: %v", err)
 	}
 	defer unlock()
 
-	return m.updateThingToConnectorAndSchema(ctx, id, class)
+	return m.updateThingToConnectorAndSchema(ctx, principal, id, class)
 }
 
-func (m *Manager) updateThingToConnectorAndSchema(ctx context.Context, id strfmt.UUID,
-	class *models.Thing) (*models.Thing, error) {
+func (m *Manager) updateThingToConnectorAndSchema(ctx context.Context, principal *models.Principal,
+	id strfmt.UUID, class *models.Thing) (*models.Thing, error) {
 	if id != class.ID {
-		return nil, newErrInvalidUserInput("invalid update: field 'id' is immutable")
+		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
 
 	originalThing, err := m.getThingFromRepo(ctx, id)
@@ -115,20 +128,20 @@ func (m *Manager) updateThingToConnectorAndSchema(ctx context.Context, id strfmt
 		WithField("id", id).
 		Debug("received update kind request")
 
-	err = m.validateThing(ctx, class)
+	err = m.validateThing(ctx, principal, class)
 	if err != nil {
-		return nil, newErrInvalidUserInput("invalid thing: %v", err)
+		return nil, NewErrInvalidUserInput("invalid thing: %v", err)
 	}
 
-	err = m.addNetworkDataTypesForThing(ctx, class)
+	err = m.addNetworkDataTypesForThing(ctx, principal, class)
 	if err != nil {
-		return nil, newErrInternal("could not update schema for network refs: %v", err)
+		return nil, NewErrInternal("could not update schema for network refs: %v", err)
 	}
 
 	class.LastUpdateTimeUnix = unixNow()
 	err = m.repo.UpdateThing(ctx, class, class.ID)
 	if err != nil {
-		return nil, newErrInternal("could not store updated thing: %v", err)
+		return nil, NewErrInternal("could not store updated thing: %v", err)
 	}
 
 	return class, nil

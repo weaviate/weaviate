@@ -115,6 +115,50 @@ func (o *WeaviateSchemaActionsDeleteUnauthorized) WriteResponse(rw http.Response
 	rw.WriteHeader(401)
 }
 
+// WeaviateSchemaActionsDeleteForbiddenCode is the HTTP code returned for type WeaviateSchemaActionsDeleteForbidden
+const WeaviateSchemaActionsDeleteForbiddenCode int = 403
+
+/*WeaviateSchemaActionsDeleteForbidden Forbidden
+
+swagger:response weaviateSchemaActionsDeleteForbidden
+*/
+type WeaviateSchemaActionsDeleteForbidden struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewWeaviateSchemaActionsDeleteForbidden creates WeaviateSchemaActionsDeleteForbidden with default headers values
+func NewWeaviateSchemaActionsDeleteForbidden() *WeaviateSchemaActionsDeleteForbidden {
+
+	return &WeaviateSchemaActionsDeleteForbidden{}
+}
+
+// WithPayload adds the payload to the weaviate schema actions delete forbidden response
+func (o *WeaviateSchemaActionsDeleteForbidden) WithPayload(payload *models.ErrorResponse) *WeaviateSchemaActionsDeleteForbidden {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate schema actions delete forbidden response
+func (o *WeaviateSchemaActionsDeleteForbidden) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *WeaviateSchemaActionsDeleteForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(403)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // WeaviateSchemaActionsDeleteInternalServerErrorCode is the HTTP code returned for type WeaviateSchemaActionsDeleteInternalServerError
 const WeaviateSchemaActionsDeleteInternalServerErrorCode int = 500
 

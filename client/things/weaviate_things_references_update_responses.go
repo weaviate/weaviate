@@ -124,16 +124,24 @@ func NewWeaviateThingsReferencesUpdateForbidden() *WeaviateThingsReferencesUpdat
 
 /*WeaviateThingsReferencesUpdateForbidden handles this case with default header values.
 
-Insufficient permissions.
+Forbidden
 */
 type WeaviateThingsReferencesUpdateForbidden struct {
+	Payload *models.ErrorResponse
 }
 
 func (o *WeaviateThingsReferencesUpdateForbidden) Error() string {
-	return fmt.Sprintf("[PUT /things/{id}/references/{propertyName}][%d] weaviateThingsReferencesUpdateForbidden ", 403)
+	return fmt.Sprintf("[PUT /things/{id}/references/{propertyName}][%d] weaviateThingsReferencesUpdateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *WeaviateThingsReferencesUpdateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

@@ -91,6 +91,50 @@ func (o *WeaviateSchemaDumpUnauthorized) WriteResponse(rw http.ResponseWriter, p
 	rw.WriteHeader(401)
 }
 
+// WeaviateSchemaDumpForbiddenCode is the HTTP code returned for type WeaviateSchemaDumpForbidden
+const WeaviateSchemaDumpForbiddenCode int = 403
+
+/*WeaviateSchemaDumpForbidden Forbidden
+
+swagger:response weaviateSchemaDumpForbidden
+*/
+type WeaviateSchemaDumpForbidden struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewWeaviateSchemaDumpForbidden creates WeaviateSchemaDumpForbidden with default headers values
+func NewWeaviateSchemaDumpForbidden() *WeaviateSchemaDumpForbidden {
+
+	return &WeaviateSchemaDumpForbidden{}
+}
+
+// WithPayload adds the payload to the weaviate schema dump forbidden response
+func (o *WeaviateSchemaDumpForbidden) WithPayload(payload *models.ErrorResponse) *WeaviateSchemaDumpForbidden {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate schema dump forbidden response
+func (o *WeaviateSchemaDumpForbidden) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *WeaviateSchemaDumpForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(403)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // WeaviateSchemaDumpInternalServerErrorCode is the HTTP code returned for type WeaviateSchemaDumpInternalServerError
 const WeaviateSchemaDumpInternalServerErrorCode int = 500
 

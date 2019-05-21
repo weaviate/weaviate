@@ -97,11 +97,16 @@ func (o *WeaviateBatchingThingsCreateUnauthorized) WriteResponse(rw http.Respons
 // WeaviateBatchingThingsCreateForbiddenCode is the HTTP code returned for type WeaviateBatchingThingsCreateForbidden
 const WeaviateBatchingThingsCreateForbiddenCode int = 403
 
-/*WeaviateBatchingThingsCreateForbidden Insufficient permissions.
+/*WeaviateBatchingThingsCreateForbidden Forbidden
 
 swagger:response weaviateBatchingThingsCreateForbidden
 */
 type WeaviateBatchingThingsCreateForbidden struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
 }
 
 // NewWeaviateBatchingThingsCreateForbidden creates WeaviateBatchingThingsCreateForbidden with default headers values
@@ -110,12 +115,27 @@ func NewWeaviateBatchingThingsCreateForbidden() *WeaviateBatchingThingsCreateFor
 	return &WeaviateBatchingThingsCreateForbidden{}
 }
 
+// WithPayload adds the payload to the weaviate batching things create forbidden response
+func (o *WeaviateBatchingThingsCreateForbidden) WithPayload(payload *models.ErrorResponse) *WeaviateBatchingThingsCreateForbidden {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate batching things create forbidden response
+func (o *WeaviateBatchingThingsCreateForbidden) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
 // WriteResponse to the client
 func (o *WeaviateBatchingThingsCreateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
 	rw.WriteHeader(403)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // WeaviateBatchingThingsCreateUnprocessableEntityCode is the HTTP code returned for type WeaviateBatchingThingsCreateUnprocessableEntity

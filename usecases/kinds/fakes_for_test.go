@@ -14,6 +14,7 @@ import (
 	"context"
 
 	"github.com/go-openapi/strfmt"
+	contextionary "github.com/semi-technologies/weaviate/contextionary/schema"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
@@ -79,6 +80,26 @@ func (f *fakeRepo) AddBatchReferences(ctx context.Context, references BatchRefer
 	panic("not implemented")
 }
 
+func (f *fakeRepo) LocalAggregate(ctx context.Context, params *AggregateParams) (interface{}, error) {
+	panic("not implemented")
+}
+
+func (f *fakeRepo) LocalFetchFuzzy(ctx context.Context, words []string) (interface{}, error) {
+	panic("not implemented")
+}
+
+func (f *fakeRepo) LocalFetchKindClass(ctx context.Context, params *FetchParams) (interface{}, error) {
+	panic("not implemented")
+}
+
+func (f *fakeRepo) LocalGetClass(ctx context.Context, params *LocalGetParams) (interface{}, error) {
+	panic("not implemented")
+}
+
+func (f *fakeRepo) LocalGetMeta(ctx context.Context, params *GetMetaParams) (interface{}, error) {
+	panic("not implemented")
+}
+
 type fakeSchemaManager struct {
 	CalledWith struct {
 		kind      kind.Kind
@@ -89,7 +110,8 @@ type fakeSchemaManager struct {
 	GetSchemaResponse schema.Schema
 }
 
-func (f *fakeSchemaManager) UpdatePropertyAddDataType(ctx context.Context, k kind.Kind, fromClass, property, toClass string) error {
+func (f *fakeSchemaManager) UpdatePropertyAddDataType(ctx context.Context, principal *models.Principal,
+	k kind.Kind, fromClass, property, toClass string) error {
 	f.CalledWith = struct {
 		kind      kind.Kind
 		fromClass string
@@ -104,8 +126,8 @@ func (f *fakeSchemaManager) UpdatePropertyAddDataType(ctx context.Context, k kin
 	return nil
 }
 
-func (f *fakeSchemaManager) GetSchema() schema.Schema {
-	return f.GetSchemaResponse
+func (f *fakeSchemaManager) GetSchema(principal *models.Principal) (schema.Schema, error) {
+	return f.GetSchemaResponse, nil
 }
 
 type fakeLocks struct{}
@@ -140,4 +162,16 @@ func (f *fakeNetwork) ListPeers() (peers.Peers, error) {
 	}
 
 	return myPeers, nil
+}
+
+type fakeAuthorizer struct{}
+
+func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {
+	return nil
+}
+
+type fakeC11yProvider struct{}
+
+func (f *fakeC11yProvider) GetSchemaContextionary() *contextionary.Contextionary {
+	panic("not implemented")
 }

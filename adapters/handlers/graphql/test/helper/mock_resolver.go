@@ -12,6 +12,7 @@
 package helper
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -58,6 +59,7 @@ func (mr *MockResolver) Resolve(query string) *graphql.Result {
 		Schema:        schema,
 		RequestString: query,
 		RootObject:    mr.RootObject,
+		Context:       context.Background(),
 	})
 
 	return result

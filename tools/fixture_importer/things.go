@@ -260,6 +260,8 @@ func checkThingExists(id string) bool {
 		switch v := err.(type) {
 		case *things.WeaviateThingsGetNotFound:
 			return false
+		case *things.WeaviateThingsGetForbidden:
+			panic(v.Payload.Error[0].Message)
 		default:
 			panic(fmt.Sprintf("Can't create thing %#v, because %#v", resp, spew.Sdump(v)))
 		}

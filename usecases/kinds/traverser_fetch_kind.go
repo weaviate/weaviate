@@ -16,11 +16,19 @@ import (
 
 	contextionary "github.com/semi-technologies/weaviate/contextionary/schema"
 	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 // LocalFetchKindClass searches for a specific class based on FetchSearch params
-func (t *Traverser) LocalFetchKindClass(ctx context.Context, params *FetchSearch) (interface{}, error) {
+func (t *Traverser) LocalFetchKindClass(ctx context.Context, principal *models.Principal,
+	params *FetchSearch) (interface{}, error) {
+
+	err := t.authorizer.Authorize(principal, "get", "traversal/*")
+	if err != nil {
+		return nil, err
+	}
+
 	unlock, err := t.locks.LockConnector()
 	if err != nil {
 		return nil, fmt.Errorf("could not acquire lock: %v", err)

@@ -91,6 +91,50 @@ func (o *WeaviateMetaGetUnauthorized) WriteResponse(rw http.ResponseWriter, prod
 	rw.WriteHeader(401)
 }
 
+// WeaviateMetaGetForbiddenCode is the HTTP code returned for type WeaviateMetaGetForbidden
+const WeaviateMetaGetForbiddenCode int = 403
+
+/*WeaviateMetaGetForbidden Forbidden
+
+swagger:response weaviateMetaGetForbidden
+*/
+type WeaviateMetaGetForbidden struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewWeaviateMetaGetForbidden creates WeaviateMetaGetForbidden with default headers values
+func NewWeaviateMetaGetForbidden() *WeaviateMetaGetForbidden {
+
+	return &WeaviateMetaGetForbidden{}
+}
+
+// WithPayload adds the payload to the weaviate meta get forbidden response
+func (o *WeaviateMetaGetForbidden) WithPayload(payload *models.ErrorResponse) *WeaviateMetaGetForbidden {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate meta get forbidden response
+func (o *WeaviateMetaGetForbidden) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *WeaviateMetaGetForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(403)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // WeaviateMetaGetInternalServerErrorCode is the HTTP code returned for type WeaviateMetaGetInternalServerError
 const WeaviateMetaGetInternalServerErrorCode int = 500
 

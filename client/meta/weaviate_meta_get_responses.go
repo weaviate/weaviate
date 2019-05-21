@@ -49,6 +49,13 @@ func (o *WeaviateMetaGetReader) ReadResponse(response runtime.ClientResponse, co
 		}
 		return nil, result
 
+	case 403:
+		result := NewWeaviateMetaGetForbidden()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+
 	case 500:
 		result := NewWeaviateMetaGetInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -107,6 +114,35 @@ func (o *WeaviateMetaGetUnauthorized) Error() string {
 }
 
 func (o *WeaviateMetaGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewWeaviateMetaGetForbidden creates a WeaviateMetaGetForbidden with default headers values
+func NewWeaviateMetaGetForbidden() *WeaviateMetaGetForbidden {
+	return &WeaviateMetaGetForbidden{}
+}
+
+/*WeaviateMetaGetForbidden handles this case with default header values.
+
+Forbidden
+*/
+type WeaviateMetaGetForbidden struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *WeaviateMetaGetForbidden) Error() string {
+	return fmt.Sprintf("[GET /meta][%d] weaviateMetaGetForbidden  %+v", 403, o.Payload)
+}
+
+func (o *WeaviateMetaGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

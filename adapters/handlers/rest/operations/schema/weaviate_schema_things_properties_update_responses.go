@@ -74,11 +74,16 @@ func (o *WeaviateSchemaThingsPropertiesUpdateUnauthorized) WriteResponse(rw http
 // WeaviateSchemaThingsPropertiesUpdateForbiddenCode is the HTTP code returned for type WeaviateSchemaThingsPropertiesUpdateForbidden
 const WeaviateSchemaThingsPropertiesUpdateForbiddenCode int = 403
 
-/*WeaviateSchemaThingsPropertiesUpdateForbidden Could not find the Thing class or property.
+/*WeaviateSchemaThingsPropertiesUpdateForbidden Forbidden
 
 swagger:response weaviateSchemaThingsPropertiesUpdateForbidden
 */
 type WeaviateSchemaThingsPropertiesUpdateForbidden struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
 }
 
 // NewWeaviateSchemaThingsPropertiesUpdateForbidden creates WeaviateSchemaThingsPropertiesUpdateForbidden with default headers values
@@ -87,12 +92,27 @@ func NewWeaviateSchemaThingsPropertiesUpdateForbidden() *WeaviateSchemaThingsPro
 	return &WeaviateSchemaThingsPropertiesUpdateForbidden{}
 }
 
+// WithPayload adds the payload to the weaviate schema things properties update forbidden response
+func (o *WeaviateSchemaThingsPropertiesUpdateForbidden) WithPayload(payload *models.ErrorResponse) *WeaviateSchemaThingsPropertiesUpdateForbidden {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate schema things properties update forbidden response
+func (o *WeaviateSchemaThingsPropertiesUpdateForbidden) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
 // WriteResponse to the client
 func (o *WeaviateSchemaThingsPropertiesUpdateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
 	rw.WriteHeader(403)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // WeaviateSchemaThingsPropertiesUpdateUnprocessableEntityCode is the HTTP code returned for type WeaviateSchemaThingsPropertiesUpdateUnprocessableEntity

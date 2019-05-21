@@ -14,6 +14,7 @@ import (
 	"context"
 
 	"github.com/semi-technologies/weaviate/contextionary"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 type fakeRepo struct {
@@ -100,4 +101,10 @@ func (f *fakeC11y) SafeGetSimilarWords(word string, n int, k int) ([]string, []f
 
 func (f *fakeC11y) SafeGetSimilarWordsWithCertainty(word string, certainty float32) []string {
 	panic("not implemented")
+}
+
+type fakeAuthorizer struct{}
+
+func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {
+	return nil
 }

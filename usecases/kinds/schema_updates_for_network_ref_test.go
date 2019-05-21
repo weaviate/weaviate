@@ -26,14 +26,14 @@ import (
 )
 
 func TestSchemaUpdaterWithEmtpyRefSchema(t *testing.T) {
-	err := newReferenceSchemaUpdater(context.TODO(), nil, nil, "FooThing", kind.Thing).
+	err := newReferenceSchemaUpdater(context.TODO(), nil, nil, nil, "FooThing", kind.Thing).
 		addNetworkDataTypes(nil)
 
 	assert.Nil(t, err, "it does not error with an empty schema")
 }
 
 func TestSchemaUpdaterWithOnlyPrimitiveProps(t *testing.T) {
-	err := newReferenceSchemaUpdater(context.TODO(), nil, nil, "FooThing", kind.Thing).
+	err := newReferenceSchemaUpdater(context.TODO(), nil, nil, nil, "FooThing", kind.Thing).
 		addNetworkDataTypes(map[string]interface{}{
 			"foo":  "bar",
 			"baz":  int64(100),
@@ -45,7 +45,7 @@ func TestSchemaUpdaterWithOnlyPrimitiveProps(t *testing.T) {
 
 func TestSchemaUpdaterWithOnlyLocalRefs(t *testing.T) {
 	loc := "weaviate://localhost/things/fcc72dff-7feb-4a84-b580-fa0261aea776"
-	err := newReferenceSchemaUpdater(context.TODO(), nil, nil, "FooThing", kind.Thing).
+	err := newReferenceSchemaUpdater(context.TODO(), nil, nil, nil, "FooThing", kind.Thing).
 		addNetworkDataTypes(map[string]interface{}{
 			"fooRef": &models.SingleRef{
 				NrDollarCref: strfmt.URI(loc),
@@ -65,7 +65,7 @@ func TestSchemaUpdaterWithSingleNetworkRefFromThingToThing(t *testing.T) {
 	// act
 	refID := "30ad9bd2-1e33-460a-bea7-dcce72d086a1"
 	loc := "http://BestWeaviate/things/" + refID
-	err := newReferenceSchemaUpdater(context.TODO(), schemaManager, network, "FooThing", kind.Thing).
+	err := newReferenceSchemaUpdater(context.TODO(), nil, schemaManager, network, "FooThing", kind.Thing).
 		addNetworkDataTypes(map[string]interface{}{
 			"fooRef": &models.SingleRef{
 				NrDollarCref: strfmt.URI(loc),
@@ -96,7 +96,7 @@ func TestSchemaUpdaterWithSingleNetworkRefFromActinToThing(t *testing.T) {
 
 	// act
 	loc := "http://BestWeaviate/things/fbe157e9-3e4c-4be6-995d-d6d5ab49a84b"
-	err := newReferenceSchemaUpdater(context.TODO(), schemaManager, network, "FooAction", kind.Action).
+	err := newReferenceSchemaUpdater(context.TODO(), nil, schemaManager, network, "FooAction", kind.Action).
 		addNetworkDataTypes(map[string]interface{}{
 			"fooRef": &models.SingleRef{
 				NrDollarCref: strfmt.URI(loc),

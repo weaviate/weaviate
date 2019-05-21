@@ -181,7 +181,7 @@ func (n *network) ping() {
 		return
 	}
 
-	currentSchema := n.schemaGetter.GetSchema()
+	currentSchema := n.schemaGetter.GetSchemaSkipAuth()
 
 	n.Lock()
 	params := client_ops.NewGenesisPeersPingParams()

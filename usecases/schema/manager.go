@@ -35,6 +35,7 @@ type Manager struct {
 	network               network.Network
 	callbacks             []func(updatedSchema schema.Schema)
 	logger                logrus.FieldLogger
+	authorizer            authorizer
 }
 
 type Migrator interface {
@@ -72,7 +73,8 @@ type contextionaryProvider interface {
 
 // NewManager creates a new manager
 func NewManager(migrator Migrator, repo Repo, locks locks.ConnectorSchemaLock,
-	network network.Network, logger logrus.FieldLogger, c11yProvider contextionaryProvider) (*Manager, error) {
+	network network.Network, logger logrus.FieldLogger, c11yProvider contextionaryProvider,
+	authorizer authorizer) (*Manager, error) {
 	m := &Manager{
 		migrator:              migrator,
 		repo:                  repo,
@@ -81,6 +83,7 @@ func NewManager(migrator Migrator, repo Repo, locks locks.ConnectorSchemaLock,
 		network:               network,
 		logger:                logger,
 		contextionaryProvider: c11yProvider,
+		authorizer:            authorizer,
 	}
 
 	err := m.loadOrInitializeSchema(context.Background())
@@ -89,6 +92,10 @@ func NewManager(migrator Migrator, repo Repo, locks locks.ConnectorSchemaLock,
 	}
 
 	return m, nil
+}
+
+type authorizer interface {
+	Authorize(principal *models.Principal, verb, resource string) error
 }
 
 type unlocker interface {
@@ -146,7 +153,7 @@ func (m *Manager) RegisterSchemaUpdateCallback(callback func(updatedSchema schem
 }
 
 func (m *Manager) TriggerSchemaUpdateCallbacks() {
-	schema := m.GetSchema()
+	schema := m.GetSchemaSkipAuth()
 
 	for _, cb := range m.callbacks {
 		cb(schema)

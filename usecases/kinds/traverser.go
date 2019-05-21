@@ -14,6 +14,7 @@ import (
 	"context"
 
 	contextionary "github.com/semi-technologies/weaviate/contextionary/schema"
+	"github.com/sirupsen/logrus"
 )
 
 // Traverser can be used to dynamically traverse the knowledge graph
@@ -21,14 +22,19 @@ type Traverser struct {
 	locks                 locks
 	repo                  TraverserRepo
 	contextionaryProvider c11yProvider
+	logger                logrus.FieldLogger
+	authorizer            authorizer
 }
 
 // NewTraverser to traverse the knowledge graph
-func NewTraverser(locks locks, repo TraverserRepo, c11y c11yProvider) *Traverser {
+func NewTraverser(locks locks, repo TraverserRepo, c11y c11yProvider,
+	logger logrus.FieldLogger, authorizer authorizer) *Traverser {
 	return &Traverser{
 		locks:                 locks,
 		contextionaryProvider: c11y,
 		repo:                  repo,
+		logger:                logger,
+		authorizer:            authorizer,
 	}
 }
 

@@ -124,16 +124,24 @@ func NewWeaviateSchemaActionsPropertiesUpdateForbidden() *WeaviateSchemaActionsP
 
 /*WeaviateSchemaActionsPropertiesUpdateForbidden handles this case with default header values.
 
-Could not find the Action class or property.
+Forbidden
 */
 type WeaviateSchemaActionsPropertiesUpdateForbidden struct {
+	Payload *models.ErrorResponse
 }
 
 func (o *WeaviateSchemaActionsPropertiesUpdateForbidden) Error() string {
-	return fmt.Sprintf("[PUT /schema/actions/{className}/properties/{propertyName}][%d] weaviateSchemaActionsPropertiesUpdateForbidden ", 403)
+	return fmt.Sprintf("[PUT /schema/actions/{className}/properties/{propertyName}][%d] weaviateSchemaActionsPropertiesUpdateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *WeaviateSchemaActionsPropertiesUpdateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }
