@@ -2,7 +2,7 @@
 set -e
 
 echo "Unpacking fixture vectors"
-rm test/contextionary/en_test-vectors-small.txt
+rm -f test/contextionary/en_test-vectors-small.txt || true
 bunzip2 -k test/contextionary/en_test-vectors-small.txt.bz2
 
 # Fake stopword removal by removing the first 10 words. This will become
