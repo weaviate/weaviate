@@ -171,6 +171,10 @@ present in the contextionary.
 Keywords cannot be chained, they have to match exactly one word. However, there
 is no limit on the amount of keywords per class or per class property.
 
+Note that stopwords automatically removed from camelCased and CamelCased names,
+see more in [the section about
+stopwords](#stopwords-in-class-and-property-names).
+
 ### Examples
 
 * For class names:
@@ -187,6 +191,52 @@ is no limit on the amount of keywords per class or per class property.
   * valid: `car`, `dealership`, `sales`, `person`, `selling`, `automobiles`
   * invalid: `carDealership`, `car dealership`, `sales-person`,
     `selling_automobiles`
+
+## Stopwords in Class and Property Names
+
+### What stopwords are and why they matter
+Stopwords are words that don't add semantic meaning to your concepts and are
+extremely common in texts across different contexts. For example, the sentence
+"a car is parked on the street" contains the following stopwords: "a", "is",
+"on", "the". If we look at the sentence "a banana is lying on
+the table", you would find the exact same stop words. So in those two sentences
+over 50% of the words overlap. Therefore they would be considered somewhat
+similar (based on the overall vector position).
+
+However, if we remove stopwords from both sentences, they become "car parked
+street" and "banana lying table". Suddently there are 0% identical words in the
+sentences, so it becomes easier to perform vector comparisons. Note at this
+point we cannot say whether both sentences are related or not. For this we'd
+need to know how close the vector position of the sentence "car parked street"
+is to the vector position of "banana lying table". But we do know that the
+result can now be calculated with a lot less noise.
+
+### Behavior around stop words
+
+Stopwords are useful for humans, so we don't want to encourage you to leave
+them out completely. Instead weaviate will remove them whenever your schema
+information is translated to vector positions.
+
+In most cases you won't even notice that this happens in the background,
+however, there are a few edge cases that might cause a validation error:
+
+* If your camelCased class or property name consists **only** of stopwords,
+  validation will fail. Example: `TheInA` is not a valid class name, however,
+  `TheCarInAField` is (and would internally be represented as `CarField`).
+
+* If your keyword list contains stop words, they will be removed. However, if
+  every single keyword is a stop word, validation will fail.
+
+### How does weaviate decide wether a word is a stop word or not?
+
+The list of stopwords is derived from the contextionary version used and is
+published alongside the contextionary files.
+
+Check [c11y.semi.technology](c11y.semi.technology) or a list of stopwords using
+the desired language and version. For example, to see the stopwords used in the
+english language contextionary version 0.5.0, check
+[https://c11y.semi.technology/0.5.0/en/stopwords.json](https://c11y.semi.technology/0.5.0/en/stopwords.json).
+
 
 ## Property Data Types
 
