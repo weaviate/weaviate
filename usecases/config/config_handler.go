@@ -59,8 +59,9 @@ type QueryDefaults struct {
 }
 
 type Contextionary struct {
-	KNNFile string `json:"knn_file" yaml:"knn_file"`
-	IDXFile string `json:"idx_file" yaml:"idx_file"`
+	KNNFile       string `json:"knn_file" yaml:"knn_file"`
+	IDXFile       string `json:"idx_file" yaml:"idx_file"`
+	StopwordsFile string `json:"stopwords_file" yaml:"stopwords_file"`
 }
 
 // AnalyticsEngine represents an external analytics engine, such as Spark for

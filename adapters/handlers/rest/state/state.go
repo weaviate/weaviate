@@ -41,6 +41,7 @@ type State struct {
 	Contextionary    contextionary.Contextionary
 	RawContextionary contextionary.Contextionary
 	TelemetryLogger  *telemetry.RequestsLog
+	StopwordDetector stopwordDetector
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be
@@ -70,4 +71,8 @@ func (s *State) GetContextionary() contextionary.Contextionary {
 // schema_contextionary.Contextionary }
 func (s *State) GetSchemaContextionary() *schema_contextionary.Contextionary {
 	return schema_contextionary.New(s.Contextionary)
+}
+
+type stopwordDetector interface {
+	IsStopWord(word string) bool
 }

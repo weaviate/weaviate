@@ -25,6 +25,7 @@ configuration_storage:
 contextionary:
   knn_file: test/contextionary/example.knn
   idx_file: test/contextionary/example.idx
+  stopwords_file: test/contextionary/stopwords.json
 query_defaults:
   limit: 20
 debug: true
