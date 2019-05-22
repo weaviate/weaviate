@@ -55,7 +55,9 @@ ENTRYPOINT ["./tools/dev/telemetry_mock_api.sh"]
 ###############################################################################
 # This image builds the contextionary fixtures FOR DEV OR TEST.
 FROM build_base AS contextionary_fixture_builder
-COPY . .
+RUN apk add -U jq
+COPY go.mod go.sum ./
+COPY ./test/contextionary ./test/contextionary
 RUN ./test/contextionary/gen_simple_contextionary.sh
 
 ###############################################################################
@@ -65,6 +67,7 @@ COPY --from=server_builder /go/bin/weaviate-server /bin/weaviate
 COPY --from=build_base /etc/ssl/certs /etc/ssl/certs
 COPY --from=contextionary_fixture_builder /go/src/github.com/semi-technologies/weaviate/test/contextionary/example.idx /contextionary/contextionary.idx
 COPY --from=contextionary_fixture_builder /go/src/github.com/semi-technologies/weaviate/test/contextionary/example.knn /contextionary/contextionary.knn
+COPY --from=contextionary_fixture_builder /go/src/github.com/semi-technologies/weaviate/test/contextionary/stopwords.json /contextionary/stopwords.json
 ENTRYPOINT ["/bin/weaviate"]
 
 ###############################################################################

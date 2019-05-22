@@ -26,15 +26,19 @@ import (
 	libcontextionary "github.com/semi-technologies/weaviate/contextionary"
 )
 
-func BuildInMemoryContextionaryFromSchema(schema schema.Schema, context *libcontextionary.Contextionary) (*libcontextionary.Contextionary, error) {
+type stopwordDetector interface {
+	IsStopWord(word string) bool
+}
+
+func BuildInMemoryContextionaryFromSchema(schema schema.Schema, context *libcontextionary.Contextionary, stopwordDetector stopwordDetector) (*libcontextionary.Contextionary, error) {
 	in_memory_builder := libcontextionary.InMemoryBuilder((*context).GetVectorLength())
 
-	err := add_names_from_schema_properties(context, in_memory_builder, "THING", schema.SemanticSchemaFor(kind.Thing))
+	err := add_names_from_schema_properties(context, stopwordDetector, in_memory_builder, "THING", schema.SemanticSchemaFor(kind.Thing))
 	if err != nil {
 		return nil, err
 	}
 
-	err = add_names_from_schema_properties(context, in_memory_builder, "ACTION", schema.SemanticSchemaFor(kind.Action))
+	err = add_names_from_schema_properties(context, stopwordDetector, in_memory_builder, "ACTION", schema.SemanticSchemaFor(kind.Action))
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +49,8 @@ func BuildInMemoryContextionaryFromSchema(schema schema.Schema, context *libcont
 }
 
 // This function adds words in the form of $THING[Blurp]
-func add_names_from_schema_properties(context *libcontextionary.Contextionary, in_memory_builder *libcontextionary.MemoryIndexBuilder, kind string, schema *models.SemanticSchema) error {
+func add_names_from_schema_properties(context *libcontextionary.Contextionary, stopwordDetector stopwordDetector,
+	in_memory_builder *libcontextionary.MemoryIndexBuilder, kind string, schema *models.SemanticSchema) error {
 	for _, class := range schema.Classes {
 		class_centroid_name := fmt.Sprintf("$%v[%v]", kind, class.Class)
 
@@ -56,6 +61,9 @@ func add_names_from_schema_properties(context *libcontextionary.Contextionary, i
 
 			for _, keyword := range class.Keywords {
 				word := strings.ToLower(keyword.Keyword)
+				if stopwordDetector.IsStopWord(word) {
+					continue
+				}
 				// Lookup vector for the keyword.
 				idx := (*context).WordToItemIndex(word)
 				if idx.IsPresent() {
@@ -74,7 +82,7 @@ func add_names_from_schema_properties(context *libcontextionary.Contextionary, i
 
 			centroid, err := libcontextionary.ComputeWeightedCentroid(vectors, weights)
 			if err != nil {
-				return fmt.Errorf("Could not compute centroid")
+				return fmt.Errorf("Could not compute centroid: %v", err)
 			} else {
 				in_memory_builder.AddWord(class_centroid_name, *centroid)
 			}
@@ -84,6 +92,12 @@ func add_names_from_schema_properties(context *libcontextionary.Contextionary, i
 			var vectors []libcontextionary.Vector = make([]libcontextionary.Vector, 0)
 			for _, part := range camel_parts {
 				part = strings.ToLower(part)
+				if stopwordDetector.IsStopWord(part) {
+					// we don't need to check if every single word is a stop word,
+					// because UC validation has already prevented this from happening
+					continue
+				}
+
 				// Lookup vector for the keyword.
 				idx := (*context).WordToItemIndex(part)
 				if idx.IsPresent() {
@@ -120,6 +134,9 @@ func add_names_from_schema_properties(context *libcontextionary.Contextionary, i
 				for _, keyword := range property.Keywords {
 					word := strings.ToLower(keyword.Keyword)
 					// Lookup vector for the keyword.
+					if stopwordDetector.IsStopWord(word) {
+						continue
+					}
 					idx := (*context).WordToItemIndex(word)
 					if idx.IsPresent() {
 						vector, err := (*context).GetVectorForItemIndex(idx)
@@ -137,7 +154,7 @@ func add_names_from_schema_properties(context *libcontextionary.Contextionary, i
 
 				centroid, err := libcontextionary.ComputeWeightedCentroid(vectors, weights)
 				if err != nil {
-					return fmt.Errorf("Could not compute centroid")
+					return fmt.Errorf("Could not compute centroid: %v", err)
 				} else {
 					in_memory_builder.AddWord(property_centroid_name, *centroid)
 				}
@@ -147,6 +164,11 @@ func add_names_from_schema_properties(context *libcontextionary.Contextionary, i
 				var vectors []libcontextionary.Vector = make([]libcontextionary.Vector, 0)
 				for _, part := range camel_parts {
 					part = strings.ToLower(part)
+					if stopwordDetector.IsStopWord(part) {
+						// we don't need to check if every single word is a stop word,
+						// because UC validation has already prevented this from happening
+						continue
+					}
 					// Lookup vector for the keyword.
 					idx := (*context).WordToItemIndex(part)
 					if idx.IsPresent() {
@@ -164,7 +186,7 @@ func add_names_from_schema_properties(context *libcontextionary.Contextionary, i
 
 				centroid, err := libcontextionary.ComputeCentroid(vectors)
 				if err != nil {
-					return fmt.Errorf("Could not compute centroid")
+					return fmt.Errorf("Could not compute centroid: %v", err)
 				} else {
 					in_memory_builder.AddWord(property_centroid_name, *centroid)
 				}
