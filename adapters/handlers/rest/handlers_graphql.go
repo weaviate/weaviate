@@ -124,6 +124,12 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 		ctx = context.WithValue(ctx, "principal", principal)
 
 		graphQL := gqlProvider.GetGraphQL()
+		if graphQL == nil {
+			errRes := errPayloadFromSingleErr(fmt.Errorf("no graphql provider present, " +
+				"this is most likely because no schema is present. Import a schema first!"))
+			return graphql.NewWeaviateGraphqlBatchUnprocessableEntity().WithPayload(errRes)
+		}
+
 		// Generate a goroutine for each separate request
 		for requestIndex, unbatchedRequest := range params.Body {
 			wg.Add(1)
@@ -174,9 +180,6 @@ func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, grap
 			variables = unbatchedRequest.Variables.(map[string]interface{})
 		}
 
-		if graphQL == nil {
-			panic("graphql is nil!")
-		}
 		result := graphQL.Resolve(ctx, query, operationName, variables)
 
 		// Marshal the JSON
