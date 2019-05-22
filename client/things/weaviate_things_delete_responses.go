@@ -124,16 +124,24 @@ func NewWeaviateThingsDeleteForbidden() *WeaviateThingsDeleteForbidden {
 
 /*WeaviateThingsDeleteForbidden handles this case with default header values.
 
-Insufficient permissions.
+Forbidden
 */
 type WeaviateThingsDeleteForbidden struct {
+	Payload *models.ErrorResponse
 }
 
 func (o *WeaviateThingsDeleteForbidden) Error() string {
-	return fmt.Sprintf("[DELETE /things/{id}][%d] weaviateThingsDeleteForbidden ", 403)
+	return fmt.Sprintf("[DELETE /things/{id}][%d] weaviateThingsDeleteForbidden  %+v", 403, o.Payload)
 }
 
 func (o *WeaviateThingsDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

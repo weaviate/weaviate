@@ -168,16 +168,24 @@ func NewWeaviateC11yWordsForbidden() *WeaviateC11yWordsForbidden {
 
 /*WeaviateC11yWordsForbidden handles this case with default header values.
 
-Insufficient permissions.
+Forbidden
 */
 type WeaviateC11yWordsForbidden struct {
+	Payload *models.ErrorResponse
 }
 
 func (o *WeaviateC11yWordsForbidden) Error() string {
-	return fmt.Sprintf("[GET /c11y/words/{words}][%d] weaviateC11yWordsForbidden ", 403)
+	return fmt.Sprintf("[GET /c11y/words/{words}][%d] weaviateC11yWordsForbidden  %+v", 403, o.Payload)
 }
 
 func (o *WeaviateC11yWordsForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

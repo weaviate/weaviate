@@ -130,16 +130,24 @@ func NewWeaviateGraphqlBatchForbidden() *WeaviateGraphqlBatchForbidden {
 
 /*WeaviateGraphqlBatchForbidden handles this case with default header values.
 
-Insufficient permissions.
+Forbidden
 */
 type WeaviateGraphqlBatchForbidden struct {
+	Payload *models.ErrorResponse
 }
 
 func (o *WeaviateGraphqlBatchForbidden) Error() string {
-	return fmt.Sprintf("[POST /graphql/batch][%d] weaviateGraphqlBatchForbidden ", 403)
+	return fmt.Sprintf("[POST /graphql/batch][%d] weaviateGraphqlBatchForbidden  %+v", 403, o.Payload)
 }
 
 func (o *WeaviateGraphqlBatchForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

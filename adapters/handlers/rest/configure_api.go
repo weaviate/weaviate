@@ -66,7 +66,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	connstateRepo := etcd.NewConnStateRepo(etcdClient)
 
 	schemaManager, err := schemaUC.NewManager(appState.Connector, schemaRepo,
-		appState.Locks, appState.Network, appState.Logger, appState, appState.StopwordDetector)
+		appState.Locks, appState.Network, appState.Logger, appState, appState.Authorizer, appState.StopwordDetector)
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
@@ -74,11 +74,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		os.Exit(1)
 	}
 	kindsManager := kinds.NewManager(appState.Connector, appState.Locks,
-		schemaManager, appState.Network, appState.ServerConfig, appState.Logger)
+		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,
+		appState.Authorizer)
 	batchKindsManager := kinds.NewBatchManager(appState.Connector, appState.Locks,
-		schemaManager, appState.Network, appState.ServerConfig)
+		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,
+		appState.Authorizer)
 	kindsTraverser := kinds.NewTraverser(appState.Locks, appState.Connector,
-		appState)
+		appState, appState.Logger, appState.Authorizer)
 	connstateManager, err := connstate.NewManager(connstateRepo, appState.Logger)
 	if err != nil {
 		appState.Logger.
@@ -89,7 +91,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	appState.Connector.SetStateManager(connstateManager)
 	appState.Connector.SetLogger(appState.Logger)
-	appState.Connector.SetSchema(schemaManager.GetSchema())
+	appState.Connector.SetSchema(schemaManager.GetSchemaSkipAuth())
 	initialState := connstateManager.GetInitialState()
 	appState.Connector.SetState(context.Background(), initialState)
 	// allow up to 2 minutes for the connected db to be ready
@@ -167,6 +169,7 @@ func startupRoutine() (*state.State, *clientv3.Client) {
 
 	appState.OIDC = configureOIDC(appState)
 	appState.AnonymousAccess = configureAnonymousAccess(appState)
+	appState.Authorizer = configureAuthorizer(appState)
 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("configured OIDC and anonymous access client")

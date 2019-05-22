@@ -74,11 +74,16 @@ func (o *WeaviateSchemaThingsUpdateUnauthorized) WriteResponse(rw http.ResponseW
 // WeaviateSchemaThingsUpdateForbiddenCode is the HTTP code returned for type WeaviateSchemaThingsUpdateForbidden
 const WeaviateSchemaThingsUpdateForbiddenCode int = 403
 
-/*WeaviateSchemaThingsUpdateForbidden Could not find the Thing class.
+/*WeaviateSchemaThingsUpdateForbidden Forbidden
 
 swagger:response weaviateSchemaThingsUpdateForbidden
 */
 type WeaviateSchemaThingsUpdateForbidden struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
 }
 
 // NewWeaviateSchemaThingsUpdateForbidden creates WeaviateSchemaThingsUpdateForbidden with default headers values
@@ -87,12 +92,27 @@ func NewWeaviateSchemaThingsUpdateForbidden() *WeaviateSchemaThingsUpdateForbidd
 	return &WeaviateSchemaThingsUpdateForbidden{}
 }
 
+// WithPayload adds the payload to the weaviate schema things update forbidden response
+func (o *WeaviateSchemaThingsUpdateForbidden) WithPayload(payload *models.ErrorResponse) *WeaviateSchemaThingsUpdateForbidden {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate schema things update forbidden response
+func (o *WeaviateSchemaThingsUpdateForbidden) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
 // WriteResponse to the client
 func (o *WeaviateSchemaThingsUpdateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
 	rw.WriteHeader(403)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // WeaviateSchemaThingsUpdateUnprocessableEntityCode is the HTTP code returned for type WeaviateSchemaThingsUpdateUnprocessableEntity

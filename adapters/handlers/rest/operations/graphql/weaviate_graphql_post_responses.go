@@ -94,11 +94,16 @@ func (o *WeaviateGraphqlPostUnauthorized) WriteResponse(rw http.ResponseWriter, 
 // WeaviateGraphqlPostForbiddenCode is the HTTP code returned for type WeaviateGraphqlPostForbidden
 const WeaviateGraphqlPostForbiddenCode int = 403
 
-/*WeaviateGraphqlPostForbidden Insufficient permissions.
+/*WeaviateGraphqlPostForbidden Forbidden
 
 swagger:response weaviateGraphqlPostForbidden
 */
 type WeaviateGraphqlPostForbidden struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
 }
 
 // NewWeaviateGraphqlPostForbidden creates WeaviateGraphqlPostForbidden with default headers values
@@ -107,12 +112,27 @@ func NewWeaviateGraphqlPostForbidden() *WeaviateGraphqlPostForbidden {
 	return &WeaviateGraphqlPostForbidden{}
 }
 
+// WithPayload adds the payload to the weaviate graphql post forbidden response
+func (o *WeaviateGraphqlPostForbidden) WithPayload(payload *models.ErrorResponse) *WeaviateGraphqlPostForbidden {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate graphql post forbidden response
+func (o *WeaviateGraphqlPostForbidden) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
 // WriteResponse to the client
 func (o *WeaviateGraphqlPostForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
 	rw.WriteHeader(403)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // WeaviateGraphqlPostUnprocessableEntityCode is the HTTP code returned for type WeaviateGraphqlPostUnprocessableEntity

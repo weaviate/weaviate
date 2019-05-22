@@ -20,16 +20,31 @@ import (
 )
 
 // AddAction Class to the schema
-func (m *Manager) AddAction(ctx context.Context, class *models.SemanticSchemaClass) error {
-	return m.addClass(ctx, class, kind.Action)
+func (m *Manager) AddAction(ctx context.Context, principal *models.Principal,
+	class *models.SemanticSchemaClass) error {
+
+	err := m.authorizer.Authorize(principal, "create", "schema/actions")
+	if err != nil {
+		return err
+	}
+
+	return m.addClass(ctx, principal, class, kind.Action)
 }
 
 // AddThing Class to the schema
-func (m *Manager) AddThing(ctx context.Context, class *models.SemanticSchemaClass) error {
-	return m.addClass(ctx, class, kind.Thing)
+func (m *Manager) AddThing(ctx context.Context, principal *models.Principal,
+	class *models.SemanticSchemaClass) error {
+
+	err := m.authorizer.Authorize(principal, "create", "schema/things")
+	if err != nil {
+		return err
+	}
+
+	return m.addClass(ctx, principal, class, kind.Thing)
 }
 
-func (m *Manager) addClass(ctx context.Context, class *models.SemanticSchemaClass, k kind.Kind) error {
+func (m *Manager) addClass(ctx context.Context, principal *models.Principal,
+	class *models.SemanticSchemaClass, k kind.Kind) error {
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
 		return err
@@ -39,7 +54,7 @@ func (m *Manager) addClass(ctx context.Context, class *models.SemanticSchemaClas
 	class.Class = upperCaseClassName(class.Class)
 	class.Properties = lowerCaseAllPropertyNames(class.Properties)
 
-	err = m.validateCanAddClass(k, class)
+	err = m.validateCanAddClass(principal, k, class)
 	if err != nil {
 		return err
 	}
@@ -55,7 +70,7 @@ func (m *Manager) addClass(ctx context.Context, class *models.SemanticSchemaClas
 	// TODO gh-846: Rollback state upate if migration fails
 }
 
-func (m *Manager) validateCanAddClass(knd kind.Kind, class *models.SemanticSchemaClass) error {
+func (m *Manager) validateCanAddClass(principal *models.Principal, knd kind.Kind, class *models.SemanticSchemaClass) error {
 	// First check if there is a name clash.
 	err := m.validateClassNameUniqueness(class.Class)
 	if err != nil {
@@ -82,8 +97,12 @@ func (m *Manager) validateCanAddClass(knd kind.Kind, class *models.SemanticSchem
 		foundNames[property.Name] = true
 
 		// Validate data type of property.
-		schema := m.GetSchema()
-		_, err := (&schema).FindPropertyDataType(property.DataType)
+		schema, err := m.GetSchema(principal)
+		if err != nil {
+			return err
+		}
+
+		_, err = (&schema).FindPropertyDataType(property.DataType)
 		if err != nil {
 			return fmt.Errorf("Data type fo property '%s' is invalid; %v", property.Name, err)
 		}

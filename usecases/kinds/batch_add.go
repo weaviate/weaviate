@@ -21,27 +21,33 @@ import (
 )
 
 // AddActions Class Instances in batch to the connected DB
-func (b *BatchManager) AddActions(ctx context.Context, classes []*models.Action,
-	fields []*string) (BatchActions, error) {
+func (b *BatchManager) AddActions(ctx context.Context, principal *models.Principal,
+	classes []*models.Action, fields []*string) (BatchActions, error) {
+
+	err := b.authorizer.Authorize(principal, "create", "batch/actions")
+	if err != nil {
+		return nil, err
+	}
+
 	unlock, err := b.locks.LockSchema()
 	if err != nil {
-		return nil, newErrInternal("could not aquire lock: %v", err)
+		return nil, NewErrInternal("could not aquire lock: %v", err)
 	}
 	defer unlock()
 
-	return b.addActions(ctx, classes, fields)
+	return b.addActions(ctx, principal, classes, fields)
 }
 
-func (b *BatchManager) addActions(ctx context.Context, classes []*models.Action,
-	fields []*string) (BatchActions, error) {
+func (b *BatchManager) addActions(ctx context.Context, principal *models.Principal,
+	classes []*models.Action, fields []*string) (BatchActions, error) {
 
 	if err := b.validateActionForm(classes); err != nil {
-		return nil, newErrInvalidUserInput("invalid param 'actions': %v", err)
+		return nil, NewErrInvalidUserInput("invalid param 'actions': %v", err)
 	}
 
-	batchActions := b.validateActionsConcurrently(ctx, classes, fields)
+	batchActions := b.validateActionsConcurrently(ctx, principal, classes, fields)
 	if err := b.repo.AddActionsBatch(ctx, batchActions); err != nil {
-		return nil, newErrInternal("could not add batch request to connector: %v", err)
+		return nil, NewErrInternal("could not add batch request to connector: %v", err)
 	}
 
 	return batchActions, nil
@@ -55,7 +61,8 @@ func (b *BatchManager) validateActionForm(classes []*models.Action) error {
 	return nil
 }
 
-func (b *BatchManager) validateActionsConcurrently(ctx context.Context, classes []*models.Action, fields []*string) BatchActions {
+func (b *BatchManager) validateActionsConcurrently(ctx context.Context, principal *models.Principal,
+	classes []*models.Action, fields []*string) BatchActions {
 	fieldsToKeep := determineResponseFields(fields)
 	c := make(chan BatchAction, len(classes))
 
@@ -64,7 +71,7 @@ func (b *BatchManager) validateActionsConcurrently(ctx context.Context, classes 
 	// Generate a goroutine for each separate request
 	for i, action := range classes {
 		wg.Add(1)
-		b.validateAction(ctx, wg, action, i, &c, fieldsToKeep)
+		b.validateAction(ctx, principal, wg, action, i, &c, fieldsToKeep)
 	}
 
 	wg.Wait()
@@ -72,14 +79,16 @@ func (b *BatchManager) validateActionsConcurrently(ctx context.Context, classes 
 	return actionsChanToSlice(c)
 }
 
-func (b *BatchManager) validateAction(ctx context.Context, wg *sync.WaitGroup, actionCreate *models.Action, originalIndex int, resultsC *chan BatchAction, fieldsToKeep map[string]int) {
+func (b *BatchManager) validateAction(ctx context.Context, principal *models.Principal,
+	wg *sync.WaitGroup, actionCreate *models.Action, originalIndex int, resultsC *chan BatchAction, fieldsToKeep map[string]int) {
 	defer wg.Done()
 
 	// Generate UUID for the new object
 	uuid, err := generateUUID()
 
 	// Validate schema given in body with the weaviate schema
-	databaseSchema := schema.HackFromDatabaseSchema(b.schemaManager.GetSchema())
+	s, err := b.schemaManager.GetSchema(principal)
+	databaseSchema := schema.HackFromDatabaseSchema(s)
 
 	// Create Action object
 	action := &models.Action{}
@@ -118,27 +127,33 @@ func actionsChanToSlice(c chan BatchAction) BatchActions {
 }
 
 // AddThings Class Instances in batch to the connected DB
-func (b *BatchManager) AddThings(ctx context.Context, classes []*models.Thing,
-	fields []*string) (BatchThings, error) {
+func (b *BatchManager) AddThings(ctx context.Context, principal *models.Principal,
+	classes []*models.Thing, fields []*string) (BatchThings, error) {
+
+	err := b.authorizer.Authorize(principal, "create", "batch/things")
+	if err != nil {
+		return nil, err
+	}
+
 	unlock, err := b.locks.LockSchema()
 	if err != nil {
-		return nil, newErrInternal("could not aquire lock: %v", err)
+		return nil, NewErrInternal("could not aquire lock: %v", err)
 	}
 	defer unlock()
 
-	return b.addThings(ctx, classes, fields)
+	return b.addThings(ctx, principal, classes, fields)
 }
 
-func (b *BatchManager) addThings(ctx context.Context, classes []*models.Thing,
-	fields []*string) (BatchThings, error) {
+func (b *BatchManager) addThings(ctx context.Context, principal *models.Principal,
+	classes []*models.Thing, fields []*string) (BatchThings, error) {
 
 	if err := b.validateThingForm(classes); err != nil {
-		return nil, newErrInvalidUserInput("invalid param 'things': %v", err)
+		return nil, NewErrInvalidUserInput("invalid param 'things': %v", err)
 	}
 
-	batchThings := b.validateThingsConcurrently(ctx, classes, fields)
+	batchThings := b.validateThingsConcurrently(ctx, principal, classes, fields)
 	if err := b.repo.AddThingsBatch(ctx, batchThings); err != nil {
-		return nil, newErrInternal("could not add batch request to connector: %v", err)
+		return nil, NewErrInternal("could not add batch request to connector: %v", err)
 	}
 
 	return batchThings, nil
@@ -152,7 +167,8 @@ func (b *BatchManager) validateThingForm(classes []*models.Thing) error {
 	return nil
 }
 
-func (b *BatchManager) validateThingsConcurrently(ctx context.Context, classes []*models.Thing, fields []*string) BatchThings {
+func (b *BatchManager) validateThingsConcurrently(ctx context.Context, principal *models.Principal,
+	classes []*models.Thing, fields []*string) BatchThings {
 	fieldsToKeep := determineResponseFields(fields)
 	c := make(chan BatchThing, len(classes))
 
@@ -161,7 +177,7 @@ func (b *BatchManager) validateThingsConcurrently(ctx context.Context, classes [
 	// Generate a goroutine for each separate request
 	for i, thing := range classes {
 		wg.Add(1)
-		b.validateThing(ctx, wg, thing, i, &c, fieldsToKeep)
+		b.validateThing(ctx, principal, wg, thing, i, &c, fieldsToKeep)
 	}
 
 	wg.Wait()
@@ -169,14 +185,16 @@ func (b *BatchManager) validateThingsConcurrently(ctx context.Context, classes [
 	return thingsChanToSlice(c)
 }
 
-func (b *BatchManager) validateThing(ctx context.Context, wg *sync.WaitGroup, thingCreate *models.Thing, originalIndex int, resultsC *chan BatchThing, fieldsToKeep map[string]int) {
+func (b *BatchManager) validateThing(ctx context.Context, principal *models.Principal,
+	wg *sync.WaitGroup, thingCreate *models.Thing, originalIndex int, resultsC *chan BatchThing, fieldsToKeep map[string]int) {
 	defer wg.Done()
 
 	// Generate UUID for the new object
 	uuid, err := generateUUID()
 
 	// Validate schema given in body with the weaviate schema
-	databaseSchema := schema.HackFromDatabaseSchema(b.schemaManager.GetSchema())
+	s, err := b.schemaManager.GetSchema(principal)
+	databaseSchema := schema.HackFromDatabaseSchema(s)
 
 	// Create Thing object
 	thing := &models.Thing{}

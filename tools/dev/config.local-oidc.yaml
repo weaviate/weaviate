@@ -16,6 +16,11 @@ authentication:
     groups_claim: groups
     client_id: demo
     skip_client_id_check: false
+authorization:
+  admin_list:
+    enabled: true
+    users:
+      - differentjohn@doe.com
 analytics_engine:
   enabled: true
   defaultUseAnalyticsEngine: false

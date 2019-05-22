@@ -94,11 +94,16 @@ func (o *WeaviateActionUpdateUnauthorized) WriteResponse(rw http.ResponseWriter,
 // WeaviateActionUpdateForbiddenCode is the HTTP code returned for type WeaviateActionUpdateForbidden
 const WeaviateActionUpdateForbiddenCode int = 403
 
-/*WeaviateActionUpdateForbidden Insufficient permissions.
+/*WeaviateActionUpdateForbidden Forbidden
 
 swagger:response weaviateActionUpdateForbidden
 */
 type WeaviateActionUpdateForbidden struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
 }
 
 // NewWeaviateActionUpdateForbidden creates WeaviateActionUpdateForbidden with default headers values
@@ -107,12 +112,27 @@ func NewWeaviateActionUpdateForbidden() *WeaviateActionUpdateForbidden {
 	return &WeaviateActionUpdateForbidden{}
 }
 
+// WithPayload adds the payload to the weaviate action update forbidden response
+func (o *WeaviateActionUpdateForbidden) WithPayload(payload *models.ErrorResponse) *WeaviateActionUpdateForbidden {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate action update forbidden response
+func (o *WeaviateActionUpdateForbidden) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
 // WriteResponse to the client
 func (o *WeaviateActionUpdateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
 	rw.WriteHeader(403)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // WeaviateActionUpdateNotFoundCode is the HTTP code returned for type WeaviateActionUpdateNotFound

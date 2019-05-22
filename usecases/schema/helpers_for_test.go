@@ -14,6 +14,7 @@ import (
 	"context"
 
 	"github.com/semi-technologies/weaviate/contextionary"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 type fakeRepo struct {
@@ -110,4 +111,10 @@ type fakeStopwordDetector struct{}
 
 func (f *fakeStopwordDetector) IsStopWord(word string) bool {
 	return word == "the"
+}
+
+type fakeAuthorizer struct{}
+
+func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {
+	return nil
 }
