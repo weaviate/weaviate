@@ -46,9 +46,11 @@ func (m *Manager) validateClassNameAndKeywords(knd kind.Kind, className string, 
 	}
 
 	// keywords
+	stopWordsFound := 0
 	for _, keyword := range keywords {
 		word := strings.ToLower(keyword.Keyword)
 		if m.stopwordDetector.IsStopWord(word) {
+			stopWordsFound++
 			continue
 		}
 
@@ -60,10 +62,14 @@ func (m *Manager) validateClassNameAndKeywords(knd kind.Kind, className string, 
 			return fmt.Errorf("Could not find the keyword '%s' for class '%s' in the contextionary", word, className)
 		}
 	}
+	if len(keywords) > 0 && len(keywords) == stopWordsFound {
+		return fmt.Errorf("all keywords for class '%s' are stopwords and are therefore not a valid list of keywords. "+
+			"Make sure at least one keyword in the list is not a stop word", className)
+	}
 
 	//class name
 	camelParts := camelcase.Split(className)
-	stopWordsFound := 0
+	stopWordsFound = 0
 	for _, part := range camelParts {
 		word := strings.ToLower(part)
 		if m.stopwordDetector.IsStopWord(word) {
@@ -111,9 +117,11 @@ func (m *Manager) validatePropertyNameAndKeywords(className string, propertyName
 		return err
 	}
 
+	stopWordsFound := 0
 	for _, keyword := range keywords {
 		word := strings.ToLower(keyword.Keyword)
 		if m.stopwordDetector.IsStopWord(word) {
+			stopWordsFound++
 			continue
 		}
 
@@ -125,8 +133,13 @@ func (m *Manager) validatePropertyNameAndKeywords(className string, propertyName
 			return fmt.Errorf("Could not find the keyword '%s' for property '%s' in the class '%s' in the contextionary", word, propertyName, className)
 		}
 	}
+	if len(keywords) > 0 && len(keywords) == stopWordsFound {
+		return fmt.Errorf("all keywords for propertyName '%s' are stopwords and are therefore not a valid list of keywords. "+
+			"Make sure at least one keyword in the list is not a stop word", propertyName)
+	}
+
 	camelParts := camelcase.Split(propertyName)
-	stopWordsFound := 0
+	stopWordsFound = 0
 	for _, part := range camelParts {
 		word := strings.ToLower(part)
 		if m.stopwordDetector.IsStopWord(word) {

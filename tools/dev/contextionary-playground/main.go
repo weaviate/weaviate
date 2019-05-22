@@ -70,7 +70,8 @@ func main() {
 	fmt.Println("results before building centroid based on keywords: ")
 	kNN("city", c13y)
 
-	inMemoryC13y, err := schemaContextionary.BuildInMemoryContextionaryFromSchema(sampleSchema, &c13y)
+	// TODO: replace nil argument with actual stop word detector
+	inMemoryC13y, err := schemaContextionary.BuildInMemoryContextionaryFromSchema(sampleSchema, &c13y, nil)
 	fatal(err)
 
 	// Combine contextionaries

@@ -76,7 +76,7 @@ func makeUpdateSchemaCall(logger logrus.FieldLogger, appState *state.State, trav
 func rebuildContextionary(updatedSchema schema.Schema, logger logrus.FieldLogger,
 	appState *state.State) (contextionary.Contextionary, error) {
 	// build new contextionary extended by the local schema
-	schemaContextionary, err := databaseSchema.BuildInMemoryContextionaryFromSchema(updatedSchema, &appState.RawContextionary)
+	schemaContextionary, err := databaseSchema.BuildInMemoryContextionaryFromSchema(updatedSchema, &appState.RawContextionary, appState.StopwordDetector)
 	if err != nil {
 		return nil, fmt.Errorf("Could not build in-memory contextionary from schema; %v", err)
 	}
@@ -147,6 +147,11 @@ func loadContextionary(logger *logrus.Logger, config config.Config) contextionar
 
 	if config.Contextionary.IDXFile == "" {
 		logger.WithField("action", "startup").Error("contextionary IDX file not set")
+		logger.Exit(1)
+	}
+
+	if config.Contextionary.StopwordsFile == "" {
+		logger.WithField("action", "startup").Error("stopwords file not set")
 		logger.Exit(1)
 	}
 
