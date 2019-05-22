@@ -47,7 +47,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "0.13.0"
+    "version": "0.13.1"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -3127,7 +3127,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "0.13.0"
+    "version": "0.13.1"
   },
   "basePath": "/weaviate/v1",
   "paths": {
