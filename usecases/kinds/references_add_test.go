@@ -34,6 +34,7 @@ func Test_ReferencesAdd_CardinalityMany(t *testing.T) {
 		network       *fakeNetwork
 		cfg           *config.WeaviateConfig
 		manager       *Manager
+		authorizer    *fakeAuthorizer
 	)
 
 	reset := func() {
@@ -42,7 +43,8 @@ func Test_ReferencesAdd_CardinalityMany(t *testing.T) {
 		locks = &fakeLocks{}
 		network = &fakeNetwork{}
 		cfg = &config.WeaviateConfig{}
-		manager = NewManager(repo, locks, schemaManager, network, cfg, logger)
+		authorizer = &fakeAuthorizer{}
+		manager = NewManager(repo, locks, schemaManager, network, cfg, logger, authorizer)
 	}
 
 	t.Run("without prior refs", func(t *testing.T) {
@@ -66,7 +68,7 @@ func Test_ReferencesAdd_CardinalityMany(t *testing.T) {
 			},
 		}
 
-		err := manager.AddThingReference(context.Background(), strfmt.UUID("my-id"), "hasAnimals", newRef)
+		err := manager.AddThingReference(context.Background(), nil, strfmt.UUID("my-id"), "hasAnimals", newRef)
 
 		require.Nil(t, err)
 		assert.Equal(t, expectedSchema, repo.UpdateThingParameter.Schema)
@@ -101,7 +103,7 @@ func Test_ReferencesAdd_CardinalityMany(t *testing.T) {
 			},
 		}
 
-		err := manager.AddThingReference(context.Background(), strfmt.UUID("my-id"), "hasAnimals", newRef)
+		err := manager.AddThingReference(context.Background(), nil, strfmt.UUID("my-id"), "hasAnimals", newRef)
 
 		require.Nil(t, err)
 		assert.Equal(t, expectedSchema, repo.UpdateThingParameter.Schema)

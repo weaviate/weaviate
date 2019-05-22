@@ -13,22 +13,43 @@
 import "fmt"
 
 // ErrInvalidUserInput indicates a client-side error
-type ErrInvalidUserInput error
+type ErrInvalidUserInput struct {
+	msg string
+}
 
-func newErrInvalidUserInput(format string, args ...interface{}) ErrInvalidUserInput {
-	return ErrInvalidUserInput(fmt.Errorf(format, args...))
+func (e ErrInvalidUserInput) Error() string {
+	return e.msg
+}
+
+// NewErrInvalidUserInput with Errorf signature
+func NewErrInvalidUserInput(format string, args ...interface{}) ErrInvalidUserInput {
+	return ErrInvalidUserInput{msg: fmt.Sprintf(format, args...)}
 }
 
 // ErrInternal indicates something went wrong during processing
-type ErrInternal error
+type ErrInternal struct {
+	msg string
+}
 
-func newErrInternal(format string, args ...interface{}) ErrInternal {
-	return ErrInternal(fmt.Errorf(format, args...))
+func (e ErrInternal) Error() string {
+	return e.msg
+}
+
+// NewErrInternal with Errorf signature
+func NewErrInternal(format string, args ...interface{}) ErrInternal {
+	return ErrInternal{msg: fmt.Sprintf(format, args...)}
 }
 
 // ErrNotFound indicates the desired resource doesn't exist
-type ErrNotFound error
+type ErrNotFound struct {
+	msg string
+}
 
-func newErrNotFound(format string, args ...interface{}) ErrNotFound {
-	return ErrNotFound(fmt.Errorf(format, args...))
+func (e ErrNotFound) Error() string {
+	return e.msg
+}
+
+// NewErrNotFound with Errorf signature
+func NewErrNotFound(format string, args ...interface{}) ErrNotFound {
+	return ErrNotFound{msg: fmt.Sprintf(format, args...)}
 }

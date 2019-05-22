@@ -14,6 +14,7 @@ import (
 	"context"
 
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/sirupsen/logrus"
 )
 
 // BatchManager manages kind changes in batch at a use-case level , i.e.
@@ -24,6 +25,8 @@ type BatchManager struct {
 	repo          batchAndGetRepo
 	locks         locks
 	schemaManager schemaManager
+	logger        logrus.FieldLogger
+	authorizer    authorizer
 }
 
 // Repo describes the requirements the kinds UC has to the connected database
@@ -39,12 +42,15 @@ type batchAndGetRepo interface {
 }
 
 // NewBatchManager creates a new manager
-func NewBatchManager(repo Repo, locks locks, schemaManager schemaManager, network network, config *config.WeaviateConfig) *BatchManager {
+func NewBatchManager(repo Repo, locks locks, schemaManager schemaManager, network network,
+	config *config.WeaviateConfig, logger logrus.FieldLogger, authorizer authorizer) *BatchManager {
 	return &BatchManager{
 		network:       network,
 		config:        config,
 		repo:          repo,
 		locks:         locks,
 		schemaManager: schemaManager,
+		logger:        logger,
+		authorizer:    authorizer,
 	}
 }

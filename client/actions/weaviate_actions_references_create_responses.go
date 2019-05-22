@@ -124,16 +124,24 @@ func NewWeaviateActionsReferencesCreateForbidden() *WeaviateActionsReferencesCre
 
 /*WeaviateActionsReferencesCreateForbidden handles this case with default header values.
 
-Insufficient permissions.
+Forbidden
 */
 type WeaviateActionsReferencesCreateForbidden struct {
+	Payload *models.ErrorResponse
 }
 
 func (o *WeaviateActionsReferencesCreateForbidden) Error() string {
-	return fmt.Sprintf("[POST /actions/{id}/references/{propertyName}][%d] weaviateActionsReferencesCreateForbidden ", 403)
+	return fmt.Sprintf("[POST /actions/{id}/references/{propertyName}][%d] weaviateActionsReferencesCreateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *WeaviateActionsReferencesCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

@@ -10,10 +10,28 @@
  * CONTACT: hello@semi.technology
  */package schema
 
-import "github.com/semi-technologies/weaviate/entities/schema"
+import (
+	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
+)
 
 // GetSchema retrieves a locally cached copy of the schema
-func (m *Manager) GetSchema() schema.Schema {
+func (m *Manager) GetSchema(principal *models.Principal) (schema.Schema, error) {
+	err := m.authorizer.Authorize(principal, "list", "schema/*")
+	if err != nil {
+		return schema.Schema{}, err
+	}
+
+	return schema.Schema{
+		Actions: m.state.ActionSchema,
+		Things:  m.state.ThingSchema,
+	}, nil
+}
+
+// GetSchemaSkipAuth can never be used as a response to a user request as it
+// could leak the schema to an unauthorized user, is intended to be used for
+// non-user triggered processes, such as regular updates / maintenance / etc
+func (m *Manager) GetSchemaSkipAuth() schema.Schema {
 	return schema.Schema{
 		Actions: m.state.ActionSchema,
 		Things:  m.state.ThingSchema,

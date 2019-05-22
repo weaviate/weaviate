@@ -14,17 +14,32 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 // DeleteActionProperty to an existing Action
-func (m *Manager) DeleteActionProperty(ctx context.Context, class string, property string) error {
+func (m *Manager) DeleteActionProperty(ctx context.Context, principal *models.Principal,
+	class string, property string) error {
+
+	err := m.authorizer.Authorize(principal, "update", "schema/actions")
+	if err != nil {
+		return err
+	}
+
 	return m.deleteClassProperty(ctx, class, property, kind.Action)
 }
 
 // DeleteThingProperty to an existing Thing
-func (m *Manager) DeleteThingProperty(ctx context.Context, class string, property string) error {
+func (m *Manager) DeleteThingProperty(ctx context.Context, principal *models.Principal,
+	class string, property string) error {
+
+	err := m.authorizer.Authorize(principal, "update", "schema/things")
+	if err != nil {
+		return err
+	}
+
 	return m.deleteClassProperty(ctx, class, property, kind.Thing)
 }
 

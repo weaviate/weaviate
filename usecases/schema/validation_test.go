@@ -136,7 +136,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 					}
 
 					m := newSchemaManager()
-					err := m.AddThing(context.Background(), class)
+					err := m.AddThing(context.Background(), nil, class)
 					t.Log(err)
 					assert.Equal(t, test.valid, err == nil)
 
@@ -155,7 +155,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 					}
 
 					m := newSchemaManager()
-					err := m.AddAction(context.Background(), class)
+					err := m.AddAction(context.Background(), nil, class)
 					t.Log(err)
 					assert.Equal(t, test.valid, err == nil)
 
@@ -182,7 +182,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 					}
 
 					m := newSchemaManager()
-					err := m.AddThing(context.Background(), class)
+					err := m.AddThing(context.Background(), nil, class)
 					t.Log(err)
 					assert.Equal(t, test.valid, err == nil)
 
@@ -205,7 +205,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 					}
 
 					m := newSchemaManager()
-					err := m.AddAction(context.Background(), class)
+					err := m.AddAction(context.Background(), nil, class)
 					t.Log(err)
 					assert.Equal(t, test.valid, err == nil)
 
@@ -232,7 +232,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 					}
 
 					m := newSchemaManager()
-					err := m.AddThing(context.Background(), class)
+					err := m.AddThing(context.Background(), nil, class)
 					require.Nil(t, err)
 
 					// now try to update
@@ -240,7 +240,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 						Class: test.input,
 					}
 
-					err = m.UpdateThing(context.Background(), originalName, updatedClass)
+					err = m.UpdateThing(context.Background(), nil, originalName, updatedClass)
 					assert.Equal(t, test.valid, err == nil)
 
 					// only proceed if input was supposed to be valid
@@ -258,7 +258,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 					}
 
 					m := newSchemaManager()
-					err := m.AddAction(context.Background(), class)
+					err := m.AddAction(context.Background(), nil, class)
 					require.Nil(t, err)
 
 					// now try to update
@@ -266,7 +266,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 						Class: test.input,
 					}
 
-					err = m.UpdateAction(context.Background(), originalName, updatedClass)
+					err = m.UpdateAction(context.Background(), nil, originalName, updatedClass)
 					assert.Equal(t, test.valid, err == nil)
 
 					// only proceed if input was supposed to be valid
@@ -295,7 +295,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 					}
 
 					m := newSchemaManager()
-					err := m.AddThing(context.Background(), class)
+					err := m.AddThing(context.Background(), nil, class)
 					require.Nil(t, err)
 
 					// now update
@@ -303,7 +303,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 						Class:    test.input,
 						Keywords: class.Keywords,
 					}
-					err = m.UpdateThing(context.Background(), originalName, updatedClass)
+					err = m.UpdateThing(context.Background(), nil, originalName, updatedClass)
 					assert.Equal(t, test.valid, err == nil)
 
 					// only proceed if input was supposed to be valid
@@ -325,7 +325,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 					}
 
 					m := newSchemaManager()
-					err := m.AddAction(context.Background(), class)
+					err := m.AddAction(context.Background(), nil, class)
 					require.Nil(t, err)
 
 					// now update
@@ -333,7 +333,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 						Class:    test.input,
 						Keywords: class.Keywords,
 					}
-					err = m.UpdateAction(context.Background(), originalName, updatedClass)
+					err = m.UpdateAction(context.Background(), nil, originalName, updatedClass)
 					assert.Equal(t, test.valid, err == nil)
 
 					// only proceed if input was supposed to be valid
@@ -462,7 +462,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					}
 
 					m := newSchemaManager()
-					err := m.AddThing(context.Background(), class)
+					err := m.AddThing(context.Background(), nil, class)
 					t.Log(err)
 					assert.Equal(t, test.valid, err == nil)
 
@@ -471,7 +471,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						return
 					}
 
-					propName := m.GetSchema().Things.Classes[0].Properties[0].Name
+					schema, _ := m.GetSchema(nil)
+					propName := schema.Things.Classes[0].Properties[0].Name
 					assert.Equal(t, propName, test.storedAs, "class should be stored correctly")
 				})
 
@@ -485,7 +486,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					}
 
 					m := newSchemaManager()
-					err := m.AddAction(context.Background(), class)
+					err := m.AddAction(context.Background(), nil, class)
 					t.Log(err)
 					assert.Equal(t, test.valid, err == nil)
 
@@ -494,7 +495,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						return
 					}
 
-					propName := m.GetSchema().Actions.Classes[0].Properties[0].Name
+					schema, _ := m.GetSchema(nil)
+					propName := schema.Actions.Classes[0].Properties[0].Name
 					assert.Equal(t, propName, test.storedAs, "class should be stored correctly")
 				})
 			}
@@ -514,7 +516,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					}
 
 					m := newSchemaManager()
-					err := m.AddThing(context.Background(), class)
+					err := m.AddThing(context.Background(), nil, class)
 					t.Log(err)
 					assert.Equal(t, test.valid, err == nil)
 
@@ -523,7 +525,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						return
 					}
 
-					propName := m.GetSchema().Things.Classes[0].Properties[0].Name
+					schema, _ := m.GetSchema(nil)
+					propName := schema.Things.Classes[0].Properties[0].Name
 					assert.Equal(t, propName, test.storedAs, "class should be stored correctly")
 				})
 
@@ -538,7 +541,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					}
 
 					m := newSchemaManager()
-					err := m.AddAction(context.Background(), class)
+					err := m.AddAction(context.Background(), nil, class)
 					t.Log(err)
 					assert.Equal(t, test.valid, err == nil)
 
@@ -547,7 +550,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						return
 					}
 
-					propName := m.GetSchema().Actions.Classes[0].Properties[0].Name
+					schema, _ := m.GetSchema(nil)
+					propName := schema.Actions.Classes[0].Properties[0].Name
 					assert.Equal(t, propName, test.storedAs, "class should be stored correctly")
 				})
 			}
@@ -564,14 +568,14 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					}
 
 					m := newSchemaManager()
-					err := m.AddThing(context.Background(), class)
+					err := m.AddThing(context.Background(), nil, class)
 					require.Nil(t, err)
 
 					property := &models.SemanticSchemaClassProperty{
 						DataType: []string{"string"},
 						Name:     test.input,
 					}
-					err = m.AddThingProperty(context.Background(), "ValidName", property)
+					err = m.AddThingProperty(context.Background(), nil, "ValidName", property)
 					t.Log(err)
 					require.Equal(t, test.valid, err == nil)
 
@@ -580,7 +584,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						return
 					}
 
-					propName := m.GetSchema().Things.Classes[0].Properties[0].Name
+					schema, _ := m.GetSchema(nil)
+					propName := schema.Things.Classes[0].Properties[0].Name
 					assert.Equal(t, propName, test.storedAs, "class should be stored correctly")
 				})
 
@@ -590,14 +595,14 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					}
 
 					m := newSchemaManager()
-					err := m.AddAction(context.Background(), class)
+					err := m.AddAction(context.Background(), nil, class)
 					require.Nil(t, err)
 
 					property := &models.SemanticSchemaClassProperty{
 						DataType: []string{"string"},
 						Name:     test.input,
 					}
-					err = m.AddActionProperty(context.Background(), "ValidName", property)
+					err = m.AddActionProperty(context.Background(), nil, "ValidName", property)
 					t.Log(err)
 					require.Equal(t, test.valid, err == nil)
 
@@ -606,7 +611,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						return
 					}
 
-					propName := m.GetSchema().Actions.Classes[0].Properties[0].Name
+					schema, _ := m.GetSchema(nil)
+					propName := schema.Actions.Classes[0].Properties[0].Name
 					assert.Equal(t, propName, test.storedAs, "class should be stored correctly")
 				})
 
@@ -627,7 +633,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					}
 
 					m := newSchemaManager()
-					err := m.AddThing(context.Background(), class)
+					err := m.AddThing(context.Background(), nil, class)
 					t.Log(err)
 					assert.Equal(t, test.valid, err == nil)
 
@@ -636,7 +642,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						return
 					}
 
-					propName := m.GetSchema().Things.Classes[0].Properties[0].Name
+					schema, _ := m.GetSchema(nil)
+					propName := schema.Things.Classes[0].Properties[0].Name
 					assert.Equal(t, propName, test.storedAs, "class should be stored correctly")
 				})
 
@@ -651,7 +658,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					}
 
 					m := newSchemaManager()
-					err := m.AddAction(context.Background(), class)
+					err := m.AddAction(context.Background(), nil, class)
 					t.Log(err)
 					assert.Equal(t, test.valid, err == nil)
 
@@ -660,7 +667,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						return
 					}
 
-					propName := m.GetSchema().Actions.Classes[0].Properties[0].Name
+					schema, _ := m.GetSchema(nil)
+					propName := schema.Actions.Classes[0].Properties[0].Name
 					assert.Equal(t, propName, test.storedAs, "class should be stored correctly")
 				})
 			}
@@ -685,14 +693,14 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					}
 
 					m := newSchemaManager()
-					err := m.AddThing(context.Background(), class)
+					err := m.AddThing(context.Background(), nil, class)
 					require.Nil(t, err)
 
 					updatedProperty := &models.SemanticSchemaClassProperty{
 						DataType: []string{"string"},
 						Name:     test.input,
 					}
-					err = m.UpdateThingProperty(context.Background(), "ValidName", originalName, updatedProperty)
+					err = m.UpdateThingProperty(context.Background(), nil, "ValidName", originalName, updatedProperty)
 					t.Log(err)
 					require.Equal(t, test.valid, err == nil)
 
@@ -701,7 +709,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						return
 					}
 
-					propName := m.GetSchema().Things.Classes[0].Properties[0].Name
+					schema, _ := m.GetSchema(nil)
+					propName := schema.Things.Classes[0].Properties[0].Name
 					assert.Equal(t, propName, test.storedAs, "class should be stored correctly")
 				})
 
@@ -717,14 +726,14 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					}
 
 					m := newSchemaManager()
-					err := m.AddAction(context.Background(), class)
+					err := m.AddAction(context.Background(), nil, class)
 					require.Nil(t, err)
 
 					updatedProperty := &models.SemanticSchemaClassProperty{
 						DataType: []string{"string"},
 						Name:     test.input,
 					}
-					err = m.UpdateActionProperty(context.Background(), "ValidName", originalName, updatedProperty)
+					err = m.UpdateActionProperty(context.Background(), nil, "ValidName", originalName, updatedProperty)
 					t.Log(err)
 					require.Equal(t, test.valid, err == nil)
 
@@ -733,7 +742,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						return
 					}
 
-					propName := m.GetSchema().Actions.Classes[0].Properties[0].Name
+					schema, _ := m.GetSchema(nil)
+					propName := schema.Actions.Classes[0].Properties[0].Name
 					assert.Equal(t, propName, test.storedAs, "class should be stored correctly")
 				})
 
@@ -754,7 +764,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					}
 
 					m := newSchemaManager()
-					err := m.AddThing(context.Background(), class)
+					err := m.AddThing(context.Background(), nil, class)
 					t.Log(err)
 					assert.Equal(t, test.valid, err == nil)
 
@@ -763,7 +773,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						return
 					}
 
-					propName := m.GetSchema().Things.Classes[0].Properties[0].Name
+					schema, _ := m.GetSchema(nil)
+					propName := schema.Things.Classes[0].Properties[0].Name
 					assert.Equal(t, propName, test.storedAs, "class should be stored correctly")
 				})
 
@@ -778,7 +789,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					}
 
 					m := newSchemaManager()
-					err := m.AddAction(context.Background(), class)
+					err := m.AddAction(context.Background(), nil, class)
 					t.Log(err)
 					assert.Equal(t, test.valid, err == nil)
 
@@ -787,7 +798,8 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						return
 					}
 
-					propName := m.GetSchema().Actions.Classes[0].Properties[0].Name
+					schema, _ := m.GetSchema(nil)
+					propName := schema.Actions.Classes[0].Properties[0].Name
 					assert.Equal(t, propName, test.storedAs, "class should be stored correctly")
 				})
 			}

@@ -33,11 +33,12 @@ type referenceSchemaUpdater struct {
 	fromClass     string
 	kind          kind.Kind
 	ctx           context.Context
+	principal     *models.Principal
 }
 
-func newReferenceSchemaUpdater(ctx context.Context, schemaManager schemaManager, network peersLister,
-	fromClass string, kind kind.Kind) *referenceSchemaUpdater {
-	return &referenceSchemaUpdater{schemaManager, network, fromClass, kind, ctx}
+func newReferenceSchemaUpdater(ctx context.Context, principal *models.Principal, schemaManager schemaManager,
+	network peersLister, fromClass string, kind kind.Kind) *referenceSchemaUpdater {
+	return &referenceSchemaUpdater{schemaManager, network, fromClass, kind, ctx, principal}
 }
 
 // make sure this only ever called AFTER validtion as it skips
@@ -104,14 +105,14 @@ func (u *referenceSchemaUpdater) updateSchema(remoteKind interface{}, peerName s
 	switch thingOrAction := remoteKind.(type) {
 	case *models.Thing:
 		remoteClass := fmt.Sprintf("%s/%s", peerName, thingOrAction.Class)
-		err := u.schemaManager.UpdatePropertyAddDataType(u.ctx, u.kind, u.fromClass, propName, remoteClass)
+		err := u.schemaManager.UpdatePropertyAddDataType(u.ctx, u.principal, u.kind, u.fromClass, propName, remoteClass)
 		if err != nil {
 			return fmt.Errorf("could not add network thing class %s to %s.%s: %s",
 				remoteClass, u.fromClass, propName, err)
 		}
 	case models.Action:
 		remoteClass := fmt.Sprintf("%s/%s", peerName, thingOrAction.Class)
-		err := u.schemaManager.UpdatePropertyAddDataType(u.ctx, u.kind, u.fromClass, propName, remoteClass)
+		err := u.schemaManager.UpdatePropertyAddDataType(u.ctx, u.principal, u.kind, u.fromClass, propName, remoteClass)
 		if err != nil {
 			return fmt.Errorf("could not add network action class %s to %s.%s: %s",
 				remoteClass, u.fromClass, propName, err)

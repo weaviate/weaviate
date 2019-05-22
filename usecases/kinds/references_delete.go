@@ -12,6 +12,7 @@
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -19,19 +20,25 @@ import (
 )
 
 // DeleteActionReference from connected DB
-func (m *Manager) DeleteActionReference(ctx context.Context, id strfmt.UUID,
-	propertyName string, property *models.SingleRef) error {
+func (m *Manager) DeleteActionReference(ctx context.Context, principal *models.Principal,
+	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
+
+	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("actions/%s", id.String()))
+	if err != nil {
+		return err
+	}
+
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
-		return newErrInternal("could not aquire lock: %v", err)
+		return NewErrInternal("could not aquire lock: %v", err)
 	}
 	defer unlock()
 
-	return m.deleteActionReferenceFromConnector(ctx, id, propertyName, property)
+	return m.deleteActionReferenceFromConnector(ctx, principal, id, propertyName, property)
 }
 
-func (m *Manager) deleteActionReferenceFromConnector(ctx context.Context, id strfmt.UUID,
-	propertyName string, property *models.SingleRef) error {
+func (m *Manager) deleteActionReferenceFromConnector(ctx context.Context, principal *models.Principal,
+	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
 
 	// get action to see if it exists
 	action, err := m.getActionFromRepo(ctx, id)
@@ -41,7 +48,7 @@ func (m *Manager) deleteActionReferenceFromConnector(ctx context.Context, id str
 
 	// NOTE: The reference itself is not being validated, to allow for deletion
 	// of broken references
-	err = m.validateCanModifyReference(kind.Action, action.Class, propertyName)
+	err = m.validateCanModifyReference(principal, kind.Action, action.Class, propertyName)
 	if err != nil {
 		return err
 	}
@@ -55,26 +62,32 @@ func (m *Manager) deleteActionReferenceFromConnector(ctx context.Context, id str
 
 	err = m.repo.UpdateAction(ctx, action, action.ID)
 	if err != nil {
-		return newErrInternal("could not store action: %v", err)
+		return NewErrInternal("could not store action: %v", err)
 	}
 
 	return nil
 }
 
 // DeleteThingReference from connected DB
-func (m *Manager) DeleteThingReference(ctx context.Context, id strfmt.UUID,
-	propertyName string, property *models.SingleRef) error {
+func (m *Manager) DeleteThingReference(ctx context.Context, principal *models.Principal,
+	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
+
+	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("things/%s", id.String()))
+	if err != nil {
+		return err
+	}
+
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
-		return newErrInternal("could not aquire lock: %v", err)
+		return NewErrInternal("could not aquire lock: %v", err)
 	}
 	defer unlock()
 
-	return m.deleteThingReferenceFromConnector(ctx, id, propertyName, property)
+	return m.deleteThingReferenceFromConnector(ctx, principal, id, propertyName, property)
 }
 
-func (m *Manager) deleteThingReferenceFromConnector(ctx context.Context, id strfmt.UUID,
-	propertyName string, property *models.SingleRef) error {
+func (m *Manager) deleteThingReferenceFromConnector(ctx context.Context, principal *models.Principal,
+	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
 
 	// get thing to see if it exists
 	thing, err := m.getThingFromRepo(ctx, id)
@@ -84,7 +97,7 @@ func (m *Manager) deleteThingReferenceFromConnector(ctx context.Context, id strf
 
 	// NOTE: The reference itself is not being validated, to allow for deletion
 	// of broken references
-	err = m.validateCanModifyReference(kind.Thing, thing.Class, propertyName)
+	err = m.validateCanModifyReference(principal, kind.Thing, thing.Class, propertyName)
 	if err != nil {
 		return err
 	}
@@ -98,7 +111,7 @@ func (m *Manager) deleteThingReferenceFromConnector(ctx context.Context, id strf
 
 	err = m.repo.UpdateThing(ctx, thing, thing.ID)
 	if err != nil {
-		return newErrInternal("could not store thing: %v", err)
+		return NewErrInternal("could not store thing: %v", err)
 	}
 
 	return nil
@@ -121,7 +134,7 @@ func (m *Manager) removeReferenceFromClassProps(props interface{}, propertyName 
 	existingRefs := propsMap[propertyName]
 	existingRefsSlice, ok := existingRefs.([]interface{})
 	if !ok {
-		return nil, newErrInternal("expected list for reference props, but got %T", existingRefs)
+		return nil, NewErrInternal("expected list for reference props, but got %T", existingRefs)
 	}
 
 	propsMap[propertyName] = removeRef(existingRefsSlice, property)

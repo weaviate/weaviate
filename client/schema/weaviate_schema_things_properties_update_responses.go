@@ -124,16 +124,24 @@ func NewWeaviateSchemaThingsPropertiesUpdateForbidden() *WeaviateSchemaThingsPro
 
 /*WeaviateSchemaThingsPropertiesUpdateForbidden handles this case with default header values.
 
-Could not find the Thing class or property.
+Forbidden
 */
 type WeaviateSchemaThingsPropertiesUpdateForbidden struct {
+	Payload *models.ErrorResponse
 }
 
 func (o *WeaviateSchemaThingsPropertiesUpdateForbidden) Error() string {
-	return fmt.Sprintf("[PUT /schema/things/{className}/properties/{propertyName}][%d] weaviateSchemaThingsPropertiesUpdateForbidden ", 403)
+	return fmt.Sprintf("[PUT /schema/things/{className}/properties/{propertyName}][%d] weaviateSchemaThingsPropertiesUpdateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *WeaviateSchemaThingsPropertiesUpdateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

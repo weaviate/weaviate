@@ -12,6 +12,7 @@
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -23,19 +24,25 @@ import (
 // AddActionReference Class Instance to the connected DB. If the class contains a network
 // ref, it has a side-effect on the schema: The schema will be updated to
 // include this particular network ref class.
-func (m *Manager) AddActionReference(ctx context.Context, id strfmt.UUID,
-	propertyName string, property *models.SingleRef) error {
+func (m *Manager) AddActionReference(ctx context.Context, principal *models.Principal,
+	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
+
+	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("actions/%s", id.String()))
+	if err != nil {
+		return err
+	}
+
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
-		return newErrInternal("could not aquire lock: %v", err)
+		return NewErrInternal("could not aquire lock: %v", err)
 	}
 	defer unlock()
 
-	return m.addActionReferenceToConnectorAndSchema(ctx, id, propertyName, property)
+	return m.addActionReferenceToConnectorAndSchema(ctx, principal, id, propertyName, property)
 }
 
-func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, id strfmt.UUID,
-	propertyName string, property *models.SingleRef) error {
+func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, principal *models.Principal,
+	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
 
 	// get action to see if it exists
 	action, err := m.getActionFromRepo(ctx, id)
@@ -48,7 +55,7 @@ func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, id
 		return err
 	}
 
-	err = m.validateCanModifyReference(kind.Action, action.Class, propertyName)
+	err = m.validateCanModifyReference(principal, kind.Action, action.Class, propertyName)
 	if err != nil {
 		return err
 	}
@@ -61,14 +68,14 @@ func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, id
 	action.LastUpdateTimeUnix = unixNow()
 
 	// the new ref could be a network ref
-	err = m.addNetworkDataTypesForAction(ctx, action)
+	err = m.addNetworkDataTypesForAction(ctx, principal, action)
 	if err != nil {
-		return newErrInternal("could not update schema for network refs: %v", err)
+		return NewErrInternal("could not update schema for network refs: %v", err)
 	}
 
 	err = m.repo.UpdateAction(ctx, action, action.ID)
 	if err != nil {
-		return newErrInternal("could not store action: %v", err)
+		return NewErrInternal("could not store action: %v", err)
 	}
 
 	return nil
@@ -77,19 +84,25 @@ func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, id
 // AddThingReference Class Instance to the connected DB. If the class contains a network
 // ref, it has a side-effect on the schema: The schema will be updated to
 // include this particular network ref class.
-func (m *Manager) AddThingReference(ctx context.Context, id strfmt.UUID,
-	propertyName string, property *models.SingleRef) error {
+func (m *Manager) AddThingReference(ctx context.Context, principal *models.Principal,
+	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
+
+	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("things/%s", id.String()))
+	if err != nil {
+		return err
+	}
+
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
-		return newErrInternal("could not aquire lock: %v", err)
+		return NewErrInternal("could not aquire lock: %v", err)
 	}
 	defer unlock()
 
-	return m.addThingReferenceToConnectorAndSchema(ctx, id, propertyName, property)
+	return m.addThingReferenceToConnectorAndSchema(ctx, principal, id, propertyName, property)
 }
 
-func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, id strfmt.UUID,
-	propertyName string, property *models.SingleRef) error {
+func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, principal *models.Principal,
+	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
 
 	// get thing to see if it exists
 	thing, err := m.getThingFromRepo(ctx, id)
@@ -102,7 +115,7 @@ func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, id 
 		return err
 	}
 
-	err = m.validateCanModifyReference(kind.Thing, thing.Class, propertyName)
+	err = m.validateCanModifyReference(principal, kind.Thing, thing.Class, propertyName)
 	if err != nil {
 		return err
 	}
@@ -115,14 +128,14 @@ func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, id 
 	thing.LastUpdateTimeUnix = unixNow()
 
 	// the new ref could be a network ref
-	err = m.addNetworkDataTypesForThing(ctx, thing)
+	err = m.addNetworkDataTypesForThing(ctx, principal, thing)
 	if err != nil {
-		return newErrInternal("could not update schema for network refs: %v", err)
+		return NewErrInternal("could not update schema for network refs: %v", err)
 	}
 
 	err = m.repo.UpdateThing(ctx, thing, thing.ID)
 	if err != nil {
-		return newErrInternal("could not store thing: %v", err)
+		return NewErrInternal("could not store thing: %v", err)
 	}
 
 	return nil
@@ -131,41 +144,45 @@ func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, id 
 func (m *Manager) validateReference(ctx context.Context, reference *models.SingleRef) error {
 	err := validation.ValidateSingleRef(ctx, m.config, reference, m.repo, m.network, "reference not found")
 	if err != nil {
-		return newErrInvalidUserInput("invalid reference: %v", err)
+		return NewErrInvalidUserInput("invalid reference: %v", err)
 	}
 
 	return nil
 }
 
-func (m *Manager) validateCanModifyReference(k kind.Kind, className string,
-	propertyName string) error {
+func (m *Manager) validateCanModifyReference(principal *models.Principal, k kind.Kind,
+	className string, propertyName string) error {
 	class, err := schema.ValidateClassName(className)
 	if err != nil {
-		return newErrInvalidUserInput("invalid class name in reference: %v", err)
+		return NewErrInvalidUserInput("invalid class name in reference: %v", err)
 	}
 
 	propName, err := schema.ValidatePropertyName(propertyName)
 	if err != nil {
-		return newErrInvalidUserInput("invalid property name in reference: %v", err)
+		return NewErrInvalidUserInput("invalid property name in reference: %v", err)
 	}
 
-	schema := m.schemaManager.GetSchema()
+	schema, err := m.schemaManager.GetSchema(principal)
+	if err != nil {
+		return err
+	}
+
 	err, prop := schema.GetProperty(k, class, propName)
 	if err != nil {
-		return newErrInvalidUserInput("Could not find property '%s': %v", propertyName, err)
+		return NewErrInvalidUserInput("Could not find property '%s': %v", propertyName, err)
 	}
 
 	propertyDataType, err := schema.FindPropertyDataType(prop.DataType)
 	if err != nil {
-		return newErrInternal("Could not find datatype of property '%s': %v", propertyName, err)
+		return NewErrInternal("Could not find datatype of property '%s': %v", propertyName, err)
 	}
 
 	if propertyDataType.IsPrimitive() {
-		return newErrInvalidUserInput("property '%s' is a primitive datatype, not a reference-type", propertyName)
+		return NewErrInvalidUserInput("property '%s' is a primitive datatype, not a reference-type", propertyName)
 	}
 
 	if prop.Cardinality == nil || *prop.Cardinality != "many" {
-		return newErrInvalidUserInput("Property '%s' has a cardinality of atMostOne", propertyName)
+		return NewErrInvalidUserInput("Property '%s' has a cardinality of atMostOne", propertyName)
 	}
 
 	return nil
@@ -188,7 +205,7 @@ func (m *Manager) extendClassPropsWithReference(props interface{}, propertyName 
 	existingRefs := propsMap[propertyName]
 	existingRefsSlice, ok := existingRefs.([]interface{})
 	if !ok {
-		return nil, newErrInternal("expected list for reference props, but got %T", existingRefs)
+		return nil, NewErrInternal("expected list for reference props, but got %T", existingRefs)
 	}
 
 	propsMap[propertyName] = append(existingRefsSlice, property)

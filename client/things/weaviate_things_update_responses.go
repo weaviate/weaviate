@@ -139,16 +139,24 @@ func NewWeaviateThingsUpdateForbidden() *WeaviateThingsUpdateForbidden {
 
 /*WeaviateThingsUpdateForbidden handles this case with default header values.
 
-Insufficient permissions.
+Forbidden
 */
 type WeaviateThingsUpdateForbidden struct {
+	Payload *models.ErrorResponse
 }
 
 func (o *WeaviateThingsUpdateForbidden) Error() string {
-	return fmt.Sprintf("[PUT /things/{id}][%d] weaviateThingsUpdateForbidden ", 403)
+	return fmt.Sprintf("[PUT /things/{id}][%d] weaviateThingsUpdateForbidden  %+v", 403, o.Payload)
 }
 
 func (o *WeaviateThingsUpdateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

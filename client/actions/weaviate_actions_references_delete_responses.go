@@ -124,16 +124,24 @@ func NewWeaviateActionsReferencesDeleteForbidden() *WeaviateActionsReferencesDel
 
 /*WeaviateActionsReferencesDeleteForbidden handles this case with default header values.
 
-Insufficient permissions.
+Forbidden
 */
 type WeaviateActionsReferencesDeleteForbidden struct {
+	Payload *models.ErrorResponse
 }
 
 func (o *WeaviateActionsReferencesDeleteForbidden) Error() string {
-	return fmt.Sprintf("[DELETE /actions/{id}/references/{propertyName}][%d] weaviateActionsReferencesDeleteForbidden ", 403)
+	return fmt.Sprintf("[DELETE /actions/{id}/references/{propertyName}][%d] weaviateActionsReferencesDeleteForbidden  %+v", 403, o.Payload)
 }
 
 func (o *WeaviateActionsReferencesDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

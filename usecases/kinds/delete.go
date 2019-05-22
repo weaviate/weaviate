@@ -12,6 +12,7 @@
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -29,10 +30,15 @@ type deleteRepo interface {
 }
 
 // DeleteAction Class Instance from the conncected DB
-func (m *Manager) DeleteAction(ctx context.Context, id strfmt.UUID) error {
+func (m *Manager) DeleteAction(ctx context.Context, principal *models.Principal, id strfmt.UUID) error {
+	err := m.authorizer.Authorize(principal, "delete", fmt.Sprintf("actions/%s", id.String()))
+	if err != nil {
+		return err
+	}
+
 	unlock, err := m.locks.LockConnector()
 	if err != nil {
-		return newErrInternal("could not aquire lock: %v", err)
+		return NewErrInternal("could not aquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -47,17 +53,22 @@ func (m *Manager) deleteActionFromRepo(ctx context.Context, id strfmt.UUID) erro
 
 	err = m.repo.DeleteAction(ctx, nil, id)
 	if err != nil {
-		return newErrInternal("could not delete action: %v", err)
+		return NewErrInternal("could not delete action: %v", err)
 	}
 
 	return nil
 }
 
 // DeleteThing Class Instance from the conncected DB
-func (m *Manager) DeleteThing(ctx context.Context, id strfmt.UUID) error {
+func (m *Manager) DeleteThing(ctx context.Context, principal *models.Principal, id strfmt.UUID) error {
+	err := m.authorizer.Authorize(principal, "delete", fmt.Sprintf("things/%s", id.String()))
+	if err != nil {
+		return err
+	}
+
 	unlock, err := m.locks.LockConnector()
 	if err != nil {
-		return newErrInternal("could not aquire lock: %v", err)
+		return NewErrInternal("could not aquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -73,7 +84,7 @@ func (m *Manager) deleteThingFromRepo(ctx context.Context, id strfmt.UUID) error
 
 	err = m.repo.DeleteThing(ctx, nil, id)
 	if err != nil {
-		return newErrInternal("could not delete thing: %v", err)
+		return NewErrInternal("could not delete thing: %v", err)
 	}
 
 	return nil
