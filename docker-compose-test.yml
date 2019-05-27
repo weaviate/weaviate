@@ -20,6 +20,8 @@ services:
     image: semitechnologies/contextionary:0.1.0-minimal
     ports:
       - "9999:9999"
+    environment:
+      SCHEMA_PROVIDER_URL: etcd:2379
   genesis_fake:
     build:
       context: .
