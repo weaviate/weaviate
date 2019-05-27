@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	contextionary "github.com/semi-technologies/weaviate/contextionary/schema"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
@@ -305,9 +304,9 @@ func sampleDate() time.Time {
 	return dateTime
 }
 
-func cityClassSearch() contextionary.SearchResults {
-	return contextionary.SearchResults{
-		Results: []contextionary.SearchResult{
+func cityClassSearch() kinds.SearchResults {
+	return kinds.SearchResults{
+		Results: []kinds.SearchResult{
 			{
 				Name:      "City",
 				Certainty: 1.0,
