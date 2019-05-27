@@ -29,6 +29,7 @@ import (
 type Manager struct {
 	migrator              Migrator
 	repo                  Repo
+	stopwordDetector      stopwordDetector
 	contextionaryProvider contextionaryProvider
 	locks                 locks.ConnectorSchemaLock
 	state                 State
@@ -63,6 +64,10 @@ type Repo interface {
 	LoadSchema(ctx context.Context) (*State, error)
 }
 
+type stopwordDetector interface {
+	IsStopWord(word string) bool
+}
+
 // type contextionary interface {
 // 	WordToItemIndex(word string) libcontextionary.ItemIndex
 // }
@@ -74,7 +79,7 @@ type contextionaryProvider interface {
 // NewManager creates a new manager
 func NewManager(migrator Migrator, repo Repo, locks locks.ConnectorSchemaLock,
 	network network.Network, logger logrus.FieldLogger, c11yProvider contextionaryProvider,
-	authorizer authorizer) (*Manager, error) {
+	authorizer authorizer, swd stopwordDetector) (*Manager, error) {
 	m := &Manager{
 		migrator:              migrator,
 		repo:                  repo,
@@ -83,6 +88,7 @@ func NewManager(migrator Migrator, repo Repo, locks locks.ConnectorSchemaLock,
 		network:               network,
 		logger:                logger,
 		contextionaryProvider: c11yProvider,
+		stopwordDetector:      swd,
 		authorizer:            authorizer,
 	}
 

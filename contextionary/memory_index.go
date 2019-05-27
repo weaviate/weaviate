@@ -46,6 +46,10 @@ func (mi *MemoryIndex) WordToItemIndex(word string) ItemIndex {
 	return -1
 }
 
+func (mi *MemoryIndex) ItemIndexToOccurrence(item ItemIndex) (uint64, error) {
+	panic("not implemented in memory index")
+}
+
 // Based on an index, return the assosiated word.
 func (mi *MemoryIndex) ItemIndexToWord(item ItemIndex) (string, error) {
 	if item >= 0 && int(item) <= len(mi.words) {

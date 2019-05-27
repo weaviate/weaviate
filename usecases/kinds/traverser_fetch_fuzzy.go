@@ -28,6 +28,7 @@ func (t *Traverser) LocalFetchFuzzy(ctx context.Context, principal *models.Princ
 
 	words := t.contextionaryProvider.GetSchemaContextionary().
 		SafeGetSimilarWordsWithCertainty(params.Value, params.Certainty)
+
 	res, err := t.repo.LocalFetchFuzzy(ctx, words)
 	if err != nil {
 		return nil, fmt.Errorf("could not perform fuzzy search in connector: %v", err)

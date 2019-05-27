@@ -177,6 +177,9 @@ func createWordList(db *leveldb.DB, info WordVectorInfo, outputFileName string) 
 			log.Fatal("Could not write word offset to wordlist")
 		}
 
+		// reserve 8 bytes for occurence
+		word_offset += 8
+
 		word_offset += uint64(length) + 1
 
 		// ensure padding on 4-bytes aligned memory
@@ -193,6 +196,10 @@ func createWordList(db *leveldb.DB, info WordVectorInfo, outputFileName string) 
 		key := iter.Key()
 		word := string(key)
 		length := len(word)
+
+		// hard-code occurence to 102 for now
+		err = binary.Write(wbuf, binary.LittleEndian, uint64(102))
+
 		wbuf.Write([]byte(word))
 		wbuf.WriteByte(byte(0))
 		word_offset += uint64(length) + 1

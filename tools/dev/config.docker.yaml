@@ -11,6 +11,7 @@ configuration_storage:
 contextionary:
   knn_file: contextionary/contextionary.knn
   idx_file: contextionary/contextionary.idx
+  stopwords_file: contextionary/stopwords.json
 network:
   genesis_url: http://genesis_fake:8090
   public_url: http://localhost:8080

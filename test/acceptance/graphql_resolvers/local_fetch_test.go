@@ -89,7 +89,7 @@ func TestLocal_FetchFuzzy_FavorableCities(t *testing.T) {
 		{
 			Local {
 				Fetch {
-					Fuzzy (value:"favorable", certainty: 0.4) {
+					Fuzzy (value:"good", certainty: 0.4) {
 						beacon
 					}
 				}
@@ -120,7 +120,7 @@ func TestLocal_FetchFuzzy_UnfavorableCities(t *testing.T) {
 		{
 			Local {
 				Fetch {
-					Fuzzy (value:"negative", certainty: 0.4) {
+					Fuzzy (value:"poor", certainty: 0.4) {
 						beacon
 					}
 				}

@@ -26,6 +26,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
 	"github.com/semi-technologies/weaviate/adapters/locks"
 	"github.com/semi-technologies/weaviate/adapters/repos/etcd"
+	"github.com/semi-technologies/weaviate/contextionary/stopwords"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
@@ -65,7 +66,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	connstateRepo := etcd.NewConnStateRepo(etcdClient)
 
 	schemaManager, err := schemaUC.NewManager(appState.Connector, schemaRepo,
-		appState.Locks, appState.Network, appState.Logger, appState, appState.Authorizer)
+		appState.Locks, appState.Network, appState.Logger, appState, appState.Authorizer, appState.StopwordDetector)
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
@@ -234,6 +235,19 @@ func startupRoutine() (*state.State, *clientv3.Client) {
 	// initialize the contextinoary with the rawContextionary, it will get updated on each schema update
 	appState.Contextionary = rawContextionary
 	appState.RawContextionary = rawContextionary
+
+	stopwordDetector, err := stopwords.NewFromFile(appState.ServerConfig.Config.Contextionary.StopwordsFile)
+	if err != nil {
+		logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("could not initialize stopword detector")
+		logger.Exit(1)
+	}
+
+	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
+		Debug("initialized stopword detector")
+
+	appState.StopwordDetector = stopwordDetector
 
 	return appState, etcdClient
 }
