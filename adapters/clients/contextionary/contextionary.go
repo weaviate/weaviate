@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/davecgh/go-spew/spew"
 	pb "github.com/semi-technologies/contextionary/contextionary"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
@@ -74,9 +73,6 @@ func (c *Client) SchemaSearch(ctx context.Context, params kinds.SearchParams) (k
 		Keywords:   keywordsToProto(params.Keywords),
 		SearchType: searchTypeToProto(params.SearchType),
 	}
-
-	fmt.Printf("\n\n\ninput:\n")
-	spew.Dump(pbParams)
 
 	res, err := c.grpcClient.SchemaSearch(ctx, pbParams)
 	if err != nil {
@@ -160,7 +156,5 @@ func searchResultsFromProto(input []*pb.SchemaSearchResult) []kinds.SearchResult
 		}
 	}
 
-	fmt.Printf("\n\n\noutput:\n")
-	spew.Dump(output)
 	return output
 }

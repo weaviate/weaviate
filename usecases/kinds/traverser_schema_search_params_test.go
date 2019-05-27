@@ -21,6 +21,16 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+type schemaSearchTest struct {
+	name           string
+	words          map[string][]float32
+	searchParams   SearchParams
+	expectedResult SearchResults
+	expectedError  error
+}
+
+type schemaSearchTests []schemaSearchTest
+
 func Test__SchemaSearch_Validation(t *testing.T) {
 	tests := schemaSearchTests{
 		{

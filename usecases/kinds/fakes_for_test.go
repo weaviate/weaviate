@@ -14,7 +14,6 @@ import (
 	"context"
 
 	"github.com/go-openapi/strfmt"
-	contextionary "github.com/semi-technologies/weaviate/contextionary/schema"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
@@ -170,8 +169,14 @@ func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource s
 	return nil
 }
 
-type fakeC11yProvider struct{}
+type fakeC11y struct{}
 
-func (f *fakeC11yProvider) GetSchemaContextionary() *contextionary.Contextionary {
+func (f *fakeC11y) IsWordPresent(ctx context.Context, word string) (bool, error) {
+	panic("not implemented")
+}
+func (f *fakeC11y) SafeGetSimilarWordsWithCertainty(ctx context.Context, word string, certainty float32) ([]string, error) {
+	panic("not implemented")
+}
+func (f *fakeC11y) SchemaSearch(ctx context.Context, p SearchParams) (SearchResults, error) {
 	panic("not implemented")
 }

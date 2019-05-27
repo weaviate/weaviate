@@ -1,15 +1,12 @@
 module github.com/semi-technologies/weaviate
 
 require (
-	github.com/2tvenom/cbor v0.0.0-20171016170723-384e799bd841
 	github.com/SeMI-network/janus-spark-analytics v0.0.0-20190311154421-9a5188468325
 	github.com/TylerBrock/colorjson v0.0.0-20180527164720-95ec53f28296
 	github.com/coreos/etcd v3.3.11+incompatible
 	github.com/coreos/go-oidc v2.0.0+incompatible
 	github.com/davecgh/go-spew v1.1.1
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
-	github.com/eclipse/paho.mqtt.golang v1.1.1
-	github.com/etcd-io/etcd v3.3.11+incompatible
 	github.com/evanphx/json-patch v3.0.0+incompatible
 	github.com/fatih/camelcase v1.0.0
 	github.com/go-openapi/errors v0.17.0
@@ -33,6 +30,7 @@ require (
 	github.com/stretchr/testify v1.3.0
 	github.com/syndtr/goleveldb v0.0.0-20180708030551-c4c61651e9e3
 	github.com/ugorji/go/codec v0.0.0-20190309163734-c4a1c341dc93
+	go.etcd.io/bbolt v1.3.2 // indirect
 	golang.org/x/net v0.0.0-20181220203305-927f97764cc3
 	google.golang.org/grpc v1.19.0
 	gopkg.in/square/go-jose.v2 v2.3.1 // indirect
