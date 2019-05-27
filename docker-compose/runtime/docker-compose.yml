@@ -7,15 +7,23 @@ services:
     ports:
      - "80:80"
   weaviate:
-    image: semitechnologies/weaviate:latest
-    command: ["--host", "0.0.0.0", "--port", "8080", "--scheme", "http" ]
+    image: semitechnologies/weaviate:0.14.0
+    command: 
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8080"
+      - "--scheme"
+      - "http" 
+      - "config-file"
+      - "config.yaml"
     depends_on:
       - janus
     restart: on-failure:0
     ports:
      - "8080:8080"
     volumes:
-     - ./config.json:/weaviate.conf.json
+     - ./config.yaml:/config.yaml
   janus:
     image: semitechnologies/janusgraph-docker:0.3.1
     depends_on:
