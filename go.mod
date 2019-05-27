@@ -28,7 +28,6 @@ require (
 	github.com/sirupsen/logrus v1.2.0
 	github.com/square/go-jose v2.3.0+incompatible
 	github.com/stretchr/testify v1.3.0
-	github.com/syndtr/goleveldb v0.0.0-20180708030551-c4c61651e9e3
 	github.com/ugorji/go/codec v0.0.0-20190309163734-c4a1c341dc93
 	go.etcd.io/bbolt v1.3.2 // indirect
 	golang.org/x/net v0.0.0-20181220203305-927f97764cc3
