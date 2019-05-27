@@ -53,6 +53,8 @@ services:
     image: semitechnologies/contextionary:0.1.0-minimal
     ports:
       - "9999:9999"
+    environment:
+      SCHEMA_PROVIDER_URL: etcd:2379
   weaviate_demo_importer:
     image: weaviate/demo_importer
     command: ["-weaviate-url", "http://weaviate:8080/weaviate/v1/"]
