@@ -11,6 +11,7 @@
  */package schema
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -39,7 +40,7 @@ func (m *Manager) validateClassNameUniqueness(className string) error {
 
 // Check that the format of the name is correct
 // Check that the name is acceptable according to the contextionary
-func (m *Manager) validateClassNameAndKeywords(knd kind.Kind, className string, keywords models.SemanticSchemaKeywords) error {
+func (m *Manager) validateClassNameAndKeywords(ctx context.Context, knd kind.Kind, className string, keywords models.SemanticSchemaKeywords) error {
 	_, err := schema.ValidateClassName(className)
 	if err != nil {
 		return err
@@ -49,7 +50,12 @@ func (m *Manager) validateClassNameAndKeywords(knd kind.Kind, className string, 
 	stopWordsFound := 0
 	for _, keyword := range keywords {
 		word := strings.ToLower(keyword.Keyword)
-		if m.stopwordDetector.IsStopWord(word) {
+		sw, err := m.stopwordDetector.IsStopWord(ctx, word)
+		if err != nil {
+			return fmt.Errorf("could not check stopword: %v", err)
+		}
+
+		if sw {
 			stopWordsFound++
 			continue
 		}
@@ -57,8 +63,13 @@ func (m *Manager) validateClassNameAndKeywords(knd kind.Kind, className string, 
 		if err := validateWeight(keyword); err != nil {
 			return fmt.Errorf("invalid keyword %s: %v", keyword.Keyword, err)
 		}
-		idx := m.contextionaryProvider.GetContextionary().WordToItemIndex(word)
-		if !idx.IsPresent() {
+
+		present, err := m.c11yClient.IsWordPresent(ctx, word)
+		if err != nil {
+			return fmt.Errorf("could not check word presence: %v", err)
+		}
+
+		if !present {
 			return fmt.Errorf("Could not find the keyword '%s' for class '%s' in the contextionary", word, className)
 		}
 	}
@@ -72,13 +83,22 @@ func (m *Manager) validateClassNameAndKeywords(knd kind.Kind, className string, 
 	stopWordsFound = 0
 	for _, part := range camelParts {
 		word := strings.ToLower(part)
-		if m.stopwordDetector.IsStopWord(word) {
+		sw, err := m.stopwordDetector.IsStopWord(ctx, word)
+		if err != nil {
+			return fmt.Errorf("could not check stopword: %v", err)
+		}
+
+		if sw {
 			stopWordsFound++
 			continue
 		}
 
-		idx := m.contextionaryProvider.GetContextionary().WordToItemIndex(word)
-		if !idx.IsPresent() {
+		present, err := m.c11yClient.IsWordPresent(ctx, word)
+		if err != nil {
+			return fmt.Errorf("could not check word presence: %v", err)
+		}
+
+		if !present {
 			return fmt.Errorf("Could not find the word '%s' from the class name '%s' in the contextionary. Consider using keywords to define the semantic meaning of this class.", word, className)
 		}
 	}
@@ -111,7 +131,7 @@ func validateWeight(keyword *models.SemanticSchemaKeywordsItems0) error {
 
 // Check that the format of the name is correct
 // Check that the name is acceptable according to the contextionary
-func (m *Manager) validatePropertyNameAndKeywords(className string, propertyName string, keywords models.SemanticSchemaKeywords) error {
+func (m *Manager) validatePropertyNameAndKeywords(ctx context.Context, className string, propertyName string, keywords models.SemanticSchemaKeywords) error {
 	_, err := schema.ValidatePropertyName(propertyName)
 	if err != nil {
 		return err
@@ -120,7 +140,12 @@ func (m *Manager) validatePropertyNameAndKeywords(className string, propertyName
 	stopWordsFound := 0
 	for _, keyword := range keywords {
 		word := strings.ToLower(keyword.Keyword)
-		if m.stopwordDetector.IsStopWord(word) {
+		sw, err := m.stopwordDetector.IsStopWord(ctx, word)
+		if err != nil {
+			return fmt.Errorf("could not check stopword: %v", err)
+		}
+
+		if sw {
 			stopWordsFound++
 			continue
 		}
@@ -128,8 +153,13 @@ func (m *Manager) validatePropertyNameAndKeywords(className string, propertyName
 		if err := validateWeight(keyword); err != nil {
 			return fmt.Errorf("invalid keyword %s: %v", keyword.Keyword, err)
 		}
-		idx := m.contextionaryProvider.GetContextionary().WordToItemIndex(word)
-		if !idx.IsPresent() {
+
+		present, err := m.c11yClient.IsWordPresent(ctx, word)
+		if err != nil {
+			return fmt.Errorf("could not check word presence: %v", err)
+		}
+
+		if !present {
 			return fmt.Errorf("Could not find the keyword '%s' for property '%s' in the class '%s' in the contextionary", word, propertyName, className)
 		}
 	}
@@ -142,13 +172,22 @@ func (m *Manager) validatePropertyNameAndKeywords(className string, propertyName
 	stopWordsFound = 0
 	for _, part := range camelParts {
 		word := strings.ToLower(part)
-		if m.stopwordDetector.IsStopWord(word) {
+		sw, err := m.stopwordDetector.IsStopWord(ctx, word)
+		if err != nil {
+			return fmt.Errorf("could not check stopword: %v", err)
+		}
+
+		if sw {
 			stopWordsFound++
 			continue
 		}
 
-		idx := m.contextionaryProvider.GetContextionary().WordToItemIndex(word)
-		if !idx.IsPresent() {
+		present, err := m.c11yClient.IsWordPresent(ctx, word)
+		if err != nil {
+			return fmt.Errorf("could not check word presence: %v", err)
+		}
+
+		if !present {
 			return fmt.Errorf("Could not find the word '%s' from the property '%s' in the class name '%s' in the contextionary. Consider using keywords to define the semantic meaning of this class.", word, propertyName, className)
 		}
 	}

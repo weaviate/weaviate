@@ -57,12 +57,13 @@ function import_test_fixtures() {
   # Load the test schema in weaviate.
   go run ./tools/schema_loader \
     -action-schema test/schema/test-action-schema.json \
-    -thing-schema test/schema/test-thing-schema.json
+    -thing-schema test/schema/test-thing-schema.json --debug
+
 
   # Load the fixtures for the GraphQL acceptance tests
   go run ./tools/schema_loader \
     -action-schema test/acceptance/graphql_resolvers/fixtures/actions_schema.json \
-    -thing-schema test/acceptance/graphql_resolvers/fixtures/things_schema.json
+    -thing-schema test/acceptance/graphql_resolvers/fixtures/things_schema.json --debug
 
   go run ./tools/fixture_importer/ \
     -fixture-file test/acceptance/graphql_resolvers/fixtures/data.json

@@ -16,6 +16,10 @@ services:
     environment:
       DEVELOPMENT_UI: "on"
       LOG_LEVEL: "debug"
+  contextionary:
+    image: semitechnologies/contextionary:0.1.0-minimal
+    ports:
+      - "9999:9999"
   genesis_fake:
     build:
       context: .

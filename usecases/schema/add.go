@@ -54,7 +54,7 @@ func (m *Manager) addClass(ctx context.Context, principal *models.Principal,
 	class.Class = upperCaseClassName(class.Class)
 	class.Properties = lowerCaseAllPropertyNames(class.Properties)
 
-	err = m.validateCanAddClass(principal, k, class)
+	err = m.validateCanAddClass(ctx, principal, k, class)
 	if err != nil {
 		return err
 	}
@@ -70,14 +70,14 @@ func (m *Manager) addClass(ctx context.Context, principal *models.Principal,
 	// TODO gh-846: Rollback state upate if migration fails
 }
 
-func (m *Manager) validateCanAddClass(principal *models.Principal, knd kind.Kind, class *models.SemanticSchemaClass) error {
+func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Principal, knd kind.Kind, class *models.SemanticSchemaClass) error {
 	// First check if there is a name clash.
 	err := m.validateClassNameUniqueness(class.Class)
 	if err != nil {
 		return err
 	}
 
-	err = m.validateClassNameAndKeywords(knd, class.Class, class.Keywords)
+	err = m.validateClassNameAndKeywords(ctx, knd, class.Class, class.Keywords)
 	if err != nil {
 		return err
 	}
@@ -85,7 +85,7 @@ func (m *Manager) validateCanAddClass(principal *models.Principal, knd kind.Kind
 	// Check properties
 	foundNames := map[string]bool{}
 	for _, property := range class.Properties {
-		err = m.validatePropertyNameAndKeywords(class.Class, property.Name, property.Keywords)
+		err = m.validatePropertyNameAndKeywords(ctx, class.Class, property.Name, property.Keywords)
 		if err != nil {
 			return err
 		}

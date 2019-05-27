@@ -14,7 +14,6 @@ import (
 	"fmt"
 
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
-	contextionary "github.com/semi-technologies/weaviate/contextionary/schema"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
@@ -35,8 +34,8 @@ func parseWhere(args map[string]interface{}, kind kind.Kind) (*kinds.FetchSearch
 	for i, prop := range propertiesRaw {
 		propertiesMap := prop.(map[string]interface{})
 		propertiesKeywords := extractKeywords(propertiesMap["keywords"])
-		search := contextionary.SearchParams{
-			SearchType: contextionary.SearchTypeProperty,
+		search := kinds.SearchParams{
+			SearchType: kinds.SearchTypeProperty,
 			Name:       propertiesMap["name"].(string),
 			Certainty:  float32(propertiesMap["certainty"].(float64)),
 			Keywords:   propertiesKeywords,
@@ -55,8 +54,8 @@ func parseWhere(args map[string]interface{}, kind kind.Kind) (*kinds.FetchSearch
 	}
 
 	return &kinds.FetchSearch{
-		Class: contextionary.SearchParams{
-			SearchType: contextionary.SearchTypeClass,
+		Class: kinds.SearchParams{
+			SearchType: kinds.SearchTypeClass,
 			Name:       classMap["name"].(string),
 			Certainty:  float32(classMap["certainty"].(float64)),
 			Keywords:   classKeywords,
