@@ -58,6 +58,7 @@ FROM build_base AS contextionary_fixture_builder
 RUN apk add -U jq
 COPY go.mod go.sum ./
 COPY ./test/contextionary ./test/contextionary
+COPY ./contextionary ./contextionary
 RUN ./test/contextionary/gen_simple_contextionary.sh
 
 ###############################################################################
