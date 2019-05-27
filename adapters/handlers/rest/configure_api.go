@@ -22,11 +22,11 @@ import (
 	"github.com/coreos/etcd/clientv3"
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
+	"github.com/semi-technologies/weaviate/adapters/clients/contextionary"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
 	"github.com/semi-technologies/weaviate/adapters/locks"
 	"github.com/semi-technologies/weaviate/adapters/repos/etcd"
-	"github.com/semi-technologies/weaviate/contextionary/stopwords"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
@@ -66,7 +66,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	connstateRepo := etcd.NewConnStateRepo(etcdClient)
 
 	schemaManager, err := schemaUC.NewManager(appState.Connector, schemaRepo,
-		appState.Locks, appState.Network, appState.Logger, appState, appState.Authorizer, appState.StopwordDetector)
+		appState.Locks, appState.Network, appState.Logger, appState.Contextionary, appState.Authorizer, appState.StopwordDetector)
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
@@ -80,7 +80,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,
 		appState.Authorizer)
 	kindsTraverser := kinds.NewTraverser(appState.Locks, appState.Connector,
-		appState, appState.Logger, appState.Authorizer)
+		appState.Contextionary, appState.Logger, appState.Authorizer)
 	connstateManager, err := connstate.NewManager(connstateRepo, appState.Logger)
 	if err != nil {
 		appState.Logger.
@@ -124,7 +124,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupSchemaHandlers(api, appState.TelemetryLogger, schemaManager)
 	setupKindHandlers(api, appState.TelemetryLogger, kindsManager)
 	setupKindBatchHandlers(api, appState.TelemetryLogger, batchKindsManager)
-	setupC11yHandlers(api, appState.TelemetryLogger, appState)
+	// setupC11yHandlers(api, appState.TelemetryLogger, appState)
 	setupGraphQLHandlers(api, appState.TelemetryLogger, appState)
 	setupMiscHandlers(api, appState.TelemetryLogger, appState.ServerConfig, appState.Network, schemaManager)
 
@@ -173,10 +173,6 @@ func startupRoutine() (*state.State, *clientv3.Client) {
 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("configured OIDC and anonymous access client")
-
-	rawContextionary := loadContextionary(logger, appState.ServerConfig.Config)
-	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
-		Debug("contextionary loaded")
 
 	appState.Network = connectToNetwork(logger, appState.ServerConfig.Config)
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
@@ -232,22 +228,18 @@ func startupRoutine() (*state.State, *clientv3.Client) {
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("initialized schema")
 
-	// initialize the contextinoary with the rawContextionary, it will get updated on each schema update
-	appState.Contextionary = rawContextionary
-	appState.RawContextionary = rawContextionary
-
-	stopwordDetector, err := stopwords.NewFromFile(appState.ServerConfig.Config.Contextionary.StopwordsFile)
-	if err != nil {
-		logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("could not initialize stopword detector")
-		logger.Exit(1)
-	}
-
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("initialized stopword detector")
 
-	appState.StopwordDetector = stopwordDetector
+	c11y, err := contextionary.NewClient(appState.ServerConfig.Config.Contextionary.URL)
+	if err != nil {
+		logger.WithField("action", "startup").
+			WithError(err).Error("cannot create c11y client")
+		logger.Exit(1)
+	}
+
+	appState.StopwordDetector = c11y
+	appState.Contextionary = c11y
 
 	return appState, etcdClient
 }

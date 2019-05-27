@@ -13,14 +13,15 @@
 package state
 
 import (
+	"context"
+
 	"github.com/semi-technologies/weaviate/adapters/connectors"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql"
-	"github.com/semi-technologies/weaviate/contextionary"
-	schema_contextionary "github.com/semi-technologies/weaviate/contextionary/schema"
 	"github.com/semi-technologies/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/semi-technologies/weaviate/usecases/auth/authentication/oidc"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/semi-technologies/weaviate/usecases/locks"
 	"github.com/semi-technologies/weaviate/usecases/network"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
@@ -40,8 +41,7 @@ type State struct {
 	Locks            locks.ConnectorSchemaLock
 	Logger           *logrus.Logger
 	GraphQL          graphql.GraphQL
-	Contextionary    contextionary.Contextionary
-	RawContextionary contextionary.Contextionary
+	Contextionary    contextionary
 	TelemetryLogger  *telemetry.RequestsLog
 	StopwordDetector stopwordDetector
 }
@@ -55,26 +55,12 @@ func (s *State) GetGraphQL() graphql.GraphQL {
 	return s.GraphQL
 }
 
-// GetContextionary is the safe way to retrieve Contextionary from the state as it can be
-// replaced at runtime. Instead of passing appState.Contextionary to your adapters,
-// pass appState itself which you can abstract with a local interface such as:
-//
-// type gqlProvider interface { GetContextionary contextionary.Contextionary }
-func (s *State) GetContextionary() contextionary.Contextionary {
-	return s.Contextionary
-}
-
-// GetSchemaContextionary is the safe way to retrieve SchemaContextionary from
-// the state as it can be replaced at runtime. Instead of passing
-// appState.SchemaContextionary to your adapters, pass appState itself which
-// you can abstract with a local interface such as:
-//
-// type gqlProvider interface { GetSchemaContextionary
-// schema_contextionary.Contextionary }
-func (s *State) GetSchemaContextionary() *schema_contextionary.Contextionary {
-	return schema_contextionary.New(s.Contextionary)
-}
-
 type stopwordDetector interface {
-	IsStopWord(word string) bool
+	IsStopWord(ctx context.Context, word string) (bool, error)
+}
+
+type contextionary interface {
+	IsWordPresent(ctx context.Context, word string) (bool, error)
+	SchemaSearch(ctx context.Context, params kinds.SearchParams) (kinds.SearchResults, error)
+	SafeGetSimilarWordsWithCertainty(ctx context.Context, word string, certainty float32) ([]string, error)
 }

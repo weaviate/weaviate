@@ -14,11 +14,28 @@ import (
 	"context"
 	"fmt"
 
-	contextionary "github.com/semi-technologies/weaviate/contextionary/schema"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
+
+// SearchResult is a single search result. See wrapping Search Results for the Type
+type SearchResult struct {
+	Name      string
+	Kind      kind.Kind
+	Certainty float32
+}
+
+// SearchResults is grouping of SearchResults for a SchemaSearch
+type SearchResults struct {
+	Type    SearchType
+	Results []SearchResult
+}
+
+// Len of the result set
+func (r SearchResults) Len() int {
+	return len(r.Results)
+}
 
 // LocalFetchKindClass searches for a specific class based on FetchSearch params
 func (t *Traverser) LocalFetchKindClass(ctx context.Context, principal *models.Principal,
@@ -35,13 +52,12 @@ func (t *Traverser) LocalFetchKindClass(ctx context.Context, principal *models.P
 	}
 	defer unlock()
 
-	contextionary := t.contextionaryProvider.GetSchemaContextionary()
-	possibleClasses, err := contextionary.SchemaSearch(params.Class)
+	possibleClasses, err := t.c11y.SchemaSearch(ctx, params.Class)
 	if err != nil {
 		return nil, err
 	}
 
-	properties, err := t.addPossibleNamesToProperties(params.Properties, contextionary)
+	properties, err := t.addPossibleNamesToProperties(ctx, params.Properties)
 	if err != nil {
 		return nil, err
 	}
@@ -67,10 +83,11 @@ func (t *Traverser) LocalFetchKindClass(ctx context.Context, principal *models.P
 	return t.repo.LocalFetchKindClass(ctx, connectorParams)
 }
 
-func (t *Traverser) addPossibleNamesToProperties(props []FetchSearchProperty, c11y c11y) ([]FetchProperty, error) {
+func (t *Traverser) addPossibleNamesToProperties(ctx context.Context,
+	props []FetchSearchProperty) ([]FetchProperty, error) {
 	properties := make([]FetchProperty, len(props), len(props))
 	for i, prop := range props {
-		possibleNames, err := c11y.SchemaSearch(prop.Search)
+		possibleNames, err := t.c11y.SchemaSearch(ctx, prop.Search)
 		if err != nil {
 			return nil, err
 		}
@@ -86,14 +103,14 @@ func (t *Traverser) addPossibleNamesToProperties(props []FetchSearchProperty, c1
 // FetchSearch describes the search params for a specific class, as well as a
 // list of properties which should match
 type FetchSearch struct {
-	Class      contextionary.SearchParams
+	Class      SearchParams
 	Properties []FetchSearchProperty
 }
 
 // FetchSearchProperty describes both the search params, as well as the match
 // criteria for a single property as part of a search
 type FetchSearchProperty struct {
-	Search contextionary.SearchParams
+	Search SearchParams
 	Match  FetchPropertyMatch
 }
 
@@ -111,7 +128,7 @@ type FetchPropertyMatch struct {
 // query.
 type FetchParams struct {
 	Kind               kind.Kind
-	PossibleClassNames contextionary.SearchResults
+	PossibleClassNames SearchResults
 	Properties         []FetchProperty
 }
 
@@ -119,6 +136,6 @@ type FetchParams struct {
 // as a match object to perform filtering actions in the db connector based on
 // this property
 type FetchProperty struct {
-	PossibleNames contextionary.SearchResults
+	PossibleNames SearchResults
 	Match         FetchPropertyMatch
 }
