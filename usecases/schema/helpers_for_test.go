@@ -69,7 +69,7 @@ func (f *fakeC11y) GetVectorLength() int {
 // Every word in this fake c11y is present with the same position (4), except
 // for the word Carrot which is not present
 func (f *fakeC11y) WordToItemIndex(word string) contextionary.ItemIndex {
-	if word == "carrot" {
+	if word == "carrot" || word == "the" {
 		return contextionary.ItemIndex(-1)
 	}
 	return contextionary.ItemIndex(4)
@@ -101,6 +101,16 @@ func (f *fakeC11y) SafeGetSimilarWords(word string, n int, k int) ([]string, []f
 
 func (f *fakeC11y) SafeGetSimilarWordsWithCertainty(word string, certainty float32) []string {
 	panic("not implemented")
+}
+
+func (f *fakeC11y) ItemIndexToOccurrence(item contextionary.ItemIndex) (uint64, error) {
+	panic("not implemented")
+}
+
+type fakeStopwordDetector struct{}
+
+func (f *fakeStopwordDetector) IsStopWord(word string) bool {
+	return word == "the"
 }
 
 type fakeAuthorizer struct{}

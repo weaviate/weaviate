@@ -64,18 +64,18 @@ var sampleSchema = schema.Schema{
 }
 
 func main() {
-	c13y, err := contextionary.LoadVectorFromDisk("./tools/dev/contextionary-playground/contextionary.knn", "./tools/dev/contextionary-playground/contextionary.idx")
+	c11y, err := contextionary.LoadVectorFromDisk("./test/contextionary/example.knn", "./test/contextionary/example.idx")
 	fatal(err)
 
 	fmt.Println("results before building centroid based on keywords: ")
-	kNN("city", c13y)
+	kNN("city", c11y)
 
 	// TODO: replace nil argument with actual stop word detector
-	inMemoryC13y, err := schemaContextionary.BuildInMemoryContextionaryFromSchema(sampleSchema, &c13y, nil)
+	inMemoryC11y, err := schemaContextionary.BuildInMemoryContextionaryFromSchema(sampleSchema, &c11y, nil)
 	fatal(err)
 
 	// Combine contextionaries
-	contextionaries := []contextionary.Contextionary{*inMemoryC13y, c13y}
+	contextionaries := []contextionary.Contextionary{*inMemoryC11y, c11y}
 	combined, err := contextionary.CombineVectorIndices(contextionaries)
 	fatal(err)
 
@@ -89,7 +89,7 @@ func kNN(name string, contextionary contextionary.Contextionary) {
 		fatal(fmt.Errorf("item index for %s is not present", name))
 	}
 
-	list, distances, err := contextionary.GetNnsByItem(itemIndex, 1000000, 3)
+	list, distances, err := contextionary.GetNnsByItem(itemIndex, 20, 3)
 	if err != nil {
 		fatal(fmt.Errorf("get nns errored: %s", err))
 	}

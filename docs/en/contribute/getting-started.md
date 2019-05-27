@@ -17,9 +17,9 @@ $ git clone https://github.com/semi-technologies/weaviate
 From the Weaviate root, download the contextionary:
 
 ```bash
-$ wget -O ./contextionary/contextionary.idx https://contextionary.creativesoftwarefdn.org/$(curl -sS https://contextionary.creativesoftwarefdn.org/contextionary.json | jq -r ".latestVersion")/en/contextionary.idx 
-$ wget -O ./contextionary/contextionary.knn https://contextionary.creativesoftwarefdn.org/$(curl -sS https://contextionary.creativesoftwarefdn.org/contextionary.json | jq -r ".latestVersion")/en/contextionary.knn 
-$ wget -O ./contextionary/contextionary.vocab https://contextionary.creativesoftwarefdn.org/$(curl -sS https://contextionary.creativesoftwarefdn.org/contextionary.json | jq -r ".latestVersion")/en/contextionary.vocab 
+$ wget -O ./contextionary/contextionary.idx https://c11y.semi.technology/$(curl -sS https://c11y.semi.technology/contextionary.json | jq -r ".latestVersion")/en/contextionary.idx 
+$ wget -O ./contextionary/contextionary.knn https://c11y.semi.technology/$(curl -sS https://c11y.semi.technology/contextionary.json | jq -r ".latestVersion")/en/contextionary.knn 
+$ wget -O ./contextionary/contextionary.vocab https://c11y.semi.technology/$(curl -sS https://c11y.semi.technology/contextionary.json | jq -r ".latestVersion")/en/contextionary.vocab 
 ```
 
 From the Weaviate root:
