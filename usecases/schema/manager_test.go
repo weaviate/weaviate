@@ -591,7 +591,7 @@ func TestSchema(t *testing.T) {
 func newSchemaManager() *Manager {
 	logger, _ := test.NewNullLogger()
 	sm, err := NewManager(&NilMigrator{}, newFakeRepo(), newFakeLocks(), nil,
-		logger, &fakeC11yProvider{}, &fakeAuthorizer{}, &fakeStopwordDetector{})
+		logger, &fakeC11y{}, &fakeAuthorizer{}, &fakeStopwordDetector{})
 	if err != nil {
 		panic(err.Error())
 	}

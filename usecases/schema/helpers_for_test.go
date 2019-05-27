@@ -13,7 +13,6 @@
 import (
 	"context"
 
-	"github.com/semi-technologies/weaviate/contextionary"
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
@@ -48,13 +47,6 @@ func (f *fakeLocks) LockConnector() (func() error, error) {
 	return func() error { return nil }, nil
 }
 
-type fakeC11yProvider struct {
-}
-
-func (f *fakeC11yProvider) GetContextionary() contextionary.Contextionary {
-	return &fakeC11y{}
-}
-
 type fakeC11y struct {
 }
 
@@ -68,49 +60,17 @@ func (f *fakeC11y) GetVectorLength() int {
 
 // Every word in this fake c11y is present with the same position (4), except
 // for the word Carrot which is not present
-func (f *fakeC11y) WordToItemIndex(word string) contextionary.ItemIndex {
+func (f *fakeC11y) IsWordPresent(ctx context.Context, word string) (bool, error) {
 	if word == "carrot" || word == "the" {
-		return contextionary.ItemIndex(-1)
+		return false, nil
 	}
-	return contextionary.ItemIndex(4)
-}
-
-func (f *fakeC11y) ItemIndexToWord(item contextionary.ItemIndex) (string, error) {
-	panic("not implemented")
-}
-
-func (f *fakeC11y) GetVectorForItemIndex(item contextionary.ItemIndex) (*contextionary.Vector, error) {
-	panic("not implemented")
-}
-
-func (f *fakeC11y) GetDistance(a contextionary.ItemIndex, b contextionary.ItemIndex) (float32, error) {
-	panic("not implemented")
-}
-
-func (f *fakeC11y) GetNnsByItem(item contextionary.ItemIndex, n int, k int) ([]contextionary.ItemIndex, []float32, error) {
-	panic("not implemented")
-}
-
-func (f *fakeC11y) GetNnsByVector(vector contextionary.Vector, n int, k int) ([]contextionary.ItemIndex, []float32, error) {
-	panic("not implemented")
-}
-
-func (f *fakeC11y) SafeGetSimilarWords(word string, n int, k int) ([]string, []float32) {
-	panic("not implemented")
-}
-
-func (f *fakeC11y) SafeGetSimilarWordsWithCertainty(word string, certainty float32) []string {
-	panic("not implemented")
-}
-
-func (f *fakeC11y) ItemIndexToOccurrence(item contextionary.ItemIndex) (uint64, error) {
-	panic("not implemented")
+	return true, nil
 }
 
 type fakeStopwordDetector struct{}
 
-func (f *fakeStopwordDetector) IsStopWord(word string) bool {
-	return word == "the"
+func (f *fakeStopwordDetector) IsStopWord(ctx context.Context, word string) (bool, error) {
+	return word == "the", nil
 }
 
 type fakeAuthorizer struct{}
