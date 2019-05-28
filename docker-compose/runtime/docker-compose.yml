@@ -15,7 +15,7 @@ services:
       - "8080"
       - "--scheme"
       - "http" 
-      - "config-file"
+      - "--config-file"
       - "config.yaml"
     depends_on:
       - janus
