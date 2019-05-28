@@ -15,10 +15,10 @@ after_success:
         if [ "$TRAVIS_BRANCH" = "master" ]; then
             TAG=$DOCKER_ID$WEAVIATE_VERSION-$(echo $TRAVIS_COMMIT | cut -c1-7)
             LATESTTAG="${DOCKER_ID}latest"
-            DOCKERTARGET=janus # <=== using JanusGraph by default now
+            DOCKERTARGET=weaviate
             echo "preparing pre-release: " $TAG " for target: " $DOCKERTARGET
             # execute the Docker build
-            travis_wait 30 docker build -f "Dockerfile-prod" -t $TAG -t $LATESTTAG --target $DOCKERTARGET .
+            travis_wait 30 docker build -f "Dockerfile" -t $TAG -t $LATESTTAG --target $DOCKERTARGET .
             # push the release
             travis_wait 30 docker push $TAG
             travis_wait 30 docker push $LATESTTAG
@@ -26,12 +26,12 @@ after_success:
         elif [ -n "$TRAVIS_TAG" ]; then
             TAG=$DOCKER_ID$TRAVIS_TAG
             LATESTTAG="${DOCKER_ID}latest"
-            DOCKERTARGET=janus # <=== using JanusGraph by default now
+            DOCKERTARGET=weaviate
             echo "preparing release: " $TAG " for target: " $DOCKERTARGET
             # validate if the tag is equal to the Weaviate version
             if [ "$TRAVIS_TAG" = "$WEAVIATE_VERSION" ]; then
                 # execute the Docker build
-                travis_wait 30 docker build -f "Dockerfile-prod" -t $TAG -t $LATESTTAG --target $DOCKERTARGET .
+                travis_wait 30 docker build -f "Dockerfile" -t $TAG -t $LATESTTAG --target $DOCKERTARGET .
                 # push the release
                 travis_wait 30 docker push $TAG
                 travis_wait 30 docker push $LATESTTAG
