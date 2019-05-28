@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: test
+      target: weaviate
     depends_on:
       - janus
       - genesis_fake

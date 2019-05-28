@@ -43,7 +43,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: development
+      target: weaviate
     depends_on:
       - janus
     restart: on-failure:0
