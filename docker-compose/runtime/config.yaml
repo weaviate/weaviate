@@ -10,9 +10,7 @@ configuration_storage:
   type: etcd
   url: http://etcd:2379
 contextionary:
-  knn_file: contextionary/contextionary.knn
-  idx_file: contextionary/contextionary.idx
-  stopwords_file: contextionary/stopwords.json
+  url: contextionary:9999
 limit: 100
 debug: false
 telemetry:
