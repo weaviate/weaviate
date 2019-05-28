@@ -63,4 +63,6 @@ type contextionary interface {
 	IsWordPresent(ctx context.Context, word string) (bool, error)
 	SchemaSearch(ctx context.Context, params kinds.SearchParams) (kinds.SearchResults, error)
 	SafeGetSimilarWordsWithCertainty(ctx context.Context, word string, certainty float32) ([]string, error)
+	VectorForWord(ctx context.Context, word string) ([]float32, error)
+	NearestWordsByVector(ctx context.Context, vector []float32, n int, k int) ([]string, []float32, error)
 }

@@ -158,3 +158,44 @@ func searchResultsFromProto(input []*pb.SchemaSearchResult) []kinds.SearchResult
 
 	return output
 }
+
+func (c *Client) VectorForWord(ctx context.Context, word string) ([]float32, error) {
+	res, err := c.grpcClient.VectorForWord(ctx, &pb.Word{Word: word})
+	if err != nil {
+		return nil, fmt.Errorf("could not get vector from remote: %v", err)
+	}
+	return vectorFromProto(res.Entries), nil
+}
+
+func vectorFromProto(in []*pb.VectorEntry) []float32 {
+	output := make([]float32, len(in), len(in))
+	for i, entry := range in {
+		output[i] = entry.Entry
+	}
+
+	return output
+}
+
+func (c *Client) NearestWordsByVector(ctx context.Context, vector []float32, n int, k int) ([]string, []float32, error) {
+	res, err := c.grpcClient.NearestWordsByVector(ctx, &pb.VectorNNParams{
+		K:      int32(k),
+		N:      int32(n),
+		Vector: vectorToProto(vector),
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("could not get nearest words by vector: %v", err)
+	}
+
+	return res.Words, res.Distances, nil
+}
+
+func vectorToProto(in []float32) *pb.Vector {
+	output := make([]*pb.VectorEntry, len(in), len(in))
+	for i, entry := range in {
+		output[i] = &pb.VectorEntry{
+			Entry: entry,
+		}
+	}
+
+	return &pb.Vector{Entries: output}
+}
