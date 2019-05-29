@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: test
+      target: weaviate
     depends_on:
       - janus
       - genesis_fake
@@ -16,6 +16,12 @@ services:
     environment:
       DEVELOPMENT_UI: "on"
       LOG_LEVEL: "debug"
+  contextionary:
+    image: semitechnologies/contextionary:en0.6.0-v0.1.0-minimal
+    ports:
+      - "9999:9999"
+    environment:
+      SCHEMA_PROVIDER_URL: etcd:2379
   genesis_fake:
     build:
       context: .

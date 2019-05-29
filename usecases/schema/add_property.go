@@ -61,7 +61,7 @@ func (m *Manager) addClassProperty(ctx context.Context, principal *models.Princi
 
 	prop.Name = lowerCaseFirstLetter(prop.Name)
 
-	err = m.validateCanAddProperty(principal, prop, class)
+	err = m.validateCanAddProperty(ctx, principal, prop, class)
 	if err != nil {
 		return err
 	}
@@ -77,7 +77,7 @@ func (m *Manager) addClassProperty(ctx context.Context, principal *models.Princi
 	return m.migrator.AddProperty(ctx, k, className, prop)
 }
 
-func (m *Manager) validateCanAddProperty(principal *models.Principal,
+func (m *Manager) validateCanAddProperty(ctx context.Context, principal *models.Principal,
 	property *models.SemanticSchemaClassProperty, class *models.SemanticSchemaClass) error {
 	// Verify format of property.
 	_, err := schema.ValidatePropertyName(property.Name)
@@ -91,7 +91,7 @@ func (m *Manager) validateCanAddProperty(principal *models.Principal,
 		return err
 	}
 
-	err = m.validatePropertyNameAndKeywords(class.Class, property.Name, property.Keywords)
+	err = m.validatePropertyNameAndKeywords(ctx, class.Class, property.Name, property.Keywords)
 	if err != nil {
 		return err
 	}

@@ -26,8 +26,10 @@ func (t *Traverser) LocalFetchFuzzy(ctx context.Context, principal *models.Princ
 		return nil, err
 	}
 
-	words := t.contextionaryProvider.GetSchemaContextionary().
-		SafeGetSimilarWordsWithCertainty(params.Value, params.Certainty)
+	words, err := t.c11y.SafeGetSimilarWordsWithCertainty(ctx, params.Value, params.Certainty)
+	if err != nil {
+		return nil, fmt.Errorf("could not retrieve context: %v", err)
+	}
 
 	res, err := t.repo.LocalFetchFuzzy(ctx, words)
 	if err != nil {

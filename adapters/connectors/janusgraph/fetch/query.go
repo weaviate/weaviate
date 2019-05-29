@@ -16,7 +16,6 @@ import (
 
 	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/gremlin"
 	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/state"
-	contextionary "github.com/semi-technologies/weaviate/contextionary/schema"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
@@ -121,7 +120,7 @@ func (b *Query) property(prop kinds.FetchProperty) (*gremlin.Query, error) {
 	return q, nil
 }
 
-func (b *Query) combineClassWithPropNames(className string, propNames []contextionary.SearchResult,
+func (b *Query) combineClassWithPropNames(className string, propNames []kinds.SearchResult,
 	match kinds.FetchPropertyMatch) *gremlin.Query {
 	var combinations []string
 

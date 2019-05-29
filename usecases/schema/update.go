@@ -89,7 +89,7 @@ func (m *Manager) updateClass(ctx context.Context, className string,
 	}
 
 	// Validate name / keywords in contextionary
-	if err = m.validateClassNameAndKeywords(k, classNameAfterUpdate, keywordsAfterUpdate); err != nil {
+	if err = m.validateClassNameAndKeywords(ctx, k, classNameAfterUpdate, keywordsAfterUpdate); err != nil {
 		return err
 	}
 

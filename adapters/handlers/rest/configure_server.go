@@ -22,9 +22,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
-	"github.com/semi-technologies/weaviate/contextionary"
-	libcontextionary "github.com/semi-technologies/weaviate/contextionary"
-	databaseSchema "github.com/semi-technologies/weaviate/contextionary/schema"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/semi-technologies/weaviate/usecases/auth/authentication/oidc"
@@ -51,12 +48,6 @@ func makeUpdateSchemaCall(logger logrus.FieldLogger, appState *state.State, trav
 	return func(updatedSchema schema.Schema) {
 		// Note that this is thread safe; we're running in a single go-routine, because the event
 		// handlers are called when the SchemaLock is still held.
-		c11y, err := rebuildContextionary(updatedSchema, logger, appState)
-		if err != nil {
-			logger.WithField("action", "contextionary_rebuild").
-				WithError(err).Fatal("could not (re)build contextionary")
-		}
-		appState.Contextionary = c11y
 
 		gql, err := rebuildGraphQL(
 			updatedSchema,
@@ -72,27 +63,6 @@ func makeUpdateSchemaCall(logger logrus.FieldLogger, appState *state.State, trav
 		}
 		appState.GraphQL = gql
 	}
-}
-
-func rebuildContextionary(updatedSchema schema.Schema, logger logrus.FieldLogger,
-	appState *state.State) (contextionary.Contextionary, error) {
-	// build new contextionary extended by the local schema
-	schemaContextionary, err := databaseSchema.BuildInMemoryContextionaryFromSchema(updatedSchema, &appState.RawContextionary, appState.StopwordDetector)
-	if err != nil {
-		return nil, fmt.Errorf("Could not build in-memory contextionary from schema; %v", err)
-	}
-
-	// Combine contextionaries
-	contextionaries := []libcontextionary.Contextionary{appState.RawContextionary, *schemaContextionary}
-	combined, err := libcontextionary.CombineVectorIndices(contextionaries)
-
-	if err != nil {
-		return nil, fmt.Errorf("Could not combine the contextionary database with the in-memory generated contextionary; %v", err)
-	}
-
-	logger.WithField("action", "contextionary_rebuild").Debug("contextionary extended with new schema")
-
-	return libcontextionary.Contextionary(combined), nil
 }
 
 func rebuildGraphQL(updatedSchema schema.Schema, logger logrus.FieldLogger,
@@ -139,38 +109,6 @@ func configureAuthorizer(appState *state.State) authorization.Authorizer {
 func timeTillDeadline(ctx context.Context) string {
 	dl, _ := ctx.Deadline()
 	return fmt.Sprintf("%s", time.Until(dl))
-}
-
-// This function loads the Contextionary database, and creates
-// an in-memory database for the centroids of the classes / properties in the Schema.
-func loadContextionary(logger *logrus.Logger, config config.Config) contextionary.Contextionary {
-	// First load the file backed contextionary
-	if config.Contextionary.KNNFile == "" {
-		logger.WithField("action", "startup").Error("contextionary KNN file not set")
-		logger.Exit(1)
-	}
-
-	if config.Contextionary.IDXFile == "" {
-		logger.WithField("action", "startup").Error("contextionary IDX file not set")
-		logger.Exit(1)
-	}
-
-	if config.Contextionary.StopwordsFile == "" {
-		logger.WithField("action", "startup").Error("stopwords file not set")
-		logger.Exit(1)
-	}
-
-	mmapedContextionary, err := libcontextionary.LoadVectorFromDisk(
-		config.Contextionary.KNNFile, config.Contextionary.IDXFile)
-	if err != nil {
-		logger.WithField("action", "startup").
-			WithError(err).
-			Error("could not load contextionary")
-		logger.Exit(1)
-	}
-
-	logger.Debug("contextionary loaded")
-	return mmapedContextionary
 }
 
 func connectToNetwork(logger *logrus.Logger, config config.Config) network.Network {

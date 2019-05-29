@@ -53,60 +53,12 @@ COPY . .
 ENTRYPOINT ["./tools/dev/telemetry_mock_api.sh"]
 
 ###############################################################################
-# This image builds the contextionary fixtures FOR DEV OR TEST.
-FROM build_base AS contextionary_fixture_builder
-RUN apk add -U jq
-COPY go.mod go.sum ./
-COPY ./test/contextionary ./test/contextionary
-COPY ./contextionary ./contextionary
-RUN ./test/contextionary/gen_simple_contextionary.sh
-
-###############################################################################
-# This is the base image for running waviates configurations IN DEV OR TEST; contains the executable & contextionary
-FROM alpine AS weaviate_base
+# Weaviate (no differentiation between dev/test/prod - 12 factor!)
+# It has a development-friendly config file by default, but the config
+# can of course be overwritten through any mounted config file.
+FROM alpine AS weaviate
+ENTRYPOINT ["/bin/weaviate"]
+COPY ./tools/dev/config.docker.yaml /weaviate.conf.yaml
 COPY --from=server_builder /go/bin/weaviate-server /bin/weaviate
 COPY --from=build_base /etc/ssl/certs /etc/ssl/certs
-COPY --from=contextionary_fixture_builder /go/src/github.com/semi-technologies/weaviate/test/contextionary/example.idx /contextionary/contextionary.idx
-COPY --from=contextionary_fixture_builder /go/src/github.com/semi-technologies/weaviate/test/contextionary/example.knn /contextionary/contextionary.knn
-COPY --from=contextionary_fixture_builder /go/src/github.com/semi-technologies/weaviate/test/contextionary/stopwords.json /contextionary/stopwords.json
-ENTRYPOINT ["/bin/weaviate"]
-
-###############################################################################
-# Development configuration with demo dataset
-FROM weaviate_base AS development
-COPY ./tools/dev/schema /schema
-COPY ./tools/dev/config.docker.yaml /weaviate.conf.yaml
 CMD [ "--host", "0.0.0.0", "--port", "8080", "--scheme", "http", "--config-file", "./weaviate.conf.yaml" ]
-
-###############################################################################
-# Configuration used for the acceptance tests.
-FROM weaviate_base AS test
-COPY ./test/schema/test-action-schema.json /schema/actions_schema.json
-COPY ./test/schema/test-thing-schema.json /schema/things_schema.json
-COPY ./tools/dev/config.docker.yaml /weaviate.conf.yaml
-CMD [ "--host", "0.0.0.0", "--port", "8080", "--scheme", "http", "--config-file", "./weaviate.conf.yaml" ]
-
-###############################################################################
-# This is the production image for running waviates configurations; contains the executable & contextionary
-FROM alpine as weaviate_prod
-RUN apk add --no-cache curl jq
-COPY --from=server_builder /go/bin/weaviate-server /bin/weaviate
-COPY --from=build_base /etc/ssl/certs /etc/ssl/certs
-
-RUN mkdir /contextionary
-ARG CONTEXTIONARY_VERSION
-ARG CONTEXTIONARY_LOC
-
-RUN if [ -z "$CONTEXTIONARY_LOC" ]; \
-	then if [ -z "$CONTEXTIONARY_VERSION" ]; \
-		then export CONTEXTIONARY_VERSION=$(curl -sS https://c11y.semi.technology/contextionary.json | jq -r ".latestVersion"); \
-		fi; \
-	export CONTEXTIONARY_LOC=https://c11y.semi.technology/$CONTEXTIONARY_VERSION/en; \
-	wget -O /contextionary/contextionary.vocab $CONTEXTIONARY_LOC/contextionary.vocab; \
-	wget -O /contextionary/contextionary.idx $CONTEXTIONARY_LOC/contextionary.idx; \
-	wget -O /contextionary/contextionary.knn $CONTEXTIONARY_LOC/contextionary.knn; \
-	fi
-
-COPY tmp.txt $CONTEXTIONARY_LOC/contextionary.vocab* $CONTEXTIONARY_LOC/contextionary.idx* $CONTEXTIONARY_LOC/contextionary.knn* /contextionary/
-
-ENTRYPOINT ["/bin/weaviate"]
