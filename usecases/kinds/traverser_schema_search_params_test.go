@@ -8,7 +8,9 @@
  * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
  * CONTACT: hello@semi.technology
- */package schema
+ */
+
+package kinds
 
 import (
 	"errors"
@@ -18,6 +20,16 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/stretchr/testify/assert"
 )
+
+type schemaSearchTest struct {
+	name           string
+	words          map[string][]float32
+	searchParams   SearchParams
+	expectedResult SearchResults
+	expectedError  error
+}
+
+type schemaSearchTests []schemaSearchTest
 
 func Test__SchemaSearch_Validation(t *testing.T) {
 	tests := schemaSearchTests{

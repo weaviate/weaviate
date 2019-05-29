@@ -319,8 +319,8 @@ func Test_Traverser_Authorization(t *testing.T) {
 			repo := &fakeRepo{}
 			locks := &fakeLocks{}
 			authorizer := &authDenier{}
-			c11yProvider := &fakeC11yProvider{}
-			manager := NewTraverser(locks, repo, c11yProvider, logger, authorizer)
+			c11y := &fakeC11y{}
+			manager := NewTraverser(locks, repo, c11y, logger, authorizer)
 
 			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 			out, _ := callFuncByName(manager, test.methodName, args...)

@@ -28,9 +28,7 @@ configuration_storage:
   type: etcd
   url: http://localhost:2379
 contextionary:
-  knn_file: test/contextionary/example.knn
-  idx_file: test/contextionary/example.idx
-  stopwords_file: test/contextionary/stopwords.json
+  url: localhost:9999
 query_defaults:
   limit: 20
 debug: true

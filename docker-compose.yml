@@ -43,12 +43,18 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: development
+      target: weaviate
     depends_on:
       - janus
     restart: on-failure:0
     ports:
       - "8080:8080"
+  contextionary:
+    image: semitechnologies/contextionary:en0.6.0-v0.1.0-minimal
+    ports:
+      - "9999:9999"
+    environment:
+      SCHEMA_PROVIDER_URL: etcd:2379
   weaviate_demo_importer:
     image: weaviate/demo_importer
     command: ["-weaviate-url", "http://weaviate:8080/weaviate/v1/"]

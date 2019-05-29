@@ -9,9 +9,7 @@ configuration_storage:
   type: etcd
   url: http://etcd:2379
 contextionary:
-  knn_file: contextionary/contextionary.knn
-  idx_file: contextionary/contextionary.idx
-  stopwords_file: contextionary/stopwords.json
+  url: contextionary:9999
 network:
   genesis_url: http://genesis_fake:8090
   public_url: http://localhost:8080

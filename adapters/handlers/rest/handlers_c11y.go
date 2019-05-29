@@ -13,32 +13,37 @@
 package rest
 
 import (
+	"context"
+	"fmt"
 	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 
+	middleware "github.com/go-openapi/runtime/middleware"
+	core "github.com/semi-technologies/contextionary/contextionary/core"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
 
-	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/contextionary_api"
-	libcontextionary "github.com/semi-technologies/weaviate/contextionary"
 )
 
-type c11yProvider interface {
-	GetContextionary() libcontextionary.Contextionary
+// TODO: Move to own UC - way too much logic in a handler here !!
+
+type c11y interface {
+	VectorForWord(ctx context.Context, word string) ([]float32, error)
+	NearestWordsByVector(ctx context.Context, vector []float32, n int, k int) ([]string, []float32, error)
+	IsWordPresent(ctx context.Context, word string) (bool, error)
 }
 
-func setupC11yHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog, c11yProvider c11yProvider) {
+func setupC11yHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog, c11y c11y) {
 	/*
 	 * HANDLE C11Y
 	 */
 
 	api.ContextionaryAPIWeaviateC11yWordsHandler = contextionary_api.WeaviateC11yWordsHandlerFunc(func(params contextionary_api.WeaviateC11yWordsParams, principal *models.Principal) middleware.Responder {
-
-		contextionary := c11yProvider.GetContextionary()
+		ctx := params.HTTPRequest.Context()
 
 		// the word(s) from the request
 		words := params.Words
@@ -72,40 +77,37 @@ func setupC11yHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Reque
 			returnObject.ConcatenatedWord.SingleWords = wordArray
 
 			// loop over the words and collect vectors to calculate centroid
-			collectVectors := []libcontextionary.Vector{}
+			collectVectors := []core.Vector{}
 			collectWeights := []float32{}
 			for _, word := range wordArray {
-				infoVector, err := contextionary.GetVectorForItemIndex(contextionary.WordToItemIndex(word))
+				infoVector, err := c11y.VectorForWord(ctx, word)
 				if err != nil {
 					return contextionary_api.NewWeaviateC11yWordsBadRequest().WithPayload(createErrorResponseObject("Can't create the vector representation for the word"))
 				}
 				// collect the word vector based on idx
-				collectVectors = append(collectVectors, *infoVector)
+				collectVectors = append(collectVectors, core.NewVector(infoVector))
 				collectWeights = append(collectWeights, 1.0)
 			}
 
 			// compute the centroid
-			weightedCentroid, err := libcontextionary.ComputeWeightedCentroid(collectVectors, collectWeights)
+			weightedCentroid, err := core.ComputeWeightedCentroid(collectVectors, collectWeights)
 			if err != nil {
 				return contextionary_api.NewWeaviateC11yWordsBadRequest().WithPayload(createErrorResponseObject("Can't compute weighted centroid"))
 			}
 			returnObject.ConcatenatedWord.ConcatenatedVector = weightedCentroid.ToArray()
 
 			// relate words of centroid
-			ConcatenatedNearestNeighborsIdx, ConcatenatedNearestNeighborsDistance, err := contextionary.GetNnsByVector(*weightedCentroid, 12, 32)
+			cnnWords, cnnDists, err := c11y.NearestWordsByVector(ctx, weightedCentroid.ToArray(), 12, 32)
 			if err != nil {
 				return contextionary_api.NewWeaviateC11yWordsBadRequest().WithPayload(createErrorResponseObject("Can't compute nearest neighbors of ComputeWeightedCentroid"))
 			}
 			returnObject.ConcatenatedWord.ConcatenatedNearestNeighbors = []*models.C11yNearestNeighborsItems0{}
 
 			// loop over NN Idx' and append to the return object
-			for index := range ConcatenatedNearestNeighborsIdx {
+			for i, word := range cnnWords {
 				nearestNeighborsItem := models.C11yNearestNeighborsItems0{}
-				nearestNeighborsItem.Word, err = contextionary.ItemIndexToWord(ConcatenatedNearestNeighborsIdx[index])
-				if err != nil {
-					return contextionary_api.NewWeaviateC11yWordsBadRequest().WithPayload(createErrorResponseObject("Can't collect the word for this vector"))
-				}
-				nearestNeighborsItem.Distance = ConcatenatedNearestNeighborsDistance[index]
+				nearestNeighborsItem.Word = word
+				nearestNeighborsItem.Distance = cnnDists[i]
 				returnObject.ConcatenatedWord.ConcatenatedNearestNeighbors = append(returnObject.ConcatenatedWord.ConcatenatedNearestNeighbors, &nearestNeighborsItem)
 			}
 		}
@@ -118,9 +120,13 @@ func setupC11yHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Reque
 
 			// set the current word and retrieve the index in the contextionary
 			singleReturnObject.Word = word
-			wordIdx := contextionary.WordToItemIndex(word)
+			present, err := c11y.IsWordPresent(ctx, word)
+			if err != nil {
+				return contextionary_api.NewWeaviateC11yWordsBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf(
+					"could not check word presence for word %s: %v", word, err)))
+			}
 
-			if wordIdx == -1 {
+			if !present {
 				// word not found
 				singleReturnObject.InC11y = false
 
@@ -134,27 +140,24 @@ func setupC11yHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Reque
 				singleReturnObject.Info = &models.C11yWordsResponseIndividualWordsItems0Info{}
 
 				// collect & set the vector
-				infoVector, err := contextionary.GetVectorForItemIndex(wordIdx)
+				infoVector, err := c11y.VectorForWord(ctx, word)
 				if err != nil {
 					return contextionary_api.NewWeaviateC11yWordsBadRequest().WithPayload(createErrorResponseObject("Can't create the vector representation for the word"))
 				}
-				singleReturnObject.Info.Vector = infoVector.ToArray()
+				singleReturnObject.Info.Vector = infoVector
 
 				// collect & set the 28 nearestNeighbors
-				nearestNeighborsIdx, nearestNeighborsDistance, err := contextionary.GetNnsByVector(*infoVector, 12, 32)
+				nnWords, nnDists, err := c11y.NearestWordsByVector(ctx, infoVector, 12, 32)
 				if err != nil {
 					return contextionary_api.NewWeaviateC11yWordsBadRequest().WithPayload(createErrorResponseObject("Can't collect nearestNeighbors for this vector"))
 				}
 				singleReturnObject.Info.NearestNeighbors = []*models.C11yNearestNeighborsItems0{}
 
 				// loop over NN Idx' and append to the info object
-				for index := range nearestNeighborsIdx {
+				for i, word := range nnWords {
 					nearestNeighborsItem := models.C11yNearestNeighborsItems0{}
-					nearestNeighborsItem.Word, err = contextionary.ItemIndexToWord(nearestNeighborsIdx[index])
-					if err != nil {
-						return contextionary_api.NewWeaviateC11yWordsBadRequest().WithPayload(createErrorResponseObject("Can't collect the word for this vector"))
-					}
-					nearestNeighborsItem.Distance = nearestNeighborsDistance[index]
+					nearestNeighborsItem.Word = word
+					nearestNeighborsItem.Distance = nnDists[i]
 					singleReturnObject.Info.NearestNeighbors = append(singleReturnObject.Info.NearestNeighbors, &nearestNeighborsItem)
 				}
 

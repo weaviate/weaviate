@@ -13,28 +13,27 @@
 import (
 	"context"
 
-	contextionary "github.com/semi-technologies/weaviate/contextionary/schema"
 	"github.com/sirupsen/logrus"
 )
 
 // Traverser can be used to dynamically traverse the knowledge graph
 type Traverser struct {
-	locks                 locks
-	repo                  TraverserRepo
-	contextionaryProvider c11yProvider
-	logger                logrus.FieldLogger
-	authorizer            authorizer
+	locks      locks
+	repo       TraverserRepo
+	c11y       c11y
+	logger     logrus.FieldLogger
+	authorizer authorizer
 }
 
 // NewTraverser to traverse the knowledge graph
-func NewTraverser(locks locks, repo TraverserRepo, c11y c11yProvider,
+func NewTraverser(locks locks, repo TraverserRepo, c11y c11y,
 	logger logrus.FieldLogger, authorizer authorizer) *Traverser {
 	return &Traverser{
-		locks:                 locks,
-		contextionaryProvider: c11y,
-		repo:                  repo,
-		logger:                logger,
-		authorizer:            authorizer,
+		locks:      locks,
+		c11y:       c11y,
+		repo:       repo,
+		logger:     logger,
+		authorizer: authorizer,
 	}
 }
 
@@ -48,13 +47,9 @@ type TraverserRepo interface {
 	LocalFetchFuzzy(context.Context, []string) (interface{}, error)
 }
 
-type c11yProvider interface {
-	GetSchemaContextionary() *contextionary.Contextionary
-}
-
 // c11y is a local abstraction on the contextionary that needs to be
 // provided to the graphQL API in order to resolve Local.Fetch queries.
 type c11y interface {
-	SchemaSearch(p contextionary.SearchParams) (contextionary.SearchResults, error)
-	SafeGetSimilarWordsWithCertainty(word string, certainty float32) []string
+	SchemaSearch(ctx context.Context, p SearchParams) (SearchResults, error)
+	SafeGetSimilarWordsWithCertainty(ctx context.Context, word string, certainty float32) ([]string, error)
 }

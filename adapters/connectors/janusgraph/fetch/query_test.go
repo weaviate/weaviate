@@ -14,7 +14,6 @@ import (
 	"errors"
 	"testing"
 
-	contextionary "github.com/semi-technologies/weaviate/contextionary/schema"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
@@ -27,8 +26,8 @@ func Test_QueryBuilder(t *testing.T) {
 			name: "with a single class name, single property name, string type",
 			inputParams: kinds.FetchParams{
 				Kind: kind.Thing,
-				PossibleClassNames: contextionary.SearchResults{
-					Results: []contextionary.SearchResult{
+				PossibleClassNames: kinds.SearchResults{
+					Results: []kinds.SearchResult{
 						{
 							Name:      "City",
 							Certainty: 1.0,
@@ -49,8 +48,8 @@ func Test_QueryBuilder(t *testing.T) {
 			name: "with a single class name, single property name, int type, operator Equal",
 			inputParams: kinds.FetchParams{
 				Kind: kind.Thing,
-				PossibleClassNames: contextionary.SearchResults{
-					Results: []contextionary.SearchResult{
+				PossibleClassNames: kinds.SearchResults{
+					Results: []kinds.SearchResult{
 						{
 							Name:      "City",
 							Certainty: 1.0,
@@ -71,8 +70,8 @@ func Test_QueryBuilder(t *testing.T) {
 			name: "with the field type not matching the property type",
 			inputParams: kinds.FetchParams{
 				Kind: kind.Thing,
-				PossibleClassNames: contextionary.SearchResults{
-					Results: []contextionary.SearchResult{
+				PossibleClassNames: kinds.SearchResults{
+					Results: []kinds.SearchResult{
 						{
 							Name:      "City",
 							Certainty: 1.0,
@@ -81,8 +80,8 @@ func Test_QueryBuilder(t *testing.T) {
 				},
 				Properties: []kinds.FetchProperty{
 					{
-						PossibleNames: contextionary.SearchResults{
-							Results: []contextionary.SearchResult{
+						PossibleNames: kinds.SearchResults{
+							Results: []kinds.SearchResult{
 								{
 									Name:      "name", // actually is a string prop, should be included
 									Certainty: 1.0,
@@ -115,8 +114,8 @@ func Test_QueryBuilder(t *testing.T) {
 			name: "with multiple class/property combinations, correct type",
 			inputParams: kinds.FetchParams{
 				Kind: kind.Thing,
-				PossibleClassNames: contextionary.SearchResults{
-					Results: []contextionary.SearchResult{
+				PossibleClassNames: kinds.SearchResults{
+					Results: []kinds.SearchResult{
 						{
 							Name:      "City",
 							Certainty: 1.0,
@@ -129,8 +128,8 @@ func Test_QueryBuilder(t *testing.T) {
 				},
 				Properties: []kinds.FetchProperty{
 					{
-						PossibleNames: contextionary.SearchResults{
-							Results: []contextionary.SearchResult{
+						PossibleNames: kinds.SearchResults{
+							Results: []kinds.SearchResult{
 								{
 									Name:      "name",
 									Certainty: 1.0,
@@ -164,8 +163,8 @@ func Test_QueryBuilder(t *testing.T) {
 			name: "with a single property with no valid combination of class and props",
 			inputParams: kinds.FetchParams{
 				Kind: kind.Thing,
-				PossibleClassNames: contextionary.SearchResults{
-					Results: []contextionary.SearchResult{
+				PossibleClassNames: kinds.SearchResults{
+					Results: []kinds.SearchResult{
 						{
 							Name:      "City",
 							Certainty: 1.0,
@@ -174,8 +173,8 @@ func Test_QueryBuilder(t *testing.T) {
 				},
 				Properties: []kinds.FetchProperty{
 					{
-						PossibleNames: contextionary.SearchResults{
-							Results: []contextionary.SearchResult{
+						PossibleNames: kinds.SearchResults{
+							Results: []kinds.SearchResult{
 								{
 									Name:      "potato",
 									Certainty: 1.0,
@@ -207,8 +206,8 @@ func singleProp(propName string, dataType schema.DataType, operator filters.Oper
 	searchValue interface{}) []kinds.FetchProperty {
 	return []kinds.FetchProperty{
 		{
-			PossibleNames: contextionary.SearchResults{
-				Results: []contextionary.SearchResult{
+			PossibleNames: kinds.SearchResults{
+				Results: []kinds.SearchResult{
 					{
 						Name:      propName,
 						Certainty: 1.0,
