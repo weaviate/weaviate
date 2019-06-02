@@ -174,7 +174,8 @@ func Test_Kinds_Authorization(t *testing.T) {
 			network := &fakeNetwork{}
 			cfg := &config.WeaviateConfig{}
 			authorizer := &authDenier{}
-			manager := NewManager(repo, locks, schemaManager, network, cfg, logger, authorizer)
+			vectorizer := &fakeVectorizer{}
+			manager := NewManager(repo, locks, schemaManager, network, cfg, logger, authorizer, vectorizer)
 
 			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 			out, _ := callFuncByName(manager, test.methodName, args...)

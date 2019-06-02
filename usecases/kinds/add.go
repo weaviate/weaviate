@@ -30,7 +30,6 @@ type addRepo interface {
 	AddThing(ctx context.Context, class *models.Thing, id strfmt.UUID) error
 }
 
-// TODO: Can we use the schema manager UC here instead of the "whole thing"?
 type schemaManager interface {
 	UpdatePropertyAddDataType(context.Context, *models.Principal, kind.Kind, string, string, string) error
 	GetSchema(principal *models.Principal) (schema.Schema, error)
@@ -78,6 +77,10 @@ func (m *Manager) addActionToConnectorAndSchema(ctx context.Context, principal *
 	if err != nil {
 		return nil, NewErrInternal("could not store action: %v", err)
 	}
+
+	v, err := m.vectorizer.Action(ctx, class)
+	// TODO: insert into vector repo
+	_, _ = v, err
 
 	return class, nil
 }
@@ -136,6 +139,10 @@ func (m *Manager) addThingToConnectorAndSchema(ctx context.Context, principal *m
 	if err != nil {
 		return nil, NewErrInternal("could not store thing: %v", err)
 	}
+
+	v, err := m.vectorizer.Thing(ctx, class)
+	// TODO: insert into vector repo
+	_, _ = v, err
 
 	return class, nil
 }

@@ -17,8 +17,8 @@ type client interface {
 	VectorForCorpi(ctx context.Context, corpi []string) ([]float32, error)
 }
 
-// NewVectorizer from c11y client
-func NewVectorizer(client client) *Vectorizer {
+// New from c11y client
+func New(client client) *Vectorizer {
 	return &Vectorizer{client}
 }
 

@@ -64,7 +64,7 @@ func TestVectorizingThings(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			client := &fakeClient{}
-			v := NewVectorizer(client)
+			v := New(client)
 
 			res, err := v.Thing(context.Background(), test.input)
 
@@ -132,7 +132,7 @@ func TestVectorizingActions(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			client := &fakeClient{}
-			v := NewVectorizer(client)
+			v := New(client)
 
 			res, err := v.Action(context.Background(), test.input)
 

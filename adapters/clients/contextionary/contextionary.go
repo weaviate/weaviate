@@ -186,6 +186,14 @@ func vectorFromProto(in []*pb.VectorEntry) []float32 {
 	return output
 }
 
+func (c *Client) VectorForCorpi(ctx context.Context, corpi []string) ([]float32, error) {
+	res, err := c.grpcClient.VectorForCorpi(ctx, &pb.Corpi{Corpi: corpi})
+	if err != nil {
+		return nil, fmt.Errorf("could not get vector from remote: %v", err)
+	}
+	return vectorFromProto(res.Entries), nil
+}
+
 func (c *Client) NearestWordsByVector(ctx context.Context, vector []float32, n int, k int) ([]string, []float32, error) {
 	res, err := c.grpcClient.NearestWordsByVector(ctx, &pb.VectorNNParams{
 		K:      int32(k),
