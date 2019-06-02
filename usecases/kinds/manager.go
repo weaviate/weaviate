@@ -17,6 +17,7 @@
 package kinds
 
 import (
+	"context"
 	"fmt"
 	"log"
 
@@ -38,6 +39,7 @@ type Manager struct {
 	schemaManager schemaManager
 	logger        logrus.FieldLogger
 	authorizer    authorizer
+	vectorizer    vectorizer
 }
 
 // Repo describes the requirements the kinds UC has to the connected database
@@ -47,6 +49,11 @@ type Repo interface {
 	updateRepo
 	deleteRepo
 	batchRepo
+}
+
+type vectorizer interface {
+	Thing(ctx context.Context, concept *models.Thing) ([]float32, error)
+	Action(ctx context.Context, concept *models.Action) ([]float32, error)
 }
 
 type locks interface {
@@ -63,8 +70,9 @@ type network interface {
 }
 
 // NewManager creates a new manager
-func NewManager(repo Repo, locks locks, schemaManager schemaManager, network network,
-	config *config.WeaviateConfig, logger logrus.FieldLogger, authorizer authorizer) *Manager {
+func NewManager(repo Repo, locks locks, schemaManager schemaManager,
+	network network, config *config.WeaviateConfig, logger logrus.FieldLogger,
+	authorizer authorizer, vectorizer vectorizer) *Manager {
 	return &Manager{
 		network:       network,
 		config:        config,
@@ -72,6 +80,7 @@ func NewManager(repo Repo, locks locks, schemaManager schemaManager, network net
 		locks:         locks,
 		schemaManager: schemaManager,
 		logger:        logger,
+		vectorizer:    vectorizer,
 		authorizer:    authorizer,
 	}
 }

@@ -65,4 +65,5 @@ type contextionary interface {
 	SafeGetSimilarWordsWithCertainty(ctx context.Context, word string, certainty float32) ([]string, error)
 	VectorForWord(ctx context.Context, word string) ([]float32, error)
 	NearestWordsByVector(ctx context.Context, vector []float32, n int, k int) ([]string, []float32, error)
+	VectorForCorpi(ctx context.Context, corpi []string) ([]float32, error)
 }

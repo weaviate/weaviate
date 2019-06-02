@@ -139,6 +139,16 @@ func (f *fakeLocks) LockSchema() (func() error, error) {
 	return func() error { return nil }, nil
 }
 
+type fakeVectorizer struct{}
+
+func (f *fakeVectorizer) Thing(ctx context.Context, thing *models.Thing) ([]float32, error) {
+	panic("not implemented")
+}
+
+func (f *fakeVectorizer) Action(ctx context.Context, thing *models.Action) ([]float32, error) {
+	panic("not implemented")
+}
+
 type fakeNetwork struct {
 	peerURI string
 }
