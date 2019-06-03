@@ -47,6 +47,8 @@ github.com/docker/go-units v0.3.3/go.mod h1:fgPhTUdO+D/Jk86RDLlptpiXQzgHJF7gydDD
 github.com/docker/go-units v0.4.0 h1:3uh0PgVws3nIA0Q+MwDC8yjEPf9zjRfZZWXZYDct3Tw=
 github.com/docker/go-units v0.4.0/go.mod h1:fgPhTUdO+D/Jk86RDLlptpiXQzgHJF7gydDDbaIK4Dk=
 github.com/eclipse/paho.mqtt.golang v1.1.1/go.mod h1:H9keYFcgq3Qr5OUJm/JZI/i6U7joQ8SYLhZwfeOo6Ts=
+github.com/elastic/go-elasticsearch/v5 v5.6.0 h1:QSthaKjGMtN7F8LKlg4fNGwU9PCskMxoey/+fCopTjY=
+github.com/elastic/go-elasticsearch/v5 v5.6.0/go.mod h1:r7uV7HidpfkYh7D8SB4lkS13TNlNy3oa5GNmTZvuVqY=
 github.com/etcd-io/etcd v3.3.11+incompatible/go.mod h1:cdZ77EstHBwVtD6iTgzgvogwcjo9m4iOqoijouPJ4bs=
 github.com/evanphx/json-patch v3.0.0+incompatible h1:l91aby7TzBXBdmF8heZqjskeH9f3g7ZOL8/sSe+vTlU=
 github.com/evanphx/json-patch v3.0.0+incompatible/go.mod h1:50XU6AFN0ol/bzJsmQLiYLvXMP4fmwYFNcr97nuDLSk=
