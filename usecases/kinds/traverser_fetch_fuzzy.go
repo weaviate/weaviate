@@ -14,7 +14,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 // LocalFetchFuzzy with Search
@@ -43,4 +45,15 @@ func (t *Traverser) LocalFetchFuzzy(ctx context.Context, principal *models.Princ
 type FetchFuzzySearch struct {
 	Value     string
 	Certainty float32
+}
+
+// VectorSearchResult contains some info of a concept (kind), but not all. For
+// additional info the ID can be used to retrieve the full concept from the
+// connector storage
+type VectorSearchResult struct {
+	ID        strfmt.UUID
+	Kind      kind.Kind
+	ClassName string
+	Score     float32
+	Vector    []float32
 }
