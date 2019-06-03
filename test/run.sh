@@ -4,7 +4,7 @@ set -eou pipefail
 
 function main() {
   # Jump to root directory
-  cd "$( dirname "${BASH_SOURCE[0]}" )"/../..
+  cd "$( dirname "${BASH_SOURCE[0]}" )"/..
 
   echo "INFO: This script will surpress most output, unless a command ultimately fails"
   echo "      Then it will print the output of the failed command."
@@ -15,9 +15,13 @@ function main() {
   rm -rf data
   echo "Done!"
 
-  echo_green "First run all unit tests"
+  echo_green "Run all unit tests..."
   run_unit_tests
   echo_green "Unit tests successful"
+
+  echo_green "Run integration tests..."
+  run_integration_tests
+  echo_green "Integration tests successful"
 
   echo_green "Stop any running docker-compose containers..."
   surpress_on_success docker-compose -f docker-compose-test.yml down --remove-orphans
@@ -40,6 +44,10 @@ function main() {
 
 function run_unit_tests() {
   go test -race -count 1 $(go list ./... | grep -v 'test/acceptance') | grep -v '\[no test files\]'
+}
+
+function run_integration_tests() {
+  ./test/integration/run.sh
 }
 
 function run_acceptance_tests() {
