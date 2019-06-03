@@ -7,6 +7,7 @@ require (
 	github.com/coreos/go-oidc v2.0.0+incompatible
 	github.com/davecgh/go-spew v1.1.1
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
+	github.com/elastic/go-elasticsearch/v5 v5.6.0
 	github.com/evanphx/json-patch v3.0.0+incompatible
 	github.com/fatih/camelcase v1.0.0
 	github.com/go-openapi/errors v0.17.0
