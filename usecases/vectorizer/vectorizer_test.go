@@ -159,6 +159,52 @@ func TestVectorizingActions(t *testing.T) {
 	}
 }
 
+func TestVectorizingSearchTerms(t *testing.T) {
+	type testCase struct {
+		name               string
+		input              []string
+		expectedClientCall []string
+	}
+
+	tests := []testCase{
+		testCase{
+			name:               "single word",
+			input:              []string{"car"},
+			expectedClientCall: []string{"car"},
+		},
+		testCase{
+			name:               "multiple entries with multiple words",
+			input:              []string{"car", "car brand"},
+			expectedClientCall: []string{"car", "car brand"},
+		},
+		testCase{
+			name:               "multiple entries with upper casing",
+			input:              []string{"Car", "Car Brand"},
+			expectedClientCall: []string{"car", "car brand"},
+		},
+		testCase{
+			name:               "with camel cased words",
+			input:              []string{"Car", "CarBrand"},
+			expectedClientCall: []string{"car", "car brand"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client := &fakeClient{}
+			v := New(client)
+
+			res, err := v.Corpi(context.Background(), test.input)
+
+			require.Nil(t, err)
+			assert.Equal(t, []float32{0, 1, 2, 3}, res)
+			assert.ElementsMatch(t, test.expectedClientCall, client.lastInput)
+
+		})
+
+	}
+}
+
 type fakeClient struct {
 	lastInput []string
 }

@@ -18,22 +18,36 @@ import (
 
 // Traverser can be used to dynamically traverse the knowledge graph
 type Traverser struct {
-	locks      locks
-	repo       TraverserRepo
-	c11y       c11y
-	logger     logrus.FieldLogger
-	authorizer authorizer
+	locks          locks
+	repo           TraverserRepo
+	c11y           c11y
+	logger         logrus.FieldLogger
+	authorizer     authorizer
+	vectorizer     corpiVectorizer
+	vectorSearcher vectorSearcher
+}
+
+type corpiVectorizer interface {
+	Corpi(ctx context.Context, corpi []string) ([]float32, error)
+}
+
+type vectorSearcher interface {
+	VectorSearch(ctx context.Context, index string,
+		vector []float32) ([]VectorSearchResult, error)
 }
 
 // NewTraverser to traverse the knowledge graph
 func NewTraverser(locks locks, repo TraverserRepo, c11y c11y,
-	logger logrus.FieldLogger, authorizer authorizer) *Traverser {
+	logger logrus.FieldLogger, authorizer authorizer,
+	vectorizer corpiVectorizer, vectorSearcher vectorSearcher) *Traverser {
 	return &Traverser{
-		locks:      locks,
-		c11y:       c11y,
-		repo:       repo,
-		logger:     logger,
-		authorizer: authorizer,
+		locks:          locks,
+		c11y:           c11y,
+		repo:           repo,
+		logger:         logger,
+		authorizer:     authorizer,
+		vectorizer:     vectorizer,
+		vectorSearcher: vectorSearcher,
 	}
 }
 
