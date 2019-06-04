@@ -59,6 +59,20 @@ func TestVectorizingThings(t *testing.T) {
 			expectedClientCall: []string{"car", "brand best brand",
 				"power", "review a very great car"},
 		},
+
+		testCase{
+			name: "with compound class and prop names",
+			input: &models.Thing{
+				Class: "SuperCar",
+				Schema: map[string]interface{}{
+					"brandOfTheCar": "best brand",
+					"power":         300,
+					"review":        "a very great car",
+				},
+			},
+			expectedClientCall: []string{"super car", "brand of the car best brand",
+				"power", "review a very great car"},
+		},
 	}
 
 	for _, test := range tests {
