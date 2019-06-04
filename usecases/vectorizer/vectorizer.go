@@ -56,7 +56,7 @@ func (v *Vectorizer) concept(ctx context.Context, className string,
 
 	vector, err := v.client.VectorForCorpi(ctx, corpi)
 	if err != nil {
-		return nil, fmt.Errorf("vectorizing thing: %v", err)
+		return nil, fmt.Errorf("vectorizing thing with corpus '%+v': %v", corpi, err)
 	}
 
 	return vector, nil

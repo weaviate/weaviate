@@ -136,3 +136,11 @@ services:
       - "tkn"
       - "--initial-cluster-state"
       - "new"
+  esvector:
+    image: semitechnologies/elasticsearch-vector:5.6.0-experimental
+    environment:
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms500m -Xmx500m
+    ports: 
+      - "9201:9200"
+      - "9301:9300"
