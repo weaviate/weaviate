@@ -20,17 +20,17 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type Query struct {
-	params       *kinds.GetMetaParams
+	params       *traverser.GetMetaParams
 	nameSource   nameSource
 	typeSource   typeSource
 	filterSource filterSource
 }
 
-func NewQuery(params *kinds.GetMetaParams, nameSource nameSource, typeSource typeSource,
+func NewQuery(params *traverser.GetMetaParams, nameSource nameSource, typeSource typeSource,
 	filterSource filterSource) *Query {
 	return &Query{
 		params:       params,
@@ -95,7 +95,7 @@ func idempotentLeadWithDot(q *gremlin.Query) string {
 	return fmt.Sprintf(".%s", stringified)
 }
 
-func (b *Query) prop(prop kinds.MetaProperty) (*gremlin.Query, error) {
+func (b *Query) prop(prop traverser.MetaProperty) (*gremlin.Query, error) {
 	if prop.Name == MetaProp {
 		return b.metaProp(prop)
 	}

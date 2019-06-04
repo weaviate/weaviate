@@ -8,7 +8,9 @@
  * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
  * CONTACT: hello@semi.technology
- */package kinds
+ */
+
+package traverser
 
 import (
 	"context"

@@ -21,9 +21,9 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	"github.com/semi-technologies/weaviate/usecases/network/crossrefs"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -68,17 +68,17 @@ func TestLocalGetWithNetworkRefResolvesCorrectly(t *testing.T) {
 	}
 	resolver := newMockResolver(peers)
 
-	expectedParams := &kinds.LocalGetParams{
+	expectedParams := &traverser.LocalGetParams{
 		Kind:      kind.Thing,
 		ClassName: "SomeThing",
-		Properties: []kinds.SelectProperty{
+		Properties: []traverser.SelectProperty{
 			{
 				Name:        "NetworkRefField",
 				IsPrimitive: false,
-				Refs: []kinds.SelectClass{
+				Refs: []traverser.SelectClass{
 					{
 						ClassName: "OtherInstance__SomeRemoteClass",
-						RefProperties: []kinds.SelectProperty{
+						RefProperties: []traverser.SelectProperty{
 							{
 								Name:        "bestString",
 								IsPrimitive: true,
@@ -167,10 +167,10 @@ func TestLocalGetNoNetworkRequestIsMadeWhenUserDoesntWantNetworkRef(t *testing.T
 	}
 	resolver := newMockResolver(peers)
 
-	expectedParams := &kinds.LocalGetParams{
+	expectedParams := &traverser.LocalGetParams{
 		Kind:      kind.Thing,
 		ClassName: "SomeThing",
-		Properties: []kinds.SelectProperty{
+		Properties: []traverser.SelectProperty{
 			{
 				Name:        "uuid",
 				IsPrimitive: true,

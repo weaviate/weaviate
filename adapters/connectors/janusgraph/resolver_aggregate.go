@@ -18,11 +18,11 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/aggregate"
 	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/filters"
 	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/gremlin"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 // LocalAggregate based on GraphQL Query params
-func (j *Janusgraph) LocalAggregate(ctx context.Context, params *kinds.AggregateParams) (interface{}, error) {
+func (j *Janusgraph) LocalAggregate(ctx context.Context, params *traverser.AggregateParams) (interface{}, error) {
 	className := j.state.MustGetMappedClassName(params.ClassName)
 	q := gremlin.New().Raw(`g.V()`).
 		HasString("kind", params.Kind.Name()).

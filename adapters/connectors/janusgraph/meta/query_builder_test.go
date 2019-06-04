@@ -14,7 +14,7 @@ package meta
 import (
 	"testing"
 
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 // This file contains only a single test to verify that combining multiple
@@ -26,17 +26,17 @@ func Test_QueryBuilder_MultipleProps(t *testing.T) {
 	tests := testCases{
 		testCase{
 			name: "with multiple props",
-			inputProps: []kinds.MetaProperty{
-				kinds.MetaProperty{
+			inputProps: []traverser.MetaProperty{
+				traverser.MetaProperty{
 					Name: "isCapital",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{
-						kinds.Count, kinds.TotalTrue, kinds.TotalFalse, kinds.PercentageTrue, kinds.PercentageFalse,
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{
+						traverser.Count, traverser.TotalTrue, traverser.TotalFalse, traverser.PercentageTrue, traverser.PercentageFalse,
 					},
 				},
-				kinds.MetaProperty{
+				traverser.MetaProperty{
 					Name: "population",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{
-						kinds.Mean, kinds.Sum, kinds.Maximum, kinds.Minimum, kinds.Count,
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{
+						traverser.Mean, traverser.Sum, traverser.Maximum, traverser.Minimum, traverser.Count,
 					},
 				},
 			},
@@ -70,17 +70,17 @@ func Test_QueryBuilder_MultiplePropsWithFilter(t *testing.T) {
 	tests := testCases{
 		testCase{
 			name: "with multiple props",
-			inputProps: []kinds.MetaProperty{
-				kinds.MetaProperty{
+			inputProps: []traverser.MetaProperty{
+				traverser.MetaProperty{
 					Name: "isCapital",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{
-						kinds.Count, kinds.TotalTrue, kinds.TotalFalse, kinds.PercentageTrue, kinds.PercentageFalse,
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{
+						traverser.Count, traverser.TotalTrue, traverser.TotalFalse, traverser.PercentageTrue, traverser.PercentageFalse,
 					},
 				},
-				kinds.MetaProperty{
+				traverser.MetaProperty{
 					Name: "population",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{
-						kinds.Mean, kinds.Sum, kinds.Maximum, kinds.Minimum, kinds.Count,
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{
+						traverser.Mean, traverser.Sum, traverser.Maximum, traverser.Minimum, traverser.Count,
 					},
 				},
 			},

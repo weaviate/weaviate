@@ -21,10 +21,10 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/auth/authentication/oidc"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/semi-technologies/weaviate/usecases/locks"
 	"github.com/semi-technologies/weaviate/usecases/network"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 )
 
@@ -61,7 +61,7 @@ type stopwordDetector interface {
 
 type contextionary interface {
 	IsWordPresent(ctx context.Context, word string) (bool, error)
-	SchemaSearch(ctx context.Context, params kinds.SearchParams) (kinds.SearchResults, error)
+	SchemaSearch(ctx context.Context, params traverser.SearchParams) (traverser.SearchResults, error)
 	SafeGetSimilarWordsWithCertainty(ctx context.Context, word string, certainty float32) ([]string, error)
 	VectorForWord(ctx context.Context, word string) ([]float32, error)
 	NearestWordsByVector(ctx context.Context, vector []float32, n int, k int) ([]string, []float32, error)

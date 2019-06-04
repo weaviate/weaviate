@@ -16,17 +16,17 @@ import (
 
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func Test_QueryBuilder_ReferenceProps(t *testing.T) {
 	tests := testCases{
 		testCase{
 			name: "counting a ref prop, grouped by a primitive prop",
-			inputProps: []kinds.AggregateProperty{
-				kinds.AggregateProperty{
+			inputProps: []traverser.AggregateProperty{
+				traverser.AggregateProperty{
 					Name:        "inCountry",
-					Aggregators: []kinds.Aggregator{kinds.CountAggregator},
+					Aggregators: []traverser.Aggregator{traverser.CountAggregator},
 				},
 			},
 			inputGroupBy: &filters.Path{

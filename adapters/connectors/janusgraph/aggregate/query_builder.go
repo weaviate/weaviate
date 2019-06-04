@@ -21,17 +21,17 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type Query struct {
-	params       *kinds.AggregateParams
+	params       *traverser.AggregateParams
 	nameSource   nameSource
 	typeSource   typeSource
 	filterSource filterSource
 }
 
-func NewQuery(params *kinds.AggregateParams, nameSource nameSource, typeSource typeSource,
+func NewQuery(params *traverser.AggregateParams, nameSource nameSource, typeSource typeSource,
 	filterSource filterSource) *Query {
 	return &Query{
 		params:       params,
@@ -148,7 +148,7 @@ type propertyAggregation struct {
 	selections         []string
 }
 
-func (b *Query) prop(prop kinds.AggregateProperty) (*propertyAggregation, error) {
+func (b *Query) prop(prop traverser.AggregateProperty) (*propertyAggregation, error) {
 	err, parsed := b.typeSource.GetProperty(b.params.Kind, b.params.ClassName, untitle(prop.Name))
 	if err != nil {
 		return nil, fmt.Errorf("could not find property '%s' in schema: %s", prop.Name, err)

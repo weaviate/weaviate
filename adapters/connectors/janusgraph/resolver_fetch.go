@@ -19,11 +19,11 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/fetch"
 	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/fetchfuzzy"
 	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/gremlin"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 // LocalFetchKindClass based on GraphQL Query params
-func (j *Janusgraph) LocalFetchKindClass(ctx context.Context, params *kinds.FetchParams) (interface{}, error) {
+func (j *Janusgraph) LocalFetchKindClass(ctx context.Context, params *traverser.FetchParams) (interface{}, error) {
 	q, err := fetch.NewQuery(*params, &j.state, &j.schema).String()
 	if err != nil {
 		return nil, fmt.Errorf("could not build query: %s", err)

@@ -15,10 +15,10 @@ import (
 	"fmt"
 
 	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/gremlin"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
-func (b *Query) nonNumericalProp(prop kinds.AggregateProperty) (*propertyAggregation, error) {
+func (b *Query) nonNumericalProp(prop traverser.AggregateProperty) (*propertyAggregation, error) {
 	aggregators := []*aggregation{}
 	for _, aggregator := range prop.Aggregators {
 
@@ -37,9 +37,9 @@ func (b *Query) nonNumericalProp(prop kinds.AggregateProperty) (*propertyAggrega
 	return b.mergeAggregators(aggregators, prop)
 }
 
-func (b *Query) nonNumericalPropAggregators(aggregator kinds.Aggregator) (*aggregation, error) {
+func (b *Query) nonNumericalPropAggregators(aggregator traverser.Aggregator) (*aggregation, error) {
 	switch aggregator {
-	case kinds.CountAggregator:
+	case traverser.CountAggregator:
 		return &aggregation{label: string(aggregator), aggregation: gremlin.New().Count()}, nil
 	default:
 		return nil, fmt.Errorf("analysis '%s' not supported for non-numerical prop", aggregator)

@@ -17,7 +17,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func Test_ExtractAnalyticsPropsFromAggregate(t *testing.T) {
@@ -40,13 +40,13 @@ func Test_ExtractAnalyticsPropsFromAggregate(t *testing.T) {
 		},
 	}
 
-	expectedParams := &kinds.AggregateParams{
+	expectedParams := &traverser.AggregateParams{
 		Kind:      kind.Thing,
 		ClassName: schema.ClassName("Car"),
-		Properties: []kinds.AggregateProperty{
+		Properties: []traverser.AggregateProperty{
 			{
 				Name:        "horsepower",
-				Aggregators: []kinds.Aggregator{kinds.MeanAggregator},
+				Aggregators: []traverser.Aggregator{traverser.MeanAggregator},
 			},
 		},
 		GroupBy:   groupCarByMadeByManufacturerName(),

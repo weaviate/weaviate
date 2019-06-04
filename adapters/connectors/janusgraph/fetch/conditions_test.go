@@ -17,7 +17,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func Test_QueryBuilder_StringAllOperators(t *testing.T) {
@@ -304,9 +304,9 @@ func sampleDate() time.Time {
 	return dateTime
 }
 
-func cityClassSearch() kinds.SearchResults {
-	return kinds.SearchResults{
-		Results: []kinds.SearchResult{
+func cityClassSearch() traverser.SearchResults {
+	return traverser.SearchResults{
+		Results: []traverser.SearchResult{
 			{
 				Name:      "City",
 				Certainty: 1.0,
@@ -316,8 +316,8 @@ func cityClassSearch() kinds.SearchResults {
 }
 
 func paramsFromSingleProp(propName string, dataType schema.DataType,
-	operator filters.Operator, value interface{}) kinds.FetchParams {
-	return kinds.FetchParams{
+	operator filters.Operator, value interface{}) traverser.FetchParams {
+	return traverser.FetchParams{
 		Kind:               kind.Thing,
 		PossibleClassNames: cityClassSearch(),
 		Properties:         singleProp(propName, dataType, operator, value),

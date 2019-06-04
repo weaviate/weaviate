@@ -16,11 +16,11 @@ import (
 
 	analytics "github.com/SeMI-network/janus-spark-analytics/clients/go"
 	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/gremlin"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func (p *Processor) getResultFromAnalyticsEngine(ctx context.Context, query *gremlin.Query,
-	params *kinds.GetMetaParams) ([]interface{}, error) {
+	params *traverser.GetMetaParams) ([]interface{}, error) {
 	hash, err := params.AnalyticsHash()
 	if params.Analytics.ForceRecalculate {
 		// no need to even check the cache, the user wants to start a new job

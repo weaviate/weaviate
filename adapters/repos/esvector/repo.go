@@ -14,7 +14,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 const (
@@ -83,7 +83,7 @@ type conceptBucket struct {
 
 // VectorSearch retrives the closest concepts by vector distance
 func (r *Repo) VectorSearch(ctx context.Context, index string,
-	vector []float32) ([]kinds.VectorSearchResult, error) {
+	vector []float32) ([]traverser.VectorSearchResult, error) {
 	var buf bytes.Buffer
 	body := map[string]interface{}{
 		"query": map[string]interface{}{
@@ -140,7 +140,7 @@ type hit struct {
 	Score  float32       `json:"_score"`
 }
 
-func (r *Repo) searchResponse(res *esapi.Response) ([]kinds.VectorSearchResult,
+func (r *Repo) searchResponse(res *esapi.Response) ([]traverser.VectorSearchResult,
 	error) {
 	if err := errorResToErr(res); err != nil {
 		return nil, fmt.Errorf("vector search: %v", err)
@@ -157,16 +157,16 @@ func (r *Repo) searchResponse(res *esapi.Response) ([]kinds.VectorSearchResult,
 	return sr.toVectorSearchResult()
 }
 
-func (sr searchResponse) toVectorSearchResult() ([]kinds.VectorSearchResult, error) {
+func (sr searchResponse) toVectorSearchResult() ([]traverser.VectorSearchResult, error) {
 	hits := sr.Hits.Hits
-	output := make([]kinds.VectorSearchResult, len(hits), len(hits))
+	output := make([]traverser.VectorSearchResult, len(hits), len(hits))
 	for i, hit := range hits {
 		k, err := kind.Parse(hit.Source.Kind)
 		if err != nil {
 			return nil, fmt.Errorf("vector search: result %d: %v", i, err)
 		}
 
-		output[i] = kinds.VectorSearchResult{
+		output[i] = traverser.VectorSearchResult{
 			ClassName: hit.Source.ClassName,
 			ID:        strfmt.UUID(hit.Source.ID),
 			Kind:      k,

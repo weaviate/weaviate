@@ -8,7 +8,9 @@
  * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
  * CONTACT: hello@semi.technology
- */package kinds
+ */
+
+package traverser
 
 import (
 	"context"
@@ -25,57 +27,23 @@ type fakeRepo struct {
 	UpdateThingParameter *models.Thing
 }
 
-func (f *fakeRepo) AddAction(ctx context.Context, class *models.Action, id strfmt.UUID) error {
+func (f *fakeRepo) LocalAggregate(ctx context.Context, params *AggregateParams) (interface{}, error) {
 	panic("not implemented")
 }
 
-func (f *fakeRepo) AddThing(ctx context.Context, class *models.Thing, id strfmt.UUID) error {
+func (f *fakeRepo) LocalFetchFuzzy(ctx context.Context, words []string) (interface{}, error) {
 	panic("not implemented")
 }
 
-func (f *fakeRepo) GetThing(ctx context.Context, id strfmt.UUID, thing *models.Thing) error {
-	*thing = *f.GetThingResponse
-	return nil
-}
-
-func (f *fakeRepo) GetAction(context.Context, strfmt.UUID, *models.Action) error {
+func (f *fakeRepo) LocalFetchKindClass(ctx context.Context, params *FetchParams) (interface{}, error) {
 	panic("not implemented")
 }
 
-func (f *fakeRepo) ListThings(ctx context.Context, limit int, thingsResponse *models.ThingsListResponse) error {
+func (f *fakeRepo) LocalGetClass(ctx context.Context, params *LocalGetParams) (interface{}, error) {
 	panic("not implemented")
 }
 
-func (f *fakeRepo) ListActions(ctx context.Context, limit int, actionsResponse *models.ActionsListResponse) error {
-	panic("not implemented")
-}
-
-func (f *fakeRepo) UpdateAction(ctx context.Context, class *models.Action, id strfmt.UUID) error {
-	panic("not implemented")
-}
-
-func (f *fakeRepo) UpdateThing(ctx context.Context, class *models.Thing, id strfmt.UUID) error {
-	f.UpdateThingParameter = class
-	return nil
-}
-
-func (f *fakeRepo) DeleteThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error {
-	panic("not implemented")
-}
-
-func (f *fakeRepo) DeleteAction(ctx context.Context, thing *models.Action, UUID strfmt.UUID) error {
-	panic("not implemented")
-}
-
-func (f *fakeRepo) AddThingsBatch(ctx context.Context, things BatchThings) error {
-	panic("not implemented")
-}
-
-func (f *fakeRepo) AddActionsBatch(ctx context.Context, actions BatchActions) error {
-	panic("not implemented")
-}
-
-func (f *fakeRepo) AddBatchReferences(ctx context.Context, references BatchReferences) error {
+func (f *fakeRepo) LocalGetMeta(ctx context.Context, params *GetMetaParams) (interface{}, error) {
 	panic("not implemented")
 }
 
@@ -171,6 +139,9 @@ func (f *fakeC11y) IsWordPresent(ctx context.Context, word string) (bool, error)
 func (f *fakeC11y) SafeGetSimilarWordsWithCertainty(ctx context.Context, word string, certainty float32) ([]string, error) {
 	panic("not implemented")
 }
+func (f *fakeC11y) SchemaSearch(ctx context.Context, p SearchParams) (SearchResults, error) {
+	panic("not implemented")
+}
 
 type fakeVectorRepo struct{}
 
@@ -181,4 +152,8 @@ func (f *fakeVectorRepo) PutThing(ctx context.Context, index string,
 func (f *fakeVectorRepo) PutAction(ctx context.Context, index string,
 	concept *models.Action, vector []float32) error {
 	return nil
+}
+func (f *fakeVectorRepo) VectorSearch(ctx context.Context, index string,
+	vector []float32) ([]VectorSearchResult, error) {
+	return nil, nil
 }

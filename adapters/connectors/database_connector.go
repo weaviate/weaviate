@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type StateManager interface {
@@ -61,8 +62,8 @@ type DatabaseConnector interface {
 	// things and actions
 	kinds.Repo
 
-	// kinds.TraverserRepo describes required method to traverse the graph
-	kinds.TraverserRepo
+	// traverser.TraverserRepo describes required method to traverse the graph
+	traverser.TraverserRepo
 
 	// Migrator describes methods that will be called when the user changes the
 	// schema. If the connected db is schemaless these have to return nil

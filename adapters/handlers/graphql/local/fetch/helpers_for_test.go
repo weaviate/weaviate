@@ -16,7 +16,7 @@ import (
 
 	testhelper "github.com/semi-technologies/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -44,13 +44,13 @@ func newMockResolver() *mockResolver {
 }
 
 func (m *mockResolver) LocalFetchKindClass(ctx context.Context, principal *models.Principal,
-	params *kinds.FetchSearch) (interface{}, error) {
+	params *traverser.FetchSearch) (interface{}, error) {
 	args := m.Called(params)
 	return args.Get(0), args.Error(1)
 }
 
 func (m *mockResolver) LocalFetchFuzzy(ctx context.Context, principal *models.Principal,
-	params kinds.FetchFuzzySearch) (interface{}, error) {
+	params traverser.FetchFuzzySearch) (interface{}, error) {
 	args := m.Called(params)
 	return args.Get(0), args.Error(1)
 }

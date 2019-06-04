@@ -17,10 +17,10 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
-func parseWhere(args map[string]interface{}, kind kind.Kind) (*kinds.FetchSearch, error) {
+func parseWhere(args map[string]interface{}, kind kind.Kind) (*traverser.FetchSearch, error) {
 	// the structure is already guaranteed by graphQL, we can therefore make
 	// plenty of assertions without having to check. If required fields are not
 	// set, graphQL will error before already and we won't get here.
@@ -29,13 +29,13 @@ func parseWhere(args map[string]interface{}, kind kind.Kind) (*kinds.FetchSearch
 	classKeywords := extractKeywords(classMap["keywords"])
 
 	propertiesRaw := where["properties"].([]interface{})
-	properties := make([]kinds.FetchSearchProperty, len(propertiesRaw), len(propertiesRaw))
+	properties := make([]traverser.FetchSearchProperty, len(propertiesRaw), len(propertiesRaw))
 
 	for i, prop := range propertiesRaw {
 		propertiesMap := prop.(map[string]interface{})
 		propertiesKeywords := extractKeywords(propertiesMap["keywords"])
-		search := kinds.SearchParams{
-			SearchType: kinds.SearchTypeProperty,
+		search := traverser.SearchParams{
+			SearchType: traverser.SearchTypeProperty,
 			Name:       propertiesMap["name"].(string),
 			Certainty:  float32(propertiesMap["certainty"].(float64)),
 			Keywords:   propertiesKeywords,
@@ -47,15 +47,15 @@ func parseWhere(args map[string]interface{}, kind kind.Kind) (*kinds.FetchSearch
 			return nil, fmt.Errorf("could not extract operator and matching value: %s", err)
 		}
 
-		properties[i] = kinds.FetchSearchProperty{
+		properties[i] = traverser.FetchSearchProperty{
 			Search: search,
 			Match:  match,
 		}
 	}
 
-	return &kinds.FetchSearch{
-		Class: kinds.SearchParams{
-			SearchType: kinds.SearchTypeClass,
+	return &traverser.FetchSearch{
+		Class: traverser.SearchParams{
+			SearchType: traverser.SearchTypeClass,
 			Name:       classMap["name"].(string),
 			Certainty:  float32(classMap["certainty"].(float64)),
 			Keywords:   classKeywords,
@@ -83,18 +83,18 @@ func extractKeywords(kw interface{}) models.SemanticSchemaKeywords {
 	return result
 }
 
-func extractMatch(prop map[string]interface{}) (kinds.FetchPropertyMatch, error) {
+func extractMatch(prop map[string]interface{}) (traverser.FetchPropertyMatch, error) {
 	operator, err := parseOperator(prop["operator"].(string))
 	if err != nil {
-		return kinds.FetchPropertyMatch{}, fmt.Errorf("could not parse operator: %s", err)
+		return traverser.FetchPropertyMatch{}, fmt.Errorf("could not parse operator: %s", err)
 	}
 
 	value, err := common_filters.ParseValue(prop)
 	if err != nil {
-		return kinds.FetchPropertyMatch{}, fmt.Errorf("could not parse value: %s", err)
+		return traverser.FetchPropertyMatch{}, fmt.Errorf("could not parse value: %s", err)
 	}
 
-	return kinds.FetchPropertyMatch{
+	return traverser.FetchPropertyMatch{
 		Operator: operator,
 		Value:    value,
 	}, nil

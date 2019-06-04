@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/graphql-go/graphql"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func conceptsFieldsObj() *graphql.Object {
@@ -14,7 +14,7 @@ func conceptsFieldsObj() *graphql.Object {
 			// Description: descriptions.LocalExploreConceptsClassName,
 			Type: graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				vsr, ok := p.Source.(kinds.VectorSearchResult)
+				vsr, ok := p.Source.(traverser.VectorSearchResult)
 				if !ok {
 					return nil, fmt.Errorf("unknown type %T in Explore.Concepts.className resolver", p.Source)
 				}
@@ -28,7 +28,7 @@ func conceptsFieldsObj() *graphql.Object {
 			// Description: descriptions.LocalExploreConceptsBeacon,
 			Type: graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				vsr, ok := p.Source.(kinds.VectorSearchResult)
+				vsr, ok := p.Source.(traverser.VectorSearchResult)
 				if !ok {
 					return nil, fmt.Errorf("unknown type %T in Explore.Concepts.className resolver", p.Source)
 				}

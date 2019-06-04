@@ -16,7 +16,7 @@ import (
 	"testing"
 
 	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/gremlin"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -47,16 +47,16 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		params := &kinds.GetMetaParams{
-			Properties: []kinds.MetaProperty{
-				kinds.MetaProperty{
+		params := &traverser.GetMetaParams{
+			Properties: []traverser.MetaProperty{
+				traverser.MetaProperty{
 					Name: "myBoolProp",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{
-						kinds.Count,
-						kinds.PercentageTrue,
-						kinds.PercentageFalse,
-						kinds.TotalTrue,
-						kinds.TotalFalse,
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{
+						traverser.Count,
+						traverser.PercentageTrue,
+						traverser.PercentageFalse,
+						traverser.TotalTrue,
+						traverser.TotalFalse,
 					},
 				}},
 		}
@@ -94,16 +94,16 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		params := &kinds.GetMetaParams{
-			Properties: []kinds.MetaProperty{
-				kinds.MetaProperty{
+		params := &traverser.GetMetaParams{
+			Properties: []traverser.MetaProperty{
+				traverser.MetaProperty{
 					Name: "myBoolProp",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{
-						kinds.Count,
-						kinds.PercentageTrue,
-						kinds.PercentageFalse,
-						kinds.TotalTrue,
-						kinds.TotalFalse,
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{
+						traverser.Count,
+						traverser.PercentageTrue,
+						traverser.PercentageFalse,
+						traverser.TotalTrue,
+						traverser.TotalFalse,
 					},
 				}},
 		}
@@ -141,16 +141,16 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		params := &kinds.GetMetaParams{
-			Properties: []kinds.MetaProperty{
-				kinds.MetaProperty{
+		params := &traverser.GetMetaParams{
+			Properties: []traverser.MetaProperty{
+				traverser.MetaProperty{
 					Name: "myBoolProp",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{
-						kinds.Count,
-						kinds.PercentageTrue,
-						kinds.PercentageFalse,
-						kinds.TotalTrue,
-						kinds.TotalFalse,
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{
+						traverser.Count,
+						traverser.PercentageTrue,
+						traverser.PercentageFalse,
+						traverser.TotalTrue,
+						traverser.TotalFalse,
 					},
 				}},
 		}
@@ -179,7 +179,7 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), nil, &kinds.GetMetaParams{})
+		result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), nil, &traverser.GetMetaParams{})
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -213,7 +213,7 @@ func Test_QueryProcessor(t *testing.T) {
 				},
 			}
 
-			result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), typeInput, &kinds.GetMetaParams{})
+			result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), typeInput, &traverser.GetMetaParams{})
 
 			require.Nil(t, err, "should not error")
 			assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -245,7 +245,7 @@ func Test_QueryProcessor(t *testing.T) {
 				},
 			}
 
-			result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), typeInput, &kinds.GetMetaParams{})
+			result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), typeInput, &traverser.GetMetaParams{})
 
 			require.Nil(t, err, "should not error")
 			assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -268,7 +268,7 @@ func Test_QueryProcessor(t *testing.T) {
 				},
 			}
 
-			result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), typeInput, &kinds.GetMetaParams{})
+			result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), typeInput, &traverser.GetMetaParams{})
 			require.Nil(t, err, "should not error")
 			assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
 		})
@@ -309,7 +309,7 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), nil, &kinds.GetMetaParams{})
+		result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), nil, &traverser.GetMetaParams{})
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -353,7 +353,7 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), nil, &kinds.GetMetaParams{})
+		result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), nil, &traverser.GetMetaParams{})
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")

@@ -16,7 +16,7 @@ import (
 	"strings"
 
 	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/gremlin"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 const (
@@ -26,7 +26,7 @@ const (
 	StringTopOccurrences = "topOccurrences"
 )
 
-func (b *Query) stringProp(prop kinds.MetaProperty) (*gremlin.Query, error) {
+func (b *Query) stringProp(prop traverser.MetaProperty) (*gremlin.Query, error) {
 	q := gremlin.New()
 
 	// retrieving the total true and total false values is a single operation in
@@ -63,23 +63,23 @@ func (b *Query) stringProp(prop kinds.MetaProperty) (*gremlin.Query, error) {
 	return q, nil
 }
 
-func isStringCountProp(analysis kinds.StatisticalAnalysis) bool {
+func isStringCountProp(analysis traverser.StatisticalAnalysis) bool {
 	switch analysis {
-	case kinds.TopOccurrencesValue, kinds.TopOccurrencesOccurs:
+	case traverser.TopOccurrencesValue, traverser.TopOccurrencesOccurs:
 		return true
 	default:
 		return false
 	}
 }
 
-func (b *Query) stringPropAnalysis(prop kinds.MetaProperty,
-	analysis kinds.StatisticalAnalysis) (*gremlin.Query, error) {
+func (b *Query) stringPropAnalysis(prop traverser.MetaProperty,
+	analysis traverser.StatisticalAnalysis) (*gremlin.Query, error) {
 	switch analysis {
-	case kinds.Count:
+	case traverser.Count:
 		return b.stringPropCount(prop)
-	case kinds.TopOccurrencesValue, kinds.TopOccurrencesOccurs:
+	case traverser.TopOccurrencesValue, traverser.TopOccurrencesOccurs:
 		return b.stringPropTopOccurrences(prop)
-	case kinds.Type:
+	case traverser.Type:
 		// skip because type is handled by the type inspector
 		return nil, nil
 	default:
@@ -87,7 +87,7 @@ func (b *Query) stringPropAnalysis(prop kinds.MetaProperty,
 	}
 }
 
-func (b *Query) stringPropCount(prop kinds.MetaProperty) (*gremlin.Query, error) {
+func (b *Query) stringPropCount(prop traverser.MetaProperty) (*gremlin.Query, error) {
 	q := gremlin.New()
 
 	q = q.HasProperty(b.mappedPropertyName(b.params.ClassName, prop.Name)).
@@ -98,7 +98,7 @@ func (b *Query) stringPropCount(prop kinds.MetaProperty) (*gremlin.Query, error)
 	return q, nil
 }
 
-func (b *Query) stringPropTopOccurrences(prop kinds.MetaProperty) (*gremlin.Query, error) {
+func (b *Query) stringPropTopOccurrences(prop traverser.MetaProperty) (*gremlin.Query, error) {
 	return gremlin.New().HasProperty(b.mappedPropertyName(b.params.ClassName, prop.Name)).
 		GroupCount().By(b.mappedPropertyName(b.params.ClassName, prop.Name)).
 		OrderLocalByValuesLimit("decr", 3).

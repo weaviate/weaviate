@@ -14,17 +14,17 @@ package meta
 import (
 	"testing"
 
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func Test_QueryBuilder_DateProps(t *testing.T) {
 	tests := testCases{
 		testCase{
 			name: "with only a string, with only topOccurrences.value",
-			inputProps: []kinds.MetaProperty{
-				kinds.MetaProperty{
+			inputProps: []traverser.MetaProperty{
+				traverser.MetaProperty{
 					Name:                "dateOfFirstApperance",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.TopOccurrencesValue},
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{traverser.TopOccurrencesValue},
 				},
 			},
 			expectedQuery: `
@@ -42,10 +42,10 @@ func Test_QueryBuilder_DateProps(t *testing.T) {
 
 		testCase{
 			name: "with only a string, with only both topOccurrences.value and .occurs",
-			inputProps: []kinds.MetaProperty{
-				kinds.MetaProperty{
+			inputProps: []traverser.MetaProperty{
+				traverser.MetaProperty{
 					Name:                "dateOfFirstApperance",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.TopOccurrencesValue, kinds.TopOccurrencesOccurs},
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{traverser.TopOccurrencesValue, traverser.TopOccurrencesOccurs},
 				},
 			},
 			expectedQuery: `
@@ -63,10 +63,10 @@ func Test_QueryBuilder_DateProps(t *testing.T) {
 
 		testCase{
 			name: "with only a string, with all possible props",
-			inputProps: []kinds.MetaProperty{
-				kinds.MetaProperty{
+			inputProps: []traverser.MetaProperty{
+				traverser.MetaProperty{
 					Name:                "dateOfFirstApperance",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Type, kinds.Count, kinds.TopOccurrencesValue, kinds.TopOccurrencesOccurs},
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{traverser.Type, traverser.Count, traverser.TopOccurrencesValue, traverser.TopOccurrencesOccurs},
 				},
 			},
 			expectedQuery: `

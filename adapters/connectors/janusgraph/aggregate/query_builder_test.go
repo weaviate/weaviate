@@ -16,7 +16,7 @@ import (
 
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 // These tests only assert that multiple props work together correctly. See the
@@ -26,14 +26,14 @@ func Test_QueryBuilder_MultipleProps(t *testing.T) {
 	tests := testCases{
 		testCase{
 			name: "counting a stirng prop, grouped by a primitive prop",
-			inputProps: []kinds.AggregateProperty{
-				kinds.AggregateProperty{
+			inputProps: []traverser.AggregateProperty{
+				traverser.AggregateProperty{
 					Name:        "name",
-					Aggregators: []kinds.Aggregator{kinds.CountAggregator},
+					Aggregators: []traverser.Aggregator{traverser.CountAggregator},
 				},
-				kinds.AggregateProperty{
+				traverser.AggregateProperty{
 					Name:        "population",
-					Aggregators: []kinds.Aggregator{kinds.CountAggregator},
+					Aggregators: []traverser.Aggregator{traverser.CountAggregator},
 				},
 			},
 			inputGroupBy: &filters.Path{

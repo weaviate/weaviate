@@ -14,17 +14,17 @@ package meta
 import (
 	"testing"
 
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func Test_QueryBuilder_NumberProps(t *testing.T) {
 	tests := testCases{
 		testCase{
 			name: "with only an int, with only count",
-			inputProps: []kinds.MetaProperty{
-				kinds.MetaProperty{
+			inputProps: []traverser.MetaProperty{
+				traverser.MetaProperty{
 					Name:                "area",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Count},
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{traverser.Count},
 				},
 			},
 			expectedQuery: `
@@ -43,11 +43,11 @@ func Test_QueryBuilder_NumberProps(t *testing.T) {
 
 		testCase{
 			name: "with only an int, with all props",
-			inputProps: []kinds.MetaProperty{
-				kinds.MetaProperty{
+			inputProps: []traverser.MetaProperty{
+				traverser.MetaProperty{
 					Name: "area",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{
-						kinds.Mean, kinds.Type, kinds.Sum, kinds.Maximum, kinds.Minimum, kinds.Count,
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{
+						traverser.Mean, traverser.Type, traverser.Sum, traverser.Maximum, traverser.Minimum, traverser.Count,
 					},
 				},
 			},

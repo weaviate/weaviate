@@ -16,17 +16,17 @@ import (
 
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func Test_QueryBuilder_NonNumericalProps(t *testing.T) {
 	tests := testCases{
 		testCase{
 			name: "counting a stirng prop, grouped by a primitive prop",
-			inputProps: []kinds.AggregateProperty{
-				kinds.AggregateProperty{
+			inputProps: []traverser.AggregateProperty{
+				traverser.AggregateProperty{
 					Name:        "name",
-					Aggregators: []kinds.Aggregator{kinds.CountAggregator},
+					Aggregators: []traverser.Aggregator{traverser.CountAggregator},
 				},
 			},
 			inputGroupBy: &filters.Path{
@@ -46,10 +46,10 @@ func Test_QueryBuilder_NonNumericalProps(t *testing.T) {
 
 		testCase{
 			name: "counting a date prop, grouped by a primitive prop",
-			inputProps: []kinds.AggregateProperty{
-				kinds.AggregateProperty{
+			inputProps: []traverser.AggregateProperty{
+				traverser.AggregateProperty{
 					Name:        "dateOfFirstApperance",
-					Aggregators: []kinds.Aggregator{kinds.CountAggregator},
+					Aggregators: []traverser.Aggregator{traverser.CountAggregator},
 				},
 			},
 			inputGroupBy: &filters.Path{
@@ -69,10 +69,10 @@ func Test_QueryBuilder_NonNumericalProps(t *testing.T) {
 
 		testCase{
 			name: "counting a bool prop, grouped by a primitive prop",
-			inputProps: []kinds.AggregateProperty{
-				kinds.AggregateProperty{
+			inputProps: []traverser.AggregateProperty{
+				traverser.AggregateProperty{
 					Name:        "isCapital",
-					Aggregators: []kinds.Aggregator{kinds.CountAggregator},
+					Aggregators: []traverser.Aggregator{traverser.CountAggregator},
 				},
 			},
 			inputGroupBy: &filters.Path{

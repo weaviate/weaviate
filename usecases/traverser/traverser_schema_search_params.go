@@ -10,7 +10,7 @@
  * CONTACT: hello@semi.technology
  */
 
-package kinds
+package traverser
 
 import (
 	"fmt"

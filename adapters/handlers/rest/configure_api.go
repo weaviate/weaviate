@@ -38,6 +38,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"github.com/sirupsen/logrus"
 )
@@ -84,7 +85,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	batchKindsManager := kinds.NewBatchManager(appState.Connector, appState.Locks,
 		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,
 		appState.Authorizer)
-	kindsTraverser := kinds.NewTraverser(appState.Locks, appState.Connector,
+	kindsTraverser := traverser.NewTraverser(appState.Locks, appState.Connector,
 		appState.Contextionary, appState.Logger, appState.Authorizer, vectorizer, vectorRepo)
 	connstateManager, err := connstate.NewManager(connstateRepo, appState.Logger)
 	if err != nil {

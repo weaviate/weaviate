@@ -16,12 +16,12 @@ import (
 	"context"
 
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 // Resolver is a local abstraction of the required UC resolvers
 type Resolver interface {
-	LocalGetClass(ctx context.Context, principal *models.Principal, info *kinds.LocalGetParams) (interface{}, error)
+	LocalGetClass(ctx context.Context, principal *models.Principal, info *traverser.LocalGetParams) (interface{}, error)
 }
 
 // RequestsLog is a local abstraction on the RequestsLog that needs to be
