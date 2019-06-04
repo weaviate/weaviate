@@ -20,12 +20,14 @@ import (
 	"time"
 
 	"github.com/coreos/etcd/clientv3"
+	"github.com/elastic/go-elasticsearch/v5"
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/semi-technologies/weaviate/adapters/clients/contextionary"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
 	"github.com/semi-technologies/weaviate/adapters/locks"
+	"github.com/semi-technologies/weaviate/adapters/repos/esvector"
 	"github.com/semi-technologies/weaviate/adapters/repos/etcd"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -49,7 +51,7 @@ func makeConfigureServer(appState *state.State) func(*http.Server, string, strin
 }
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
-	appState, etcdClient := startupRoutine()
+	appState, etcdClient, esClient := startupRoutine()
 
 	api.ServeError = errors.ServeError
 
@@ -65,6 +67,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	schemaRepo := etcd.NewSchemaRepo(etcdClient)
 	connstateRepo := etcd.NewConnStateRepo(etcdClient)
+	vectorRepo := esvector.NewRepo(esClient)
 
 	schemaManager, err := schemaUC.NewManager(appState.Connector, schemaRepo,
 		appState.Locks, appState.Network, appState.Logger, appState.Contextionary, appState.Authorizer, appState.StopwordDetector)
@@ -77,7 +80,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	vectorizer := vectorizer.New(appState.Contextionary)
 	kindsManager := kinds.NewManager(appState.Connector, appState.Locks,
 		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,
-		appState.Authorizer, vectorizer)
+		appState.Authorizer, vectorizer, vectorRepo)
 	batchKindsManager := kinds.NewBatchManager(appState.Connector, appState.Locks,
 		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,
 		appState.Authorizer)
@@ -112,6 +115,24 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		os.Exit(1)
 	}
 
+	// for now hard-code index to concepts, in the future we will have dynamic
+	// indices based on the schema
+	err = vectorRepo.PutIndex(context.Background(), "concepts")
+	if err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("could not put vector index")
+		os.Exit(1)
+	}
+
+	err = vectorRepo.SetMappings(context.Background(), "concepts")
+	if err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("could not configure (put mappings) vector index")
+		os.Exit(1)
+	}
+
 	updateSchemaCallback := makeUpdateSchemaCall(appState.Logger, appState, kindsTraverser)
 	schemaManager.RegisterSchemaUpdateCallback(updateSchemaCallback)
 	schemaManager.RegisterSchemaUpdateCallback(func(updatedSchema schema.Schema) {
@@ -138,7 +159,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 }
 
 // TODO: Split up and don't write into global variables. Instead return an appState
-func startupRoutine() (*state.State, *clientv3.Client) {
+func startupRoutine() (*state.State, *clientv3.Client, *elasticsearch.Client) {
 	appState := &state.State{}
 	// context for the startup procedure. (So far the only subcommand respecting
 	// the context is the schema initialization, as this uses the etcd client
@@ -208,9 +229,19 @@ func startupRoutine() (*state.State, *clientv3.Client) {
 			WithError(err).Error("cannot construct distributed lock with etcd")
 		logger.Exit(1)
 	}
-
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("created etcd client")
+
+	esClient, err := elasticsearch.NewClient(elasticsearch.Config{
+		Addresses: []string{serverConfig.Config.VectorIndex.URL},
+	})
+	if err != nil {
+		logger.WithField("action", "startup").
+			WithError(err).Error("cannot create es client for vector index")
+		logger.Exit(1)
+	}
+	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
+		Debug("created es client for vector index")
 
 	appState.TelemetryLogger = configureTelemetry(appState, etcdClient, logger)
 
@@ -243,7 +274,7 @@ func startupRoutine() (*state.State, *clientv3.Client) {
 	appState.StopwordDetector = c11y
 	appState.Contextionary = c11y
 
-	return appState, etcdClient
+	return appState, etcdClient, esClient
 }
 
 func configureTelemetry(appState *state.State, etcdClient *clientv3.Client,

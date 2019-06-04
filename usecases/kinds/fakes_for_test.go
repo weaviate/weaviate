@@ -190,3 +190,18 @@ func (f *fakeC11y) SafeGetSimilarWordsWithCertainty(ctx context.Context, word st
 func (f *fakeC11y) SchemaSearch(ctx context.Context, p SearchParams) (SearchResults, error) {
 	panic("not implemented")
 }
+
+type fakeVectorRepo struct{}
+
+func (f *fakeVectorRepo) PutThing(ctx context.Context, index string,
+	concept *models.Thing, vector []float32) error {
+	return nil
+}
+func (f *fakeVectorRepo) PutAction(ctx context.Context, index string,
+	concept *models.Action, vector []float32) error {
+	return nil
+}
+func (f *fakeVectorRepo) VectorSearch(ctx context.Context, index string,
+	vector []float32) ([]VectorSearchResult, error) {
+	return nil, nil
+}

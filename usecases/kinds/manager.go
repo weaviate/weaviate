@@ -40,6 +40,7 @@ type Manager struct {
 	logger        logrus.FieldLogger
 	authorizer    authorizer
 	vectorizer    vectorizer
+	vectorRepo    vectorRepo
 }
 
 // Repo describes the requirements the kinds UC has to the connected database
@@ -69,10 +70,19 @@ type network interface {
 	ListPeers() (peers.Peers, error)
 }
 
+type vectorRepo interface {
+	PutThing(ctx context.Context, index string,
+		concept *models.Thing, vector []float32) error
+	PutAction(ctx context.Context, index string,
+		concept *models.Action, vector []float32) error
+	VectorSearch(ctx context.Context, index string,
+		vector []float32) ([]VectorSearchResult, error)
+}
+
 // NewManager creates a new manager
 func NewManager(repo Repo, locks locks, schemaManager schemaManager,
 	network network, config *config.WeaviateConfig, logger logrus.FieldLogger,
-	authorizer authorizer, vectorizer vectorizer) *Manager {
+	authorizer authorizer, vectorizer vectorizer, vectorRepo vectorRepo) *Manager {
 	return &Manager{
 		network:       network,
 		config:        config,
@@ -82,6 +92,7 @@ func NewManager(repo Repo, locks locks, schemaManager schemaManager,
 		logger:        logger,
 		vectorizer:    vectorizer,
 		authorizer:    authorizer,
+		vectorRepo:    vectorRepo,
 	}
 }
 

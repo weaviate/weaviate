@@ -52,6 +52,7 @@ type Config struct {
 	Authentication       Authentication  `json:"authentication" yaml:"authentication"`
 	Authorization        Authorization   `json:"authorization" yaml:"authorization"`
 	Telemetry            Telemetry       `json:"telemetry" yaml:"telemetry"`
+	VectorIndex          VectorIndex     `json:"vector_index" yaml:"vector_index"`
 }
 
 // QueryDefaults for optional parameters
@@ -61,6 +62,11 @@ type QueryDefaults struct {
 
 type Contextionary struct {
 	URL string `json:"url" yaml:"url"`
+}
+
+type VectorIndex struct {
+	Enabled bool   `json:"enabled" yaml:"enabled"`
+	URL     string `json:"url" yaml:"url"`
 }
 
 // AnalyticsEngine represents an external analytics engine, such as Spark for

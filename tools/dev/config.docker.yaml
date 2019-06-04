@@ -10,6 +10,9 @@ configuration_storage:
   url: http://etcd:2379
 contextionary:
   url: contextionary:9999
+vector_index:
+  enabled: true
+  url: http://esvector:9200
 network:
   genesis_url: http://genesis_fake:8090
   public_url: http://localhost:8080
