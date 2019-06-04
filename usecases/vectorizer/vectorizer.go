@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/fatih/camelcase"
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
@@ -37,7 +38,7 @@ func (v *Vectorizer) Action(ctx context.Context, concept *models.Action) ([]floa
 func (v *Vectorizer) concept(ctx context.Context, className string,
 	schema interface{}) ([]float32, error) {
 	var corpi []string
-	corpi = append(corpi, strings.ToLower(className))
+	corpi = append(corpi, camelCaseToLower(className))
 
 	if schema != nil {
 		for prop, value := range schema.(map[string]interface{}) {
@@ -45,11 +46,11 @@ func (v *Vectorizer) concept(ctx context.Context, className string,
 			if ok {
 				// use prop and value
 				corpi = append(corpi, strings.ToLower(
-					fmt.Sprintf("%s %s", prop, valueString)))
+					fmt.Sprintf("%s %s", camelCaseToLower(prop), valueString)))
 			} else {
 				// use only prop name
 				corpi = append(corpi, strings.ToLower(
-					fmt.Sprintf("%s", prop)))
+					fmt.Sprintf("%s", camelCaseToLower(prop))))
 			}
 		}
 	}
@@ -60,4 +61,17 @@ func (v *Vectorizer) concept(ctx context.Context, className string,
 	}
 
 	return vector, nil
+}
+
+func camelCaseToLower(in string) string {
+	parts := camelcase.Split(in)
+	var sb strings.Builder
+	for i, part := range parts {
+		if i > 0 {
+			sb.WriteString(" ")
+		}
+		sb.WriteString(strings.ToLower(part))
+	}
+
+	return sb.String()
 }
