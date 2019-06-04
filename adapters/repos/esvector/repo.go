@@ -11,6 +11,7 @@ import (
 
 	"github.com/elastic/go-elasticsearch/v5"
 	"github.com/elastic/go-elasticsearch/v5/esapi"
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
@@ -74,22 +75,114 @@ func (r *Repo) PutIndex(ctx context.Context, index string) error {
 }
 
 type conceptBucket struct {
-	Kind            kind.Kind `json:"kind"`
-	ID              string    `json:"id"`
-	ClassName       string    `json:"className"`
-	EmbeddingVector string    `json:"embeddingVector"`
+	Kind            string `json:"kind"`
+	ID              string `json:"id"`
+	ClassName       string `json:"class_name"`
+	EmbeddingVector string `json:"embedding_vector"`
 }
 
 // VectorSearch retrives the closest concepts by vector distance
-func (r *Repo) VectorSearch(ctx context.Context, vector []float32) ([]kinds.VectorSearchResult, error) {
+func (r *Repo) VectorSearch(ctx context.Context, index string,
+	vector []float32) ([]kinds.VectorSearchResult, error) {
+	var buf bytes.Buffer
+	body := map[string]interface{}{
+		"query": map[string]interface{}{
+			"function_score": map[string]interface{}{
+				"query": map[string]interface{}{
+					"match_all": map[string]interface{}{},
+				},
+				"boost_mode": "replace",
+				"script_score": map[string]interface{}{
+					"script": map[string]interface{}{
+						"inline": "binary_vector_score",
+						"lang":   "knn",
+						"params": map[string]interface{}{
+							"cosine": false,
+							"field":  "embedding_vector",
+							"vector": vector,
+						},
+					},
+				},
+			},
+		},
+		// hard code limit to 100 for now
+		"size": 100,
+	}
 
-	return nil, nil
+	err := json.NewEncoder(&buf).Encode(body)
+	if err != nil {
+		return nil, fmt.Errorf("vector search: encode json: %v", err)
+	}
+
+	fmt.Printf("\n%s\n", buf.String())
+
+	res, err := r.client.Search(
+		r.client.Search.WithContext(ctx),
+		r.client.Search.WithIndex(index),
+		r.client.Search.WithBody(&buf),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("vector search: %v", err)
+	}
+
+	return r.searchResponse(res)
+}
+
+type searchResponse struct {
+	Hits struct {
+		Hits []hit `json:"hits"`
+	} `json:"hits"`
+}
+
+type hit struct {
+	ID     string        `json:"_id"`
+	Source conceptBucket `json:"_source"`
+	Score  float32       `json:"_score"`
+}
+
+func (r *Repo) searchResponse(res *esapi.Response) ([]kinds.VectorSearchResult,
+	error) {
+	if err := errorResToErr(res); err != nil {
+		return nil, fmt.Errorf("vector search: %v", err)
+	}
+
+	var sr searchResponse
+
+	defer res.Body.Close()
+	err := json.NewDecoder(res.Body).Decode(&sr)
+	if err != nil {
+		return nil, fmt.Errorf("vector search: decode json: %v", err)
+	}
+
+	return sr.toVectorSearchResult()
+}
+
+func (sr searchResponse) toVectorSearchResult() ([]kinds.VectorSearchResult, error) {
+	hits := sr.Hits.Hits
+	output := make([]kinds.VectorSearchResult, len(hits), len(hits))
+	for i, hit := range hits {
+		k, err := kind.Parse(hit.Source.Kind)
+		if err != nil {
+			return nil, fmt.Errorf("vector search: result %d: %v", i, err)
+		}
+
+		output[i] = kinds.VectorSearchResult{
+			ClassName: hit.Source.ClassName,
+			ID:        strfmt.UUID(hit.Source.ID),
+			Kind:      k,
+			Score:     hit.Score,
+		}
+	}
+
+	return output, nil
 }
 
 // PutThing idempotently adds a Thing with its vector representation
-func (r *Repo) PutThing(ctx context.Context, concept *models.Thing,
-	vector []float32) error {
-	err := r.putConcept(ctx, kind.Thing, concept.ID.String(), concept.Class, vector)
+// TODO: infer index from class name
+func (r *Repo) PutThing(ctx context.Context, index string,
+	concept *models.Thing, vector []float32) error {
+	err := r.putConcept(ctx, index, kind.Thing, concept.ID.String(),
+		concept.Class, vector)
 	if err != nil {
 		return fmt.Errorf("put thing: %v", err)
 	}
@@ -98,9 +191,11 @@ func (r *Repo) PutThing(ctx context.Context, concept *models.Thing,
 }
 
 // PutAction idempotently adds a Action with its vector representation
-func (r *Repo) PutAction(ctx context.Context, concept *models.Action,
-	vector []float32) error {
-	err := r.putConcept(ctx, kind.Action, concept.ID.String(), concept.Class, vector)
+// TODO: infer index from class name
+func (r *Repo) PutAction(ctx context.Context, index string,
+	concept *models.Action, vector []float32) error {
+	err := r.putConcept(ctx, index, kind.Action, concept.ID.String(),
+		concept.Class, vector)
 	if err != nil {
 		return fmt.Errorf("put action: %v", err)
 	}
@@ -108,12 +203,13 @@ func (r *Repo) PutAction(ctx context.Context, concept *models.Action,
 	return nil
 }
 
-func (r *Repo) putConcept(ctx context.Context, k kind.Kind, id, class string,
-	vector []float32) error {
+// TODO: infer index from class name
+func (r *Repo) putConcept(ctx context.Context, index string,
+	k kind.Kind, id, class string, vector []float32) error {
 
 	var buf bytes.Buffer
 	bucket := conceptBucket{
-		Kind:            k,
+		Kind:            k.Name(),
 		ID:              id,
 		ClassName:       class,
 		EmbeddingVector: vectorToBase64(vector),
@@ -125,10 +221,7 @@ func (r *Repo) putConcept(ctx context.Context, k kind.Kind, id, class string,
 	}
 
 	req := esapi.IndexRequest{
-		// for now hard-code concepts index. In the future, this should
-		// depend on the class name. Until then, there's a single index
-		// for everything
-		Index:        "concepts",
+		Index:        index,
 		DocumentType: doctype,
 		DocumentID:   id,
 		Body:         &buf,
