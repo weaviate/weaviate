@@ -149,6 +149,10 @@ func (f *fakeVectorizer) Action(ctx context.Context, thing *models.Action) ([]fl
 	panic("not implemented")
 }
 
+func (f *fakeVectorizer) Corpi(ctx context.Context, corpi []string) ([]float32, error) {
+	panic("not implemented")
+}
+
 type fakeNetwork struct {
 	peerURI string
 }

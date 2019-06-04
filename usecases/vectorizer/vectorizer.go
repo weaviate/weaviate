@@ -63,13 +63,34 @@ func (v *Vectorizer) concept(ctx context.Context, className string,
 	return vector, nil
 }
 
+// Corpi takes any list of strings and builds a common vector for all of them
+func (v *Vectorizer) Corpi(ctx context.Context, corpi []string,
+) ([]float32, error) {
+
+	for i, corpus := range corpi {
+		corpi[i] = camelCaseToLower(corpus)
+	}
+
+	vector, err := v.client.VectorForCorpi(ctx, corpi)
+	if err != nil {
+		return nil, fmt.Errorf("vectorizing thing with corpus '%+v': %v", corpi, err)
+	}
+
+	return vector, nil
+}
+
 func camelCaseToLower(in string) string {
 	parts := camelcase.Split(in)
 	var sb strings.Builder
 	for i, part := range parts {
+		if part == " " {
+			continue
+		}
+
 		if i > 0 {
 			sb.WriteString(" ")
 		}
+
 		sb.WriteString(strings.ToLower(part))
 	}
 

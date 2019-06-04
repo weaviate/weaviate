@@ -302,6 +302,13 @@ func Test_Traverser_Authorization(t *testing.T) {
 			expectedVerb:     "get",
 			expectedResource: "traversal/*",
 		},
+
+		testCase{
+			methodName:       "ExploreConcepts",
+			additionalArgs:   []interface{}{ExploreConceptsParams{}},
+			expectedVerb:     "get",
+			expectedResource: "traversal/*",
+		},
 	}
 
 	t.Run("verify that a test for every public method exists", func(t *testing.T) {
@@ -323,7 +330,9 @@ func Test_Traverser_Authorization(t *testing.T) {
 			locks := &fakeLocks{}
 			authorizer := &authDenier{}
 			c11y := &fakeC11y{}
-			manager := NewTraverser(locks, repo, c11y, logger, authorizer)
+			vectorizer := &fakeVectorizer{}
+			vectorRepo := &fakeVectorRepo{}
+			manager := NewTraverser(locks, repo, c11y, logger, authorizer, vectorizer, vectorRepo)
 
 			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 			out, _ := callFuncByName(manager, test.methodName, args...)

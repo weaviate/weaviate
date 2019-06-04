@@ -85,7 +85,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,
 		appState.Authorizer)
 	kindsTraverser := kinds.NewTraverser(appState.Locks, appState.Connector,
-		appState.Contextionary, appState.Logger, appState.Authorizer)
+		appState.Contextionary, appState.Logger, appState.Authorizer, vectorizer, vectorRepo)
 	connstateManager, err := connstate.NewManager(connstateRepo, appState.Logger)
 	if err != nil {
 		appState.Logger.
