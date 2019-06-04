@@ -17,19 +17,19 @@ import (
 
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func Test_QueryBuilder_VariousGroupingStrategies_WithNameSource(t *testing.T) {
-	propList := func() []kinds.AggregateProperty {
-		return []kinds.AggregateProperty{
-			kinds.AggregateProperty{
+	propList := func() []traverser.AggregateProperty {
+		return []traverser.AggregateProperty{
+			traverser.AggregateProperty{
 				Name:        "name",
-				Aggregators: []kinds.Aggregator{kinds.CountAggregator},
+				Aggregators: []traverser.Aggregator{traverser.CountAggregator},
 			},
-			kinds.AggregateProperty{
+			traverser.AggregateProperty{
 				Name:        "population",
-				Aggregators: []kinds.Aggregator{kinds.CountAggregator},
+				Aggregators: []traverser.Aggregator{traverser.CountAggregator},
 			},
 		}
 	}

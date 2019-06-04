@@ -15,7 +15,7 @@ import (
 	"fmt"
 
 	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/gremlin"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type intAnalysis struct {
@@ -23,7 +23,7 @@ type intAnalysis struct {
 	aggregation *gremlin.Query
 }
 
-func (b *Query) intProp(prop kinds.MetaProperty) (*gremlin.Query, error) {
+func (b *Query) intProp(prop traverser.MetaProperty) (*gremlin.Query, error) {
 	analyses := []*intAnalysis{}
 	for _, analysis := range prop.StatisticalAnalyses {
 
@@ -42,19 +42,19 @@ func (b *Query) intProp(prop kinds.MetaProperty) (*gremlin.Query, error) {
 	return b.intPropMergeAnalyses(analyses, prop)
 }
 
-func (b *Query) intPropAnalysis(analysis kinds.StatisticalAnalysis) (*intAnalysis, error) {
+func (b *Query) intPropAnalysis(analysis traverser.StatisticalAnalysis) (*intAnalysis, error) {
 	switch analysis {
-	case kinds.Count:
+	case traverser.Count:
 		return &intAnalysis{label: string(analysis), aggregation: gremlin.New().Count()}, nil
-	case kinds.Mean:
+	case traverser.Mean:
 		return &intAnalysis{label: string(analysis), aggregation: gremlin.New().Mean()}, nil
-	case kinds.Sum:
+	case traverser.Sum:
 		return &intAnalysis{label: string(analysis), aggregation: gremlin.New().Sum()}, nil
-	case kinds.Maximum:
+	case traverser.Maximum:
 		return &intAnalysis{label: string(analysis), aggregation: gremlin.New().Max()}, nil
-	case kinds.Minimum:
+	case traverser.Minimum:
 		return &intAnalysis{label: string(analysis), aggregation: gremlin.New().Min()}, nil
-	case kinds.Type:
+	case traverser.Type:
 		// skip type as it's handled by the type inspector
 		return nil, nil
 	default:
@@ -63,7 +63,7 @@ func (b *Query) intPropAnalysis(analysis kinds.StatisticalAnalysis) (*intAnalysi
 }
 
 func (b *Query) intPropMergeAnalyses(analyses []*intAnalysis,
-	prop kinds.MetaProperty) (*gremlin.Query, error) {
+	prop traverser.MetaProperty) (*gremlin.Query, error) {
 
 	aggregations := []*gremlin.Query{}
 	for _, a := range analyses {

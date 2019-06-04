@@ -17,17 +17,17 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func Test_QueryBuilder(t *testing.T) {
 	tests := testCases{
 		{
 			name: "with a single class name, single property name, string type",
-			inputParams: kinds.FetchParams{
+			inputParams: traverser.FetchParams{
 				Kind: kind.Thing,
-				PossibleClassNames: kinds.SearchResults{
-					Results: []kinds.SearchResult{
+				PossibleClassNames: traverser.SearchResults{
+					Results: []traverser.SearchResult{
 						{
 							Name:      "City",
 							Certainty: 1.0,
@@ -46,10 +46,10 @@ func Test_QueryBuilder(t *testing.T) {
 		},
 		{
 			name: "with a single class name, single property name, int type, operator Equal",
-			inputParams: kinds.FetchParams{
+			inputParams: traverser.FetchParams{
 				Kind: kind.Thing,
-				PossibleClassNames: kinds.SearchResults{
-					Results: []kinds.SearchResult{
+				PossibleClassNames: traverser.SearchResults{
+					Results: []traverser.SearchResult{
 						{
 							Name:      "City",
 							Certainty: 1.0,
@@ -68,20 +68,20 @@ func Test_QueryBuilder(t *testing.T) {
 		},
 		{
 			name: "with the field type not matching the property type",
-			inputParams: kinds.FetchParams{
+			inputParams: traverser.FetchParams{
 				Kind: kind.Thing,
-				PossibleClassNames: kinds.SearchResults{
-					Results: []kinds.SearchResult{
+				PossibleClassNames: traverser.SearchResults{
+					Results: []traverser.SearchResult{
 						{
 							Name:      "City",
 							Certainty: 1.0,
 						},
 					},
 				},
-				Properties: []kinds.FetchProperty{
+				Properties: []traverser.FetchProperty{
 					{
-						PossibleNames: kinds.SearchResults{
-							Results: []kinds.SearchResult{
+						PossibleNames: traverser.SearchResults{
+							Results: []traverser.SearchResult{
 								{
 									Name:      "name", // actually is a string prop, should be included
 									Certainty: 1.0,
@@ -92,7 +92,7 @@ func Test_QueryBuilder(t *testing.T) {
 								},
 							},
 						},
-						Match: kinds.FetchPropertyMatch{
+						Match: traverser.FetchPropertyMatch{
 							Operator: filters.OperatorEqual,
 							Value: &filters.Value{
 								Value: "Amsterdam",
@@ -112,10 +112,10 @@ func Test_QueryBuilder(t *testing.T) {
 		},
 		{
 			name: "with multiple class/property combinations, correct type",
-			inputParams: kinds.FetchParams{
+			inputParams: traverser.FetchParams{
 				Kind: kind.Thing,
-				PossibleClassNames: kinds.SearchResults{
-					Results: []kinds.SearchResult{
+				PossibleClassNames: traverser.SearchResults{
+					Results: []traverser.SearchResult{
 						{
 							Name:      "City",
 							Certainty: 1.0,
@@ -126,10 +126,10 @@ func Test_QueryBuilder(t *testing.T) {
 						},
 					},
 				},
-				Properties: []kinds.FetchProperty{
+				Properties: []traverser.FetchProperty{
 					{
-						PossibleNames: kinds.SearchResults{
-							Results: []kinds.SearchResult{
+						PossibleNames: traverser.SearchResults{
+							Results: []traverser.SearchResult{
 								{
 									Name:      "name",
 									Certainty: 1.0,
@@ -140,7 +140,7 @@ func Test_QueryBuilder(t *testing.T) {
 								},
 							},
 						},
-						Match: kinds.FetchPropertyMatch{
+						Match: traverser.FetchPropertyMatch{
 							Operator: filters.OperatorEqual,
 							Value: &filters.Value{
 								Value: "Amsterdam",
@@ -161,27 +161,27 @@ func Test_QueryBuilder(t *testing.T) {
 		},
 		{
 			name: "with a single property with no valid combination of class and props",
-			inputParams: kinds.FetchParams{
+			inputParams: traverser.FetchParams{
 				Kind: kind.Thing,
-				PossibleClassNames: kinds.SearchResults{
-					Results: []kinds.SearchResult{
+				PossibleClassNames: traverser.SearchResults{
+					Results: []traverser.SearchResult{
 						{
 							Name:      "City",
 							Certainty: 1.0,
 						},
 					},
 				},
-				Properties: []kinds.FetchProperty{
+				Properties: []traverser.FetchProperty{
 					{
-						PossibleNames: kinds.SearchResults{
-							Results: []kinds.SearchResult{
+						PossibleNames: traverser.SearchResults{
+							Results: []traverser.SearchResult{
 								{
 									Name:      "potato",
 									Certainty: 1.0,
 								},
 							},
 						},
-						Match: kinds.FetchPropertyMatch{
+						Match: traverser.FetchPropertyMatch{
 							Operator: filters.OperatorEqual,
 							Value: &filters.Value{
 								Value: "Amsterdam",
@@ -203,18 +203,18 @@ func Test_QueryBuilder(t *testing.T) {
 }
 
 func singleProp(propName string, dataType schema.DataType, operator filters.Operator,
-	searchValue interface{}) []kinds.FetchProperty {
-	return []kinds.FetchProperty{
+	searchValue interface{}) []traverser.FetchProperty {
+	return []traverser.FetchProperty{
 		{
-			PossibleNames: kinds.SearchResults{
-				Results: []kinds.SearchResult{
+			PossibleNames: traverser.SearchResults{
+				Results: []traverser.SearchResult{
 					{
 						Name:      propName,
 						Certainty: 1.0,
 					},
 				},
 			},
-			Match: kinds.FetchPropertyMatch{
+			Match: traverser.FetchPropertyMatch{
 				Operator: operator,
 				Value: &filters.Value{
 					Value: searchValue,

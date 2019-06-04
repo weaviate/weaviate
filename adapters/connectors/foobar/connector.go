@@ -47,6 +47,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 // Foobar has some basic variables.
@@ -399,7 +400,7 @@ func (f *Foobar) SetStateManager(manager connectors.StateManager) {
 //	  "population": 600000,
 //	 },
 //	}
-func (f *Foobar) LocalGetClass(ctx context.Context, info *kinds.LocalGetParams) (interface{}, error) {
+func (f *Foobar) LocalGetClass(ctx context.Context, info *traverser.LocalGetParams) (interface{}, error) {
 	return nil, nil
 }
 
@@ -424,7 +425,7 @@ func (f *Foobar) LocalGetClass(ctx context.Context, info *kinds.LocalGetParams) 
 //			"count": 4,
 //		},
 //	}
-func (f *Foobar) LocalGetMeta(ctx context.Context, info *kinds.GetMetaParams) (interface{}, error) {
+func (f *Foobar) LocalGetMeta(ctx context.Context, info *traverser.GetMetaParams) (interface{}, error) {
 	return nil, nil
 }
 
@@ -470,7 +471,7 @@ func (f *Foobar) LocalGetMeta(ctx context.Context, info *kinds.GetMetaParams) (i
 //			},
 //		},
 //	}
-func (f *Foobar) LocalAggregate(ctx context.Context, info *kinds.AggregateParams) (interface{}, error) {
+func (f *Foobar) LocalAggregate(ctx context.Context, info *traverser.AggregateParams) (interface{}, error) {
 	return nil, nil
 }
 
@@ -480,7 +481,7 @@ func (f *Foobar) LocalAggregate(ctx context.Context, info *kinds.AggregateParams
 // completed and the connector is presented with a list of possible class
 // names, as well as a list of possible property names. In additional a filter
 // criterium (to be applied on those classes/properties) is present. For
-// details on the input parameteres, see kinds.FetchParams
+// details on the input parameteres, see traverser.FetchParams
 //
 // The connector must respond with a list of short-form beacon and certainty
 // tuples as maps. Note that the concept of how to calculate certainity has not
@@ -495,7 +496,7 @@ func (f *Foobar) LocalAggregate(ctx context.Context, info *kinds.AggregateParams
 //			},
 //		},
 //	}
-func (f *Foobar) LocalFetchKindClass(ctx context.Context, info *kinds.FetchParams) (interface{}, error) {
+func (f *Foobar) LocalFetchKindClass(ctx context.Context, info *traverser.FetchParams) (interface{}, error) {
 	return nil, nil
 }
 

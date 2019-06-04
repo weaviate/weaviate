@@ -18,7 +18,7 @@ import (
 	testhelper "github.com/semi-technologies/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type mockRequestsLog struct{}
@@ -50,7 +50,7 @@ func newMockResolver(cfg config.Config) *mockResolver {
 }
 
 func (m *mockResolver) LocalAggregate(ctx context.Context, principal *models.Principal,
-	params *kinds.AggregateParams) (interface{}, error) {
+	params *traverser.AggregateParams) (interface{}, error) {
 	args := m.Called(params)
 	return args.Get(0), args.Error(1)
 }

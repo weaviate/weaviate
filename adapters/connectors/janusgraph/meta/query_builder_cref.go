@@ -13,12 +13,12 @@ package meta
 
 import (
 	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/gremlin"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
-func (b *Query) crefProp(prop kinds.MetaProperty) (*gremlin.Query, error) {
+func (b *Query) crefProp(prop traverser.MetaProperty) (*gremlin.Query, error) {
 	for _, analysis := range prop.StatisticalAnalyses {
-		if analysis != kinds.Count {
+		if analysis != traverser.Count {
 			continue
 		}
 
@@ -27,7 +27,7 @@ func (b *Query) crefProp(prop kinds.MetaProperty) (*gremlin.Query, error) {
 	return nil, nil
 }
 
-func (b *Query) crefCountQuery(prop kinds.MetaProperty) *gremlin.Query {
+func (b *Query) crefCountQuery(prop traverser.MetaProperty) *gremlin.Query {
 	return gremlin.New().
 		OutEWithLabel(b.mappedPropertyName(b.params.ClassName, untitle(prop.Name))).Count().
 		Project("count").Project(string(prop.Name))

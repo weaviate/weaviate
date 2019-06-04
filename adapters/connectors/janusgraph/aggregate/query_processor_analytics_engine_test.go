@@ -23,7 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -243,15 +243,15 @@ func Test_QueryProcessor_AnalyticsEngine(t *testing.T) {
 	})
 }
 
-func paramsWithAnalyticsProps(a filters.AnalyticsProps) kinds.AggregateParams {
-	return kinds.AggregateParams{
+func paramsWithAnalyticsProps(a filters.AnalyticsProps) traverser.AggregateParams {
+	return traverser.AggregateParams{
 		Kind:      kind.Thing,
 		ClassName: schema.ClassName("Car"),
-		Properties: []kinds.AggregateProperty{
-			kinds.AggregateProperty{
+		Properties: []traverser.AggregateProperty{
+			traverser.AggregateProperty{
 				Name: "horsepower",
-				Aggregators: []kinds.Aggregator{
-					kinds.MeanAggregator,
+				Aggregators: []traverser.Aggregator{
+					traverser.MeanAggregator,
 				},
 			},
 		},

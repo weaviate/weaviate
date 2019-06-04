@@ -18,7 +18,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/gremlin"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -70,7 +70,7 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), groupBy, &kinds.AggregateParams{})
+		result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), groupBy, &traverser.AggregateParams{})
 
 		require.Nil(t, err, "should not error")
 		assert.ElementsMatch(t, expectedResult, result, "result should be merged and post-processed")

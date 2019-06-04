@@ -16,17 +16,17 @@ import (
 
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func Test_QueryBuilder_IntProps(t *testing.T) {
 	tests := testCases{
 		testCase{
 			name: "with only an int, with only count, grouped by a primitive prop",
-			inputProps: []kinds.AggregateProperty{
-				kinds.AggregateProperty{
+			inputProps: []traverser.AggregateProperty{
+				traverser.AggregateProperty{
 					Name:        "population",
-					Aggregators: []kinds.Aggregator{kinds.CountAggregator},
+					Aggregators: []traverser.Aggregator{traverser.CountAggregator},
 				},
 			},
 			inputGroupBy: &filters.Path{
@@ -46,10 +46,10 @@ func Test_QueryBuilder_IntProps(t *testing.T) {
 
 		testCase{
 			name: "with only an int, with all possible int props (except median), grouped by a primitive prop",
-			inputProps: []kinds.AggregateProperty{
-				kinds.AggregateProperty{
+			inputProps: []traverser.AggregateProperty{
+				traverser.AggregateProperty{
 					Name:        "population",
-					Aggregators: []kinds.Aggregator{kinds.CountAggregator, kinds.MeanAggregator, kinds.SumAggregator, kinds.MaximumAggregator, kinds.MinimumAggregator, kinds.ModeAggregator},
+					Aggregators: []traverser.Aggregator{traverser.CountAggregator, traverser.MeanAggregator, traverser.SumAggregator, traverser.MaximumAggregator, traverser.MinimumAggregator, traverser.ModeAggregator},
 				},
 			},
 			inputGroupBy: &filters.Path{

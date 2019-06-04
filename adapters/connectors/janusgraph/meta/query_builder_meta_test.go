@@ -14,17 +14,17 @@ package meta
 import (
 	"testing"
 
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func Test_QueryBuilder_MetaProps(t *testing.T) {
 	tests := testCases{
 		testCase{
 			name: "with meta.count",
-			inputProps: []kinds.MetaProperty{
-				kinds.MetaProperty{
+			inputProps: []traverser.MetaProperty{
+				traverser.MetaProperty{
 					Name:                "meta",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Count},
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{traverser.Count},
 				},
 			},
 			expectedQuery: `

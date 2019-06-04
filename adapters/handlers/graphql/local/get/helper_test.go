@@ -21,8 +21,8 @@ import (
 
 	test_helper "github.com/semi-technologies/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 )
 
@@ -51,7 +51,7 @@ func newMockResolver(peers peers.Peers) *mockResolver {
 }
 
 func (m *mockResolver) LocalGetClass(ctx context.Context, principal *models.Principal,
-	params *kinds.LocalGetParams) (interface{}, error) {
+	params *traverser.LocalGetParams) (interface{}, error) {
 	args := m.Called(params)
 	return args.Get(0), args.Error(1)
 }

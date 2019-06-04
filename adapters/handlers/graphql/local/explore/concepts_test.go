@@ -14,15 +14,15 @@ package explore
 import (
 	"testing"
 
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 )
 
 type testCase struct {
 	name                      string
 	query                     string
-	expectedParamsToTraverser kinds.ExploreConceptsParams
-	resolverReturn            []kinds.VectorSearchResult
+	expectedParamsToTraverser traverser.ExploreConceptsParams
+	resolverReturn            []traverser.VectorSearchResult
 	expectedResults           []result
 }
 
@@ -47,11 +47,11 @@ func Test_ResolveExploreConcepts(t *testing.T) {
 					}
 				}
 			}`,
-			expectedParamsToTraverser: kinds.ExploreConceptsParams{
+			expectedParamsToTraverser: traverser.ExploreConceptsParams{
 				Values: []string{"car", "best brand"},
 			},
-			resolverReturn: []kinds.VectorSearchResult{
-				kinds.VectorSearchResult{
+			resolverReturn: []traverser.VectorSearchResult{
+				traverser.VectorSearchResult{
 					Beacon:    "weaviate://localhost/things/some-uuid",
 					ClassName: "bestClass",
 				},

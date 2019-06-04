@@ -22,7 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -137,7 +137,7 @@ func (s *fakeFilterSource) String() (string, error) {
 
 type testCase struct {
 	name          string
-	inputProps    []kinds.AggregateProperty
+	inputProps    []traverser.AggregateProperty
 	inputGroupBy  *filters.Path
 	expectedQuery string
 }
@@ -153,7 +153,7 @@ func (tests testCases) AssertQueryWithFilterSource(t *testing.T, nameSource name
 	filterSource filterSource) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			params := &kinds.AggregateParams{
+			params := &traverser.AggregateParams{
 				Properties: test.inputProps,
 				GroupBy:    test.inputGroupBy,
 			}

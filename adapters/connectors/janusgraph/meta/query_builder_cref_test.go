@@ -14,17 +14,17 @@ package meta
 import (
 	"testing"
 
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func Test_QueryBuilder_RefProps(t *testing.T) {
 	tests := testCases{
 		testCase{
 			name: "with ref prop and only count",
-			inputProps: []kinds.MetaProperty{
-				kinds.MetaProperty{
+			inputProps: []traverser.MetaProperty{
+				traverser.MetaProperty{
 					Name:                "InCountry",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Count},
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{traverser.Count},
 				},
 			},
 			expectedQuery: `
@@ -41,10 +41,10 @@ func Test_QueryBuilder_RefProps(t *testing.T) {
 
 		testCase{
 			name: "with ref prop and: pointingTo, count",
-			inputProps: []kinds.MetaProperty{
-				kinds.MetaProperty{
+			inputProps: []traverser.MetaProperty{
+				traverser.MetaProperty{
 					Name:                "InCountry",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.PointingTo, kinds.Count},
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{traverser.PointingTo, traverser.Count},
 				},
 			},
 			expectedQuery: `
@@ -61,10 +61,10 @@ func Test_QueryBuilder_RefProps(t *testing.T) {
 
 		testCase{
 			name: "with only pointingTo",
-			inputProps: []kinds.MetaProperty{
-				kinds.MetaProperty{
+			inputProps: []traverser.MetaProperty{
+				traverser.MetaProperty{
 					Name:                "InCountry",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.PointingTo},
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{traverser.PointingTo},
 				},
 			},
 			expectedQuery: `

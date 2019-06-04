@@ -8,13 +8,25 @@
  * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
  * CONTACT: hello@semi.technology
- */package kinds
+ */
+
+package traverser
 
 import (
 	"context"
 
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/sirupsen/logrus"
 )
+
+type locks interface {
+	LockConnector() (func() error, error)
+	LockSchema() (func() error, error)
+}
+
+type authorizer interface {
+	Authorize(principal *models.Principal, verb, resource string) error
+}
 
 // Traverser can be used to dynamically traverse the knowledge graph
 type Traverser struct {

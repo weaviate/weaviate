@@ -17,7 +17,7 @@ import (
 	pb "github.com/semi-technologies/contextionary/contextionary"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"google.golang.org/grpc"
 )
 
@@ -75,7 +75,7 @@ func (c *Client) SafeGetSimilarWordsWithCertainty(ctx context.Context, word stri
 }
 
 // SchemaSearch for related classes and properties
-func (c *Client) SchemaSearch(ctx context.Context, params kinds.SearchParams) (kinds.SearchResults, error) {
+func (c *Client) SchemaSearch(ctx context.Context, params traverser.SearchParams) (traverser.SearchResults, error) {
 	pbParams := &pb.SchemaSearchParams{
 		Certainty:  params.Certainty,
 		Name:       params.Name,
@@ -86,7 +86,7 @@ func (c *Client) SchemaSearch(ctx context.Context, params kinds.SearchParams) (k
 
 	res, err := c.grpcClient.SchemaSearch(ctx, pbParams)
 	if err != nil {
-		return kinds.SearchResults{}, err
+		return traverser.SearchResults{}, err
 	}
 
 	return schemaSearchResultsFromProto(res), nil
@@ -127,39 +127,39 @@ func keywordsToProto(kws models.SemanticSchemaKeywords) []*pb.Keyword {
 	return output
 }
 
-func searchTypeToProto(input kinds.SearchType) pb.SearchType {
+func searchTypeToProto(input traverser.SearchType) pb.SearchType {
 	switch input {
-	case kinds.SearchTypeClass:
+	case traverser.SearchTypeClass:
 		return pb.SearchType_CLASS
-	case kinds.SearchTypeProperty:
+	case traverser.SearchTypeProperty:
 		return pb.SearchType_PROPERTY
 	default:
 		panic(fmt.Sprintf("unknown search type %v", input))
 	}
 }
 
-func searchTypeFromProto(input pb.SearchType) kinds.SearchType {
+func searchTypeFromProto(input pb.SearchType) traverser.SearchType {
 	switch input {
 	case pb.SearchType_CLASS:
-		return kinds.SearchTypeClass
+		return traverser.SearchTypeClass
 	case pb.SearchType_PROPERTY:
-		return kinds.SearchTypeProperty
+		return traverser.SearchTypeProperty
 	default:
 		panic(fmt.Sprintf("unknown search type %v", input))
 	}
 }
 
-func schemaSearchResultsFromProto(res *pb.SchemaSearchResults) kinds.SearchResults {
-	return kinds.SearchResults{
+func schemaSearchResultsFromProto(res *pb.SchemaSearchResults) traverser.SearchResults {
+	return traverser.SearchResults{
 		Type:    searchTypeFromProto(res.Type),
 		Results: searchResultsFromProto(res.Results),
 	}
 }
 
-func searchResultsFromProto(input []*pb.SchemaSearchResult) []kinds.SearchResult {
-	output := make([]kinds.SearchResult, len(input), len(input))
+func searchResultsFromProto(input []*pb.SchemaSearchResult) []traverser.SearchResult {
+	output := make([]traverser.SearchResult, len(input), len(input))
 	for i, res := range input {
-		output[i] = kinds.SearchResult{
+		output[i] = traverser.SearchResult{
 			Certainty: res.Certainty,
 			Name:      res.Name,
 			Kind:      kindFromProto(res.Kind),

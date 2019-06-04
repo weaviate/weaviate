@@ -75,8 +75,6 @@ type vectorRepo interface {
 		concept *models.Thing, vector []float32) error
 	PutAction(ctx context.Context, index string,
 		concept *models.Action, vector []float32) error
-	VectorSearch(ctx context.Context, index string,
-		vector []float32) ([]VectorSearchResult, error)
 }
 
 // NewManager creates a new manager

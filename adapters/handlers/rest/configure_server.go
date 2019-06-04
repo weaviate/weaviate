@@ -27,11 +27,11 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/auth/authentication/oidc"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/semi-technologies/weaviate/usecases/network"
 	libnetworkFake "github.com/semi-technologies/weaviate/usecases/network/fake"
 	libnetworkP2P "github.com/semi-technologies/weaviate/usecases/network/p2p"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 )
 
@@ -44,7 +44,7 @@ import (
 // are only available within there
 var configureServer func(*http.Server, string, string)
 
-func makeUpdateSchemaCall(logger logrus.FieldLogger, appState *state.State, traverser *kinds.Traverser) func(schema.Schema) {
+func makeUpdateSchemaCall(logger logrus.FieldLogger, appState *state.State, traverser *traverser.Traverser) func(schema.Schema) {
 	return func(updatedSchema schema.Schema) {
 		// Note that this is thread safe; we're running in a single go-routine, because the event
 		// handlers are called when the SchemaLock is still held.
@@ -66,7 +66,7 @@ func makeUpdateSchemaCall(logger logrus.FieldLogger, appState *state.State, trav
 }
 
 func rebuildGraphQL(updatedSchema schema.Schema, logger logrus.FieldLogger,
-	network network.Network, config config.Config, traverser *kinds.Traverser,
+	network network.Network, config config.Config, traverser *traverser.Traverser,
 	telemetryLogger *telemetry.RequestsLog) (graphql.GraphQL, error) {
 	peers, err := network.ListPeers()
 	if err != nil {

@@ -16,7 +16,7 @@ import (
 
 	testhelper "github.com/semi-technologies/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -44,9 +44,9 @@ func newMockResolver() *mockResolver {
 }
 
 func (m *mockResolver) ExploreConcepts(ctx context.Context,
-	principal *models.Principal, params kinds.ExploreConceptsParams) ([]kinds.VectorSearchResult, error) {
+	principal *models.Principal, params traverser.ExploreConceptsParams) ([]traverser.VectorSearchResult, error) {
 	args := m.Called(params)
-	return args.Get(0).([]kinds.VectorSearchResult), args.Error(1)
+	return args.Get(0).([]traverser.VectorSearchResult), args.Error(1)
 }
 
 func newMockContextionary() *mockContextionary {

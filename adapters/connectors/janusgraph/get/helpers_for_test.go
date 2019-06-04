@@ -22,7 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -208,7 +208,7 @@ func (p *fakeDataType) ContainsClass(needle schema.ClassName) bool {
 
 type testCase struct {
 	name          string
-	inputParams   kinds.LocalGetParams
+	inputParams   traverser.LocalGetParams
 	expectedQuery string
 	expectedErr   error
 }

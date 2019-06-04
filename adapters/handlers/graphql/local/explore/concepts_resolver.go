@@ -18,7 +18,7 @@ import (
 
 	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 // Resolver is a local interface that can be composed with other interfaces to
@@ -26,7 +26,7 @@ import (
 // want to support the GetMeta feature must implement this interface.
 type Resolver interface {
 	ExploreConcepts(ctx context.Context, principal *models.Principal,
-		params kinds.ExploreConceptsParams) ([]kinds.VectorSearchResult, error)
+		params traverser.ExploreConceptsParams) ([]traverser.VectorSearchResult, error)
 }
 
 // RequestsLog is a local abstraction on the RequestsLog that needs to be
@@ -74,8 +74,8 @@ func resolveConcepts(p graphql.ResolveParams) (interface{}, error) {
 		principalFromContext(p.Context), params)
 }
 
-func extractFuzzyArgs(p graphql.ResolveParams) kinds.ExploreConceptsParams {
-	var args kinds.ExploreConceptsParams
+func extractFuzzyArgs(p graphql.ResolveParams) traverser.ExploreConceptsParams {
+	var args traverser.ExploreConceptsParams
 
 	// all args are required, so we don't need to check their existance
 	values := p.Args["values"].([]interface{})

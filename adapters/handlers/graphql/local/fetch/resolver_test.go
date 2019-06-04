@@ -29,7 +29,7 @@ package fetch
 // type testCase struct {
 // 	name                      string
 // 	query                     string
-// 	expectedParamsToConnector *kinds.FetchSearch
+// 	expectedParamsToConnector *traverser.FetchSearch
 // 	resolverReturn            interface{}
 // 	expectedResults           []result
 // }

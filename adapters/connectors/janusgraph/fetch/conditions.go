@@ -17,10 +17,10 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/gremlin"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
-func (b *Query) conditionQuery(match kinds.FetchPropertyMatch) (*gremlin.Query, error) {
+func (b *Query) conditionQuery(match traverser.FetchPropertyMatch) (*gremlin.Query, error) {
 	switch match.Value.Type {
 	case schema.DataTypeString:
 		return b.stringCondition(match)
@@ -39,7 +39,7 @@ func (b *Query) conditionQuery(match kinds.FetchPropertyMatch) (*gremlin.Query, 
 	return nil, fmt.Errorf("unsupported combination of operator and value")
 }
 
-func (b *Query) stringCondition(match kinds.FetchPropertyMatch) (*gremlin.Query, error) {
+func (b *Query) stringCondition(match traverser.FetchPropertyMatch) (*gremlin.Query, error) {
 	switch match.Operator {
 	case filters.OperatorEqual:
 		return gremlin.EqString(match.Value.Value.(string)), nil
@@ -50,7 +50,7 @@ func (b *Query) stringCondition(match kinds.FetchPropertyMatch) (*gremlin.Query,
 	return nil, fmt.Errorf("unsupported combination of operator and string value")
 }
 
-func (b *Query) boolCondition(match kinds.FetchPropertyMatch) (*gremlin.Query, error) {
+func (b *Query) boolCondition(match traverser.FetchPropertyMatch) (*gremlin.Query, error) {
 	switch match.Operator {
 	case filters.OperatorEqual:
 		return gremlin.EqBool(match.Value.Value.(bool)), nil
@@ -61,7 +61,7 @@ func (b *Query) boolCondition(match kinds.FetchPropertyMatch) (*gremlin.Query, e
 	return nil, fmt.Errorf("unsupported combination of operator and boolean value")
 }
 
-func (b *Query) intCondition(match kinds.FetchPropertyMatch) (*gremlin.Query, error) {
+func (b *Query) intCondition(match traverser.FetchPropertyMatch) (*gremlin.Query, error) {
 	switch match.Operator {
 	case filters.OperatorEqual:
 		return gremlin.EqInt(match.Value.Value.(int)), nil
@@ -80,7 +80,7 @@ func (b *Query) intCondition(match kinds.FetchPropertyMatch) (*gremlin.Query, er
 	return nil, fmt.Errorf("unsupported combination of operator and int value")
 }
 
-func (b *Query) numberCondition(match kinds.FetchPropertyMatch) (*gremlin.Query, error) {
+func (b *Query) numberCondition(match traverser.FetchPropertyMatch) (*gremlin.Query, error) {
 	switch match.Operator {
 	case filters.OperatorEqual:
 		return gremlin.EqFloat(match.Value.Value.(float64)), nil
@@ -99,7 +99,7 @@ func (b *Query) numberCondition(match kinds.FetchPropertyMatch) (*gremlin.Query,
 	return nil, fmt.Errorf("unsupported combination of operator and number value")
 }
 
-func (b *Query) dateCondition(match kinds.FetchPropertyMatch) (*gremlin.Query, error) {
+func (b *Query) dateCondition(match traverser.FetchPropertyMatch) (*gremlin.Query, error) {
 	switch match.Operator {
 	case filters.OperatorEqual:
 		return gremlin.EqDate(match.Value.Value.(time.Time)), nil
