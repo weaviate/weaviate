@@ -638,7 +638,7 @@
     },
     "description": "Decentralised Knowledge Graph",
     "title": "Weaviate - Decentralised Knowledge Graph",
-    "version": "0.14.4"
+    "version": "0.14.5"
   },
   "parameters": {
     "CommonLimitParameterQuery": {
@@ -2810,6 +2810,29 @@
         },
         "summary": "Checks if a word or wordString is part of the contextionary.",
         "tags": ["contextionary-API"],
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
+    "/.well-known/openid-configuration": {
+      "get": {
+        "description": "OIDC Discovery page, redirects to the token issuer if one is configured",
+        "responses": {
+          "302": {
+            "description": "Found. Contains URL in header",
+            "headers": {
+               "Location": {
+                 "description": "The Location to redirect to",
+                 "type": "string"
+               }
+             }
+          },
+          "404": {
+            "description": "Not found, no oidc provider present"
+          }
+        },
+        "summary": "OIDC discovery information if OIDC auth is enabled",
+        "tags": ["well-known", "oidc", "discovery"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }

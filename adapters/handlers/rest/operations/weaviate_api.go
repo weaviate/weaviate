@@ -59,6 +59,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		JSONConsumer:        runtime.JSONConsumer(),
 		YamlConsumer:        yamlpc.YAMLConsumer(),
 		JSONProducer:        runtime.JSONProducer(),
+		GetWellKnownOpenidConfigurationHandler: GetWellKnownOpenidConfigurationHandlerFunc(func(params GetWellKnownOpenidConfigurationParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation GetWellKnownOpenidConfiguration has not yet been implemented")
+		}),
 		ActionsWeaviateActionUpdateHandler: actions.WeaviateActionUpdateHandlerFunc(func(params actions.WeaviateActionUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ActionsWeaviateActionUpdate has not yet been implemented")
 		}),
@@ -235,6 +238,8 @@ type WeaviateAPI struct {
 	// APIAuthorizer provides access control (ACL/RBAC/ABAC) by providing access to the request and authenticated principal
 	APIAuthorizer runtime.Authorizer
 
+	// GetWellKnownOpenidConfigurationHandler sets the operation handler for the get well known openid configuration operation
+	GetWellKnownOpenidConfigurationHandler GetWellKnownOpenidConfigurationHandler
 	// ActionsWeaviateActionUpdateHandler sets the operation handler for the weaviate action update operation
 	ActionsWeaviateActionUpdateHandler actions.WeaviateActionUpdateHandler
 	// ActionsWeaviateActionsCreateHandler sets the operation handler for the weaviate actions create operation
@@ -390,6 +395,10 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.OidcAuth == nil {
 		unregistered = append(unregistered, "OidcAuth")
+	}
+
+	if o.GetWellKnownOpenidConfigurationHandler == nil {
+		unregistered = append(unregistered, "GetWellKnownOpenidConfigurationHandler")
 	}
 
 	if o.ActionsWeaviateActionUpdateHandler == nil {
@@ -676,6 +685,11 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers == nil {
 		o.handlers = make(map[string]map[string]http.Handler)
 	}
+
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/.well-known/openid-configuration"] = NewGetWellKnownOpenidConfiguration(o.context, o.GetWellKnownOpenidConfigurationHandler)
 
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)

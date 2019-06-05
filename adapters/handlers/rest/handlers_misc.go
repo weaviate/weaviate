@@ -13,6 +13,8 @@
 package rest
 
 import (
+	"fmt"
+
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/meta"
@@ -85,4 +87,14 @@ func setupMiscHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Reque
 		// For now, always just return success.
 		return middleware.NotImplemented("operation P2PWeaviateP2pHealth has not yet been implemented")
 	})
+
+	api.GetWellKnownOpenidConfigurationHandler = operations.GetWellKnownOpenidConfigurationHandlerFunc(
+		func(params operations.GetWellKnownOpenidConfigurationParams, principal *models.Principal) middleware.Responder {
+			if !serverConfig.Config.Authentication.OIDC.Enabled {
+				return operations.NewGetWellKnownOpenidConfigurationNotFound()
+			}
+
+			target := fmt.Sprintf("%s/.well-known/openid-configuration", serverConfig.Config.Authentication.OIDC.Issuer)
+			return operations.NewGetWellKnownOpenidConfigurationFound().WithLocation(target)
+		})
 }
