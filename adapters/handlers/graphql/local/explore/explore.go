@@ -35,7 +35,7 @@ func exploreObj() *graphql.Object {
 			// Description: descriptions.NetworkExploreConcepts,
 			Type: graphql.NewList(conceptsFieldsObj()),
 			Args: graphql.FieldConfigArgument{
-				"values": &graphql.ArgumentConfig{
+				"keywords": &graphql.ArgumentConfig{
 					// Description: descriptions.ExploreConceptsValue,
 					Type: graphql.NewNonNull(graphql.NewList(graphql.String)),
 				},

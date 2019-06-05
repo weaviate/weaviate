@@ -2,7 +2,7 @@
 
 search_term="${1:required}"
 
-query="{ Local { Explore { Concepts(values:[\\\"$search_term\\\"]) { className beacon } } } }"
+query="{ Local { Explore { Concepts(keywords:[\\\"$search_term\\\"]) { className beacon } } } }"
 body="{\"query\":\"$query\"}"
 endpoint=localhost:8080/weaviate/v1/graphql
 
