@@ -126,7 +126,7 @@ func (j *Janusgraph) DropClass(ctx context.Context, kind kind.Kind, name string)
 
 	vertexLabel := j.state.MustGetMappedClassName(sanitizedClassName)
 
-	query := gremlin.G.V().HasLabel(string(vertexLabel)).
+	query := gremlin.G.V().HasString("classId", string(vertexLabel)).
 		HasString(PROP_KIND, kind.Name()).
 		HasString(PROP_CLASS_ID, string(vertexLabel)).
 		Drop()
@@ -270,14 +270,14 @@ func (j *Janusgraph) DropProperty(ctx context.Context, kind kind.Kind, className
 
 	if propertyDataType.IsPrimitive() {
 		query = gremlin.G.V().
-			HasLabel(string(vertexLabel)).
+			HasString("classId", string(vertexLabel)).
 			HasString(PROP_CLASS_ID, string(vertexLabel)).
 			HasString(PROP_KIND, kind.Name()).
 			Properties([]string{string(mappedPropertyName)}).
 			Drop()
 	} else {
 		query = gremlin.G.E().
-			HasLabel(string(mappedPropertyName)).
+			HasString("classId", string(mappedPropertyName)).
 			HasString(PROP_REF_ID, string(mappedPropertyName)).
 			Drop()
 	}
