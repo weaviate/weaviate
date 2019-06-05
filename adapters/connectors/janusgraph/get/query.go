@@ -91,7 +91,7 @@ func (b *Query) String() (string, error) {
 
 	q := gremlin.New().Raw("g.V()").
 		HasString("kind", b.params.Kind.Name()).
-		HasLabel(string(b.nameSource.MustGetMappedClassName(schema.ClassName(b.params.ClassName)))).
+		HasString("classId", string(b.nameSource.MustGetMappedClassName(schema.ClassName(b.params.ClassName)))).
 		Raw(filterQuery).
 		Raw(refPropQueries).
 		Limit(limit).
@@ -138,7 +138,7 @@ func (b *Query) refPropQuery(prop traverser.SelectProperty, className string) []
 			q = gremlin.New().Optional(gremlin.New().OutEWithLabel(propName).InV())
 		} else {
 			className := string(b.nameSource.MustGetMappedClassName(schema.ClassName(refClass.ClassName)))
-			q = gremlin.New().Optional(gremlin.New().OutEWithLabel(propName).InV().HasLabel(className))
+			q = gremlin.New().Optional(gremlin.New().OutEWithLabel(propName).InV().HasString("classId", className))
 		}
 
 		nestedQueries := b.refPropQueries(refClass.RefProperties, refClass.ClassName)
@@ -155,7 +155,6 @@ func (b *Query) refPropQuery(prop traverser.SelectProperty, className string) []
 		}
 
 		queries = append(queries, innerQueries...)
-
 	}
 
 	return queries

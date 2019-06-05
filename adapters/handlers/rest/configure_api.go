@@ -140,6 +140,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Connector.SetSchema(updatedSchema)
 	})
 
+	// manually update schema once
+	schema := schemaManager.GetSchemaSkipAuth()
+	updateSchemaCallback(schema)
+
 	appState.Network.RegisterUpdatePeerCallback(func(peers peers.Peers) {
 		schemaManager.TriggerSchemaUpdateCallbacks()
 	})

@@ -39,7 +39,7 @@ func Test_QueryBuilder(t *testing.T) {
 				},
 			},
 			expectedQuery: `
-			g.V().has("kind", "thing").hasLabel("class_18")
+			g.V().has("kind", "thing").has("classId", "class_18")
 				.limit(33).path().by(valueMap())
 			`,
 		},
@@ -56,7 +56,7 @@ func Test_QueryBuilder(t *testing.T) {
 				Kind: kind.Thing,
 			},
 			expectedQuery: `
-			g.V().has("kind", "thing").hasLabel("class_18")
+			g.V().has("kind", "thing").has("classId", "class_18")
 				.limit(20).path().by(valueMap())
 			`,
 		},
@@ -89,7 +89,7 @@ func Test_QueryBuilder(t *testing.T) {
 				},
 			},
 			expectedQuery: `
-			g.V().has("kind", "thing").hasLabel("class_18")
+			g.V().has("kind", "thing").has("classId", "class_18")
 			  .union(has("prop_1", eq("Amsterdam")))
 				.limit(33).path().by(valueMap())
 			`,
@@ -125,10 +125,10 @@ func Test_QueryBuilder(t *testing.T) {
 				},
 			},
 			expectedQuery: `
-			g.V().has("kind", "thing").hasLabel("class_18")
+			g.V().has("kind", "thing").has("classId", "class_18")
 				.union(
 				  optional(
-						outE("prop_3").inV().hasLabel("class_19")
+						outE("prop_3").inV().has("classId", "class_19")
 					)
 				)
 				.limit(33).path().by(valueMap())
@@ -165,7 +165,7 @@ func Test_QueryBuilder(t *testing.T) {
 				},
 			},
 			expectedQuery: `
-			g.V().has("kind", "thing").hasLabel("class_18")
+			g.V().has("kind", "thing").has("classId", "class_18")
 				.union(
 				  optional(
 						outE("prop_3").inV()
@@ -227,11 +227,11 @@ func Test_QueryBuilder(t *testing.T) {
 				},
 			},
 			expectedQuery: `
-			g.V().has("kind", "thing").hasLabel("class_18")
+			g.V().has("kind", "thing").has("classId", "class_18")
 				.union(
-				  optional(outE("prop_3").inV().hasLabel("class_19"))
-					.optional( outE("prop_13").inV().hasLabel("class_20"))
-					.optional( outE("prop_23").inV().hasLabel("class_21"))
+				  optional(outE("prop_3").inV().has("classId", "class_19"))
+					.optional( outE("prop_13").inV().has("classId", "class_20"))
+					.optional( outE("prop_23").inV().has("classId", "class_21"))
 				)
 				.limit(33).path().by(valueMap())
 			`,
