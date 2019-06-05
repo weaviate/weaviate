@@ -78,9 +78,9 @@ func extractFuzzyArgs(p graphql.ResolveParams) traverser.ExploreConceptsParams {
 	var args traverser.ExploreConceptsParams
 
 	// all args are required, so we don't need to check their existance
-	values := p.Args["values"].([]interface{})
-	args.Values = make([]string, len(values), len(values))
-	for i, value := range values {
+	keywords := p.Args["keywords"].([]interface{})
+	args.Values = make([]string, len(keywords), len(keywords))
+	for i, value := range keywords {
 		args.Values[i] = value.(string)
 	}
 

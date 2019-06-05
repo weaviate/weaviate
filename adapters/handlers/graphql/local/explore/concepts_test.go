@@ -42,7 +42,7 @@ func Test_ResolveExploreConcepts(t *testing.T) {
 			query: `
 			{
 				Explore {
-					Concepts(values: ["car", "best brand"]) {
+					Concepts(keywords: ["car", "best brand"]) {
 						beacon className
 					}
 				}
