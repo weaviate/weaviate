@@ -17,4 +17,6 @@ telemetry:
   disabled: true
 query_defaults:
   limit: 25
-
+vector_index:
+  enabled: true
+  url: http://esvector:9200
