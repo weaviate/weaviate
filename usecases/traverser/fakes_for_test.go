@@ -98,7 +98,16 @@ func (f *fakeVectorizer) Action(ctx context.Context, thing *models.Action) ([]fl
 }
 
 func (f *fakeVectorizer) Corpi(ctx context.Context, corpi []string) ([]float32, error) {
-	panic("not implemented")
+	return []float32{1, 2, 3}, nil
+}
+
+type fakeVectorSearcher struct {
+	results []VectorSearchResult
+}
+
+func (f *fakeVectorSearcher) VectorSearch(ctx context.Context, index string,
+	vector []float32) ([]VectorSearchResult, error) {
+	return f.results, nil
 }
 
 type fakeNetwork struct {
