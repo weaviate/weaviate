@@ -47,10 +47,37 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "0.14.4"
+    "version": "0.14.5"
   },
   "basePath": "/weaviate/v1",
   "paths": {
+    "/.well-known/openid-configuration": {
+      "get": {
+        "description": "OIDC Discovery page, redirects to the token issuer if one is configured",
+        "tags": [
+          "well-known",
+          "oidc",
+          "discovery"
+        ],
+        "summary": "OIDC discovery information if OIDC auth is enabled",
+        "responses": {
+          "302": {
+            "description": "Found. Contains URL in header",
+            "headers": {
+              "Location": {
+                "type": "string",
+                "description": "The Location to redirect to"
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, no oidc provider present"
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
     "/actions": {
       "get": {
         "description": "Lists all Actions in reverse order of creation, owned by the user that belongs to the used token.",
@@ -3127,10 +3154,37 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "0.14.4"
+    "version": "0.14.5"
   },
   "basePath": "/weaviate/v1",
   "paths": {
+    "/.well-known/openid-configuration": {
+      "get": {
+        "description": "OIDC Discovery page, redirects to the token issuer if one is configured",
+        "tags": [
+          "well-known",
+          "oidc",
+          "discovery"
+        ],
+        "summary": "OIDC discovery information if OIDC auth is enabled",
+        "responses": {
+          "302": {
+            "description": "Found. Contains URL in header",
+            "headers": {
+              "Location": {
+                "type": "string",
+                "description": "The Location to redirect to"
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, no oidc provider present"
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
     "/actions": {
       "get": {
         "description": "Lists all Actions in reverse order of creation, owned by the user that belongs to the used token.",

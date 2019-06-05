@@ -35,6 +35,37 @@ type Client struct {
 }
 
 /*
+GetWellKnownOpenidConfiguration os ID c discovery information if o ID c auth is enabled
+
+OIDC Discovery page, redirects to the token issuer if one is configured
+*/
+func (a *Client) GetWellKnownOpenidConfiguration(params *GetWellKnownOpenidConfigurationParams, authInfo runtime.ClientAuthInfoWriter) error {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewGetWellKnownOpenidConfigurationParams()
+	}
+
+	_, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "GetWellKnownOpenidConfiguration",
+		Method:             "GET",
+		PathPattern:        "/.well-known/openid-configuration",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &GetWellKnownOpenidConfigurationReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return err
+	}
+	return nil
+
+}
+
+/*
 WeaviateBatchingActionsCreate creates new actions based on an action template as a batch
 
 Register new Actions in bulk. Given meta-data and schema values are validated.
