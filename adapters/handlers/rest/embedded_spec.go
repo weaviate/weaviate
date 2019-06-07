@@ -47,7 +47,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "0.14.5"
+    "version": "0.14.6"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -61,12 +61,15 @@ func init() {
         ],
         "summary": "OIDC discovery information if OIDC auth is enabled",
         "responses": {
-          "302": {
-            "description": "Found. Contains URL in header",
-            "headers": {
-              "Location": {
-                "type": "string",
-                "description": "The Location to redirect to"
+          "200": {
+            "description": "Successful response, inspect body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "href": {
+                  "description": "The Location to redirect to",
+                  "type": "string"
+                }
               }
             }
           },
@@ -3154,7 +3157,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "0.14.5"
+    "version": "0.14.6"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -3168,12 +3171,15 @@ func init() {
         ],
         "summary": "OIDC discovery information if OIDC auth is enabled",
         "responses": {
-          "302": {
-            "description": "Found. Contains URL in header",
-            "headers": {
-              "Location": {
-                "type": "string",
-                "description": "The Location to redirect to"
+          "200": {
+            "description": "Successful response, inspect body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "href": {
+                  "description": "The Location to redirect to",
+                  "type": "string"
+                }
               }
             }
           },

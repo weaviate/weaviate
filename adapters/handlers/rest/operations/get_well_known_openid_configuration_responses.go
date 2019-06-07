@@ -21,50 +21,48 @@ import (
 	"github.com/go-openapi/runtime"
 )
 
-// GetWellKnownOpenidConfigurationFoundCode is the HTTP code returned for type GetWellKnownOpenidConfigurationFound
-const GetWellKnownOpenidConfigurationFoundCode int = 302
+// GetWellKnownOpenidConfigurationOKCode is the HTTP code returned for type GetWellKnownOpenidConfigurationOK
+const GetWellKnownOpenidConfigurationOKCode int = 200
 
-/*GetWellKnownOpenidConfigurationFound Found. Contains URL in header
+/*GetWellKnownOpenidConfigurationOK Successful response, inspect body
 
-swagger:response getWellKnownOpenidConfigurationFound
+swagger:response getWellKnownOpenidConfigurationOK
 */
-type GetWellKnownOpenidConfigurationFound struct {
-	/*The Location to redirect to
+type GetWellKnownOpenidConfigurationOK struct {
 
-	 */
-	Location string `json:"Location"`
+	/*
+	  In: Body
+	*/
+	Payload *GetWellKnownOpenidConfigurationOKBody `json:"body,omitempty"`
 }
 
-// NewGetWellKnownOpenidConfigurationFound creates GetWellKnownOpenidConfigurationFound with default headers values
-func NewGetWellKnownOpenidConfigurationFound() *GetWellKnownOpenidConfigurationFound {
+// NewGetWellKnownOpenidConfigurationOK creates GetWellKnownOpenidConfigurationOK with default headers values
+func NewGetWellKnownOpenidConfigurationOK() *GetWellKnownOpenidConfigurationOK {
 
-	return &GetWellKnownOpenidConfigurationFound{}
+	return &GetWellKnownOpenidConfigurationOK{}
 }
 
-// WithLocation adds the location to the get well known openid configuration found response
-func (o *GetWellKnownOpenidConfigurationFound) WithLocation(location string) *GetWellKnownOpenidConfigurationFound {
-	o.Location = location
+// WithPayload adds the payload to the get well known openid configuration o k response
+func (o *GetWellKnownOpenidConfigurationOK) WithPayload(payload *GetWellKnownOpenidConfigurationOKBody) *GetWellKnownOpenidConfigurationOK {
+	o.Payload = payload
 	return o
 }
 
-// SetLocation sets the location to the get well known openid configuration found response
-func (o *GetWellKnownOpenidConfigurationFound) SetLocation(location string) {
-	o.Location = location
+// SetPayload sets the payload to the get well known openid configuration o k response
+func (o *GetWellKnownOpenidConfigurationOK) SetPayload(payload *GetWellKnownOpenidConfigurationOKBody) {
+	o.Payload = payload
 }
 
 // WriteResponse to the client
-func (o *GetWellKnownOpenidConfigurationFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+func (o *GetWellKnownOpenidConfigurationOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	// response header Location
-
-	location := o.Location
-	if location != "" {
-		rw.Header().Set("Location", location)
+	rw.WriteHeader(200)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
 	}
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
-	rw.WriteHeader(302)
 }
 
 // GetWellKnownOpenidConfigurationNotFoundCode is the HTTP code returned for type GetWellKnownOpenidConfigurationNotFound

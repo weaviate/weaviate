@@ -638,7 +638,7 @@
     },
     "description": "Decentralised Knowledge Graph",
     "title": "Weaviate - Decentralised Knowledge Graph",
-    "version": "0.14.5"
+    "version": "0.14.6"
   },
   "parameters": {
     "CommonLimitParameterQuery": {
@@ -2818,14 +2818,17 @@
       "get": {
         "description": "OIDC Discovery page, redirects to the token issuer if one is configured",
         "responses": {
-          "302": {
-            "description": "Found. Contains URL in header",
-            "headers": {
-               "Location": {
-                 "description": "The Location to redirect to",
-                 "type": "string"
-               }
-             }
+          "200": {
+            "description": "Successful response, inspect body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "href": {
+                  "description": "The Location to redirect to",
+                  "type": "string"
+                }
+              }
+            }
           },
           "404": {
             "description": "Not found, no oidc provider present"
