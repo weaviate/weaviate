@@ -39,13 +39,13 @@ GetWellKnownOpenidConfiguration os ID c discovery information if o ID c auth is 
 
 OIDC Discovery page, redirects to the token issuer if one is configured
 */
-func (a *Client) GetWellKnownOpenidConfiguration(params *GetWellKnownOpenidConfigurationParams, authInfo runtime.ClientAuthInfoWriter) error {
+func (a *Client) GetWellKnownOpenidConfiguration(params *GetWellKnownOpenidConfigurationParams, authInfo runtime.ClientAuthInfoWriter) (*GetWellKnownOpenidConfigurationOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewGetWellKnownOpenidConfigurationParams()
 	}
 
-	_, err := a.transport.Submit(&runtime.ClientOperation{
+	result, err := a.transport.Submit(&runtime.ClientOperation{
 		ID:                 "GetWellKnownOpenidConfiguration",
 		Method:             "GET",
 		PathPattern:        "/.well-known/openid-configuration",
@@ -59,9 +59,9 @@ func (a *Client) GetWellKnownOpenidConfiguration(params *GetWellKnownOpenidConfi
 		Client:             params.HTTPClient,
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+	return result.(*GetWellKnownOpenidConfigurationOK), nil
 
 }
 

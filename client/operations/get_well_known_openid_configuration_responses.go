@@ -17,8 +17,10 @@ package operations
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/go-openapi/runtime"
+	"github.com/go-openapi/swag"
 
 	strfmt "github.com/go-openapi/strfmt"
 )
@@ -32,12 +34,12 @@ type GetWellKnownOpenidConfigurationReader struct {
 func (o *GetWellKnownOpenidConfigurationReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
 
-	case 302:
-		result := NewGetWellKnownOpenidConfigurationFound()
+	case 200:
+		result := NewGetWellKnownOpenidConfigurationOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
-		return nil, result
+		return result, nil
 
 	case 404:
 		result := NewGetWellKnownOpenidConfigurationNotFound()
@@ -51,29 +53,31 @@ func (o *GetWellKnownOpenidConfigurationReader) ReadResponse(response runtime.Cl
 	}
 }
 
-// NewGetWellKnownOpenidConfigurationFound creates a GetWellKnownOpenidConfigurationFound with default headers values
-func NewGetWellKnownOpenidConfigurationFound() *GetWellKnownOpenidConfigurationFound {
-	return &GetWellKnownOpenidConfigurationFound{}
+// NewGetWellKnownOpenidConfigurationOK creates a GetWellKnownOpenidConfigurationOK with default headers values
+func NewGetWellKnownOpenidConfigurationOK() *GetWellKnownOpenidConfigurationOK {
+	return &GetWellKnownOpenidConfigurationOK{}
 }
 
-/*GetWellKnownOpenidConfigurationFound handles this case with default header values.
+/*GetWellKnownOpenidConfigurationOK handles this case with default header values.
 
-Found. Contains URL in header
+Successful response, inspect body
 */
-type GetWellKnownOpenidConfigurationFound struct {
-	/*The Location to redirect to
-	 */
-	Location string
+type GetWellKnownOpenidConfigurationOK struct {
+	Payload *GetWellKnownOpenidConfigurationOKBody
 }
 
-func (o *GetWellKnownOpenidConfigurationFound) Error() string {
-	return fmt.Sprintf("[GET /.well-known/openid-configuration][%d] getWellKnownOpenidConfigurationFound ", 302)
+func (o *GetWellKnownOpenidConfigurationOK) Error() string {
+	return fmt.Sprintf("[GET /.well-known/openid-configuration][%d] getWellKnownOpenidConfigurationOK  %+v", 200, o.Payload)
 }
 
-func (o *GetWellKnownOpenidConfigurationFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+func (o *GetWellKnownOpenidConfigurationOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	// response header Location
-	o.Location = response.GetHeader("Location")
+	o.Payload = new(GetWellKnownOpenidConfigurationOKBody)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }
@@ -96,5 +100,37 @@ func (o *GetWellKnownOpenidConfigurationNotFound) Error() string {
 
 func (o *GetWellKnownOpenidConfigurationNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
+	return nil
+}
+
+/*GetWellKnownOpenidConfigurationOKBody get well known openid configuration o k body
+swagger:model GetWellKnownOpenidConfigurationOKBody
+*/
+type GetWellKnownOpenidConfigurationOKBody struct {
+
+	// The Location to redirect to
+	Href string `json:"href,omitempty"`
+}
+
+// Validate validates this get well known openid configuration o k body
+func (o *GetWellKnownOpenidConfigurationOKBody) Validate(formats strfmt.Registry) error {
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (o *GetWellKnownOpenidConfigurationOKBody) MarshalBinary() ([]byte, error) {
+	if o == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(o)
+}
+
+// UnmarshalBinary interface implementation
+func (o *GetWellKnownOpenidConfigurationOKBody) UnmarshalBinary(b []byte) error {
+	var res GetWellKnownOpenidConfigurationOKBody
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*o = res
 	return nil
 }

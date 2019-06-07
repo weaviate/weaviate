@@ -19,6 +19,8 @@ import (
 	"net/http"
 
 	middleware "github.com/go-openapi/runtime/middleware"
+	strfmt "github.com/go-openapi/strfmt"
+	swag "github.com/go-openapi/swag"
 
 	models "github.com/semi-technologies/weaviate/entities/models"
 )
@@ -82,4 +84,35 @@ func (o *GetWellKnownOpenidConfiguration) ServeHTTP(rw http.ResponseWriter, r *h
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 
+}
+
+// GetWellKnownOpenidConfigurationOKBody get well known openid configuration o k body
+// swagger:model GetWellKnownOpenidConfigurationOKBody
+type GetWellKnownOpenidConfigurationOKBody struct {
+
+	// The Location to redirect to
+	Href string `json:"href,omitempty"`
+}
+
+// Validate validates this get well known openid configuration o k body
+func (o *GetWellKnownOpenidConfigurationOKBody) Validate(formats strfmt.Registry) error {
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (o *GetWellKnownOpenidConfigurationOKBody) MarshalBinary() ([]byte, error) {
+	if o == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(o)
+}
+
+// UnmarshalBinary interface implementation
+func (o *GetWellKnownOpenidConfigurationOKBody) UnmarshalBinary(b []byte) error {
+	var res GetWellKnownOpenidConfigurationOKBody
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*o = res
+	return nil
 }
