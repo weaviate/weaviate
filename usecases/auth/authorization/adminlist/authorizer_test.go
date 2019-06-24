@@ -15,13 +15,12 @@ import (
 
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
-	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/stretchr/testify/assert"
 )
 
 func Test_AdminList_Authorizor(t *testing.T) {
 	t.Run("with no users configured at all", func(t *testing.T) {
-		cfg := config.AdminList{
+		cfg := Config{
 			Enabled: true,
 			Users:   []string{},
 		}
@@ -36,7 +35,7 @@ func Test_AdminList_Authorizor(t *testing.T) {
 	})
 
 	t.Run("with a non-configured user, it denies the request", func(t *testing.T) {
-		cfg := config.AdminList{
+		cfg := Config{
 			Enabled: true,
 			Users: []string{
 				"alice",
@@ -53,7 +52,7 @@ func Test_AdminList_Authorizor(t *testing.T) {
 	})
 
 	t.Run("with a configured user, it allows the request", func(t *testing.T) {
-		cfg := config.AdminList{
+		cfg := Config{
 			Enabled: true,
 			Users: []string{
 				"alice",

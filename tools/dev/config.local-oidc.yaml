@@ -21,6 +21,8 @@ authorization:
     enabled: true
     users:
       - differentjohn@doe.com
+    read_only_users:
+      - foo@bar.com
 analytics_engine:
   enabled: true
   defaultUseAnalyticsEngine: false
