@@ -20,6 +20,16 @@ If the user is contained on this list, they get all permissions. If they aren't
 they get none. It's not possible to assign only some rights to a specific user
 with the Admin List plugin.
 
+### Read-Only list (introduced in 0.15.0)
+
+Version 0.15.0 adds a new functionality to the Admin List plugin: Other than a
+list of admins, it is now also possible to specify a list of read-only users.
+Those users have permissions on all `get` and `list` operations, but no other
+permissions.
+
+If a subject is present on both the admin and read-only list, weaviate will
+error on startup due to the invalid configuration.
+
 ### Usage
 
 Simply configure the admin plugin in the config yaml like so:
@@ -31,10 +41,15 @@ authorization:
     users:
       - jane@doe.com
       - john@doe.com
+    read_only_users:      # only available from 0.15.0 on, ignored in prior versions
+      - roberta@doe.com   # only available from 0.15.0 on, ignored in prior versions
 ```
 
 The above would enable the plugin and make users `jane@doe.com` and
-`john@doe.com` admins. Note that in the above example email ids are used to
+`john@doe.com` admins. If at least weaviate version `0.15.0` is used,
+additionally user `roberta@doe.com` will have read-only permissions.
+
+Note that in the above example email ids are used to
 identify the user. This is not a requirement, in fact, any string can be used.
 This depends on what you configured in the authentication settings. For
 example, if you are using Open ID Connect authentication, you could set the
@@ -42,7 +57,6 @@ example, if you are using Open ID Connect authentication, you could set the
 above.
 
 ## RBAC
-Full Role-Based Access Control (RBAC) coming soon. As of now any authenticated
-user is fully authorized to read, write, modify or delete any resource.
-
-
+More fine-grained Role-Based Access Control (RBAC) coming soon. As of know the
+only possible distinction is between Admins (CRUD), Read-Only Users and
+entirely unauthorized users.
