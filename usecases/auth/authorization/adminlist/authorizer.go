@@ -17,33 +17,52 @@ import (
 
 // Authorizer provides either full (admin) or no access
 type Authorizer struct {
-	allowedUsers map[string]int
+	adminUsers    map[string]int
+	readOnlyUsers map[string]int
 }
 
 // New Authorizer using the AdminList method
 func New(cfg Config) *Authorizer {
 	a := &Authorizer{}
-	a.addUserList(cfg.Users)
+	a.addAdminUserList(cfg.Users)
+	a.addReadOnlyUserList(cfg.ReadOnlyUsers)
 	return a
 }
 
 // Authorize will give full access (to any resource!) if the user is part of
 // the admin list or no access at all if they are not
 func (a *Authorizer) Authorize(principal *models.Principal, verb, resource string) error {
-	if _, ok := a.allowedUsers[principal.Username]; ok {
+	if _, ok := a.adminUsers[principal.Username]; ok {
 		return nil
+	}
+
+	if verb == "get" || verb == "list" {
+		if _, ok := a.readOnlyUsers[principal.Username]; ok {
+			return nil
+		}
 	}
 
 	return errors.NewForbidden(principal, verb, resource)
 }
 
-func (a *Authorizer) addUserList(users []string) {
+func (a *Authorizer) addAdminUserList(users []string) {
 	// build a map for more effecient lookup on long lists
-	if a.allowedUsers == nil {
-		a.allowedUsers = map[string]int{}
+	if a.adminUsers == nil {
+		a.adminUsers = map[string]int{}
 	}
 
 	for _, user := range users {
-		a.allowedUsers[user] = 1
+		a.adminUsers[user] = 1
+	}
+}
+
+func (a *Authorizer) addReadOnlyUserList(users []string) {
+	// build a map for more effecient lookup on long lists
+	if a.readOnlyUsers == nil {
+		a.readOnlyUsers = map[string]int{}
+	}
+
+	for _, user := range users {
+		a.readOnlyUsers[user] = 1
 	}
 }

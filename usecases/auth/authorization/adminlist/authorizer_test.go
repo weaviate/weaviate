@@ -19,52 +19,140 @@ import (
 )
 
 func Test_AdminList_Authorizor(t *testing.T) {
-	t.Run("with no users configured at all", func(t *testing.T) {
-		cfg := Config{
-			Enabled: true,
-			Users:   []string{},
-		}
+	t.Run("with read requests", func(t *testing.T) {
+		t.Run("with no users configured at all", func(t *testing.T) {
+			cfg := Config{
+				Enabled: true,
+				Users:   []string{},
+			}
 
-		principal := &models.Principal{
-			Username: "johndoe",
-		}
+			principal := &models.Principal{
+				Username: "johndoe",
+			}
 
-		err := New(cfg).Authorize(principal, "get", "things")
-		assert.Equal(t, errors.NewForbidden(principal, "get", "things"), err,
-			"should have the correct err msg")
+			err := New(cfg).Authorize(principal, "get", "things")
+			assert.Equal(t, errors.NewForbidden(principal, "get", "things"), err,
+				"should have the correct err msg")
+		})
+
+		t.Run("with a non-configured user, it denies the request", func(t *testing.T) {
+			cfg := Config{
+				Enabled: true,
+				Users: []string{
+					"alice",
+				},
+			}
+
+			principal := &models.Principal{
+				Username: "johndoe",
+			}
+
+			err := New(cfg).Authorize(principal, "get", "things")
+			assert.Equal(t, errors.NewForbidden(principal, "get", "things"), err,
+				"should have the correct err msg")
+		})
+
+		t.Run("with a configured admin user, it allows the request", func(t *testing.T) {
+			cfg := Config{
+				Enabled: true,
+				Users: []string{
+					"alice",
+					"johndoe",
+				},
+			}
+
+			principal := &models.Principal{
+				Username: "johndoe",
+			}
+
+			err := New(cfg).Authorize(principal, "get", "things")
+			assert.Nil(t, err)
+		})
+
+		t.Run("with a configured read-only user, it allows the request", func(t *testing.T) {
+			cfg := Config{
+				Enabled: true,
+				ReadOnlyUsers: []string{
+					"alice",
+					"johndoe",
+				},
+			}
+
+			principal := &models.Principal{
+				Username: "johndoe",
+			}
+
+			err := New(cfg).Authorize(principal, "get", "things")
+			assert.Nil(t, err)
+		})
 	})
 
-	t.Run("with a non-configured user, it denies the request", func(t *testing.T) {
-		cfg := Config{
-			Enabled: true,
-			Users: []string{
-				"alice",
-			},
-		}
+	t.Run("with write/delete requests", func(t *testing.T) {
+		t.Run("with no users configured at all", func(t *testing.T) {
+			cfg := Config{
+				Enabled: true,
+				Users:   []string{},
+			}
 
-		principal := &models.Principal{
-			Username: "johndoe",
-		}
+			principal := &models.Principal{
+				Username: "johndoe",
+			}
 
-		err := New(cfg).Authorize(principal, "get", "things")
-		assert.Equal(t, errors.NewForbidden(principal, "get", "things"), err,
-			"should have the correct err msg")
-	})
+			err := New(cfg).Authorize(principal, "create", "things")
+			assert.Equal(t, errors.NewForbidden(principal, "create", "things"), err,
+				"should have the correct err msg")
+		})
 
-	t.Run("with a configured user, it allows the request", func(t *testing.T) {
-		cfg := Config{
-			Enabled: true,
-			Users: []string{
-				"alice",
-				"johndoe",
-			},
-		}
+		t.Run("with a non-configured user, it denies the request", func(t *testing.T) {
+			cfg := Config{
+				Enabled: true,
+				Users: []string{
+					"alice",
+				},
+			}
 
-		principal := &models.Principal{
-			Username: "johndoe",
-		}
+			principal := &models.Principal{
+				Username: "johndoe",
+			}
 
-		err := New(cfg).Authorize(principal, "get", "things")
-		assert.Nil(t, err)
+			err := New(cfg).Authorize(principal, "create", "things")
+			assert.Equal(t, errors.NewForbidden(principal, "create", "things"), err,
+				"should have the correct err msg")
+		})
+
+		t.Run("with a configured admin user, it allows the request", func(t *testing.T) {
+			cfg := Config{
+				Enabled: true,
+				Users: []string{
+					"alice",
+					"johndoe",
+				},
+			}
+
+			principal := &models.Principal{
+				Username: "johndoe",
+			}
+
+			err := New(cfg).Authorize(principal, "create", "things")
+			assert.Nil(t, err)
+		})
+
+		t.Run("with a configured read-only user, it denies the request", func(t *testing.T) {
+			cfg := Config{
+				Enabled: true,
+				ReadOnlyUsers: []string{
+					"alice",
+					"johndoe",
+				},
+			}
+
+			principal := &models.Principal{
+				Username: "johndoe",
+			}
+
+			err := New(cfg).Authorize(principal, "create", "things")
+			assert.Equal(t, errors.NewForbidden(principal, "create", "things"), err,
+				"should have the correct err msg")
+		})
 	})
 }
