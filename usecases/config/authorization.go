@@ -10,21 +10,26 @@
  * CONTACT: hello@semi.technology
  */package config
 
+import (
+	"fmt"
+
+	"github.com/semi-technologies/weaviate/usecases/auth/authorization/adminlist"
+)
+
 // Authorization configuration
 type Authorization struct {
-	AdminList AdminList `json:"admin_list" yaml:"admin_list"`
+	AdminList adminlist.Config `json:"admin_list" yaml:"admin_list"`
 }
 
 // Validate the Authorization configuration. This only validates at a general
 // level. Validation specific to the individual auth methods should happen
 // inside their respective packages
 func (a Authorization) Validate() error {
-	return nil
-}
+	if a.AdminList.Enabled {
+		if err := a.AdminList.Validate(); err != nil {
+			return fmt.Errorf("authorization: %s", err)
+		}
+	}
 
-// AdminList makes every subject on the list an admin, whereas everyone else
-// has no rights whatsoever
-type AdminList struct {
-	Enabled bool     `json:"enabled" yaml:"enabled"`
-	Users   []string `json:"users" yaml:"users"`
+	return nil
 }
