@@ -13,7 +13,6 @@
 import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
-	"github.com/semi-technologies/weaviate/usecases/config"
 )
 
 // Authorizer provides either full (admin) or no access
@@ -22,7 +21,7 @@ type Authorizer struct {
 }
 
 // New Authorizer using the AdminList method
-func New(cfg config.AdminList) *Authorizer {
+func New(cfg Config) *Authorizer {
 	a := &Authorizer{}
 	a.addUserList(cfg.Users)
 	return a
