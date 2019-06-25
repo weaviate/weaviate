@@ -29,6 +29,11 @@ import (
 func makeSetupMiddlewares(appState *state.State) func(http.Handler) http.Handler {
 	return func(handler http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+			if r.URL.String() == "/weaviate/v1/.well-known/openid-configuration" {
+				handler.ServeHTTP(w, r)
+				return
+			}
 			appState.AnonymousAccess.Middleware(handler).ServeHTTP(w, r)
 		})
 	}
