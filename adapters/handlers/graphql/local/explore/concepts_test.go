@@ -66,6 +66,129 @@ func Test_ResolveExploreConcepts(t *testing.T) {
 				},
 			}},
 		},
+
+		testCase{
+			name: "with optional limit set",
+			query: `
+			{
+				Explore {
+					Concepts(keywords: ["car", "best brand"], limit: 17) {
+						beacon className
+					}
+				}
+			}`,
+			expectedParamsToTraverser: traverser.ExploreConceptsParams{
+				Values: []string{"car", "best brand"},
+				Limit:  17,
+			},
+			resolverReturn: []traverser.VectorSearchResult{
+				traverser.VectorSearchResult{
+					Beacon:    "weaviate://localhost/things/some-uuid",
+					ClassName: "bestClass",
+				},
+			},
+			expectedResults: []result{{
+				pathToField: []string{"Explore", "Concepts"},
+				expectedValue: []interface{}{
+					map[string]interface{}{
+						"beacon":    "weaviate://localhost/things/some-uuid",
+						"className": "bestClass",
+					},
+				},
+			}},
+		},
+
+		testCase{
+			name: "with moveTo set",
+			query: `
+			{
+				Explore {
+					Concepts(
+						keywords: ["car", "best brand"]
+						limit: 17
+						moveTo: {
+							keywords: ["mercedes"]
+							force: 0.7
+						}
+						) {
+						beacon className
+					}
+				}
+			}`,
+			expectedParamsToTraverser: traverser.ExploreConceptsParams{
+				Values: []string{"car", "best brand"},
+				Limit:  17,
+				MoveTo: traverser.ExploreMove{
+					Values: []string{"mercedes"},
+					Force:  0.7,
+				},
+			},
+			resolverReturn: []traverser.VectorSearchResult{
+				traverser.VectorSearchResult{
+					Beacon:    "weaviate://localhost/things/some-uuid",
+					ClassName: "bestClass",
+				},
+			},
+			expectedResults: []result{{
+				pathToField: []string{"Explore", "Concepts"},
+				expectedValue: []interface{}{
+					map[string]interface{}{
+						"beacon":    "weaviate://localhost/things/some-uuid",
+						"className": "bestClass",
+					},
+				},
+			}},
+		},
+
+		testCase{
+			name: "with moveTo and moveAwayFrom set",
+			query: `
+			{
+				Explore {
+					Concepts(
+						keywords: ["car", "best brand"]
+						limit: 17
+						moveTo: {
+							keywords: ["mercedes"]
+							force: 0.7
+						}
+						moveAwayFrom: {
+							keywords: ["van"]
+							force: 0.7
+						}
+						) {
+						beacon className
+					}
+				}
+			}`,
+			expectedParamsToTraverser: traverser.ExploreConceptsParams{
+				Values: []string{"car", "best brand"},
+				Limit:  17,
+				MoveTo: traverser.ExploreMove{
+					Values: []string{"mercedes"},
+					Force:  0.7,
+				},
+				MoveAwayFrom: traverser.ExploreMove{
+					Values: []string{"van"},
+					Force:  0.7,
+				},
+			},
+			resolverReturn: []traverser.VectorSearchResult{
+				traverser.VectorSearchResult{
+					Beacon:    "weaviate://localhost/things/some-uuid",
+					ClassName: "bestClass",
+				},
+			},
+			expectedResults: []result{{
+				pathToField: []string{"Explore", "Concepts"},
+				expectedValue: []interface{}{
+					map[string]interface{}{
+						"beacon":    "weaviate://localhost/things/some-uuid",
+						"className": "bestClass",
+					},
+				},
+			}},
+		},
 	}
 
 	tests.AssertExtraction(t)

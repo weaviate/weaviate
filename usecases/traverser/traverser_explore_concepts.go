@@ -35,7 +35,7 @@ func (t *Traverser) ExploreConcepts(ctx context.Context,
 		return nil, fmt.Errorf("vectorize explore concepts search terms: %v", err)
 	}
 
-	res, err := t.vectorSearcher.VectorSearch(ctx, "concepts", vector)
+	res, err := t.vectorSearcher.VectorSearch(ctx, "concepts", vector, params.Limit)
 	if err != nil {
 		return nil, fmt.Errorf("vector search: %v", err)
 	}
