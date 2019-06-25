@@ -54,7 +54,16 @@ func beacon(res VectorSearchResult) string {
 
 // ExploreConceptsParams to do a vector based explore search
 type ExploreConceptsParams struct {
+	Values       []string
+	Limit        int
+	MoveTo       ExploreMove
+	MoveAwayFrom ExploreMove
+}
+
+// ExploreMove moves an existing Search Vector closer (or further away from) a specific other search term
+type ExploreMove struct {
 	Values []string
+	Force  float32
 }
 
 // VectorSearchResult contains some info of a concept (kind), but not all. For
