@@ -101,12 +101,30 @@ func (f *fakeVectorizer) Corpi(ctx context.Context, corpi []string) ([]float32, 
 	return []float32{1, 2, 3}, nil
 }
 
+func (f *fakeVectorizer) MoveTo(source []float32, target []float32, weight float32) ([]float32, error) {
+	res := make([]float32, len(source), len(source))
+	for i, v := range source {
+		res[i] = v + 1
+	}
+	return res, nil
+}
+
+func (f *fakeVectorizer) MoveAwayFrom(source []float32, target []float32, weight float32) ([]float32, error) {
+	res := make([]float32, len(source), len(source))
+	for i, v := range source {
+		res[i] = v - 0.5
+	}
+	return res, nil
+}
+
 type fakeVectorSearcher struct {
-	results []VectorSearchResult
+	calledWithVector []float32
+	results          []VectorSearchResult
 }
 
 func (f *fakeVectorSearcher) VectorSearch(ctx context.Context, index string,
 	vector []float32, limit int) ([]VectorSearchResult, error) {
+	f.calledWithVector = vector
 	return f.results, nil
 }
 
