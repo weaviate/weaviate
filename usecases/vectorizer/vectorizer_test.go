@@ -199,9 +199,7 @@ func TestVectorizingSearchTerms(t *testing.T) {
 			require.Nil(t, err)
 			assert.Equal(t, []float32{0, 1, 2, 3}, res)
 			assert.ElementsMatch(t, test.expectedClientCall, client.lastInput)
-
 		})
-
 	}
 }
 
