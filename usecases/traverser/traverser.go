@@ -41,6 +41,8 @@ type Traverser struct {
 
 type corpiVectorizer interface {
 	Corpi(ctx context.Context, corpi []string) ([]float32, error)
+	MoveTo(source []float32, target []float32, weight float32) ([]float32, error)
+	MoveAwayFrom(source []float32, target []float32, weight float32) ([]float32, error)
 }
 
 type vectorSearcher interface {

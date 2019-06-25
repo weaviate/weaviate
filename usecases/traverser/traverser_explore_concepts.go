@@ -30,9 +30,9 @@ func (t *Traverser) ExploreConcepts(ctx context.Context,
 		return nil, err
 	}
 
-	vector, err := t.vectorizer.Corpi(ctx, params.Values)
+	vector, err := t.vectorFromExploreParams(ctx, params)
 	if err != nil {
-		return nil, fmt.Errorf("vectorize explore concepts search terms: %v", err)
+		return nil, fmt.Errorf("vectorize params: %v", err)
 	}
 
 	res, err := t.vectorSearcher.VectorSearch(ctx, "concepts", vector, params.Limit)
@@ -45,6 +45,44 @@ func (t *Traverser) ExploreConcepts(ctx context.Context,
 	}
 
 	return res, nil
+}
+
+func (t *Traverser) vectorFromExploreParams(ctx context.Context,
+	params ExploreConceptsParams) ([]float32, error) {
+
+	vector, err := t.vectorizer.Corpi(ctx, params.Values)
+	if err != nil {
+		return nil, fmt.Errorf("vectorize keywords: %v", err)
+	}
+
+	if params.MoveTo.Force > 0 && len(params.MoveTo.Values) > 0 {
+		moveToVector, err := t.vectorizer.Corpi(ctx, params.MoveTo.Values)
+		if err != nil {
+			return nil, fmt.Errorf("vectorize move to: %v", err)
+		}
+
+		afterMoveTo, err := t.vectorizer.MoveTo(vector, moveToVector, params.MoveTo.Force)
+		if err != nil {
+			return nil, err
+		}
+		vector = afterMoveTo
+	}
+
+	if params.MoveAwayFrom.Force > 0 && len(params.MoveAwayFrom.Values) > 0 {
+		moveAwayVector, err := t.vectorizer.Corpi(ctx, params.MoveAwayFrom.Values)
+		if err != nil {
+			return nil, fmt.Errorf("vectorize move away from: %v", err)
+		}
+
+		afterMoveFrom, err := t.vectorizer.MoveAwayFrom(vector, moveAwayVector,
+			params.MoveAwayFrom.Force)
+		if err != nil {
+			return nil, err
+		}
+		vector = afterMoveFrom
+	}
+
+	return vector, nil
 }
 
 func beacon(res VectorSearchResult) string {

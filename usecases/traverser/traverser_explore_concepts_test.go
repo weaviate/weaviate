@@ -11,45 +11,107 @@ import (
 )
 
 func Test_ExploreConcepts(t *testing.T) {
-	authorizer := &fakeAuthorizer{}
-	repo := &fakeRepo{}
-	locks := &fakeLocks{}
-	c11y := &fakeC11y{}
-	logger, _ := test.NewNullLogger()
-	vectorizer := &fakeVectorizer{}
-	vectorSearcher := &fakeVectorSearcher{}
-	traverser := NewTraverser(locks, repo, c11y, logger, authorizer,
-		vectorizer, vectorSearcher)
-	params := ExploreConceptsParams{
-		Values: []string{"a search term", "another"},
-	}
-	vectorSearcher.results = []VectorSearchResult{
-		VectorSearchResult{
-			ClassName: "BestClass",
-			Kind:      kind.Thing,
-			ID:        "123-456-789",
-		},
-		VectorSearchResult{
-			ClassName: "AnAction",
-			Kind:      kind.Action,
-			ID:        "987-654-321",
-		},
-	}
+	t.Run("with no movements set", func(t *testing.T) {
 
-	res, err := traverser.ExploreConcepts(context.Background(), nil, params)
-	require.Nil(t, err)
-	assert.Equal(t, []VectorSearchResult{
-		VectorSearchResult{
-			ClassName: "BestClass",
-			Kind:      kind.Thing,
-			ID:        "123-456-789",
-			Beacon:    "weaviate://localhost/things/123-456-789",
-		},
-		VectorSearchResult{
-			ClassName: "AnAction",
-			Kind:      kind.Action,
-			ID:        "987-654-321",
-			Beacon:    "weaviate://localhost/actions/987-654-321",
-		},
-	}, res)
+		authorizer := &fakeAuthorizer{}
+		repo := &fakeRepo{}
+		locks := &fakeLocks{}
+		c11y := &fakeC11y{}
+		logger, _ := test.NewNullLogger()
+		vectorizer := &fakeVectorizer{}
+		vectorSearcher := &fakeVectorSearcher{}
+		traverser := NewTraverser(locks, repo, c11y, logger, authorizer,
+			vectorizer, vectorSearcher)
+		params := ExploreConceptsParams{
+			Values: []string{"a search term", "another"},
+		}
+		vectorSearcher.results = []VectorSearchResult{
+			VectorSearchResult{
+				ClassName: "BestClass",
+				Kind:      kind.Thing,
+				ID:        "123-456-789",
+			},
+			VectorSearchResult{
+				ClassName: "AnAction",
+				Kind:      kind.Action,
+				ID:        "987-654-321",
+			},
+		}
+
+		res, err := traverser.ExploreConcepts(context.Background(), nil, params)
+		require.Nil(t, err)
+		assert.Equal(t, []VectorSearchResult{
+			VectorSearchResult{
+				ClassName: "BestClass",
+				Kind:      kind.Thing,
+				ID:        "123-456-789",
+				Beacon:    "weaviate://localhost/things/123-456-789",
+			},
+			VectorSearchResult{
+				ClassName: "AnAction",
+				Kind:      kind.Action,
+				ID:        "987-654-321",
+				Beacon:    "weaviate://localhost/actions/987-654-321",
+			},
+		}, res)
+
+		assert.Equal(t, []float32{1, 2, 3}, vectorSearcher.calledWithVector)
+	})
+
+	t.Run("with movements set", func(t *testing.T) {
+
+		authorizer := &fakeAuthorizer{}
+		repo := &fakeRepo{}
+		locks := &fakeLocks{}
+		c11y := &fakeC11y{}
+		logger, _ := test.NewNullLogger()
+		vectorizer := &fakeVectorizer{}
+		vectorSearcher := &fakeVectorSearcher{}
+		traverser := NewTraverser(locks, repo, c11y, logger, authorizer,
+			vectorizer, vectorSearcher)
+		params := ExploreConceptsParams{
+			Values: []string{"a search term", "another"},
+			MoveTo: ExploreMove{
+				Values: []string{"foo"},
+				Force:  0.7,
+			},
+			MoveAwayFrom: ExploreMove{
+				Values: []string{"bar"},
+				Force:  0.7,
+			},
+		}
+		vectorSearcher.results = []VectorSearchResult{
+			VectorSearchResult{
+				ClassName: "BestClass",
+				Kind:      kind.Thing,
+				ID:        "123-456-789",
+			},
+			VectorSearchResult{
+				ClassName: "AnAction",
+				Kind:      kind.Action,
+				ID:        "987-654-321",
+			},
+		}
+
+		res, err := traverser.ExploreConcepts(context.Background(), nil, params)
+		require.Nil(t, err)
+		assert.Equal(t, []VectorSearchResult{
+			VectorSearchResult{
+				ClassName: "BestClass",
+				Kind:      kind.Thing,
+				ID:        "123-456-789",
+				Beacon:    "weaviate://localhost/things/123-456-789",
+			},
+			VectorSearchResult{
+				ClassName: "AnAction",
+				Kind:      kind.Action,
+				ID:        "987-654-321",
+				Beacon:    "weaviate://localhost/actions/987-654-321",
+			},
+		}, res)
+
+		// see dummy implemenation of MoveTo and MoveAway for why the vector should
+		// be the way it is
+		assert.Equal(t, []float32{1.5, 2.5, 3.5}, vectorSearcher.calledWithVector)
+	})
 }
