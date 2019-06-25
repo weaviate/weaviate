@@ -45,7 +45,7 @@ type corpiVectorizer interface {
 
 type vectorSearcher interface {
 	VectorSearch(ctx context.Context, index string,
-		vector []float32) ([]VectorSearchResult, error)
+		vector []float32, limit int) ([]VectorSearchResult, error)
 }
 
 // NewTraverser to traverse the knowledge graph

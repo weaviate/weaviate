@@ -80,7 +80,7 @@ func TestEsVectorRepo(t *testing.T) {
 		// somewhat far from the thing. So it should match the action closer
 		searchVector := []float32{2.9, 1.1, 0.5, 8.01}
 
-		res, err := repo.VectorSearch(context.Background(), "integrationtest", searchVector)
+		res, err := repo.VectorSearch(context.Background(), "integrationtest", searchVector, 10)
 
 		require.Nil(t, err)
 		require.Len(t, res, 2)

@@ -83,7 +83,7 @@ type conceptBucket struct {
 
 // VectorSearch retrives the closest concepts by vector distance
 func (r *Repo) VectorSearch(ctx context.Context, index string,
-	vector []float32) ([]traverser.VectorSearchResult, error) {
+	vector []float32, limit int) ([]traverser.VectorSearchResult, error) {
 	var buf bytes.Buffer
 	body := map[string]interface{}{
 		"query": map[string]interface{}{
@@ -106,7 +106,7 @@ func (r *Repo) VectorSearch(ctx context.Context, index string,
 			},
 		},
 		// hard code limit to 100 for now
-		"size": 100,
+		"size": limit,
 	}
 
 	err := json.NewEncoder(&buf).Encode(body)

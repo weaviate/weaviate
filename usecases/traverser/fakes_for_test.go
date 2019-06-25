@@ -106,7 +106,7 @@ type fakeVectorSearcher struct {
 }
 
 func (f *fakeVectorSearcher) VectorSearch(ctx context.Context, index string,
-	vector []float32) ([]VectorSearchResult, error) {
+	vector []float32, limit int) ([]VectorSearchResult, error) {
 	return f.results, nil
 }
 
@@ -163,6 +163,6 @@ func (f *fakeVectorRepo) PutAction(ctx context.Context, index string,
 	return nil
 }
 func (f *fakeVectorRepo) VectorSearch(ctx context.Context, index string,
-	vector []float32) ([]VectorSearchResult, error) {
+	vector []float32, limit int) ([]VectorSearchResult, error) {
 	return nil, nil
 }

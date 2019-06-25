@@ -27,6 +27,17 @@ func Build() *graphql.Field {
 	}
 }
 
+func movementInp() graphql.InputObjectConfigFieldMap {
+	return graphql.InputObjectConfigFieldMap{
+		"keywords": &graphql.InputObjectFieldConfig{
+			Type: graphql.NewNonNull(graphql.NewList(graphql.String)),
+		},
+		"force": &graphql.InputObjectFieldConfig{
+			Type: graphql.NewNonNull(graphql.Float),
+		},
+	}
+}
+
 func exploreObj() *graphql.Object {
 
 	fields := graphql.Fields{
@@ -38,6 +49,23 @@ func exploreObj() *graphql.Object {
 				"keywords": &graphql.ArgumentConfig{
 					// Description: descriptions.ExploreConceptsValue,
 					Type: graphql.NewNonNull(graphql.NewList(graphql.String)),
+				},
+				"limit": &graphql.ArgumentConfig{
+					Type: graphql.Int,
+				},
+				"moveTo": &graphql.ArgumentConfig{
+					Type: graphql.NewInputObject(
+						graphql.InputObjectConfig{
+							Name:   "WeaviateLocalExploreMoveTo",
+							Fields: movementInp(),
+						}),
+				},
+				"moveAwayFrom": &graphql.ArgumentConfig{
+					Type: graphql.NewInputObject(
+						graphql.InputObjectConfig{
+							Name:   "WeaviateLocalExploreMoveAwayFrom",
+							Fields: movementInp(),
+						}),
 				},
 			},
 			Resolve: resolveConcepts,
