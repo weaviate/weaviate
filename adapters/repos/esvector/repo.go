@@ -114,8 +114,6 @@ func (r *Repo) VectorSearch(ctx context.Context, index string,
 		return nil, fmt.Errorf("vector search: encode json: %v", err)
 	}
 
-	fmt.Printf("\n%s\n", buf.String())
-
 	res, err := r.client.Search(
 		r.client.Search.WithContext(ctx),
 		r.client.Search.WithIndex(index),

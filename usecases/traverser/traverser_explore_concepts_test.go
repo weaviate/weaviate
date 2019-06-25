@@ -56,6 +56,8 @@ func Test_ExploreConcepts(t *testing.T) {
 		}, res)
 
 		assert.Equal(t, []float32{1, 2, 3}, vectorSearcher.calledWithVector)
+		assert.Equal(t, 20, vectorSearcher.calledWithLimit,
+			"uses the default limit if not explicitly set")
 	})
 
 	t.Run("with movements set", func(t *testing.T) {
@@ -70,6 +72,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		traverser := NewTraverser(locks, repo, c11y, logger, authorizer,
 			vectorizer, vectorSearcher)
 		params := ExploreConceptsParams{
+			Limit:  100,
 			Values: []string{"a search term", "another"},
 			MoveTo: ExploreMove{
 				Values: []string{"foo"},
@@ -113,5 +116,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		// see dummy implemenation of MoveTo and MoveAway for why the vector should
 		// be the way it is
 		assert.Equal(t, []float32{1.5, 2.5, 3.5}, vectorSearcher.calledWithVector)
+		assert.Equal(t, 100, vectorSearcher.calledWithLimit,
+			"limit explicitly set")
 	})
 }
