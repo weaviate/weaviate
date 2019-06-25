@@ -119,12 +119,14 @@ func (f *fakeVectorizer) MoveAwayFrom(source []float32, target []float32, weight
 
 type fakeVectorSearcher struct {
 	calledWithVector []float32
+	calledWithLimit  int
 	results          []VectorSearchResult
 }
 
 func (f *fakeVectorSearcher) VectorSearch(ctx context.Context, index string,
 	vector []float32, limit int) ([]VectorSearchResult, error) {
 	f.calledWithVector = vector
+	f.calledWithLimit = limit
 	return f.results, nil
 }
 

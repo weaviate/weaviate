@@ -25,6 +25,10 @@ import (
 func (t *Traverser) ExploreConcepts(ctx context.Context,
 	principal *models.Principal, params ExploreConceptsParams) ([]VectorSearchResult, error) {
 
+	if params.Limit == 0 {
+		params.Limit = 20
+	}
+
 	err := t.authorizer.Authorize(principal, "get", "traversal/*")
 	if err != nil {
 		return nil, err
