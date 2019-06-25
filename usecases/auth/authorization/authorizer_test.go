@@ -39,7 +39,7 @@ func Test_Authorizer(t *testing.T) {
 	t.Run("when adminlist is configured", func(t *testing.T) {
 		cfg := config.Config{
 			Authorization: config.Authorization{
-				AdminList: config.AdminList{
+				AdminList: adminlist.Config{
 					Enabled: true,
 				},
 			},
