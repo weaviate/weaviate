@@ -43,7 +43,7 @@ func Test_ResolveExploreConcepts(t *testing.T) {
 			{
 				Explore {
 					Concepts(keywords: ["car", "best brand"]) {
-						beacon className
+						beacon className distance
 					}
 				}
 			}`,
@@ -54,6 +54,7 @@ func Test_ResolveExploreConcepts(t *testing.T) {
 				traverser.VectorSearchResult{
 					Beacon:    "weaviate://localhost/things/some-uuid",
 					ClassName: "bestClass",
+					Distance:  0.7,
 				},
 			},
 			expectedResults: []result{{
@@ -62,6 +63,7 @@ func Test_ResolveExploreConcepts(t *testing.T) {
 					map[string]interface{}{
 						"beacon":    "weaviate://localhost/things/some-uuid",
 						"className": "bestClass",
+						"distance":  float32(0.7),
 					},
 				},
 			}},

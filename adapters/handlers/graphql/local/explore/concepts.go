@@ -36,6 +36,20 @@ func conceptsFieldsObj() *graphql.Object {
 				return vsr.Beacon, nil
 			},
 		},
+
+		"distance": &graphql.Field{
+			Name: "WeaviateLocalExploreConceptsBeacon",
+			// Description: descriptions.LocalExploreConceptsBeacon,
+			Type: graphql.Float,
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				vsr, ok := p.Source.(traverser.VectorSearchResult)
+				if !ok {
+					return nil, fmt.Errorf("unknown type %T in Explore.Concepts.className resolver", p.Source)
+				}
+
+				return vsr.Distance, nil
+			},
+		},
 	}
 
 	getLocalExploreConceptsFieldsObject := graphql.ObjectConfig{
