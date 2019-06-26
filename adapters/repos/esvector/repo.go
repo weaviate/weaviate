@@ -164,11 +164,17 @@ func (sr searchResponse) toVectorSearchResult() ([]traverser.VectorSearchResult,
 			return nil, fmt.Errorf("vector search: result %d: %v", i, err)
 		}
 
+		vector, err := base64ToVector(hit.Source.EmbeddingVector)
+		if err != nil {
+			return nil, fmt.Errorf("vector search: result %d: %v", i, err)
+		}
+
 		output[i] = traverser.VectorSearchResult{
 			ClassName: hit.Source.ClassName,
 			ID:        strfmt.UUID(hit.Source.ID),
 			Kind:      k,
 			Score:     hit.Score,
+			Vector:    vector,
 		}
 	}
 
@@ -248,6 +254,23 @@ func vectorToBase64(array []float32) string {
 
 	encoded := base64.StdEncoding.EncodeToString(bytes)
 	return encoded
+}
+
+func base64ToVector(base64Str string) ([]float32, error) {
+	decoded, err := base64.StdEncoding.DecodeString(base64Str)
+	if err != nil {
+		return nil, err
+	}
+
+	length := len(decoded)
+	array := make([]float32, 0, length/4)
+
+	for i := 0; i < len(decoded); i += 4 {
+		bits := binary.BigEndian.Uint32(decoded[i : i+4])
+		f := math.Float32frombits(bits)
+		array = append(array, f)
+	}
+	return array, nil
 }
 
 func (r *Repo) indexExists(ctx context.Context, index string) (bool, error) {
