@@ -46,6 +46,11 @@ func (t *Traverser) ExploreConcepts(ctx context.Context,
 
 	for i, item := range res {
 		res[i].Beacon = beacon(item)
+		dist, err := t.vectorizer.NormalizedDistance(vector, item.Vector)
+		if err != nil {
+			return nil, fmt.Errorf("res %s: %v", res[i].Beacon, err)
+		}
+		res[i].Distance = dist
 	}
 
 	return res, nil
@@ -118,4 +123,5 @@ type VectorSearchResult struct {
 	Score     float32
 	Vector    []float32
 	Beacon    string
+	Distance  float32
 }
