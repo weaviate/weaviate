@@ -15,67 +15,29 @@ package explore
 
 import (
 	"github.com/graphql-go/graphql"
+	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 )
 
 // Build builds the object containing the Local->Explore Fields, such as Things/Actions
 func Build() *graphql.Field {
 	return &graphql.Field{
-		Name: "WeaviateLocalExplore",
-		// Description: descriptions.LocalExplore,
-		Type:    exploreObj(),
-		Resolve: bubbleUpResolver,
-	}
-}
-
-func movementInp() graphql.InputObjectConfigFieldMap {
-	return graphql.InputObjectConfigFieldMap{
-		"keywords": &graphql.InputObjectFieldConfig{
-			Type: graphql.NewNonNull(graphql.NewList(graphql.String)),
-		},
-		"force": &graphql.InputObjectFieldConfig{
-			Type: graphql.NewNonNull(graphql.Float),
-		},
+		Name:        "WeaviateLocalExplore",
+		Description: descriptions.LocalExplore,
+		Type:        exploreObj(),
+		Resolve:     bubbleUpResolver,
 	}
 }
 
 func exploreObj() *graphql.Object {
 
 	fields := graphql.Fields{
-		"Concepts": &graphql.Field{
-			Name: "WeaviateLocalExplore",
-			// Description: descriptions.NetworkExploreConcepts,
-			Type: graphql.NewList(conceptsFieldsObj()),
-			Args: graphql.FieldConfigArgument{
-				"keywords": &graphql.ArgumentConfig{
-					// Description: descriptions.ExploreConceptsValue,
-					Type: graphql.NewNonNull(graphql.NewList(graphql.String)),
-				},
-				"limit": &graphql.ArgumentConfig{
-					Type: graphql.Int,
-				},
-				"moveTo": &graphql.ArgumentConfig{
-					Type: graphql.NewInputObject(
-						graphql.InputObjectConfig{
-							Name:   "WeaviateLocalExploreMoveTo",
-							Fields: movementInp(),
-						}),
-				},
-				"moveAwayFrom": &graphql.ArgumentConfig{
-					Type: graphql.NewInputObject(
-						graphql.InputObjectConfig{
-							Name:   "WeaviateLocalExploreMoveAwayFrom",
-							Fields: movementInp(),
-						}),
-				},
-			},
-			Resolve: resolveConcepts,
-		},
+		"Concepts": conceptsField(),
 	}
 
 	return graphql.NewObject(graphql.ObjectConfig{
-		Name:   "WeaviateLocalExploreObj",
-		Fields: fields,
-		// Description: descriptions.LocalExploreObj,
+		Name:        "WeaviateLocalExploreObj",
+		Fields:      fields,
+		Description: descriptions.LocalExplore,
 	})
 }
 
