@@ -74,8 +74,8 @@ func Test_Traverser_Authorization(t *testing.T) {
 		},
 
 		testCase{
-			methodName:       "ExploreConcepts",
-			additionalArgs:   []interface{}{ExploreConceptsParams{}},
+			methodName:       "Explore",
+			additionalArgs:   []interface{}{ExploreParams{}},
 			expectedVerb:     "get",
 			expectedResource: "traversal/*",
 		},

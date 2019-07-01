@@ -28,7 +28,7 @@ func exploreFields(prefix string) graphql.InputObjectConfigFieldMap {
 			Type: graphql.NewNonNull(graphql.NewList(graphql.String)),
 		},
 		"moveTo": &graphql.InputObjectFieldConfig{
-			Description: descriptions.LocalExploreConceptsMovement,
+			Description: descriptions.VectorMovement,
 			Type: graphql.NewInputObject(
 				graphql.InputObjectConfig{
 					Name:   fmt.Sprintf("%sMoveTo", prefix),
@@ -36,7 +36,7 @@ func exploreFields(prefix string) graphql.InputObjectConfigFieldMap {
 				}),
 		},
 		"moveAwayFrom": &graphql.InputObjectFieldConfig{
-			Description: descriptions.LocalExploreConceptsMovement,
+			Description: descriptions.VectorMovement,
 			Type: graphql.NewInputObject(
 				graphql.InputObjectConfig{
 					Name:   fmt.Sprintf("%sMoveAwayFrom", prefix),

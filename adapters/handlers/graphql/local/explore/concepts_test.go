@@ -21,7 +21,7 @@ import (
 type testCase struct {
 	name                      string
 	query                     string
-	expectedParamsToTraverser traverser.ExploreConceptsParams
+	expectedParamsToTraverser traverser.ExploreParams
 	resolverReturn            []traverser.VectorSearchResult
 	expectedResults           []result
 }
@@ -33,21 +33,19 @@ type result struct {
 	expectedValue interface{}
 }
 
-func Test_ResolveExploreConcepts(t *testing.T) {
+func Test_ResolveExplore(t *testing.T) {
 	t.Parallel()
 
 	tests := testCases{
 		testCase{
-			name: "Resolve Explore Concepts",
+			name: "Resolve Explore ",
 			query: `
-			{
-				Explore {
-					Concepts(keywords: ["car", "best brand"]) {
-						beacon className distance
+			{ 
+					Explore(concepts: ["car", "best brand"]) {
+							beacon className distance
 					}
-				}
 			}`,
-			expectedParamsToTraverser: traverser.ExploreConceptsParams{
+			expectedParamsToTraverser: traverser.ExploreParams{
 				Values: []string{"car", "best brand"},
 			},
 			resolverReturn: []traverser.VectorSearchResult{
@@ -58,7 +56,7 @@ func Test_ResolveExploreConcepts(t *testing.T) {
 				},
 			},
 			expectedResults: []result{{
-				pathToField: []string{"Explore", "Concepts"},
+				pathToField: []string{"Explore"},
 				expectedValue: []interface{}{
 					map[string]interface{}{
 						"beacon":    "weaviate://localhost/things/some-uuid",
@@ -73,13 +71,12 @@ func Test_ResolveExploreConcepts(t *testing.T) {
 			name: "with optional limit set",
 			query: `
 			{
-				Explore {
-					Concepts(keywords: ["car", "best brand"], limit: 17) {
-						beacon className
-					}
+					Explore(
+					concepts: ["car", "best brand"], limit: 17) {
+							beacon className
 				}
 			}`,
-			expectedParamsToTraverser: traverser.ExploreConceptsParams{
+			expectedParamsToTraverser: traverser.ExploreParams{
 				Values: []string{"car", "best brand"},
 				Limit:  17,
 			},
@@ -90,7 +87,7 @@ func Test_ResolveExploreConcepts(t *testing.T) {
 				},
 			},
 			expectedResults: []result{{
-				pathToField: []string{"Explore", "Concepts"},
+				pathToField: []string{"Explore"},
 				expectedValue: []interface{}{
 					map[string]interface{}{
 						"beacon":    "weaviate://localhost/things/some-uuid",
@@ -104,20 +101,18 @@ func Test_ResolveExploreConcepts(t *testing.T) {
 			name: "with moveTo set",
 			query: `
 			{
-				Explore {
-					Concepts(
-						keywords: ["car", "best brand"]
-						limit: 17
-						moveTo: {
-							keywords: ["mercedes"]
-							force: 0.7
+					Explore(
+							concepts: ["car", "best brand"]
+							limit: 17
+							moveTo: {
+								concepts: ["mercedes"]
+								force: 0.7
+							}
+							) {
+							beacon className
 						}
-						) {
-						beacon className
-					}
-				}
 			}`,
-			expectedParamsToTraverser: traverser.ExploreConceptsParams{
+			expectedParamsToTraverser: traverser.ExploreParams{
 				Values: []string{"car", "best brand"},
 				Limit:  17,
 				MoveTo: traverser.ExploreMove{
@@ -132,7 +127,7 @@ func Test_ResolveExploreConcepts(t *testing.T) {
 				},
 			},
 			expectedResults: []result{{
-				pathToField: []string{"Explore", "Concepts"},
+				pathToField: []string{"Explore"},
 				expectedValue: []interface{}{
 					map[string]interface{}{
 						"beacon":    "weaviate://localhost/things/some-uuid",
@@ -146,24 +141,22 @@ func Test_ResolveExploreConcepts(t *testing.T) {
 			name: "with moveTo and moveAwayFrom set",
 			query: `
 			{
-				Explore {
-					Concepts(
-						keywords: ["car", "best brand"]
-						limit: 17
-						moveTo: {
-							keywords: ["mercedes"]
-							force: 0.7
+					Explore(
+							concepts: ["car", "best brand"]
+							limit: 17
+							moveTo: {
+								concepts: ["mercedes"]
+								force: 0.7
+							}
+							moveAwayFrom: {
+								concepts: ["van"]
+								force: 0.7
+							}
+							) {
+							beacon className
 						}
-						moveAwayFrom: {
-							keywords: ["van"]
-							force: 0.7
-						}
-						) {
-						beacon className
-					}
-				}
 			}`,
-			expectedParamsToTraverser: traverser.ExploreConceptsParams{
+			expectedParamsToTraverser: traverser.ExploreParams{
 				Values: []string{"car", "best brand"},
 				Limit:  17,
 				MoveTo: traverser.ExploreMove{
@@ -182,7 +175,7 @@ func Test_ResolveExploreConcepts(t *testing.T) {
 				},
 			},
 			expectedResults: []result{{
-				pathToField: []string{"Explore", "Concepts"},
+				pathToField: []string{"Explore"},
 				expectedValue: []interface{}{
 					map[string]interface{}{
 						"beacon":    "weaviate://localhost/things/some-uuid",
@@ -202,7 +195,7 @@ func (tests testCases) AssertExtraction(t *testing.T) {
 
 			resolver := newMockResolver()
 
-			resolver.On("ExploreConcepts", testCase.expectedParamsToTraverser).
+			resolver.On("Explore", testCase.expectedParamsToTraverser).
 				Return(testCase.resolverReturn, nil).Once()
 
 			result := resolver.AssertResolve(t, testCase.query)
@@ -224,12 +217,12 @@ func (tests testCases) AssertExtraction(t *testing.T) {
 // 						class: {
 // 							name: "bestclass"
 // 							certainty: 0.8
-// 							keywords: [{value: "foo", weight: 0.9}]
+// 							concepts: [{value: "foo", weight: 0.9}]
 // 						},
 // 						properties: {
 // 							name: "bestproperty"
 // 							certainty: 0.8
-// 							keywords: [{value: "bar", weight: 0.9}]
+// 							concepts: [{value: "bar", weight: 0.9}]
 // 							valueString: "some-value"
 // 						},
 // 					}) {
@@ -243,8 +236,8 @@ func (tests testCases) AssertExtraction(t *testing.T) {
 // 	res := resolver.Resolve(query)
 // 	require.Len(t, res.Errors, 1)
 // 	assert.Equal(t,
-// 		`Argument "where" has invalid value {class: {name: "bestclass", certainty: 0.8, keywords: `+
-// 			`[{value: "foo", weight: 0.9}]}, properties: {name: "bestproperty", certainty: 0.8, keywords: `+
+// 		`Argument "where" has invalid value {class: {name: "bestclass", certainty: 0.8, concepts: `+
+// 			`[{value: "foo", weight: 0.9}]}, properties: {name: "bestproperty", certainty: 0.8, concepts: `+
 // 			`[{value: "bar", weight: 0.9}], valueString: "some-value"}}.`+"\n"+
 // 			`In field "properties": In field "operator": Expected "WeaviateLocalFetchThingWhereOperatorEnum!", found null.`,
 // 		res.Errors[0].Message)

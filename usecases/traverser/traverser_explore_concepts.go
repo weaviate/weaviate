@@ -21,9 +21,9 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
-// ExploreConcepts through unstructured search terms
-func (t *Traverser) ExploreConcepts(ctx context.Context,
-	principal *models.Principal, params ExploreConceptsParams) ([]VectorSearchResult, error) {
+// Explore through unstructured search terms
+func (t *Traverser) Explore(ctx context.Context,
+	principal *models.Principal, params ExploreParams) ([]VectorSearchResult, error) {
 
 	if params.Limit == 0 {
 		params.Limit = 20
@@ -57,7 +57,7 @@ func (t *Traverser) ExploreConcepts(ctx context.Context,
 }
 
 func (t *Traverser) vectorFromExploreParams(ctx context.Context,
-	params ExploreConceptsParams) ([]float32, error) {
+	params ExploreParams) ([]float32, error) {
 
 	vector, err := t.vectorizer.Corpi(ctx, params.Values)
 	if err != nil {
@@ -99,8 +99,8 @@ func beacon(res VectorSearchResult) string {
 
 }
 
-// ExploreConceptsParams to do a vector based explore search
-type ExploreConceptsParams struct {
+// ExploreParams to do a vector based explore search
+type ExploreParams struct {
 	Values       []string
 	Limit        int
 	MoveTo       ExploreMove

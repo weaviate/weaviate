@@ -8,13 +8,15 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
-func conceptsField() *graphql.Field {
+// Build builds the object containing the Local->Explore Fields, such as Things/Actions
+func Build() *graphql.Field {
 	return &graphql.Field{
-		Name:        "WeaviateLocalExploreConcepts",
-		Description: descriptions.LocalExploreConcepts,
-		Type:        graphql.NewList(conceptsFieldsObj()),
+		Name:        "WeaviateLocalExplore",
+		Description: descriptions.LocalExplore,
+		Type:        graphql.NewList(exploreObject()),
+		Resolve:     resolve,
 		Args: graphql.FieldConfigArgument{
-			"keywords": &graphql.ArgumentConfig{
+			"concepts": &graphql.ArgumentConfig{
 				Description: descriptions.Keywords,
 				Type:        graphql.NewNonNull(graphql.NewList(graphql.String)),
 			},
@@ -23,7 +25,7 @@ func conceptsField() *graphql.Field {
 				Description: descriptions.Limit,
 			},
 			"moveTo": &graphql.ArgumentConfig{
-				Description: descriptions.LocalExploreConceptsMovement,
+				Description: descriptions.VectorMovement,
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
 						Name:   "WeaviateLocalExploreMoveTo",
@@ -31,7 +33,7 @@ func conceptsField() *graphql.Field {
 					}),
 			},
 			"moveAwayFrom": &graphql.ArgumentConfig{
-				Description: descriptions.LocalExploreConceptsMovement,
+				Description: descriptions.VectorMovement,
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
 						Name:   "WeaviateLocalExploreMoveAwayFrom",
@@ -39,20 +41,19 @@ func conceptsField() *graphql.Field {
 					}),
 			},
 		},
-		Resolve: resolveConcepts,
 	}
 }
 
-func conceptsFieldsObj() *graphql.Object {
-	getLocalExploreConceptsFields := graphql.Fields{
+func exploreObject() *graphql.Object {
+	getLocalExploreFields := graphql.Fields{
 		"className": &graphql.Field{
-			Name:        "WeaviateLocalExploreConceptsClassName",
+			Name:        "WeaviateLocalExploreClassName",
 			Description: descriptions.ClassName,
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				vsr, ok := p.Source.(traverser.VectorSearchResult)
 				if !ok {
-					return nil, fmt.Errorf("unknown type %T in Explore.Concepts.className resolver", p.Source)
+					return nil, fmt.Errorf("unknown type %T in Explore..className resolver", p.Source)
 				}
 
 				return vsr.ClassName, nil
@@ -60,13 +61,13 @@ func conceptsFieldsObj() *graphql.Object {
 		},
 
 		"beacon": &graphql.Field{
-			Name:        "WeaviateLocalExploreConceptsBeacon",
+			Name:        "WeaviateLocalExploreBeacon",
 			Description: descriptions.Beacon,
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				vsr, ok := p.Source.(traverser.VectorSearchResult)
 				if !ok {
-					return nil, fmt.Errorf("unknown type %T in Explore.Concepts.className resolver", p.Source)
+					return nil, fmt.Errorf("unknown type %T in Explore..className resolver", p.Source)
 				}
 
 				return vsr.Beacon, nil
@@ -74,13 +75,13 @@ func conceptsFieldsObj() *graphql.Object {
 		},
 
 		"distance": &graphql.Field{
-			Name:        "WeaviateLocalExploreConceptsBeacon",
+			Name:        "WeaviateLocalExploreBeacon",
 			Description: descriptions.Distance,
 			Type:        graphql.Float,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				vsr, ok := p.Source.(traverser.VectorSearchResult)
 				if !ok {
-					return nil, fmt.Errorf("unknown type %T in Explore.Concepts.className resolver", p.Source)
+					return nil, fmt.Errorf("unknown type %T in Explore..className resolver", p.Source)
 				}
 
 				return vsr.Distance, nil
@@ -88,18 +89,18 @@ func conceptsFieldsObj() *graphql.Object {
 		},
 	}
 
-	getLocalExploreConceptsFieldsObject := graphql.ObjectConfig{
-		Name:        "WeaviateLocalExploreConceptsObj",
-		Fields:      getLocalExploreConceptsFields,
-		Description: descriptions.LocalExploreConcepts,
+	getLocalExploreFieldsObject := graphql.ObjectConfig{
+		Name:        "WeaviateLocalExploreObj",
+		Fields:      getLocalExploreFields,
+		Description: descriptions.LocalExplore,
 	}
 
-	return graphql.NewObject(getLocalExploreConceptsFieldsObject)
+	return graphql.NewObject(getLocalExploreFieldsObject)
 }
 
 func movementInp() graphql.InputObjectConfigFieldMap {
 	return graphql.InputObjectConfigFieldMap{
-		"keywords": &graphql.InputObjectFieldConfig{
+		"concepts": &graphql.InputObjectFieldConfig{
 			Description: descriptions.Keywords,
 			Type:        graphql.NewNonNull(graphql.NewList(graphql.String)),
 		},

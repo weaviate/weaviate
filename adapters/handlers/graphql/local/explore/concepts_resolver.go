@@ -25,8 +25,8 @@ import (
 // form the overall GraphQL API main interface. All data-base connectors that
 // want to support the GetMeta feature must implement this interface.
 type Resolver interface {
-	ExploreConcepts(ctx context.Context, principal *models.Principal,
-		params traverser.ExploreConceptsParams) ([]traverser.VectorSearchResult, error)
+	Explore(ctx context.Context, principal *models.Principal,
+		params traverser.ExploreParams) ([]traverser.VectorSearchResult, error)
 }
 
 // RequestsLog is a local abstraction on the RequestsLog that needs to be
@@ -62,7 +62,7 @@ func newResources(s interface{}) (*resources, error) {
 	}, nil
 }
 
-func resolveConcepts(p graphql.ResolveParams) (interface{}, error) {
+func resolve(p graphql.ResolveParams) (interface{}, error) {
 	resources, err := newResources(p.Source)
 	if err != nil {
 		return nil, err
@@ -70,15 +70,15 @@ func resolveConcepts(p graphql.ResolveParams) (interface{}, error) {
 
 	params := extractFuzzyArgs(p)
 
-	return resources.resolver.ExploreConcepts(p.Context,
+	return resources.resolver.Explore(p.Context,
 		principalFromContext(p.Context), params)
 }
 
-func extractFuzzyArgs(p graphql.ResolveParams) traverser.ExploreConceptsParams {
-	var args traverser.ExploreConceptsParams
+func extractFuzzyArgs(p graphql.ResolveParams) traverser.ExploreParams {
+	var args traverser.ExploreParams
 
 	// keywords is a required argument, so we don't need to check for its existing
-	keywords := p.Args["keywords"].([]interface{})
+	keywords := p.Args["concepts"].([]interface{})
 	args.Values = make([]string, len(keywords), len(keywords))
 	for i, value := range keywords {
 		args.Values[i] = value.(string)
@@ -115,7 +115,7 @@ func extractMovement(input interface{}) traverser.ExploreMove {
 	res := traverser.ExploreMove{}
 	res.Force = float32(moveToMap["force"].(float64))
 
-	keywords := moveToMap["keywords"].([]interface{})
+	keywords := moveToMap["concepts"].([]interface{})
 	res.Values = make([]string, len(keywords), len(keywords))
 	for i, value := range keywords {
 		res.Values[i] = value.(string)
