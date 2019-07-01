@@ -22,6 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 )
 
 func TestSimpleFieldParamsOK(t *testing.T) {
@@ -88,6 +89,53 @@ func TestExtractGeoCoordinatesField(t *testing.T) {
 	}
 
 	assert.Equal(t, expectedLocation, result.Get("Get", "Actions", "SomeAction").Result.([]interface{})[0])
+}
+
+func TestExploreRanker(t *testing.T) {
+	t.Parallel()
+
+	resolver := newMockResolver(emptyPeers())
+
+	t.Run("for actions", func(t *testing.T) {
+		query := `{ Get { Actions { SomeAction(explore: {
+                concepts: ["c1", "c2", "c3"],
+								moveTo: {
+									concepts:["positive"],
+									force: 0.5
+								},
+								moveAwayFrom: {
+									concepts:["epic"],
+									force: 0.25
+								}
+        			}) { intField } } } }`
+
+		// TODO: gh-881: also test proper extraction. This test was added as part
+		// of gh-906 where we only cared about the presence of the fields in the
+		// GQL schema, but not about their function
+		resolver.On("LocalGetClass", mock.Anything).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	// t.Run("for actions", func(t *testing.T) {
+	// 	query := `{ Get { Actions { SomeAction(explore: {
+	// concepts: ["c1", "c2", "c3"],
+	// moveTo: [{
+	// concept: "positive",
+	// force: 0.5
+	// }],
+	// moveAwayFrom: [{
+	// concept: "epic",
+	// force: 0.25
+	// }]
+	// }) { intField } } } }`
+
+	// 	// TODO: gh-881: also test proper extraction. This test was added as part
+	// 	// of gh-906 where we only cared about the presence of the fields in the
+	// 	// GQL schema, but not about their function
+	// 	resolver.AssertResolve(t, query)
+	// })
 }
 
 func TestExtractPagination(t *testing.T) {
