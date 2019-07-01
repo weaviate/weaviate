@@ -25,6 +25,10 @@ var SimpleSchema = schema.Schema{
 				Class: "SomeThing",
 				Properties: []*models.SemanticSchemaClassProperty{
 					&models.SemanticSchemaClassProperty{
+						Name:     "intField",
+						DataType: []string{"int"},
+					},
+					&models.SemanticSchemaClassProperty{
 						Name:     "NetworkRefField",
 						DataType: []string{"OtherInstance/SomeRemoteClass"},
 					},

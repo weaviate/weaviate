@@ -22,7 +22,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		vectorSearcher := &fakeVectorSearcher{}
 		traverser := NewTraverser(locks, repo, c11y, logger, authorizer,
 			vectorizer, vectorSearcher)
-		params := ExploreConceptsParams{
+		params := ExploreParams{
 			Values: []string{"a search term", "another"},
 		}
 		vectorSearcher.results = []VectorSearchResult{
@@ -38,7 +38,7 @@ func Test_ExploreConcepts(t *testing.T) {
 			},
 		}
 
-		res, err := traverser.ExploreConcepts(context.Background(), nil, params)
+		res, err := traverser.Explore(context.Background(), nil, params)
 		require.Nil(t, err)
 		assert.Equal(t, []VectorSearchResult{
 			VectorSearchResult{
@@ -71,7 +71,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		vectorSearcher := &fakeVectorSearcher{}
 		traverser := NewTraverser(locks, repo, c11y, logger, authorizer,
 			vectorizer, vectorSearcher)
-		params := ExploreConceptsParams{
+		params := ExploreParams{
 			Limit:  100,
 			Values: []string{"a search term", "another"},
 			MoveTo: ExploreMove{
@@ -96,7 +96,7 @@ func Test_ExploreConcepts(t *testing.T) {
 			},
 		}
 
-		res, err := traverser.ExploreConcepts(context.Background(), nil, params)
+		res, err := traverser.Explore(context.Background(), nil, params)
 		require.Nil(t, err)
 		assert.Equal(t, []VectorSearchResult{
 			VectorSearchResult{

@@ -43,8 +43,8 @@ func newMockResolver() *mockResolver {
 	return mocker
 }
 
-func (m *mockResolver) ExploreConcepts(ctx context.Context,
-	principal *models.Principal, params traverser.ExploreConceptsParams) ([]traverser.VectorSearchResult, error) {
+func (m *mockResolver) Explore(ctx context.Context,
+	principal *models.Principal, params traverser.ExploreParams) ([]traverser.VectorSearchResult, error) {
 	args := m.Called(params)
 	return args.Get(0).([]traverser.VectorSearchResult), args.Error(1)
 }
