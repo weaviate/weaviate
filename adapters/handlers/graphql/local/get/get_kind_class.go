@@ -188,18 +188,23 @@ func buildGetClassField(classObject *graphql.Object, k kind.Kind,
 				Description: descriptions.First,
 				Type:        graphql.Int,
 			},
-			"where": &graphql.ArgumentConfig{
-				Description: descriptions.LocalGetWhere,
-				Type: graphql.NewInputObject(
-					graphql.InputObjectConfig{
-						Name:        fmt.Sprintf("WeaviateLocalGet%ss%sWhereInpObj", kindName, class.Class),
-						Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateLocalGet%ss%s", kindName, class.Class)),
-						Description: descriptions.LocalGetWhereInpObj,
-					},
-				),
-			},
+			"explore": exploreArgument(kindName, class.Class),
+			"where":   whereArgument(kindName, class.Class),
 		},
 		Resolve: makeResolveGetClass(k, class.Class),
+	}
+}
+
+func whereArgument(kindName, className string) *graphql.ArgumentConfig {
+	return &graphql.ArgumentConfig{
+		Description: descriptions.LocalGetWhere,
+		Type: graphql.NewInputObject(
+			graphql.InputObjectConfig{
+				Name:        fmt.Sprintf("WeaviateLocalGet%ss%sWhereInpObj", kindName, className),
+				Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateLocalGet%ss%s", kindName, className)),
+				Description: descriptions.LocalGetWhereInpObj,
+			},
+		),
 	}
 }
 
