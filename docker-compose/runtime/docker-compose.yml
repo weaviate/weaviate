@@ -7,7 +7,7 @@ services:
     ports:
      - "80:80"
   weaviate:
-    image: semitechnologies/weaviate:vector-search-experimental
+    image: semitechnologies/weaviate:vector-search-experimental_v2
     command: 
       - "--host"
       - "0.0.0.0"
