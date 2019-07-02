@@ -35,12 +35,14 @@ func TestEsVectorRepo(t *testing.T) {
 	})
 
 	t.Run("create the desired mappings", func(t *testing.T) {
-		err := repo.SetMappings(context.Background(), "integrationtest")
+		err := repo.SetMappings(context.Background(), "integrationtest",
+			map[string]interface{}{})
 		assert.Nil(t, err)
 	})
 
 	t.Run("update (upsert) the desired mappings", func(t *testing.T) {
-		err := repo.SetMappings(context.Background(), "integrationtest")
+		err := repo.SetMappings(context.Background(), "integrationtest",
+			map[string]interface{}{})
 		assert.Nil(t, err)
 	})
 

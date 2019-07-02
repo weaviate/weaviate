@@ -126,7 +126,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		os.Exit(1)
 	}
 
-	err = vectorRepo.SetMappings(context.Background(), "concepts")
+	err = vectorRepo.SetMappings(context.Background(), "concepts", map[string]interface{}{})
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
