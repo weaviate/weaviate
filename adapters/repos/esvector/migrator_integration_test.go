@@ -110,6 +110,19 @@ func TestEsVectorMigrator(t *testing.T) {
 					},
 				},
 			},
+			{
+				name: "action class with a ref prop",
+				kind: kind.Action,
+				class: &models.SemanticSchemaClass{
+					Class: "MyClass",
+					Properties: []*models.SemanticSchemaClassProperty{
+						&models.SemanticSchemaClassProperty{
+							Name:     "awesome",
+							DataType: []string{"SomeClass"},
+						},
+					},
+				},
+			},
 		}
 
 		for _, test := range tests {

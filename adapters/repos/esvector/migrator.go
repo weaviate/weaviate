@@ -96,8 +96,8 @@ func (m *Migrator) setMappings(ctx context.Context, index string,
 		case string(schema.DataTypeGeoCoordinates):
 			esProperties[prop.Name] = typeMap(GeoPoint)
 		default:
-			return fmt.Errorf("prop %s: unsupported dataType %s",
-				prop.Name, prop.DataType[0])
+			// assume everythings else must be a ref prop, simply ignore
+			continue
 		}
 	}
 
