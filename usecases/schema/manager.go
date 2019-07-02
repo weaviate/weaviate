@@ -20,13 +20,14 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/locks"
 	"github.com/semi-technologies/weaviate/usecases/network"
+	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
 	"github.com/sirupsen/logrus"
 )
 
 // Manager Manages schema changes at a use-case level, i.e. agnostic of
 // underlying databases or storage providers
 type Manager struct {
-	migrator         Migrator
+	migrator         migrate.Migrator
 	repo             Repo
 	stopwordDetector stopwordDetector
 	c11yClient       c11yClient
@@ -36,21 +37,6 @@ type Manager struct {
 	callbacks        []func(updatedSchema schema.Schema)
 	logger           logrus.FieldLogger
 	authorizer       authorizer
-}
-
-type Migrator interface {
-	AddClass(ctx context.Context, kind kind.Kind, class *models.SemanticSchemaClass) error
-	DropClass(ctx context.Context, kind kind.Kind, className string) error
-	UpdateClass(ctx context.Context, kind kind.Kind, className string,
-		newClassName *string, newKeywords *models.SemanticSchemaKeywords) error
-
-	AddProperty(ctx context.Context, kind kind.Kind, className string,
-		prop *models.SemanticSchemaClassProperty) error
-	DropProperty(ctx context.Context, kind kind.Kind, className string,
-		propertyName string) error
-	UpdateProperty(ctx context.Context, kind kind.Kind, className string,
-		propName string, newName *string, newKeywords *models.SemanticSchemaKeywords) error
-	UpdatePropertyAddDataType(ctx context.Context, kind kind.Kind, className string, propName string, newDataType string) error
 }
 
 // Repo describes the requirements the schema manager has to a database to load
@@ -72,7 +58,7 @@ type c11yClient interface {
 }
 
 // NewManager creates a new manager
-func NewManager(migrator Migrator, repo Repo, locks locks.ConnectorSchemaLock,
+func NewManager(migrator migrate.Migrator, repo Repo, locks locks.ConnectorSchemaLock,
 	network network.Network, logger logrus.FieldLogger, c11yClient c11yClient,
 	authorizer authorizer, swd stopwordDetector) (*Manager, error) {
 	m := &Manager{

@@ -20,7 +20,7 @@ import (
 
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
-	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
+	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
@@ -67,7 +67,7 @@ type DatabaseConnector interface {
 
 	// Migrator describes methods that will be called when the user changes the
 	// schema. If the connected db is schemaless these have to return nil
-	schemaUC.Migrator
+	migrate.Migrator
 
 	// stateManagement provdies the app with methods to update the state inside
 	// the connector based on external events
