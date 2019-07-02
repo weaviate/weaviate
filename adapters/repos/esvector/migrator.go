@@ -82,9 +82,19 @@ func (m *Migrator) setMappings(ctx context.Context, index string,
 
 		switch prop.DataType[0] {
 		case string(schema.DataTypeString):
-			esProperties[prop.Name] = map[string]interface{}{
-				"type": Keyword,
-			}
+			esProperties[prop.Name] = typeMap(Keyword)
+		case string(schema.DataTypeText):
+			esProperties[prop.Name] = typeMap(Text)
+		case string(schema.DataTypeInt):
+			esProperties[prop.Name] = typeMap(Integer)
+		case string(schema.DataTypeNumber):
+			esProperties[prop.Name] = typeMap(Float)
+		case string(schema.DataTypeBoolean):
+			esProperties[prop.Name] = typeMap(Boolean)
+		case string(schema.DataTypeDate):
+			esProperties[prop.Name] = typeMap(Date)
+		case string(schema.DataTypeGeoCoordinates):
+			esProperties[prop.Name] = typeMap(GeoPoint)
 		default:
 			return fmt.Errorf("prop %s: unsupported dataType %s",
 				prop.Name, prop.DataType[0])
@@ -92,4 +102,10 @@ func (m *Migrator) setMappings(ctx context.Context, index string,
 	}
 
 	return m.repo.SetMappings(ctx, index, esProperties)
+}
+
+func typeMap(ft FieldType) map[string]interface{} {
+	return map[string]interface{}{
+		"type": ft,
+	}
 }
