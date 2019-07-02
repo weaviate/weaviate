@@ -50,6 +50,66 @@ func TestEsVectorMigrator(t *testing.T) {
 					},
 				},
 			},
+			{
+				name: "action class with an int prop",
+				kind: kind.Action,
+				class: &models.SemanticSchemaClass{
+					Class: "MyClass",
+					Properties: []*models.SemanticSchemaClassProperty{
+						&models.SemanticSchemaClassProperty{
+							Name:     "age",
+							DataType: []string{string(schema.DataTypeInt)},
+						},
+					},
+				},
+			},
+			{
+				name: "action class with an float prop",
+				kind: kind.Action,
+				class: &models.SemanticSchemaClass{
+					Class: "MyClass",
+					Properties: []*models.SemanticSchemaClassProperty{
+						&models.SemanticSchemaClassProperty{
+							Name:     "weight",
+							DataType: []string{string(schema.DataTypeNumber)},
+						},
+					},
+				},
+			},
+			{
+				name: "action class with bool prop",
+				kind: kind.Action,
+				class: &models.SemanticSchemaClass{
+					Class: "MyClass",
+					Properties: []*models.SemanticSchemaClassProperty{
+						&models.SemanticSchemaClassProperty{
+							Name:     "awesome",
+							DataType: []string{string(schema.DataTypeBoolean)},
+						},
+					},
+				},
+			},
+			{
+				name: "action class with text, date and geo prop",
+				kind: kind.Action,
+				class: &models.SemanticSchemaClass{
+					Class: "MyClass",
+					Properties: []*models.SemanticSchemaClassProperty{
+						&models.SemanticSchemaClassProperty{
+							Name:     "content",
+							DataType: []string{string(schema.DataTypeText)},
+						},
+						&models.SemanticSchemaClassProperty{
+							Name:     "date",
+							DataType: []string{string(schema.DataTypeDate)},
+						},
+						&models.SemanticSchemaClassProperty{
+							Name:     "location",
+							DataType: []string{string(schema.DataTypeGeoCoordinates)},
+						},
+					},
+				},
+			},
 		}
 
 		for _, test := range tests {
