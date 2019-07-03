@@ -50,6 +50,24 @@ func (r *Repo) PutIndex(ctx context.Context, index string) error {
 	return nil
 }
 
+// DeleteIndex idempotently creates an index
+func (r *Repo) DeleteIndex(ctx context.Context, index string) error {
+	req := esapi.IndicesDeleteRequest{
+		Index: []string{index},
+	}
+
+	res, err := req.Do(ctx, r.client)
+	if err != nil {
+		return fmt.Errorf("delete index: %v", err)
+	}
+
+	if err := errorResToErr(res); err != nil {
+		return fmt.Errorf("delete index: %v", err)
+	}
+
+	return nil
+}
+
 func (r *Repo) indexExists(ctx context.Context, index string) (bool, error) {
 	req := esapi.IndicesExistsRequest{
 		Index: []string{index},

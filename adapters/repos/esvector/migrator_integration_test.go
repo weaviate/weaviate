@@ -10,6 +10,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -34,14 +35,14 @@ func TestEsVectorMigrator(t *testing.T) {
 				name: "thing class without props",
 				kind: kind.Thing,
 				class: &models.SemanticSchemaClass{
-					Class: "MyClass",
+					Class: "MyThingClass",
 				},
 			},
 			{
 				name: "thing class with a string prop",
 				kind: kind.Thing,
 				class: &models.SemanticSchemaClass{
-					Class: "MyClass",
+					Class: "MyThingClass",
 					Properties: []*models.SemanticSchemaClassProperty{
 						&models.SemanticSchemaClassProperty{
 							Name:     "name",
@@ -133,6 +134,13 @@ func TestEsVectorMigrator(t *testing.T) {
 
 		}
 
+	})
+
+	t.Run("deleting a previously created class", func(t *testing.T) {
+		err := migrator.DropClass(context.Background(), kind.Thing, "MyThingClass")
+		assert.Nil(t, err)
+		err = migrator.DropClass(context.Background(), kind.Action, "MyClass")
+		assert.Nil(t, err)
 	})
 
 }
