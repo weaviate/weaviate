@@ -24,13 +24,11 @@ func NewMigrator(repo *Repo) *Migrator {
 // AddClass creates an index, then puts the desired mappings
 func (m *Migrator) AddClass(ctx context.Context, kind kind.Kind, class *models.SemanticSchemaClass) error {
 	index := classIndexFromClass(kind, class)
-	// create index
 	err := m.repo.PutIndex(ctx, index)
 	if err != nil {
 		return fmt.Errorf("add class %s: create index: %v", class.Class, err)
 	}
 
-	// update index mappings
 	err = m.setMappings(ctx, index, class.Properties)
 	if err != nil {
 		return fmt.Errorf("add class %s: map properties: %v", class.Class, err)
@@ -39,8 +37,15 @@ func (m *Migrator) AddClass(ctx context.Context, kind kind.Kind, class *models.S
 	return nil
 }
 
+// DropClass deletes a class specific index
 func (m *Migrator) DropClass(ctx context.Context, kind kind.Kind, className string) error {
-	panic("not implemented")
+	index := classIndexFromClassName(kind, className)
+	err := m.repo.DeleteIndex(ctx, index)
+	if err != nil {
+		return fmt.Errorf("drop class %s: delete index: %v", className, err)
+	}
+
+	return nil
 }
 
 func (m *Migrator) UpdateClass(ctx context.Context, kind kind.Kind, className string, newClassName *string, newKeywords *models.SemanticSchemaKeywords) error {
@@ -66,8 +71,12 @@ func (m *Migrator) UpdatePropertyAddDataType(ctx context.Context, kind kind.Kind
 const indexPrefix = "class_"
 
 func classIndexFromClass(kind kind.Kind, class *models.SemanticSchemaClass) string {
+	return classIndexFromClassName(kind, class.Class)
+}
+
+func classIndexFromClassName(kind kind.Kind, className string) string {
 	return fmt.Sprintf("%s%s_%s",
-		indexPrefix, kind.Name(), strings.ToLower(class.Class))
+		indexPrefix, kind.Name(), strings.ToLower(className))
 }
 
 func (m *Migrator) setMappings(ctx context.Context, index string,
