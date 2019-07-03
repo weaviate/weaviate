@@ -76,7 +76,8 @@ func (m *Migrator) AddProperty(ctx context.Context, kind kind.Kind, className st
 }
 
 func (m *Migrator) DropProperty(ctx context.Context, kind kind.Kind, className string, propertyName string) error {
-	panic("not implemented")
+	// ignore but don't error
+	return nil
 }
 
 func (m *Migrator) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string, newKeywords *models.Keywords) error {

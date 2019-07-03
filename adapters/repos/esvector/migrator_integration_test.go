@@ -156,6 +156,16 @@ func TestEsVectorMigrator(t *testing.T) {
 		assert.Nil(t, err)
 	})
 
+	t.Run("deleting a property", func(t *testing.T) {
+		// elasticsearch does not support deleting a property, however, there is
+		// also no harm in leaving it in the index. It is importing that it doesn't
+		// error, though
+
+		prop := "myProp"
+		err := migrator.DropProperty(context.Background(), kind.Action, "MyClass", prop)
+		assert.Nil(t, err)
+	})
+
 	t.Run("deleting a previously created class", func(t *testing.T) {
 		err := migrator.DropClass(context.Background(), kind.Thing, "MyThingClass")
 		assert.Nil(t, err)
