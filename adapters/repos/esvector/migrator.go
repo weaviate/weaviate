@@ -53,7 +53,16 @@ func (m *Migrator) UpdateClass(ctx context.Context, kind kind.Kind, className st
 }
 
 func (m *Migrator) AddProperty(ctx context.Context, kind kind.Kind, className string, prop *models.SemanticSchemaClassProperty) error {
-	panic("not implemented")
+	// put mappings does not delete existing properties, so we can use it to add
+	// a new one, too
+	index := classIndexFromClassName(kind, className)
+	err := m.setMappings(ctx, index, []*models.SemanticSchemaClassProperty{prop})
+	if err != nil {
+		return fmt.Errorf("add property %s to class %s: map properties: %v",
+			className, prop.Name, err)
+	}
+
+	return nil
 }
 
 func (m *Migrator) DropProperty(ctx context.Context, kind kind.Kind, className string, propertyName string) error {
