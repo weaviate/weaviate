@@ -71,10 +71,8 @@ type network interface {
 }
 
 type vectorRepo interface {
-	PutThing(ctx context.Context, index string,
-		concept *models.Thing, vector []float32) error
-	PutAction(ctx context.Context, index string,
-		concept *models.Action, vector []float32) error
+	PutThing(ctx context.Context, concept *models.Thing, vector []float32) error
+	PutAction(ctx context.Context, concept *models.Action, vector []float32) error
 }
 
 // NewManager creates a new manager

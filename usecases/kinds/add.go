@@ -83,7 +83,7 @@ func (m *Manager) addActionToConnectorAndSchema(ctx context.Context, principal *
 		return nil, NewErrInternal("could not create vector from action: %v", err)
 	}
 
-	err = m.vectorRepo.PutAction(ctx, "concepts", class, v)
+	err = m.vectorRepo.PutAction(ctx, class, v)
 	if err != nil {
 		return nil, NewErrInternal("could not store vector for thing: %v", err)
 	}
@@ -151,7 +151,7 @@ func (m *Manager) addThingToConnectorAndSchema(ctx context.Context, principal *m
 		return nil, NewErrInternal("could not create vector from thing: %v", err)
 	}
 
-	err = m.vectorRepo.PutThing(ctx, "concepts", class, v)
+	err = m.vectorRepo.PutThing(ctx, class, v)
 	if err != nil {
 		return nil, NewErrInternal("could not store vector for thing: %v", err)
 	}

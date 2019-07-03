@@ -53,7 +53,7 @@ func (r *Repo) PutIndex(ctx context.Context, index string) error {
 		return fmt.Errorf("create index: %v", err)
 	}
 
-	if err := errorResToErr(res); err != nil {
+	if err := errorResToErr(res, r.logger); err != nil {
 		return fmt.Errorf("create index: %v", err)
 	}
 
@@ -71,7 +71,7 @@ func (r *Repo) DeleteIndex(ctx context.Context, index string) error {
 		return fmt.Errorf("delete index: %v", err)
 	}
 
-	if err := errorResToErr(res); err != nil {
+	if err := errorResToErr(res, r.logger); err != nil {
 		return fmt.Errorf("delete index: %v", err)
 	}
 
@@ -129,7 +129,7 @@ func (r *Repo) SetMappings(ctx context.Context, index string, props map[string]i
 		return fmt.Errorf("set mappings: %v", err)
 	}
 
-	if err := errorResToErr(res); err != nil {
+	if err := errorResToErr(res, r.logger); err != nil {
 		return fmt.Errorf("set mappings: %v", err)
 	}
 

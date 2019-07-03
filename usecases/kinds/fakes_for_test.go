@@ -174,11 +174,11 @@ func (f *fakeC11y) SafeGetSimilarWordsWithCertainty(ctx context.Context, word st
 
 type fakeVectorRepo struct{}
 
-func (f *fakeVectorRepo) PutThing(ctx context.Context, index string,
+func (f *fakeVectorRepo) PutThing(ctx context.Context,
 	concept *models.Thing, vector []float32) error {
 	return nil
 }
-func (f *fakeVectorRepo) PutAction(ctx context.Context, index string,
+func (f *fakeVectorRepo) PutAction(ctx context.Context,
 	concept *models.Action, vector []float32) error {
 	return nil
 }
