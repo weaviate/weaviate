@@ -25,9 +25,9 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// SemanticSchemaClassProperty semantic schema class property
-// swagger:model SemanticSchemaClassProperty
-type SemanticSchemaClassProperty struct {
+// Property property
+// swagger:model Property
+type Property struct {
 
 	// The cardinality of this property. If you want to store more than one value in a property, set this to 'many'. Defaults to 'atMostOne'. Note that by default properties can be empty in Weaviate.
 	// Enum: [atMostOne many]
@@ -40,14 +40,14 @@ type SemanticSchemaClassProperty struct {
 	Description string `json:"description,omitempty"`
 
 	// keywords
-	Keywords SemanticSchemaKeywords `json:"keywords,omitempty"`
+	Keywords Keywords `json:"keywords,omitempty"`
 
 	// Name of the property as URI relative to the schema URL.
 	Name string `json:"name,omitempty"`
 }
 
-// Validate validates this semantic schema class property
-func (m *SemanticSchemaClassProperty) Validate(formats strfmt.Registry) error {
+// Validate validates this property
+func (m *Property) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateCardinality(formats); err != nil {
@@ -64,7 +64,7 @@ func (m *SemanticSchemaClassProperty) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-var semanticSchemaClassPropertyTypeCardinalityPropEnum []interface{}
+var propertyTypeCardinalityPropEnum []interface{}
 
 func init() {
 	var res []string
@@ -72,28 +72,28 @@ func init() {
 		panic(err)
 	}
 	for _, v := range res {
-		semanticSchemaClassPropertyTypeCardinalityPropEnum = append(semanticSchemaClassPropertyTypeCardinalityPropEnum, v)
+		propertyTypeCardinalityPropEnum = append(propertyTypeCardinalityPropEnum, v)
 	}
 }
 
 const (
 
-	// SemanticSchemaClassPropertyCardinalityAtMostOne captures enum value "atMostOne"
-	SemanticSchemaClassPropertyCardinalityAtMostOne string = "atMostOne"
+	// PropertyCardinalityAtMostOne captures enum value "atMostOne"
+	PropertyCardinalityAtMostOne string = "atMostOne"
 
-	// SemanticSchemaClassPropertyCardinalityMany captures enum value "many"
-	SemanticSchemaClassPropertyCardinalityMany string = "many"
+	// PropertyCardinalityMany captures enum value "many"
+	PropertyCardinalityMany string = "many"
 )
 
 // prop value enum
-func (m *SemanticSchemaClassProperty) validateCardinalityEnum(path, location string, value string) error {
-	if err := validate.Enum(path, location, value, semanticSchemaClassPropertyTypeCardinalityPropEnum); err != nil {
+func (m *Property) validateCardinalityEnum(path, location string, value string) error {
+	if err := validate.Enum(path, location, value, propertyTypeCardinalityPropEnum); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (m *SemanticSchemaClassProperty) validateCardinality(formats strfmt.Registry) error {
+func (m *Property) validateCardinality(formats strfmt.Registry) error {
 
 	if swag.IsZero(m.Cardinality) { // not required
 		return nil
@@ -107,7 +107,7 @@ func (m *SemanticSchemaClassProperty) validateCardinality(formats strfmt.Registr
 	return nil
 }
 
-func (m *SemanticSchemaClassProperty) validateKeywords(formats strfmt.Registry) error {
+func (m *Property) validateKeywords(formats strfmt.Registry) error {
 
 	if swag.IsZero(m.Keywords) { // not required
 		return nil
@@ -124,7 +124,7 @@ func (m *SemanticSchemaClassProperty) validateKeywords(formats strfmt.Registry) 
 }
 
 // MarshalBinary interface implementation
-func (m *SemanticSchemaClassProperty) MarshalBinary() ([]byte, error) {
+func (m *Property) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -132,8 +132,8 @@ func (m *SemanticSchemaClassProperty) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *SemanticSchemaClassProperty) UnmarshalBinary(b []byte) error {
-	var res SemanticSchemaClassProperty
+func (m *Property) UnmarshalBinary(b []byte) error {
+	var res Property
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

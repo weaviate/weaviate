@@ -20,8 +20,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
-func stringPropertyFields(class *models.SemanticSchemaClass,
-	property *models.SemanticSchemaClassProperty, prefix string) *graphql.Object {
+func stringPropertyFields(class *models.Class,
+	property *models.Property, prefix string) *graphql.Object {
 	getMetaDateFields := graphql.Fields{
 		"type": &graphql.Field{
 			Name:        fmt.Sprintf("%s%sType", prefix, class.Class),
@@ -58,8 +58,8 @@ func stringPropertyFields(class *models.SemanticSchemaClass,
 	})
 }
 
-func stringTopOccurrences(class *models.SemanticSchemaClass,
-	property *models.SemanticSchemaClassProperty, prefix string) *graphql.Object {
+func stringTopOccurrences(class *models.Class,
+	property *models.Property, prefix string) *graphql.Object {
 	getMetaMetaPointingFields := graphql.Fields{
 		"value": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sTopOccurrencesValue", prefix, class.Class, property.Name),

@@ -1206,10 +1206,10 @@ func init() {
               "type": "object",
               "properties": {
                 "actions": {
-                  "$ref": "#/definitions/SemanticSchema"
+                  "$ref": "#/definitions/Schema"
                 },
                 "things": {
-                  "$ref": "#/definitions/SemanticSchema"
+                  "$ref": "#/definitions/Schema"
                 }
               }
             }
@@ -1248,7 +1248,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClass"
+              "$ref": "#/definitions/Class"
             }
           }
         ],
@@ -1256,7 +1256,7 @@ func init() {
           "200": {
             "description": "Added the new Action class to the ontology.",
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClass"
+              "$ref": "#/definitions/Class"
             }
           },
           "401": {
@@ -1305,7 +1305,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClass"
+              "$ref": "#/definitions/Class"
             }
           }
         ],
@@ -1403,7 +1403,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClassProperty"
+              "$ref": "#/definitions/Property"
             }
           }
         ],
@@ -1411,7 +1411,7 @@ func init() {
           "200": {
             "description": "Added the property.",
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClassProperty"
+              "$ref": "#/definitions/Property"
             }
           },
           "401": {
@@ -1466,7 +1466,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClassProperty"
+              "$ref": "#/definitions/Property"
             }
           }
         ],
@@ -1558,7 +1558,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClass"
+              "$ref": "#/definitions/Class"
             }
           }
         ],
@@ -1566,7 +1566,7 @@ func init() {
           "200": {
             "description": "Added the new Thing class to the ontology.",
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClass"
+              "$ref": "#/definitions/Class"
             }
           },
           "401": {
@@ -1614,7 +1614,7 @@ func init() {
             "name": "body",
             "in": "body",
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClass"
+              "$ref": "#/definitions/Class"
             }
           }
         ],
@@ -1712,7 +1712,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClassProperty"
+              "$ref": "#/definitions/Property"
             }
           }
         ],
@@ -1720,7 +1720,7 @@ func init() {
           "200": {
             "description": "Added the property.",
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClassProperty"
+              "$ref": "#/definitions/Property"
             }
           },
           "401": {
@@ -1775,7 +1775,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClassProperty"
+              "$ref": "#/definitions/Property"
             }
           }
         ],
@@ -2452,7 +2452,7 @@ func init() {
           "format": "int64"
         },
         "schema": {
-          "$ref": "#/definitions/Schema"
+          "$ref": "#/definitions/PropertySchema"
         }
       }
     },
@@ -2669,6 +2669,29 @@ func init() {
         }
       }
     },
+    "Class": {
+      "type": "object",
+      "properties": {
+        "class": {
+          "description": "Name of the class as URI relative to the schema URL.",
+          "type": "string"
+        },
+        "description": {
+          "description": "Description of the class.",
+          "type": "string"
+        },
+        "keywords": {
+          "$ref": "#/definitions/Keywords"
+        },
+        "properties": {
+          "description": "The properties of the class.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Property"
+          }
+        }
+      }
+    },
     "ErrorResponse": {
       "description": "An error response given by Weaviate end-points.",
       "type": "object",
@@ -2785,12 +2808,28 @@ func init() {
       "description": "JSON object value.",
       "type": "object"
     },
+    "Keywords": {
+      "description": "Describes a class or property using multiple weighted words.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string"
+          },
+          "weight": {
+            "type": "number",
+            "format": "float"
+          }
+        }
+      }
+    },
     "Meta": {
       "description": "Contains meta information of the current Weaviate instance.",
       "type": "object",
       "properties": {
         "actionsSchema": {
-          "$ref": "#/definitions/SemanticSchema"
+          "$ref": "#/definitions/Schema"
         },
         "hostname": {
           "description": "The url of the host.",
@@ -2798,7 +2837,7 @@ func init() {
           "format": "url"
         },
         "thingsSchema": {
-          "$ref": "#/definitions/SemanticSchema"
+          "$ref": "#/definitions/Schema"
         }
       }
     },
@@ -2887,68 +2926,7 @@ func init() {
         }
       }
     },
-    "Schema": {
-      "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
-      "type": "object"
-    },
-    "SchemaHistory": {
-      "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
-      "type": "object"
-    },
-    "SemanticSchema": {
-      "description": "Definitions of semantic schemas (also see: https://github.com/semi-technologies/weaviate-semantic-schemas).",
-      "type": "object",
-      "properties": {
-        "classes": {
-          "description": "Semantic classes that are available.",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/SemanticSchemaClass"
-          }
-        },
-        "maintainer": {
-          "description": "Email of the maintainer.",
-          "type": "string",
-          "format": "email"
-        },
-        "name": {
-          "description": "Name of the schema.",
-          "type": "string"
-        },
-        "type": {
-          "description": "Type of schema, should be \"thing\" or \"action\".",
-          "type": "string",
-          "enum": [
-            "thing",
-            "action"
-          ]
-        }
-      }
-    },
-    "SemanticSchemaClass": {
-      "type": "object",
-      "properties": {
-        "class": {
-          "description": "Name of the class as URI relative to the schema URL.",
-          "type": "string"
-        },
-        "description": {
-          "description": "Description of the class.",
-          "type": "string"
-        },
-        "keywords": {
-          "$ref": "#/definitions/SemanticSchemaKeywords"
-        },
-        "properties": {
-          "description": "The properties of the class.",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/SemanticSchemaClassProperty"
-          }
-        }
-      }
-    },
-    "SemanticSchemaClassProperty": {
+    "Property": {
       "type": "object",
       "properties": {
         "cardinality": {
@@ -2972,7 +2950,7 @@ func init() {
           "type": "string"
         },
         "keywords": {
-          "$ref": "#/definitions/SemanticSchemaKeywords"
+          "$ref": "#/definitions/Keywords"
         },
         "name": {
           "description": "Name of the property as URI relative to the schema URL.",
@@ -2980,21 +2958,43 @@ func init() {
         }
       }
     },
-    "SemanticSchemaKeywords": {
-      "description": "Describes a class or property using multiple weighted words.",
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "keyword": {
-            "type": "string"
-          },
-          "weight": {
-            "type": "number",
-            "format": "float"
+    "PropertySchema": {
+      "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
+      "type": "object"
+    },
+    "Schema": {
+      "description": "Definitions of semantic schemas (also see: https://github.com/semi-technologies/weaviate-semantic-schemas).",
+      "type": "object",
+      "properties": {
+        "classes": {
+          "description": "Semantic classes that are available.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Class"
           }
+        },
+        "maintainer": {
+          "description": "Email of the maintainer.",
+          "type": "string",
+          "format": "email"
+        },
+        "name": {
+          "description": "Name of the schema.",
+          "type": "string"
+        },
+        "type": {
+          "description": "Type of schema, should be \"thing\" or \"action\".",
+          "type": "string",
+          "enum": [
+            "thing",
+            "action"
+          ]
         }
       }
+    },
+    "SchemaHistory": {
+      "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
+      "type": "object"
     },
     "SingleRef": {
       "properties": {
@@ -3028,7 +3028,7 @@ func init() {
           "format": "int64"
         },
         "schema": {
-          "$ref": "#/definitions/Schema"
+          "$ref": "#/definitions/PropertySchema"
         }
       }
     },
@@ -4320,10 +4320,10 @@ func init() {
               "type": "object",
               "properties": {
                 "actions": {
-                  "$ref": "#/definitions/SemanticSchema"
+                  "$ref": "#/definitions/Schema"
                 },
                 "things": {
-                  "$ref": "#/definitions/SemanticSchema"
+                  "$ref": "#/definitions/Schema"
                 }
               }
             }
@@ -4362,7 +4362,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClass"
+              "$ref": "#/definitions/Class"
             }
           }
         ],
@@ -4370,7 +4370,7 @@ func init() {
           "200": {
             "description": "Added the new Action class to the ontology.",
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClass"
+              "$ref": "#/definitions/Class"
             }
           },
           "401": {
@@ -4419,7 +4419,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClass"
+              "$ref": "#/definitions/Class"
             }
           }
         ],
@@ -4517,7 +4517,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClassProperty"
+              "$ref": "#/definitions/Property"
             }
           }
         ],
@@ -4525,7 +4525,7 @@ func init() {
           "200": {
             "description": "Added the property.",
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClassProperty"
+              "$ref": "#/definitions/Property"
             }
           },
           "401": {
@@ -4580,7 +4580,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClassProperty"
+              "$ref": "#/definitions/Property"
             }
           }
         ],
@@ -4672,7 +4672,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClass"
+              "$ref": "#/definitions/Class"
             }
           }
         ],
@@ -4680,7 +4680,7 @@ func init() {
           "200": {
             "description": "Added the new Thing class to the ontology.",
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClass"
+              "$ref": "#/definitions/Class"
             }
           },
           "401": {
@@ -4728,7 +4728,7 @@ func init() {
             "name": "body",
             "in": "body",
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClass"
+              "$ref": "#/definitions/Class"
             }
           }
         ],
@@ -4826,7 +4826,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClassProperty"
+              "$ref": "#/definitions/Property"
             }
           }
         ],
@@ -4834,7 +4834,7 @@ func init() {
           "200": {
             "description": "Added the property.",
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClassProperty"
+              "$ref": "#/definitions/Property"
             }
           },
           "401": {
@@ -4889,7 +4889,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClassProperty"
+              "$ref": "#/definitions/Property"
             }
           }
         ],
@@ -5570,7 +5570,7 @@ func init() {
           "format": "int64"
         },
         "schema": {
-          "$ref": "#/definitions/Schema"
+          "$ref": "#/definitions/PropertySchema"
         }
       }
     },
@@ -5787,6 +5787,29 @@ func init() {
         }
       }
     },
+    "Class": {
+      "type": "object",
+      "properties": {
+        "class": {
+          "description": "Name of the class as URI relative to the schema URL.",
+          "type": "string"
+        },
+        "description": {
+          "description": "Description of the class.",
+          "type": "string"
+        },
+        "keywords": {
+          "$ref": "#/definitions/Keywords"
+        },
+        "properties": {
+          "description": "The properties of the class.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Property"
+          }
+        }
+      }
+    },
     "ErrorResponse": {
       "description": "An error response given by Weaviate end-points.",
       "type": "object",
@@ -5903,12 +5926,28 @@ func init() {
       "description": "JSON object value.",
       "type": "object"
     },
+    "Keywords": {
+      "description": "Describes a class or property using multiple weighted words.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string"
+          },
+          "weight": {
+            "type": "number",
+            "format": "float"
+          }
+        }
+      }
+    },
     "Meta": {
       "description": "Contains meta information of the current Weaviate instance.",
       "type": "object",
       "properties": {
         "actionsSchema": {
-          "$ref": "#/definitions/SemanticSchema"
+          "$ref": "#/definitions/Schema"
         },
         "hostname": {
           "description": "The url of the host.",
@@ -5916,7 +5955,7 @@ func init() {
           "format": "url"
         },
         "thingsSchema": {
-          "$ref": "#/definitions/SemanticSchema"
+          "$ref": "#/definitions/Schema"
         }
       }
     },
@@ -6005,68 +6044,7 @@ func init() {
         }
       }
     },
-    "Schema": {
-      "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
-      "type": "object"
-    },
-    "SchemaHistory": {
-      "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
-      "type": "object"
-    },
-    "SemanticSchema": {
-      "description": "Definitions of semantic schemas (also see: https://github.com/semi-technologies/weaviate-semantic-schemas).",
-      "type": "object",
-      "properties": {
-        "classes": {
-          "description": "Semantic classes that are available.",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/SemanticSchemaClass"
-          }
-        },
-        "maintainer": {
-          "description": "Email of the maintainer.",
-          "type": "string",
-          "format": "email"
-        },
-        "name": {
-          "description": "Name of the schema.",
-          "type": "string"
-        },
-        "type": {
-          "description": "Type of schema, should be \"thing\" or \"action\".",
-          "type": "string",
-          "enum": [
-            "thing",
-            "action"
-          ]
-        }
-      }
-    },
-    "SemanticSchemaClass": {
-      "type": "object",
-      "properties": {
-        "class": {
-          "description": "Name of the class as URI relative to the schema URL.",
-          "type": "string"
-        },
-        "description": {
-          "description": "Description of the class.",
-          "type": "string"
-        },
-        "keywords": {
-          "$ref": "#/definitions/SemanticSchemaKeywords"
-        },
-        "properties": {
-          "description": "The properties of the class.",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/SemanticSchemaClassProperty"
-          }
-        }
-      }
-    },
-    "SemanticSchemaClassProperty": {
+    "Property": {
       "type": "object",
       "properties": {
         "cardinality": {
@@ -6090,7 +6068,7 @@ func init() {
           "type": "string"
         },
         "keywords": {
-          "$ref": "#/definitions/SemanticSchemaKeywords"
+          "$ref": "#/definitions/Keywords"
         },
         "name": {
           "description": "Name of the property as URI relative to the schema URL.",
@@ -6098,21 +6076,43 @@ func init() {
         }
       }
     },
-    "SemanticSchemaKeywords": {
-      "description": "Describes a class or property using multiple weighted words.",
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "keyword": {
-            "type": "string"
-          },
-          "weight": {
-            "type": "number",
-            "format": "float"
+    "PropertySchema": {
+      "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
+      "type": "object"
+    },
+    "Schema": {
+      "description": "Definitions of semantic schemas (also see: https://github.com/semi-technologies/weaviate-semantic-schemas).",
+      "type": "object",
+      "properties": {
+        "classes": {
+          "description": "Semantic classes that are available.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Class"
           }
+        },
+        "maintainer": {
+          "description": "Email of the maintainer.",
+          "type": "string",
+          "format": "email"
+        },
+        "name": {
+          "description": "Name of the schema.",
+          "type": "string"
+        },
+        "type": {
+          "description": "Type of schema, should be \"thing\" or \"action\".",
+          "type": "string",
+          "enum": [
+            "thing",
+            "action"
+          ]
         }
       }
+    },
+    "SchemaHistory": {
+      "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
+      "type": "object"
     },
     "SingleRef": {
       "properties": {
@@ -6146,7 +6146,7 @@ func init() {
           "format": "int64"
         },
         "schema": {
-          "$ref": "#/definitions/Schema"
+          "$ref": "#/definitions/PropertySchema"
         }
       }
     },

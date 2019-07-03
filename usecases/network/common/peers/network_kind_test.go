@@ -46,9 +46,9 @@ func TestGetKindHappyPathWithThings(t *testing.T) {
 		Peer{
 			Name: "WeaviateB",
 			Schema: schema.Schema{
-				Things: &models.SemanticSchema{
-					Classes: []*models.SemanticSchemaClass{
-						&models.SemanticSchemaClass{
+				Things: &models.Schema{
+					Classes: []*models.Class{
+						&models.Class{
 							Class: "Instrument",
 						},
 					},
@@ -102,9 +102,9 @@ func TestGetKindHappyPathWithActions(t *testing.T) {
 		Peer{
 			Name: "WeaviateB",
 			Schema: schema.Schema{
-				Actions: &models.SemanticSchema{
-					Classes: []*models.SemanticSchemaClass{
-						&models.SemanticSchemaClass{
+				Actions: &models.Schema{
+					Classes: []*models.Class{
+						&models.Class{
 							Class: "Recital",
 						},
 					},
@@ -158,9 +158,9 @@ func TestGetKindSchemaMismatch(t *testing.T) {
 		Peer{
 			Name: "WeaviateB",
 			Schema: schema.Schema{
-				Actions: &models.SemanticSchema{
-					Classes: []*models.SemanticSchemaClass{
-						&models.SemanticSchemaClass{
+				Actions: &models.Schema{
+					Classes: []*models.Class{
+						&models.Class{
 							Class: "Flight",
 						},
 					},

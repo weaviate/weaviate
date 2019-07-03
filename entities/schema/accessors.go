@@ -17,7 +17,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
-func (s *Schema) GetClass(k kind.Kind, className ClassName) *models.SemanticSchemaClass {
+func (s *Schema) GetClass(k kind.Kind, className ClassName) *models.Class {
 	schema := s.SemanticSchemaFor(k)
 	class, err := GetClassByName(schema, string(className))
 
@@ -29,7 +29,7 @@ func (s *Schema) GetClass(k kind.Kind, className ClassName) *models.SemanticSche
 }
 
 // FindClassByName will find either a Thing or Class by name.
-func (s *Schema) FindClassByName(className ClassName) *models.SemanticSchemaClass {
+func (s *Schema) FindClassByName(className ClassName) *models.Class {
 	if s.Things != nil {
 		semSchemaClass, err := GetClassByName(s.Things, string(className))
 		if err == nil {
@@ -47,7 +47,7 @@ func (s *Schema) FindClassByName(className ClassName) *models.SemanticSchemaClas
 	return nil
 }
 
-func (s *Schema) GetProperty(kind kind.Kind, className ClassName, propName PropertyName) (error, *models.SemanticSchemaClassProperty) {
+func (s *Schema) GetProperty(kind kind.Kind, className ClassName, propName PropertyName) (error, *models.Property) {
 	semSchemaClass, err := GetClassByName(s.SemanticSchemaFor(kind), string(className))
 	if err != nil {
 		return err, nil
@@ -72,7 +72,7 @@ func (s *Schema) GetPropsOfType(propType string) []ClassAndProperty {
 	return result
 }
 
-func extractAllOfPropType(classes []*models.SemanticSchemaClass, propType string) []ClassAndProperty {
+func extractAllOfPropType(classes []*models.Class, propType string) []ClassAndProperty {
 	var result []ClassAndProperty
 	for _, class := range classes {
 		for _, prop := range class.Properties {

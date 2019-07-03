@@ -85,7 +85,7 @@ func NewWeaviateSchemaActionsCreateOK() *WeaviateSchemaActionsCreateOK {
 Added the new Action class to the ontology.
 */
 type WeaviateSchemaActionsCreateOK struct {
-	Payload *models.SemanticSchemaClass
+	Payload *models.Class
 }
 
 func (o *WeaviateSchemaActionsCreateOK) Error() string {
@@ -94,7 +94,7 @@ func (o *WeaviateSchemaActionsCreateOK) Error() string {
 
 func (o *WeaviateSchemaActionsCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.SemanticSchemaClass)
+	o.Payload = new(models.Class)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {

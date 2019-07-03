@@ -114,7 +114,7 @@ func kindFromProto(k pb.Kind) kind.Kind {
 	}
 }
 
-func keywordsToProto(kws models.SemanticSchemaKeywords) []*pb.Keyword {
+func keywordsToProto(kws models.Keywords) []*pb.Keyword {
 
 	output := make([]*pb.Keyword, len(kws), len(kws))
 	for i, kw := range kws {

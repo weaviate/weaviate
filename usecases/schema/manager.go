@@ -99,12 +99,12 @@ func unlock(l unlocker) {
 // State is a cached copy of the schema that can also be saved into a remote
 // storage, as specified by Repo
 type State struct {
-	ActionSchema *models.SemanticSchema `json:"action"`
-	ThingSchema  *models.SemanticSchema `json:"thing"`
+	ActionSchema *models.Schema `json:"action"`
+	ThingSchema  *models.Schema `json:"thing"`
 }
 
 // SchemaFor a specific kind
-func (s *State) SchemaFor(k kind.Kind) *models.SemanticSchema {
+func (s *State) SchemaFor(k kind.Kind) *models.Schema {
 	switch k {
 	case kind.Thing:
 		return s.ThingSchema
@@ -170,12 +170,12 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 
 func newSchema() *State {
 	return &State{
-		ActionSchema: &models.SemanticSchema{
-			Classes: []*models.SemanticSchemaClass{},
+		ActionSchema: &models.Schema{
+			Classes: []*models.Class{},
 			Type:    "action",
 		},
-		ThingSchema: &models.SemanticSchema{
-			Classes: []*models.SemanticSchemaClass{},
+		ThingSchema: &models.Schema{
+			Classes: []*models.Class{},
 			Type:    "thing",
 		},
 	}

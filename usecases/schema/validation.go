@@ -40,7 +40,7 @@ func (m *Manager) validateClassNameUniqueness(className string) error {
 
 // Check that the format of the name is correct
 // Check that the name is acceptable according to the contextionary
-func (m *Manager) validateClassNameAndKeywords(ctx context.Context, knd kind.Kind, className string, keywords models.SemanticSchemaKeywords) error {
+func (m *Manager) validateClassNameAndKeywords(ctx context.Context, knd kind.Kind, className string, keywords models.Keywords) error {
 	_, err := schema.ValidateClassName(className)
 	if err != nil {
 		return err
@@ -111,7 +111,7 @@ func (m *Manager) validateClassNameAndKeywords(ctx context.Context, knd kind.Kin
 	return nil
 }
 
-func validatePropertyNameUniqueness(propertyName string, class *models.SemanticSchemaClass) error {
+func validatePropertyNameUniqueness(propertyName string, class *models.Class) error {
 	for _, otherProperty := range class.Properties {
 		if propertyName == otherProperty.Name {
 			return fmt.Errorf("Name '%s' already in use as a property name for class '%s'", propertyName, class.Class)
@@ -121,7 +121,7 @@ func validatePropertyNameUniqueness(propertyName string, class *models.SemanticS
 	return nil
 }
 
-func validateWeight(keyword *models.SemanticSchemaKeywordsItems0) error {
+func validateWeight(keyword *models.KeywordsItems0) error {
 	if 0 <= keyword.Weight && keyword.Weight <= 1 {
 		return nil
 	}
@@ -131,7 +131,7 @@ func validateWeight(keyword *models.SemanticSchemaKeywordsItems0) error {
 
 // Check that the format of the name is correct
 // Check that the name is acceptable according to the contextionary
-func (m *Manager) validatePropertyNameAndKeywords(ctx context.Context, className string, propertyName string, keywords models.SemanticSchemaKeywords) error {
+func (m *Manager) validatePropertyNameAndKeywords(ctx context.Context, className string, propertyName string, keywords models.Keywords) error {
 	_, err := schema.ValidatePropertyName(propertyName)
 	if err != nil {
 		return err

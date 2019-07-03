@@ -33,8 +33,8 @@ import (
 	"github.com/graphql-go/graphql/language/ast"
 )
 
-// Build a single class in Local -> Get -> (k kind.Kind) -> (models.SemanticSchemaClass)
-func buildGetClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticSchemaClass,
+// Build a single class in Local -> Get -> (k kind.Kind) -> (models.Class)
+func buildGetClass(dbSchema *schema.Schema, k kind.Kind, class *models.Class,
 	knownClasses *map[string]*graphql.Object, knownRefClasses refclasses.ByNetworkClass,
 	peers peers.Peers) (*graphql.Field, error) {
 	classObject := buildGetClassObject(k.Name(), class, dbSchema, knownClasses, knownRefClasses, peers)
@@ -43,7 +43,7 @@ func buildGetClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticS
 	return &classField, nil
 }
 
-func buildGetClassObject(kindName string, class *models.SemanticSchemaClass, dbSchema *schema.Schema,
+func buildGetClassObject(kindName string, class *models.Class, dbSchema *schema.Schema,
 	knownClasses *map[string]*graphql.Object, knownRefClasses refclasses.ByNetworkClass,
 	peers peers.Peers) *graphql.Object {
 	return graphql.NewObject(graphql.ObjectConfig{
@@ -84,7 +84,7 @@ func buildGetClassObject(kindName string, class *models.SemanticSchemaClass, dbS
 }
 
 func buildPrimitiveField(propertyType schema.PropertyDataType,
-	property *models.SemanticSchemaClassProperty, kindName, className string) *graphql.Field {
+	property *models.Property, kindName, className string) *graphql.Field {
 	switch propertyType.AsPrimitive() {
 	case schema.DataTypeString:
 		return &graphql.Field{
@@ -178,7 +178,7 @@ func resolveGeoCoordinates(p graphql.ResolveParams) (interface{}, error) {
 }
 
 func buildGetClassField(classObject *graphql.Object, k kind.Kind,
-	class *models.SemanticSchemaClass) graphql.Field {
+	class *models.Class) graphql.Field {
 	kindName := strings.Title(k.Name())
 	return graphql.Field{
 		Type:        graphql.NewList(classObject),

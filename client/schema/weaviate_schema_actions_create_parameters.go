@@ -74,7 +74,7 @@ for the weaviate schema actions create operation typically these are written to 
 type WeaviateSchemaActionsCreateParams struct {
 
 	/*ActionClass*/
-	ActionClass *models.SemanticSchemaClass
+	ActionClass *models.Class
 
 	timeout    time.Duration
 	Context    context.Context
@@ -115,13 +115,13 @@ func (o *WeaviateSchemaActionsCreateParams) SetHTTPClient(client *http.Client) {
 }
 
 // WithActionClass adds the actionClass to the weaviate schema actions create params
-func (o *WeaviateSchemaActionsCreateParams) WithActionClass(actionClass *models.SemanticSchemaClass) *WeaviateSchemaActionsCreateParams {
+func (o *WeaviateSchemaActionsCreateParams) WithActionClass(actionClass *models.Class) *WeaviateSchemaActionsCreateParams {
 	o.SetActionClass(actionClass)
 	return o
 }
 
 // SetActionClass adds the actionClass to the weaviate schema actions create params
-func (o *WeaviateSchemaActionsCreateParams) SetActionClass(actionClass *models.SemanticSchemaClass) {
+func (o *WeaviateSchemaActionsCreateParams) SetActionClass(actionClass *models.Class) {
 	o.ActionClass = actionClass
 }
 

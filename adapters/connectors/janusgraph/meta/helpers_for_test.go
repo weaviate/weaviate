@@ -44,21 +44,21 @@ func (f *fakeNameSource) MustGetMappedClassName(className schema.ClassName) stat
 type fakeTypeSource struct{}
 
 func (f *fakeTypeSource) GetProperty(kind kind.Kind, className schema.ClassName,
-	propName schema.PropertyName) (error, *models.SemanticSchemaClassProperty) {
+	propName schema.PropertyName) (error, *models.Property) {
 
 	switch propName {
 	case "isCapital":
-		return nil, &models.SemanticSchemaClassProperty{DataType: []string{"bool"}}
+		return nil, &models.Property{DataType: []string{"bool"}}
 	case "population":
-		return nil, &models.SemanticSchemaClassProperty{DataType: []string{"int"}}
+		return nil, &models.Property{DataType: []string{"int"}}
 	case "area":
-		return nil, &models.SemanticSchemaClassProperty{DataType: []string{"number"}}
+		return nil, &models.Property{DataType: []string{"number"}}
 	case "name":
-		return nil, &models.SemanticSchemaClassProperty{DataType: []string{"string"}}
+		return nil, &models.Property{DataType: []string{"string"}}
 	case "dateOfFirstApperance":
-		return nil, &models.SemanticSchemaClassProperty{DataType: []string{"date"}}
+		return nil, &models.Property{DataType: []string{"date"}}
 	case "inCountry":
-		return nil, &models.SemanticSchemaClassProperty{DataType: []string{"Country"}}
+		return nil, &models.Property{DataType: []string{"Country"}}
 	}
 
 	return fmt.Errorf("fake type source does not have an implementation for prop '%s'", propName), nil

@@ -1,4 +1,14 @@
-// +build integrationTest
+/*                          _       _
+ *__      _____  __ ___   ___  __ _| |_ ___
+ *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+ * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+ *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+ *
+ * Copyright © 2016 - 2019 Weaviate. All rights reserved.
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+ * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+ * CONTACT: hello@semi.technology
+ */ // +build integrationTest
 
 package esvector
 
@@ -27,24 +37,24 @@ func TestEsVectorMigrator(t *testing.T) {
 		type testCase struct {
 			name  string
 			kind  kind.Kind
-			class *models.SemanticSchemaClass
+			class *models.Class
 		}
 
 		tests := []testCase{
 			{
 				name: "thing class without props",
 				kind: kind.Thing,
-				class: &models.SemanticSchemaClass{
+				class: &models.Class{
 					Class: "MyThingClass",
 				},
 			},
 			{
 				name: "thing class with a string prop",
 				kind: kind.Thing,
-				class: &models.SemanticSchemaClass{
+				class: &models.Class{
 					Class: "MyThingClass",
-					Properties: []*models.SemanticSchemaClassProperty{
-						&models.SemanticSchemaClassProperty{
+					Properties: []*models.Property{
+						&models.Property{
 							Name:     "name",
 							DataType: []string{string(schema.DataTypeString)},
 						},
@@ -54,10 +64,10 @@ func TestEsVectorMigrator(t *testing.T) {
 			{
 				name: "action class with an int prop",
 				kind: kind.Action,
-				class: &models.SemanticSchemaClass{
+				class: &models.Class{
 					Class: "MyClass",
-					Properties: []*models.SemanticSchemaClassProperty{
-						&models.SemanticSchemaClassProperty{
+					Properties: []*models.Property{
+						&models.Property{
 							Name:     "age",
 							DataType: []string{string(schema.DataTypeInt)},
 						},
@@ -67,10 +77,10 @@ func TestEsVectorMigrator(t *testing.T) {
 			{
 				name: "action class with an float prop",
 				kind: kind.Action,
-				class: &models.SemanticSchemaClass{
+				class: &models.Class{
 					Class: "MyClass",
-					Properties: []*models.SemanticSchemaClassProperty{
-						&models.SemanticSchemaClassProperty{
+					Properties: []*models.Property{
+						&models.Property{
 							Name:     "weight",
 							DataType: []string{string(schema.DataTypeNumber)},
 						},
@@ -80,10 +90,10 @@ func TestEsVectorMigrator(t *testing.T) {
 			{
 				name: "action class with bool prop",
 				kind: kind.Action,
-				class: &models.SemanticSchemaClass{
+				class: &models.Class{
 					Class: "MyClass",
-					Properties: []*models.SemanticSchemaClassProperty{
-						&models.SemanticSchemaClassProperty{
+					Properties: []*models.Property{
+						&models.Property{
 							Name:     "awesome",
 							DataType: []string{string(schema.DataTypeBoolean)},
 						},
@@ -93,18 +103,18 @@ func TestEsVectorMigrator(t *testing.T) {
 			{
 				name: "action class with text, date and geo prop",
 				kind: kind.Action,
-				class: &models.SemanticSchemaClass{
+				class: &models.Class{
 					Class: "MyClass",
-					Properties: []*models.SemanticSchemaClassProperty{
-						&models.SemanticSchemaClassProperty{
+					Properties: []*models.Property{
+						&models.Property{
 							Name:     "content",
 							DataType: []string{string(schema.DataTypeText)},
 						},
-						&models.SemanticSchemaClassProperty{
+						&models.Property{
 							Name:     "date",
 							DataType: []string{string(schema.DataTypeDate)},
 						},
-						&models.SemanticSchemaClassProperty{
+						&models.Property{
 							Name:     "location",
 							DataType: []string{string(schema.DataTypeGeoCoordinates)},
 						},
@@ -114,10 +124,10 @@ func TestEsVectorMigrator(t *testing.T) {
 			{
 				name: "action class with a ref prop",
 				kind: kind.Action,
-				class: &models.SemanticSchemaClass{
+				class: &models.Class{
 					Class: "MyClass",
-					Properties: []*models.SemanticSchemaClassProperty{
-						&models.SemanticSchemaClassProperty{
+					Properties: []*models.Property{
+						&models.Property{
 							Name:     "awesome",
 							DataType: []string{"SomeClass"},
 						},
@@ -137,7 +147,7 @@ func TestEsVectorMigrator(t *testing.T) {
 	})
 
 	t.Run("extending an existing class with a new property", func(t *testing.T) {
-		prop := &models.SemanticSchemaClassProperty{
+		prop := &models.Property{
 			Name:     "aNewProp",
 			DataType: []string{string(schema.DataTypeString)},
 		}

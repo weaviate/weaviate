@@ -33,7 +33,7 @@ func TestAddAndRemoveThingClass(t *testing.T) {
 	t.Log("Asserting that this class does not exist yet")
 	assert.NotContains(t, GetThingClassNames(t), randomThingClassName)
 
-	tc := &models.SemanticSchemaClass{
+	tc := &models.Class{
 		Class: randomThingClassName,
 	}
 
@@ -66,14 +66,14 @@ func TestDeleteSingleProperties(t *testing.T) {
 	t.Log("Asserting that this class does not exist yet")
 	assert.NotContains(t, GetThingClassNames(t), randomThingClassName)
 
-	tc := &models.SemanticSchemaClass{
+	tc := &models.Class{
 		Class: randomThingClassName,
-		Properties: []*models.SemanticSchemaClassProperty{
-			&models.SemanticSchemaClassProperty{
+		Properties: []*models.Property{
+			&models.Property{
 				DataType: []string{"string"},
 				Name:     "name",
 			},
-			&models.SemanticSchemaClassProperty{
+			&models.Property{
 				DataType: []string{"string"},
 				Name:     "description",
 			},
@@ -131,7 +131,7 @@ func TestDeleteSingleProperties(t *testing.T) {
 	t.Log("verifying we could re-add the property with the same name")
 	readdParams := schema.NewWeaviateSchemaThingsPropertiesAddParams().
 		WithClassName(randomThingClassName).
-		WithBody(&models.SemanticSchemaClassProperty{
+		WithBody(&models.Property{
 			Name:     "description",
 			DataType: []string{"string"},
 		})

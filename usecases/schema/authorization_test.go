@@ -47,26 +47,26 @@ func Test_Schema_Authorization(t *testing.T) {
 
 		testCase{
 			methodName:       "AddThing",
-			additionalArgs:   []interface{}{&models.SemanticSchemaClass{}},
+			additionalArgs:   []interface{}{&models.Class{}},
 			expectedVerb:     "create",
 			expectedResource: "schema/things",
 		},
 		testCase{
 			methodName:       "AddAction",
-			additionalArgs:   []interface{}{&models.SemanticSchemaClass{}},
+			additionalArgs:   []interface{}{&models.Class{}},
 			expectedVerb:     "create",
 			expectedResource: "schema/actions",
 		},
 
 		testCase{
 			methodName:       "UpdateThing",
-			additionalArgs:   []interface{}{"somename", &models.SemanticSchemaClass{}},
+			additionalArgs:   []interface{}{"somename", &models.Class{}},
 			expectedVerb:     "update",
 			expectedResource: "schema/things",
 		},
 		testCase{
 			methodName:       "UpdateAction",
-			additionalArgs:   []interface{}{"somename", &models.SemanticSchemaClass{}},
+			additionalArgs:   []interface{}{"somename", &models.Class{}},
 			expectedVerb:     "update",
 			expectedResource: "schema/actions",
 		},
@@ -86,26 +86,26 @@ func Test_Schema_Authorization(t *testing.T) {
 
 		testCase{
 			methodName:       "AddThingProperty",
-			additionalArgs:   []interface{}{"somename", &models.SemanticSchemaClassProperty{}},
+			additionalArgs:   []interface{}{"somename", &models.Property{}},
 			expectedVerb:     "update",
 			expectedResource: "schema/things",
 		},
 		testCase{
 			methodName:       "AddActionProperty",
-			additionalArgs:   []interface{}{"somename", &models.SemanticSchemaClassProperty{}},
+			additionalArgs:   []interface{}{"somename", &models.Property{}},
 			expectedVerb:     "update",
 			expectedResource: "schema/actions",
 		},
 
 		testCase{
 			methodName:       "UpdateThingProperty",
-			additionalArgs:   []interface{}{"somename", "someprop", &models.SemanticSchemaClassProperty{}},
+			additionalArgs:   []interface{}{"somename", "someprop", &models.Property{}},
 			expectedVerb:     "update",
 			expectedResource: "schema/things",
 		},
 		testCase{
 			methodName:       "UpdateActionProperty",
-			additionalArgs:   []interface{}{"somename", "someprop", &models.SemanticSchemaClassProperty{}},
+			additionalArgs:   []interface{}{"somename", "someprop", &models.Property{}},
 			expectedVerb:     "update",
 			expectedResource: "schema/actions",
 		},

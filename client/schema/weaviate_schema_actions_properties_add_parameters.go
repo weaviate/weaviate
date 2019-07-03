@@ -74,7 +74,7 @@ for the weaviate schema actions properties add operation typically these are wri
 type WeaviateSchemaActionsPropertiesAddParams struct {
 
 	/*Body*/
-	Body *models.SemanticSchemaClassProperty
+	Body *models.Property
 	/*ClassName*/
 	ClassName string
 
@@ -117,13 +117,13 @@ func (o *WeaviateSchemaActionsPropertiesAddParams) SetHTTPClient(client *http.Cl
 }
 
 // WithBody adds the body to the weaviate schema actions properties add params
-func (o *WeaviateSchemaActionsPropertiesAddParams) WithBody(body *models.SemanticSchemaClassProperty) *WeaviateSchemaActionsPropertiesAddParams {
+func (o *WeaviateSchemaActionsPropertiesAddParams) WithBody(body *models.Property) *WeaviateSchemaActionsPropertiesAddParams {
 	o.SetBody(body)
 	return o
 }
 
 // SetBody adds the body to the weaviate schema actions properties add params
-func (o *WeaviateSchemaActionsPropertiesAddParams) SetBody(body *models.SemanticSchemaClassProperty) {
+func (o *WeaviateSchemaActionsPropertiesAddParams) SetBody(body *models.Property) {
 	o.Body = body
 }
 

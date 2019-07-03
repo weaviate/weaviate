@@ -65,16 +65,16 @@ func parseWhere(args map[string]interface{}, kind kind.Kind) (*traverser.FetchSe
 	}, nil
 }
 
-func extractKeywords(kw interface{}) models.SemanticSchemaKeywords {
+func extractKeywords(kw interface{}) models.Keywords {
 	if kw == nil {
 		return nil
 	}
 
 	asSlice := kw.([]interface{})
-	result := make(models.SemanticSchemaKeywords, len(asSlice), len(asSlice))
+	result := make(models.Keywords, len(asSlice), len(asSlice))
 	for i, keyword := range asSlice {
 		keywordMap := keyword.(map[string]interface{})
-		result[i] = &models.SemanticSchemaKeywordsItems0{
+		result[i] = &models.KeywordsItems0{
 			Keyword: keywordMap["value"].(string),
 			Weight:  float32(keywordMap["weight"].(float64)),
 		}

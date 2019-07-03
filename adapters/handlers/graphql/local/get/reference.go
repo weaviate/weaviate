@@ -39,7 +39,7 @@ type LocalRef struct {
 }
 
 func buildReferenceField(propertyType schema.PropertyDataType,
-	property *models.SemanticSchemaClassProperty, kindName, className string,
+	property *models.Property, kindName, className string,
 	knownClasses *map[string]*graphql.Object, knownRefClasses refclasses.ByNetworkClass,
 	peers peers.Peers) *graphql.Field {
 	refClasses := propertyType.Classes()

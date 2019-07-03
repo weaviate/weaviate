@@ -19,16 +19,16 @@ import (
 var many = "many"
 
 var SimpleSchema = schema.Schema{
-	Things: &models.SemanticSchema{
-		Classes: []*models.SemanticSchemaClass{
-			&models.SemanticSchemaClass{
+	Things: &models.Schema{
+		Classes: []*models.Class{
+			&models.Class{
 				Class: "SomeThing",
-				Properties: []*models.SemanticSchemaClassProperty{
-					&models.SemanticSchemaClassProperty{
+				Properties: []*models.Property{
+					&models.Property{
 						Name:     "intField",
 						DataType: []string{"int"},
 					},
-					&models.SemanticSchemaClassProperty{
+					&models.Property{
 						Name:     "NetworkRefField",
 						DataType: []string{"OtherInstance/SomeRemoteClass"},
 					},
@@ -36,24 +36,24 @@ var SimpleSchema = schema.Schema{
 			},
 		},
 	},
-	Actions: &models.SemanticSchema{
-		Classes: []*models.SemanticSchemaClass{
-			&models.SemanticSchemaClass{
+	Actions: &models.Schema{
+		Classes: []*models.Class{
+			&models.Class{
 				Class: "SomeAction",
-				Properties: []*models.SemanticSchemaClassProperty{
-					&models.SemanticSchemaClassProperty{
+				Properties: []*models.Property{
+					&models.Property{
 						Name:     "intField",
 						DataType: []string{"int"},
 					},
-					&models.SemanticSchemaClassProperty{
+					&models.Property{
 						Name:     "location",
 						DataType: []string{"geoCoordinates"},
 					},
-					&models.SemanticSchemaClassProperty{
+					&models.Property{
 						Name:     "hasAction",
 						DataType: []string{"SomeAction"},
 					},
-					&models.SemanticSchemaClassProperty{
+					&models.Property{
 						Name:        "hasActions",
 						DataType:    []string{"SomeAction"},
 						Cardinality: &many,
@@ -66,41 +66,41 @@ var SimpleSchema = schema.Schema{
 
 // CarSchema contains a car which has every primtive field and a ref field there is
 var CarSchema = schema.Schema{
-	Things: &models.SemanticSchema{
-		Classes: []*models.SemanticSchemaClass{
-			&models.SemanticSchemaClass{
+	Things: &models.Schema{
+		Classes: []*models.Class{
+			&models.Class{
 				Class: "Manufacturer",
-				Properties: []*models.SemanticSchemaClassProperty{
-					&models.SemanticSchemaClassProperty{
+				Properties: []*models.Property{
+					&models.Property{
 						Name:     "name",
 						DataType: []string{"string"},
 					},
 				},
 			},
-			&models.SemanticSchemaClass{
+			&models.Class{
 				Class: "Car",
-				Properties: []*models.SemanticSchemaClassProperty{
-					&models.SemanticSchemaClassProperty{
+				Properties: []*models.Property{
+					&models.Property{
 						Name:     "horsepower",
 						DataType: []string{"int"},
 					},
-					&models.SemanticSchemaClassProperty{
+					&models.Property{
 						Name:     "weight",
 						DataType: []string{"number"},
 					},
-					&models.SemanticSchemaClassProperty{
+					&models.Property{
 						Name:     "modelName",
 						DataType: []string{"string"},
 					},
-					&models.SemanticSchemaClassProperty{
+					&models.Property{
 						Name:     "madeBy",
 						DataType: []string{"Manufacturer"},
 					},
-					&models.SemanticSchemaClassProperty{
+					&models.Property{
 						Name:     "startOfProduction",
 						DataType: []string{"date"},
 					},
-					&models.SemanticSchemaClassProperty{
+					&models.Property{
 						Name:     "stillInProduction",
 						DataType: []string{"boolean"},
 					},
@@ -108,7 +108,7 @@ var CarSchema = schema.Schema{
 			},
 		},
 	},
-	Actions: &models.SemanticSchema{
-		Classes: []*models.SemanticSchemaClass{},
+	Actions: &models.Schema{
+		Classes: []*models.Class{},
 	},
 }

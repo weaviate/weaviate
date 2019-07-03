@@ -41,7 +41,7 @@ const (
 )
 
 // ValidateSchemaInBody Validate the schema in the given body
-func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSchema, object interface{},
+func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.Schema, object interface{},
 	k kind.Kind, dbConnector getRepo, network peerLister,
 	serverConfig *config.WeaviateConfig) error {
 	var isp interface{}

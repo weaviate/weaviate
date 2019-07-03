@@ -44,7 +44,7 @@ func ActionClassFieldsFromSchema(dbSchema *schema.Schema, getActionsAndThings *m
 	return graphql.NewObject(getActions), nil
 }
 
-func actionClassField(class *models.SemanticSchemaClass, getActionsAndThings *map[string]*graphql.Object, weaviate string) (*graphql.Field, *graphql.Object) {
+func actionClassField(class *models.Class, getActionsAndThings *map[string]*graphql.Object, weaviate string) (*graphql.Field, *graphql.Object) {
 	actionClassPropertyFields := graphql.ObjectConfig{
 		Name: fmt.Sprintf("%s%s", weaviate, class.Class),
 		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
@@ -85,7 +85,7 @@ func actionClassField(class *models.SemanticSchemaClass, getActionsAndThings *ma
 	return actionClassPropertyFieldsField, actionClassPropertyFieldsObj
 }
 
-func actionClassPropertyFields(class *models.SemanticSchemaClass, getActionsAndThings *map[string]*graphql.Object, weaviate string) (graphql.Fields, error) {
+func actionClassPropertyFields(class *models.Class, getActionsAndThings *map[string]*graphql.Object, weaviate string) (graphql.Fields, error) {
 	actionClassPropertyFields := graphql.Fields{}
 
 	for _, property := range class.Properties {
@@ -171,7 +171,7 @@ func ThingClassFieldsFromSchema(dbSchema *schema.Schema, actionsAndThings *map[s
 	return graphql.NewObject(getThings), nil
 }
 
-func thingClassField(class *models.SemanticSchemaClass, getActionsAndThings *map[string]*graphql.Object, weaviate string) (*graphql.Field, *graphql.Object) {
+func thingClassField(class *models.Class, getActionsAndThings *map[string]*graphql.Object, weaviate string) (*graphql.Field, *graphql.Object) {
 	singleThingClassPropertyFieldsObj := graphql.ObjectConfig{
 		Name: fmt.Sprintf("%s%s", weaviate, class.Class),
 		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
@@ -213,7 +213,7 @@ func thingClassField(class *models.SemanticSchemaClass, getActionsAndThings *map
 	return thingClassPropertyFieldsField, thingClassPropertyFieldsObject
 }
 
-func thingClassPropertyFields(class *models.SemanticSchemaClass, actionsAndThings *map[string]*graphql.Object, weaviate string) (graphql.Fields, error) {
+func thingClassPropertyFields(class *models.Class, actionsAndThings *map[string]*graphql.Object, weaviate string) (graphql.Fields, error) {
 	fields := graphql.Fields{}
 
 	for _, property := range class.Properties {
@@ -281,7 +281,7 @@ func thingClassPropertyFields(class *models.SemanticSchemaClass, actionsAndThing
 }
 
 func handleNetworkGetNonObjectDataTypes(dataType schema.DataType,
-	property *models.SemanticSchemaClassProperty, prefix string) (*graphql.Field, error) {
+	property *models.Property, prefix string) (*graphql.Field, error) {
 
 	switch dataType {
 

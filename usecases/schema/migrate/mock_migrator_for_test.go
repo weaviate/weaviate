@@ -1,4 +1,14 @@
-package migrate
+/*                          _       _
+ *__      _____  __ ___   ___  __ _| |_ ___
+ *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+ * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+ *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+ *
+ * Copyright © 2016 - 2019 Weaviate. All rights reserved.
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+ * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+ * CONTACT: hello@semi.technology
+ */package migrate
 
 import (
 	"context"
@@ -12,7 +22,7 @@ type mockMigrator struct {
 	mock.Mock
 }
 
-func (m *mockMigrator) AddClass(ctx context.Context, kind kind.Kind, class *models.SemanticSchemaClass) error {
+func (m *mockMigrator) AddClass(ctx context.Context, kind kind.Kind, class *models.Class) error {
 	args := m.Called(ctx, kind, class)
 	return args.Error(0)
 }
@@ -22,12 +32,12 @@ func (m *mockMigrator) DropClass(ctx context.Context, kind kind.Kind, className 
 	return args.Error(0)
 }
 
-func (m *mockMigrator) UpdateClass(ctx context.Context, kind kind.Kind, className string, newClassName *string, newKeywords *models.SemanticSchemaKeywords) error {
+func (m *mockMigrator) UpdateClass(ctx context.Context, kind kind.Kind, className string, newClassName *string, newKeywords *models.Keywords) error {
 	args := m.Called(ctx, kind, className, newClassName, newKeywords)
 	return args.Error(0)
 }
 
-func (m *mockMigrator) AddProperty(ctx context.Context, kind kind.Kind, className string, prop *models.SemanticSchemaClassProperty) error {
+func (m *mockMigrator) AddProperty(ctx context.Context, kind kind.Kind, className string, prop *models.Property) error {
 	args := m.Called(ctx, kind, className, prop)
 	return args.Error(0)
 }
@@ -37,7 +47,7 @@ func (m *mockMigrator) DropProperty(ctx context.Context, kind kind.Kind, classNa
 	return args.Error(0)
 }
 
-func (m *mockMigrator) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string, newKeywords *models.SemanticSchemaKeywords) error {
+func (m *mockMigrator) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string, newKeywords *models.Keywords) error {
 	args := m.Called(ctx, kind, className, propName, newName, newKeywords)
 	return args.Error(0)
 }

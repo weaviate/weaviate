@@ -19,25 +19,25 @@ import (
 
 func Test_GetAllPropsOfType(t *testing.T) {
 
-	car := &models.SemanticSchemaClass{
+	car := &models.Class{
 		Class: "Car",
-		Properties: []*models.SemanticSchemaClassProperty{
+		Properties: []*models.Property{
 			{Name: "modelName", DataType: []string{"string"}},
 			{Name: "manufacturerName", DataType: []string{"string"}},
 			{Name: "horsepower", DataType: []string{"int"}},
 		},
 	}
 
-	train := &models.SemanticSchemaClass{
+	train := &models.Class{
 		Class: "Train",
-		Properties: []*models.SemanticSchemaClassProperty{
+		Properties: []*models.Property{
 			{Name: "capacity", DataType: []string{"int"}},
 			{Name: "trainCompany", DataType: []string{"string"}},
 		},
 	}
 
 	schema := Empty()
-	schema.Things.Classes = []*models.SemanticSchemaClass{car, train}
+	schema.Things.Classes = []*models.Class{car, train}
 	props := schema.GetPropsOfType("string")
 
 	expectedProps := []ClassAndProperty{

@@ -41,7 +41,7 @@ type SearchParams struct {
 
 	// Keywords (optional). If no keywords are specified, only the class name
 	// will be used as a search query.
-	Keywords models.SemanticSchemaKeywords
+	Keywords models.Keywords
 
 	// Kind as in Thing or Class, not required if SearchType == SearchTypeProperty
 	Kind kind.Kind
@@ -79,7 +79,7 @@ func (p SearchParams) Validate() error {
 	return nil
 }
 
-func (p SearchParams) validateKeyword(kw *models.SemanticSchemaKeywordsItems0) error {
+func (p SearchParams) validateKeyword(kw *models.KeywordsItems0) error {
 	if kw.Keyword == "" {
 		return fmt.Errorf("Keyword cannot be empty")
 	}

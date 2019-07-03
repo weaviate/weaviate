@@ -53,7 +53,7 @@ func TestNonExistingClassSingleRef(t *testing.T) {
 func TestExistingClassSingleRef(t *testing.T) {
 	s := Empty()
 
-	s.Actions.Classes = append(s.Actions.Classes, &models.SemanticSchemaClass{
+	s.Actions.Classes = append(s.Actions.Classes, &models.Class{
 		Class: "ExistingClass",
 	})
 

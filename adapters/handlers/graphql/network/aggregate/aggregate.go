@@ -25,7 +25,7 @@ import (
 )
 
 // Build the dynamically generated Aggregate Things part of the schema
-func classFields(databaseSchema []*models.SemanticSchemaClass, k kind.Kind, peerName string) (*graphql.Object, error) {
+func classFields(databaseSchema []*models.Class, k kind.Kind, peerName string) (*graphql.Object, error) {
 	fields := graphql.Fields{}
 
 	for _, class := range databaseSchema {
@@ -44,7 +44,7 @@ func classFields(databaseSchema []*models.SemanticSchemaClass, k kind.Kind, peer
 	}), nil
 }
 
-func classField(peerName string, k kind.Kind, class *models.SemanticSchemaClass, description string) (*graphql.Field, error) {
+func classField(peerName string, k kind.Kind, class *models.Class, description string) (*graphql.Field, error) {
 
 	if len(class.Properties) == 0 {
 		// if we don't have class properties, we can't build this particular class,
@@ -104,7 +104,7 @@ func classField(peerName string, k kind.Kind, class *models.SemanticSchemaClass,
 	return fieldsField, nil
 }
 
-func classPropertyFields(peerName string, class *models.SemanticSchemaClass) (graphql.Fields, error) {
+func classPropertyFields(peerName string, class *models.Class) (graphql.Fields, error) {
 	fields := graphql.Fields{}
 	for _, property := range class.Properties {
 		propertyType, err := schema.GetPropertyDataType(class, property.Name)
@@ -133,7 +133,7 @@ func classPropertyFields(peerName string, class *models.SemanticSchemaClass) (gr
 	return fields, nil
 }
 
-func classPropertyField(peerName string, dataType schema.DataType, class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) (*graphql.Field, error) {
+func classPropertyField(peerName string, dataType schema.DataType, class *models.Class, property *models.Property) (*graphql.Field, error) {
 	switch dataType {
 	case schema.DataTypeString:
 		return makePropertyField(peerName, class, property, nonNumericPropertyFields)
@@ -157,10 +157,10 @@ func classPropertyField(peerName string, dataType schema.DataType, class *models
 	}
 }
 
-type propertyFieldMaker func(class *models.SemanticSchemaClass,
-	property *models.SemanticSchemaClassProperty, prefix string) *graphql.Object
+type propertyFieldMaker func(class *models.Class,
+	property *models.Property, prefix string) *graphql.Object
 
-func makePropertyField(peerName string, class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty,
+func makePropertyField(peerName string, class *models.Class, property *models.Property,
 	fieldMaker propertyFieldMaker) (*graphql.Field, error) {
 	prefix := fmt.Sprintf("%sAggregate", peerName)
 	return &graphql.Field{

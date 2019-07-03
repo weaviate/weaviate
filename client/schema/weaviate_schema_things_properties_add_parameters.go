@@ -74,7 +74,7 @@ for the weaviate schema things properties add operation typically these are writ
 type WeaviateSchemaThingsPropertiesAddParams struct {
 
 	/*Body*/
-	Body *models.SemanticSchemaClassProperty
+	Body *models.Property
 	/*ClassName*/
 	ClassName string
 
@@ -117,13 +117,13 @@ func (o *WeaviateSchemaThingsPropertiesAddParams) SetHTTPClient(client *http.Cli
 }
 
 // WithBody adds the body to the weaviate schema things properties add params
-func (o *WeaviateSchemaThingsPropertiesAddParams) WithBody(body *models.SemanticSchemaClassProperty) *WeaviateSchemaThingsPropertiesAddParams {
+func (o *WeaviateSchemaThingsPropertiesAddParams) WithBody(body *models.Property) *WeaviateSchemaThingsPropertiesAddParams {
 	o.SetBody(body)
 	return o
 }
 
 // SetBody adds the body to the weaviate schema things properties add params
-func (o *WeaviateSchemaThingsPropertiesAddParams) SetBody(body *models.SemanticSchemaClassProperty) {
+func (o *WeaviateSchemaThingsPropertiesAddParams) SetBody(body *models.Property) {
 	o.Body = body
 }
 

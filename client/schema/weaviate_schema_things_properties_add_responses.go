@@ -85,7 +85,7 @@ func NewWeaviateSchemaThingsPropertiesAddOK() *WeaviateSchemaThingsPropertiesAdd
 Added the property.
 */
 type WeaviateSchemaThingsPropertiesAddOK struct {
-	Payload *models.SemanticSchemaClassProperty
+	Payload *models.Property
 }
 
 func (o *WeaviateSchemaThingsPropertiesAddOK) Error() string {
@@ -94,7 +94,7 @@ func (o *WeaviateSchemaThingsPropertiesAddOK) Error() string {
 
 func (o *WeaviateSchemaThingsPropertiesAddOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.SemanticSchemaClassProperty)
+	o.Payload = new(models.Property)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {

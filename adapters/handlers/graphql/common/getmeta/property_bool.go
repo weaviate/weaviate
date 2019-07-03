@@ -21,8 +21,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
-func booleanPropertyFields(class *models.SemanticSchemaClass,
-	property *models.SemanticSchemaClassProperty, prefix string) *graphql.Object {
+func booleanPropertyFields(class *models.Class,
+	property *models.Property, prefix string) *graphql.Object {
 	getMetaBooleanFields := graphql.Fields{
 		"type": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sType", prefix, class.Class, property.Name),

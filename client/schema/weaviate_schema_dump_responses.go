@@ -184,10 +184,10 @@ swagger:model WeaviateSchemaDumpOKBody
 type WeaviateSchemaDumpOKBody struct {
 
 	// actions
-	Actions *models.SemanticSchema `json:"actions,omitempty"`
+	Actions *models.Schema `json:"actions,omitempty"`
 
 	// things
-	Things *models.SemanticSchema `json:"things,omitempty"`
+	Things *models.Schema `json:"things,omitempty"`
 }
 
 // Validate validates this weaviate schema dump o k body

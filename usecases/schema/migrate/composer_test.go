@@ -1,4 +1,14 @@
-package migrate
+/*                          _       _
+ *__      _____  __ ___   ___  __ _| |_ ___
+ *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+ * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+ *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+ *
+ * Copyright © 2016 - 2019 Weaviate. All rights reserved.
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+ * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+ * CONTACT: hello@semi.technology
+ */package migrate
 
 import (
 	"context"
@@ -19,7 +29,7 @@ func Test_Composer(t *testing.T) {
 
 	t.Run("adding a class", func(t *testing.T) {
 		ctx := context.Background()
-		class := &models.SemanticSchemaClass{Class: "Foo"}
+		class := &models.Class{Class: "Foo"}
 		kind := kind.Thing
 
 		t.Run("no errors", func(t *testing.T) {
@@ -100,7 +110,7 @@ func Test_Composer(t *testing.T) {
 		kind := kind.Thing
 		class := "Foo"
 		newName := "Bar"
-		newKeywords := &models.SemanticSchemaKeywords{}
+		newKeywords := &models.Keywords{}
 
 		t.Run("no errors", func(t *testing.T) {
 			m1.On("UpdateClass", ctx, kind, class, &newName, newKeywords).
@@ -146,7 +156,7 @@ func Test_Composer(t *testing.T) {
 		ctx := context.Background()
 		class := "Foo"
 		kind := kind.Thing
-		prop := &models.SemanticSchemaClassProperty{Name: "Prop"}
+		prop := &models.Property{Name: "Prop"}
 
 		t.Run("no errors", func(t *testing.T) {
 			m1.On("AddProperty", ctx, kind, class, prop).Return(nil).Once()
@@ -234,7 +244,7 @@ func Test_Composer(t *testing.T) {
 		class := "Foo"
 		prop := "someProp"
 		newName := "otherProp"
-		newKeywords := &models.SemanticSchemaKeywords{}
+		newKeywords := &models.Keywords{}
 
 		t.Run("no errors", func(t *testing.T) {
 			m1.On("UpdateProperty", ctx, kind, class, prop, &newName, newKeywords).

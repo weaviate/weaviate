@@ -180,7 +180,7 @@ func (f *Foobar) Attach(ctx context.Context) (context.Context, error) {
 }
 
 // Add a class to the Thing or Action schema, depending on the kind parameter.
-func (f *Foobar) AddClass(ctx context.Context, kind kind.Kind, class *models.SemanticSchemaClass) error {
+func (f *Foobar) AddClass(ctx context.Context, kind kind.Kind, class *models.Class) error {
 	return errors_.New("Not supported")
 }
 
@@ -189,15 +189,15 @@ func (f *Foobar) DropClass(ctx context.Context, kind kind.Kind, className string
 	return errors_.New("Not supported")
 }
 
-func (f *Foobar) UpdateClass(ctx context.Context, kind kind.Kind, className string, newClassName *string, newKeywords *models.SemanticSchemaKeywords) error {
+func (f *Foobar) UpdateClass(ctx context.Context, kind kind.Kind, className string, newClassName *string, newKeywords *models.Keywords) error {
 	return errors_.New("Not supported")
 }
 
-func (f *Foobar) AddProperty(ctx context.Context, kind kind.Kind, className string, prop *models.SemanticSchemaClassProperty) error {
+func (f *Foobar) AddProperty(ctx context.Context, kind kind.Kind, className string, prop *models.Property) error {
 	return errors_.New("Not supported")
 }
 
-func (f *Foobar) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string, newKeywords *models.SemanticSchemaKeywords) error {
+func (f *Foobar) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string, newKeywords *models.Keywords) error {
 	return errors_.New("Not supported")
 }
 

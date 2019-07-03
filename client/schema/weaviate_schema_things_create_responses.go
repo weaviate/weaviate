@@ -85,7 +85,7 @@ func NewWeaviateSchemaThingsCreateOK() *WeaviateSchemaThingsCreateOK {
 Added the new Thing class to the ontology.
 */
 type WeaviateSchemaThingsCreateOK struct {
-	Payload *models.SemanticSchemaClass
+	Payload *models.Class
 }
 
 func (o *WeaviateSchemaThingsCreateOK) Error() string {
@@ -94,7 +94,7 @@ func (o *WeaviateSchemaThingsCreateOK) Error() string {
 
 func (o *WeaviateSchemaThingsCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.SemanticSchemaClass)
+	o.Payload = new(models.Class)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {

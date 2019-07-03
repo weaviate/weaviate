@@ -140,17 +140,17 @@ func TestDownloadPeersWithChanges(t *testing.T) {
 }
 
 func schemaWithThingClasses(names ...string) schema.Schema {
-	classes := make([]*models.SemanticSchemaClass, len(names), len(names))
+	classes := make([]*models.Class, len(names), len(names))
 	for _, class := range names {
 		classes = append(classes,
-			&models.SemanticSchemaClass{
+			&models.Class{
 				Class: class,
 			},
 		)
 	}
 
 	return schema.Schema{
-		Actions: &models.SemanticSchema{
+		Actions: &models.Schema{
 			Classes: classes,
 		},
 	}

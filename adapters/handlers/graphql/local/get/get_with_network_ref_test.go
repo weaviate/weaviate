@@ -30,12 +30,12 @@ func TestLocalGetWithNetworkRef(t *testing.T) {
 		peers.Peer{
 			Name: "OtherInstance",
 			Schema: schema.Schema{
-				Things: &models.SemanticSchema{
-					Classes: []*models.SemanticSchemaClass{
-						&models.SemanticSchemaClass{
+				Things: &models.Schema{
+					Classes: []*models.Class{
+						&models.Class{
 							Class: "SomeRemoteClass",
-							Properties: []*models.SemanticSchemaClassProperty{
-								&models.SemanticSchemaClassProperty{
+							Properties: []*models.Property{
+								&models.Property{
 									DataType: []string{"string"},
 									Name:     "bestString",
 								},

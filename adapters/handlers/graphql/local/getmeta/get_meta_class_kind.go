@@ -28,7 +28,7 @@ import (
 )
 
 // Build the dynamically generated GetMeta Things part of the schema
-func classFields(databaseSchema []*models.SemanticSchemaClass, k kind.Kind,
+func classFields(databaseSchema []*models.Class, k kind.Kind,
 	config config.Config) (*graphql.Object, error) {
 	fields := graphql.Fields{}
 	var (
@@ -61,7 +61,7 @@ func classFields(databaseSchema []*models.SemanticSchemaClass, k kind.Kind,
 	}), nil
 }
 
-func classField(k kind.Kind, class *models.SemanticSchemaClass, description string,
+func classField(k kind.Kind, class *models.Class, description string,
 	config config.Config) (*graphql.Field, error) {
 	metaClassName := fmt.Sprintf("Meta%s", class.Class)
 
@@ -128,7 +128,7 @@ func extendArgsWithAnalyticsConfig(field *graphql.Field, config config.Config) *
 	return field
 }
 
-func classPropertyFields(class *models.SemanticSchemaClass) (graphql.Fields, error) {
+func classPropertyFields(class *models.Class) (graphql.Fields, error) {
 	fields := graphql.Fields{}
 	metaField, err := commonGetMeta.MetaPropertyField(class, "Meta")
 	if err != nil {

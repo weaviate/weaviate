@@ -27,7 +27,7 @@ import (
 )
 
 // Build the dynamically generated GetMeta Things part of the schema
-func classFields(databaseSchema []*models.SemanticSchemaClass, k kind.Kind, peerName string) (*graphql.Object, error) {
+func classFields(databaseSchema []*models.Class, k kind.Kind, peerName string) (*graphql.Object, error) {
 	fields := graphql.Fields{}
 	var (
 		description string
@@ -58,7 +58,7 @@ func classFields(databaseSchema []*models.SemanticSchemaClass, k kind.Kind, peer
 	}), nil
 }
 
-func classField(k kind.Kind, class *models.SemanticSchemaClass, description string,
+func classField(k kind.Kind, class *models.Class, description string,
 	peerName string) (*graphql.Field, error) {
 	metaClassName := fmt.Sprintf("%sMeta%s", peerName, class.Class)
 
@@ -105,7 +105,7 @@ func classField(k kind.Kind, class *models.SemanticSchemaClass, description stri
 	return fieldsField, nil
 }
 
-func classPropertyFields(class *models.SemanticSchemaClass, peerName string) (graphql.Fields, error) {
+func classPropertyFields(class *models.Class, peerName string) (graphql.Fields, error) {
 	fields := graphql.Fields{}
 	prefix := fmt.Sprintf("%sMeta", peerName)
 	metaField, err := commonGetMeta.MetaPropertyField(class, prefix)

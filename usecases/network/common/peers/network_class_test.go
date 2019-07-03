@@ -54,8 +54,8 @@ func TestWithPeerWithClass(t *testing.T) {
 		Peer{
 			Name: "WeaviateB",
 			Schema: schema.Schema{
-				Things: &models.SemanticSchema{
-					Classes: []*models.SemanticSchemaClass{{
+				Things: &models.Schema{
+					Classes: []*models.Class{{
 						Class: "Car",
 					}},
 				},

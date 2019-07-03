@@ -96,7 +96,7 @@ func Build(dbSchema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger
 }
 
 // Builds the classes below a Local -> Get -> (k kind.Kind)
-func buildGetClasses(dbSchema *schema.Schema, k kind.Kind, semanticSchema *models.SemanticSchema,
+func buildGetClasses(dbSchema *schema.Schema, k kind.Kind, semanticSchema *models.Schema,
 	knownClasses *map[string]*graphql.Object, knownRefClasses refclasses.ByNetworkClass,
 	peers peers.Peers) (*graphql.Object, error) {
 	classFields := graphql.Fields{}

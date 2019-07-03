@@ -190,7 +190,7 @@ func (l *loader) loadSchemaFromDisk() error {
 	return nil
 }
 
-func loadSemanticSchemaFromDisk(path string) (error, *models.SemanticSchema) {
+func loadSemanticSchemaFromDisk(path string) (error, *models.Schema) {
 	file, err := os.Open(path)
 	if err != nil {
 		return err, nil
@@ -198,7 +198,7 @@ func loadSemanticSchemaFromDisk(path string) (error, *models.SemanticSchema) {
 
 	decoder := json.NewDecoder(file)
 
-	var schema models.SemanticSchema
+	var schema models.Schema
 	err = decoder.Decode(&schema)
 
 	if err != nil {
@@ -272,7 +272,7 @@ func (l *loader) defineActionClasses() error {
 		l.log.Debugf("Defining action class %s", class.Class)
 
 		// Shallow copy of the struct
-		var classToAdd models.SemanticSchemaClass = *class
+		var classToAdd models.Class = *class
 		// Remove properties
 		classToAdd.Properties = nil
 
@@ -291,7 +291,7 @@ func (l *loader) defineThingClasses() error {
 
 	for _, class := range l.schema.Things.Classes {
 		// Shallow copy of the struct
-		var classToAdd models.SemanticSchemaClass = *class
+		var classToAdd models.Class = *class
 		// Remove properties
 		classToAdd.Properties = nil
 
