@@ -69,7 +69,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	schemaRepo := etcd.NewSchemaRepo(etcdClient)
 	connstateRepo := etcd.NewConnStateRepo(etcdClient)
-	vectorRepo := esvector.NewRepo(esClient)
+	vectorRepo := esvector.NewRepo(esClient, appState.Logger)
 	vectorMigrator := esvector.NewMigrator(vectorRepo)
 
 	migrator := migrate.New(appState.Connector, vectorMigrator)

@@ -19,9 +19,11 @@ import (
 	"testing"
 
 	"github.com/elastic/go-elasticsearch/v5"
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -32,7 +34,8 @@ func TestEsVectorMigrator(t *testing.T) {
 	})
 	require.Nil(t, err)
 	waitForEsToBeReady(t, client)
-	repo := NewRepo(client)
+	logger, _ := test.NewNullLogger()
+	repo := NewRepo(client, logger)
 	migrator := NewMigrator(repo)
 
 	t.Run("adding a class", func(t *testing.T) {
@@ -216,4 +219,69 @@ func TestEsVectorMigrator(t *testing.T) {
 		assert.Nil(t, err)
 	})
 
+}
+
+func TestEsVectorMigrator_ImportingConcepts(t *testing.T) {
+	client, err := elasticsearch.NewClient(elasticsearch.Config{
+		Addresses: []string{"http://localhost:9201"},
+	})
+	require.Nil(t, err)
+	waitForEsToBeReady(t, client)
+	logger, _ := test.NewNullLogger()
+	repo := NewRepo(client, logger)
+	migrator := NewMigrator(repo)
+
+	t.Run("add a thing to the schema", func(t *testing.T) {
+		kind := kind.Thing
+		class := &models.Class{
+			Class: "MyTestClassWithProps",
+			Properties: []*models.Property{
+				&models.Property{
+					Name:     "name",
+					DataType: []string{string(schema.DataTypeString)},
+				},
+				&models.Property{
+					Name:     "date",
+					DataType: []string{string(schema.DataTypeDate)},
+				},
+				&models.Property{
+					Name:     "location",
+					DataType: []string{string(schema.DataTypeGeoCoordinates)},
+				},
+			},
+		}
+
+		err := migrator.AddClass(context.Background(), kind, class)
+		require.Nil(t, err)
+	})
+
+	t.Run("importing an instance with only a string prop", func(t *testing.T) {
+		thing := &models.Thing{
+			Class: "MyTestClassWithProps",
+			ID:    strfmt.UUID("id1"),
+			Schema: map[string]interface{}{
+				"name": "foo",
+			},
+		}
+
+		err := repo.PutThing(context.Background(), thing, []float32{0, 0, 0})
+		require.Nil(t, err)
+	})
+
+	t.Run("importing an instance with a geolocation prop", func(t *testing.T) {
+		thing := &models.Thing{
+			Class: "MyTestClassWithProps",
+			ID:    strfmt.UUID("id2"),
+			Schema: map[string]interface{}{
+				"name": "bar",
+				"location": &models.GeoCoordinates{
+					Latitude:  1,
+					Longitude: 2,
+				},
+			},
+		}
+
+		err := repo.PutThing(context.Background(), thing, []float32{0, 0, 0})
+		require.Nil(t, err)
+	})
 }

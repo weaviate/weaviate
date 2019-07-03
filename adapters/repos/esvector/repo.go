@@ -25,6 +25,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -35,12 +36,12 @@ const (
 // Repo stores and retrieves vector info in elasticsearch
 type Repo struct {
 	client *elasticsearch.Client
+	logger logrus.FieldLogger
 }
 
 // NewRepo from existing es client
-func NewRepo(client *elasticsearch.Client) *Repo {
-
-	return &Repo{client}
+func NewRepo(client *elasticsearch.Client, logger logrus.FieldLogger) *Repo {
+	return &Repo{client, logger}
 }
 
 type conceptBucket struct {
@@ -109,7 +110,7 @@ type hit struct {
 
 func (r *Repo) searchResponse(res *esapi.Response) ([]traverser.VectorSearchResult,
 	error) {
-	if err := errorResToErr(res); err != nil {
+	if err := errorResToErr(res, r.logger); err != nil {
 		return nil, fmt.Errorf("vector search: %v", err)
 	}
 
@@ -151,11 +152,10 @@ func (sr searchResponse) toVectorSearchResult() ([]traverser.VectorSearchResult,
 }
 
 // PutThing idempotently adds a Thing with its vector representation
-// TODO: infer index from class name
-func (r *Repo) PutThing(ctx context.Context, index string,
+func (r *Repo) PutThing(ctx context.Context,
 	concept *models.Thing, vector []float32) error {
-	err := r.putConcept(ctx, index, kind.Thing, concept.ID.String(),
-		concept.Class, vector)
+	err := r.putConcept(ctx, kind.Thing, concept.ID.String(),
+		concept.Class, concept.Schema, vector)
 	if err != nil {
 		return fmt.Errorf("put thing: %v", err)
 	}
@@ -164,11 +164,10 @@ func (r *Repo) PutThing(ctx context.Context, index string,
 }
 
 // PutAction idempotently adds a Action with its vector representation
-// TODO: infer index from class name
-func (r *Repo) PutAction(ctx context.Context, index string,
+func (r *Repo) PutAction(ctx context.Context,
 	concept *models.Action, vector []float32) error {
-	err := r.putConcept(ctx, index, kind.Action, concept.ID.String(),
-		concept.Class, vector)
+	err := r.putConcept(ctx, kind.Action, concept.ID.String(),
+		concept.Class, concept.Schema, vector)
 	if err != nil {
 		return fmt.Errorf("put action: %v", err)
 	}
@@ -176,17 +175,19 @@ func (r *Repo) PutAction(ctx context.Context, index string,
 	return nil
 }
 
-// TODO: infer index from class name
-func (r *Repo) putConcept(ctx context.Context, index string,
-	k kind.Kind, id, class string, vector []float32) error {
+func (r *Repo) putConcept(ctx context.Context,
+	k kind.Kind, id, className string, props models.PropertySchema,
+	vector []float32) error {
 
 	var buf bytes.Buffer
-	bucket := conceptBucket{
-		Kind:            k.Name(),
-		ID:              id,
-		ClassName:       class,
-		EmbeddingVector: vectorToBase64(vector),
+	bucket := map[string]interface{}{
+		"kind":             k.Name(),
+		"id":               id,
+		"class_name":       className,
+		"embedding_vector": vectorToBase64(vector),
 	}
+
+	bucket = extendBucketWithProps(bucket, props)
 
 	err := json.NewEncoder(&buf).Encode(bucket)
 	if err != nil {
@@ -194,7 +195,7 @@ func (r *Repo) putConcept(ctx context.Context, index string,
 	}
 
 	req := esapi.IndexRequest{
-		Index:        index,
+		Index:        classIndexFromClassName(k, className),
 		DocumentType: doctype,
 		DocumentID:   id,
 		Body:         &buf,
@@ -205,11 +206,39 @@ func (r *Repo) putConcept(ctx context.Context, index string,
 		return fmt.Errorf("index request: %v", err)
 	}
 
-	if err := errorResToErr(res); err != nil {
+	if err := errorResToErr(res, r.logger); err != nil {
+		r.logger.WithField("action", "vector_index_put_concept").
+			WithError(err).
+			WithField("request", req).
+			WithField("res", res).
+			WithField("body_before_marshal", bucket).
+			WithField("body", buf.String()).
+			Errorf("put concept failed")
+
 		return fmt.Errorf("index request: %v", err)
 	}
 
 	return nil
+}
+
+func extendBucketWithProps(bucket map[string]interface{}, props models.PropertySchema) map[string]interface{} {
+	if props == nil {
+		return bucket
+	}
+
+	propsMap := props.(map[string]interface{})
+	for key, value := range propsMap {
+		if gc, ok := value.(*models.GeoCoordinates); ok {
+			value = map[string]interface{}{
+				"lat": gc.Latitude,
+				"lon": gc.Longitude,
+			}
+		}
+
+		bucket[key] = value
+	}
+
+	return bucket
 }
 
 func vectorToBase64(array []float32) string {
@@ -242,7 +271,7 @@ func base64ToVector(base64Str string) ([]float32, error) {
 	return array, nil
 }
 
-func errorResToErr(res *esapi.Response) error {
+func errorResToErr(res *esapi.Response, logger logrus.FieldLogger) error {
 	if !res.IsError() {
 		return nil
 	}
@@ -251,6 +280,8 @@ func errorResToErr(res *esapi.Response) error {
 	if err := json.NewDecoder(res.Body).Decode(&e); err != nil {
 		return fmt.Errorf("request is error: status: %s", res.Status())
 	}
+
+	logger.WithField("error", e).Error("error response from es")
 
 	return fmt.Errorf("request is error: status: %v, type: %v, reason: %v",
 		res.Status(),
