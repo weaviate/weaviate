@@ -37,6 +37,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
+	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/semi-technologies/weaviate/usecases/vectorizer"
@@ -69,8 +70,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	schemaRepo := etcd.NewSchemaRepo(etcdClient)
 	connstateRepo := etcd.NewConnStateRepo(etcdClient)
 	vectorRepo := esvector.NewRepo(esClient)
+	vectorMigrator := esvector.NewMigrator(vectorRepo)
 
-	schemaManager, err := schemaUC.NewManager(appState.Connector, schemaRepo,
+	migrator := migrate.New(appState.Connector, vectorMigrator)
+	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Locks, appState.Network, appState.Logger, appState.Contextionary, appState.Authorizer, appState.StopwordDetector)
 	if err != nil {
 		appState.Logger.
