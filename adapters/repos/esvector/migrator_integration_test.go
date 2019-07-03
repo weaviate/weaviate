@@ -146,6 +146,41 @@ func TestEsVectorMigrator(t *testing.T) {
 
 	})
 
+	t.Run("trying to update a class", func(t *testing.T) {
+		t.Run("only modifying keywords", func(t *testing.T) {
+			newKeywords := &models.Keywords{}
+			err := migrator.UpdateClass(context.Background(), kind.Action, "MyClass",
+				nil, newKeywords)
+			assert.Nil(t, err, "should not error")
+		})
+
+		t.Run("trying to rename a prop", func(t *testing.T) {
+			newName := "newName"
+			err := migrator.UpdateClass(context.Background(), kind.Action, "MyClass",
+				&newName, nil)
+			assert.NotNil(t, err,
+				"should error because props are immutable when the es vector index is activated")
+		})
+	})
+
+	t.Run("trying to update a property", func(t *testing.T) {
+		t.Run("only modifying keywords", func(t *testing.T) {
+			newKeywords := &models.Keywords{}
+			err := migrator.UpdateProperty(context.Background(), kind.Action, "MyClass",
+				"myProp", nil, newKeywords)
+			assert.Nil(t, err, "should not error")
+		})
+
+		t.Run("trying to rename a prop", func(t *testing.T) {
+			newName := "newName"
+			err := migrator.UpdateProperty(context.Background(), kind.Action, "MyClass",
+				"myProp", &newName, nil)
+			assert.NotNil(t, err,
+				"should error because props are immutable when the es vector index is activated")
+		})
+
+	})
+
 	t.Run("extending an existing class with a new property", func(t *testing.T) {
 		prop := &models.Property{
 			Name:     "aNewProp",

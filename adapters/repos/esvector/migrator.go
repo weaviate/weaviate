@@ -59,7 +59,11 @@ func (m *Migrator) DropClass(ctx context.Context, kind kind.Kind, className stri
 }
 
 func (m *Migrator) UpdateClass(ctx context.Context, kind kind.Kind, className string, newClassName *string, newKeywords *models.Keywords) error {
-	panic("not implemented")
+	if newClassName != nil {
+		return fmt.Errorf("esvector does not support renaming of classes")
+	}
+
+	return nil
 }
 
 func (m *Migrator) AddProperty(ctx context.Context, kind kind.Kind, className string, prop *models.Property) error {
@@ -81,7 +85,11 @@ func (m *Migrator) DropProperty(ctx context.Context, kind kind.Kind, className s
 }
 
 func (m *Migrator) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string, newKeywords *models.Keywords) error {
-	panic("not implemented")
+	if newName != nil {
+		return fmt.Errorf("esvector does not support renaming of properties")
+	}
+
+	return nil
 }
 
 func (m *Migrator) UpdatePropertyAddDataType(ctx context.Context, kind kind.Kind, className string, propName string, newDataType string) error {
