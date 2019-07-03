@@ -136,6 +136,16 @@ func TestEsVectorMigrator(t *testing.T) {
 
 	})
 
+	t.Run("extending an existing class with a new property", func(t *testing.T) {
+		prop := &models.SemanticSchemaClassProperty{
+			Name:     "aNewProp",
+			DataType: []string{string(schema.DataTypeString)},
+		}
+
+		err := migrator.AddProperty(context.Background(), kind.Action, "MyClass", prop)
+		assert.Nil(t, err)
+	})
+
 	t.Run("deleting a previously created class", func(t *testing.T) {
 		err := migrator.DropClass(context.Background(), kind.Thing, "MyThingClass")
 		assert.Nil(t, err)
