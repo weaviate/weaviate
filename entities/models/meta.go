@@ -27,13 +27,13 @@ import (
 type Meta struct {
 
 	// actions schema
-	ActionsSchema *SemanticSchema `json:"actionsSchema,omitempty"`
+	ActionsSchema *Schema `json:"actionsSchema,omitempty"`
 
 	// The url of the host.
 	Hostname string `json:"hostname,omitempty"`
 
 	// things schema
-	ThingsSchema *SemanticSchema `json:"thingsSchema,omitempty"`
+	ThingsSchema *Schema `json:"thingsSchema,omitempty"`
 }
 
 // Validate validates this meta

@@ -46,7 +46,7 @@ type WeaviateSchemaActionsCreateParams struct {
 	  Required: true
 	  In: body
 	*/
-	ActionClass *models.SemanticSchemaClass
+	ActionClass *models.Class
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -60,7 +60,7 @@ func (o *WeaviateSchemaActionsCreateParams) BindRequest(r *http.Request, route *
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body models.SemanticSchemaClass
+		var body models.Class
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
 				res = append(res, errors.Required("actionClass", "body"))

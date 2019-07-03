@@ -22,7 +22,7 @@ type Cardinality int
 const CardinalityAtMostOne Cardinality = 1
 const CardinalityMany Cardinality = 2
 
-func CardinalityOfProperty(property *models.SemanticSchemaClassProperty) Cardinality {
+func CardinalityOfProperty(property *models.Property) Cardinality {
 	if property.Cardinality == nil {
 		return CardinalityAtMostOne
 	}

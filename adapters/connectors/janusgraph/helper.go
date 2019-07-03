@@ -49,7 +49,7 @@ type kindClass struct {
 	lastUpdateTimeUnix int64
 }
 
-func (j *Janusgraph) getClass(ctx context.Context, k kind.Kind, searchUUID strfmt.UUID, atClass *string, foundUUID *strfmt.UUID, creationTimeUnix *int64, lastUpdateTimeUnix *int64, properties *models.Schema) error {
+func (j *Janusgraph) getClass(ctx context.Context, k kind.Kind, searchUUID strfmt.UUID, atClass *string, foundUUID *strfmt.UUID, creationTimeUnix *int64, lastUpdateTimeUnix *int64, properties *models.PropertySchema) error {
 	// Fetch the class, it's key, and it's relations.
 	q := gremlin.G.V().
 		HasString(PROP_KIND, k.Name()).

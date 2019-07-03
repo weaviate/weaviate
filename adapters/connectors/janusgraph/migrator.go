@@ -73,7 +73,7 @@ func (j *Janusgraph) ensureBasicSchema(ctx context.Context) error {
 }
 
 // Add a class to the Thing or Action schema, depending on the kind parameter.
-func (j *Janusgraph) AddClass(ctx context.Context, kind kind.Kind, class *models.SemanticSchemaClass) error {
+func (j *Janusgraph) AddClass(ctx context.Context, kind kind.Kind, class *models.Class) error {
 	log.Debugf("Adding class '%v' in JanusGraph", class.Class)
 	// Extra sanity check
 	sanitizedClassName := schema.AssertValidClassName(class.Class)
@@ -143,7 +143,7 @@ func (j *Janusgraph) DropClass(ctx context.Context, kind kind.Kind, name string)
 	return nil
 }
 
-func (j *Janusgraph) UpdateClass(ctx context.Context, kind kind.Kind, className string, newClassName *string, newKeywords *models.SemanticSchemaKeywords) error {
+func (j *Janusgraph) UpdateClass(ctx context.Context, kind kind.Kind, className string, newClassName *string, newKeywords *models.Keywords) error {
 	if newClassName != nil {
 		oldName := schema.AssertValidClassName(className)
 		newName := schema.AssertValidClassName(*newClassName)
@@ -153,7 +153,7 @@ func (j *Janusgraph) UpdateClass(ctx context.Context, kind kind.Kind, className 
 
 	return nil
 }
-func (j *Janusgraph) AddUnindexedProperty(ctx context.Context, kind kind.Kind, className string, prop *models.SemanticSchemaClassProperty) error {
+func (j *Janusgraph) AddUnindexedProperty(ctx context.Context, kind kind.Kind, className string, prop *models.Property) error {
 	// Extra sanity check
 	sanitizedClassName := schema.AssertValidClassName(className)
 
@@ -188,7 +188,7 @@ func (j *Janusgraph) AddUnindexedProperty(ctx context.Context, kind kind.Kind, c
 	return nil
 }
 
-func (j *Janusgraph) AddProperty(ctx context.Context, kind kind.Kind, className string, prop *models.SemanticSchemaClassProperty) error {
+func (j *Janusgraph) AddProperty(ctx context.Context, kind kind.Kind, className string, prop *models.Property) error {
 	// Extra sanity check
 	sanitizedClassName := schema.AssertValidClassName(className)
 
@@ -227,7 +227,7 @@ func (j *Janusgraph) AddProperty(ctx context.Context, kind kind.Kind, className 
 	return nil
 }
 
-func (j *Janusgraph) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string, newKeywords *models.SemanticSchemaKeywords) error {
+func (j *Janusgraph) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string, newKeywords *models.Keywords) error {
 	if newName != nil {
 		sanitizedClassName := schema.AssertValidClassName(className)
 		oldName := schema.AssertValidPropertyName(propName)

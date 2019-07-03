@@ -21,7 +21,7 @@ import (
 )
 
 type schemaProperties struct {
-	Schema *models.SemanticSchema
+	Schema *models.Schema
 }
 
 // WeaviateSchema represents the used schema's
@@ -56,7 +56,7 @@ const (
 )
 
 // GetClassByName returns the class by its name
-func GetClassByName(s *models.SemanticSchema, className string) (*models.SemanticSchemaClass, error) {
+func GetClassByName(s *models.Schema, className string) (*models.Class, error) {
 	// For each class
 	for _, class := range s.Classes {
 
@@ -70,7 +70,7 @@ func GetClassByName(s *models.SemanticSchema, className string) (*models.Semanti
 }
 
 // GetPropertyByName returns the class by its name
-func GetPropertyByName(c *models.SemanticSchemaClass, propName string) (*models.SemanticSchemaClassProperty, error) {
+func GetPropertyByName(c *models.Class, propName string) (*models.Property, error) {
 	// For each class-property
 	for _, prop := range c.Properties {
 
@@ -84,7 +84,7 @@ func GetPropertyByName(c *models.SemanticSchemaClass, propName string) (*models.
 }
 
 // GetPropertyDataType checks whether the given string is a valid data type
-func GetPropertyDataType(class *models.SemanticSchemaClass, propertyName string) (*DataType, error) {
+func GetPropertyDataType(class *models.Class, propertyName string) (*DataType, error) {
 	// Get the class-property
 	prop, err := GetPropertyByName(class, propertyName)
 

@@ -39,23 +39,23 @@ type ClassAndProperty struct {
 
 // Describes the schema that is used in Weaviate.
 type Schema struct {
-	Actions *models.SemanticSchema
-	Things  *models.SemanticSchema
+	Actions *models.Schema
+	Things  *models.Schema
 }
 
 func Empty() Schema {
 	return Schema{
-		Actions: &models.SemanticSchema{
-			Classes: []*models.SemanticSchemaClass{},
+		Actions: &models.Schema{
+			Classes: []*models.Class{},
 		},
-		Things: &models.SemanticSchema{
-			Classes: []*models.SemanticSchemaClass{},
+		Things: &models.Schema{
+			Classes: []*models.Class{},
 		},
 	}
 }
 
 // Return one of the semantic schema's
-func (s *Schema) SemanticSchemaFor(k kind.Kind) *models.SemanticSchema {
+func (s *Schema) SemanticSchemaFor(k kind.Kind) *models.Schema {
 	switch k {
 	case kind.Thing:
 		return s.Things

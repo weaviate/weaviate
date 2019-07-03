@@ -29,7 +29,7 @@ func TestCanUpdateActionSetNumber(t *testing.T) {
 	uuid := assertCreateAction(t, "TestAction", map[string]interface{}{})
 	assertGetActionEventually(t, uuid)
 
-	schema := models.Schema(map[string]interface{}{
+	schema := models.PropertySchema(map[string]interface{}{
 		"testNumber": 41.0,
 	})
 
@@ -60,7 +60,7 @@ func TestCanUpdateActionSetString(t *testing.T) {
 	uuid := assertCreateAction(t, "TestAction", map[string]interface{}{})
 	assertGetActionEventually(t, uuid)
 
-	schema := models.Schema(map[string]interface{}{
+	schema := models.PropertySchema(map[string]interface{}{
 		"testString": "wibbly wobbly",
 	})
 
@@ -86,7 +86,7 @@ func TestCanUpdateActionSetBool(t *testing.T) {
 	uuid := assertCreateAction(t, "TestAction", map[string]interface{}{})
 	assertGetActionEventually(t, uuid)
 
-	schema := models.Schema(map[string]interface{}{
+	schema := models.PropertySchema(map[string]interface{}{
 		"testTrueFalse": true,
 	})
 

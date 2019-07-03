@@ -49,7 +49,7 @@ type nameSource interface {
 
 type typeSource interface {
 	GetProperty(kind kind.Kind, className schema.ClassName,
-		propName schema.PropertyName) (error, *models.SemanticSchemaClassProperty)
+		propName schema.PropertyName) (error, *models.Property)
 	FindPropertyDataType(dataType []string) (schema.PropertyDataType, error)
 }
 

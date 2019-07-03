@@ -35,7 +35,7 @@ type WeaviateSchemaThingsPropertiesAddOK struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.SemanticSchemaClassProperty `json:"body,omitempty"`
+	Payload *models.Property `json:"body,omitempty"`
 }
 
 // NewWeaviateSchemaThingsPropertiesAddOK creates WeaviateSchemaThingsPropertiesAddOK with default headers values
@@ -45,13 +45,13 @@ func NewWeaviateSchemaThingsPropertiesAddOK() *WeaviateSchemaThingsPropertiesAdd
 }
 
 // WithPayload adds the payload to the weaviate schema things properties add o k response
-func (o *WeaviateSchemaThingsPropertiesAddOK) WithPayload(payload *models.SemanticSchemaClassProperty) *WeaviateSchemaThingsPropertiesAddOK {
+func (o *WeaviateSchemaThingsPropertiesAddOK) WithPayload(payload *models.Property) *WeaviateSchemaThingsPropertiesAddOK {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the weaviate schema things properties add o k response
-func (o *WeaviateSchemaThingsPropertiesAddOK) SetPayload(payload *models.SemanticSchemaClassProperty) {
+func (o *WeaviateSchemaThingsPropertiesAddOK) SetPayload(payload *models.Property) {
 	o.Payload = payload
 }
 

@@ -1,4 +1,14 @@
-package migrate
+/*                          _       _
+ *__      _____  __ ___   ___  __ _| |_ ___
+ *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+ * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+ *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+ *
+ * Copyright © 2016 - 2019 Weaviate. All rights reserved.
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+ * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+ * CONTACT: hello@semi.technology
+ */package migrate
 
 import (
 	"context"
@@ -20,7 +30,7 @@ func New(migrators ...Migrator) *Composer {
 
 // AddClass calls all internal AddClass methods and composes the errors
 func (c *Composer) AddClass(ctx context.Context, kind kind.Kind,
-	class *models.SemanticSchemaClass) error {
+	class *models.Class) error {
 
 	ec := newErrorComposer()
 	for _, m := range c.migrators {
@@ -44,7 +54,7 @@ func (c *Composer) DropClass(ctx context.Context, kind kind.Kind,
 
 // UpdateClass calls all internal UpdateClass methods and composes the errors
 func (c *Composer) UpdateClass(ctx context.Context, kind kind.Kind,
-	class string, newName *string, newKeywords *models.SemanticSchemaKeywords) error {
+	class string, newName *string, newKeywords *models.Keywords) error {
 
 	ec := newErrorComposer()
 	for _, m := range c.migrators {
@@ -56,7 +66,7 @@ func (c *Composer) UpdateClass(ctx context.Context, kind kind.Kind,
 
 // AddProperty calls all internal AddProperty methods and composes the errors
 func (c *Composer) AddProperty(ctx context.Context, kind kind.Kind,
-	class string, prop *models.SemanticSchemaClassProperty) error {
+	class string, prop *models.Property) error {
 
 	ec := newErrorComposer()
 	for _, m := range c.migrators {
@@ -81,7 +91,7 @@ func (c *Composer) DropProperty(ctx context.Context, kind kind.Kind,
 // UpdateProperty calls all internal UpdateProperty methods and composes the errors
 func (c *Composer) UpdateProperty(ctx context.Context, kind kind.Kind,
 	class string, prop string, newName *string,
-	newKeywords *models.SemanticSchemaKeywords) error {
+	newKeywords *models.Keywords) error {
 
 	ec := newErrorComposer()
 	for _, m := range c.migrators {

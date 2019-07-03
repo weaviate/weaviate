@@ -26,8 +26,8 @@ import (
 
 // ClassPropertyField builds one class field for a GetMeta Query based on the
 // underlying schema type
-func ClassPropertyField(dataType schema.DataType, class *models.SemanticSchemaClass,
-	property *models.SemanticSchemaClassProperty, prefix string) (*graphql.Field, error) {
+func ClassPropertyField(dataType schema.DataType, class *models.Class,
+	property *models.Property, prefix string) (*graphql.Field, error) {
 	switch dataType {
 	case schema.DataTypeString, schema.DataTypeText, schema.DataTypeDate:
 		return makePropertyField(class, property, stringPropertyFields, prefix)
@@ -45,10 +45,10 @@ func ClassPropertyField(dataType schema.DataType, class *models.SemanticSchemaCl
 	}
 }
 
-type propertyFieldMaker func(class *models.SemanticSchemaClass,
-	property *models.SemanticSchemaClassProperty, prefix string) *graphql.Object
+type propertyFieldMaker func(class *models.Class,
+	property *models.Property, prefix string) *graphql.Object
 
-func makePropertyField(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty,
+func makePropertyField(class *models.Class, property *models.Property,
 	fieldMaker propertyFieldMaker, prefix string) (*graphql.Field, error) {
 	return &graphql.Field{
 		Description: fmt.Sprintf(`%s"%s"`, descriptions.GetMetaProperty, property.Name),
@@ -58,14 +58,14 @@ func makePropertyField(class *models.SemanticSchemaClass, property *models.Seman
 
 // MetaPropertyField is a special kind of Property field that adds Meta.Count
 // info to a GetMeta Query regardless of the underlying schema
-func MetaPropertyField(class *models.SemanticSchemaClass, prefix string) (*graphql.Field, error) {
+func MetaPropertyField(class *models.Class, prefix string) (*graphql.Field, error) {
 	return &graphql.Field{
 		Description: descriptions.GetMetaMetaProperty,
 		Type:        metaPropertyObj(class, prefix),
 	}, nil
 }
 
-func metaPropertyObj(class *models.SemanticSchemaClass, prefix string) *graphql.Object {
+func metaPropertyObj(class *models.Class, prefix string) *graphql.Object {
 	getMetaPropertyFields := graphql.Fields{
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%sMetaCount", prefix, class.Class),

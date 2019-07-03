@@ -23,7 +23,7 @@ import (
 
 // AddActionProperty to an existing Action
 func (m *Manager) AddActionProperty(ctx context.Context, principal *models.Principal,
-	class string, property *models.SemanticSchemaClassProperty) error {
+	class string, property *models.Property) error {
 
 	err := m.authorizer.Authorize(principal, "update", "schema/actions")
 	if err != nil {
@@ -35,7 +35,7 @@ func (m *Manager) AddActionProperty(ctx context.Context, principal *models.Princ
 
 // AddThingProperty to an existing Thing
 func (m *Manager) AddThingProperty(ctx context.Context, principal *models.Principal,
-	class string, property *models.SemanticSchemaClassProperty) error {
+	class string, property *models.Property) error {
 
 	err := m.authorizer.Authorize(principal, "update", "schema/things")
 	if err != nil {
@@ -46,7 +46,7 @@ func (m *Manager) AddThingProperty(ctx context.Context, principal *models.Princi
 }
 
 func (m *Manager) addClassProperty(ctx context.Context, principal *models.Principal, className string,
-	prop *models.SemanticSchemaClassProperty, k kind.Kind) error {
+	prop *models.Property, k kind.Kind) error {
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
 		return err
@@ -78,7 +78,7 @@ func (m *Manager) addClassProperty(ctx context.Context, principal *models.Princi
 }
 
 func (m *Manager) validateCanAddProperty(ctx context.Context, principal *models.Principal,
-	property *models.SemanticSchemaClassProperty, class *models.SemanticSchemaClass) error {
+	property *models.Property, class *models.Class) error {
 	// Verify format of property.
 	_, err := schema.ValidatePropertyName(property.Name)
 	if err != nil {

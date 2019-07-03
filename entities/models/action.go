@@ -41,7 +41,7 @@ type Action struct {
 	LastUpdateTimeUnix int64 `json:"lastUpdateTimeUnix,omitempty"`
 
 	// schema
-	Schema Schema `json:"schema,omitempty"`
+	Schema PropertySchema `json:"schema,omitempty"`
 }
 
 // Validate validates this action

@@ -74,7 +74,7 @@ for the weaviate schema actions properties update operation typically these are 
 type WeaviateSchemaActionsPropertiesUpdateParams struct {
 
 	/*Body*/
-	Body *models.SemanticSchemaClassProperty
+	Body *models.Property
 	/*ClassName*/
 	ClassName string
 	/*PropertyName*/
@@ -119,13 +119,13 @@ func (o *WeaviateSchemaActionsPropertiesUpdateParams) SetHTTPClient(client *http
 }
 
 // WithBody adds the body to the weaviate schema actions properties update params
-func (o *WeaviateSchemaActionsPropertiesUpdateParams) WithBody(body *models.SemanticSchemaClassProperty) *WeaviateSchemaActionsPropertiesUpdateParams {
+func (o *WeaviateSchemaActionsPropertiesUpdateParams) WithBody(body *models.Property) *WeaviateSchemaActionsPropertiesUpdateParams {
 	o.SetBody(body)
 	return o
 }
 
 // SetBody adds the body to the weaviate schema actions properties update params
-func (o *WeaviateSchemaActionsPropertiesUpdateParams) SetBody(body *models.SemanticSchemaClassProperty) {
+func (o *WeaviateSchemaActionsPropertiesUpdateParams) SetBody(body *models.Property) {
 	o.Body = body
 }
 

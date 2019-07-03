@@ -143,9 +143,9 @@ func (f *fakeNetwork) ListPeers() (peers.Peers, error) {
 			Name: "BestWeaviate",
 			URI:  strfmt.URI(f.peerURI),
 			Schema: schema.Schema{
-				Things: &models.SemanticSchema{
-					Classes: []*models.SemanticSchemaClass{
-						&models.SemanticSchemaClass{
+				Things: &models.Schema{
+					Classes: []*models.Class{
+						&models.Class{
 							Class: "BestThing",
 						},
 					},

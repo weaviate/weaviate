@@ -216,7 +216,7 @@ func addPrimitivePropToQuery(q *gremlin.Query, propType schema.PropertyDataType,
 	return q, nil
 }
 
-func (j *Janusgraph) edgesFromReferenceProp(ctx context.Context, property *models.SemanticSchemaClassProperty,
+func (j *Janusgraph) edgesFromReferenceProp(ctx context.Context, property *models.Property,
 	value interface{}, propType schema.PropertyDataType, janusPropertyName string, sanitizedPropertyName schema.PropertyName) (edgeFromRefProp, error) {
 	result := edgeFromRefProp{}
 

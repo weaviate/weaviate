@@ -38,10 +38,10 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 	}()
 
 	t.Log("1. create ReferenceTestPlace class")
-	placeClass := &models.SemanticSchemaClass{
+	placeClass := &models.Class{
 		Class: "ReferenceTestPlace",
-		Properties: []*models.SemanticSchemaClassProperty{
-			&models.SemanticSchemaClassProperty{
+		Properties: []*models.Property{
+			&models.Property{
 				DataType: []string{"string"},
 				Name:     "name",
 			},
@@ -53,14 +53,14 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 
 	t.Log("2. create ReferenceTestCity class with HasPlaces (many) cross-ref")
 	cardinalityMany := "many"
-	cityClass := &models.SemanticSchemaClass{
+	cityClass := &models.Class{
 		Class: "ReferenceTestCity",
-		Properties: []*models.SemanticSchemaClassProperty{
-			&models.SemanticSchemaClassProperty{
+		Properties: []*models.Property{
+			&models.Property{
 				DataType: []string{"string"},
 				Name:     "name",
 			},
-			&models.SemanticSchemaClassProperty{
+			&models.Property{
 				DataType:    []string{"ReferenceTestPlace"},
 				Name:        "HasPlaces",
 				Cardinality: &cardinalityMany,
@@ -169,10 +169,10 @@ func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 	}()
 
 	t.Log("1. create ReferenceTestPlace class")
-	placeClass := &models.SemanticSchemaClass{
+	placeClass := &models.Class{
 		Class: "ReferenceTestPlace",
-		Properties: []*models.SemanticSchemaClassProperty{
-			&models.SemanticSchemaClassProperty{
+		Properties: []*models.Property{
+			&models.Property{
 				DataType: []string{"string"},
 				Name:     "name",
 			},
@@ -184,14 +184,14 @@ func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 
 	t.Log("2. create ReferenceTestCity class with HasPlaces (many) cross-ref")
 	cardinalityMany := "many"
-	cityClass := &models.SemanticSchemaClass{
+	cityClass := &models.Class{
 		Class: "ReferenceTestCity",
-		Properties: []*models.SemanticSchemaClassProperty{
-			&models.SemanticSchemaClassProperty{
+		Properties: []*models.Property{
+			&models.Property{
 				DataType: []string{"string"},
 				Name:     "name",
 			},
-			&models.SemanticSchemaClassProperty{
+			&models.Property{
 				DataType:    []string{"ReferenceTestPlace"},
 				Name:        "HasPlaces",
 				Cardinality: &cardinalityMany,

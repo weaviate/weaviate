@@ -99,7 +99,7 @@ func Test__SchemaSearch_Validation(t *testing.T) {
 				Name:       "foo",
 				Kind:       kind.Thing,
 				Certainty:  1.0,
-				Keywords: models.SemanticSchemaKeywords{{
+				Keywords: models.Keywords{{
 					Keyword: "foobar",
 					Weight:  1.0,
 				}},
@@ -113,7 +113,7 @@ func Test__SchemaSearch_Validation(t *testing.T) {
 				Name:       "foo",
 				Kind:       kind.Thing,
 				Certainty:  1.0,
-				Keywords: models.SemanticSchemaKeywords{{
+				Keywords: models.Keywords{{
 					Keyword: "",
 					Weight:  1.0,
 				}},
@@ -127,7 +127,7 @@ func Test__SchemaSearch_Validation(t *testing.T) {
 				Name:       "foo",
 				Kind:       kind.Thing,
 				Certainty:  1.0,
-				Keywords: models.SemanticSchemaKeywords{{
+				Keywords: models.Keywords{{
 					Keyword: "bestkeyword",
 					Weight:  1.3,
 				}},
@@ -142,7 +142,7 @@ func Test__SchemaSearch_Validation(t *testing.T) {
 				Name:       "foo",
 				Kind:       kind.Thing,
 				Certainty:  1.0,
-				Keywords: models.SemanticSchemaKeywords{{
+				Keywords: models.Keywords{{
 					Keyword: "worstKeyword",
 					Weight:  0.8,
 				}},

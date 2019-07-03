@@ -48,7 +48,7 @@ type WeaviateSchemaActionsPropertiesUpdateParams struct {
 	  Required: true
 	  In: body
 	*/
-	Body *models.SemanticSchemaClassProperty
+	Body *models.Property
 	/*
 	  Required: true
 	  In: path
@@ -72,7 +72,7 @@ func (o *WeaviateSchemaActionsPropertiesUpdateParams) BindRequest(r *http.Reques
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body models.SemanticSchemaClassProperty
+		var body models.Property
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
 				res = append(res, errors.Required("body", "body"))

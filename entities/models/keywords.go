@@ -24,12 +24,12 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// SemanticSchemaKeywords Describes a class or property using multiple weighted words.
-// swagger:model SemanticSchemaKeywords
-type SemanticSchemaKeywords []*SemanticSchemaKeywordsItems0
+// Keywords Describes a class or property using multiple weighted words.
+// swagger:model Keywords
+type Keywords []*KeywordsItems0
 
-// Validate validates this semantic schema keywords
-func (m SemanticSchemaKeywords) Validate(formats strfmt.Registry) error {
+// Validate validates this keywords
+func (m Keywords) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	for i := 0; i < len(m); i++ {
@@ -54,9 +54,9 @@ func (m SemanticSchemaKeywords) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-// SemanticSchemaKeywordsItems0 semantic schema keywords items0
-// swagger:model SemanticSchemaKeywordsItems0
-type SemanticSchemaKeywordsItems0 struct {
+// KeywordsItems0 keywords items0
+// swagger:model KeywordsItems0
+type KeywordsItems0 struct {
 
 	// keyword
 	Keyword string `json:"keyword,omitempty"`
@@ -65,13 +65,13 @@ type SemanticSchemaKeywordsItems0 struct {
 	Weight float32 `json:"weight,omitempty"`
 }
 
-// Validate validates this semantic schema keywords items0
-func (m *SemanticSchemaKeywordsItems0) Validate(formats strfmt.Registry) error {
+// Validate validates this keywords items0
+func (m *KeywordsItems0) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
 // MarshalBinary interface implementation
-func (m *SemanticSchemaKeywordsItems0) MarshalBinary() ([]byte, error) {
+func (m *KeywordsItems0) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -79,8 +79,8 @@ func (m *SemanticSchemaKeywordsItems0) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *SemanticSchemaKeywordsItems0) UnmarshalBinary(b []byte) error {
-	var res SemanticSchemaKeywordsItems0
+func (m *KeywordsItems0) UnmarshalBinary(b []byte) error {
+	var res KeywordsItems0
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

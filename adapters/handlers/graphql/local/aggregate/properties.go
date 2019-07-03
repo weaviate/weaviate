@@ -19,7 +19,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
-func numericPropertyFields(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty, prefix string) *graphql.Object {
+func numericPropertyFields(class *models.Class, property *models.Property, prefix string) *graphql.Object {
 	getMetaIntFields := graphql.Fields{
 		"sum": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sSum", prefix, class.Class, property.Name),
@@ -65,8 +65,8 @@ func numericPropertyFields(class *models.SemanticSchemaClass, property *models.S
 	})
 }
 
-func nonNumericPropertyFields(class *models.SemanticSchemaClass,
-	property *models.SemanticSchemaClassProperty, prefix string) *graphql.Object {
+func nonNumericPropertyFields(class *models.Class,
+	property *models.Property, prefix string) *graphql.Object {
 	getMetaPointingFields := graphql.Fields{
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%sCount", prefix, class.Class),
@@ -82,7 +82,7 @@ func nonNumericPropertyFields(class *models.SemanticSchemaClass,
 	})
 }
 
-func groupedByProperty(class *models.SemanticSchemaClass) *graphql.Object {
+func groupedByProperty(class *models.Class) *graphql.Object {
 	classProperties := graphql.Fields{
 		"path": &graphql.Field{
 			Description: descriptions.LocalAggregateGroupedByGroupedByPath,

@@ -61,7 +61,7 @@ func FromPeers(peers peers.Peers, classes []crossrefs.NetworkClass) (ByNetworkCl
 	return result, nil
 }
 
-func graphqlObjectFromClass(name string, networkClassName string, class *models.SemanticSchemaClass,
+func graphqlObjectFromClass(name string, networkClassName string, class *models.Class,
 	dbSchema *schema.Schema) *graphql.Object {
 	return graphql.NewObject(graphql.ObjectConfig{
 		Name: name,
@@ -103,7 +103,7 @@ func graphqlObjectFromClass(name string, networkClassName string, class *models.
 }
 
 func buildPrimitiveField(propertyType schema.PropertyDataType,
-	property *models.SemanticSchemaClassProperty, networkClassName, className string) *graphql.Field {
+	property *models.Property, networkClassName, className string) *graphql.Field {
 	switch propertyType.AsPrimitive() {
 	case schema.DataTypeString:
 		return &graphql.Field{

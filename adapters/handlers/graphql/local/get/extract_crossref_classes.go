@@ -31,7 +31,7 @@ func extractNetworkRefClassNames(schema *schema.Schema) []crossrefs.NetworkClass
 	return removeDuplicates(result)
 }
 
-func extractFromClasses(classes []*models.SemanticSchemaClass) []crossrefs.NetworkClass {
+func extractFromClasses(classes []*models.Class) []crossrefs.NetworkClass {
 	var result = []crossrefs.NetworkClass{}
 	for _, class := range classes {
 		result = append(result, extractFromProperties(class.Properties)...)
@@ -40,7 +40,7 @@ func extractFromClasses(classes []*models.SemanticSchemaClass) []crossrefs.Netwo
 	return result
 }
 
-func extractFromProperties(props []*models.SemanticSchemaClassProperty) []crossrefs.NetworkClass {
+func extractFromProperties(props []*models.Property) []crossrefs.NetworkClass {
 	var result = []crossrefs.NetworkClass{}
 	for _, prop := range props {
 		result = append(result, extractFromDataTypes(prop.DataType)...)

@@ -20,8 +20,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
-func numericalPropertyField(class *models.SemanticSchemaClass,
-	property *models.SemanticSchemaClassProperty, prefix string) *graphql.Object {
+func numericalPropertyField(class *models.Class,
+	property *models.Property, prefix string) *graphql.Object {
 	getMetaNumberFields := graphql.Fields{
 		"sum": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sSum", prefix, class.Class, property.Name),

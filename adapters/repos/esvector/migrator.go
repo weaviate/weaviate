@@ -1,4 +1,14 @@
-package esvector
+/*                          _       _
+ *__      _____  __ ___   ___  __ _| |_ ___
+ *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+ * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+ *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+ *
+ * Copyright © 2016 - 2019 Weaviate. All rights reserved.
+ * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+ * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+ * CONTACT: hello@semi.technology
+ */package esvector
 
 import (
 	"context"
@@ -22,7 +32,7 @@ func NewMigrator(repo *Repo) *Migrator {
 }
 
 // AddClass creates an index, then puts the desired mappings
-func (m *Migrator) AddClass(ctx context.Context, kind kind.Kind, class *models.SemanticSchemaClass) error {
+func (m *Migrator) AddClass(ctx context.Context, kind kind.Kind, class *models.Class) error {
 	index := classIndexFromClass(kind, class)
 	err := m.repo.PutIndex(ctx, index)
 	if err != nil {
@@ -48,15 +58,15 @@ func (m *Migrator) DropClass(ctx context.Context, kind kind.Kind, className stri
 	return nil
 }
 
-func (m *Migrator) UpdateClass(ctx context.Context, kind kind.Kind, className string, newClassName *string, newKeywords *models.SemanticSchemaKeywords) error {
+func (m *Migrator) UpdateClass(ctx context.Context, kind kind.Kind, className string, newClassName *string, newKeywords *models.Keywords) error {
 	panic("not implemented")
 }
 
-func (m *Migrator) AddProperty(ctx context.Context, kind kind.Kind, className string, prop *models.SemanticSchemaClassProperty) error {
+func (m *Migrator) AddProperty(ctx context.Context, kind kind.Kind, className string, prop *models.Property) error {
 	// put mappings does not delete existing properties, so we can use it to add
 	// a new one, too
 	index := classIndexFromClassName(kind, className)
-	err := m.setMappings(ctx, index, []*models.SemanticSchemaClassProperty{prop})
+	err := m.setMappings(ctx, index, []*models.Property{prop})
 	if err != nil {
 		return fmt.Errorf("add property %s to class %s: map properties: %v",
 			className, prop.Name, err)
@@ -69,7 +79,7 @@ func (m *Migrator) DropProperty(ctx context.Context, kind kind.Kind, className s
 	panic("not implemented")
 }
 
-func (m *Migrator) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string, newKeywords *models.SemanticSchemaKeywords) error {
+func (m *Migrator) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string, newKeywords *models.Keywords) error {
 	panic("not implemented")
 }
 
@@ -79,7 +89,7 @@ func (m *Migrator) UpdatePropertyAddDataType(ctx context.Context, kind kind.Kind
 
 const indexPrefix = "class_"
 
-func classIndexFromClass(kind kind.Kind, class *models.SemanticSchemaClass) string {
+func classIndexFromClass(kind kind.Kind, class *models.Class) string {
 	return classIndexFromClassName(kind, class.Class)
 }
 
@@ -89,7 +99,7 @@ func classIndexFromClassName(kind kind.Kind, className string) string {
 }
 
 func (m *Migrator) setMappings(ctx context.Context, index string,
-	props []*models.SemanticSchemaClassProperty) error {
+	props []*models.Property) error {
 	esProperties := map[string]interface{}{}
 
 	for _, prop := range props {

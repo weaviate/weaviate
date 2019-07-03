@@ -74,7 +74,7 @@ for the weaviate schema things create operation typically these are written to a
 type WeaviateSchemaThingsCreateParams struct {
 
 	/*ThingClass*/
-	ThingClass *models.SemanticSchemaClass
+	ThingClass *models.Class
 
 	timeout    time.Duration
 	Context    context.Context
@@ -115,13 +115,13 @@ func (o *WeaviateSchemaThingsCreateParams) SetHTTPClient(client *http.Client) {
 }
 
 // WithThingClass adds the thingClass to the weaviate schema things create params
-func (o *WeaviateSchemaThingsCreateParams) WithThingClass(thingClass *models.SemanticSchemaClass) *WeaviateSchemaThingsCreateParams {
+func (o *WeaviateSchemaThingsCreateParams) WithThingClass(thingClass *models.Class) *WeaviateSchemaThingsCreateParams {
 	o.SetThingClass(thingClass)
 	return o
 }
 
 // SetThingClass adds the thingClass to the weaviate schema things create params
-func (o *WeaviateSchemaThingsCreateParams) SetThingClass(thingClass *models.SemanticSchemaClass) {
+func (o *WeaviateSchemaThingsCreateParams) SetThingClass(thingClass *models.Class) {
 	o.ThingClass = thingClass
 }
 

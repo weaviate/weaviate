@@ -188,16 +188,16 @@ func fakeGenesis(t *testing.T, matchers ...requestMatcher) *httptest.Server {
 
 func sampleSchema() schema.Schema {
 	return schema.Schema{
-		Actions: &models.SemanticSchema{
-			Classes: []*models.SemanticSchemaClass{
-				&models.SemanticSchemaClass{
+		Actions: &models.Schema{
+			Classes: []*models.Class{
+				&models.Class{
 					Class: "Flight",
 				},
 			},
 		},
-		Things: &models.SemanticSchema{
-			Classes: []*models.SemanticSchemaClass{
-				&models.SemanticSchemaClass{
+		Things: &models.Schema{
+			Classes: []*models.Class{
+				&models.Class{
 					Class: "Airplane",
 				},
 			},

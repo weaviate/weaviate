@@ -64,13 +64,13 @@ func TestWithClassWithPrimitiveProp(t *testing.T) {
 		peers.Peer{
 			Name: "BestPeer",
 			Schema: schema.Schema{
-				Things: &models.SemanticSchema{
-					Classes: []*models.SemanticSchemaClass{
-						&models.SemanticSchemaClass{
+				Things: &models.Schema{
+					Classes: []*models.Class{
+						&models.Class{
 							Class:       "BestClass",
 							Description: "not the best class in the world, just a tribute",
-							Properties: []*models.SemanticSchemaClassProperty{
-								&models.SemanticSchemaClassProperty{
+							Properties: []*models.Property{
+								&models.Property{
 									DataType: []string{"string"},
 									Name:     "bestString",
 								},
@@ -109,21 +109,21 @@ func TestWithClassWithReferenceProps(t *testing.T) {
 		peers.Peer{
 			Name: "BestPeer",
 			Schema: schema.Schema{
-				Things: &models.SemanticSchema{
-					Classes: []*models.SemanticSchemaClass{
-						&models.SemanticSchemaClass{
+				Things: &models.Schema{
+					Classes: []*models.Class{
+						&models.Class{
 							Class:       "BestClass",
 							Description: "not the best class in the world, just a tribute",
-							Properties: []*models.SemanticSchemaClassProperty{
-								&models.SemanticSchemaClassProperty{
+							Properties: []*models.Property{
+								&models.Property{
 									DataType: []string{"string"},
 									Name:     "bestString",
 								},
-								&models.SemanticSchemaClassProperty{
+								&models.Property{
 									DataType: []string{"SomeClass"},
 									Name:     "LocalRef",
 								},
-								&models.SemanticSchemaClassProperty{
+								&models.Property{
 									DataType: []string{"OtherInstance/SomeClass"},
 									Name:     "ForeignRef",
 								},
