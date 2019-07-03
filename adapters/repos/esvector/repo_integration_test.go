@@ -22,6 +22,7 @@ import (
 	"github.com/elastic/go-elasticsearch/v5"
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,27 +37,24 @@ func TestEsVectorRepo(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	repo := NewRepo(client, logger)
+	migrator := NewMigrator(repo)
 
-	t.Run("create the index", func(t *testing.T) {
-		err := repo.PutIndex(context.Background(), "integrationtest")
-		assert.Nil(t, err)
+	t.Run("creating the thing class", func(t *testing.T) {
+		class := &models.Class{
+			Class: "TheBestThingClass",
+		}
+
+		require.Nil(t,
+			migrator.AddClass(context.Background(), kind.Thing, class))
 	})
 
-	t.Run("sending the index creation request again", func(t *testing.T) {
-		err := repo.PutIndex(context.Background(), "integrationtest")
-		assert.Nil(t, err, "should not error, so index creation is idempotent")
-	})
+	t.Run("creating the action class", func(t *testing.T) {
+		class := &models.Class{
+			Class: "TheBestActionClass",
+		}
 
-	t.Run("create the desired mappings", func(t *testing.T) {
-		err := repo.SetMappings(context.Background(), "integrationtest",
-			map[string]interface{}{})
-		assert.Nil(t, err)
-	})
-
-	t.Run("update (upsert) the desired mappings", func(t *testing.T) {
-		err := repo.SetMappings(context.Background(), "integrationtest",
-			map[string]interface{}{})
-		assert.Nil(t, err)
+		require.Nil(t,
+			migrator.AddClass(context.Background(), kind.Action, class))
 	})
 
 	thingID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
@@ -90,23 +88,23 @@ func TestEsVectorRepo(t *testing.T) {
 	// sleep 2s to wait for index to become available
 	time.Sleep(2 * time.Second)
 
-	// t.Run("searching by vector", func(t *testing.T) {
-	// 	// the search vector is designed to be very close to the action, but
-	// 	// somewhat far from the thing. So it should match the action closer
-	// 	searchVector := []float32{2.9, 1.1, 0.5, 8.01}
+	t.Run("searching by vector", func(t *testing.T) {
+		// the search vector is designed to be very close to the action, but
+		// somewhat far from the thing. So it should match the action closer
+		searchVector := []float32{2.9, 1.1, 0.5, 8.01}
 
-	// 	res, err := repo.VectorSearch(context.Background(), "integrationtest", searchVector, 10)
+		res, err := repo.VectorSearch(context.Background(), "*", searchVector, 10)
 
-	// 	require.Nil(t, err)
-	// 	require.Len(t, res, 2)
-	// 	assert.Equal(t, actionID, res[0].ID)
-	// 	assert.Equal(t, kind.Action, res[0].Kind)
-	// 	assert.Equal(t, "TheBestActionClass", res[0].ClassName)
-	// 	assert.Equal(t, "TheBestActionClass", res[0].ClassName)
-	// 	assert.Equal(t, thingID, res[1].ID)
-	// 	assert.Equal(t, kind.Thing, res[1].Kind)
-	// 	assert.Equal(t, "TheBestThingClass", res[1].ClassName)
-	// })
+		require.Nil(t, err)
+		require.Equal(t, true, len(res) >= 2)
+		assert.Equal(t, actionID, res[0].ID)
+		assert.Equal(t, kind.Action, res[0].Kind)
+		assert.Equal(t, "TheBestActionClass", res[0].ClassName)
+		assert.Equal(t, "TheBestActionClass", res[0].ClassName)
+		assert.Equal(t, thingID, res[1].ID)
+		assert.Equal(t, kind.Thing, res[1].Kind)
+		assert.Equal(t, "TheBestThingClass", res[1].ClassName)
+	})
 }
 
 func waitForEsToBeReady(t *testing.T, client *elasticsearch.Client) {

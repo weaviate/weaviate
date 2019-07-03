@@ -39,7 +39,7 @@ func (t *Traverser) Explore(ctx context.Context,
 		return nil, fmt.Errorf("vectorize params: %v", err)
 	}
 
-	res, err := t.vectorSearcher.VectorSearch(ctx, "concepts", vector, params.Limit)
+	res, err := t.vectorSearcher.VectorSearch(ctx, "*", vector, params.Limit)
 	if err != nil {
 		return nil, fmt.Errorf("vector search: %v", err)
 	}
