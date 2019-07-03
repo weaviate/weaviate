@@ -173,6 +173,12 @@ func TestEsVectorMigrator(t *testing.T) {
 			assert.Nil(t, err, "should not error")
 		})
 
+		t.Run("adding another data type", func(t *testing.T) {
+			err := migrator.UpdatePropertyAddDataType(context.Background(), kind.Action,
+				"MyClass", "myProp", "Foo")
+			assert.Nil(t, err, "should not error")
+		})
+
 		t.Run("trying to rename a prop", func(t *testing.T) {
 			newName := "newName"
 			err := migrator.UpdateProperty(context.Background(), kind.Action, "MyClass",

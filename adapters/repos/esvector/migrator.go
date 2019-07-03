@@ -58,6 +58,9 @@ func (m *Migrator) DropClass(ctx context.Context, kind kind.Kind, className stri
 	return nil
 }
 
+// UpdateClass does nothing if the keywords should be changed and errors if the
+// className should be changed - the class name must be immutable when the
+// esvector index is active
 func (m *Migrator) UpdateClass(ctx context.Context, kind kind.Kind, className string, newClassName *string, newKeywords *models.Keywords) error {
 	if newClassName != nil {
 		return fmt.Errorf("esvector does not support renaming of classes")
@@ -66,6 +69,7 @@ func (m *Migrator) UpdateClass(ctx context.Context, kind kind.Kind, className st
 	return nil
 }
 
+// AddProperty adds the new property without affecting existing properties
 func (m *Migrator) AddProperty(ctx context.Context, kind kind.Kind, className string, prop *models.Property) error {
 	// put mappings does not delete existing properties, so we can use it to add
 	// a new one, too
@@ -79,11 +83,16 @@ func (m *Migrator) AddProperty(ctx context.Context, kind kind.Kind, className st
 	return nil
 }
 
+// DropProperty has no effect since mapped property types cannot be deleted in
+// elasticsearch
 func (m *Migrator) DropProperty(ctx context.Context, kind kind.Kind, className string, propertyName string) error {
 	// ignore but don't error
 	return nil
 }
 
+// UpdateProperty will do nothing if keywords should be updated and error if a
+// name should be updated. Property names must be immutable when the esvector
+// index is enabled
 func (m *Migrator) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string, newKeywords *models.Keywords) error {
 	if newName != nil {
 		return fmt.Errorf("esvector does not support renaming of properties")
@@ -92,8 +101,10 @@ func (m *Migrator) UpdateProperty(ctx context.Context, kind kind.Kind, className
 	return nil
 }
 
+// UpdatePropertyAddDataType is ignored, since the vectorindex does not support
+// cross-ref types
 func (m *Migrator) UpdatePropertyAddDataType(ctx context.Context, kind kind.Kind, className string, propName string, newDataType string) error {
-	panic("not implemented")
+	return nil
 }
 
 const indexPrefix = "class_"
