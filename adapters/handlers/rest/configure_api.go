@@ -119,24 +119,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		os.Exit(1)
 	}
 
-	// for now hard-code index to concepts, in the future we will have dynamic
-	// indices based on the schema
-	err = vectorRepo.PutIndex(context.Background(), "concepts")
-	if err != nil {
-		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("could not put vector index")
-		os.Exit(1)
-	}
-
-	err = vectorRepo.SetMappings(context.Background(), "concepts", map[string]interface{}{})
-	if err != nil {
-		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("could not configure (put mappings) vector index")
-		os.Exit(1)
-	}
-
 	updateSchemaCallback := makeUpdateSchemaCall(appState.Logger, appState, kindsTraverser)
 	schemaManager.RegisterSchemaUpdateCallback(updateSchemaCallback)
 	schemaManager.RegisterSchemaUpdateCallback(func(updatedSchema schema.Schema) {
