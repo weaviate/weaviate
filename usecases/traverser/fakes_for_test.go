@@ -190,3 +190,9 @@ func (f *fakeVectorRepo) VectorSearch(ctx context.Context, index string,
 	vector []float32, limit int) ([]VectorSearchResult, error) {
 	return nil, nil
 }
+
+type fakeExplorer struct{}
+
+func (f *fakeExplorer) GetClass(ctx context.Context, p *LocalGetParams) ([]interface{}, error) {
+	return nil, nil
+}

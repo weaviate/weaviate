@@ -102,7 +102,9 @@ func Test_Traverser_Authorization(t *testing.T) {
 			c11y := &fakeC11y{}
 			vectorizer := &fakeVectorizer{}
 			vectorRepo := &fakeVectorRepo{}
-			manager := NewTraverser(locks, repo, c11y, logger, authorizer, vectorizer, vectorRepo)
+			explorer := &fakeExplorer{}
+			manager := NewTraverser(locks, repo, c11y, logger, authorizer,
+				vectorizer, vectorRepo, explorer)
 
 			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 			out, _ := callFuncByName(manager, test.methodName, args...)

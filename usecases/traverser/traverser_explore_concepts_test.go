@@ -30,8 +30,9 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorizer := &fakeVectorizer{}
 		vectorSearcher := &fakeVectorSearcher{}
+		explorer := &fakeExplorer{}
 		traverser := NewTraverser(locks, repo, c11y, logger, authorizer,
-			vectorizer, vectorSearcher)
+			vectorizer, vectorSearcher, explorer)
 		params := ExploreParams{
 			Values: []string{"a search term", "another"},
 		}
@@ -79,8 +80,9 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorizer := &fakeVectorizer{}
 		vectorSearcher := &fakeVectorSearcher{}
+		explorer := &fakeExplorer{}
 		traverser := NewTraverser(locks, repo, c11y, logger, authorizer,
-			vectorizer, vectorSearcher)
+			vectorizer, vectorSearcher, explorer)
 		params := ExploreParams{
 			Limit:  100,
 			Values: []string{"a search term", "another"},

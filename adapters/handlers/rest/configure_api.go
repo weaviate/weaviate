@@ -88,8 +88,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	batchKindsManager := kinds.NewBatchManager(appState.Connector, appState.Locks,
 		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,
 		appState.Authorizer)
+	explorer := traverser.NewExplorer(vectorRepo)
 	kindsTraverser := traverser.NewTraverser(appState.Locks, appState.Connector,
-		appState.Contextionary, appState.Logger, appState.Authorizer, vectorizer, vectorRepo)
+		appState.Contextionary, appState.Logger, appState.Authorizer, vectorizer,
+		vectorRepo, explorer)
 	connstateManager, err := connstate.NewManager(connstateRepo, appState.Logger)
 	if err != nil {
 		appState.Logger.
