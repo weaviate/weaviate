@@ -105,6 +105,21 @@ func TestEsVectorRepo(t *testing.T) {
 		assert.Equal(t, kind.Thing, res[1].Kind)
 		assert.Equal(t, "TheBestThingClass", res[1].ClassName)
 	})
+
+	t.Run("searching by vector for a single class", func(t *testing.T) {
+		// the search vector is designed to be very close to the action, but
+		// somewhat far from the thing. So it should match the action closer
+		searchVector := []float32{2.9, 1.1, 0.5, 8.01}
+
+		res, err := repo.VectorClassSearch(context.Background(), kind.Thing,
+			"TheBestThingClass", searchVector, 10, nil)
+
+		require.Nil(t, err)
+		require.Len(t, res, 1)
+		assert.Equal(t, thingID, res[0].ID)
+		assert.Equal(t, kind.Thing, res[0].Kind)
+		assert.Equal(t, "TheBestThingClass", res[0].ClassName)
+	})
 }
 
 func waitForEsToBeReady(t *testing.T, client *elasticsearch.Client) {

@@ -22,6 +22,7 @@ import (
 	"github.com/elastic/go-elasticsearch/v5"
 	"github.com/elastic/go-elasticsearch/v5/esapi"
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -49,6 +50,13 @@ type conceptBucket struct {
 	ID              string `json:"id"`
 	ClassName       string `json:"class_name"`
 	EmbeddingVector string `json:"embedding_vector"`
+}
+
+// VectorClassSearch limits the vector search to a specific class (and kind)
+func (r *Repo) VectorClassSearch(ctx context.Context, kind kind.Kind,
+	className string, vector []float32, limit int, filters *filters.LocalFilter) ([]traverser.VectorSearchResult, error) {
+	index := classIndexFromClassName(kind, className)
+	return r.VectorSearch(ctx, index, vector, limit)
 }
 
 // VectorSearch retrives the closest concepts by vector distance
