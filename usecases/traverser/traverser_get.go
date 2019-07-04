@@ -37,6 +37,13 @@ func (t *Traverser) LocalGetClass(ctx context.Context, principal *models.Princip
 	}
 	defer unlock()
 
+	if params.Explore != nil {
+		// if Explore is set this request can no longer be served by the connector
+		// alone, instead it must be served by a (vector) explorer which can in
+		// turn make use of the connector
+		return t.explorer.GetClass(ctx, params)
+	}
+
 	return t.repo.LocalGetClass(ctx, params)
 }
 

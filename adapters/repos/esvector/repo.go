@@ -54,7 +54,8 @@ type conceptBucket struct {
 
 // VectorClassSearch limits the vector search to a specific class (and kind)
 func (r *Repo) VectorClassSearch(ctx context.Context, kind kind.Kind,
-	className string, vector []float32, limit int, filters *filters.LocalFilter) ([]traverser.VectorSearchResult, error) {
+	className string, vector []float32, limit int,
+	filters *filters.LocalFilter) ([]traverser.VectorSearchResult, error) {
 	index := classIndexFromClassName(kind, className)
 	return r.VectorSearch(ctx, index, vector, limit)
 }
