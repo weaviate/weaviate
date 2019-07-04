@@ -22,7 +22,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 )
 
 func TestSimpleFieldParamsOK(t *testing.T) {
@@ -109,10 +108,24 @@ func TestExploreRanker(t *testing.T) {
 								}
         			}) { intField } } } }`
 
-		// TODO: gh-881: also test proper extraction. This test was added as part
-		// of gh-906 where we only cared about the presence of the fields in the
-		// GQL schema, but not about their function
-		resolver.On("LocalGetClass", mock.Anything).
+		expectedParams := &traverser.LocalGetParams{
+			Kind:       kind.Action,
+			ClassName:  "SomeAction",
+			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Explore: &traverser.ExploreParams{
+				Values: []string{"c1", "c2", "c3"},
+				MoveTo: traverser.ExploreMove{
+					Values: []string{"positive"},
+					Force:  0.5,
+				},
+				MoveAwayFrom: traverser.ExploreMove{
+					Values: []string{"epic"},
+					Force:  0.25,
+				},
+			},
+		}
+
+		resolver.On("LocalGetClass", expectedParams).
 			Return([]interface{}{}, nil).Once()
 
 		resolver.AssertResolve(t, query)
@@ -131,10 +144,23 @@ func TestExploreRanker(t *testing.T) {
 								}
         			}) { intField } } } }`
 
-		// TODO: gh-881: also test proper extrthing. This test was added as part
-		// of gh-906 where we only cared about the presence of the fields in the
-		// GQL schema, but not about their function
-		resolver.On("LocalGetClass", mock.Anything).
+		expectedParams := &traverser.LocalGetParams{
+			Kind:       kind.Thing,
+			ClassName:  "SomeThing",
+			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			Explore: &traverser.ExploreParams{
+				Values: []string{"c1", "c2", "c3"},
+				MoveTo: traverser.ExploreMove{
+					Values: []string{"positive"},
+					Force:  0.5,
+				},
+				MoveAwayFrom: traverser.ExploreMove{
+					Values: []string{"epic"},
+					Force:  0.25,
+				},
+			},
+		}
+		resolver.On("LocalGetClass", expectedParams).
 			Return([]interface{}{}, nil).Once()
 
 		resolver.AssertResolve(t, query)

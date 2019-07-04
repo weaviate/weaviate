@@ -241,12 +241,19 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 			return nil, fmt.Errorf("could not extract filters: %s", err)
 		}
 
+		var exploreParams *traverser.ExploreParams
+		if explore, ok := p.Args["explore"]; ok {
+			p := common_filters.ExtractExplore(explore.(map[string]interface{}))
+			exploreParams = &p
+		}
+
 		params := traverser.LocalGetParams{
 			Filters:    filters,
 			Kind:       k,
 			ClassName:  className,
 			Pagination: pagination,
 			Properties: properties,
+			Explore:    exploreParams,
 		}
 
 		// Log the request
