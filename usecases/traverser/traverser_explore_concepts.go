@@ -56,6 +56,7 @@ func (t *Traverser) Explore(ctx context.Context,
 	return res, nil
 }
 
+// TODO gh-881: Move to explorer
 func (t *Traverser) vectorFromExploreParams(ctx context.Context,
 	params ExploreParams) ([]float32, error) {
 
