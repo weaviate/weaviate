@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	"github.com/graphql-go/graphql"
+	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
@@ -68,60 +69,10 @@ func resolve(p graphql.ResolveParams) (interface{}, error) {
 		return nil, err
 	}
 
-	params := extractFuzzyArgs(p)
+	params := common_filters.ExtractExplore(p.Args)
 
 	return resources.resolver.Explore(p.Context,
 		principalFromContext(p.Context), params)
-}
-
-func extractFuzzyArgs(p graphql.ResolveParams) traverser.ExploreParams {
-	var args traverser.ExploreParams
-
-	// keywords is a required argument, so we don't need to check for its existing
-	keywords := p.Args["concepts"].([]interface{})
-	args.Values = make([]string, len(keywords), len(keywords))
-	for i, value := range keywords {
-		args.Values[i] = value.(string)
-	}
-
-	// limit is an optional arg, so it could be nil
-	limit, ok := p.Args["limit"]
-	if ok {
-		// the type is fixed through gql config, no need to catch incorrect type
-		// assumption
-		args.Limit = limit.(int)
-	}
-
-	// moveTo is an optional arg, so it could be nil
-	moveTo, ok := p.Args["moveTo"]
-	if ok {
-		args.MoveTo = extractMovement(moveTo)
-	}
-
-	// moveAwayFrom is an optional arg, so it could be nil
-	moveAwayFrom, ok := p.Args["moveAwayFrom"]
-	if ok {
-		args.MoveAwayFrom = extractMovement(moveAwayFrom)
-	}
-
-	return args
-}
-
-func extractMovement(input interface{}) traverser.ExploreMove {
-	// the type is fixed through gql config, no need to catch incorrect type
-	// assumption, all fields are required so we don't need to check for their
-	// presence
-	moveToMap := input.(map[string]interface{})
-	res := traverser.ExploreMove{}
-	res.Force = float32(moveToMap["force"].(float64))
-
-	keywords := moveToMap["concepts"].([]interface{})
-	res.Values = make([]string, len(keywords), len(keywords))
-	for i, value := range keywords {
-		res.Values[i] = value.(string)
-	}
-
-	return res
 }
 
 func principalFromContext(ctx context.Context) *models.Principal {

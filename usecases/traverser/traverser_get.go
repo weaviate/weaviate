@@ -46,6 +46,7 @@ type LocalGetParams struct {
 	ClassName  string
 	Pagination *filters.Pagination
 	Properties []SelectProperty
+	Explore    *ExploreParams
 }
 
 type SelectProperty struct {
