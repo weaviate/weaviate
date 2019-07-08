@@ -30,6 +30,58 @@ import (
 
 const fakeThingId strfmt.UUID = "11111111-1111-1111-1111-111111111111"
 
+func TestCreateThingWithUserSpecifiedID(t *testing.T) {
+	t.Parallel()
+	// Set all thing values to compare
+	thingTestString := "Test string"
+	id := strfmt.UUID("d47ea61b-0ed7-4e5f-9c05-6d2c0786660f")
+
+	params := things.NewWeaviateThingsCreateParams().WithBody(
+		&models.Thing{
+			ID:    id,
+			Class: "TestThing",
+			Schema: map[string]interface{}{
+				"testString": thingTestString,
+			},
+		})
+
+	resp, err := helper.Client(t).Things.WeaviateThingsCreate(params, nil)
+
+	// Ensure that the response is OK
+	helper.AssertRequestOk(t, resp, err, func() {
+		thing := resp.Payload
+		assert.Regexp(t, strfmt.UUIDPattern, thing.ID)
+
+		schema, ok := thing.Schema.(map[string]interface{})
+		if !ok {
+			t.Fatal("The returned schema is not an JSON object")
+		}
+
+		// Check whether the returned information is the same as the data added
+		assert.Equal(t, thingTestString, schema["testString"])
+	})
+
+	// Try to create the same thing again and make sure it fails
+	params = things.NewWeaviateThingsCreateParams().WithBody(
+		&models.Thing{
+			ID:    id,
+			Class: "TestThing",
+			Schema: map[string]interface{}{
+				"testString": thingTestString,
+			},
+		})
+
+	resp, err = helper.Client(t).Things.WeaviateThingsCreate(params, nil)
+	helper.AssertRequestFail(t, resp, err, func() {
+		errResponse, ok := err.(*things.WeaviateThingsCreateUnprocessableEntity)
+		if !ok {
+			t.Fatalf("Did not get not found response, but %#v", err)
+		}
+
+		assert.Equal(t, fmt.Sprintf("id '%s' already exists", id), errResponse.Payload.Error[0].Message)
+	})
+}
+
 // Check if we can create a Thing, and that it's properties are stored correctly.
 func TestCreateThingWorks(t *testing.T) {
 	t.Parallel()
