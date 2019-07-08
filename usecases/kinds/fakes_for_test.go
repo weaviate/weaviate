@@ -18,19 +18,28 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
+	"github.com/stretchr/testify/mock"
 )
 
 type fakeRepo struct {
+	mock.Mock
 	GetThingResponse     *models.Thing
 	UpdateThingParameter *models.Thing
 }
 
+func (f *fakeRepo) ClassExists(ctx context.Context, id strfmt.UUID) (bool, error) {
+	args := f.Called(id)
+	return args.Bool(0), args.Error(1)
+}
+
 func (f *fakeRepo) AddAction(ctx context.Context, class *models.Action, id strfmt.UUID) error {
-	panic("not implemented")
+	args := f.Called(class, id)
+	return args.Error(0)
 }
 
 func (f *fakeRepo) AddThing(ctx context.Context, class *models.Thing, id strfmt.UUID) error {
-	panic("not implemented")
+	args := f.Called(class, id)
+	return args.Error(0)
 }
 
 func (f *fakeRepo) GetThing(ctx context.Context, id strfmt.UUID, thing *models.Thing) error {
