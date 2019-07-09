@@ -57,6 +57,10 @@ const (
 
 // GetClassByName returns the class by its name
 func GetClassByName(s *models.SemanticSchema, className string) (*models.SemanticSchemaClass, error) {
+	if s == nil {
+		return nil, fmt.Errorf(ErrorNoSuchClass, className)
+	}
+
 	// For each class
 	for _, class := range s.Classes {
 
