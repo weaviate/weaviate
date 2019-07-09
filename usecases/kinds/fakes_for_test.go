@@ -77,11 +77,13 @@ func (f *fakeRepo) DeleteAction(ctx context.Context, thing *models.Action, UUID 
 }
 
 func (f *fakeRepo) AddThingsBatch(ctx context.Context, things BatchThings) error {
-	panic("not implemented")
+	args := f.Called(things)
+	return args.Error(0)
 }
 
 func (f *fakeRepo) AddActionsBatch(ctx context.Context, actions BatchActions) error {
-	panic("not implemented")
+	args := f.Called(actions)
+	return args.Error(0)
 }
 
 func (f *fakeRepo) AddBatchReferences(ctx context.Context, references BatchReferences) error {

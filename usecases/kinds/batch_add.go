@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/kinds/validation"
@@ -80,11 +81,20 @@ func (b *BatchManager) validateActionsConcurrently(ctx context.Context, principa
 }
 
 func (b *BatchManager) validateAction(ctx context.Context, principal *models.Principal,
-	wg *sync.WaitGroup, actionCreate *models.Action, originalIndex int, resultsC *chan BatchAction, fieldsToKeep map[string]int) {
+	wg *sync.WaitGroup, concept *models.Action, originalIndex int, resultsC *chan BatchAction, fieldsToKeep map[string]int) {
 	defer wg.Done()
 
-	// Generate UUID for the new object
-	uuid, err := generateUUID()
+	var (
+		uuid strfmt.UUID
+		err  error
+	)
+
+	if concept.ID == "" {
+		// Generate UUID for the new object
+		uuid, err = generateUUID()
+	} else {
+		uuid = concept.ID
+	}
 
 	// Validate schema given in body with the weaviate schema
 	s, err := b.schemaManager.GetSchema(principal)
@@ -95,17 +105,17 @@ func (b *BatchManager) validateAction(ctx context.Context, principal *models.Pri
 	action.LastUpdateTimeUnix = 0
 
 	if _, ok := fieldsToKeep["class"]; ok {
-		action.Class = actionCreate.Class
+		action.Class = concept.Class
 	}
 	if _, ok := fieldsToKeep["schema"]; ok {
-		action.Schema = actionCreate.Schema
+		action.Schema = concept.Schema
 	}
 	if _, ok := fieldsToKeep["creationtimeunix"]; ok {
 		action.CreationTimeUnix = unixNow()
 	}
 
 	if err == nil {
-		err = validation.ValidateActionBody(ctx, actionCreate, databaseSchema, b.repo,
+		err = validation.ValidateActionBody(ctx, concept, databaseSchema, b.repo,
 			b.network, b.config)
 	}
 
@@ -186,11 +196,20 @@ func (b *BatchManager) validateThingsConcurrently(ctx context.Context, principal
 }
 
 func (b *BatchManager) validateThing(ctx context.Context, principal *models.Principal,
-	wg *sync.WaitGroup, thingCreate *models.Thing, originalIndex int, resultsC *chan BatchThing, fieldsToKeep map[string]int) {
+	wg *sync.WaitGroup, concept *models.Thing, originalIndex int, resultsC *chan BatchThing, fieldsToKeep map[string]int) {
 	defer wg.Done()
 
-	// Generate UUID for the new object
-	uuid, err := generateUUID()
+	var (
+		uuid strfmt.UUID
+		err  error
+	)
+
+	if concept.ID == "" {
+		// Generate UUID for the new object
+		uuid, err = generateUUID()
+	} else {
+		uuid = concept.ID
+	}
 
 	// Validate schema given in body with the weaviate schema
 	s, err := b.schemaManager.GetSchema(principal)
@@ -201,17 +220,17 @@ func (b *BatchManager) validateThing(ctx context.Context, principal *models.Prin
 	thing.LastUpdateTimeUnix = 0
 
 	if _, ok := fieldsToKeep["class"]; ok {
-		thing.Class = thingCreate.Class
+		thing.Class = concept.Class
 	}
 	if _, ok := fieldsToKeep["schema"]; ok {
-		thing.Schema = thingCreate.Schema
+		thing.Schema = concept.Schema
 	}
 	if _, ok := fieldsToKeep["creationtimeunix"]; ok {
 		thing.CreationTimeUnix = unixNow()
 	}
 
 	if err == nil {
-		err = validation.ValidateThingBody(ctx, thingCreate, databaseSchema, b.repo,
+		err = validation.ValidateThingBody(ctx, concept, databaseSchema, b.repo,
 			b.network, b.config)
 	}
 
