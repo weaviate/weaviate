@@ -14,6 +14,7 @@ import (
 	"context"
 
 	"github.com/go-openapi/strfmt"
+	uuid "github.com/satori/go.uuid"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
@@ -28,6 +29,7 @@ type addAndGetRepo interface {
 type addRepo interface {
 	AddAction(ctx context.Context, class *models.Action, id strfmt.UUID) error
 	AddThing(ctx context.Context, class *models.Thing, id strfmt.UUID) error
+	ClassExists(ctx context.Context, id strfmt.UUID) (bool, error)
 }
 
 // TODO: Can we use the schema manager UC here instead of the "whole thing"?
@@ -56,11 +58,29 @@ func (m *Manager) AddAction(ctx context.Context, principal *models.Principal,
 	return m.addActionToConnectorAndSchema(ctx, principal, class)
 }
 
+func (m *Manager) checkIDOrAssignNew(ctx context.Context, id strfmt.UUID) (strfmt.UUID, error) {
+	if id == "" {
+		newID, err := generateUUID()
+		if err != nil {
+			return "", NewErrInternal("could not generate id: %v", err)
+		}
+		return newID, nil
+	}
+
+	// only validate ID uniqueness if explicitly set
+	if ok, err := m.repo.ClassExists(ctx, id); ok {
+		return "", NewErrInvalidUserInput("id '%s' already exists", id)
+	} else if err != nil {
+		return "", NewErrInternal(err.Error())
+	}
+	return id, nil
+}
+
 func (m *Manager) addActionToConnectorAndSchema(ctx context.Context, principal *models.Principal,
 	class *models.Action) (*models.Action, error) {
-	id, err := generateUUID()
+	id, err := m.checkIDOrAssignNew(ctx, class.ID)
 	if err != nil {
-		return nil, NewErrInternal("could not generate id: %v", err)
+		return nil, err
 	}
 	class.ID = id
 
@@ -84,6 +104,10 @@ func (m *Manager) addActionToConnectorAndSchema(ctx context.Context, principal *
 
 func (m *Manager) validateAction(ctx context.Context, principal *models.Principal, class *models.Action) error {
 	// Validate schema given in body with the weaviate schema
+	if _, err := uuid.FromString(class.ID.String()); err != nil {
+		return err
+	}
+
 	s, err := m.schemaManager.GetSchema(principal)
 	if err != nil {
 		return err
@@ -116,9 +140,9 @@ func (m *Manager) AddThing(ctx context.Context, principal *models.Principal,
 
 func (m *Manager) addThingToConnectorAndSchema(ctx context.Context, principal *models.Principal,
 	class *models.Thing) (*models.Thing, error) {
-	id, err := generateUUID()
+	id, err := m.checkIDOrAssignNew(ctx, class.ID)
 	if err != nil {
-		return nil, NewErrInternal("could not generate id: %v", err)
+		return nil, err
 	}
 	class.ID = id
 
@@ -142,6 +166,11 @@ func (m *Manager) addThingToConnectorAndSchema(ctx context.Context, principal *m
 
 func (m *Manager) validateThing(ctx context.Context, principal *models.Principal,
 	class *models.Thing) error {
+	// Validate schema given in body with the weaviate schema
+	if _, err := uuid.FromString(class.ID.String()); err != nil {
+		return err
+	}
+
 	s, err := m.schemaManager.GetSchema(principal)
 	if err != nil {
 		return err
