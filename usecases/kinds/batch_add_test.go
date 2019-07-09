@@ -100,6 +100,31 @@ func Test_BatchManager_AddActions(t *testing.T) {
 		assert.Equal(t, id1, repoCalledWithActions[0].UUID, "the user-specified uuid was used")
 		assert.Equal(t, id2, repoCalledWithActions[1].UUID, "the user-specified uuid was used")
 	})
+
+	t.Run("with an invalid user-specified IDs", func(t *testing.T) {
+		reset()
+		repo.On("AddActionsBatch", mock.Anything).Return(nil).Once()
+		id1 := strfmt.UUID("invalid")
+		id2 := strfmt.UUID("cf918366-3d3b-4b90-9bc6-bc5ea8762ff6")
+		actions := []*models.Action{
+			&models.Action{
+				ID:    id1,
+				Class: "Foo",
+			},
+			&models.Action{
+				ID:    id2,
+				Class: "Foo",
+			},
+		}
+
+		_, err := manager.AddActions(ctx, nil, actions, []*string{})
+		repoCalledWithActions := repo.Calls[0].Arguments[0].(BatchActions)
+
+		assert.Nil(t, err)
+		require.Len(t, repoCalledWithActions, 2)
+		assert.Equal(t, repoCalledWithActions[0].Err.Error(), "uuid: incorrect UUID length: invalid")
+		assert.Equal(t, id2, repoCalledWithActions[1].UUID, "the user-specified uuid was used")
+	})
 }
 
 func Test_BatchManager_AddThings(t *testing.T) {
@@ -186,6 +211,31 @@ func Test_BatchManager_AddThings(t *testing.T) {
 		assert.Nil(t, err)
 		require.Len(t, repoCalledWithThings, 2)
 		assert.Equal(t, id1, repoCalledWithThings[0].UUID, "the user-specified uuid was used")
+		assert.Equal(t, id2, repoCalledWithThings[1].UUID, "the user-specified uuid was used")
+	})
+
+	t.Run("with an invalid user-specified IDs", func(t *testing.T) {
+		reset()
+		repo.On("AddThingsBatch", mock.Anything).Return(nil).Once()
+		id1 := strfmt.UUID("invalid")
+		id2 := strfmt.UUID("cf918366-3d3b-4b90-9bc6-bc5ea8762ff6")
+		things := []*models.Thing{
+			&models.Thing{
+				ID:    id1,
+				Class: "Foo",
+			},
+			&models.Thing{
+				ID:    id2,
+				Class: "Foo",
+			},
+		}
+
+		_, err := manager.AddThings(ctx, nil, things, []*string{})
+		repoCalledWithThings := repo.Calls[0].Arguments[0].(BatchThings)
+
+		assert.Nil(t, err)
+		require.Len(t, repoCalledWithThings, 2)
+		assert.Equal(t, repoCalledWithThings[0].Err.Error(), "uuid: incorrect UUID length: invalid")
 		assert.Equal(t, id2, repoCalledWithThings[1].UUID, "the user-specified uuid was used")
 	})
 }
