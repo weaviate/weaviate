@@ -95,6 +95,12 @@ func setupMiscHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Reque
 			}
 
 			target := fmt.Sprintf("%s/.well-known/openid-configuration", serverConfig.Config.Authentication.OIDC.Issuer)
-			return operations.NewGetWellKnownOpenidConfigurationOK().WithPayload(&operations.GetWellKnownOpenidConfigurationOKBody{Href: target})
+			clientID := serverConfig.Config.Authentication.OIDC.ClientID
+			body := &operations.GetWellKnownOpenidConfigurationOKBody{
+				Href:     target,
+				ClientID: clientID,
+			}
+
+			return operations.NewGetWellKnownOpenidConfigurationOK().WithPayload(body)
 		})
 }

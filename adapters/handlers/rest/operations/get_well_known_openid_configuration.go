@@ -90,6 +90,9 @@ func (o *GetWellKnownOpenidConfiguration) ServeHTTP(rw http.ResponseWriter, r *h
 // swagger:model GetWellKnownOpenidConfigurationOKBody
 type GetWellKnownOpenidConfigurationOKBody struct {
 
+	// OAuth Client ID
+	ClientID string `json:"clientId,omitempty"`
+
 	// The Location to redirect to
 	Href string `json:"href,omitempty"`
 }
