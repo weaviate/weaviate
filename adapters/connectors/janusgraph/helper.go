@@ -49,6 +49,23 @@ type kindClass struct {
 	lastUpdateTimeUnix int64
 }
 
+// ClassExists returns true if any class (regardless of thing or action) exists for this uuid
+func (j *Janusgraph) ClassExists(ctx context.Context, id strfmt.UUID) (bool, error) {
+	q := gremlin.G.V().
+		HasString(PROP_UUID, string(id)).Values([]string{PROP_UUID})
+
+	result, err := j.client.Execute(ctx, q)
+	if err != nil {
+		return false, err
+	}
+
+	if len(result.Data) == 0 {
+		return false, err
+	}
+
+	return true, nil
+}
+
 func (j *Janusgraph) getClass(ctx context.Context, k kind.Kind, searchUUID strfmt.UUID, atClass *string, foundUUID *strfmt.UUID, creationTimeUnix *int64, lastUpdateTimeUnix *int64, properties *models.PropertySchema) error {
 	// Fetch the class, it's key, and it's relations.
 	q := gremlin.G.V().

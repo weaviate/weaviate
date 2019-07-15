@@ -238,6 +238,11 @@ func (f *Foobar) AddThingsBatch(ctx context.Context, things kinds.BatchThings) e
 	return nil
 }
 
+// ClassExists returns true if any class (regardless of thing or action) exists for this uuid
+func (f *Foobar) ClassExists(ctx context.Context, id strfmt.UUID) (bool, error) {
+	return false, nil
+}
+
 // GetThing fills the given Thing with the values from the database,
 // based on the given UUID.
 func (f *Foobar) GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.Thing) error {

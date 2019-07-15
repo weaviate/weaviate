@@ -57,6 +57,9 @@ const (
 
 // GetClassByName returns the class by its name
 func GetClassByName(s *models.Schema, className string) (*models.Class, error) {
+	if s == nil {
+		return nil, fmt.Errorf(ErrorNoSuchClass, className)
+	}
 	// For each class
 	for _, class := range s.Classes {
 

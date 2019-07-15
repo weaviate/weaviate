@@ -192,6 +192,11 @@ func (f *FilterQuery) mappedPropertyName(className schema.ClassName,
 		return string(propName)
 	}
 
+	if propName == "uuid" {
+		// don't try to map uuid
+		return "uuid"
+	}
+
 	return string(f.nameSource.MustGetMappedPropertyName(className, propName))
 }
 

@@ -47,7 +47,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "0.15.0"
+    "version": "0.16.2"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -66,6 +66,10 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
+                "clientId": {
+                  "description": "OAuth Client ID",
+                  "type": "string"
+                },
                 "href": {
                   "description": "The Location to redirect to",
                   "type": "string"
@@ -3157,7 +3161,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "0.15.0"
+    "version": "0.16.2"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -3176,6 +3180,10 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
+                "clientId": {
+                  "description": "OAuth Client ID",
+                  "type": "string"
+                },
                 "href": {
                   "description": "The Location to redirect to",
                   "type": "string"
