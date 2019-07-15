@@ -133,11 +133,11 @@ func (f *fakeLocks) LockSchema() (func() error, error) {
 type fakeVectorizer struct{}
 
 func (f *fakeVectorizer) Thing(ctx context.Context, thing *models.Thing) ([]float32, error) {
-	panic("not implemented")
+	return []float32{0, 1, 2}, nil
 }
 
 func (f *fakeVectorizer) Action(ctx context.Context, thing *models.Action) ([]float32, error) {
-	panic("not implemented")
+	return []float32{0, 1, 2}, nil
 }
 
 func (f *fakeVectorizer) Corpi(ctx context.Context, corpi []string) ([]float32, error) {
