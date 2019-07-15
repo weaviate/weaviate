@@ -120,6 +120,43 @@ func TestEsVectorRepo(t *testing.T) {
 		assert.Equal(t, kind.Thing, res[0].Kind)
 		assert.Equal(t, "TheBestThingClass", res[0].ClassName)
 	})
+
+	t.Run("deleting a thing again", func(t *testing.T) {
+		err := repo.DeleteThing(context.Background(),
+			"TheBestThingClass", thingID)
+
+		assert.Nil(t, err)
+	})
+
+	t.Run("deleting a action again", func(t *testing.T) {
+		err := repo.DeleteAction(context.Background(),
+			"TheBestActionClass", actionID)
+
+		assert.Nil(t, err)
+	})
+
+	// sleep for index changes to take effect
+	time.Sleep(2 * time.Second)
+
+	t.Run("searching by vector for a single thing class again after deletion", func(t *testing.T) {
+		searchVector := []float32{2.9, 1.1, 0.5, 8.01}
+
+		res, err := repo.VectorClassSearch(context.Background(), kind.Thing,
+			"TheBestThingClass", searchVector, 10, nil)
+
+		require.Nil(t, err)
+		assert.Len(t, res, 0)
+	})
+
+	t.Run("searching by vector for a single action class again after deletion", func(t *testing.T) {
+		searchVector := []float32{2.9, 1.1, 0.5, 8.01}
+
+		res, err := repo.VectorClassSearch(context.Background(), kind.Action,
+			"TheBestActionClass", searchVector, 10, nil)
+
+		require.Nil(t, err)
+		assert.Len(t, res, 0)
+	})
 }
 
 func waitForEsToBeReady(t *testing.T, client *elasticsearch.Client) {
