@@ -45,6 +45,10 @@ func exploreFields(prefix string) graphql.InputObjectConfigFieldMap {
 					Fields: movementInp(),
 				}),
 		},
+		"certainty": &graphql.InputObjectFieldConfig{
+			Description: descriptions.Certainty,
+			Type:        graphql.Float,
+		},
 		"moveAwayFrom": &graphql.InputObjectFieldConfig{
 			Description: descriptions.VectorMovement,
 			Type: graphql.NewInputObject(

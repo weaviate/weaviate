@@ -106,6 +106,7 @@ type ExploreParams struct {
 	Limit        int
 	MoveTo       ExploreMove
 	MoveAwayFrom ExploreMove
+	Certainty    *float64
 }
 
 // ExploreMove moves an existing Search Vector closer (or further away from) a specific other search term

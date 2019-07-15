@@ -34,6 +34,10 @@ func Build() *graphql.Field {
 				Type:        graphql.Int,
 				Description: descriptions.Limit,
 			},
+			"certainty": &graphql.ArgumentConfig{
+				Type:        graphql.Float,
+				Description: descriptions.Certainty,
+			},
 			"moveTo": &graphql.ArgumentConfig{
 				Description: descriptions.VectorMovement,
 				Type: graphql.NewInputObject(
