@@ -62,23 +62,33 @@ func (e *Explorer) GetClass(ctx context.Context,
 		return nil, fmt.Errorf("explorer: get class: vector search: %v", err)
 	}
 
-	return e.searchResultsToGetResponse(ctx, res)
+	return e.searchResultsToGetResponse(ctx, res, params.Explore.Certainty, searchVector)
 }
 
 func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
-	input []VectorSearchResult) ([]interface{}, error) {
-	output := make([]interface{}, len(input), len(input))
+	input []VectorSearchResult, requiredCertainty float64,
+	searchVector []float32) ([]interface{}, error) {
+	output := make([]interface{}, 0, len(input))
 
-	for i, res := range input {
+	for _, res := range input {
+		dist, err := e.vectorizer.NormalizedDistance(res.Vector, searchVector)
+		if err != nil {
+			return nil, fmt.Errorf("explorer: calculate distance: %v", err)
+		}
+
+		if 1-(dist) < float32(requiredCertainty) {
+			continue
+		}
+
 		switch res.Kind {
 		case kind.Thing:
 			var thing models.Thing
 			e.repo.GetThing(ctx, res.ID, &thing)
-			output[i] = thing.Schema
+			output = append(output, thing.Schema)
 		case kind.Action:
 			var action models.Action
 			e.repo.GetAction(ctx, res.ID, &action)
-			output[i] = action.Schema
+			output = append(output, action.Schema)
 		default:
 			return nil, fmt.Errorf("impossible kind %v", res.Kind)
 		}
