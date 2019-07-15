@@ -46,7 +46,7 @@ func (m *Manager) DeleteAction(ctx context.Context, principal *models.Principal,
 }
 
 func (m *Manager) deleteActionFromRepo(ctx context.Context, id strfmt.UUID) error {
-	_, err := m.getActionFromRepo(ctx, id)
+	action, err := m.getActionFromRepo(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -54,6 +54,11 @@ func (m *Manager) deleteActionFromRepo(ctx context.Context, id strfmt.UUID) erro
 	err = m.repo.DeleteAction(ctx, nil, id)
 	if err != nil {
 		return NewErrInternal("could not delete action: %v", err)
+	}
+
+	err = m.vectorRepo.DeleteAction(ctx, action.Class, id)
+	if err != nil {
+		return NewErrInternal("could not delete action from vector repo: %v", err)
 	}
 
 	return nil
@@ -77,7 +82,7 @@ func (m *Manager) DeleteThing(ctx context.Context, principal *models.Principal, 
 
 func (m *Manager) deleteThingFromRepo(ctx context.Context, id strfmt.UUID) error {
 
-	_, err := m.getThingFromRepo(ctx, id)
+	thing, err := m.getThingFromRepo(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -85,6 +90,11 @@ func (m *Manager) deleteThingFromRepo(ctx context.Context, id strfmt.UUID) error
 	err = m.repo.DeleteThing(ctx, nil, id)
 	if err != nil {
 		return NewErrInternal("could not delete thing: %v", err)
+	}
+
+	err = m.vectorRepo.DeleteThing(ctx, thing.Class, id)
+	if err != nil {
+		return NewErrInternal("could not delete thing from vector repo: %v", err)
 	}
 
 	return nil

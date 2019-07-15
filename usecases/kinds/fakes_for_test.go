@@ -24,6 +24,7 @@ import (
 type fakeRepo struct {
 	mock.Mock
 	GetThingResponse     *models.Thing
+	GetActionResponse    *models.Action
 	UpdateThingParameter *models.Thing
 }
 
@@ -47,8 +48,9 @@ func (f *fakeRepo) GetThing(ctx context.Context, id strfmt.UUID, thing *models.T
 	return nil
 }
 
-func (f *fakeRepo) GetAction(context.Context, strfmt.UUID, *models.Action) error {
-	panic("not implemented")
+func (f *fakeRepo) GetAction(ctx context.Context, id strfmt.UUID, action *models.Action) error {
+	*action = *f.GetActionResponse
+	return nil
 }
 
 func (f *fakeRepo) ListThings(ctx context.Context, limit int, thingsResponse *models.ThingsListResponse) error {
@@ -68,12 +70,14 @@ func (f *fakeRepo) UpdateThing(ctx context.Context, class *models.Thing, id strf
 	return nil
 }
 
-func (f *fakeRepo) DeleteThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error {
-	panic("not implemented")
+func (f *fakeRepo) DeleteThing(ctx context.Context, thing *models.Thing, uuid strfmt.UUID) error {
+	args := f.Called(thing, uuid)
+	return args.Error(0)
 }
 
-func (f *fakeRepo) DeleteAction(ctx context.Context, thing *models.Action, UUID strfmt.UUID) error {
-	panic("not implemented")
+func (f *fakeRepo) DeleteAction(ctx context.Context, thing *models.Action, uuid strfmt.UUID) error {
+	args := f.Called(thing, uuid)
+	return args.Error(0)
 }
 
 func (f *fakeRepo) AddThingsBatch(ctx context.Context, things BatchThings) error {
@@ -183,7 +187,9 @@ func (f *fakeC11y) SafeGetSimilarWordsWithCertainty(ctx context.Context, word st
 	panic("not implemented")
 }
 
-type fakeVectorRepo struct{}
+type fakeVectorRepo struct {
+	mock.Mock
+}
 
 func (f *fakeVectorRepo) PutThing(ctx context.Context,
 	concept *models.Thing, vector []float32) error {
@@ -192,4 +198,16 @@ func (f *fakeVectorRepo) PutThing(ctx context.Context,
 func (f *fakeVectorRepo) PutAction(ctx context.Context,
 	concept *models.Action, vector []float32) error {
 	return nil
+}
+
+func (f *fakeVectorRepo) DeleteAction(ctx context.Context,
+	className string, id strfmt.UUID) error {
+	args := f.Called(className, id)
+	return args.Error(0)
+}
+
+func (f *fakeVectorRepo) DeleteThing(ctx context.Context,
+	className string, id strfmt.UUID) error {
+	args := f.Called(className, id)
+	return args.Error(0)
 }
