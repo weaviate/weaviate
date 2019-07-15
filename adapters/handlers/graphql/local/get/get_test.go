@@ -151,7 +151,7 @@ func TestExploreRanker(t *testing.T) {
 			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Explore: &traverser.ExploreParams{
 				Values:    []string{"c1", "c2", "c3"},
-				Certainty: certainty(0.4),
+				Certainty: 0.4,
 				MoveTo: traverser.ExploreMove{
 					Values: []string{"positive"},
 					Force:  0.5,
@@ -323,8 +323,4 @@ func TestGetRelation(t *testing.T) {
 			{ Get { Actions { SomeAction { HasAction { ...actionFragment } } } } }`
 		resolver.AssertResolve(t, query)
 	})
-}
-
-func certainty(input float64) *float64 {
-	return &input
 }

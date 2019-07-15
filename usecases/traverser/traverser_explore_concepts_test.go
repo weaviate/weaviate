@@ -57,15 +57,54 @@ func Test_ExploreConcepts(t *testing.T) {
 				Kind:      kind.Thing,
 				ID:        "123-456-789",
 				Beacon:    "weaviate://localhost/things/123-456-789",
+				Certainty: 0.5,
 			},
 			VectorSearchResult{
 				ClassName: "AnAction",
 				Kind:      kind.Action,
 				ID:        "987-654-321",
 				Beacon:    "weaviate://localhost/actions/987-654-321",
+				Certainty: 0.5,
 			},
 		}, res)
 
+		assert.Equal(t, []float32{1, 2, 3}, vectorSearcher.calledWithVector)
+		assert.Equal(t, 20, vectorSearcher.calledWithLimit,
+			"uses the default limit if not explicitly set")
+	})
+
+	t.Run("with minimum certainty set to 0.6", func(t *testing.T) {
+
+		authorizer := &fakeAuthorizer{}
+		repo := &fakeRepo{}
+		locks := &fakeLocks{}
+		c11y := &fakeC11y{}
+		logger, _ := test.NewNullLogger()
+		vectorizer := &fakeVectorizer{}
+		vectorSearcher := &fakeVectorSearcher{}
+		explorer := &fakeExplorer{}
+		traverser := NewTraverser(locks, repo, c11y, logger, authorizer,
+			vectorizer, vectorSearcher, explorer)
+		params := ExploreParams{
+			Values:    []string{"a search term", "another"},
+			Certainty: 0.6,
+		}
+		vectorSearcher.results = []VectorSearchResult{
+			VectorSearchResult{
+				ClassName: "BestClass",
+				Kind:      kind.Thing,
+				ID:        "123-456-789",
+			},
+			VectorSearchResult{
+				ClassName: "AnAction",
+				Kind:      kind.Action,
+				ID:        "987-654-321",
+			},
+		}
+
+		res, err := traverser.Explore(context.Background(), nil, params)
+		require.Nil(t, err)
+		assert.Equal(t, []VectorSearchResult{}, res, "empty result because certainty is not met")
 		assert.Equal(t, []float32{1, 2, 3}, vectorSearcher.calledWithVector)
 		assert.Equal(t, 20, vectorSearcher.calledWithLimit,
 			"uses the default limit if not explicitly set")
@@ -116,12 +155,14 @@ func Test_ExploreConcepts(t *testing.T) {
 				Kind:      kind.Thing,
 				ID:        "123-456-789",
 				Beacon:    "weaviate://localhost/things/123-456-789",
+				Certainty: 0.5,
 			},
 			VectorSearchResult{
 				ClassName: "AnAction",
 				Kind:      kind.Action,
 				ID:        "987-654-321",
 				Beacon:    "weaviate://localhost/actions/987-654-321",
+				Certainty: 0.5,
 			},
 		}, res)
 

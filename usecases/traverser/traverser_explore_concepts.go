@@ -44,16 +44,20 @@ func (t *Traverser) Explore(ctx context.Context,
 		return nil, fmt.Errorf("vector search: %v", err)
 	}
 
-	for i, item := range res {
-		res[i].Beacon = beacon(item)
+	results := []VectorSearchResult{}
+	for _, item := range res {
+		item.Beacon = beacon(item)
 		dist, err := t.vectorizer.NormalizedDistance(vector, item.Vector)
 		if err != nil {
-			return nil, fmt.Errorf("res %s: %v", res[i].Beacon, err)
+			return nil, fmt.Errorf("res %s: %v", item.Beacon, err)
 		}
-		res[i].Distance = dist
+		item.Certainty = 1 - dist
+		if item.Certainty >= float32(params.Certainty) {
+			results = append(results, item)
+		}
 	}
 
-	return res, nil
+	return results, nil
 }
 
 // TODO gh-881: Move to explorer
@@ -106,7 +110,7 @@ type ExploreParams struct {
 	Limit        int
 	MoveTo       ExploreMove
 	MoveAwayFrom ExploreMove
-	Certainty    *float64
+	Certainty    float64
 }
 
 // ExploreMove moves an existing Search Vector closer (or further away from) a specific other search term
@@ -125,5 +129,5 @@ type VectorSearchResult struct {
 	Score     float32
 	Vector    []float32
 	Beacon    string
-	Distance  float32
+	Certainty float32
 }

@@ -88,7 +88,7 @@ func exploreObject() *graphql.Object {
 			},
 		},
 
-		"distance": &graphql.Field{
+		"certainty": &graphql.Field{
 			Name:        "WeaviateLocalExploreBeacon",
 			Description: descriptions.Distance,
 			Type:        graphql.Float,
@@ -98,7 +98,7 @@ func exploreObject() *graphql.Object {
 					return nil, fmt.Errorf("unknown type %T in Explore..className resolver", p.Source)
 				}
 
-				return vsr.Distance, nil
+				return vsr.Certainty, nil
 			},
 		},
 	}
