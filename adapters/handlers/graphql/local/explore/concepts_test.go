@@ -42,7 +42,7 @@ func Test_ResolveExplore(t *testing.T) {
 			query: `
 			{ 
 					Explore(concepts: ["car", "best brand"]) {
-							beacon className distance
+							beacon className certainty
 					}
 			}`,
 			expectedParamsToTraverser: traverser.ExploreParams{
@@ -52,7 +52,7 @@ func Test_ResolveExplore(t *testing.T) {
 				traverser.VectorSearchResult{
 					Beacon:    "weaviate://localhost/things/some-uuid",
 					ClassName: "bestClass",
-					Distance:  0.7,
+					Certainty: 0.7,
 				},
 			},
 			expectedResults: []result{{
@@ -61,7 +61,7 @@ func Test_ResolveExplore(t *testing.T) {
 					map[string]interface{}{
 						"beacon":    "weaviate://localhost/things/some-uuid",
 						"className": "bestClass",
-						"distance":  float32(0.7),
+						"certainty": float32(0.7),
 					},
 				},
 			}},
@@ -79,7 +79,7 @@ func Test_ResolveExplore(t *testing.T) {
 			expectedParamsToTraverser: traverser.ExploreParams{
 				Values:    []string{"car", "best brand"},
 				Limit:     17,
-				Certainty: certainty(0.6),
+				Certainty: 0.6,
 			},
 			resolverReturn: []traverser.VectorSearchResult{
 				traverser.VectorSearchResult{
@@ -243,7 +243,3 @@ func (tests testCases) AssertExtraction(t *testing.T) {
 // 			`In field "properties": In field "operator": Expected "WeaviateLocalFetchThingWhereOperatorEnum!", found null.`,
 // 		res.Errors[0].Message)
 // }
-
-func certainty(input float64) *float64 {
-	return &input
-}

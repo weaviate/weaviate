@@ -26,7 +26,6 @@ type vectorClassSearch interface {
 }
 
 type explorerRepo interface {
-	// TODO gh-912 leave decision how to resolve IDs to connector
 	GetThing(context.Context, strfmt.UUID, *models.Thing) error
 	GetAction(context.Context, strfmt.UUID, *models.Action) error
 }

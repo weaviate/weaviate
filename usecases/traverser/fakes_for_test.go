@@ -118,7 +118,7 @@ func (f *fakeVectorizer) MoveAwayFrom(source []float32, target []float32, weight
 }
 
 func (f *fakeVectorizer) NormalizedDistance(source, target []float32) (float32, error) {
-	return 0, nil
+	return 0.5, nil
 }
 
 type fakeVectorSearcher struct {
