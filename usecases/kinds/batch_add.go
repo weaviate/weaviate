@@ -12,9 +12,13 @@
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
+	"github.com/go-openapi/strfmt"
+	uuid "github.com/satori/go.uuid"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/kinds/validation"
@@ -80,14 +84,29 @@ func (b *BatchManager) validateActionsConcurrently(ctx context.Context, principa
 }
 
 func (b *BatchManager) validateAction(ctx context.Context, principal *models.Principal,
-	wg *sync.WaitGroup, actionCreate *models.Action, originalIndex int, resultsC *chan BatchAction, fieldsToKeep map[string]int) {
+	wg *sync.WaitGroup, concept *models.Action, originalIndex int, resultsC *chan BatchAction, fieldsToKeep map[string]int) {
 	defer wg.Done()
 
-	// Generate UUID for the new object
-	uuid, err := generateUUID()
+	var (
+		id strfmt.UUID
+	)
+
+	ec := &errorCompounder{}
+
+	if concept.ID == "" {
+		// Generate UUID for the new object
+		uuid, err := generateUUID()
+		id = uuid
+		ec.add(err)
+	} else {
+		_, err := uuid.FromString(concept.ID.String())
+		ec.add(err)
+		id = concept.ID
+	}
 
 	// Validate schema given in body with the weaviate schema
 	s, err := b.schemaManager.GetSchema(principal)
+	ec.add(err)
 	databaseSchema := schema.HackFromDatabaseSchema(s)
 
 	// Create Action object
@@ -95,24 +114,23 @@ func (b *BatchManager) validateAction(ctx context.Context, principal *models.Pri
 	action.LastUpdateTimeUnix = 0
 
 	if _, ok := fieldsToKeep["class"]; ok {
-		action.Class = actionCreate.Class
+		action.Class = concept.Class
 	}
 	if _, ok := fieldsToKeep["schema"]; ok {
-		action.Schema = actionCreate.Schema
+		action.Schema = concept.Schema
 	}
 	if _, ok := fieldsToKeep["creationtimeunix"]; ok {
 		action.CreationTimeUnix = unixNow()
 	}
 
-	if err == nil {
-		err = validation.ValidateActionBody(ctx, actionCreate, databaseSchema, b.repo,
-			b.network, b.config)
-	}
+	err = validation.ValidateActionBody(ctx, concept, databaseSchema, b.repo,
+		b.network, b.config)
+	ec.add(err)
 
 	*resultsC <- BatchAction{
-		UUID:          uuid,
+		UUID:          id,
 		Action:        action,
-		Err:           err,
+		Err:           ec.toError(),
 		OriginalIndex: originalIndex,
 	}
 }
@@ -186,14 +204,29 @@ func (b *BatchManager) validateThingsConcurrently(ctx context.Context, principal
 }
 
 func (b *BatchManager) validateThing(ctx context.Context, principal *models.Principal,
-	wg *sync.WaitGroup, thingCreate *models.Thing, originalIndex int, resultsC *chan BatchThing, fieldsToKeep map[string]int) {
+	wg *sync.WaitGroup, concept *models.Thing, originalIndex int, resultsC *chan BatchThing, fieldsToKeep map[string]int) {
 	defer wg.Done()
 
-	// Generate UUID for the new object
-	uuid, err := generateUUID()
+	var (
+		id strfmt.UUID
+	)
+
+	ec := &errorCompounder{}
+
+	if concept.ID == "" {
+		// Generate UUID for the new object
+		uuid, err := generateUUID()
+		id = uuid
+		ec.add(err)
+	} else {
+		_, err := uuid.FromString(concept.ID.String())
+		ec.add(err)
+		id = concept.ID
+	}
 
 	// Validate schema given in body with the weaviate schema
 	s, err := b.schemaManager.GetSchema(principal)
+	ec.add(err)
 	databaseSchema := schema.HackFromDatabaseSchema(s)
 
 	// Create Thing object
@@ -201,24 +234,23 @@ func (b *BatchManager) validateThing(ctx context.Context, principal *models.Prin
 	thing.LastUpdateTimeUnix = 0
 
 	if _, ok := fieldsToKeep["class"]; ok {
-		thing.Class = thingCreate.Class
+		thing.Class = concept.Class
 	}
 	if _, ok := fieldsToKeep["schema"]; ok {
-		thing.Schema = thingCreate.Schema
+		thing.Schema = concept.Schema
 	}
 	if _, ok := fieldsToKeep["creationtimeunix"]; ok {
 		thing.CreationTimeUnix = unixNow()
 	}
 
-	if err == nil {
-		err = validation.ValidateThingBody(ctx, thingCreate, databaseSchema, b.repo,
-			b.network, b.config)
-	}
+	err = validation.ValidateThingBody(ctx, concept, databaseSchema, b.repo,
+		b.network, b.config)
+	ec.add(err)
 
 	*resultsC <- BatchThing{
-		UUID:          uuid,
+		UUID:          id,
 		Thing:         thing,
-		Err:           err,
+		Err:           ec.toError(),
 		OriginalIndex: originalIndex,
 	}
 }
@@ -230,4 +262,31 @@ func thingsChanToSlice(c chan BatchThing) BatchThings {
 	}
 
 	return result
+}
+
+type errorCompounder struct {
+	errors []error
+}
+
+func (ec *errorCompounder) add(err error) {
+	if err != nil {
+		ec.errors = append(ec.errors, err)
+	}
+}
+
+func (ec *errorCompounder) toError() error {
+	if len(ec.errors) == 0 {
+		return nil
+	}
+
+	var msg strings.Builder
+	for i, err := range ec.errors {
+		if i != 0 {
+			msg.WriteString(", ")
+		}
+
+		msg.WriteString(err.Error())
+	}
+
+	return errors.New(msg.String())
 }

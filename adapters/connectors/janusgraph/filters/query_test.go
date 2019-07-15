@@ -136,6 +136,35 @@ func Test_SingleProperties(t *testing.T) {
 		})
 	})
 
+	t.Run("with property uuid", func(t *testing.T) {
+		t.Run("with various operators and valid values", func(t *testing.T) {
+			tests := testCases{
+				{`'City.uuid == "id1"'`, filters.OperatorEqual, `.union(has("uuid", eq("id1")))`},
+				{`'City.uuid != "id1"'`, filters.OperatorNotEqual, `.union(has("uuid", neq("id1")))`},
+			}
+
+			tests.AssertFilter(t, "uuid", "id1", schema.DataTypeString)
+		})
+
+		t.Run("with an operator that does not make sense for this type", func(t *testing.T) {
+			tests := testCases{
+				{`City.uuid < "id1"`, filters.OperatorLessThan, ""},
+				{`City.uuid <= "id1"`, filters.OperatorLessThanEqual, ""},
+				{`City.uuid > "id1"`, filters.OperatorGreaterThan, ""},
+				{`City.uuid >= "id1"`, filters.OperatorGreaterThanEqual, ""},
+			}
+
+			tests.AssertFilterErrors(t, "uuid", "id1", schema.DataTypeString)
+		})
+
+		t.Run("an invalid value", func(t *testing.T) {
+			tests := testCases{{"should fail with wrong type", filters.OperatorEqual, ""}}
+
+			// Note the mismatch between the specified type (arg4) and the actual type (arg3)
+			tests.AssertFilterErrors(t, "uuid", int(200), schema.DataTypeString)
+		})
+	})
+
 	t.Run("with propertyType bool", func(t *testing.T) {
 		t.Run("with various operators and valid values", func(t *testing.T) {
 			tests := testCases{
@@ -223,6 +252,14 @@ func Test_SinglePropertiesWithMappedNames(t *testing.T) {
 	}
 
 	tests.AssertFilterWithNameSource(t, "population", int(10000), schema.DataTypeInt, &fakeNameSource{})
+}
+
+func Test_UUIDFilterWithMappedName(t *testing.T) {
+	tests := testCases{
+		{"uuid does not need to be mapped", filters.OperatorEqual, `.union(has("uuid", eq("id1")))`},
+	}
+
+	tests.AssertFilterWithNameSource(t, "uuid", "id1", schema.DataTypeString, &fakeNameSource{})
 }
 
 func Test_InvalidOperator(t *testing.T) {
@@ -502,6 +539,8 @@ type fakeNameSource struct{}
 func (f *fakeNameSource) MustGetMappedPropertyName(className schema.ClassName,
 	propName schema.PropertyName) state.MappedPropertyName {
 	switch propName {
+	case schema.PropertyName("uuid"):
+		panic("mapper asked for uuid")
 	case schema.PropertyName("inCountry"):
 		return "prop_15"
 	}
