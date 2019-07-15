@@ -68,17 +68,18 @@ func Test_ResolveExplore(t *testing.T) {
 		},
 
 		testCase{
-			name: "with optional limit set",
+			name: "with optional limit and certainty set",
 			query: `
 			{
 					Explore(
-					concepts: ["car", "best brand"], limit: 17) {
+					concepts: ["car", "best brand"], limit: 17, certainty: 0.6) {
 							beacon className
 				}
 			}`,
 			expectedParamsToTraverser: traverser.ExploreParams{
-				Values: []string{"car", "best brand"},
-				Limit:  17,
+				Values:    []string{"car", "best brand"},
+				Limit:     17,
+				Certainty: certainty(0.6),
 			},
 			resolverReturn: []traverser.VectorSearchResult{
 				traverser.VectorSearchResult{
@@ -242,3 +243,7 @@ func (tests testCases) AssertExtraction(t *testing.T) {
 // 			`In field "properties": In field "operator": Expected "WeaviateLocalFetchThingWhereOperatorEnum!", found null.`,
 // 		res.Errors[0].Message)
 // }
+
+func certainty(input float64) *float64 {
+	return &input
+}

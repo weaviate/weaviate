@@ -22,6 +22,12 @@ func ExtractExplore(source map[string]interface{}) traverser.ExploreParams {
 		args.Limit = limit.(int)
 	}
 
+	certainty, ok := source["certainty"]
+	if ok {
+		typed := certainty.(float64)
+		args.Certainty = &typed
+	}
+
 	// moveTo is an optional arg, so it could be nil
 	moveTo, ok := source["moveTo"]
 	if ok {

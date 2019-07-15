@@ -131,9 +131,10 @@ func TestExploreRanker(t *testing.T) {
 		resolver.AssertResolve(t, query)
 	})
 
-	t.Run("for things", func(t *testing.T) {
+	t.Run("for things with optional certainty set", func(t *testing.T) {
 		query := `{ Get { Things { SomeThing(explore: {
                 concepts: ["c1", "c2", "c3"],
+								certainty: 0.4,
 								moveTo: {
 									concepts:["positive"],
 									force: 0.5
@@ -149,7 +150,8 @@ func TestExploreRanker(t *testing.T) {
 			ClassName:  "SomeThing",
 			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
 			Explore: &traverser.ExploreParams{
-				Values: []string{"c1", "c2", "c3"},
+				Values:    []string{"c1", "c2", "c3"},
+				Certainty: certainty(0.4),
 				MoveTo: traverser.ExploreMove{
 					Values: []string{"positive"},
 					Force:  0.5,
@@ -321,4 +323,8 @@ func TestGetRelation(t *testing.T) {
 			{ Get { Actions { SomeAction { HasAction { ...actionFragment } } } } }`
 		resolver.AssertResolve(t, query)
 	})
+}
+
+func certainty(input float64) *float64 {
+	return &input
 }
