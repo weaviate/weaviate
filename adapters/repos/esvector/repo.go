@@ -230,6 +230,44 @@ func (r *Repo) putConcept(ctx context.Context,
 	return nil
 }
 
+func (r *Repo) DeleteThing(ctx context.Context, className string, id strfmt.UUID) error {
+	req := esapi.DeleteRequest{
+		Index:        classIndexFromClassName(kind.Thing, className),
+		DocumentID:   id.String(),
+		DocumentType: doctype,
+	}
+
+	res, err := req.Do(ctx, r.client)
+	if err != nil {
+		return fmt.Errorf("index request: %v", err)
+	}
+
+	if err := errorResToErr(res, r.logger); err != nil {
+		return fmt.Errorf("delete thing: %v", err)
+	}
+
+	return nil
+}
+
+func (r *Repo) DeleteAction(ctx context.Context, className string, id strfmt.UUID) error {
+	req := esapi.DeleteRequest{
+		Index:        classIndexFromClassName(kind.Action, className),
+		DocumentID:   id.String(),
+		DocumentType: doctype,
+	}
+
+	res, err := req.Do(ctx, r.client)
+	if err != nil {
+		return fmt.Errorf("index request: %v", err)
+	}
+
+	if err := errorResToErr(res, r.logger); err != nil {
+		return fmt.Errorf("delete action: %v", err)
+	}
+
+	return nil
+}
+
 func extendBucketWithProps(bucket map[string]interface{}, props models.PropertySchema) map[string]interface{} {
 	if props == nil {
 		return bucket
