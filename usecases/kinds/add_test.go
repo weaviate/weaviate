@@ -50,7 +50,9 @@ func Test_Add_Action(t *testing.T) {
 		cfg := &config.WeaviateConfig{}
 		authorizer := &fakeAuthorizer{}
 		logger, _ := test.NewNullLogger()
-		manager = NewManager(repo, locks, schemaManager, network, cfg, logger, authorizer, nil, nil)
+		vectorizer := &fakeVectorizer{}
+		vectorRepo := &fakeVectorRepo{}
+		manager = NewManager(repo, locks, schemaManager, network, cfg, logger, authorizer, vectorizer, vectorRepo)
 	}
 
 	t.Run("without an id set", func(t *testing.T) {
@@ -148,7 +150,9 @@ func Test_Add_Thing(t *testing.T) {
 		cfg := &config.WeaviateConfig{}
 		authorizer := &fakeAuthorizer{}
 		logger, _ := test.NewNullLogger()
-		manager = NewManager(repo, locks, schemaManager, network, cfg, logger, authorizer, nil, nil)
+		vectorizer := &fakeVectorizer{}
+		vectorRepo := &fakeVectorRepo{}
+		manager = NewManager(repo, locks, schemaManager, network, cfg, logger, authorizer, vectorizer, vectorRepo)
 	}
 
 	t.Run("without an id set", func(t *testing.T) {
