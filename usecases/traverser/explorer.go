@@ -23,6 +23,8 @@ type vectorClassSearch interface {
 	VectorClassSearch(ctx context.Context, kind kind.Kind,
 		className string, vector []float32, limit int,
 		filters *filters.LocalFilter) ([]VectorSearchResult, error)
+	VectorSearch(ctx context.Context, index string,
+		vector []float32, limit int) ([]VectorSearchResult, error)
 }
 
 type explorerRepo interface {
@@ -97,7 +99,34 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 	return output, nil
 }
 
-// TODO gh-881: incorporate duplicate from traverser
+func (e *Explorer) Concepts(ctx context.Context,
+	params ExploreParams) ([]VectorSearchResult, error) {
+	vector, err := e.vectorFromExploreParams(ctx, &params)
+	if err != nil {
+		return nil, fmt.Errorf("vectorize params: %v", err)
+	}
+
+	res, err := e.search.VectorSearch(ctx, "*", vector, params.Limit)
+	if err != nil {
+		return nil, fmt.Errorf("vector search: %v", err)
+	}
+
+	results := []VectorSearchResult{}
+	for _, item := range res {
+		item.Beacon = beacon(item)
+		dist, err := e.vectorizer.NormalizedDistance(vector, item.Vector)
+		if err != nil {
+			return nil, fmt.Errorf("res %s: %v", item.Beacon, err)
+		}
+		item.Certainty = 1 - dist
+		if item.Certainty >= float32(params.Certainty) {
+			results = append(results, item)
+		}
+	}
+
+	return results, nil
+}
+
 func (e *Explorer) vectorFromExploreParams(ctx context.Context,
 	params *ExploreParams) ([]float32, error) {
 
@@ -134,4 +163,9 @@ func (e *Explorer) vectorFromExploreParams(ctx context.Context,
 	}
 
 	return vector, nil
+}
+
+func beacon(res VectorSearchResult) string {
+	return fmt.Sprintf("weaviate://localhost/%ss/%s", res.Kind.Name(), res.ID)
+
 }
