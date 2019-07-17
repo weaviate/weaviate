@@ -14,6 +14,7 @@ package rest
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -70,9 +71,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	schemaRepo := etcd.NewSchemaRepo(etcdClient)
 	connstateRepo := etcd.NewConnStateRepo(etcdClient)
 	vectorRepo := esvector.NewRepo(esClient, appState.Logger)
-	vectorMigrator := esvector.NewMigrator(vectorRepo)
+	// vectorMigrator := esvector.NewMigrator(vectorRepo)
 
-	migrator := migrate.New(appState.Connector, vectorMigrator)
+	migrator := migrate.New(appState.Connector /*, vectorMigrator */)
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Locks, appState.Network, appState.Logger, appState.Contextionary, appState.Authorizer, appState.StopwordDetector)
 	if err != nil {
@@ -81,14 +82,20 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			Fatal("could not initialize schema manager")
 		os.Exit(1)
 	}
-	vectorizer := vectorizer.New(appState.Contextionary)
+
+	// vectorizer := vectorizer.New(appState.Contextionary)
+	vectorizer := vectorizer.NewNoOp()
+
 	kindsManager := kinds.NewManager(appState.Connector, appState.Locks,
 		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, vectorizer, vectorRepo)
 	batchKindsManager := kinds.NewBatchManager(appState.Connector, appState.Locks,
 		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,
 		appState.Authorizer)
-	explorer := traverser.NewExplorer(vectorRepo, vectorizer, appState.Connector)
+
+	// explorer := traverser.NewExplorer(vectorRepo, vectorizer, appState.Connector)
+	explorer := traverser.NewNoOpExplorer(fmt.Errorf("explore operations not possible: " +
+		"vector indexing is disabled, enable vector indexing first"))
 	kindsTraverser := traverser.NewTraverser(appState.Locks, appState.Connector,
 		appState.Contextionary, appState.Logger, appState.Authorizer, vectorizer,
 		vectorRepo, explorer)
