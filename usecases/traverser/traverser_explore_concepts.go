@@ -14,7 +14,6 @@ package traverser
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -34,74 +33,7 @@ func (t *Traverser) Explore(ctx context.Context,
 		return nil, err
 	}
 
-	vector, err := t.vectorFromExploreParams(ctx, params)
-	if err != nil {
-		return nil, fmt.Errorf("vectorize params: %v", err)
-	}
-
-	res, err := t.vectorSearcher.VectorSearch(ctx, "*", vector, params.Limit)
-	if err != nil {
-		return nil, fmt.Errorf("vector search: %v", err)
-	}
-
-	results := []VectorSearchResult{}
-	for _, item := range res {
-		item.Beacon = beacon(item)
-		dist, err := t.vectorizer.NormalizedDistance(vector, item.Vector)
-		if err != nil {
-			return nil, fmt.Errorf("res %s: %v", item.Beacon, err)
-		}
-		item.Certainty = 1 - dist
-		if item.Certainty >= float32(params.Certainty) {
-			results = append(results, item)
-		}
-	}
-
-	return results, nil
-}
-
-// TODO gh-881: Move to explorer
-func (t *Traverser) vectorFromExploreParams(ctx context.Context,
-	params ExploreParams) ([]float32, error) {
-
-	vector, err := t.vectorizer.Corpi(ctx, params.Values)
-	if err != nil {
-		return nil, fmt.Errorf("vectorize keywords: %v", err)
-	}
-
-	if params.MoveTo.Force > 0 && len(params.MoveTo.Values) > 0 {
-		moveToVector, err := t.vectorizer.Corpi(ctx, params.MoveTo.Values)
-		if err != nil {
-			return nil, fmt.Errorf("vectorize move to: %v", err)
-		}
-
-		afterMoveTo, err := t.vectorizer.MoveTo(vector, moveToVector, params.MoveTo.Force)
-		if err != nil {
-			return nil, err
-		}
-		vector = afterMoveTo
-	}
-
-	if params.MoveAwayFrom.Force > 0 && len(params.MoveAwayFrom.Values) > 0 {
-		moveAwayVector, err := t.vectorizer.Corpi(ctx, params.MoveAwayFrom.Values)
-		if err != nil {
-			return nil, fmt.Errorf("vectorize move away from: %v", err)
-		}
-
-		afterMoveFrom, err := t.vectorizer.MoveAwayFrom(vector, moveAwayVector,
-			params.MoveAwayFrom.Force)
-		if err != nil {
-			return nil, err
-		}
-		vector = afterMoveFrom
-	}
-
-	return vector, nil
-}
-
-func beacon(res VectorSearchResult) string {
-	return fmt.Sprintf("weaviate://localhost/%ss/%s", res.Kind.Name(), res.ID)
-
+	return t.explorer.Concepts(ctx, params)
 }
 
 // ExploreParams to do a vector based explore search

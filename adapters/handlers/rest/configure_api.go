@@ -73,7 +73,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	vectorRepo := esvector.NewRepo(esClient, appState.Logger)
 	// vectorMigrator := esvector.NewMigrator(vectorRepo)
 
-	migrator := migrate.New(appState.Connector /*, vectorMigrator */)
+	migrator := migrate.New(appState.Connector) //, vectorMigrator)
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Locks, appState.Network, appState.Logger, appState.Contextionary, appState.Authorizer, appState.StopwordDetector)
 	if err != nil {
