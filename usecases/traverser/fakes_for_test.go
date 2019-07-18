@@ -16,10 +16,12 @@ import (
 	"context"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
+	"github.com/stretchr/testify/mock"
 )
 
 type fakeRepo struct {
@@ -122,6 +124,7 @@ func (f *fakeVectorizer) NormalizedDistance(source, target []float32) (float32, 
 }
 
 type fakeVectorSearcher struct {
+	mock.Mock
 	calledWithVector []float32
 	calledWithLimit  int
 	results          []VectorSearchResult
@@ -132,6 +135,13 @@ func (f *fakeVectorSearcher) VectorSearch(ctx context.Context, index string,
 	f.calledWithVector = vector
 	f.calledWithLimit = limit
 	return f.results, nil
+}
+
+func (f *fakeVectorSearcher) VectorClassSearch(ctx context.Context,
+	kind kind.Kind, className string, vector []float32, limit int,
+	filters *filters.LocalFilter) ([]VectorSearchResult, error) {
+	args := f.Called(kind, className, vector, limit, filters)
+	return args.Get(0).([]VectorSearchResult), args.Error(1)
 }
 
 type fakeNetwork struct {
@@ -176,7 +186,9 @@ func (f *fakeC11y) SchemaSearch(ctx context.Context, p SearchParams) (SearchResu
 	panic("not implemented")
 }
 
-type fakeVectorRepo struct{}
+type fakeVectorRepo struct {
+	mock.Mock
+}
 
 func (f *fakeVectorRepo) PutThing(ctx context.Context, index string,
 	concept *models.Thing, vector []float32) error {
@@ -191,8 +203,26 @@ func (f *fakeVectorRepo) VectorSearch(ctx context.Context, index string,
 	return nil, nil
 }
 
+func (f *fakeVectorRepo) GetThing(ctx context.Context, uuid strfmt.UUID,
+	res *models.Thing) error {
+	args := f.Called(uuid)
+	*res = args.Get(0).(models.Thing)
+	return args.Error(1)
+}
+
+func (f *fakeVectorRepo) GetAction(ctx context.Context, uuid strfmt.UUID,
+	res *models.Action) error {
+	args := f.Called(uuid)
+	*res = args.Get(0).(models.Action)
+	return args.Error(1)
+}
+
 type fakeExplorer struct{}
 
 func (f *fakeExplorer) GetClass(ctx context.Context, p *LocalGetParams) ([]interface{}, error) {
+	return nil, nil
+}
+
+func (f *fakeExplorer) Concepts(ctx context.Context, p ExploreParams) ([]VectorSearchResult, error) {
 	return nil, nil
 }
