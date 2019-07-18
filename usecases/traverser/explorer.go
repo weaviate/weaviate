@@ -15,7 +15,7 @@ import (
 // used by an API, but through a Traverser.
 type Explorer struct {
 	search     vectorClassSearch
-	vectorizer corpiVectorizer
+	vectorizer CorpiVectorizer
 	repo       explorerRepo
 }
 
@@ -33,7 +33,7 @@ type explorerRepo interface {
 }
 
 // NewExplorer with search and connector repo
-func NewExplorer(search vectorClassSearch, vectorizer corpiVectorizer,
+func NewExplorer(search vectorClassSearch, vectorizer CorpiVectorizer,
 	repo explorerRepo) *Explorer {
 	return &Explorer{search, vectorizer, repo}
 }
