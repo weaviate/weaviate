@@ -25,7 +25,7 @@ for file in FILES_TO_ADD_HEADERS_TO:
 
     if REGEX.match(content):
         print("Updating header of", file)
-        content = REGEX.sub(HEADER.rstrip(), content)
+        content = REGEX.sub(HEADER, content)
     else:
         print("Adding header to", file)
         content = HEADER + content.lstrip()
