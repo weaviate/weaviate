@@ -41,7 +41,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
-	"github.com/semi-technologies/weaviate/usecases/vectorizer"
+	libvectorizer "github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"github.com/sirupsen/logrus"
 )
 
@@ -51,6 +51,21 @@ func makeConfigureServer(appState *state.State) func(*http.Server, string, strin
 		appState.ServerConfig.Hostname = addr
 		appState.ServerConfig.Scheme = scheme
 	}
+}
+
+type vectorRepo interface {
+	kinds.VectorRepo
+	traverser.VectorSearcher
+}
+
+type vectorizer interface {
+	kinds.Vectorizer
+	traverser.CorpiVectorizer
+}
+
+type explorer interface {
+	GetClass(ctx context.Context, params *traverser.LocalGetParams) ([]interface{}, error)
+	Concepts(ctx context.Context, params traverser.ExploreParams) ([]traverser.VectorSearchResult, error)
 }
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
@@ -68,14 +83,30 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Logger.WithField("action", "restapi_management").Infof(msg, args...)
 	}
 
+	var vectorRepo vectorRepo
+	var vectorMigrator migrate.Migrator
+	var vectorizer vectorizer
+	var migrator migrate.Migrator
+	var explorer explorer
+
+	if appState.ServerConfig.Config.VectorIndex.Enabled {
+		repo := esvector.NewRepo(esClient, appState.Logger)
+		vectorMigrator = esvector.NewMigrator(repo)
+		vectorRepo = repo
+		migrator = migrate.New(appState.Connector, vectorMigrator)
+		vectorizer = libvectorizer.New(appState.Contextionary)
+		explorer = traverser.NewExplorer(repo, vectorizer, appState.Connector)
+	} else {
+		vectorRepo = esvector.NewNoOpRepo()
+		vectorizer = libvectorizer.NewNoOp()
+		migrator = migrate.New(appState.Connector) //, vectorMigrator)
+		explorer = traverser.NewNoOpExplorer(fmt.Errorf("explore operations not possible: " +
+			"vector indexing is disabled, enable vector indexing first"))
+	}
+
 	schemaRepo := etcd.NewSchemaRepo(etcdClient)
 	connstateRepo := etcd.NewConnStateRepo(etcdClient)
-	// vectorRepo := esvector.NewRepo(esClient, appState.Logger)
-	vectorRepo := esvector.NewNoOpRepo()
-	_ = esClient
-	// vectorMigrator := esvector.NewMigrator(vectorRepo)
 
-	migrator := migrate.New(appState.Connector) //, vectorMigrator)
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Locks, appState.Network, appState.Logger, appState.Contextionary, appState.Authorizer, appState.StopwordDetector)
 	if err != nil {
@@ -85,9 +116,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		os.Exit(1)
 	}
 
-	// vectorizer := vectorizer.New(appState.Contextionary)
-	vectorizer := vectorizer.NewNoOp()
-
 	kindsManager := kinds.NewManager(appState.Connector, appState.Locks,
 		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, vectorizer, vectorRepo)
@@ -95,9 +123,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,
 		appState.Authorizer)
 
-	// explorer := traverser.NewExplorer(vectorRepo, vectorizer, appState.Connector)
-	explorer := traverser.NewNoOpExplorer(fmt.Errorf("explore operations not possible: " +
-		"vector indexing is disabled, enable vector indexing first"))
 	kindsTraverser := traverser.NewTraverser(appState.Locks, appState.Connector,
 		appState.Contextionary, appState.Logger, appState.Authorizer, vectorizer,
 		vectorRepo, explorer)

@@ -35,19 +35,19 @@ type Traverser struct {
 	c11y           c11y
 	logger         logrus.FieldLogger
 	authorizer     authorizer
-	vectorizer     corpiVectorizer
-	vectorSearcher vectorSearcher
+	vectorizer     CorpiVectorizer
+	vectorSearcher VectorSearcher
 	explorer       explorer
 }
 
-type corpiVectorizer interface {
+type CorpiVectorizer interface {
 	Corpi(ctx context.Context, corpi []string) ([]float32, error)
 	MoveTo(source []float32, target []float32, weight float32) ([]float32, error)
 	MoveAwayFrom(source []float32, target []float32, weight float32) ([]float32, error)
 	NormalizedDistance(a, b []float32) (float32, error)
 }
 
-type vectorSearcher interface {
+type VectorSearcher interface {
 	VectorSearch(ctx context.Context, index string,
 		vector []float32, limit int) ([]VectorSearchResult, error)
 }
@@ -60,7 +60,7 @@ type explorer interface {
 // NewTraverser to traverse the knowledge graph
 func NewTraverser(locks locks, repo TraverserRepo, c11y c11y,
 	logger logrus.FieldLogger, authorizer authorizer,
-	vectorizer corpiVectorizer, vectorSearcher vectorSearcher,
+	vectorizer CorpiVectorizer, vectorSearcher VectorSearcher,
 	explorer explorer) *Traverser {
 	return &Traverser{
 		locks:          locks,
