@@ -12,7 +12,7 @@ function main() {
   echo "Start up docker-compose setup..."
   surpress_on_success docker-compose -f docker-compose-test.yml up --force-recreate -d weaviate \
     janus index db genesis_fake remote_weaviate_fake remote_weaviate_fakes_with_test_schema genesis telemetry_mock_api \
-    contextionary esvector
+    contextionary #esvector
 
   MAX_WAIT_SECONDS=60
   ALREADY_WAITING=0
