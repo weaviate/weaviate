@@ -162,6 +162,11 @@ func (f *fakeVectorClassSearch) VectorClassSearch(ctx context.Context,
 	return args.Get(0).([]VectorSearchResult), args.Error(1)
 }
 
+func (f *fakeVectorClassSearch) VectorSearch(ctx context.Context,
+	className string, vector []float32, limit int) ([]VectorSearchResult, error) {
+	return nil, nil
+}
+
 type fakeExplorerRepo struct {
 	mock.Mock
 }
