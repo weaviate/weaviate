@@ -7,7 +7,7 @@ services:
     ports:
      - "80:80"
   weaviate:
-    image: semitechnologies/weaviate:0.16.1
+    image: semitechnologies/weaviate:0.17.0
     command: 
       - "--host"
       - "0.0.0.0"
@@ -25,7 +25,7 @@ services:
     volumes:
      - ./config.yaml:/config.yaml
   contextionary:
-    image: semitechnologies/contextionary:en0.6.0-v0.1.0
+    image: semitechnologies/contextionary:en0.8.0-v0.2.0
     ports:
       - "9999:9999"
     environment:
@@ -93,3 +93,11 @@ services:
       - "tkn"
       - "--initial-cluster-state"
       - "new"
+  esvector:
+    image: semitechnologies/esvector:5.6.0
+    environment:
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms500m -Xmx500m
+    ports: 
+      - "9201:9200"
+      - "9301:9300"

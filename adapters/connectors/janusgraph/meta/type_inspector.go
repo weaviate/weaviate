@@ -1,21 +1,22 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
- * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
 package meta
 
 import (
 	"fmt"
 
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 // TypeInspector can process the types of each specified props
@@ -30,7 +31,7 @@ func NewTypeInspector(typeSource typeSource) *TypeInspector {
 
 // Process returns a simple map where each property is the key, the value
 // contains the analysis prop that the user asked for through the graphQL API
-func (t *TypeInspector) Process(params *kinds.GetMetaParams) (map[string]interface{}, error) {
+func (t *TypeInspector) Process(params *traverser.GetMetaParams) (map[string]interface{}, error) {
 	result := map[string]interface{}{}
 	for _, prop := range params.Properties {
 		if prop.Name == MetaProp {
@@ -54,8 +55,8 @@ func (t *TypeInspector) Process(params *kinds.GetMetaParams) (map[string]interfa
 	return result, nil
 }
 
-func (t *TypeInspector) analyzeAll(params *kinds.GetMetaParams,
-	prop kinds.MetaProperty) (map[string]interface{}, error) {
+func (t *TypeInspector) analyzeAll(params *traverser.GetMetaParams,
+	prop traverser.MetaProperty) (map[string]interface{}, error) {
 	results := []map[string]interface{}{}
 	for _, analysis := range prop.StatisticalAnalyses {
 		result, err := t.analyze(params, prop, analysis)
@@ -88,8 +89,8 @@ func (t *TypeInspector) analyzeAll(params *kinds.GetMetaParams,
 	}
 }
 
-func (t *TypeInspector) analyze(params *kinds.GetMetaParams, prop kinds.MetaProperty,
-	analysis kinds.StatisticalAnalysis) (map[string]interface{}, error) {
+func (t *TypeInspector) analyze(params *traverser.GetMetaParams, prop traverser.MetaProperty,
+	analysis traverser.StatisticalAnalysis) (map[string]interface{}, error) {
 	err, schemaProp := t.typeSource.GetProperty(params.Kind, params.ClassName, untitle(prop.Name))
 	if err != nil {
 		return nil, fmt.Errorf(
@@ -103,15 +104,15 @@ func (t *TypeInspector) analyze(params *kinds.GetMetaParams, prop kinds.MetaProp
 	}
 
 	switch analysis {
-	case kinds.PointingTo:
+	case traverser.PointingTo:
 		return t.analyzeRefProp(params, propType)
-	case kinds.Type:
+	case traverser.Type:
 		return t.analyzePrimitiveProp(params, propType)
 	default:
 		return nil, nil
 	}
 }
-func (t *TypeInspector) analyzePrimitiveProp(params *kinds.GetMetaParams,
+func (t *TypeInspector) analyzePrimitiveProp(params *traverser.GetMetaParams,
 	propType schema.PropertyDataType) (map[string]interface{}, error) {
 	var typeName string
 	if propType.IsPrimitive() {
@@ -121,11 +122,11 @@ func (t *TypeInspector) analyzePrimitiveProp(params *kinds.GetMetaParams,
 	}
 
 	return map[string]interface{}{
-		string(kinds.Type): typeName,
+		string(traverser.Type): typeName,
 	}, nil
 }
 
-func (t *TypeInspector) analyzeRefProp(params *kinds.GetMetaParams,
+func (t *TypeInspector) analyzeRefProp(params *traverser.GetMetaParams,
 	propType schema.PropertyDataType) (map[string]interface{}, error) {
 
 	if !propType.IsReference() {
@@ -133,7 +134,7 @@ func (t *TypeInspector) analyzeRefProp(params *kinds.GetMetaParams,
 	}
 
 	return map[string]interface{}{
-		string(kinds.PointingTo): classSliceToInterfaceSlice(propType.Classes()),
+		string(traverser.PointingTo): classSliceToInterfaceSlice(propType.Classes()),
 	}, nil
 }
 

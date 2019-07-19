@@ -50,7 +50,7 @@ services:
     ports:
       - "8080:8080"
   contextionary:
-    image: semitechnologies/contextionary:en0.6.0-v0.1.0-minimal
+    image: semitechnologies/contextionary:en0.8.0-v0.2.0
     ports:
       - "9999:9999"
     environment:
@@ -156,3 +156,11 @@ services:
       - ./tools/dev/keycloak/weaviate-realm.json:/tmp/weaviate-realm.json
     ports:
       - "9090:8080"
+  esvector:
+    image: semitechnologies/esvector:5.6.0
+    environment:
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms500m -Xmx500m
+    ports: 
+      - "9201:9200"
+      - "9301:9300"

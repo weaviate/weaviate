@@ -1,14 +1,16 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
- * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */package contextionary
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
+package contextionary
 
 import (
 	"context"
@@ -17,7 +19,7 @@ import (
 	pb "github.com/semi-technologies/contextionary/contextionary"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"google.golang.org/grpc"
 )
 
@@ -75,7 +77,7 @@ func (c *Client) SafeGetSimilarWordsWithCertainty(ctx context.Context, word stri
 }
 
 // SchemaSearch for related classes and properties
-func (c *Client) SchemaSearch(ctx context.Context, params kinds.SearchParams) (kinds.SearchResults, error) {
+func (c *Client) SchemaSearch(ctx context.Context, params traverser.SearchParams) (traverser.SearchResults, error) {
 	pbParams := &pb.SchemaSearchParams{
 		Certainty:  params.Certainty,
 		Name:       params.Name,
@@ -86,7 +88,7 @@ func (c *Client) SchemaSearch(ctx context.Context, params kinds.SearchParams) (k
 
 	res, err := c.grpcClient.SchemaSearch(ctx, pbParams)
 	if err != nil {
-		return kinds.SearchResults{}, err
+		return traverser.SearchResults{}, err
 	}
 
 	return schemaSearchResultsFromProto(res), nil
@@ -114,7 +116,7 @@ func kindFromProto(k pb.Kind) kind.Kind {
 	}
 }
 
-func keywordsToProto(kws models.SemanticSchemaKeywords) []*pb.Keyword {
+func keywordsToProto(kws models.Keywords) []*pb.Keyword {
 
 	output := make([]*pb.Keyword, len(kws), len(kws))
 	for i, kw := range kws {
@@ -127,39 +129,39 @@ func keywordsToProto(kws models.SemanticSchemaKeywords) []*pb.Keyword {
 	return output
 }
 
-func searchTypeToProto(input kinds.SearchType) pb.SearchType {
+func searchTypeToProto(input traverser.SearchType) pb.SearchType {
 	switch input {
-	case kinds.SearchTypeClass:
+	case traverser.SearchTypeClass:
 		return pb.SearchType_CLASS
-	case kinds.SearchTypeProperty:
+	case traverser.SearchTypeProperty:
 		return pb.SearchType_PROPERTY
 	default:
 		panic(fmt.Sprintf("unknown search type %v", input))
 	}
 }
 
-func searchTypeFromProto(input pb.SearchType) kinds.SearchType {
+func searchTypeFromProto(input pb.SearchType) traverser.SearchType {
 	switch input {
 	case pb.SearchType_CLASS:
-		return kinds.SearchTypeClass
+		return traverser.SearchTypeClass
 	case pb.SearchType_PROPERTY:
-		return kinds.SearchTypeProperty
+		return traverser.SearchTypeProperty
 	default:
 		panic(fmt.Sprintf("unknown search type %v", input))
 	}
 }
 
-func schemaSearchResultsFromProto(res *pb.SchemaSearchResults) kinds.SearchResults {
-	return kinds.SearchResults{
+func schemaSearchResultsFromProto(res *pb.SchemaSearchResults) traverser.SearchResults {
+	return traverser.SearchResults{
 		Type:    searchTypeFromProto(res.Type),
 		Results: searchResultsFromProto(res.Results),
 	}
 }
 
-func searchResultsFromProto(input []*pb.SchemaSearchResult) []kinds.SearchResult {
-	output := make([]kinds.SearchResult, len(input), len(input))
+func searchResultsFromProto(input []*pb.SchemaSearchResult) []traverser.SearchResult {
+	output := make([]traverser.SearchResult, len(input), len(input))
 	for i, res := range input {
-		output[i] = kinds.SearchResult{
+		output[i] = traverser.SearchResult{
 			Certainty: res.Certainty,
 			Name:      res.Name,
 			Kind:      kindFromProto(res.Kind),
@@ -184,6 +186,14 @@ func vectorFromProto(in []*pb.VectorEntry) []float32 {
 	}
 
 	return output
+}
+
+func (c *Client) VectorForCorpi(ctx context.Context, corpi []string) ([]float32, error) {
+	res, err := c.grpcClient.VectorForCorpi(ctx, &pb.Corpi{Corpi: corpi})
+	if err != nil {
+		return nil, fmt.Errorf("could not get vector from remote: %v", err)
+	}
+	return vectorFromProto(res.Entries), nil
 }
 
 func (c *Client) NearestWordsByVector(ctx context.Context, vector []float32, n int, k int) ([]string, []float32, error) {

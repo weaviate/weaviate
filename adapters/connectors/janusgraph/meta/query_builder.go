@@ -1,14 +1,15 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
- * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
 package meta
 
 import (
@@ -20,17 +21,17 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type Query struct {
-	params       *kinds.GetMetaParams
+	params       *traverser.GetMetaParams
 	nameSource   nameSource
 	typeSource   typeSource
 	filterSource filterSource
 }
 
-func NewQuery(params *kinds.GetMetaParams, nameSource nameSource, typeSource typeSource,
+func NewQuery(params *traverser.GetMetaParams, nameSource nameSource, typeSource typeSource,
 	filterSource filterSource) *Query {
 	return &Query{
 		params:       params,
@@ -46,7 +47,7 @@ type nameSource interface {
 
 type typeSource interface {
 	GetProperty(kind kind.Kind, className schema.ClassName,
-		propName schema.PropertyName) (error, *models.SemanticSchemaClassProperty)
+		propName schema.PropertyName) (error, *models.Property)
 	FindPropertyDataType(dataType []string) (schema.PropertyDataType, error)
 }
 
@@ -95,7 +96,7 @@ func idempotentLeadWithDot(q *gremlin.Query) string {
 	return fmt.Sprintf(".%s", stringified)
 }
 
-func (b *Query) prop(prop kinds.MetaProperty) (*gremlin.Query, error) {
+func (b *Query) prop(prop traverser.MetaProperty) (*gremlin.Query, error) {
 	if prop.Name == MetaProp {
 		return b.metaProp(prop)
 	}

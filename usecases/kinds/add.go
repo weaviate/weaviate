@@ -1,14 +1,16 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
- * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */package kinds
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
+package kinds
 
 import (
 	"context"
@@ -32,7 +34,6 @@ type addRepo interface {
 	ClassExists(ctx context.Context, id strfmt.UUID) (bool, error)
 }
 
-// TODO: Can we use the schema manager UC here instead of the "whole thing"?
 type schemaManager interface {
 	UpdatePropertyAddDataType(context.Context, *models.Principal, kind.Kind, string, string, string) error
 	GetSchema(principal *models.Principal) (schema.Schema, error)
@@ -99,6 +100,16 @@ func (m *Manager) addActionToConnectorAndSchema(ctx context.Context, principal *
 		return nil, NewErrInternal("could not store action: %v", err)
 	}
 
+	v, err := m.vectorizer.Action(ctx, class)
+	if err != nil {
+		return nil, NewErrInternal("could not create vector from action: %v", err)
+	}
+
+	err = m.vectorRepo.PutAction(ctx, class, v)
+	if err != nil {
+		return nil, NewErrInternal("could not store vector for thing: %v", err)
+	}
+
 	return class, nil
 }
 
@@ -159,6 +170,16 @@ func (m *Manager) addThingToConnectorAndSchema(ctx context.Context, principal *m
 	err = m.repo.AddThing(ctx, class, class.ID)
 	if err != nil {
 		return nil, NewErrInternal("could not store thing: %v", err)
+	}
+
+	v, err := m.vectorizer.Thing(ctx, class)
+	if err != nil {
+		return nil, NewErrInternal("could not create vector from thing: %v", err)
+	}
+
+	err = m.vectorRepo.PutThing(ctx, class, v)
+	if err != nil {
+		return nil, NewErrInternal("could not store vector for thing: %v", err)
 	}
 
 	return class, nil

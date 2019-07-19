@@ -1,14 +1,15 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
- * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
 package aggregate
 
 import (
@@ -16,7 +17,7 @@ import (
 	"strings"
 
 	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/gremlin"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type aggregation struct {
@@ -24,7 +25,7 @@ type aggregation struct {
 	aggregation *gremlin.Query
 }
 
-func (b *Query) numericalProp(prop kinds.AggregateProperty) (*propertyAggregation, error) {
+func (b *Query) numericalProp(prop traverser.AggregateProperty) (*propertyAggregation, error) {
 	aggregators := []*aggregation{}
 	for _, aggregator := range prop.Aggregators {
 
@@ -43,22 +44,22 @@ func (b *Query) numericalProp(prop kinds.AggregateProperty) (*propertyAggregatio
 	return b.mergeAggregators(aggregators, prop)
 }
 
-func (b *Query) numericalPropAggregators(aggregator kinds.Aggregator) (*aggregation, error) {
+func (b *Query) numericalPropAggregators(aggregator traverser.Aggregator) (*aggregation, error) {
 	switch aggregator {
-	case kinds.CountAggregator:
+	case traverser.CountAggregator:
 		return &aggregation{label: string(aggregator), aggregation: gremlin.New().Count()}, nil
-	case kinds.MeanAggregator:
+	case traverser.MeanAggregator:
 		return &aggregation{label: string(aggregator), aggregation: gremlin.New().Mean()}, nil
-	case kinds.ModeAggregator:
+	case traverser.ModeAggregator:
 		return &aggregation{
 			label:       string(aggregator),
 			aggregation: gremlin.New().GroupCount().OrderLocalByValuesSelectKeysLimit("decr", 1),
 		}, nil
-	case kinds.SumAggregator:
+	case traverser.SumAggregator:
 		return &aggregation{label: string(aggregator), aggregation: gremlin.New().Sum()}, nil
-	case kinds.MaximumAggregator:
+	case traverser.MaximumAggregator:
 		return &aggregation{label: string(aggregator), aggregation: gremlin.New().Max()}, nil
-	case kinds.MinimumAggregator:
+	case traverser.MinimumAggregator:
 		return &aggregation{label: string(aggregator), aggregation: gremlin.New().Min()}, nil
 	default:
 		return nil, fmt.Errorf("analysis '%s' not supported for int prop", aggregator)
@@ -66,7 +67,7 @@ func (b *Query) numericalPropAggregators(aggregator kinds.Aggregator) (*aggregat
 }
 
 func (b *Query) mergeAggregators(aggregationQueries []*aggregation,
-	prop kinds.AggregateProperty) (*propertyAggregation, error) {
+	prop traverser.AggregateProperty) (*propertyAggregation, error) {
 	selections := []string{}
 	matchFragments := []string{}
 

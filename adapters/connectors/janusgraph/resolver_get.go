@@ -1,14 +1,15 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
- * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
 package janusgraph
 
 import (
@@ -19,7 +20,7 @@ import (
 	jget "github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/get"
 	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/gremlin"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type resolveResult struct {
@@ -28,7 +29,7 @@ type resolveResult struct {
 }
 
 // LocalGetClass Implements the Local->Get->KIND->CLASS lookup.
-func (j *Janusgraph) LocalGetClass(ctx context.Context, params *kinds.LocalGetParams) (interface{}, error) {
+func (j *Janusgraph) LocalGetClass(ctx context.Context, params *traverser.LocalGetParams) (interface{}, error) {
 	ch := make(chan resolveResult, 1)
 
 	go func() {
@@ -56,7 +57,7 @@ func (j *Janusgraph) LocalGetClass(ctx context.Context, params *kinds.LocalGetPa
 	return result.results, nil
 }
 
-func (j *Janusgraph) doLocalGetClass(ctx context.Context, params *kinds.LocalGetParams) ([]interface{}, error) {
+func (j *Janusgraph) doLocalGetClass(ctx context.Context, params *traverser.LocalGetParams) ([]interface{}, error) {
 	q, err := jget.NewQuery(*params, &j.state, &j.schema, j.appConfig.QueryDefaults).String()
 	if err != nil {
 		return nil, fmt.Errorf("could not build query: %s", err)

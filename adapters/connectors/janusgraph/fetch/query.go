@@ -1,14 +1,16 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
- * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */package fetch
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
+package fetch
 
 import (
 	"fmt"
@@ -19,19 +21,19 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 // Query prepares a Local->Fetch Query. Can be built with String(). Create with
 // NewQuery() to be sure that all required properties are set
 type Query struct {
-	params     kinds.FetchParams
+	params     traverser.FetchParams
 	nameSource nameSource
 	typeSource typeSource
 }
 
 // NewQuery is the preferred way to create a query
-func NewQuery(p kinds.FetchParams, ns nameSource, ts typeSource) *Query {
+func NewQuery(p traverser.FetchParams, ns nameSource, ts typeSource) *Query {
 	return &Query{
 		params:     p,
 		nameSource: ns,
@@ -49,7 +51,7 @@ type nameSource interface {
 
 type typeSource interface {
 	GetProperty(kind kind.Kind, className schema.ClassName,
-		propName schema.PropertyName) (error, *models.SemanticSchemaClassProperty)
+		propName schema.PropertyName) (error, *models.Property)
 	FindPropertyDataType(dataType []string) (schema.PropertyDataType, error)
 }
 
@@ -98,7 +100,7 @@ func (b *Query) properties() ([]*gremlin.Query, error) {
 	return queries, nil
 }
 
-func (b *Query) property(prop kinds.FetchProperty) (*gremlin.Query, error) {
+func (b *Query) property(prop traverser.FetchProperty) (*gremlin.Query, error) {
 	var filterAlternatives []*gremlin.Query
 
 	for _, className := range b.params.PossibleClassNames.Results {
@@ -120,8 +122,8 @@ func (b *Query) property(prop kinds.FetchProperty) (*gremlin.Query, error) {
 	return q, nil
 }
 
-func (b *Query) combineClassWithPropNames(className string, propNames []kinds.SearchResult,
-	match kinds.FetchPropertyMatch) *gremlin.Query {
+func (b *Query) combineClassWithPropNames(className string, propNames []traverser.SearchResult,
+	match traverser.FetchPropertyMatch) *gremlin.Query {
 	var combinations []string
 
 	for _, propName := range propNames {
@@ -141,7 +143,7 @@ func (b *Query) combineClassWithPropNames(className string, propNames []kinds.Se
 }
 
 func (b *Query) combineClassWithPropName(className string, propName string,
-	match kinds.FetchPropertyMatch) *gremlin.Query {
+	match traverser.FetchPropertyMatch) *gremlin.Query {
 	class := schema.ClassName(className)
 	prop := schema.PropertyName(propName)
 

@@ -1,14 +1,16 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
- * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */package schema
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
+package schema
 
 import (
 	"context"
@@ -21,7 +23,7 @@ import (
 
 // UpdateActionProperty of an existing Action Property
 func (m *Manager) UpdateActionProperty(ctx context.Context, principal *models.Principal,
-	class string, name string, property *models.SemanticSchemaClassProperty) error {
+	class string, name string, property *models.Property) error {
 
 	err := m.authorizer.Authorize(principal, "update", "schema/actions")
 	if err != nil {
@@ -33,7 +35,7 @@ func (m *Manager) UpdateActionProperty(ctx context.Context, principal *models.Pr
 
 // UpdateThingProperty of an existing Thing Property
 func (m *Manager) UpdateThingProperty(ctx context.Context, principal *models.Principal,
-	class string, name string, property *models.SemanticSchemaClassProperty) error {
+	class string, name string, property *models.Property) error {
 
 	err := m.authorizer.Authorize(principal, "update", "schema/things")
 	if err != nil {
@@ -44,7 +46,7 @@ func (m *Manager) UpdateThingProperty(ctx context.Context, principal *models.Pri
 
 // TODO: gh-832: Implement full capabilities, not just keywords/naming
 func (m *Manager) updateClassProperty(ctx context.Context, className string, name string,
-	property *models.SemanticSchemaClassProperty, k kind.Kind) error {
+	property *models.Property, k kind.Kind) error {
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
 		return err
@@ -52,7 +54,7 @@ func (m *Manager) updateClassProperty(ctx context.Context, className string, nam
 	defer unlock()
 
 	var newName *string
-	var newKeywords *models.SemanticSchemaKeywords
+	var newKeywords *models.Keywords
 
 	if property.Name != name {
 		// the name in the URI and body don't match, so we assume the user wants to rename

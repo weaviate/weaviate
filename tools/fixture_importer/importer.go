@@ -1,14 +1,15 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
- * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
 package main
 
 // Import fixture data
@@ -33,8 +34,8 @@ var APIKEY string
 
 // Schema of a weaviate database.
 type Schema struct {
-	Actions *models.SemanticSchema
-	Things  *models.SemanticSchema
+	Actions *models.Schema
+	Things  *models.Schema
 }
 
 var schema Schema
@@ -94,7 +95,7 @@ func main() {
 	fixupActions()
 }
 
-func findClass(schema *models.SemanticSchema, className string) *models.SemanticSchemaClass {
+func findClass(schema *models.Schema, className string) *models.Class {
 	for _, klass := range schema.Classes {
 		if klass.Class == className {
 			return klass
@@ -104,7 +105,7 @@ func findClass(schema *models.SemanticSchema, className string) *models.Semantic
 	panic(fmt.Sprintf("Class %s not found", className))
 }
 
-func findProperty(class *models.SemanticSchemaClass, propName string) *models.SemanticSchemaClassProperty {
+func findProperty(class *models.Class, propName string) *models.Property {
 	for _, prop := range class.Properties {
 		if prop.Name == propName {
 			return prop
@@ -123,8 +124,8 @@ func joinErrorMessages(errResponse *models.ErrorResponse) string {
 	return strings.Join(msgs, ", ")
 }
 
-func loadSemantisSchema(path string) *models.SemanticSchema {
-	var schema models.SemanticSchema
+func loadSemantisSchema(path string) *models.Schema {
+	var schema models.Schema
 
 	dat, err := ioutil.ReadFile(path)
 	if err != nil {

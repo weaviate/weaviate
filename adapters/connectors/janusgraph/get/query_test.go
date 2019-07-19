@@ -1,14 +1,14 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
- * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
 
 package get
 
@@ -18,17 +18,17 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func Test_QueryBuilder(t *testing.T) {
 	tests := testCases{
 		{
 			name: "with a Thing.City with a single primitive prop 'name'",
-			inputParams: kinds.LocalGetParams{
+			inputParams: traverser.LocalGetParams{
 				ClassName: "City",
-				Properties: []kinds.SelectProperty{
-					kinds.SelectProperty{
+				Properties: []traverser.SelectProperty{
+					traverser.SelectProperty{
 						IsPrimitive: true,
 						Name:        "name",
 					},
@@ -45,10 +45,10 @@ func Test_QueryBuilder(t *testing.T) {
 		},
 		{
 			name: "without an explicit limit specified",
-			inputParams: kinds.LocalGetParams{
+			inputParams: traverser.LocalGetParams{
 				ClassName: "City",
-				Properties: []kinds.SelectProperty{
-					kinds.SelectProperty{
+				Properties: []traverser.SelectProperty{
+					traverser.SelectProperty{
 						IsPrimitive: true,
 						Name:        "name",
 					},
@@ -62,10 +62,10 @@ func Test_QueryBuilder(t *testing.T) {
 		},
 		{
 			name: "with a Thing.City with a single primitive prop 'name' and a where filter",
-			inputParams: kinds.LocalGetParams{
+			inputParams: traverser.LocalGetParams{
 				ClassName: "City",
-				Properties: []kinds.SelectProperty{
-					kinds.SelectProperty{
+				Properties: []traverser.SelectProperty{
+					traverser.SelectProperty{
 						IsPrimitive: true,
 						Name:        "name",
 					},
@@ -96,21 +96,21 @@ func Test_QueryBuilder(t *testing.T) {
 		},
 		{
 			name: "with a Thing.City with a ref prop one level deep",
-			inputParams: kinds.LocalGetParams{
+			inputParams: traverser.LocalGetParams{
 				ClassName: "City",
-				Properties: []kinds.SelectProperty{
-					kinds.SelectProperty{
+				Properties: []traverser.SelectProperty{
+					traverser.SelectProperty{
 						IsPrimitive: true,
 						Name:        "name",
 					},
-					kinds.SelectProperty{
+					traverser.SelectProperty{
 						IsPrimitive: false,
 						Name:        "inCountry",
-						Refs: []kinds.SelectClass{
-							kinds.SelectClass{
+						Refs: []traverser.SelectClass{
+							traverser.SelectClass{
 								ClassName: "Country",
-								RefProperties: []kinds.SelectProperty{
-									kinds.SelectProperty{
+								RefProperties: []traverser.SelectProperty{
+									traverser.SelectProperty{
 										IsPrimitive: true,
 										Name:        "name",
 									},
@@ -136,21 +136,21 @@ func Test_QueryBuilder(t *testing.T) {
 		},
 		{
 			name: "with a Thing.City with a network ref prop one level deep",
-			inputParams: kinds.LocalGetParams{
+			inputParams: traverser.LocalGetParams{
 				ClassName: "City",
-				Properties: []kinds.SelectProperty{
-					kinds.SelectProperty{
+				Properties: []traverser.SelectProperty{
+					traverser.SelectProperty{
 						IsPrimitive: true,
 						Name:        "name",
 					},
-					kinds.SelectProperty{
+					traverser.SelectProperty{
 						IsPrimitive: false,
 						Name:        "inCountry",
-						Refs: []kinds.SelectClass{
-							kinds.SelectClass{
+						Refs: []traverser.SelectClass{
+							traverser.SelectClass{
 								ClassName: "WeaviateB__Country",
-								RefProperties: []kinds.SelectProperty{
-									kinds.SelectProperty{
+								RefProperties: []traverser.SelectProperty{
+									traverser.SelectProperty{
 										IsPrimitive: true,
 										Name:        "name",
 									},
@@ -176,35 +176,35 @@ func Test_QueryBuilder(t *testing.T) {
 		},
 		{
 			name: "with a Thing.City with a ref prop three levels deep",
-			inputParams: kinds.LocalGetParams{
+			inputParams: traverser.LocalGetParams{
 				ClassName: "City",
-				Properties: []kinds.SelectProperty{
-					kinds.SelectProperty{
+				Properties: []traverser.SelectProperty{
+					traverser.SelectProperty{
 						IsPrimitive: true,
 						Name:        "name",
 					},
-					kinds.SelectProperty{
+					traverser.SelectProperty{
 						IsPrimitive: false,
 						Name:        "inCountry",
-						Refs: []kinds.SelectClass{
-							kinds.SelectClass{
+						Refs: []traverser.SelectClass{
+							traverser.SelectClass{
 								ClassName: "Country",
-								RefProperties: []kinds.SelectProperty{
-									kinds.SelectProperty{
+								RefProperties: []traverser.SelectProperty{
+									traverser.SelectProperty{
 										IsPrimitive: false,
 										Name:        "inContinent",
-										Refs: []kinds.SelectClass{
-											kinds.SelectClass{
+										Refs: []traverser.SelectClass{
+											traverser.SelectClass{
 												ClassName: "Continent",
-												RefProperties: []kinds.SelectProperty{
-													kinds.SelectProperty{
+												RefProperties: []traverser.SelectProperty{
+													traverser.SelectProperty{
 														IsPrimitive: false,
 														Name:        "onPlanet",
-														Refs: []kinds.SelectClass{
-															kinds.SelectClass{
+														Refs: []traverser.SelectClass{
+															traverser.SelectClass{
 																ClassName: "Planet",
-																RefProperties: []kinds.SelectProperty{
-																	kinds.SelectProperty{
+																RefProperties: []traverser.SelectProperty{
+																	traverser.SelectProperty{
 																		IsPrimitive: true,
 																		Name:        "name",
 																	},

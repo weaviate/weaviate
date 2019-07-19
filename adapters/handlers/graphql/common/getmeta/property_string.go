@@ -1,14 +1,15 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
- * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
 package getmeta
 
 import (
@@ -20,8 +21,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
-func stringPropertyFields(class *models.SemanticSchemaClass,
-	property *models.SemanticSchemaClassProperty, prefix string) *graphql.Object {
+func stringPropertyFields(class *models.Class,
+	property *models.Property, prefix string) *graphql.Object {
 	getMetaDateFields := graphql.Fields{
 		"type": &graphql.Field{
 			Name:        fmt.Sprintf("%s%sType", prefix, class.Class),
@@ -58,8 +59,8 @@ func stringPropertyFields(class *models.SemanticSchemaClass,
 	})
 }
 
-func stringTopOccurrences(class *models.SemanticSchemaClass,
-	property *models.SemanticSchemaClassProperty, prefix string) *graphql.Object {
+func stringTopOccurrences(class *models.Class,
+	property *models.Property, prefix string) *graphql.Object {
 	getMetaMetaPointingFields := graphql.Fields{
 		"value": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sTopOccurrencesValue", prefix, class.Class, property.Name),

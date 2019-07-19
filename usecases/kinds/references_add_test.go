@@ -1,14 +1,16 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
- * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */package kinds
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
+package kinds
 
 import (
 	"context"
@@ -35,6 +37,7 @@ func Test_ReferencesAdd_CardinalityMany(t *testing.T) {
 		cfg           *config.WeaviateConfig
 		manager       *Manager
 		authorizer    *fakeAuthorizer
+		vectorizer    *fakeVectorizer
 	)
 
 	reset := func() {
@@ -44,7 +47,10 @@ func Test_ReferencesAdd_CardinalityMany(t *testing.T) {
 		network = &fakeNetwork{}
 		cfg = &config.WeaviateConfig{}
 		authorizer = &fakeAuthorizer{}
-		manager = NewManager(repo, locks, schemaManager, network, cfg, logger, authorizer)
+		vectorizer = &fakeVectorizer{}
+		vectorRepo := &fakeVectorRepo{}
+		manager = NewManager(repo, locks, schemaManager, network,
+			cfg, logger, authorizer, vectorizer, vectorRepo)
 	}
 
 	t.Run("without prior refs", func(t *testing.T) {
@@ -113,29 +119,29 @@ func Test_ReferencesAdd_CardinalityMany(t *testing.T) {
 func zooAnimalSchemaForTest() schema.Schema {
 	many := "many"
 	return schema.Schema{
-		Actions: &models.SemanticSchema{
-			Classes: []*models.SemanticSchemaClass{},
+		Actions: &models.Schema{
+			Classes: []*models.Class{},
 		},
-		Things: &models.SemanticSchema{
-			Classes: []*models.SemanticSchemaClass{
-				&models.SemanticSchemaClass{
+		Things: &models.Schema{
+			Classes: []*models.Class{
+				&models.Class{
 					Class: "Zoo",
-					Properties: []*models.SemanticSchemaClassProperty{
-						&models.SemanticSchemaClassProperty{
+					Properties: []*models.Property{
+						&models.Property{
 							Name:     "name",
 							DataType: []string{"string"},
 						},
-						&models.SemanticSchemaClassProperty{
+						&models.Property{
 							Name:        "hasAnimals",
 							DataType:    []string{"Animal"},
 							Cardinality: &many,
 						},
 					},
 				},
-				&models.SemanticSchemaClass{
+				&models.Class{
 					Class: "Animal",
-					Properties: []*models.SemanticSchemaClassProperty{
-						&models.SemanticSchemaClassProperty{
+					Properties: []*models.Property{
+						&models.Property{
 							Name:     "name",
 							DataType: []string{"string"},
 						},

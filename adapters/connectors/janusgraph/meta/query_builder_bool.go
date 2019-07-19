@@ -1,24 +1,25 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
- * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
 package meta
 
 import (
 	"fmt"
 
 	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/gremlin"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
-func (b *Query) booleanProp(prop kinds.MetaProperty) (*gremlin.Query, error) {
+func (b *Query) booleanProp(prop traverser.MetaProperty) (*gremlin.Query, error) {
 	q := gremlin.New()
 
 	// retrieving the total true and total false values is a single operation in
@@ -55,23 +56,23 @@ func (b *Query) booleanProp(prop kinds.MetaProperty) (*gremlin.Query, error) {
 	return q, nil
 }
 
-func isBooleanTotalsProp(analysis kinds.StatisticalAnalysis) bool {
+func isBooleanTotalsProp(analysis traverser.StatisticalAnalysis) bool {
 	switch analysis {
-	case kinds.TotalTrue, kinds.TotalFalse, kinds.PercentageTrue, kinds.PercentageFalse:
+	case traverser.TotalTrue, traverser.TotalFalse, traverser.PercentageTrue, traverser.PercentageFalse:
 		return true
 	default:
 		return false
 	}
 }
 
-func (b *Query) booleanPropAnalysis(prop kinds.MetaProperty,
-	analysis kinds.StatisticalAnalysis) (*gremlin.Query, error) {
+func (b *Query) booleanPropAnalysis(prop traverser.MetaProperty,
+	analysis traverser.StatisticalAnalysis) (*gremlin.Query, error) {
 	switch analysis {
-	case kinds.Count:
+	case traverser.Count:
 		return b.booleanPropCount(prop)
-	case kinds.TotalTrue, kinds.TotalFalse, kinds.PercentageTrue, kinds.PercentageFalse:
+	case traverser.TotalTrue, traverser.TotalFalse, traverser.PercentageTrue, traverser.PercentageFalse:
 		return b.booleanPropTotals(prop)
-	case kinds.Type:
+	case traverser.Type:
 		// type is handled by the type inspector, not coming from the db
 		return nil, nil
 	default:
@@ -79,7 +80,7 @@ func (b *Query) booleanPropAnalysis(prop kinds.MetaProperty,
 	}
 }
 
-func (b *Query) booleanPropCount(prop kinds.MetaProperty) (*gremlin.Query, error) {
+func (b *Query) booleanPropCount(prop traverser.MetaProperty) (*gremlin.Query, error) {
 	q := gremlin.New()
 
 	q = q.Count().Project("count").Project(string(prop.Name))
@@ -87,7 +88,7 @@ func (b *Query) booleanPropCount(prop kinds.MetaProperty) (*gremlin.Query, error
 	return q, nil
 }
 
-func (b *Query) booleanPropTotals(prop kinds.MetaProperty) (*gremlin.Query, error) {
+func (b *Query) booleanPropTotals(prop traverser.MetaProperty) (*gremlin.Query, error) {
 	q := gremlin.New()
 
 	q = q.GroupCount().Unfold().Project(string(prop.Name))

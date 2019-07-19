@@ -1,14 +1,15 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
- * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
 package test
 
 import (
@@ -84,7 +85,7 @@ func assertGetSchema(t *testing.T) *schema.WeaviateSchemaDumpOKBody {
 	return schema
 }
 
-func assertClassInSchema(t *testing.T, schema *models.SemanticSchema, className string) *models.SemanticSchemaClass {
+func assertClassInSchema(t *testing.T, schema *models.Schema, className string) *models.Class {
 	for _, class := range schema.Classes {
 		if class.Class == className {
 			return class
@@ -95,7 +96,7 @@ func assertClassInSchema(t *testing.T, schema *models.SemanticSchema, className 
 	return nil
 }
 
-func assertPropertyInClass(t *testing.T, class *models.SemanticSchemaClass, propertyName string) *models.SemanticSchemaClassProperty {
+func assertPropertyInClass(t *testing.T, class *models.Class, propertyName string) *models.Property {
 	for _, prop := range class.Properties {
 		if prop.Name == propertyName {
 			return prop

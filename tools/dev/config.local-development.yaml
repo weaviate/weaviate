@@ -9,6 +9,9 @@ database:
       enabled: true
       type: spark-analytics-api
       url: http://localhost:8100
+vector_index:
+  enabled: true
+  url: http://localhost:9201
 analytics_engine:
   enabled: true
   defaultUseAnalyticsEngine: false

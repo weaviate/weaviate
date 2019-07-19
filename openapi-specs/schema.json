@@ -24,7 +24,7 @@
           "type": "string"
         },
         "schema": {
-          "$ref": "#/definitions/Schema"
+          "$ref": "#/definitions/PropertySchema"
         },
         "id": {
           "description": "ID of the Action.",
@@ -313,7 +313,7 @@
       "description": "Contains meta information of the current Weaviate instance.",
       "properties": {
         "actionsSchema": {
-          "$ref": "#/definitions/SemanticSchema"
+          "$ref": "#/definitions/Schema"
         },
         "hostname": {
           "description": "The url of the host.",
@@ -321,7 +321,7 @@
           "type": "string"
         },
         "thingsSchema": {
-          "$ref": "#/definitions/SemanticSchema"
+          "$ref": "#/definitions/Schema"
         }
       },
       "type": "object"
@@ -386,7 +386,7 @@
       },
       "type": "array"
     },
-    "Schema": {
+    "PropertySchema": {
       "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
     },
@@ -394,13 +394,13 @@
       "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
     },
-    "SemanticSchema": {
+    "Schema": {
       "description": "Definitions of semantic schemas (also see: https://github.com/semi-technologies/weaviate-semantic-schemas).",
       "properties": {
         "classes": {
           "description": "Semantic classes that are available.",
           "items": {
-            "$ref": "#/definitions/SemanticSchemaClass"
+            "$ref": "#/definitions/Class"
           },
           "type": "array"
         },
@@ -421,14 +421,14 @@
       },
       "type": "object"
     },
-    "SemanticSchemaClass": {
+    "Class": {
       "properties": {
         "class": {
           "description": "Name of the class as URI relative to the schema URL.",
           "type": "string"
         },
         "keywords": {
-          "$ref": "#/definitions/SemanticSchemaKeywords"
+          "$ref": "#/definitions/Keywords"
         },
         "description": {
           "description": "Description of the class.",
@@ -437,14 +437,14 @@
         "properties": {
           "description": "The properties of the class.",
           "items": {
-            "$ref": "#/definitions/SemanticSchemaClassProperty"
+            "$ref": "#/definitions/Property"
           },
           "type": "array"
         }
       },
       "type": "object"
     },
-    "SemanticSchemaKeywords": {
+    "Keywords": {
       "description": "Describes a class or property using multiple weighted words.",
       "type": "array",
       "items": {
@@ -460,7 +460,7 @@
         }
       }
     },
-    "SemanticSchemaClassProperty": {
+    "Property": {
       "properties": {
         "dataType": {
           "description": "Can be a reference ($cref) to another type when it starts with a capital (for example Person), otherwise \"string\" or \"int\".",
@@ -484,7 +484,7 @@
           "type": "string"
         },
         "keywords": {
-          "$ref": "#/definitions/SemanticSchemaKeywords"
+          "$ref": "#/definitions/Keywords"
         }
       },
       "type": "object"
@@ -562,7 +562,7 @@
           "type": "string"
         },
         "schema": {
-          "$ref": "#/definitions/Schema"
+          "$ref": "#/definitions/PropertySchema"
         },
         "id": {
           "description": "ID of the Thing.",
@@ -638,7 +638,7 @@
     },
     "description": "Decentralised Knowledge Graph",
     "title": "Weaviate - Decentralised Knowledge Graph",
-    "version": "0.16.2"
+    "version": "0.17.0"
   },
   "parameters": {
     "CommonLimitParameterQuery": {
@@ -1598,10 +1598,10 @@
               "type": "object",
               "properties": {
                 "things": {
-                  "$ref": "#/definitions/SemanticSchema"
+                  "$ref": "#/definitions/Schema"
                 },
                 "actions": {
-                  "$ref": "#/definitions/SemanticSchema"
+                  "$ref": "#/definitions/Schema"
                 }
               }
             }
@@ -1636,7 +1636,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClass"
+              "$ref": "#/definitions/Class"
             }
           }
         ],
@@ -1644,7 +1644,7 @@
           "200": {
             "description": "Added the new Action class to the ontology.",
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClass"
+              "$ref": "#/definitions/Class"
             }
           },
           "401": {
@@ -1729,7 +1729,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClass"
+              "$ref": "#/definitions/Class"
             }
           }
         ],
@@ -1779,7 +1779,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClassProperty"
+              "$ref": "#/definitions/Property"
             }
           }
         ],
@@ -1787,7 +1787,7 @@
           "200": {
             "description": "Added the property.",
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClassProperty"
+              "$ref": "#/definitions/Property"
             }
           },
           "401": {
@@ -1878,7 +1878,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClassProperty"
+              "$ref": "#/definitions/Property"
             }
           }
         ],
@@ -1922,7 +1922,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClass"
+              "$ref": "#/definitions/Class"
             }
           }
         ],
@@ -1930,7 +1930,7 @@
           "200": {
             "description": "Added the new Thing class to the ontology.",
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClass"
+              "$ref": "#/definitions/Class"
             }
           },
           "401": {
@@ -2014,7 +2014,7 @@
             "name": "body",
             "in": "body",
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClass"
+              "$ref": "#/definitions/Class"
             }
           }
         ],
@@ -2064,7 +2064,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClassProperty"
+              "$ref": "#/definitions/Property"
             }
           }
         ],
@@ -2072,7 +2072,7 @@
           "200": {
             "description": "Added the property.",
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClassProperty"
+              "$ref": "#/definitions/Property"
             }
           },
           "401": {
@@ -2163,7 +2163,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/SemanticSchemaClassProperty"
+              "$ref": "#/definitions/Property"
             }
           }
         ],

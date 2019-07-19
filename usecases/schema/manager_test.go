@@ -1,14 +1,14 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
- * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
 
 package schema
 
@@ -28,22 +28,22 @@ import (
 // The etcd manager requires a backend for now (to prevent lots of nil checks).
 type NilMigrator struct{}
 
-func (n *NilMigrator) AddClass(ctx context.Context, kind kind.Kind, class *models.SemanticSchemaClass) error {
+func (n *NilMigrator) AddClass(ctx context.Context, kind kind.Kind, class *models.Class) error {
 	return nil
 }
 func (n *NilMigrator) DropClass(ctx context.Context, kind kind.Kind, className string) error {
 	return nil
 }
 
-func (n *NilMigrator) UpdateClass(ctx context.Context, kind kind.Kind, className string, newClassName *string, newKeywords *models.SemanticSchemaKeywords) error {
+func (n *NilMigrator) UpdateClass(ctx context.Context, kind kind.Kind, className string, newClassName *string, newKeywords *models.Keywords) error {
 	return nil
 }
 
-func (n *NilMigrator) AddProperty(ctx context.Context, kind kind.Kind, className string, prop *models.SemanticSchemaClassProperty) error {
+func (n *NilMigrator) AddProperty(ctx context.Context, kind kind.Kind, className string, prop *models.Property) error {
 	return nil
 }
 
-func (n *NilMigrator) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string, newKeywords *models.SemanticSchemaKeywords) error {
+func (n *NilMigrator) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string, newKeywords *models.Keywords) error {
 	return nil
 }
 func (n *NilMigrator) UpdatePropertyAddDataType(ctx context.Context, kind kind.Kind, className string, propName string, newDataType string) error {
@@ -102,7 +102,7 @@ func testAddThingClass(t *testing.T, lsm *Manager) {
 	thingClasses := testGetClassNames(lsm, kind.Thing)
 	assert.NotContains(t, thingClasses, "Car")
 
-	err := lsm.AddThing(context.Background(), nil, &models.SemanticSchemaClass{
+	err := lsm.AddThing(context.Background(), nil, &models.Class{
 		Class: "Car",
 	})
 
@@ -115,7 +115,7 @@ func testAddThingClass(t *testing.T, lsm *Manager) {
 func testRemoveThingClass(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
-	err := lsm.AddThing(context.Background(), nil, &models.SemanticSchemaClass{
+	err := lsm.AddThing(context.Background(), nil, &models.Class{
 		Class: "Car",
 	})
 
@@ -135,14 +135,14 @@ func testRemoveThingClass(t *testing.T, lsm *Manager) {
 func testCantAddSameClassTwice(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
-	err := lsm.AddThing(context.Background(), nil, &models.SemanticSchemaClass{
+	err := lsm.AddThing(context.Background(), nil, &models.Class{
 		Class: "Car",
 	})
 
 	assert.Nil(t, err)
 
 	// Add it again
-	err = lsm.AddThing(context.Background(), nil, &models.SemanticSchemaClass{
+	err = lsm.AddThing(context.Background(), nil, &models.Class{
 		Class: "Car",
 	})
 
@@ -152,14 +152,14 @@ func testCantAddSameClassTwice(t *testing.T, lsm *Manager) {
 func testCantAddSameClassTwiceDifferentKinds(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
-	err := lsm.AddThing(context.Background(), nil, &models.SemanticSchemaClass{
+	err := lsm.AddThing(context.Background(), nil, &models.Class{
 		Class: "Car",
 	})
 
 	assert.Nil(t, err)
 
 	// Add it again, but with a different kind.
-	err = lsm.AddAction(context.Background(), nil, &models.SemanticSchemaClass{
+	err = lsm.AddAction(context.Background(), nil, &models.Class{
 		Class: "Car",
 	})
 
@@ -170,10 +170,10 @@ func testUpdateClassName(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
 	// Create a simple class.
-	assert.Nil(t, lsm.AddThing(context.Background(), nil, &models.SemanticSchemaClass{Class: "InitialName"}))
+	assert.Nil(t, lsm.AddThing(context.Background(), nil, &models.Class{Class: "InitialName"}))
 
 	// Rename it
-	updated := models.SemanticSchemaClass{
+	updated := models.Class{
 		Class: "NewName",
 	}
 	assert.Nil(t, lsm.UpdateThing(context.Background(), nil, "InitialName", &updated))
@@ -187,14 +187,14 @@ func testUpdateClassNameCollision(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
 	// Create a class to rename
-	assert.Nil(t, lsm.AddThing(context.Background(), nil, &models.SemanticSchemaClass{Class: "InitialName"}))
+	assert.Nil(t, lsm.AddThing(context.Background(), nil, &models.Class{Class: "InitialName"}))
 
 	// Create another class, that we'll collide names with.
 	// For some extra action, use a Action class here.
-	assert.Nil(t, lsm.AddAction(context.Background(), nil, &models.SemanticSchemaClass{Class: "ExistingClass"}))
+	assert.Nil(t, lsm.AddAction(context.Background(), nil, &models.Class{Class: "ExistingClass"}))
 
 	// Try to rename a class to one that already exists
-	update := &models.SemanticSchemaClass{Class: "ExistingClass"}
+	update := &models.Class{Class: "ExistingClass"}
 	err := lsm.UpdateThing(context.Background(), nil, "InitialName", update)
 	// Should fail
 	assert.NotNil(t, err)
@@ -208,12 +208,12 @@ func testUpdateClassNameCollision(t *testing.T, lsm *Manager) {
 func testAddThingClassWithKeywords(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
-	keywords := models.SemanticSchemaKeywords{
+	keywords := models.Keywords{
 		{Keyword: "vehicle", Weight: 0.6},
 		{Keyword: "transport", Weight: 0.4},
 	}
 
-	err := lsm.AddThing(context.Background(), nil, &models.SemanticSchemaClass{
+	err := lsm.AddThing(context.Background(), nil, &models.Class{
 		Class:    "Car",
 		Keywords: keywords,
 	})
@@ -232,30 +232,30 @@ func testAddThingClassWithInvalidKeywordWeights(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
 	// weight larger than 1.0
-	keywords := models.SemanticSchemaKeywords{
+	keywords := models.Keywords{
 		{Keyword: "vehicle", Weight: 1.2},
 	}
-	err := lsm.AddThing(context.Background(), nil, &models.SemanticSchemaClass{
+	err := lsm.AddThing(context.Background(), nil, &models.Class{
 		Class:    "Car",
 		Keywords: keywords,
 	})
 	assert.NotNil(t, err)
 
 	// weight smaller than 0
-	keywords = models.SemanticSchemaKeywords{
+	keywords = models.Keywords{
 		{Keyword: "vehicle", Weight: -0.1},
 	}
-	err = lsm.AddThing(context.Background(), nil, &models.SemanticSchemaClass{
+	err = lsm.AddThing(context.Background(), nil, &models.Class{
 		Class:    "Car",
 		Keywords: keywords,
 	})
 	assert.NotNil(t, err)
 
 	// weight exactly 1 should NOT error
-	keywords = models.SemanticSchemaKeywords{
+	keywords = models.Keywords{
 		{Keyword: "vehicle", Weight: 1},
 	}
-	err = lsm.AddThing(context.Background(), nil, &models.SemanticSchemaClass{
+	err = lsm.AddThing(context.Background(), nil, &models.Class{
 		Class:    "Car",
 		Keywords: keywords,
 	})
@@ -266,20 +266,20 @@ func testUpdateClassKeywords(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
 	// Create class with a keyword
-	keywords := models.SemanticSchemaKeywords{
+	keywords := models.Keywords{
 		{Keyword: "transport", Weight: 1.0},
 	}
 
-	err := lsm.AddThing(context.Background(), nil, &models.SemanticSchemaClass{
+	err := lsm.AddThing(context.Background(), nil, &models.Class{
 		Class:    "Car",
 		Keywords: keywords,
 	})
 	assert.Nil(t, err)
 
 	//Now update just the keyword
-	updatedKeywords := models.SemanticSchemaClass{
+	updatedKeywords := models.Class{
 		Class: "Car",
-		Keywords: models.SemanticSchemaKeywords{
+		Keywords: models.Keywords{
 
 			{Keyword: "vehicle", Weight: 1.0},
 		},
@@ -297,11 +297,11 @@ func testUpdateClassKeywords(t *testing.T, lsm *Manager) {
 func testAddPropertyDuringCreation(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
-	var properties []*models.SemanticSchemaClassProperty = []*models.SemanticSchemaClassProperty{
+	var properties []*models.Property = []*models.Property{
 		{Name: "color", DataType: []string{"string"}},
 	}
 
-	err := lsm.AddThing(context.Background(), nil, &models.SemanticSchemaClass{
+	err := lsm.AddThing(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Properties: properties,
 	})
@@ -317,11 +317,11 @@ func testAddPropertyDuringCreation(t *testing.T, lsm *Manager) {
 func testAddInvalidPropertyDuringCreation(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
-	var properties []*models.SemanticSchemaClassProperty = []*models.SemanticSchemaClassProperty{
+	var properties []*models.Property = []*models.Property{
 		{Name: "color", DataType: []string{"blurp"}},
 	}
 
-	err := lsm.AddThing(context.Background(), nil, &models.SemanticSchemaClass{
+	err := lsm.AddThing(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Properties: properties,
 	})
@@ -332,54 +332,54 @@ func testAddPropertyWithInvalidKeywordWeightsDuringCreation(t *testing.T, lsm *M
 	t.Parallel()
 
 	// keyword larger than 1
-	var properties = []*models.SemanticSchemaClassProperty{
+	var properties = []*models.Property{
 		{
 			Name:     "color",
 			DataType: []string{"string"},
-			Keywords: models.SemanticSchemaKeywords{{
+			Keywords: models.Keywords{{
 				Keyword: "paint",
 				Weight:  1.2,
 			}},
 		},
 	}
 
-	err := lsm.AddThing(context.Background(), nil, &models.SemanticSchemaClass{
+	err := lsm.AddThing(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Properties: properties,
 	})
 	assert.NotNil(t, err)
 
 	// keyword smaller than 0
-	properties = []*models.SemanticSchemaClassProperty{
+	properties = []*models.Property{
 		{
 			Name:     "color",
 			DataType: []string{"string"},
-			Keywords: models.SemanticSchemaKeywords{{
+			Keywords: models.Keywords{{
 				Keyword: "paint",
 				Weight:  -0.1,
 			}},
 		},
 	}
 
-	err = lsm.AddThing(context.Background(), nil, &models.SemanticSchemaClass{
+	err = lsm.AddThing(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Properties: properties,
 	})
 	assert.NotNil(t, err)
 
 	// keyword exactly 1 should NOT error
-	properties = []*models.SemanticSchemaClassProperty{
+	properties = []*models.Property{
 		{
 			Name:     "color",
 			DataType: []string{"string"},
-			Keywords: models.SemanticSchemaKeywords{{
+			Keywords: models.Keywords{{
 				Keyword: "paint",
 				Weight:  1,
 			}},
 		},
 	}
 
-	err = lsm.AddThing(context.Background(), nil, &models.SemanticSchemaClass{
+	err = lsm.AddThing(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Properties: properties,
 	})
@@ -389,11 +389,11 @@ func testAddPropertyWithInvalidKeywordWeightsDuringCreation(t *testing.T, lsm *M
 func testDropProperty(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
-	var properties []*models.SemanticSchemaClassProperty = []*models.SemanticSchemaClassProperty{
+	var properties []*models.Property = []*models.Property{
 		{Name: "color", DataType: []string{"string"}},
 	}
 
-	err := lsm.AddThing(context.Background(), nil, &models.SemanticSchemaClass{
+	err := lsm.AddThing(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Properties: properties,
 	})
@@ -415,18 +415,18 @@ func testUpdatePropertyName(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
 	// Create a class & property
-	var properties []*models.SemanticSchemaClassProperty = []*models.SemanticSchemaClassProperty{
+	var properties []*models.Property = []*models.Property{
 		{Name: "color", DataType: []string{"string"}},
 	}
 
-	err := lsm.AddThing(context.Background(), nil, &models.SemanticSchemaClass{
+	err := lsm.AddThing(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Properties: properties,
 	})
 	assert.Nil(t, err)
 
 	// Update the property name
-	updated := &models.SemanticSchemaClassProperty{
+	updated := &models.Property{
 		Name: "smell",
 	}
 	err = lsm.UpdateThingProperty(context.Background(), nil, "Car", "color", updated)
@@ -444,19 +444,19 @@ func testUpdatePropertyNameCollision(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
 	// Create a class & property
-	var properties []*models.SemanticSchemaClassProperty = []*models.SemanticSchemaClassProperty{
+	var properties []*models.Property = []*models.Property{
 		{Name: "color", DataType: []string{"string"}},
 		{Name: "smell", DataType: []string{"string"}},
 	}
 
-	err := lsm.AddThing(context.Background(), nil, &models.SemanticSchemaClass{
+	err := lsm.AddThing(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Properties: properties,
 	})
 	assert.Nil(t, err)
 
 	// Update the property name
-	updated := &models.SemanticSchemaClassProperty{
+	updated := &models.Property{
 		Name: "smell",
 	}
 	err = lsm.UpdateThingProperty(context.Background(), nil, "Car", "color", updated)
@@ -475,11 +475,11 @@ func testUpdatePropertyKeywords(t *testing.T, lsm *Manager) {
 
 	// Create a class Car with a property color.
 
-	var properties []*models.SemanticSchemaClassProperty = []*models.SemanticSchemaClassProperty{
+	var properties []*models.Property = []*models.Property{
 		{Name: "color", DataType: []string{"string"}},
 	}
 
-	err := lsm.AddThing(context.Background(), nil, &models.SemanticSchemaClass{
+	err := lsm.AddThing(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Properties: properties,
 	})
@@ -494,10 +494,10 @@ func testUpdatePropertyKeywords(t *testing.T, lsm *Manager) {
 	assert.Nil(t, thingClasses[0].Properties[0].Keywords)
 
 	// Now update the property, add keywords
-	newKeywords := &models.SemanticSchemaClassProperty{
-		Keywords: models.SemanticSchemaKeywords{
-			&models.SemanticSchemaKeywordsItems0{Keyword: "color", Weight: 0.9},
-			&models.SemanticSchemaKeywordsItems0{Keyword: "paint", Weight: 0.1},
+	newKeywords := &models.Property{
+		Keywords: models.Keywords{
+			&models.KeywordsItems0{Keyword: "color", Weight: 0.9},
+			&models.KeywordsItems0{Keyword: "paint", Weight: 0.1},
 		},
 		Name: "color",
 	}
@@ -519,11 +519,11 @@ func testUpdatePropertyAddDataTypeNew(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
 	// Create a class & property
-	var properties = []*models.SemanticSchemaClassProperty{
+	var properties = []*models.Property{
 		{Name: "madeBy", DataType: []string{"RemoteInstance/Manufacturer"}},
 	}
 
-	err := lsm.AddThing(context.Background(), nil, &models.SemanticSchemaClass{
+	err := lsm.AddThing(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Properties: properties,
 	})
@@ -547,11 +547,11 @@ func testUpdatePropertyAddDataTypeExisting(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
 	// Create a class & property
-	var properties = []*models.SemanticSchemaClassProperty{
+	var properties = []*models.Property{
 		{Name: "madeBy", DataType: []string{"RemoteInstance/Manufacturer"}},
 	}
 
-	err := lsm.AddThing(context.Background(), nil, &models.SemanticSchemaClass{
+	err := lsm.AddThing(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Properties: properties,
 	})
@@ -599,8 +599,8 @@ func newSchemaManager() *Manager {
 	return sm
 }
 
-func testGetClasses(l *Manager, k kind.Kind) []*models.SemanticSchemaClass {
-	var classes []*models.SemanticSchemaClass
+func testGetClasses(l *Manager, k kind.Kind) []*models.Class {
+	var classes []*models.Class
 	schema, _ := l.GetSchema(nil)
 
 	for _, class := range schema.SemanticSchemaFor(k).Classes {
