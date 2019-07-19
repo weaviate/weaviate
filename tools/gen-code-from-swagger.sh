@@ -21,7 +21,7 @@ fi
 (cd $DIR/..; $SWAGGER generate client --model-package=entities/models --spec=openapi-specs/schema.json -P models.Principal --default-scheme=https)
 
 echo Now add the header to the generated code too.
-$DIR/add_header.py
+(cd $DIR/..; GO111MODULE=on go run ./tools/license_headers/main.go)
 
 # echo Add licenses to file.
 # $DIR/create-license-dependency-file.sh

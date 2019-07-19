@@ -105,7 +105,19 @@ func updateHeader(name string, content []byte) error {
 
 func hasNoHeader(content []byte, name string) bool {
 	h := headerSectionRe.Find(content)
-	return h == nil
+	if h == nil {
+		// there is no comment section at all
+		return true
+	}
+
+	lines := bytes.Split(h, []byte("\n"))
+	if len(lines) < 4 {
+		// this comment is so short, this is most likely not a header section,
+		// let's add a header in front of it instead
+		return true
+	}
+
+	return false
 }
 
 func startsWithBuildTag(content []byte) bool {
