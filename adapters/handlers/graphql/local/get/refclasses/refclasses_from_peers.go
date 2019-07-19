@@ -1,14 +1,15 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
- * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
 package refclasses
 
 import (
@@ -61,7 +62,7 @@ func FromPeers(peers peers.Peers, classes []crossrefs.NetworkClass) (ByNetworkCl
 	return result, nil
 }
 
-func graphqlObjectFromClass(name string, networkClassName string, class *models.SemanticSchemaClass,
+func graphqlObjectFromClass(name string, networkClassName string, class *models.Class,
 	dbSchema *schema.Schema) *graphql.Object {
 	return graphql.NewObject(graphql.ObjectConfig{
 		Name: name,
@@ -103,7 +104,7 @@ func graphqlObjectFromClass(name string, networkClassName string, class *models.
 }
 
 func buildPrimitiveField(propertyType schema.PropertyDataType,
-	property *models.SemanticSchemaClassProperty, networkClassName, className string) *graphql.Field {
+	property *models.Property, networkClassName, className string) *graphql.Field {
 	switch propertyType.AsPrimitive() {
 	case schema.DataTypeString:
 		return &graphql.Field{

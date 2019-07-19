@@ -1,14 +1,15 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
- * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
 package fetch
 
 import (
@@ -16,7 +17,7 @@ import (
 
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 // TODO: reenable
@@ -24,7 +25,7 @@ import (
 type filterTestCase struct {
 	name          string
 	queryFragment string
-	expectedMatch kinds.FetchPropertyMatch
+	expectedMatch traverser.FetchPropertyMatch
 }
 
 type filterTestCases []filterTestCase
@@ -39,7 +40,7 @@ func Test_Filter_ExtractOperatorsAndValues(t *testing.T) {
 				operator: Equal
 				valueString: "some-value"
 			`,
-			expectedMatch: kinds.FetchPropertyMatch{
+			expectedMatch: traverser.FetchPropertyMatch{
 				Value: &filters.Value{
 					Value: "some-value",
 					Type:  schema.DataTypeString,
@@ -53,7 +54,7 @@ func Test_Filter_ExtractOperatorsAndValues(t *testing.T) {
 				operator: NotEqual
 				valueString: "some-value"
 			`,
-			expectedMatch: kinds.FetchPropertyMatch{
+			expectedMatch: traverser.FetchPropertyMatch{
 				Value: &filters.Value{
 					Value: "some-value",
 					Type:  schema.DataTypeString,
@@ -67,7 +68,7 @@ func Test_Filter_ExtractOperatorsAndValues(t *testing.T) {
 				operator: Equal
 				valueInt: 123
 			`,
-			expectedMatch: kinds.FetchPropertyMatch{
+			expectedMatch: traverser.FetchPropertyMatch{
 				Value: &filters.Value{
 					Value: 123,
 					Type:  schema.DataTypeInt,
@@ -81,7 +82,7 @@ func Test_Filter_ExtractOperatorsAndValues(t *testing.T) {
 				operator: NotEqual
 				valueInt: 123
 			`,
-			expectedMatch: kinds.FetchPropertyMatch{
+			expectedMatch: traverser.FetchPropertyMatch{
 				Value: &filters.Value{
 					Value: 123,
 					Type:  schema.DataTypeInt,
@@ -95,7 +96,7 @@ func Test_Filter_ExtractOperatorsAndValues(t *testing.T) {
 				operator: LessThan
 				valueInt: 123
 			`,
-			expectedMatch: kinds.FetchPropertyMatch{
+			expectedMatch: traverser.FetchPropertyMatch{
 				Value: &filters.Value{
 					Value: 123,
 					Type:  schema.DataTypeInt,
@@ -109,7 +110,7 @@ func Test_Filter_ExtractOperatorsAndValues(t *testing.T) {
 				operator: LessThanEqual
 				valueInt: 123
 			`,
-			expectedMatch: kinds.FetchPropertyMatch{
+			expectedMatch: traverser.FetchPropertyMatch{
 				Value: &filters.Value{
 					Value: 123,
 					Type:  schema.DataTypeInt,
@@ -123,7 +124,7 @@ func Test_Filter_ExtractOperatorsAndValues(t *testing.T) {
 				operator: GreaterThan
 				valueInt: 123
 			`,
-			expectedMatch: kinds.FetchPropertyMatch{
+			expectedMatch: traverser.FetchPropertyMatch{
 				Value: &filters.Value{
 					Value: 123,
 					Type:  schema.DataTypeInt,
@@ -137,7 +138,7 @@ func Test_Filter_ExtractOperatorsAndValues(t *testing.T) {
 				operator: GreaterThanEqual
 				valueInt: 123
 			`,
-			expectedMatch: kinds.FetchPropertyMatch{
+			expectedMatch: traverser.FetchPropertyMatch{
 				Value: &filters.Value{
 					Value: 123,
 					Type:  schema.DataTypeInt,
@@ -158,7 +159,7 @@ func Test_Filter_ExtractOperatorsAndValues(t *testing.T) {
 
 // 			resolver := newMockResolver()
 
-// 			expectedParamsToConnector := &kinds.FetchSearch{
+// 			expectedParamsToConnector := &traverser.FetchSearch{
 // 				Kind: kind.Thing,
 // 				PossibleClassNames: contextionary.SearchResults{
 // 					Type: contextionary.SearchTypeClass,

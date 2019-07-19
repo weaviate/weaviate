@@ -1,14 +1,14 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
- * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
 
 package fetch
 
@@ -21,7 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -92,38 +92,38 @@ func (f *fakeNameSource) GetClassNameFromMapped(className state.MappedClassName)
 type fakeTypeSource struct{}
 
 func (f *fakeTypeSource) GetProperty(kind kind.Kind, className schema.ClassName,
-	propName schema.PropertyName) (error, *models.SemanticSchemaClassProperty) {
+	propName schema.PropertyName) (error, *models.Property) {
 
 	switch className {
 	case "City":
 		switch propName {
 		case "isCapital":
-			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"bool"}}
+			return nil, &models.Property{DataType: []string{"bool"}}
 		case "population":
-			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"int"}}
+			return nil, &models.Property{DataType: []string{"int"}}
 		case "area":
-			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"number"}}
+			return nil, &models.Property{DataType: []string{"number"}}
 		case "name":
-			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"string"}}
+			return nil, &models.Property{DataType: []string{"string"}}
 		case "dateOfFirstAppearance":
-			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"date"}}
+			return nil, &models.Property{DataType: []string{"date"}}
 		case "inCountry":
-			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"Country"}}
+			return nil, &models.Property{DataType: []string{"Country"}}
 		}
 	case "Town":
 		switch propName {
 		case "isCapital":
-			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"bool"}}
+			return nil, &models.Property{DataType: []string{"bool"}}
 		case "inhabitants":
-			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"int"}}
+			return nil, &models.Property{DataType: []string{"int"}}
 		case "area":
-			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"number"}}
+			return nil, &models.Property{DataType: []string{"number"}}
 		case "title":
-			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"string"}}
+			return nil, &models.Property{DataType: []string{"string"}}
 		case "dateOfFirstAppearance":
-			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"date"}}
+			return nil, &models.Property{DataType: []string{"date"}}
 		case "inCountry":
-			return nil, &models.SemanticSchemaClassProperty{DataType: []string{"Country"}}
+			return nil, &models.Property{DataType: []string{"Country"}}
 		}
 	}
 
@@ -179,7 +179,7 @@ func (p *fakeDataType) ContainsClass(needle schema.ClassName) bool {
 
 type testCase struct {
 	name          string
-	inputParams   kinds.FetchParams
+	inputParams   traverser.FetchParams
 	expectedQuery string
 	expectedErr   error
 }

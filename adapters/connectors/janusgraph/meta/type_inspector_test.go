@@ -1,33 +1,34 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
- * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
 package meta
 
 import (
 	"testing"
 
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func Test_TypeInspector_WithReferenceProp(t *testing.T) {
 	t.Run("when the user askes for 'pointingTo'", func(t *testing.T) {
-		input := kinds.GetMetaParams{
+		input := traverser.GetMetaParams{
 			ClassName: schema.ClassName("City"),
-			Properties: []kinds.MetaProperty{
-				kinds.MetaProperty{
+			Properties: []traverser.MetaProperty{
+				traverser.MetaProperty{
 					Name:                "InCountry",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.PointingTo},
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{traverser.PointingTo},
 				},
 			},
 		}
@@ -47,12 +48,12 @@ func Test_TypeInspector_WithReferenceProp(t *testing.T) {
 	})
 
 	t.Run("when the user askes for type", func(t *testing.T) {
-		input := kinds.GetMetaParams{
+		input := traverser.GetMetaParams{
 			ClassName: schema.ClassName("City"),
-			Properties: []kinds.MetaProperty{
-				kinds.MetaProperty{
+			Properties: []traverser.MetaProperty{
+				traverser.MetaProperty{
 					Name:                "InCountry",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Type},
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{traverser.Type},
 				},
 			},
 		}
@@ -70,12 +71,12 @@ func Test_TypeInspector_WithReferenceProp(t *testing.T) {
 	})
 
 	t.Run("when the user asks for both 'type' and 'pointingTo'", func(t *testing.T) {
-		input := kinds.GetMetaParams{
+		input := traverser.GetMetaParams{
 			ClassName: schema.ClassName("City"),
-			Properties: []kinds.MetaProperty{
-				kinds.MetaProperty{
+			Properties: []traverser.MetaProperty{
+				traverser.MetaProperty{
 					Name:                "InCountry",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.PointingTo, kinds.Type},
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{traverser.PointingTo, traverser.Type},
 				},
 			},
 		}
@@ -96,12 +97,12 @@ func Test_TypeInspector_WithReferenceProp(t *testing.T) {
 	})
 
 	t.Run("when the user askes for both 'count' and 'pointingTo'", func(t *testing.T) {
-		input := kinds.GetMetaParams{
+		input := traverser.GetMetaParams{
 			ClassName: schema.ClassName("City"),
-			Properties: []kinds.MetaProperty{
-				kinds.MetaProperty{
+			Properties: []traverser.MetaProperty{
+				traverser.MetaProperty{
 					Name:                "InCountry",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Count, kinds.PointingTo},
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{traverser.Count, traverser.PointingTo},
 				},
 			},
 		}
@@ -121,12 +122,12 @@ func Test_TypeInspector_WithReferenceProp(t *testing.T) {
 	})
 
 	t.Run("when the user askes for unrelated statisticals props (count)", func(t *testing.T) {
-		input := kinds.GetMetaParams{
+		input := traverser.GetMetaParams{
 			ClassName: schema.ClassName("City"),
-			Properties: []kinds.MetaProperty{
-				kinds.MetaProperty{
+			Properties: []traverser.MetaProperty{
+				traverser.MetaProperty{
 					Name:                "InCountry",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Count},
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{traverser.Count},
 				},
 			},
 		}
@@ -141,9 +142,9 @@ func Test_TypeInspector_WithReferenceProp(t *testing.T) {
 }
 
 func Test_TypeInspector_WithoutProperties(t *testing.T) {
-	input := kinds.GetMetaParams{
+	input := traverser.GetMetaParams{
 		ClassName:  schema.ClassName("City"),
-		Properties: []kinds.MetaProperty{},
+		Properties: []traverser.MetaProperty{},
 	}
 
 	expectedOutput := map[string]interface{}{}
@@ -155,12 +156,12 @@ func Test_TypeInspector_WithoutProperties(t *testing.T) {
 }
 
 func Test_TypeInspector_WithMetaProperties(t *testing.T) {
-	input := kinds.GetMetaParams{
+	input := traverser.GetMetaParams{
 		ClassName: schema.ClassName("City"),
-		Properties: []kinds.MetaProperty{
-			kinds.MetaProperty{
+		Properties: []traverser.MetaProperty{
+			traverser.MetaProperty{
 				Name:                "meta",
-				StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Count},
+				StatisticalAnalyses: []traverser.StatisticalAnalysis{traverser.Count},
 			},
 		},
 	}
@@ -175,12 +176,12 @@ func Test_TypeInspector_WithMetaProperties(t *testing.T) {
 
 func Test_TypeInspector_WithPrimitiveProps(t *testing.T) {
 	t.Run("on an int with only 'type'", func(t *testing.T) {
-		input := kinds.GetMetaParams{
+		input := traverser.GetMetaParams{
 			ClassName: schema.ClassName("City"),
-			Properties: []kinds.MetaProperty{
-				kinds.MetaProperty{
+			Properties: []traverser.MetaProperty{
+				traverser.MetaProperty{
 					Name:                "population",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Type},
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{traverser.Type},
 				},
 			},
 		}
@@ -198,12 +199,12 @@ func Test_TypeInspector_WithPrimitiveProps(t *testing.T) {
 	})
 
 	t.Run("on an int with 'type' and other statistical analyses", func(t *testing.T) {
-		input := kinds.GetMetaParams{
+		input := traverser.GetMetaParams{
 			ClassName: schema.ClassName("City"),
-			Properties: []kinds.MetaProperty{
-				kinds.MetaProperty{
+			Properties: []traverser.MetaProperty{
+				traverser.MetaProperty{
 					Name:                "population",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Mean, kinds.Type, kinds.Count},
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{traverser.Mean, traverser.Type, traverser.Count},
 				},
 			},
 		}
@@ -223,16 +224,16 @@ func Test_TypeInspector_WithPrimitiveProps(t *testing.T) {
 
 func Test_TypeInspector_WithMultiplePropsOfDifferentTypes(t *testing.T) {
 	t.Run("with mixed prop types and mixed statistical analysis types", func(t *testing.T) {
-		input := kinds.GetMetaParams{
+		input := traverser.GetMetaParams{
 			ClassName: schema.ClassName("City"),
-			Properties: []kinds.MetaProperty{
-				kinds.MetaProperty{
+			Properties: []traverser.MetaProperty{
+				traverser.MetaProperty{
 					Name:                "InCountry",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.PointingTo, kinds.Count},
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{traverser.PointingTo, traverser.Count},
 				},
-				kinds.MetaProperty{
+				traverser.MetaProperty{
 					Name:                "population",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Mean, kinds.Type, kinds.Count},
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{traverser.Mean, traverser.Type, traverser.Count},
 				},
 			},
 		}

@@ -1,14 +1,16 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
- * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */package test
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
+package test
 
 import (
 	"fmt"
@@ -38,10 +40,10 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 	}()
 
 	t.Log("1. create ReferenceTestPlace class")
-	placeClass := &models.SemanticSchemaClass{
+	placeClass := &models.Class{
 		Class: "ReferenceTestPlace",
-		Properties: []*models.SemanticSchemaClassProperty{
-			&models.SemanticSchemaClassProperty{
+		Properties: []*models.Property{
+			&models.Property{
 				DataType: []string{"string"},
 				Name:     "name",
 			},
@@ -53,14 +55,14 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 
 	t.Log("2. create ReferenceTestCity class with HasPlaces (many) cross-ref")
 	cardinalityMany := "many"
-	cityClass := &models.SemanticSchemaClass{
+	cityClass := &models.Class{
 		Class: "ReferenceTestCity",
-		Properties: []*models.SemanticSchemaClassProperty{
-			&models.SemanticSchemaClassProperty{
+		Properties: []*models.Property{
+			&models.Property{
 				DataType: []string{"string"},
 				Name:     "name",
 			},
-			&models.SemanticSchemaClassProperty{
+			&models.Property{
 				DataType:    []string{"ReferenceTestPlace"},
 				Name:        "HasPlaces",
 				Cardinality: &cardinalityMany,
@@ -169,10 +171,10 @@ func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 	}()
 
 	t.Log("1. create ReferenceTestPlace class")
-	placeClass := &models.SemanticSchemaClass{
+	placeClass := &models.Class{
 		Class: "ReferenceTestPlace",
-		Properties: []*models.SemanticSchemaClassProperty{
-			&models.SemanticSchemaClassProperty{
+		Properties: []*models.Property{
+			&models.Property{
 				DataType: []string{"string"},
 				Name:     "name",
 			},
@@ -184,14 +186,14 @@ func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 
 	t.Log("2. create ReferenceTestCity class with HasPlaces (many) cross-ref")
 	cardinalityMany := "many"
-	cityClass := &models.SemanticSchemaClass{
+	cityClass := &models.Class{
 		Class: "ReferenceTestCity",
-		Properties: []*models.SemanticSchemaClassProperty{
-			&models.SemanticSchemaClassProperty{
+		Properties: []*models.Property{
+			&models.Property{
 				DataType: []string{"string"},
 				Name:     "name",
 			},
-			&models.SemanticSchemaClassProperty{
+			&models.Property{
 				DataType:    []string{"ReferenceTestPlace"},
 				Name:        "HasPlaces",
 				Cardinality: &cardinalityMany,

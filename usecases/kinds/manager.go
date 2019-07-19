@@ -1,14 +1,14 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
- * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
 
 // Package kinds provides managers for all kind-related items, such as things
 // and actions. Manager provides methods for "regular" interaction, such as
@@ -17,6 +17,7 @@
 package kinds
 
 import (
+	"context"
 	"fmt"
 	"log"
 
@@ -38,6 +39,8 @@ type Manager struct {
 	schemaManager schemaManager
 	logger        logrus.FieldLogger
 	authorizer    authorizer
+	vectorizer    Vectorizer
+	vectorRepo    VectorRepo
 }
 
 // Repo describes the requirements the kinds UC has to the connected database
@@ -47,6 +50,11 @@ type Repo interface {
 	updateRepo
 	deleteRepo
 	batchRepo
+}
+
+type Vectorizer interface {
+	Thing(ctx context.Context, concept *models.Thing) ([]float32, error)
+	Action(ctx context.Context, concept *models.Action) ([]float32, error)
 }
 
 type locks interface {
@@ -62,9 +70,18 @@ type network interface {
 	ListPeers() (peers.Peers, error)
 }
 
+type VectorRepo interface {
+	PutThing(ctx context.Context, concept *models.Thing, vector []float32) error
+	PutAction(ctx context.Context, concept *models.Action, vector []float32) error
+
+	DeleteAction(ctx context.Context, className string, id strfmt.UUID) error
+	DeleteThing(ctx context.Context, className string, id strfmt.UUID) error
+}
+
 // NewManager creates a new manager
-func NewManager(repo Repo, locks locks, schemaManager schemaManager, network network,
-	config *config.WeaviateConfig, logger logrus.FieldLogger, authorizer authorizer) *Manager {
+func NewManager(repo Repo, locks locks, schemaManager schemaManager,
+	network network, config *config.WeaviateConfig, logger logrus.FieldLogger,
+	authorizer authorizer, vectorizer Vectorizer, vectorRepo VectorRepo) *Manager {
 	return &Manager{
 		network:       network,
 		config:        config,
@@ -72,7 +89,9 @@ func NewManager(repo Repo, locks locks, schemaManager schemaManager, network net
 		locks:         locks,
 		schemaManager: schemaManager,
 		logger:        logger,
+		vectorizer:    vectorizer,
 		authorizer:    authorizer,
+		vectorRepo:    vectorRepo,
 	}
 }
 

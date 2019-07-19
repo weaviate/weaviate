@@ -1,14 +1,14 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
- * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
 
 /*
 When starting Weaviate, functions are called in the following order;
@@ -47,6 +47,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 // Foobar has some basic variables.
@@ -179,7 +180,7 @@ func (f *Foobar) Attach(ctx context.Context) (context.Context, error) {
 }
 
 // Add a class to the Thing or Action schema, depending on the kind parameter.
-func (f *Foobar) AddClass(ctx context.Context, kind kind.Kind, class *models.SemanticSchemaClass) error {
+func (f *Foobar) AddClass(ctx context.Context, kind kind.Kind, class *models.Class) error {
 	return errors_.New("Not supported")
 }
 
@@ -188,15 +189,15 @@ func (f *Foobar) DropClass(ctx context.Context, kind kind.Kind, className string
 	return errors_.New("Not supported")
 }
 
-func (f *Foobar) UpdateClass(ctx context.Context, kind kind.Kind, className string, newClassName *string, newKeywords *models.SemanticSchemaKeywords) error {
+func (f *Foobar) UpdateClass(ctx context.Context, kind kind.Kind, className string, newClassName *string, newKeywords *models.Keywords) error {
 	return errors_.New("Not supported")
 }
 
-func (f *Foobar) AddProperty(ctx context.Context, kind kind.Kind, className string, prop *models.SemanticSchemaClassProperty) error {
+func (f *Foobar) AddProperty(ctx context.Context, kind kind.Kind, className string, prop *models.Property) error {
 	return errors_.New("Not supported")
 }
 
-func (f *Foobar) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string, newKeywords *models.SemanticSchemaKeywords) error {
+func (f *Foobar) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string, newKeywords *models.Keywords) error {
 	return errors_.New("Not supported")
 }
 
@@ -404,7 +405,7 @@ func (f *Foobar) SetStateManager(manager connectors.StateManager) {
 //	  "population": 600000,
 //	 },
 //	}
-func (f *Foobar) LocalGetClass(ctx context.Context, info *kinds.LocalGetParams) (interface{}, error) {
+func (f *Foobar) LocalGetClass(ctx context.Context, info *traverser.LocalGetParams) (interface{}, error) {
 	return nil, nil
 }
 
@@ -429,7 +430,7 @@ func (f *Foobar) LocalGetClass(ctx context.Context, info *kinds.LocalGetParams) 
 //			"count": 4,
 //		},
 //	}
-func (f *Foobar) LocalGetMeta(ctx context.Context, info *kinds.GetMetaParams) (interface{}, error) {
+func (f *Foobar) LocalGetMeta(ctx context.Context, info *traverser.GetMetaParams) (interface{}, error) {
 	return nil, nil
 }
 
@@ -475,7 +476,7 @@ func (f *Foobar) LocalGetMeta(ctx context.Context, info *kinds.GetMetaParams) (i
 //			},
 //		},
 //	}
-func (f *Foobar) LocalAggregate(ctx context.Context, info *kinds.AggregateParams) (interface{}, error) {
+func (f *Foobar) LocalAggregate(ctx context.Context, info *traverser.AggregateParams) (interface{}, error) {
 	return nil, nil
 }
 
@@ -485,7 +486,7 @@ func (f *Foobar) LocalAggregate(ctx context.Context, info *kinds.AggregateParams
 // completed and the connector is presented with a list of possible class
 // names, as well as a list of possible property names. In additional a filter
 // criterium (to be applied on those classes/properties) is present. For
-// details on the input parameteres, see kinds.FetchParams
+// details on the input parameteres, see traverser.FetchParams
 //
 // The connector must respond with a list of short-form beacon and certainty
 // tuples as maps. Note that the concept of how to calculate certainity has not
@@ -500,7 +501,7 @@ func (f *Foobar) LocalAggregate(ctx context.Context, info *kinds.AggregateParams
 //			},
 //		},
 //	}
-func (f *Foobar) LocalFetchKindClass(ctx context.Context, info *kinds.FetchParams) (interface{}, error) {
+func (f *Foobar) LocalFetchKindClass(ctx context.Context, info *traverser.FetchParams) (interface{}, error) {
 	return nil, nil
 }
 
