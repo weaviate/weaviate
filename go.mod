@@ -3,6 +3,7 @@ module github.com/semi-technologies/weaviate
 require (
 	github.com/SeMI-network/janus-spark-analytics v0.0.0-20190311154421-9a5188468325
 	github.com/TylerBrock/colorjson v0.0.0-20180527164720-95ec53f28296
+	github.com/bmatcuk/doublestar v1.1.3
 	github.com/coreos/etcd v3.3.11+incompatible
 	github.com/coreos/go-oidc v2.0.0+incompatible
 	github.com/davecgh/go-spew v1.1.1
