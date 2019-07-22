@@ -95,10 +95,11 @@ services:
       - "--initial-cluster-state"
       - "new"
   esvector:
-    image: semitechnologies/esvector:5.6.0
+    image: semitechnologies/esvector:7.1.0
     environment:
       xpack.security.enabled: "false"
       ES_JAVA_OPTS: -Xms500m -Xmx500m
+      discovery.type: single-node
     ports: 
       - "9201:9200"
       - "9301:9300"

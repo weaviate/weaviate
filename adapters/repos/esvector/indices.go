@@ -35,7 +35,7 @@ func (r *Repo) PutIndex(ctx context.Context, index string) error {
 
 	body := map[string]interface{}{
 		"settings": map[string]interface{}{
-			"index.mapping.single_type": true,
+			// "index.mapping.single_type": true,
 		},
 	}
 
@@ -102,7 +102,7 @@ func (r *Repo) indexExists(ctx context.Context, index string) (bool, error) {
 	}
 }
 
-// SetMappings for overall concept doctype of weaviate index
+// SetMappings for overall concept of weaviate index
 func (r *Repo) SetMappings(ctx context.Context, index string, props map[string]interface{}) error {
 	var buf bytes.Buffer
 
@@ -122,9 +122,8 @@ func (r *Repo) SetMappings(ctx context.Context, index string, props map[string]i
 	}
 
 	req := esapi.IndicesPutMappingRequest{
-		Index:        []string{index},
-		DocumentType: doctype,
-		Body:         &buf,
+		Index: []string{index},
+		Body:  &buf,
 	}
 	res, err := req.Do(ctx, r.client)
 	if err != nil {

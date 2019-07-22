@@ -32,7 +32,6 @@ import (
 )
 
 const (
-	doctype    = "doc"
 	vectorProp = "embedding_vector"
 )
 
@@ -206,10 +205,9 @@ func (r *Repo) putConcept(ctx context.Context,
 	}
 
 	req := esapi.IndexRequest{
-		Index:        classIndexFromClassName(k, className),
-		DocumentType: doctype,
-		DocumentID:   id,
-		Body:         &buf,
+		Index:      classIndexFromClassName(k, className),
+		DocumentID: id,
+		Body:       &buf,
 	}
 
 	res, err := req.Do(ctx, r.client)
@@ -234,9 +232,8 @@ func (r *Repo) putConcept(ctx context.Context,
 
 func (r *Repo) DeleteThing(ctx context.Context, className string, id strfmt.UUID) error {
 	req := esapi.DeleteRequest{
-		Index:        classIndexFromClassName(kind.Thing, className),
-		DocumentID:   id.String(),
-		DocumentType: doctype,
+		Index:      classIndexFromClassName(kind.Thing, className),
+		DocumentID: id.String(),
 	}
 
 	res, err := req.Do(ctx, r.client)
@@ -253,9 +250,8 @@ func (r *Repo) DeleteThing(ctx context.Context, className string, id strfmt.UUID
 
 func (r *Repo) DeleteAction(ctx context.Context, className string, id strfmt.UUID) error {
 	req := esapi.DeleteRequest{
-		Index:        classIndexFromClassName(kind.Action, className),
-		DocumentID:   id.String(),
-		DocumentType: doctype,
+		Index:      classIndexFromClassName(kind.Action, className),
+		DocumentID: id.String(),
 	}
 
 	res, err := req.Do(ctx, r.client)
