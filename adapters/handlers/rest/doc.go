@@ -21,7 +21,7 @@ Decentralised Knowledge Graph
       https
     Host: localhost
     BasePath: /weaviate/v1
-    Version: 0.17.0
+    Version: 0.17.1
     Contact: Weaviate<hello@semi.technology> https://github.com/semi-technologies
 
     Consumes:
