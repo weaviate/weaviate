@@ -15,6 +15,7 @@ package traverser
 import (
 	"context"
 
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/sirupsen/logrus"
 )
@@ -48,8 +49,8 @@ type CorpiVectorizer interface {
 }
 
 type VectorSearcher interface {
-	VectorSearch(ctx context.Context, index string,
-		vector []float32, limit int) ([]VectorSearchResult, error)
+	VectorSearch(ctx context.Context, index string, vector []float32,
+		limit int, filters *filters.LocalFilter) ([]VectorSearchResult, error)
 }
 
 type explorer interface {
