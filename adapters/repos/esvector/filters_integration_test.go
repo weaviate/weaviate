@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/elastic/go-elasticsearch/v5"
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
@@ -31,12 +32,43 @@ func Test_Filters(t *testing.T) {
 	t.Run("prepare test schema and data ",
 		prepareTestSchemaAndData(repo, migrator))
 
-	f := buildFilter("horsepower", 130, filters.OperatorEqual, schema.DataTypeInt)
-	res, err := repo.VectorClassSearch(context.Background(), kind.Thing,
-		carClass.Class, []float32{0.1, 0.1, 0.1, 1.1, 0.1}, 100, f)
-	require.Nil(t, err)
-	assert.Len(t, res, 1)
-	assert.Equal(t, carSprinterID, res[0].ID)
+	type test struct {
+		name        string
+		filter      *filters.LocalFilter
+		expectedLen int
+		expectedIDs []strfmt.UUID
+	}
+
+	// operators
+	eq := filters.OperatorEqual
+
+	// datatypes
+	dtInt := schema.DataTypeInt
+	tests := []test{
+		{
+			name:        "horsepower == 130",
+			filter:      buildFilter("horsepower", 130, eq, dtInt),
+			expectedLen: 1,
+			expectedIDs: []strfmt.UUID{carSprinterID},
+		},
+	}
+
+	for i, test := range tests {
+		res, err := repo.VectorClassSearch(context.Background(), kind.Thing,
+			carClass.Class, []float32{0.1, 0.1, 0.1, 1.1, 0.1}, 100, test.filter)
+		require.Nil(t, err)
+		require.Len(t, res, test.expectedLen)
+		if len(test.expectedIDs) != test.expectedLen {
+			t.Fatalf("wrong test setup at pos %d: lens dont match: %d and %d",
+				i, test.expectedLen, len(test.expectedIDs))
+		}
+
+		ids := make([]strfmt.UUID, test.expectedLen, test.expectedLen)
+		for pos, concept := range res {
+			ids[pos] = concept.ID
+		}
+		assert.ElementsMatch(t, ids, test.expectedIDs, "ids dont match")
+	}
 }
 
 func prepareTestSchemaAndData(repo *Repo,
