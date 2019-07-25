@@ -20,7 +20,7 @@ import (
 
 	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local"
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/fetch"
+	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/network"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
@@ -37,7 +37,7 @@ type NetworkTraverser interface {
 }
 
 type RequestsLogger interface {
-	fetch.RequestsLog
+	get.RequestsLog
 }
 
 // The communication interface between the REST API and the GraphQL API.

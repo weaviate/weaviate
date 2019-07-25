@@ -16,7 +16,6 @@ import (
 	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/aggregate"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/explore"
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/fetch"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/getmeta"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -40,14 +39,12 @@ func Build(dbSchema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger
 	if err != nil {
 		return nil, err
 	}
-	fetchField := fetch.Build()
 	exploreField := explore.Build()
 
 	localFields := graphql.Fields{
 		"Get":       getField,
 		"GetMeta":   getMetaField,
 		"Aggregate": aggregateField,
-		"Fetch":     fetchField,
 		"Explore":   exploreField,
 	}
 
