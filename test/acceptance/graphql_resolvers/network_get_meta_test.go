@@ -12,40 +12,40 @@
 
 package test
 
-import (
-	"encoding/json"
-	"testing"
+// import (
+// 	"encoding/json"
+// 	"testing"
 
-	"github.com/semi-technologies/weaviate/test/acceptance/helper"
-	"github.com/stretchr/testify/assert"
-)
+// 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+// 	"github.com/stretchr/testify/assert"
+// )
 
-func TestNetworkGetMeta(t *testing.T) {
-	result := AssertGraphQL(t, helper.RootAuth, `
-		{
-			Network {
-				GetMeta{
-					RemoteWeaviateForAcceptanceTest {
-						Things {
-							Instruments {
-								volume {
-									maximum
-									minimum
-									mean
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-	`)
+// func TestNetworkGetMeta(t *testing.T) {
+// 	result := AssertGraphQL(t, helper.RootAuth, `
+// 		{
+// 			Network {
+// 				GetMeta{
+// 					RemoteWeaviateForAcceptanceTest {
+// 						Things {
+// 							Instruments {
+// 								volume {
+// 									maximum
+// 									minimum
+// 									mean
+// 								}
+// 							}
+// 						}
+// 					}
+// 				}
+// 			}
+// 		}
+// 	`)
 
-	volume := result.Get("Network", "GetMeta", "RemoteWeaviateForAcceptanceTest", "Things", "Instruments", "volume").Result
-	expected := map[string]interface{}{
-		"mean":    json.Number("82"),
-		"maximum": json.Number("110"),
-		"minimum": json.Number("65"),
-	}
-	assert.Equal(t, expected, volume)
-}
+// 	volume := result.Get("Network", "GetMeta", "RemoteWeaviateForAcceptanceTest", "Things", "Instruments", "volume").Result
+// 	expected := map[string]interface{}{
+// 		"mean":    json.Number("82"),
+// 		"maximum": json.Number("110"),
+// 		"minimum": json.Number("65"),
+// 	}
+// 	assert.Equal(t, expected, volume)
+// }

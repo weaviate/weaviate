@@ -26,7 +26,6 @@ import (
 func TestLocal_Fetch_LargeCities(t *testing.T) {
 	result := AssertGraphQL(t, helper.RootAuth, `
 		{
-			Local {
 				Fetch {
 					Things(where: {
 						class: {
@@ -43,12 +42,11 @@ func TestLocal_Fetch_LargeCities(t *testing.T) {
 						beacon
 					}
 				}
-			}
 		}
 	`)
 
 	t.Run("finds exactly one result", func(t *testing.T) {
-		beacons := result.Get("Local", "Fetch", "Things").Result
+		beacons := result.Get("Fetch", "Things").Result
 		expectedLen := 1 // only Berlin
 		assert.Len(t, beacons, expectedLen)
 	})
@@ -57,7 +55,6 @@ func TestLocal_Fetch_LargeCities(t *testing.T) {
 func TestLocal_Fetch_SmallCities(t *testing.T) {
 	result := AssertGraphQL(t, helper.RootAuth, `
 		{
-			Local {
 				Fetch {
 					Things(where: {
 						class: {
@@ -74,12 +71,11 @@ func TestLocal_Fetch_SmallCities(t *testing.T) {
 						beacon
 					}
 				}
-			}
 		}
 	`)
 
 	t.Run("finds exactly one result", func(t *testing.T) {
-		beacons := result.Get("Local", "Fetch", "Things").Result
+		beacons := result.Get("Fetch", "Things").Result
 		expectedLen := 3 // Amsterdam, Rotterdam, Dusselsorf
 		assert.Len(t, beacons, expectedLen)
 	})
@@ -88,18 +84,16 @@ func TestLocal_Fetch_SmallCities(t *testing.T) {
 func TestLocal_FetchFuzzy_FavorableCities(t *testing.T) {
 	result := AssertGraphQL(t, helper.RootAuth, `
 		{
-			Local {
-				Fetch {
-					Fuzzy (value:"good", certainty: 0.4) {
-						beacon
-					}
+			Fetch {
+				Fuzzy (value:"good", certainty: 0.4) {
+					beacon
 				}
 			}
 		}
 	`)
 
 	t.Run("finds exactly one result", func(t *testing.T) {
-		results := result.Get("Local", "Fetch", "Fuzzy").Result
+		results := result.Get("Fetch", "Fuzzy").Result
 		expectedLen := 1
 		require.Len(t, results, expectedLen)
 
@@ -119,18 +113,16 @@ func TestLocal_FetchFuzzy_FavorableCities(t *testing.T) {
 func TestLocal_FetchFuzzy_UnfavorableCities(t *testing.T) {
 	result := AssertGraphQL(t, helper.RootAuth, `
 		{
-			Local {
-				Fetch {
-					Fuzzy (value:"poor", certainty: 0.4) {
-						beacon
-					}
+			Fetch {
+				Fuzzy (value:"poor", certainty: 0.4) {
+					beacon
 				}
 			}
 		}
 	`)
 
 	t.Run("finds exactly one result", func(t *testing.T) {
-		results := result.Get("Local", "Fetch", "Fuzzy").Result
+		results := result.Get("Fetch", "Fuzzy").Result
 		expectedLen := 1
 		require.Len(t, results, expectedLen)
 

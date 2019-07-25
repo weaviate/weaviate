@@ -24,19 +24,17 @@ func TestLocalGetWithWithinGeoRangeFilter(t *testing.T) {
 	t.Run("Only Dusseldorf should be within 100km of Dusseldorf", func(t *testing.T) {
 		query := `
 		{
-			Local{
-				Get {
-					Things {
-						City(where:{
-							operator: WithinGeoRange
-							path: ["location"]
-							valueGeoRange: { geoCoordinates: {latitude: 51.225556, longitude: 6.782778} distance: { max: 100 } }
-						}){
-							name
-							location {
-								latitude
-								longitude
-							}
+			Get {
+				Things {
+					City(where:{
+						operator: WithinGeoRange
+						path: ["location"]
+						valueGeoRange: { geoCoordinates: {latitude: 51.225556, longitude: 6.782778} distance: { max: 100 } }
+					}){
+						name
+						location {
+							latitude
+							longitude
 						}
 					}
 				}
@@ -44,7 +42,7 @@ func TestLocalGetWithWithinGeoRangeFilter(t *testing.T) {
 		}
 		`
 		result := AssertGraphQL(t, helper.RootAuth, query)
-		cities := result.Get("Local", "Get", "Things", "City").AsSlice()
+		cities := result.Get("Get", "Things", "City").AsSlice()
 
 		expectedResults := []interface{}{
 			map[string]interface{}{
@@ -62,19 +60,17 @@ func TestLocalGetWithWithinGeoRangeFilter(t *testing.T) {
 	t.Run("Dusseldorf and Amsterdam should be within 200km of Dusseldorf", func(t *testing.T) {
 		query := `
 		{
-			Local{
-				Get {
-					Things {
-						City(where:{
-							operator: WithinGeoRange
-							path: ["location"]
-							valueGeoRange: { geoCoordinates: {latitude: 51.225556, longitude: 6.782778} distance: { max: 200 } }
-						}){
-							name
-							location {
-								latitude
-								longitude
-							}
+			Get {
+				Things {
+					City(where:{
+						operator: WithinGeoRange
+						path: ["location"]
+						valueGeoRange: { geoCoordinates: {latitude: 51.225556, longitude: 6.782778} distance: { max: 200 } }
+					}){
+						name
+						location {
+							latitude
+							longitude
 						}
 					}
 				}
@@ -82,7 +78,7 @@ func TestLocalGetWithWithinGeoRangeFilter(t *testing.T) {
 		}
 		`
 		result := AssertGraphQL(t, helper.RootAuth, query)
-		cities := result.Get("Local", "Get", "Things", "City").AsSlice()
+		cities := result.Get("Get", "Things", "City").AsSlice()
 
 		expectedResults := []interface{}{
 			map[string]interface{}{

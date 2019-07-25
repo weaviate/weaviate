@@ -12,41 +12,41 @@
 
 package test
 
-import (
-	"encoding/json"
-	"testing"
+// import (
+// 	"encoding/json"
+// 	"testing"
 
-	"github.com/semi-technologies/weaviate/test/acceptance/helper"
-	"github.com/stretchr/testify/assert"
-)
+// 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+// 	"github.com/stretchr/testify/assert"
+// )
 
-func TestNetworkAggregate(t *testing.T) {
-	result := AssertGraphQL(t, helper.RootAuth, `
-		{
-			Network {
-				Aggregate{
-					RemoteWeaviateForAcceptanceTest {
-						Things {
-							Instruments(groupBy:["name"]) {
-								volume {
-									count
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-	`)
+// func TestNetworkAggregate(t *testing.T) {
+// 	result := AssertGraphQL(t, helper.RootAuth, `
+// 		{
+// 			Network {
+// 				Aggregate{
+// 					RemoteWeaviateForAcceptanceTest {
+// 						Things {
+// 							Instruments(groupBy:["name"]) {
+// 								volume {
+// 									count
+// 								}
+// 							}
+// 						}
+// 					}
+// 				}
+// 			}
+// 		}
+// 	`)
 
-	volume := result.Get("Network", "Aggregate", "RemoteWeaviateForAcceptanceTest", "Things", "Instruments").Result
-	expected := []interface{}{
-		map[string]interface{}{
-			"volume": map[string]interface{}{
-				"count": json.Number("82"),
-			},
-		},
-	}
+// 	volume := result.Get("Network", "Aggregate", "RemoteWeaviateForAcceptanceTest", "Things", "Instruments").Result
+// 	expected := []interface{}{
+// 		map[string]interface{}{
+// 			"volume": map[string]interface{}{
+// 				"count": json.Number("82"),
+// 			},
+// 		},
+// 	}
 
-	assert.Equal(t, expected, volume)
-}
+// 	assert.Equal(t, expected, volume)
+// }
