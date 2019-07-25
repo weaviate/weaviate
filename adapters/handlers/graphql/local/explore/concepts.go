@@ -28,6 +28,10 @@ func Build() *graphql.Field {
 		Type:        graphql.NewList(exploreObject()),
 		Resolve:     resolve,
 		Args: graphql.FieldConfigArgument{
+			"network": &graphql.ArgumentConfig{
+				Description: descriptions.Network,
+				Type:        graphql.Boolean,
+			},
 			"concepts": &graphql.ArgumentConfig{
 				Description: descriptions.Keywords,
 				Type:        graphql.NewNonNull(graphql.NewList(graphql.String)),

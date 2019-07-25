@@ -12,26 +12,26 @@
 
 package test
 
-import (
-	"testing"
+// import (
+// 	"testing"
 
-	"github.com/semi-technologies/weaviate/test/acceptance/helper"
-	"github.com/stretchr/testify/assert"
-)
+// 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+// 	"github.com/stretchr/testify/assert"
+// )
 
-// Note: Things.Instruments is not something that is present in our local schema
-// This is on purpose to verify that we have support for a completely different
-// schema on a remote instance.
-func TestNetworkGetSimple(t *testing.T) {
-	result := AssertGraphQL(t, helper.RootAuth, "{ Network { Get { RemoteWeaviateForAcceptanceTest { Things { Instruments { name } } } } } }")
-	instruments := result.Get("Network", "Get", "RemoteWeaviateForAcceptanceTest", "Things", "Instruments").AsSlice()
+// // Note: Things.Instruments is not something that is present in our local schema
+// // This is on purpose to verify that we have support for a completely different
+// // schema on a remote instance.
+// func TestNetworkGetSimple(t *testing.T) {
+// 	result := AssertGraphQL(t, helper.RootAuth, "{ Network { Get { RemoteWeaviateForAcceptanceTest { Things { Instruments { name } } } } }")
+// 	instruments := result.Get("Network", "Get", "RemoteWeaviateForAcceptanceTest", "Things", "Instruments").AsSlice()
 
-	expected := []interface{}{
-		map[string]interface{}{"name": "Piano"},
-		map[string]interface{}{"name": "Guitar"},
-		map[string]interface{}{"name": "Bass Guitar"},
-		map[string]interface{}{"name": "Talkbox"},
-	}
+// 	expected := []interface{}{
+// 		map[string]interface{}{"name": "Piano"},
+// 		map[string]interface{}{"name": "Guitar"},
+// 		map[string]interface{}{"name": "Bass Guitar"},
+// 		map[string]interface{}{"name": "Talkbox"},
+// 	}
 
-	assert.ElementsMatch(t, expected, instruments)
-}
+// 	assert.ElementsMatch(t, expected, instruments)
+// }

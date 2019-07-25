@@ -348,9 +348,7 @@ func (tests testCases) AssertNoError(t *testing.T) {
 			schemaObject := graphql.ObjectConfig{
 				Name:        "WeaviateObj",
 				Description: "Location of the root query",
-				Fields: graphql.Fields{
-					"Local": localSchema,
-				},
+				Fields:      localSchema,
 			}
 
 			func() {

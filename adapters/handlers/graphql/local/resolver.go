@@ -14,7 +14,6 @@ package local
 
 import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/aggregate"
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/fetch"
 	get "github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get"
 	getmeta "github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/getmeta"
 )
@@ -24,5 +23,4 @@ type Resolver interface {
 	get.Resolver
 	getmeta.Resolver
 	aggregate.Resolver
-	fetch.Resolver
 }
