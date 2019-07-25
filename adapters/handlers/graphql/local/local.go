@@ -14,10 +14,8 @@ package local
 
 import (
 	"github.com/graphql-go/graphql"
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/aggregate"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/explore"
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/fetch"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/getmeta"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -28,7 +26,7 @@ import (
 
 // Build the local queries from the database schema.
 func Build(dbSchema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger,
-	config config.Config) (*graphql.Field, error) {
+	config config.Config) (graphql.Fields, error) {
 	getField, err := get.Build(dbSchema, peers, logger)
 	if err != nil {
 		return nil, err
@@ -41,31 +39,14 @@ func Build(dbSchema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger
 	if err != nil {
 		return nil, err
 	}
-	fetchField := fetch.Build()
 	exploreField := explore.Build()
 
 	localFields := graphql.Fields{
 		"Get":       getField,
 		"GetMeta":   getMetaField,
 		"Aggregate": aggregateField,
-		"Fetch":     fetchField,
 		"Explore":   exploreField,
 	}
 
-	localObject := graphql.NewObject(graphql.ObjectConfig{
-		Name:        "WeaviateLocalObj",
-		Fields:      localFields,
-		Description: descriptions.LocalObj,
-	})
-
-	localField := graphql.Field{
-		Type:        localObject,
-		Description: descriptions.WeaviateLocal,
-		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			// This step does nothing; all ways allow the resolver to continue
-			return p.Source, nil
-		},
-	}
-
-	return &localField, nil
+	return localFields, nil
 }

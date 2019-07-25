@@ -51,8 +51,8 @@ func TestCanAddSingleNetworkRef(t *testing.T) {
 
 	t.Run("it can query the reference through the graphql api", func(t *testing.T) {
 		result := graphql.AssertGraphQL(t, helper.RootAuth,
-			"{ Local { Get { Things { TestThing { TestReference { ... on RemoteWeaviateForAcceptanceTest__Instruments { name } } } } } } }")
-		things := result.Get("Local", "Get", "Things", "TestThing").AsSlice()
+			"{  Get { Things { TestThing { TestReference { ... on RemoteWeaviateForAcceptanceTest__Instruments { name } } } } } }")
+		things := result.Get("Get", "Things", "TestThing").AsSlice()
 		assert.Contains(t, things, parseJSONObj(`{"TestReference":[{"name": "Talkbox"}]}`))
 	})
 }
