@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/elastic/go-elasticsearch/v5"
 	"github.com/go-openapi/strfmt"
@@ -41,13 +42,56 @@ func Test_Filters(t *testing.T) {
 
 	// operators
 	eq := filters.OperatorEqual
+	lt := filters.OperatorLessThan
+	lte := filters.OperatorLessThanEqual
+	gt := filters.OperatorGreaterThan
+	gte := filters.OperatorGreaterThanEqual
 
 	// datatypes
 	dtInt := schema.DataTypeInt
+	dtNumber := schema.DataTypeNumber
+	dtString := schema.DataTypeString
+
 	tests := []test{
 		{
 			name:        "horsepower == 130",
 			filter:      buildFilter("horsepower", 130, eq, dtInt),
+			expectedLen: 1,
+			expectedIDs: []strfmt.UUID{carSprinterID},
+		},
+		{
+			name:        "horsepower < 200",
+			filter:      buildFilter("horsepower", 200, lt, dtInt),
+			expectedLen: 1,
+			expectedIDs: []strfmt.UUID{carSprinterID},
+		},
+		{
+			name:        "horsepower <= 130",
+			filter:      buildFilter("horsepower", 130, lte, dtInt),
+			expectedLen: 1,
+			expectedIDs: []strfmt.UUID{carSprinterID},
+		},
+		{
+			name:        "horsepower > 200",
+			filter:      buildFilter("horsepower", 200, gt, dtInt),
+			expectedLen: 1,
+			expectedIDs: []strfmt.UUID{carE63sID},
+		},
+		{
+			name:        "horsepower >= 612",
+			filter:      buildFilter("horsepower", 612, gte, dtInt),
+			expectedLen: 1,
+			expectedIDs: []strfmt.UUID{carE63sID},
+		},
+		{
+			name:        "modelName == sprinter",
+			filter:      buildFilter("modelName", "sprinter", eq, dtString),
+			expectedLen: 1,
+			expectedIDs: []strfmt.UUID{carSprinterID},
+		},
+		{
+			name:        "weight == 3499.90",
+			filter:      buildFilter("weight", 3499.90, eq, dtNumber),
 			expectedLen: 1,
 			expectedIDs: []strfmt.UUID{carSprinterID},
 		},
@@ -85,6 +129,9 @@ func prepareTestSchemaAndData(repo *Repo,
 					repo.PutThing(context.Background(), &fixture, carVectors[i]))
 			})
 		}
+
+		// sleep for index to become available
+		time.Sleep(2 * time.Second)
 	}
 }
 
