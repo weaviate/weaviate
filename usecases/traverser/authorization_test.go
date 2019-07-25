@@ -60,20 +60,6 @@ func Test_Traverser_Authorization(t *testing.T) {
 		},
 
 		testCase{
-			methodName:       "LocalFetchFuzzy",
-			additionalArgs:   []interface{}{FetchFuzzySearch{}},
-			expectedVerb:     "get",
-			expectedResource: "traversal/*",
-		},
-
-		testCase{
-			methodName:       "LocalFetchKindClass",
-			additionalArgs:   []interface{}{&FetchSearch{}},
-			expectedVerb:     "get",
-			expectedResource: "traversal/*",
-		},
-
-		testCase{
 			methodName:       "Explore",
 			additionalArgs:   []interface{}{ExploreParams{}},
 			expectedVerb:     "get",

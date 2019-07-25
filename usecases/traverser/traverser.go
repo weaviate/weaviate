@@ -16,6 +16,7 @@ import (
 	"context"
 
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/sirupsen/logrus"
 )
 
@@ -80,8 +81,6 @@ type TraverserRepo interface {
 	LocalGetClass(context.Context, *LocalGetParams) (interface{}, error)
 	LocalGetMeta(context.Context, *GetMetaParams) (interface{}, error)
 	LocalAggregate(context.Context, *AggregateParams) (interface{}, error)
-	LocalFetchKindClass(context.Context, *FetchParams) (interface{}, error)
-	LocalFetchFuzzy(context.Context, []string) (interface{}, error)
 }
 
 // c11y is a local abstraction on the contextionary that needs to be
@@ -89,4 +88,22 @@ type TraverserRepo interface {
 type c11y interface {
 	SchemaSearch(ctx context.Context, p SearchParams) (SearchResults, error)
 	SafeGetSimilarWordsWithCertainty(ctx context.Context, word string, certainty float32) ([]string, error)
+}
+
+// SearchResult is a single search result. See wrapping Search Results for the Type
+type SearchResult struct {
+	Name      string
+	Kind      kind.Kind
+	Certainty float32
+}
+
+// SearchResults is grouping of SearchResults for a SchemaSearch
+type SearchResults struct {
+	Type    SearchType
+	Results []SearchResult
+}
+
+// Len of the result set
+func (r SearchResults) Len() int {
+	return len(r.Results)
 }
