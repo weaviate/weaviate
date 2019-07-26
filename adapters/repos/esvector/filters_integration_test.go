@@ -11,11 +11,29 @@ import (
 	"github.com/elastic/go-elasticsearch/v5"
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+)
+
+var (
+	// operators
+	eq  = filters.OperatorEqual
+	neq = filters.OperatorNotEqual
+	lt  = filters.OperatorLessThan
+	lte = filters.OperatorLessThanEqual
+	gt  = filters.OperatorGreaterThan
+	gte = filters.OperatorGreaterThanEqual
+	wgr = filters.OperatorWithinGeoRange
+
+	// datatypes
+	dtInt            = schema.DataTypeInt
+	dtNumber         = schema.DataTypeNumber
+	dtString         = schema.DataTypeString
+	dtGeoCoordinates = schema.DataTypeGeoCoordinates
 )
 
 func Test_Filters(t *testing.T) {
@@ -33,86 +51,11 @@ func Test_Filters(t *testing.T) {
 	t.Run("prepare test schema and data ",
 		prepareTestSchemaAndData(repo, migrator))
 
-	type test struct {
-		name        string
-		filter      *filters.LocalFilter
-		expectedLen int
-		expectedIDs []strfmt.UUID
-	}
+	t.Run("primitve props without nesting",
+		testPrmitiveProps(repo, migrator))
 
-	// operators
-	eq := filters.OperatorEqual
-	lt := filters.OperatorLessThan
-	lte := filters.OperatorLessThanEqual
-	gt := filters.OperatorGreaterThan
-	gte := filters.OperatorGreaterThanEqual
-
-	// datatypes
-	dtInt := schema.DataTypeInt
-	dtNumber := schema.DataTypeNumber
-	dtString := schema.DataTypeString
-
-	tests := []test{
-		{
-			name:        "horsepower == 130",
-			filter:      buildFilter("horsepower", 130, eq, dtInt),
-			expectedLen: 1,
-			expectedIDs: []strfmt.UUID{carSprinterID},
-		},
-		{
-			name:        "horsepower < 200",
-			filter:      buildFilter("horsepower", 200, lt, dtInt),
-			expectedLen: 1,
-			expectedIDs: []strfmt.UUID{carSprinterID},
-		},
-		{
-			name:        "horsepower <= 130",
-			filter:      buildFilter("horsepower", 130, lte, dtInt),
-			expectedLen: 1,
-			expectedIDs: []strfmt.UUID{carSprinterID},
-		},
-		{
-			name:        "horsepower > 200",
-			filter:      buildFilter("horsepower", 200, gt, dtInt),
-			expectedLen: 1,
-			expectedIDs: []strfmt.UUID{carE63sID},
-		},
-		{
-			name:        "horsepower >= 612",
-			filter:      buildFilter("horsepower", 612, gte, dtInt),
-			expectedLen: 1,
-			expectedIDs: []strfmt.UUID{carE63sID},
-		},
-		{
-			name:        "modelName == sprinter",
-			filter:      buildFilter("modelName", "sprinter", eq, dtString),
-			expectedLen: 1,
-			expectedIDs: []strfmt.UUID{carSprinterID},
-		},
-		{
-			name:        "weight == 3499.90",
-			filter:      buildFilter("weight", 3499.90, eq, dtNumber),
-			expectedLen: 1,
-			expectedIDs: []strfmt.UUID{carSprinterID},
-		},
-	}
-
-	for i, test := range tests {
-		res, err := repo.VectorClassSearch(context.Background(), kind.Thing,
-			carClass.Class, []float32{0.1, 0.1, 0.1, 1.1, 0.1}, 100, test.filter)
-		require.Nil(t, err)
-		require.Len(t, res, test.expectedLen)
-		if len(test.expectedIDs) != test.expectedLen {
-			t.Fatalf("wrong test setup at pos %d: lens dont match: %d and %d",
-				i, test.expectedLen, len(test.expectedIDs))
-		}
-
-		ids := make([]strfmt.UUID, test.expectedLen, test.expectedLen)
-		for pos, concept := range res {
-			ids[pos] = concept.ID
-		}
-		assert.ElementsMatch(t, ids, test.expectedIDs, "ids dont match")
-	}
+	t.Run("chained primitive props",
+		testChainedPrmitiveProps(repo, migrator))
 }
 
 func prepareTestSchemaAndData(repo *Repo,
@@ -135,6 +78,173 @@ func prepareTestSchemaAndData(repo *Repo,
 	}
 }
 
+func testPrmitiveProps(repo *Repo,
+	migrator *Migrator) func(t *testing.T) {
+	return func(t *testing.T) {
+		type test struct {
+			name        string
+			filter      *filters.LocalFilter
+			expectedIDs []strfmt.UUID
+		}
+
+		tests := []test{
+			{
+				name:        "horsepower == 130",
+				filter:      buildFilter("horsepower", 130, eq, dtInt),
+				expectedIDs: []strfmt.UUID{carSprinterID},
+			},
+			{
+				name:        "horsepower < 200",
+				filter:      buildFilter("horsepower", 200, lt, dtInt),
+				expectedIDs: []strfmt.UUID{carSprinterID, carPoloID},
+			},
+			{
+				name:        "horsepower <= 130",
+				filter:      buildFilter("horsepower", 130, lte, dtInt),
+				expectedIDs: []strfmt.UUID{carSprinterID, carPoloID},
+			},
+			{
+				name:        "horsepower > 200",
+				filter:      buildFilter("horsepower", 200, gt, dtInt),
+				expectedIDs: []strfmt.UUID{carE63sID},
+			},
+			{
+				name:        "horsepower >= 612",
+				filter:      buildFilter("horsepower", 612, gte, dtInt),
+				expectedIDs: []strfmt.UUID{carE63sID},
+			},
+			{
+				name:        "modelName != sprinter",
+				filter:      buildFilter("modelName", "sprinter", neq, dtString),
+				expectedIDs: []strfmt.UUID{carE63sID, carPoloID},
+			},
+			{
+				name:        "weight == 3499.90",
+				filter:      buildFilter("weight", 3499.90, eq, dtNumber),
+				expectedIDs: []strfmt.UUID{carSprinterID},
+			},
+			{
+				name:        "weight <= 3499.90",
+				filter:      buildFilter("weight", 3499.90, lte, dtNumber),
+				expectedIDs: []strfmt.UUID{carSprinterID, carE63sID, carPoloID},
+			},
+			{
+				name:        "weight < 3499.90",
+				filter:      buildFilter("weight", 3499.90, lt, dtNumber),
+				expectedIDs: []strfmt.UUID{carE63sID, carPoloID},
+			},
+			{
+				name:        "weight > 3000",
+				filter:      buildFilter("weight", 3000, gt, dtNumber),
+				expectedIDs: []strfmt.UUID{carSprinterID},
+			},
+			{
+				name:        "weight >= 2069.5",
+				filter:      buildFilter("weight", 2069.5, gte, dtNumber),
+				expectedIDs: []strfmt.UUID{carSprinterID, carE63sID},
+			},
+			{
+				name: "within 600km of San Francisco",
+				filter: buildFilter("parkedAt", filters.GeoRange{
+					GeoCoordinates: &models.GeoCoordinates{
+						Latitude:  37.733795,
+						Longitude: -122.446747,
+					},
+					Distance: 600000,
+				}, wgr, dtGeoCoordinates),
+				expectedIDs: []strfmt.UUID{carSprinterID},
+			},
+		}
+
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				res, err := repo.VectorClassSearch(context.Background(), kind.Thing,
+					carClass.Class, []float32{0.1, 0.1, 0.1, 1.1, 0.1}, 100, test.filter)
+				require.Nil(t, err)
+				require.Len(t, res, len(test.expectedIDs))
+
+				ids := make([]strfmt.UUID, len(test.expectedIDs), len(test.expectedIDs))
+				for pos, concept := range res {
+					ids[pos] = concept.ID
+				}
+				assert.ElementsMatch(t, ids, test.expectedIDs, "ids dont match")
+			})
+		}
+	}
+}
+
+func testChainedPrmitiveProps(repo *Repo,
+	migrator *Migrator) func(t *testing.T) {
+	return func(t *testing.T) {
+		type test struct {
+			name        string
+			filter      *filters.LocalFilter
+			expectedIDs []strfmt.UUID
+		}
+
+		tests := []test{
+			test{
+				name: "modelName == sprinter AND  weight > 3000",
+				filter: filterAnd(
+					buildFilter("modelName", "sprinter", eq, dtString),
+					buildFilter("weight", 3000, gt, dtNumber),
+				),
+				expectedIDs: []strfmt.UUID{carSprinterID},
+			},
+			test{
+				name: "modelName == sprinter OR modelName == e63s",
+				filter: filterOr(
+					buildFilter("modelName", "sprinter", eq, dtString),
+					buildFilter("modelName", "e63s", eq, dtString),
+				),
+				expectedIDs: []strfmt.UUID{carSprinterID, carE63sID},
+			},
+			test{
+				name: "NOT modelName == sprinter, modelName == e63s",
+				filter: filterNot(
+					buildFilter("modelName", "sprinter", eq, dtString),
+					buildFilter("modelName", "e63s", eq, dtString),
+				),
+				expectedIDs: []strfmt.UUID{carPoloID},
+			},
+			test{
+				name: "NOT horsepower < 200 , weight > 3000",
+				filter: filterNot(
+					buildFilter("horsepower", 200, lt, dtNumber),
+					buildFilter("weight", 3000, gt, dtNumber),
+				),
+				expectedIDs: []strfmt.UUID{carE63sID},
+			},
+			test{
+				name: "(heavy AND powerful) OR light",
+				filter: filterOr(
+					filterAnd(
+						buildFilter("horsepower", 200, gt, dtNumber),
+						buildFilter("weight", 1500, gt, dtNumber),
+					),
+					buildFilter("weight", 1500, lt, dtNumber),
+				),
+				expectedIDs: []strfmt.UUID{carE63sID, carPoloID},
+			},
+		}
+
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				res, err := repo.VectorClassSearch(context.Background(), kind.Thing,
+					carClass.Class, []float32{0.1, 0.1, 0.1, 1.1, 0.1}, 100, test.filter)
+				require.Nil(t, err)
+				require.Len(t, res, len(test.expectedIDs))
+
+				ids := make([]strfmt.UUID, len(test.expectedIDs), len(test.expectedIDs))
+				for pos, concept := range res {
+					ids[pos] = concept.ID
+				}
+				assert.ElementsMatch(t, ids, test.expectedIDs, "ids dont match")
+			})
+		}
+	}
+}
+
 func buildFilter(propName string, value interface{}, operator filters.Operator, schemaType schema.DataType) *filters.LocalFilter {
 	return &filters.LocalFilter{
 		Root: &filters.Clause{
@@ -149,4 +259,31 @@ func buildFilter(propName string, value interface{}, operator filters.Operator, 
 			},
 		},
 	}
+}
+
+func compoundFilter(operator filters.Operator,
+	operands ...*filters.LocalFilter) *filters.LocalFilter {
+	clauses := make([]filters.Clause, len(operands), len(operands))
+	for i, filter := range operands {
+		clauses[i] = *filter.Root
+	}
+
+	return &filters.LocalFilter{
+		Root: &filters.Clause{
+			Operator: operator,
+			Operands: clauses,
+		},
+	}
+}
+
+func filterAnd(operands ...*filters.LocalFilter) *filters.LocalFilter {
+	return compoundFilter(filters.OperatorAnd, operands...)
+}
+
+func filterOr(operands ...*filters.LocalFilter) *filters.LocalFilter {
+	return compoundFilter(filters.OperatorOr, operands...)
+}
+
+func filterNot(operands ...*filters.LocalFilter) *filters.LocalFilter {
+	return compoundFilter(filters.OperatorNot, operands...)
 }
