@@ -59,38 +59,46 @@ func (r *Repo) VectorClassSearch(ctx context.Context, kind kind.Kind,
 	className string, vector []float32, limit int,
 	filters *filters.LocalFilter) ([]traverser.VectorSearchResult, error) {
 	index := classIndexFromClassName(kind, className)
-	return r.VectorSearch(ctx, index, vector, limit)
+	return r.VectorSearch(ctx, index, vector, limit, filters)
 }
 
 // VectorSearch retrives the closest concepts by vector distance
 func (r *Repo) VectorSearch(ctx context.Context, index string,
-	vector []float32, limit int) ([]traverser.VectorSearchResult, error) {
+	vector []float32, limit int,
+	filters *filters.LocalFilter) ([]traverser.VectorSearchResult, error) {
 	var buf bytes.Buffer
+
+	query, err := queryFromFilter(filters)
+	if err != nil {
+		return nil, err
+	}
+
 	body := map[string]interface{}{
 		"query": map[string]interface{}{
 			"function_score": map[string]interface{}{
-				"query": map[string]interface{}{
-					"match_all": map[string]interface{}{},
-				},
+				"query":      query,
 				"boost_mode": "replace",
-				"script_score": map[string]interface{}{
-					"script": map[string]interface{}{
-						"inline": "binary_vector_score",
-						"lang":   "knn",
-						"params": map[string]interface{}{
-							"cosine": false,
-							"field":  "embedding_vector",
-							"vector": vector,
+				"functions": []interface{}{
+					map[string]interface{}{
+						"script_score": map[string]interface{}{
+							"script": map[string]interface{}{
+								"inline": "binary_vector_score",
+								"lang":   "knn",
+								"params": map[string]interface{}{
+									"cosine": false,
+									"field":  "embedding_vector",
+									"vector": vector,
+								},
+							},
 						},
 					},
 				},
 			},
 		},
-		// hard code limit to 100 for now
 		"size": limit,
 	}
 
-	err := json.NewEncoder(&buf).Encode(body)
+	err = json.NewEncoder(&buf).Encode(body)
 	if err != nil {
 		return nil, fmt.Errorf("vector search: encode json: %v", err)
 	}
