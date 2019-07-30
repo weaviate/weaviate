@@ -33,14 +33,6 @@ func (f *fakeRepo) LocalAggregate(ctx context.Context, params *AggregateParams) 
 	panic("not implemented")
 }
 
-func (f *fakeRepo) LocalFetchFuzzy(ctx context.Context, words []string) (interface{}, error) {
-	panic("not implemented")
-}
-
-func (f *fakeRepo) LocalFetchKindClass(ctx context.Context, params *FetchParams) (interface{}, error) {
-	panic("not implemented")
-}
-
 func (f *fakeRepo) LocalGetClass(ctx context.Context, params *LocalGetParams) (interface{}, error) {
 	panic("not implemented")
 }
