@@ -21,8 +21,8 @@ import (
 )
 
 func TestLocalGetSimple(t *testing.T) {
-	result := AssertGraphQL(t, helper.RootAuth, "{ Local { Get { Things { City { name } } } } }")
-	cities := result.Get("Local", "Get", "Things", "City").AsSlice()
+	result := AssertGraphQL(t, helper.RootAuth, "{  Get { Things { City { name } } } }")
+	cities := result.Get("Get", "Things", "City").AsSlice()
 
 	// Generated with
 	// cat fixtures/data.json | jq '.Things[] | select(.class=="City") | .name'
@@ -37,8 +37,8 @@ func TestLocalGetSimple(t *testing.T) {
 }
 
 func TestLocalGetRelation(t *testing.T) {
-	result := AssertGraphQL(t, helper.RootAuth, "{ Local { Get { Things { City { name, InCountry { ... on Country { name } } } } } } }")
-	cities := result.Get("Local", "Get", "Things", "City").AsSlice()
+	result := AssertGraphQL(t, helper.RootAuth, "{ Get { Things { City { name, InCountry { ... on Country { name } } } } } }")
+	cities := result.Get("Get", "Things", "City").AsSlice()
 
 	// Generated with
 	// cat test/acceptance/graphql_resolvers_local/fixtures/data.json | jq '.Things[] | select(.class=="City") | { "name": .name, "inCountry": { "name": .inCountry.name } }' | jq --slurp .

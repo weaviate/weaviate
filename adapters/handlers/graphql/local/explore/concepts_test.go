@@ -73,7 +73,7 @@ func Test_ResolveExplore(t *testing.T) {
 			query: `
 			{
 					Explore(
-					concepts: ["car", "best brand"], limit: 17, certainty: 0.6) {
+					concepts: ["car", "best brand"], limit: 17, certainty: 0.6, network: true) {
 							beacon className
 				}
 			}`,
@@ -81,6 +81,7 @@ func Test_ResolveExplore(t *testing.T) {
 				Values:    []string{"car", "best brand"},
 				Limit:     17,
 				Certainty: 0.6,
+				Network:   true,
 			},
 			resolverReturn: []traverser.VectorSearchResult{
 				traverser.VectorSearchResult{

@@ -116,16 +116,16 @@ func TestDeleteSingleProperties(t *testing.T) {
 	assert.Equal(t, expectedSchema, thing.Schema)
 
 	t.Log("verifying that we can still retrieve the thing through graphQL")
-	result := gql.AssertGraphQL(t, helper.RootAuth, "{ Local { Get { Things { RedShip { name } } } } }")
-	ships := result.Get("Local", "Get", "Things", "RedShip").AsSlice()
+	result := gql.AssertGraphQL(t, helper.RootAuth, "{  Get { Things { RedShip { name } } } }")
+	ships := result.Get("Get", "Things", "RedShip").AsSlice()
 	expectedShip := map[string]interface{}{
 		"name": "my name",
 	}
 	assert.Contains(t, ships, expectedShip)
 
 	t.Log("verifying other GQL/REST queries still work")
-	gql.AssertGraphQL(t, helper.RootAuth, "{ Local { GetMeta { Things { RedShip { name { count } } } } } }")
-	gql.AssertGraphQL(t, helper.RootAuth, `{ Local { Aggregate { Things { RedShip(groupBy: ["name"]) { name { count } } } } } }`)
+	gql.AssertGraphQL(t, helper.RootAuth, "{  GetMeta { Things { RedShip { name { count } } } } }")
+	gql.AssertGraphQL(t, helper.RootAuth, `{  Aggregate { Things { RedShip(groupBy: ["name"]) { name { count } } } } }`)
 	_, err = helper.Client(t).Things.WeaviateThingsList(things.NewWeaviateThingsListParams(), nil)
 	assert.Nil(t, err, "listing things should not error")
 

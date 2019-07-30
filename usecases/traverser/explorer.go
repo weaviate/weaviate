@@ -107,6 +107,10 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 
 func (e *Explorer) Concepts(ctx context.Context,
 	params ExploreParams) ([]VectorSearchResult, error) {
+	if params.Network {
+		return nil, fmt.Errorf("explorer: network exploration currently not supported")
+	}
+
 	vector, err := e.vectorFromExploreParams(ctx, &params)
 	if err != nil {
 		return nil, fmt.Errorf("vectorize params: %v", err)

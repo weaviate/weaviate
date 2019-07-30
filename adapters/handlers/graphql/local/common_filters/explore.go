@@ -45,6 +45,12 @@ func ExtractExplore(source map[string]interface{}) traverser.ExploreParams {
 		args.MoveTo = extractMovement(moveTo)
 	}
 
+	// network is an optional arg, so it could be nil
+	network, ok := source["network"]
+	if ok {
+		args.Network = network.(bool)
+	}
+
 	// moveAwayFrom is an optional arg, so it could be nil
 	moveAwayFrom, ok := source["moveAwayFrom"]
 	if ok {

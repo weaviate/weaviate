@@ -14,6 +14,7 @@ package traverser
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
@@ -23,6 +24,28 @@ import (
 )
 
 func Test_ExploreConcepts(t *testing.T) {
+	t.Run("with network exploration", func(t *testing.T) {
+
+		authorizer := &fakeAuthorizer{}
+		repo := &fakeRepo{}
+		locks := &fakeLocks{}
+		c11y := &fakeC11y{}
+		logger, _ := test.NewNullLogger()
+		vectorizer := &fakeVectorizer{}
+		vectorSearcher := &fakeVectorSearcher{}
+		vectorRepo := &fakeVectorRepo{}
+		explorer := NewExplorer(vectorSearcher, vectorizer, vectorRepo)
+		traverser := NewTraverser(locks, repo, c11y, logger, authorizer,
+			vectorizer, vectorSearcher, explorer)
+		params := ExploreParams{
+			Values:  []string{"a search term", "another"},
+			Network: true,
+		}
+
+		_, err := traverser.Explore(context.Background(), nil, params)
+		assert.Equal(t, fmt.Errorf(
+			"explorer: network exploration currently not supported"), err)
+	})
 	t.Run("with no movements set", func(t *testing.T) {
 
 		authorizer := &fakeAuthorizer{}
