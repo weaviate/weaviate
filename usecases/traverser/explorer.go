@@ -36,7 +36,7 @@ type vectorClassSearch interface {
 		className string, vector []float32, limit int,
 		filters *filters.LocalFilter) ([]VectorSearchResult, error)
 	VectorSearch(ctx context.Context, index string,
-		vector []float32, limit int) ([]VectorSearchResult, error)
+		vector []float32, limit int, filters *filters.LocalFilter) ([]VectorSearchResult, error)
 }
 
 type explorerRepo interface {
@@ -53,12 +53,6 @@ func NewExplorer(search vectorClassSearch, vectorizer CorpiVectorizer,
 // GetClass from search and connector repo
 func (e *Explorer) GetClass(ctx context.Context,
 	params *LocalGetParams) ([]interface{}, error) {
-	if params.Filters != nil {
-		msg := "combining 'explore' and 'where' parameters not possible yet - coming soon!"
-		// TODO: enable in gh-911
-		return nil, fmt.Errorf(msg)
-	}
-
 	searchVector, err := e.vectorFromExploreParams(ctx, params.Explore)
 	if err != nil {
 		return nil, fmt.Errorf("explorer: get class: vectorize params: %v", err)
@@ -122,7 +116,7 @@ func (e *Explorer) Concepts(ctx context.Context,
 		return nil, fmt.Errorf("vectorize params: %v", err)
 	}
 
-	res, err := e.search.VectorSearch(ctx, "*", vector, params.Limit)
+	res, err := e.search.VectorSearch(ctx, "*", vector, params.Limit, nil)
 	if err != nil {
 		return nil, fmt.Errorf("vector search: %v", err)
 	}
