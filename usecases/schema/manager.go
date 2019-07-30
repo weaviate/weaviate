@@ -1,15 +1,16 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE WEAVIATE OPEN SOURCE: https://www.semi.technology/playbook/playbook/contract-weaviate-OSS.html
- * LICENSE WEAVIATE ENTERPRISE: https://www.semi.technology/playbook/contract-weaviate-enterprise.html
- * CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */package schema
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
+package schema
 
 import (
 	"context"
@@ -21,13 +22,14 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/locks"
 	"github.com/semi-technologies/weaviate/usecases/network"
+	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
 	"github.com/sirupsen/logrus"
 )
 
 // Manager Manages schema changes at a use-case level, i.e. agnostic of
 // underlying databases or storage providers
 type Manager struct {
-	migrator         Migrator
+	migrator         migrate.Migrator
 	repo             Repo
 	stopwordDetector stopwordDetector
 	c11yClient       c11yClient
@@ -37,21 +39,6 @@ type Manager struct {
 	callbacks        []func(updatedSchema schema.Schema)
 	logger           logrus.FieldLogger
 	authorizer       authorizer
-}
-
-type Migrator interface {
-	AddClass(ctx context.Context, kind kind.Kind, class *models.SemanticSchemaClass) error
-	DropClass(ctx context.Context, kind kind.Kind, className string) error
-	UpdateClass(ctx context.Context, kind kind.Kind, className string,
-		newClassName *string, newKeywords *models.SemanticSchemaKeywords) error
-
-	AddProperty(ctx context.Context, kind kind.Kind, className string,
-		prop *models.SemanticSchemaClassProperty) error
-	DropProperty(ctx context.Context, kind kind.Kind, className string,
-		propertyName string) error
-	UpdateProperty(ctx context.Context, kind kind.Kind, className string,
-		propName string, newName *string, newKeywords *models.SemanticSchemaKeywords) error
-	UpdatePropertyAddDataType(ctx context.Context, kind kind.Kind, className string, propName string, newDataType string) error
 }
 
 // Repo describes the requirements the schema manager has to a database to load
@@ -73,7 +60,7 @@ type c11yClient interface {
 }
 
 // NewManager creates a new manager
-func NewManager(migrator Migrator, repo Repo, locks locks.ConnectorSchemaLock,
+func NewManager(migrator migrate.Migrator, repo Repo, locks locks.ConnectorSchemaLock,
 	network network.Network, logger logrus.FieldLogger, c11yClient c11yClient,
 	authorizer authorizer, swd stopwordDetector) (*Manager, error) {
 	m := &Manager{
@@ -114,12 +101,12 @@ func unlock(l unlocker) {
 // State is a cached copy of the schema that can also be saved into a remote
 // storage, as specified by Repo
 type State struct {
-	ActionSchema *models.SemanticSchema `json:"action"`
-	ThingSchema  *models.SemanticSchema `json:"thing"`
+	ActionSchema *models.Schema `json:"action"`
+	ThingSchema  *models.Schema `json:"thing"`
 }
 
 // SchemaFor a specific kind
-func (s *State) SchemaFor(k kind.Kind) *models.SemanticSchema {
+func (s *State) SchemaFor(k kind.Kind) *models.Schema {
 	switch k {
 	case kind.Thing:
 		return s.ThingSchema
@@ -185,12 +172,12 @@ func (m *Manager) loadOrInitializeSchema(ctx context.Context) error {
 
 func newSchema() *State {
 	return &State{
-		ActionSchema: &models.SemanticSchema{
-			Classes: []*models.SemanticSchemaClass{},
+		ActionSchema: &models.Schema{
+			Classes: []*models.Class{},
 			Type:    "action",
 		},
-		ThingSchema: &models.SemanticSchema{
-			Classes: []*models.SemanticSchemaClass{},
+		ThingSchema: &models.Schema{
+			Classes: []*models.Class{},
 			Type:    "thing",
 		},
 	}

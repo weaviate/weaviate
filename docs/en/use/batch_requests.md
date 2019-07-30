@@ -3,6 +3,11 @@
 > Weaviate adds on option to group specific requests into batches with the goal
 > to speed up certain scenarios, such as imports.
 
+**Warning: Batch endpoints are optimized for speed and thus prevent costly
+patterns in many connectors. As a result, validation is considerable less
+strict than on regular imports. See the individual sections for potential
+dangers of incorrect import data.**
+
 ## 1. The batch request
 
 A batch request is an array of requests. The goal of this construction is to
@@ -59,12 +64,11 @@ blog](https://blog.apollographql.com/query-batching-in-apollo-63acfd859862)).
 The Action and Thing create batch endpoints use a slightly different format to
 allow batch-level parameters to be applied to the batched requests.
 
-In contrast to non-batch endpoints, no `async` option is present on this type
-of request. The request is already optimized for maximum performance of the
-respective database connector. Performing them async would lead to the user
-sending of all batches at once, thus congesting the databse. Instead the
-blocking nature of the request should be used to throttle the imports as this
-will lead to an optimal import frequency.
+Do not send off all batch requests you plan on making at once. The request is
+optimized for maximum performance of the respective database connector.
+Sending all batch requests at once would thus simply congesting the databse.
+Instead the blocking nature of the request should be used to throttle the
+imports as this will lead to an optimal import frequency.
 
 Note, that you can still parallelize your import strategy, however each worker
 or thread should in itself block for the duration of one batch job. The ideal
@@ -82,6 +86,20 @@ options are as follows:
 + `"creationTimeUnix"`
 + `"key"`
 + `"actionId"` or `"thingId"`
+
+##### User specified IDs
+
+Similar to non-batch requests, you can leave the `id` field of each thing or
+action empty. Weaviate will then generate a new UUID for each concept. However,
+if you choose to set ids yourself, you need to make sure that each id is
+guaranteed to be unique.
+
+Batch requests are optimized for speed and therefore do not perform expensive
+"read before write" operations. If a uuid is thus used twice, you will end up
+with an inconsistent database state.
+
+If you can't be sure that your IDs are unique, use the regular `POST /actions`
+and `POST /things` endpoints, which include strict validation.
 
 ##### 1.1.3.1 An Action/Thing create batch request
 
@@ -114,6 +132,7 @@ options are as follows:
   <response for request n>,
 ]
 ```
+
 
 ### 1.1.4 Batch Cross-References
 

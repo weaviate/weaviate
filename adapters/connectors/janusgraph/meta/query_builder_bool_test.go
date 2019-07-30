@@ -1,31 +1,31 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE WEAVIATE OPEN SOURCE: https://www.semi.technology/playbook/playbook/contract-weaviate-OSS.html
- * LICENSE WEAVIATE ENTERPRISE: https://www.semi.technology/playbook/contract-weaviate-enterprise.html
- * CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
 package meta
 
 import (
 	"testing"
 
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func Test_QueryBuilder_BoolProps(t *testing.T) {
 	tests := testCases{
 		testCase{
 			name: "with only a boolean, with only count",
-			inputProps: []kinds.MetaProperty{
-				kinds.MetaProperty{
+			inputProps: []traverser.MetaProperty{
+				traverser.MetaProperty{
 					Name:                "isCapital",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Count},
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{traverser.Count},
 				},
 			},
 			expectedQuery: `
@@ -44,10 +44,10 @@ func Test_QueryBuilder_BoolProps(t *testing.T) {
 
 		testCase{
 			name: "with count and type",
-			inputProps: []kinds.MetaProperty{
-				kinds.MetaProperty{
+			inputProps: []traverser.MetaProperty{
+				traverser.MetaProperty{
 					Name:                "isCapital",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Count, kinds.Type},
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{traverser.Count, traverser.Type},
 				},
 			},
 			expectedQuery: `
@@ -66,10 +66,10 @@ func Test_QueryBuilder_BoolProps(t *testing.T) {
 
 		testCase{
 			name: "with only a boolean, with only totalTrue",
-			inputProps: []kinds.MetaProperty{
-				kinds.MetaProperty{
+			inputProps: []traverser.MetaProperty{
+				traverser.MetaProperty{
 					Name:                "isCapital",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.TotalTrue},
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{traverser.TotalTrue},
 				},
 			},
 			expectedQuery: `
@@ -88,11 +88,11 @@ func Test_QueryBuilder_BoolProps(t *testing.T) {
 
 		testCase{
 			name: "with all boolean props combined",
-			inputProps: []kinds.MetaProperty{
-				kinds.MetaProperty{
+			inputProps: []traverser.MetaProperty{
+				traverser.MetaProperty{
 					Name: "isCapital",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{
-						kinds.Count, kinds.TotalTrue, kinds.TotalFalse, kinds.PercentageTrue, kinds.PercentageFalse,
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{
+						traverser.Count, traverser.TotalTrue, traverser.TotalFalse, traverser.PercentageTrue, traverser.PercentageFalse,
 					},
 				},
 			},
@@ -112,11 +112,11 @@ func Test_QueryBuilder_BoolProps(t *testing.T) {
 		},
 		testCase{
 			name: "with only a boolean, with only all true/false props",
-			inputProps: []kinds.MetaProperty{
-				kinds.MetaProperty{
+			inputProps: []traverser.MetaProperty{
+				traverser.MetaProperty{
 					Name: "isCapital",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{
-						kinds.TotalTrue, kinds.TotalFalse, kinds.PercentageTrue, kinds.PercentageFalse,
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{
+						traverser.TotalTrue, traverser.TotalFalse, traverser.PercentageTrue, traverser.PercentageFalse,
 					},
 				},
 			},
@@ -143,10 +143,10 @@ func Test_QueryBuilderWithNamesource(t *testing.T) {
 	tests := testCases{
 		testCase{
 			name: "with only a boolean, with only count",
-			inputProps: []kinds.MetaProperty{
-				kinds.MetaProperty{
+			inputProps: []traverser.MetaProperty{
+				traverser.MetaProperty{
 					Name:                "isCapital",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Count},
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{traverser.Count},
 				},
 			},
 			expectedQuery: `

@@ -1,15 +1,14 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE WEAVIATE OPEN SOURCE: https://www.semi.technology/playbook/playbook/contract-weaviate-OSS.html
- * LICENSE WEAVIATE ENTERPRISE: https://www.semi.technology/playbook/contract-weaviate-enterprise.html
- * CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
 
 package meta
 
@@ -22,7 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -45,21 +44,21 @@ func (f *fakeNameSource) MustGetMappedClassName(className schema.ClassName) stat
 type fakeTypeSource struct{}
 
 func (f *fakeTypeSource) GetProperty(kind kind.Kind, className schema.ClassName,
-	propName schema.PropertyName) (error, *models.SemanticSchemaClassProperty) {
+	propName schema.PropertyName) (error, *models.Property) {
 
 	switch propName {
 	case "isCapital":
-		return nil, &models.SemanticSchemaClassProperty{DataType: []string{"bool"}}
+		return nil, &models.Property{DataType: []string{"bool"}}
 	case "population":
-		return nil, &models.SemanticSchemaClassProperty{DataType: []string{"int"}}
+		return nil, &models.Property{DataType: []string{"int"}}
 	case "area":
-		return nil, &models.SemanticSchemaClassProperty{DataType: []string{"number"}}
+		return nil, &models.Property{DataType: []string{"number"}}
 	case "name":
-		return nil, &models.SemanticSchemaClassProperty{DataType: []string{"string"}}
+		return nil, &models.Property{DataType: []string{"string"}}
 	case "dateOfFirstApperance":
-		return nil, &models.SemanticSchemaClassProperty{DataType: []string{"date"}}
+		return nil, &models.Property{DataType: []string{"date"}}
 	case "inCountry":
-		return nil, &models.SemanticSchemaClassProperty{DataType: []string{"Country"}}
+		return nil, &models.Property{DataType: []string{"Country"}}
 	}
 
 	return fmt.Errorf("fake type source does not have an implementation for prop '%s'", propName), nil
@@ -122,7 +121,7 @@ func (s *fakeFilterSource) String() (string, error) {
 
 type testCase struct {
 	name          string
-	inputProps    []kinds.MetaProperty
+	inputProps    []traverser.MetaProperty
 	expectedQuery string
 }
 
@@ -137,7 +136,7 @@ func (tests testCases) AssertQueryWithFilterSource(t *testing.T, nameSource name
 	filterSource filterSource) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			params := &kinds.GetMetaParams{
+			params := &traverser.GetMetaParams{
 				Properties: test.inputProps,
 			}
 			query, err := NewQuery(params, nameSource, &fakeTypeSource{}, filterSource).String()

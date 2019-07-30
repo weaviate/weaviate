@@ -1,15 +1,15 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE WEAVIATE OPEN SOURCE: https://www.semi.technology/playbook/playbook/contract-weaviate-OSS.html
- * LICENSE WEAVIATE ENTERPRISE: https://www.semi.technology/playbook/contract-weaviate-enterprise.html
- * CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
 package aggregate
 
 import (
@@ -75,7 +75,7 @@ func Build(dbSchema *schema.Schema, config config.Config) (*graphql.Field, error
 	return &field, nil
 }
 
-func classFields(databaseSchema []*models.SemanticSchemaClass, k kind.Kind,
+func classFields(databaseSchema []*models.Class, k kind.Kind,
 	config config.Config) (*graphql.Object, error) {
 	fields := graphql.Fields{}
 
@@ -95,7 +95,7 @@ func classFields(databaseSchema []*models.SemanticSchemaClass, k kind.Kind,
 	}), nil
 }
 
-func classField(k kind.Kind, class *models.SemanticSchemaClass, description string,
+func classField(k kind.Kind, class *models.Class, description string,
 	config config.Config) (*graphql.Field, error) {
 
 	if len(class.Properties) == 0 {
@@ -176,7 +176,7 @@ func extendArgsWithAnalyticsConfig(field *graphql.Field, config config.Config) *
 	return field
 }
 
-func classPropertyFields(class *models.SemanticSchemaClass) (graphql.Fields, error) {
+func classPropertyFields(class *models.Class) (graphql.Fields, error) {
 	fields := graphql.Fields{}
 	for _, property := range class.Properties {
 		propertyType, err := schema.GetPropertyDataType(class, property.Name)
@@ -205,7 +205,7 @@ func classPropertyFields(class *models.SemanticSchemaClass) (graphql.Fields, err
 	return fields, nil
 }
 
-func classPropertyField(dataType schema.DataType, class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) (*graphql.Field, error) {
+func classPropertyField(dataType schema.DataType, class *models.Class, property *models.Property) (*graphql.Field, error) {
 	switch dataType {
 	case schema.DataTypeString:
 		return makePropertyField(class, property, nonNumericPropertyFields)
@@ -229,10 +229,10 @@ func classPropertyField(dataType schema.DataType, class *models.SemanticSchemaCl
 	}
 }
 
-type propertyFieldMaker func(class *models.SemanticSchemaClass,
-	property *models.SemanticSchemaClassProperty, prefix string) *graphql.Object
+type propertyFieldMaker func(class *models.Class,
+	property *models.Property, prefix string) *graphql.Object
 
-func makePropertyField(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty,
+func makePropertyField(class *models.Class, property *models.Property,
 	fieldMaker propertyFieldMaker) (*graphql.Field, error) {
 	prefix := "LocalAggregate"
 	return &graphql.Field{

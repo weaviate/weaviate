@@ -50,11 +50,12 @@ services:
     ports:
       - "8080:8080"
   contextionary:
-    image: semitechnologies/contextionary:en0.6.0-v0.1.0-minimal
+    image: semitechnologies/contextionary:en0.8.0-v0.3.0
     ports:
       - "9999:9999"
     environment:
       SCHEMA_PROVIDER_URL: etcd:2379
+      OCCURRENCE_WEIGHT_LINEAR_FACTOR: 0.75
   weaviate_demo_importer:
     image: weaviate/demo_importer
     command: ["-weaviate-url", "http://weaviate:8080/weaviate/v1/"]
@@ -156,3 +157,12 @@ services:
       - ./tools/dev/keycloak/weaviate-realm.json:/tmp/weaviate-realm.json
     ports:
       - "9090:8080"
+  esvector:
+    image: semitechnologies/esvector:7.1.0
+    environment:
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms500m -Xmx500m
+      discovery.type: single-node
+    ports: 
+      - "9201:9200"
+      - "9301:9300"

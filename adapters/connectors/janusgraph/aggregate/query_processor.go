@@ -1,15 +1,14 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE WEAVIATE OPEN SOURCE: https://www.semi.technology/playbook/playbook/contract-weaviate-OSS.html
- * LICENSE WEAVIATE ENTERPRISE: https://www.semi.technology/playbook/contract-weaviate-enterprise.html
- * CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
 
 package aggregate
 
@@ -22,7 +21,7 @@ import (
 	"github.com/coreos/etcd/clientv3"
 	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/gremlin"
 	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 // AnalyticsAPICachePrefix is prepended to the ids to form the keys in the
@@ -59,7 +58,7 @@ func NewProcessor(executor executor, cache etcdClient, analytics analyticsClient
 // the structure we get from janusgraph into the structure we need for the
 // graphQL API
 func (p *Processor) Process(ctx context.Context, query *gremlin.Query, groupBy *filters.Path,
-	params *kinds.AggregateParams) (interface{}, error) {
+	params *traverser.AggregateParams) (interface{}, error) {
 
 	result, err := p.getResult(ctx, query, params)
 	if err != nil {
@@ -75,7 +74,7 @@ func (p *Processor) Process(ctx context.Context, query *gremlin.Query, groupBy *
 	return sliced, nil
 }
 
-func (p *Processor) getResult(ctx context.Context, query *gremlin.Query, params *kinds.AggregateParams) ([]interface{}, error) {
+func (p *Processor) getResult(ctx context.Context, query *gremlin.Query, params *traverser.AggregateParams) ([]interface{}, error) {
 	if params.Analytics.UseAnaltyicsEngine == false {
 		result, err := p.executor.Execute(ctx, query)
 		if err != nil {

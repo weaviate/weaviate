@@ -7,7 +7,7 @@ services:
     ports:
      - "80:80"
   weaviate:
-    image: semitechnologies/weaviate:0.14.2
+    image: semitechnologies/weaviate:0.18.0
     command: 
       - "--host"
       - "0.0.0.0"
@@ -25,11 +25,12 @@ services:
     volumes:
      - ./config.yaml:/config.yaml
   contextionary:
-    image: semitechnologies/contextionary:en0.6.0-v0.1.0
+    image: semitechnologies/contextionary:en0.8.0-v0.3.0
     ports:
       - "9999:9999"
     environment:
       SCHEMA_PROVIDER_URL: etcd:2379
+      OCCURRENCE_WEIGHT_LINEAR_FACTOR: 0.75
   janus:
     image: semitechnologies/janusgraph-docker:0.3.1
     depends_on:
@@ -93,3 +94,12 @@ services:
       - "tkn"
       - "--initial-cluster-state"
       - "new"
+  esvector:
+    image: semitechnologies/esvector:7.1.0
+    environment:
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms500m -Xmx500m
+      discovery.type: single-node
+    ports: 
+      - "9201:9200"
+      - "9301:9300"

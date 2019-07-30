@@ -1,15 +1,14 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE WEAVIATE OPEN SOURCE: https://www.semi.technology/playbook/playbook/contract-weaviate-OSS.html
- * LICENSE WEAVIATE ENTERPRISE: https://www.semi.technology/playbook/contract-weaviate-enterprise.html
- * CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
 
 // Package getmeta aims to reduce the repition between loca/getmeta and
 // network/getmeta
@@ -27,8 +26,8 @@ import (
 
 // ClassPropertyField builds one class field for a GetMeta Query based on the
 // underlying schema type
-func ClassPropertyField(dataType schema.DataType, class *models.SemanticSchemaClass,
-	property *models.SemanticSchemaClassProperty, prefix string) (*graphql.Field, error) {
+func ClassPropertyField(dataType schema.DataType, class *models.Class,
+	property *models.Property, prefix string) (*graphql.Field, error) {
 	switch dataType {
 	case schema.DataTypeString, schema.DataTypeText, schema.DataTypeDate:
 		return makePropertyField(class, property, stringPropertyFields, prefix)
@@ -46,10 +45,10 @@ func ClassPropertyField(dataType schema.DataType, class *models.SemanticSchemaCl
 	}
 }
 
-type propertyFieldMaker func(class *models.SemanticSchemaClass,
-	property *models.SemanticSchemaClassProperty, prefix string) *graphql.Object
+type propertyFieldMaker func(class *models.Class,
+	property *models.Property, prefix string) *graphql.Object
 
-func makePropertyField(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty,
+func makePropertyField(class *models.Class, property *models.Property,
 	fieldMaker propertyFieldMaker, prefix string) (*graphql.Field, error) {
 	return &graphql.Field{
 		Description: fmt.Sprintf(`%s"%s"`, descriptions.GetMetaProperty, property.Name),
@@ -59,14 +58,14 @@ func makePropertyField(class *models.SemanticSchemaClass, property *models.Seman
 
 // MetaPropertyField is a special kind of Property field that adds Meta.Count
 // info to a GetMeta Query regardless of the underlying schema
-func MetaPropertyField(class *models.SemanticSchemaClass, prefix string) (*graphql.Field, error) {
+func MetaPropertyField(class *models.Class, prefix string) (*graphql.Field, error) {
 	return &graphql.Field{
 		Description: descriptions.GetMetaMetaProperty,
 		Type:        metaPropertyObj(class, prefix),
 	}, nil
 }
 
-func metaPropertyObj(class *models.SemanticSchemaClass, prefix string) *graphql.Object {
+func metaPropertyObj(class *models.Class, prefix string) *graphql.Object {
 	getMetaPropertyFields := graphql.Fields{
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%sMetaCount", prefix, class.Class),

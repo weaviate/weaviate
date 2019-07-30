@@ -1,15 +1,14 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE WEAVIATE OPEN SOURCE: https://www.semi.technology/playbook/playbook/contract-weaviate-OSS.html
- * LICENSE WEAVIATE ENTERPRISE: https://www.semi.technology/playbook/contract-weaviate-enterprise.html
- * CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
 
 package config
 
@@ -53,6 +52,7 @@ type Config struct {
 	Authentication       Authentication  `json:"authentication" yaml:"authentication"`
 	Authorization        Authorization   `json:"authorization" yaml:"authorization"`
 	Telemetry            Telemetry       `json:"telemetry" yaml:"telemetry"`
+	VectorIndex          VectorIndex     `json:"vector_index" yaml:"vector_index"`
 }
 
 // QueryDefaults for optional parameters
@@ -62,6 +62,11 @@ type QueryDefaults struct {
 
 type Contextionary struct {
 	URL string `json:"url" yaml:"url"`
+}
+
+type VectorIndex struct {
+	Enabled bool   `json:"enabled" yaml:"enabled"`
+	URL     string `json:"url" yaml:"url"`
 }
 
 // AnalyticsEngine represents an external analytics engine, such as Spark for

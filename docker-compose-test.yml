@@ -17,11 +17,12 @@ services:
       DEVELOPMENT_UI: "on"
       LOG_LEVEL: "debug"
   contextionary:
-    image: semitechnologies/contextionary:en0.6.0-v0.1.0-minimal
+    image: semitechnologies/contextionary:en0.8.0-v0.3.0-minimal
     ports:
       - "9999:9999"
     environment:
       SCHEMA_PROVIDER_URL: etcd:2379
+      OCCURRENCE_WEIGHT_LINEAR_FACTOR: 0.75
   genesis_fake:
     build:
       context: .
@@ -136,3 +137,11 @@ services:
       - "tkn"
       - "--initial-cluster-state"
       - "new"
+  # esvector:
+  #   image: semitechnologies/elasticsearch-vector:5.6.0-experimental
+  #   environment:
+  #     xpack.security.enabled: "false"
+  #     ES_JAVA_OPTS: -Xms500m -Xmx500m
+  #   ports: 
+  #     - "9201:9200"
+  #     - "9301:9300"

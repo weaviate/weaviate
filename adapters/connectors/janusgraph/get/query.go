@@ -1,15 +1,14 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE WEAVIATE OPEN SOURCE: https://www.semi.technology/playbook/playbook/contract-weaviate-OSS.html
- * LICENSE WEAVIATE ENTERPRISE: https://www.semi.technology/playbook/contract-weaviate-enterprise.html
- * CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
 
 package get
 
@@ -25,13 +24,13 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 // Query prepares a Local->Fetch Query. Can be built with String(). Create with
 // NewQuery() to be sure that all required properties are set
 type Query struct {
-	params     kinds.LocalGetParams
+	params     traverser.LocalGetParams
 	nameSource nameSource
 	typeSource typeSource
 	defaults   config.QueryDefaults
@@ -44,7 +43,7 @@ func init() {
 }
 
 // NewQuery is the preferred way to create a query
-func NewQuery(p kinds.LocalGetParams, ns nameSource, ts typeSource, d config.QueryDefaults) *Query {
+func NewQuery(p traverser.LocalGetParams, ns nameSource, ts typeSource, d config.QueryDefaults) *Query {
 	return &Query{
 		params:     p,
 		nameSource: ns,
@@ -65,7 +64,7 @@ type nameSource interface {
 
 type typeSource interface {
 	GetProperty(kind kind.Kind, className schema.ClassName,
-		propName schema.PropertyName) (error, *models.SemanticSchemaClassProperty)
+		propName schema.PropertyName) (error, *models.Property)
 	FindPropertyDataType(dataType []string) (schema.PropertyDataType, error)
 }
 
@@ -112,7 +111,7 @@ func (b *Query) refPropQueryWrapper() (string, error) {
 	return "." + gremlin.New().Union(queries...).String(), nil
 }
 
-func (b *Query) refPropQueries(props []kinds.SelectProperty, className string) []*gremlin.Query {
+func (b *Query) refPropQueries(props []traverser.SelectProperty, className string) []*gremlin.Query {
 	var queries []*gremlin.Query
 	for _, prop := range props {
 		if propQueries := b.refPropQuery(prop, className); propQueries != nil {
@@ -123,7 +122,7 @@ func (b *Query) refPropQueries(props []kinds.SelectProperty, className string) [
 	return queries
 }
 
-func (b *Query) refPropQuery(prop kinds.SelectProperty, className string) []*gremlin.Query {
+func (b *Query) refPropQuery(prop traverser.SelectProperty, className string) []*gremlin.Query {
 	if prop.IsPrimitive {
 		return nil
 	}

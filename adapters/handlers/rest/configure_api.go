@@ -1,32 +1,34 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE WEAVIATE OPEN SOURCE: https://www.semi.technology/playbook/playbook/contract-weaviate-OSS.html
- * LICENSE WEAVIATE ENTERPRISE: https://www.semi.technology/playbook/contract-weaviate-enterprise.html
- * CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
 
 package rest
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
 	"time"
 
 	"github.com/coreos/etcd/clientv3"
+	"github.com/elastic/go-elasticsearch/v5"
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/semi-technologies/weaviate/adapters/clients/contextionary"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
 	"github.com/semi-technologies/weaviate/adapters/locks"
+	"github.com/semi-technologies/weaviate/adapters/repos/esvector"
 	"github.com/semi-technologies/weaviate/adapters/repos/etcd"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -36,7 +38,10 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
+	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
+	libvectorizer "github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"github.com/sirupsen/logrus"
 )
 
@@ -48,8 +53,23 @@ func makeConfigureServer(appState *state.State) func(*http.Server, string, strin
 	}
 }
 
+type vectorRepo interface {
+	kinds.VectorRepo
+	traverser.VectorSearcher
+}
+
+type vectorizer interface {
+	kinds.Vectorizer
+	traverser.CorpiVectorizer
+}
+
+type explorer interface {
+	GetClass(ctx context.Context, params *traverser.LocalGetParams) ([]interface{}, error)
+	Concepts(ctx context.Context, params traverser.ExploreParams) ([]traverser.VectorSearchResult, error)
+}
+
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
-	appState, etcdClient := startupRoutine()
+	appState, etcdClient, esClient := startupRoutine()
 
 	api.ServeError = errors.ServeError
 
@@ -63,10 +83,31 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Logger.WithField("action", "restapi_management").Infof(msg, args...)
 	}
 
+	var vectorRepo vectorRepo
+	var vectorMigrator migrate.Migrator
+	var vectorizer vectorizer
+	var migrator migrate.Migrator
+	var explorer explorer
+
+	if appState.ServerConfig.Config.VectorIndex.Enabled {
+		repo := esvector.NewRepo(esClient, appState.Logger)
+		vectorMigrator = esvector.NewMigrator(repo)
+		vectorRepo = repo
+		migrator = migrate.New(appState.Connector, vectorMigrator)
+		vectorizer = libvectorizer.New(appState.Contextionary)
+		explorer = traverser.NewExplorer(repo, vectorizer, appState.Connector)
+	} else {
+		vectorRepo = esvector.NewNoOpRepo()
+		vectorizer = libvectorizer.NewNoOp()
+		migrator = migrate.New(appState.Connector) //, vectorMigrator)
+		explorer = traverser.NewNoOpExplorer(fmt.Errorf("explore operations not possible: " +
+			"vector indexing is disabled, enable vector indexing first"))
+	}
+
 	schemaRepo := etcd.NewSchemaRepo(etcdClient)
 	connstateRepo := etcd.NewConnStateRepo(etcdClient)
 
-	schemaManager, err := schemaUC.NewManager(appState.Connector, schemaRepo,
+	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Locks, appState.Network, appState.Logger, appState.Contextionary, appState.Authorizer, appState.StopwordDetector)
 	if err != nil {
 		appState.Logger.
@@ -74,14 +115,17 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			Fatal("could not initialize schema manager")
 		os.Exit(1)
 	}
+
 	kindsManager := kinds.NewManager(appState.Connector, appState.Locks,
 		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,
-		appState.Authorizer)
+		appState.Authorizer, vectorizer, vectorRepo)
 	batchKindsManager := kinds.NewBatchManager(appState.Connector, appState.Locks,
 		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,
 		appState.Authorizer)
-	kindsTraverser := kinds.NewTraverser(appState.Locks, appState.Connector,
-		appState.Contextionary, appState.Logger, appState.Authorizer)
+
+	kindsTraverser := traverser.NewTraverser(appState.Locks, appState.Connector,
+		appState.Contextionary, appState.Logger, appState.Authorizer, vectorizer,
+		vectorRepo, explorer)
 	connstateManager, err := connstate.NewManager(connstateRepo, appState.Logger)
 	if err != nil {
 		appState.Logger.
@@ -141,7 +185,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 }
 
 // TODO: Split up and don't write into global variables. Instead return an appState
-func startupRoutine() (*state.State, *clientv3.Client) {
+func startupRoutine() (*state.State, *clientv3.Client, *elasticsearch.Client) {
 	appState := &state.State{}
 	// context for the startup procedure. (So far the only subcommand respecting
 	// the context is the schema initialization, as this uses the etcd client
@@ -211,9 +255,19 @@ func startupRoutine() (*state.State, *clientv3.Client) {
 			WithError(err).Error("cannot construct distributed lock with etcd")
 		logger.Exit(1)
 	}
-
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("created etcd client")
+
+	esClient, err := elasticsearch.NewClient(elasticsearch.Config{
+		Addresses: []string{serverConfig.Config.VectorIndex.URL},
+	})
+	if err != nil {
+		logger.WithField("action", "startup").
+			WithError(err).Error("cannot create es client for vector index")
+		logger.Exit(1)
+	}
+	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
+		Debug("created es client for vector index")
 
 	appState.TelemetryLogger = configureTelemetry(appState, etcdClient, logger)
 
@@ -246,7 +300,7 @@ func startupRoutine() (*state.State, *clientv3.Client) {
 	appState.StopwordDetector = c11y
 	appState.Contextionary = c11y
 
-	return appState, etcdClient
+	return appState, etcdClient, esClient
 }
 
 func configureTelemetry(appState *state.State, etcdClient *clientv3.Client,
