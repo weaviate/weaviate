@@ -1,15 +1,14 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE WEAVIATE OPEN SOURCE: https://www.semi.technology/playbook/playbook/contract-weaviate-OSS.html
- * LICENSE WEAVIATE ENTERPRISE: https://www.semi.technology/playbook/contract-weaviate-enterprise.html
- * CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
 
 // Package aggregate provides the local aggregate graphql endpoint for Weaviate
 package aggregate
@@ -18,8 +17,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
@@ -40,7 +39,7 @@ const GroupedByFieldName = "groupedBy"
 // form the overall GraphQL API main interface. All data-base connectors that
 // want to support the GetMeta feature must implement this interface.
 type Resolver interface {
-	LocalAggregate(ctx context.Context, principal *models.Principal, info *kinds.AggregateParams) (interface{}, error)
+	LocalAggregate(ctx context.Context, principal *models.Principal, info *traverser.AggregateParams) (interface{}, error)
 }
 
 // RequestsLog is a local abstraction on the RequestsLog that needs to be
@@ -106,7 +105,7 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 			return nil, fmt.Errorf("could not extract filters: %s", err)
 		}
 
-		params := &kinds.AggregateParams{
+		params := &traverser.AggregateParams{
 			Kind:       kind,
 			Filters:    filters,
 			ClassName:  className,
@@ -119,8 +118,8 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 	}
 }
 
-func extractProperties(selections *ast.SelectionSet) ([]kinds.AggregateProperty, error) {
-	properties := []kinds.AggregateProperty{}
+func extractProperties(selections *ast.SelectionSet) ([]traverser.AggregateProperty, error) {
+	properties := []traverser.AggregateProperty{}
 
 	for _, selection := range selections.Selections {
 		field := selection.(*ast.Field)
@@ -136,7 +135,7 @@ func extractProperties(selections *ast.SelectionSet) ([]kinds.AggregateProperty,
 			continue
 		}
 
-		property := kinds.AggregateProperty{Name: schema.PropertyName(name)}
+		property := traverser.AggregateProperty{Name: schema.PropertyName(name)}
 		aggregators, err := extractAggregators(field.SelectionSet)
 		if err != nil {
 			return nil, err
@@ -149,12 +148,12 @@ func extractProperties(selections *ast.SelectionSet) ([]kinds.AggregateProperty,
 	return properties, nil
 }
 
-func extractAggregators(selections *ast.SelectionSet) ([]kinds.Aggregator, error) {
-	analyses := []kinds.Aggregator{}
+func extractAggregators(selections *ast.SelectionSet) ([]traverser.Aggregator, error) {
+	analyses := []traverser.Aggregator{}
 	for _, selection := range selections.Selections {
 		field := selection.(*ast.Field)
 		name := field.Name.Value
-		property, err := kinds.ParseAggregatorProp(name)
+		property, err := traverser.ParseAggregatorProp(name)
 		if err != nil {
 			return nil, err
 		}

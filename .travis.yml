@@ -74,7 +74,7 @@ install:
   - chmod +x semver
 before_script:
   - sudo apt-get -qq -y update
-  - sudo apt-get -qq -y install jq coreutils python3
+  - sudo apt-get -qq -y install jq coreutils 
   - |
     if [ "$TRAVIS_BRANCH" = "master" ]; then
       # build the build tools
@@ -97,11 +97,8 @@ before_script:
   # Verify that the code is properly formatted.
   - if [[ -n "$(gofmt -l .)" ]]; then echo "The following files were not formatted properly!"; gofmt -l .; exit 1; fi
 script: 
-  # Verify dev setup is not broken
-  #- ./tools/test/import_journey.sh || travis_terminate 1
-  # Run all tests
   # - ./cc-test-reporter before-build
-  - ./test/acceptance/run.sh || travis_terminate 1
+  - ./test/run.sh || travis_terminate 1
   # - ./cc-test-reporter after-build
 services: 
   - docker

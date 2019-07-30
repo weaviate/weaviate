@@ -1,15 +1,15 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE WEAVIATE OPEN SOURCE: https://www.semi.technology/playbook/playbook/contract-weaviate-OSS.html
- * LICENSE WEAVIATE ENTERPRISE: https://www.semi.technology/playbook/contract-weaviate-enterprise.html
- * CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
 package aggregate
 
 import (
@@ -19,14 +19,14 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 )
 
 type testCase struct {
 	name                string
 	query               string
-	expectedProps       []kinds.AggregateProperty
+	expectedProps       []traverser.AggregateProperty
 	resolverReturn      interface{}
 	expectedResults     []result
 	expectedGroupBy     *filters.Path
@@ -58,10 +58,10 @@ func Test_Resolve(t *testing.T) {
 		testCase{
 			name:  "single prop: mean",
 			query: `{ Aggregate { Things { Car(groupBy:["madeBy", "Manufacturer", "name"]) { horsepower { mean } } } } }`,
-			expectedProps: []kinds.AggregateProperty{
+			expectedProps: []traverser.AggregateProperty{
 				{
 					Name:        "horsepower",
-					Aggregators: []kinds.Aggregator{kinds.MeanAggregator},
+					Aggregators: []traverser.Aggregator{traverser.MeanAggregator},
 				},
 			},
 			resolverReturn: []interface{}{
@@ -86,10 +86,10 @@ func Test_Resolve(t *testing.T) {
 		testCase{
 			name:  "single prop: mean with groupedBy path/value",
 			query: `{ Aggregate { Things { Car(groupBy:["madeBy", "Manufacturer", "name"]) { horsepower { mean } groupedBy { value path } } } } }`,
-			expectedProps: []kinds.AggregateProperty{
+			expectedProps: []traverser.AggregateProperty{
 				{
 					Name:        "horsepower",
-					Aggregators: []kinds.Aggregator{kinds.MeanAggregator},
+					Aggregators: []traverser.Aggregator{traverser.MeanAggregator},
 				},
 			},
 			resolverReturn: []interface{}{
@@ -139,10 +139,10 @@ func Test_Resolve(t *testing.T) {
 					} 
 				} 
 			}`,
-			expectedProps: []kinds.AggregateProperty{
+			expectedProps: []traverser.AggregateProperty{
 				{
 					Name:        "horsepower",
-					Aggregators: []kinds.Aggregator{kinds.MeanAggregator},
+					Aggregators: []traverser.Aggregator{traverser.MeanAggregator},
 				},
 			},
 			resolverReturn: []interface{}{
@@ -181,10 +181,10 @@ func Test_Resolve(t *testing.T) {
 		testCase{
 			name:  "all int props",
 			query: `{ Aggregate { Things { Car(groupBy:["madeBy", "Manufacturer", "name"]) { horsepower { mean, median, mode, maximum, minimum, count, sum } } } } }`,
-			expectedProps: []kinds.AggregateProperty{
+			expectedProps: []traverser.AggregateProperty{
 				{
 					Name:        "horsepower",
-					Aggregators: []kinds.Aggregator{kinds.MeanAggregator, kinds.MedianAggregator, kinds.ModeAggregator, kinds.MaximumAggregator, kinds.MinimumAggregator, kinds.CountAggregator, kinds.SumAggregator},
+					Aggregators: []traverser.Aggregator{traverser.MeanAggregator, traverser.MedianAggregator, traverser.ModeAggregator, traverser.MaximumAggregator, traverser.MinimumAggregator, traverser.CountAggregator, traverser.SumAggregator},
 				},
 			},
 			resolverReturn: []interface{}{
@@ -223,10 +223,10 @@ func Test_Resolve(t *testing.T) {
 		testCase{
 			name:  "single prop: string",
 			query: `{ Aggregate { Things { Car(groupBy:["madeBy", "Manufacturer", "name"]) { modelName { count } } } } }`,
-			expectedProps: []kinds.AggregateProperty{
+			expectedProps: []traverser.AggregateProperty{
 				{
 					Name:        "modelName",
-					Aggregators: []kinds.Aggregator{kinds.CountAggregator},
+					Aggregators: []traverser.Aggregator{traverser.CountAggregator},
 				},
 			},
 			resolverReturn: []interface{}{
@@ -258,7 +258,7 @@ func (tests testCases) AssertExtraction(t *testing.T, k kind.Kind, className str
 		t.Run(testCase.name, func(t *testing.T) {
 			resolver := newMockResolver(config.Config{})
 
-			expectedParams := &kinds.AggregateParams{
+			expectedParams := &traverser.AggregateParams{
 				Kind:       k,
 				ClassName:  schema.ClassName(className),
 				Properties: testCase.expectedProps,

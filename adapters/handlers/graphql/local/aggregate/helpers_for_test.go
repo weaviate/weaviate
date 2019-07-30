@@ -1,15 +1,15 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE WEAVIATE OPEN SOURCE: https://www.semi.technology/playbook/playbook/contract-weaviate-OSS.html
- * LICENSE WEAVIATE ENTERPRISE: https://www.semi.technology/playbook/contract-weaviate-enterprise.html
- * CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
 package aggregate
 
 import (
@@ -19,7 +19,7 @@ import (
 	testhelper "github.com/semi-technologies/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type mockRequestsLog struct{}
@@ -51,7 +51,7 @@ func newMockResolver(cfg config.Config) *mockResolver {
 }
 
 func (m *mockResolver) LocalAggregate(ctx context.Context, principal *models.Principal,
-	params *kinds.AggregateParams) (interface{}, error) {
+	params *traverser.AggregateParams) (interface{}, error) {
 	args := m.Called(params)
 	return args.Get(0), args.Error(1)
 }

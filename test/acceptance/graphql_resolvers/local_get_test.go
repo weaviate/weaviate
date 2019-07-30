@@ -1,15 +1,15 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE WEAVIATE OPEN SOURCE: https://www.semi.technology/playbook/playbook/contract-weaviate-OSS.html
- * LICENSE WEAVIATE ENTERPRISE: https://www.semi.technology/playbook/contract-weaviate-enterprise.html
- * CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
 package test
 
 import (
@@ -21,8 +21,8 @@ import (
 )
 
 func TestLocalGetSimple(t *testing.T) {
-	result := AssertGraphQL(t, helper.RootAuth, "{ Local { Get { Things { City { name } } } } }")
-	cities := result.Get("Local", "Get", "Things", "City").AsSlice()
+	result := AssertGraphQL(t, helper.RootAuth, "{  Get { Things { City { name } } } }")
+	cities := result.Get("Get", "Things", "City").AsSlice()
 
 	// Generated with
 	// cat fixtures/data.json | jq '.Things[] | select(.class=="City") | .name'
@@ -37,8 +37,8 @@ func TestLocalGetSimple(t *testing.T) {
 }
 
 func TestLocalGetRelation(t *testing.T) {
-	result := AssertGraphQL(t, helper.RootAuth, "{ Local { Get { Things { City { name, InCountry { ... on Country { name } } } } } } }")
-	cities := result.Get("Local", "Get", "Things", "City").AsSlice()
+	result := AssertGraphQL(t, helper.RootAuth, "{ Get { Things { City { name, InCountry { ... on Country { name } } } } } }")
+	cities := result.Get("Get", "Things", "City").AsSlice()
 
 	// Generated with
 	// cat test/acceptance/graphql_resolvers_local/fixtures/data.json | jq '.Things[] | select(.class=="City") | { "name": .name, "inCountry": { "name": .inCountry.name } }' | jq --slurp .

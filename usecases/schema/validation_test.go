@@ -1,15 +1,16 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE WEAVIATE OPEN SOURCE: https://www.semi.technology/playbook/playbook/contract-weaviate-OSS.html
- * LICENSE WEAVIATE ENTERPRISE: https://www.semi.technology/playbook/contract-weaviate-enterprise.html
- * CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */package schema
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
+package schema
 
 import (
 	"context"
@@ -132,7 +133,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 
 			for _, test := range tests {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
-					class := &models.SemanticSchemaClass{
+					class := &models.Class{
 						Class: test.input,
 					}
 
@@ -151,7 +152,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 				})
 
 				t.Run(test.name+" as action class", func(t *testing.T) {
-					class := &models.SemanticSchemaClass{
+					class := &models.Class{
 						Class: test.input,
 					}
 
@@ -174,9 +175,9 @@ func Test_Validation_ClassNames(t *testing.T) {
 		t.Run("different class names with valid keywords", func(t *testing.T) {
 			for _, test := range tests {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
-					class := &models.SemanticSchemaClass{
+					class := &models.Class{
 						Class: test.input,
-						Keywords: models.SemanticSchemaKeywords{{
+						Keywords: models.Keywords{{
 							Keyword: "something",
 							Weight:  0.7,
 						}},
@@ -197,9 +198,9 @@ func Test_Validation_ClassNames(t *testing.T) {
 				})
 
 				t.Run(test.name+" as action class", func(t *testing.T) {
-					class := &models.SemanticSchemaClass{
+					class := &models.Class{
 						Class: test.input,
-						Keywords: models.SemanticSchemaKeywords{{
+						Keywords: models.Keywords{{
 							Keyword: "something",
 							Weight:  0.7,
 						}},
@@ -228,7 +229,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 			for _, test := range tests {
 				originalName := "ValidOriginalName"
 				t.Run(test.name+" as thing class", func(t *testing.T) {
-					class := &models.SemanticSchemaClass{
+					class := &models.Class{
 						Class: originalName,
 					}
 
@@ -237,7 +238,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 					require.Nil(t, err)
 
 					// now try to update
-					updatedClass := &models.SemanticSchemaClass{
+					updatedClass := &models.Class{
 						Class: test.input,
 					}
 
@@ -254,7 +255,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 				})
 
 				t.Run(test.name+" as action class", func(t *testing.T) {
-					class := &models.SemanticSchemaClass{
+					class := &models.Class{
 						Class: originalName,
 					}
 
@@ -263,7 +264,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 					require.Nil(t, err)
 
 					// now try to update
-					updatedClass := &models.SemanticSchemaClass{
+					updatedClass := &models.Class{
 						Class: test.input,
 					}
 
@@ -287,9 +288,9 @@ func Test_Validation_ClassNames(t *testing.T) {
 				originalName := "ValidOriginalName"
 
 				t.Run(test.name+" as thing class", func(t *testing.T) {
-					class := &models.SemanticSchemaClass{
+					class := &models.Class{
 						Class: originalName,
-						Keywords: models.SemanticSchemaKeywords{{
+						Keywords: models.Keywords{{
 							Keyword: "something",
 							Weight:  0.7,
 						}},
@@ -300,7 +301,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 					require.Nil(t, err)
 
 					// now update
-					updatedClass := &models.SemanticSchemaClass{
+					updatedClass := &models.Class{
 						Class:    test.input,
 						Keywords: class.Keywords,
 					}
@@ -317,9 +318,9 @@ func Test_Validation_ClassNames(t *testing.T) {
 				})
 
 				t.Run(test.name+" as action class", func(t *testing.T) {
-					class := &models.SemanticSchemaClass{
+					class := &models.Class{
 						Class: originalName,
-						Keywords: models.SemanticSchemaKeywords{{
+						Keywords: models.Keywords{{
 							Keyword: "someaction",
 							Weight:  0.7,
 						}},
@@ -330,7 +331,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 					require.Nil(t, err)
 
 					// now update
-					updatedClass := &models.SemanticSchemaClass{
+					updatedClass := &models.Class{
 						Class:    test.input,
 						Keywords: class.Keywords,
 					}
@@ -454,9 +455,9 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 			for _, test := range tests {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
-					class := &models.SemanticSchemaClass{
+					class := &models.Class{
 						Class: "ValidName",
-						Properties: []*models.SemanticSchemaClassProperty{{
+						Properties: []*models.Property{{
 							DataType: []string{"string"},
 							Name:     test.input,
 						}},
@@ -478,9 +479,9 @@ func Test_Validation_PropertyNames(t *testing.T) {
 				})
 
 				t.Run(test.name+" as action class", func(t *testing.T) {
-					class := &models.SemanticSchemaClass{
+					class := &models.Class{
 						Class: "ValidName",
-						Properties: []*models.SemanticSchemaClassProperty{{
+						Properties: []*models.Property{{
 							DataType: []string{"string"},
 							Name:     test.input,
 						}},
@@ -507,12 +508,12 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 			for _, test := range tests {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
-					class := &models.SemanticSchemaClass{
+					class := &models.Class{
 						Class: "ValidName",
-						Properties: []*models.SemanticSchemaClassProperty{{
+						Properties: []*models.Property{{
 							DataType: []string{"string"},
 							Name:     test.input,
-							Keywords: models.SemanticSchemaKeywords{{Keyword: "something", Weight: 0.7}},
+							Keywords: models.Keywords{{Keyword: "something", Weight: 0.7}},
 						}},
 					}
 
@@ -532,12 +533,12 @@ func Test_Validation_PropertyNames(t *testing.T) {
 				})
 
 				t.Run(test.name+" as action class", func(t *testing.T) {
-					class := &models.SemanticSchemaClass{
+					class := &models.Class{
 						Class: "ValidName",
-						Properties: []*models.SemanticSchemaClassProperty{{
+						Properties: []*models.Property{{
 							DataType: []string{"string"},
 							Name:     test.input,
-							Keywords: models.SemanticSchemaKeywords{{Keyword: "something", Weight: 0.7}},
+							Keywords: models.Keywords{{Keyword: "something", Weight: 0.7}},
 						}},
 					}
 
@@ -564,7 +565,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 			for _, test := range tests {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
-					class := &models.SemanticSchemaClass{
+					class := &models.Class{
 						Class: "ValidName",
 					}
 
@@ -572,7 +573,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					err := m.AddThing(context.Background(), nil, class)
 					require.Nil(t, err)
 
-					property := &models.SemanticSchemaClassProperty{
+					property := &models.Property{
 						DataType: []string{"string"},
 						Name:     test.input,
 					}
@@ -591,7 +592,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 				})
 
 				t.Run(test.name+" as action class", func(t *testing.T) {
-					class := &models.SemanticSchemaClass{
+					class := &models.Class{
 						Class: "ValidName",
 					}
 
@@ -599,7 +600,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					err := m.AddAction(context.Background(), nil, class)
 					require.Nil(t, err)
 
-					property := &models.SemanticSchemaClassProperty{
+					property := &models.Property{
 						DataType: []string{"string"},
 						Name:     test.input,
 					}
@@ -624,12 +625,12 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 			for _, test := range tests {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
-					class := &models.SemanticSchemaClass{
+					class := &models.Class{
 						Class: "ValidName",
-						Properties: []*models.SemanticSchemaClassProperty{{
+						Properties: []*models.Property{{
 							DataType: []string{"string"},
 							Name:     test.input,
-							Keywords: models.SemanticSchemaKeywords{{Keyword: "something", Weight: 0.7}},
+							Keywords: models.Keywords{{Keyword: "something", Weight: 0.7}},
 						}},
 					}
 
@@ -649,12 +650,12 @@ func Test_Validation_PropertyNames(t *testing.T) {
 				})
 
 				t.Run(test.name+" as action class", func(t *testing.T) {
-					class := &models.SemanticSchemaClass{
+					class := &models.Class{
 						Class: "ValidName",
-						Properties: []*models.SemanticSchemaClassProperty{{
+						Properties: []*models.Property{{
 							DataType: []string{"string"},
 							Name:     test.input,
-							Keywords: models.SemanticSchemaKeywords{{Keyword: "something", Weight: 0.7}},
+							Keywords: models.Keywords{{Keyword: "something", Weight: 0.7}},
 						}},
 					}
 
@@ -683,10 +684,10 @@ func Test_Validation_PropertyNames(t *testing.T) {
 				originalName := "validPropertyName"
 
 				t.Run(test.name+" as thing class", func(t *testing.T) {
-					class := &models.SemanticSchemaClass{
+					class := &models.Class{
 						Class: "ValidName",
-						Properties: []*models.SemanticSchemaClassProperty{
-							&models.SemanticSchemaClassProperty{
+						Properties: []*models.Property{
+							&models.Property{
 								DataType: []string{"string"},
 								Name:     originalName,
 							},
@@ -697,7 +698,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					err := m.AddThing(context.Background(), nil, class)
 					require.Nil(t, err)
 
-					updatedProperty := &models.SemanticSchemaClassProperty{
+					updatedProperty := &models.Property{
 						DataType: []string{"string"},
 						Name:     test.input,
 					}
@@ -716,10 +717,10 @@ func Test_Validation_PropertyNames(t *testing.T) {
 				})
 
 				t.Run(test.name+" as action class", func(t *testing.T) {
-					class := &models.SemanticSchemaClass{
+					class := &models.Class{
 						Class: "ValidName",
-						Properties: []*models.SemanticSchemaClassProperty{
-							&models.SemanticSchemaClassProperty{
+						Properties: []*models.Property{
+							&models.Property{
 								DataType: []string{"string"},
 								Name:     originalName,
 							},
@@ -730,7 +731,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					err := m.AddAction(context.Background(), nil, class)
 					require.Nil(t, err)
 
-					updatedProperty := &models.SemanticSchemaClassProperty{
+					updatedProperty := &models.Property{
 						DataType: []string{"string"},
 						Name:     test.input,
 					}
@@ -755,12 +756,12 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 			for _, test := range tests {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
-					class := &models.SemanticSchemaClass{
+					class := &models.Class{
 						Class: "ValidName",
-						Properties: []*models.SemanticSchemaClassProperty{{
+						Properties: []*models.Property{{
 							DataType: []string{"string"},
 							Name:     test.input,
-							Keywords: models.SemanticSchemaKeywords{{Keyword: "something", Weight: 0.7}},
+							Keywords: models.Keywords{{Keyword: "something", Weight: 0.7}},
 						}},
 					}
 
@@ -780,12 +781,12 @@ func Test_Validation_PropertyNames(t *testing.T) {
 				})
 
 				t.Run(test.name+" as action class", func(t *testing.T) {
-					class := &models.SemanticSchemaClass{
+					class := &models.Class{
 						Class: "ValidName",
-						Properties: []*models.SemanticSchemaClassProperty{{
+						Properties: []*models.Property{{
 							DataType: []string{"string"},
 							Name:     test.input,
-							Keywords: models.SemanticSchemaKeywords{{Keyword: "something", Weight: 0.7}},
+							Keywords: models.Keywords{{Keyword: "something", Weight: 0.7}},
 						}},
 					}
 

@@ -1,15 +1,16 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE WEAVIATE OPEN SOURCE: https://www.semi.technology/playbook/playbook/contract-weaviate-OSS.html
- * LICENSE WEAVIATE ENTERPRISE: https://www.semi.technology/playbook/contract-weaviate-enterprise.html
- * CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */package aggregate
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
+package aggregate
 
 import (
 	"testing"
@@ -18,7 +19,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func Test_ExtractAnalyticsPropsFromAggregate(t *testing.T) {
@@ -41,13 +42,13 @@ func Test_ExtractAnalyticsPropsFromAggregate(t *testing.T) {
 		},
 	}
 
-	expectedParams := &kinds.AggregateParams{
+	expectedParams := &traverser.AggregateParams{
 		Kind:      kind.Thing,
 		ClassName: schema.ClassName("Car"),
-		Properties: []kinds.AggregateProperty{
+		Properties: []traverser.AggregateProperty{
 			{
 				Name:        "horsepower",
-				Aggregators: []kinds.Aggregator{kinds.MeanAggregator},
+				Aggregators: []traverser.Aggregator{traverser.MeanAggregator},
 			},
 		},
 		GroupBy:   groupCarByMadeByManufacturerName(),

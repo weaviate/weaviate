@@ -1,15 +1,15 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE WEAVIATE OPEN SOURCE: https://www.semi.technology/playbook/playbook/contract-weaviate-OSS.html
- * LICENSE WEAVIATE ENTERPRISE: https://www.semi.technology/playbook/contract-weaviate-enterprise.html
- * CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
 package meta
 
 import (
@@ -19,7 +19,7 @@ import (
 	analytics "github.com/SeMI-network/janus-spark-analytics/clients/go"
 	"github.com/coreos/etcd/clientv3"
 	"github.com/semi-technologies/weaviate/adapters/connectors/janusgraph/gremlin"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 const AnalyticsAPICachePrefix = "/weaviate/janusgraph-connector/analytics-cache/"
@@ -50,7 +50,7 @@ func NewProcessor(executor executor, cache etcdClient, analytics analyticsClient
 }
 
 func (p *Processor) Process(ctx context.Context, query *gremlin.Query, typeInfo map[string]interface{},
-	params *kinds.GetMetaParams) (interface{}, error) {
+	params *traverser.GetMetaParams) (interface{}, error) {
 
 	result, err := p.getResult(ctx, query, params)
 	if err != nil {
@@ -66,7 +66,7 @@ func (p *Processor) Process(ctx context.Context, query *gremlin.Query, typeInfo 
 	return merged, nil
 }
 
-func (p *Processor) getResult(ctx context.Context, query *gremlin.Query, params *kinds.GetMetaParams) ([]interface{}, error) {
+func (p *Processor) getResult(ctx context.Context, query *gremlin.Query, params *traverser.GetMetaParams) ([]interface{}, error) {
 	if params.Analytics.UseAnaltyicsEngine == false {
 		result, err := p.executor.Execute(ctx, query)
 		if err != nil {
@@ -80,7 +80,7 @@ func (p *Processor) getResult(ctx context.Context, query *gremlin.Query, params 
 }
 
 func (p *Processor) mergeResults(input []interface{},
-	typeInfo map[string]interface{}, params *kinds.GetMetaParams) (interface{}, error) {
+	typeInfo map[string]interface{}, params *traverser.GetMetaParams) (interface{}, error) {
 	result := map[string]interface{}{}
 
 	for _, datum := range input {
@@ -131,7 +131,7 @@ func (p *Processor) mergeResults(input []interface{},
 }
 
 func (p *Processor) postProcess(propName string, m map[string]interface{},
-	params *kinds.GetMetaParams) (map[string]interface{}, error) {
+	params *traverser.GetMetaParams) (map[string]interface{}, error) {
 
 	if hasBoolAnalyses(propName, params) {
 		return p.postProcessBoolGroupCount(m)
@@ -169,7 +169,7 @@ func datumsToSlice(g *gremlin.Response) []interface{} {
 	return res
 }
 
-func hasBoolAnalyses(propName string, params *kinds.GetMetaParams) bool {
+func hasBoolAnalyses(propName string, params *traverser.GetMetaParams) bool {
 	for _, prop := range params.Properties {
 		if string(prop.Name) == propName && hasAtLeastOneBooleanAnalysis(prop.StatisticalAnalyses) {
 			return true
@@ -179,12 +179,12 @@ func hasBoolAnalyses(propName string, params *kinds.GetMetaParams) bool {
 	return false
 }
 
-func hasAtLeastOneBooleanAnalysis(analyses []kinds.StatisticalAnalysis) bool {
+func hasAtLeastOneBooleanAnalysis(analyses []traverser.StatisticalAnalysis) bool {
 	for _, analysis := range analyses {
-		if analysis == kinds.PercentageTrue ||
-			analysis == kinds.PercentageFalse ||
-			analysis == kinds.TotalTrue ||
-			analysis == kinds.TotalFalse {
+		if analysis == traverser.PercentageTrue ||
+			analysis == traverser.PercentageFalse ||
+			analysis == traverser.TotalTrue ||
+			analysis == traverser.TotalFalse {
 			return true
 		}
 	}

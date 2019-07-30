@@ -1,15 +1,14 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE WEAVIATE OPEN SOURCE: https://www.semi.technology/playbook/playbook/contract-weaviate-OSS.html
- * LICENSE WEAVIATE ENTERPRISE: https://www.semi.technology/playbook/contract-weaviate-enterprise.html
- * CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
 
 package schema
 
@@ -48,26 +47,26 @@ func Test_Schema_Authorization(t *testing.T) {
 
 		testCase{
 			methodName:       "AddThing",
-			additionalArgs:   []interface{}{&models.SemanticSchemaClass{}},
+			additionalArgs:   []interface{}{&models.Class{}},
 			expectedVerb:     "create",
 			expectedResource: "schema/things",
 		},
 		testCase{
 			methodName:       "AddAction",
-			additionalArgs:   []interface{}{&models.SemanticSchemaClass{}},
+			additionalArgs:   []interface{}{&models.Class{}},
 			expectedVerb:     "create",
 			expectedResource: "schema/actions",
 		},
 
 		testCase{
 			methodName:       "UpdateThing",
-			additionalArgs:   []interface{}{"somename", &models.SemanticSchemaClass{}},
+			additionalArgs:   []interface{}{"somename", &models.Class{}},
 			expectedVerb:     "update",
 			expectedResource: "schema/things",
 		},
 		testCase{
 			methodName:       "UpdateAction",
-			additionalArgs:   []interface{}{"somename", &models.SemanticSchemaClass{}},
+			additionalArgs:   []interface{}{"somename", &models.Class{}},
 			expectedVerb:     "update",
 			expectedResource: "schema/actions",
 		},
@@ -87,26 +86,26 @@ func Test_Schema_Authorization(t *testing.T) {
 
 		testCase{
 			methodName:       "AddThingProperty",
-			additionalArgs:   []interface{}{"somename", &models.SemanticSchemaClassProperty{}},
+			additionalArgs:   []interface{}{"somename", &models.Property{}},
 			expectedVerb:     "update",
 			expectedResource: "schema/things",
 		},
 		testCase{
 			methodName:       "AddActionProperty",
-			additionalArgs:   []interface{}{"somename", &models.SemanticSchemaClassProperty{}},
+			additionalArgs:   []interface{}{"somename", &models.Property{}},
 			expectedVerb:     "update",
 			expectedResource: "schema/actions",
 		},
 
 		testCase{
 			methodName:       "UpdateThingProperty",
-			additionalArgs:   []interface{}{"somename", "someprop", &models.SemanticSchemaClassProperty{}},
+			additionalArgs:   []interface{}{"somename", "someprop", &models.Property{}},
 			expectedVerb:     "update",
 			expectedResource: "schema/things",
 		},
 		testCase{
 			methodName:       "UpdateActionProperty",
-			additionalArgs:   []interface{}{"somename", "someprop", &models.SemanticSchemaClassProperty{}},
+			additionalArgs:   []interface{}{"somename", "someprop", &models.Property{}},
 			expectedVerb:     "update",
 			expectedResource: "schema/actions",
 		},

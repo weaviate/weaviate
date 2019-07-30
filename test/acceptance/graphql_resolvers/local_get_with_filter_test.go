@@ -1,15 +1,15 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE WEAVIATE OPEN SOURCE: https://www.semi.technology/playbook/playbook/contract-weaviate-OSS.html
- * LICENSE WEAVIATE ENTERPRISE: https://www.semi.technology/playbook/contract-weaviate-enterprise.html
- * CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
 package test
 
 import (
@@ -24,7 +24,6 @@ func TestLocalGetWithComplexFilter(t *testing.T) {
 	t.Run("without filters <- this is the control", func(t *testing.T) {
 		query := `
 		{
-			Local{
 				Get {
 					Things {
 						Airport {
@@ -32,11 +31,10 @@ func TestLocalGetWithComplexFilter(t *testing.T) {
 						}
 					}
 				}
-			}
 		}
 		`
 		result := AssertGraphQL(t, helper.RootAuth, query)
-		airports := result.Get("Local", "Get", "Things", "Airport").AsSlice()
+		airports := result.Get("Get", "Things", "Airport").AsSlice()
 
 		expected := []interface{}{
 			map[string]interface{}{"code": "10000"},
@@ -51,7 +49,6 @@ func TestLocalGetWithComplexFilter(t *testing.T) {
 	t.Run("with filters applied", func(t *testing.T) {
 		query := `
 		{
-			Local{
 				Get {
 					Things {
 						Airport(where:{
@@ -73,11 +70,10 @@ func TestLocalGetWithComplexFilter(t *testing.T) {
 						}
 					}
 				}
-			}
 		}
 		`
 		result := AssertGraphQL(t, helper.RootAuth, query)
-		airports := result.Get("Local", "Get", "Things", "Airport").AsSlice()
+		airports := result.Get("Get", "Things", "Airport").AsSlice()
 
 		expected := []interface{}{
 			map[string]interface{}{"code": "40000"},
@@ -91,7 +87,6 @@ func TestLocalGetWithComplexFilter(t *testing.T) {
 
 		query := `
 			{
-				Local {
 					GetMeta {
 						Things {
 							City(where:{
@@ -114,11 +109,10 @@ func TestLocalGetWithComplexFilter(t *testing.T) {
 							}
 						}
 					}
-				}
 			}
 		`
 		result := AssertGraphQL(t, helper.RootAuth, query)
-		cityMeta := result.Get("Local", "GetMeta", "Things", "City").Result
+		cityMeta := result.Get("GetMeta", "Things", "City").Result
 
 		expected := map[string]interface{}{
 			"__typename": "MetaCity",

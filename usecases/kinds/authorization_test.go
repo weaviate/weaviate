@@ -1,15 +1,16 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE WEAVIATE OPEN SOURCE: https://www.semi.technology/playbook/playbook/contract-weaviate-OSS.html
- * LICENSE WEAVIATE ENTERPRISE: https://www.semi.technology/playbook/contract-weaviate-enterprise.html
- * CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */package kinds
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
+package kinds
 
 import (
 	"context"
@@ -175,7 +176,10 @@ func Test_Kinds_Authorization(t *testing.T) {
 			network := &fakeNetwork{}
 			cfg := &config.WeaviateConfig{}
 			authorizer := &authDenier{}
-			manager := NewManager(repo, locks, schemaManager, network, cfg, logger, authorizer)
+			vectorizer := &fakeVectorizer{}
+			vectorRepo := &fakeVectorRepo{}
+			manager := NewManager(repo, locks, schemaManager, network,
+				cfg, logger, authorizer, vectorizer, vectorRepo)
 
 			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 			out, _ := callFuncByName(manager, test.methodName, args...)
@@ -243,85 +247,6 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			cfg := &config.WeaviateConfig{}
 			authorizer := &authDenier{}
 			manager := NewBatchManager(repo, locks, schemaManager, network, cfg, logger, authorizer)
-
-			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
-			out, _ := callFuncByName(manager, test.methodName, args...)
-
-			require.Len(t, authorizer.calls, 1, "authorizer must be called")
-			assert.Equal(t, errors.New("just a test fake"), out[len(out)-1].Interface(),
-				"execution must abort with authorizer error")
-			assert.Equal(t, authorizeCall{principal, test.expectedVerb, test.expectedResource},
-				authorizer.calls[0], "correct paramteres must have been used on authorizer")
-		}
-	})
-}
-
-func Test_Traverser_Authorization(t *testing.T) {
-
-	type testCase struct {
-		methodName       string
-		additionalArgs   []interface{}
-		expectedVerb     string
-		expectedResource string
-	}
-
-	tests := []testCase{
-		testCase{
-			methodName:       "LocalGetClass",
-			additionalArgs:   []interface{}{&LocalGetParams{}},
-			expectedVerb:     "get",
-			expectedResource: "traversal/*",
-		},
-
-		testCase{
-			methodName:       "LocalGetMeta",
-			additionalArgs:   []interface{}{&GetMetaParams{}},
-			expectedVerb:     "get",
-			expectedResource: "traversal/*",
-		},
-
-		testCase{
-			methodName:       "LocalAggregate",
-			additionalArgs:   []interface{}{&AggregateParams{}},
-			expectedVerb:     "get",
-			expectedResource: "traversal/*",
-		},
-
-		testCase{
-			methodName:       "LocalFetchFuzzy",
-			additionalArgs:   []interface{}{FetchFuzzySearch{}},
-			expectedVerb:     "get",
-			expectedResource: "traversal/*",
-		},
-
-		testCase{
-			methodName:       "LocalFetchKindClass",
-			additionalArgs:   []interface{}{&FetchSearch{}},
-			expectedVerb:     "get",
-			expectedResource: "traversal/*",
-		},
-	}
-
-	t.Run("verify that a test for every public method exists", func(t *testing.T) {
-		testedMethods := make([]string, len(tests), len(tests))
-		for i, test := range tests {
-			testedMethods[i] = test.methodName
-		}
-
-		for _, method := range allExportedMethods(&Traverser{}) {
-			assert.Contains(t, testedMethods, method)
-		}
-	})
-
-	t.Run("verify the tested methods require correct permissions from the authorizer", func(t *testing.T) {
-		principal := &models.Principal{}
-		logger, _ := test.NewNullLogger()
-		for _, test := range tests {
-			repo := &fakeRepo{}
-			locks := &fakeLocks{}
-			authorizer := &authDenier{}
-			c11y := &fakeC11y{}
-			manager := NewTraverser(locks, repo, c11y, logger, authorizer)
 
 			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 			out, _ := callFuncByName(manager, test.methodName, args...)

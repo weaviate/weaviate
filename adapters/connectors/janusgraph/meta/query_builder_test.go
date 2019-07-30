@@ -1,21 +1,21 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE WEAVIATE OPEN SOURCE: https://www.semi.technology/playbook/playbook/contract-weaviate-OSS.html
- * LICENSE WEAVIATE ENTERPRISE: https://www.semi.technology/playbook/contract-weaviate-enterprise.html
- * CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
 package meta
 
 import (
 	"testing"
 
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 // This file contains only a single test to verify that combining multiple
@@ -27,17 +27,17 @@ func Test_QueryBuilder_MultipleProps(t *testing.T) {
 	tests := testCases{
 		testCase{
 			name: "with multiple props",
-			inputProps: []kinds.MetaProperty{
-				kinds.MetaProperty{
+			inputProps: []traverser.MetaProperty{
+				traverser.MetaProperty{
 					Name: "isCapital",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{
-						kinds.Count, kinds.TotalTrue, kinds.TotalFalse, kinds.PercentageTrue, kinds.PercentageFalse,
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{
+						traverser.Count, traverser.TotalTrue, traverser.TotalFalse, traverser.PercentageTrue, traverser.PercentageFalse,
 					},
 				},
-				kinds.MetaProperty{
+				traverser.MetaProperty{
 					Name: "population",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{
-						kinds.Mean, kinds.Sum, kinds.Maximum, kinds.Minimum, kinds.Count,
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{
+						traverser.Mean, traverser.Sum, traverser.Maximum, traverser.Minimum, traverser.Count,
 					},
 				},
 			},
@@ -71,17 +71,17 @@ func Test_QueryBuilder_MultiplePropsWithFilter(t *testing.T) {
 	tests := testCases{
 		testCase{
 			name: "with multiple props",
-			inputProps: []kinds.MetaProperty{
-				kinds.MetaProperty{
+			inputProps: []traverser.MetaProperty{
+				traverser.MetaProperty{
 					Name: "isCapital",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{
-						kinds.Count, kinds.TotalTrue, kinds.TotalFalse, kinds.PercentageTrue, kinds.PercentageFalse,
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{
+						traverser.Count, traverser.TotalTrue, traverser.TotalFalse, traverser.PercentageTrue, traverser.PercentageFalse,
 					},
 				},
-				kinds.MetaProperty{
+				traverser.MetaProperty{
 					Name: "population",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{
-						kinds.Mean, kinds.Sum, kinds.Maximum, kinds.Minimum, kinds.Count,
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{
+						traverser.Mean, traverser.Sum, traverser.Maximum, traverser.Minimum, traverser.Count,
 					},
 				},
 			},

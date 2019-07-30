@@ -1,15 +1,15 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE WEAVIATE OPEN SOURCE: https://www.semi.technology/playbook/playbook/contract-weaviate-OSS.html
- * LICENSE WEAVIATE ENTERPRISE: https://www.semi.technology/playbook/contract-weaviate-enterprise.html
- * CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
 package getmeta
 
 import (
@@ -18,14 +18,14 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 )
 
 type testCase struct {
 	name            string
 	query           string
-	expectedProps   []kinds.MetaProperty
+	expectedProps   []traverser.MetaProperty
 	resolverReturn  interface{}
 	expectedResults []result
 }
@@ -44,10 +44,10 @@ func Test_Resolve(t *testing.T) {
 		testCase{
 			name:  "single prop: mean",
 			query: "{ GetMeta { Things { Car { horsepower { mean } } } } }",
-			expectedProps: []kinds.MetaProperty{
+			expectedProps: []traverser.MetaProperty{
 				{
 					Name:                "horsepower",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Mean},
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{traverser.Mean},
 				},
 			},
 			resolverReturn: map[string]interface{}{
@@ -64,10 +64,10 @@ func Test_Resolve(t *testing.T) {
 		testCase{
 			name:  "single prop: type",
 			query: "{ GetMeta { Things { Car { horsepower { type } } } } }",
-			expectedProps: []kinds.MetaProperty{
+			expectedProps: []traverser.MetaProperty{
 				{
 					Name:                "horsepower",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Type},
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{traverser.Type},
 				},
 			},
 			resolverReturn: map[string]interface{}{
@@ -84,11 +84,11 @@ func Test_Resolve(t *testing.T) {
 		testCase{
 			name:  "two props: maximum, minimum, remaining int props",
 			query: "{ GetMeta { Things { Car { horsepower { maximum, minimum, count, sum } } } } }",
-			expectedProps: []kinds.MetaProperty{
+			expectedProps: []traverser.MetaProperty{
 				{
 					Name: "horsepower",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Maximum, kinds.Minimum,
-						kinds.Count, kinds.Sum},
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{traverser.Maximum, traverser.Minimum,
+						traverser.Count, traverser.Sum},
 				},
 			},
 			resolverReturn: map[string]interface{}{
@@ -119,11 +119,11 @@ func Test_Resolve(t *testing.T) {
 			query: `{ GetMeta { Things { Car { stillInProduction {
 					count, totalTrue, totalFalse, percentageTrue, percentageFalse
 				} } } } }`,
-			expectedProps: []kinds.MetaProperty{
+			expectedProps: []traverser.MetaProperty{
 				{
 					Name: "stillInProduction",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Count, kinds.TotalTrue,
-						kinds.TotalFalse, kinds.PercentageTrue, kinds.PercentageFalse},
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{traverser.Count, traverser.TotalTrue,
+						traverser.TotalFalse, traverser.PercentageTrue, traverser.PercentageFalse},
 				},
 			},
 			resolverReturn: map[string]interface{}{
@@ -156,11 +156,11 @@ func Test_Resolve(t *testing.T) {
 		testCase{
 			name:  "single prop: string",
 			query: "{ GetMeta { Things { Car { modelName { topOccurrences { value, occurs } } } } } }",
-			expectedProps: []kinds.MetaProperty{
+			expectedProps: []traverser.MetaProperty{
 				{
 					Name: "modelName",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.TopOccurrencesValue,
-						kinds.TopOccurrencesOccurs},
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{traverser.TopOccurrencesValue,
+						traverser.TopOccurrencesOccurs},
 				},
 			},
 			resolverReturn: map[string]interface{}{
@@ -183,11 +183,11 @@ func Test_Resolve(t *testing.T) {
 		testCase{
 			name:  "single prop: date",
 			query: "{ GetMeta { Things { Car { startOfProduction { topOccurrences { value, occurs } } } } } }",
-			expectedProps: []kinds.MetaProperty{
+			expectedProps: []traverser.MetaProperty{
 				{
 					Name: "startOfProduction",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.TopOccurrencesValue,
-						kinds.TopOccurrencesOccurs},
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{traverser.TopOccurrencesValue,
+						traverser.TopOccurrencesOccurs},
 				},
 			},
 			resolverReturn: map[string]interface{}{
@@ -210,10 +210,10 @@ func Test_Resolve(t *testing.T) {
 		testCase{
 			name:  "single prop: refprop",
 			query: "{ GetMeta { Things { Car { MadeBy { pointingTo } } } } }",
-			expectedProps: []kinds.MetaProperty{
+			expectedProps: []traverser.MetaProperty{
 				{
 					Name:                "MadeBy",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.PointingTo},
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{traverser.PointingTo},
 				},
 			},
 			resolverReturn: map[string]interface{}{
@@ -232,10 +232,10 @@ func Test_Resolve(t *testing.T) {
 		testCase{
 			name:  "single prop: meta",
 			query: "{ GetMeta { Things { Car { meta { count } } } } }",
-			expectedProps: []kinds.MetaProperty{
+			expectedProps: []traverser.MetaProperty{
 				{
 					Name:                "meta",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Count},
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{traverser.Count},
 				},
 			},
 			resolverReturn: map[string]interface{}{
@@ -271,7 +271,7 @@ func (tests testCases) AssertExtraction(t *testing.T, k kind.Kind, className str
 		t.Run(testCase.name, func(t *testing.T) {
 			resolver := newMockResolver(config.Config{})
 
-			expectedParams := &kinds.GetMetaParams{
+			expectedParams := &traverser.GetMetaParams{
 				Kind:       k,
 				ClassName:  schema.ClassName(className),
 				Properties: testCase.expectedProps,

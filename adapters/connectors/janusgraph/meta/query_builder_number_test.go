@@ -1,31 +1,31 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE WEAVIATE OPEN SOURCE: https://www.semi.technology/playbook/playbook/contract-weaviate-OSS.html
- * LICENSE WEAVIATE ENTERPRISE: https://www.semi.technology/playbook/contract-weaviate-enterprise.html
- * CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
 package meta
 
 import (
 	"testing"
 
-	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func Test_QueryBuilder_NumberProps(t *testing.T) {
 	tests := testCases{
 		testCase{
 			name: "with only an int, with only count",
-			inputProps: []kinds.MetaProperty{
-				kinds.MetaProperty{
+			inputProps: []traverser.MetaProperty{
+				traverser.MetaProperty{
 					Name:                "area",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{kinds.Count},
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{traverser.Count},
 				},
 			},
 			expectedQuery: `
@@ -44,11 +44,11 @@ func Test_QueryBuilder_NumberProps(t *testing.T) {
 
 		testCase{
 			name: "with only an int, with all props",
-			inputProps: []kinds.MetaProperty{
-				kinds.MetaProperty{
+			inputProps: []traverser.MetaProperty{
+				traverser.MetaProperty{
 					Name: "area",
-					StatisticalAnalyses: []kinds.StatisticalAnalysis{
-						kinds.Mean, kinds.Type, kinds.Sum, kinds.Maximum, kinds.Minimum, kinds.Count,
+					StatisticalAnalyses: []traverser.StatisticalAnalysis{
+						traverser.Mean, traverser.Type, traverser.Sum, traverser.Maximum, traverser.Minimum, traverser.Count,
 					},
 				},
 			},

@@ -1,15 +1,15 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE WEAVIATE OPEN SOURCE: https://www.semi.technology/playbook/playbook/contract-weaviate-OSS.html
- * LICENSE WEAVIATE ENTERPRISE: https://www.semi.technology/playbook/contract-weaviate-enterprise.html
- * CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
 package refclasses
 
 import (
@@ -65,13 +65,13 @@ func TestWithClassWithPrimitiveProp(t *testing.T) {
 		peers.Peer{
 			Name: "BestPeer",
 			Schema: schema.Schema{
-				Things: &models.SemanticSchema{
-					Classes: []*models.SemanticSchemaClass{
-						&models.SemanticSchemaClass{
+				Things: &models.Schema{
+					Classes: []*models.Class{
+						&models.Class{
 							Class:       "BestClass",
 							Description: "not the best class in the world, just a tribute",
-							Properties: []*models.SemanticSchemaClassProperty{
-								&models.SemanticSchemaClassProperty{
+							Properties: []*models.Property{
+								&models.Property{
 									DataType: []string{"string"},
 									Name:     "bestString",
 								},
@@ -110,21 +110,21 @@ func TestWithClassWithReferenceProps(t *testing.T) {
 		peers.Peer{
 			Name: "BestPeer",
 			Schema: schema.Schema{
-				Things: &models.SemanticSchema{
-					Classes: []*models.SemanticSchemaClass{
-						&models.SemanticSchemaClass{
+				Things: &models.Schema{
+					Classes: []*models.Class{
+						&models.Class{
 							Class:       "BestClass",
 							Description: "not the best class in the world, just a tribute",
-							Properties: []*models.SemanticSchemaClassProperty{
-								&models.SemanticSchemaClassProperty{
+							Properties: []*models.Property{
+								&models.Property{
 									DataType: []string{"string"},
 									Name:     "bestString",
 								},
-								&models.SemanticSchemaClassProperty{
+								&models.Property{
 									DataType: []string{"SomeClass"},
 									Name:     "LocalRef",
 								},
-								&models.SemanticSchemaClassProperty{
+								&models.Property{
 									DataType: []string{"OtherInstance/SomeClass"},
 									Name:     "ForeignRef",
 								},

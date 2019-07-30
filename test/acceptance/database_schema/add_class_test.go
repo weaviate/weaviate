@@ -1,15 +1,15 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE WEAVIATE OPEN SOURCE: https://www.semi.technology/playbook/playbook/contract-weaviate-OSS.html
- * LICENSE WEAVIATE ENTERPRISE: https://www.semi.technology/playbook/contract-weaviate-enterprise.html
- * CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
 package test
 
 import (
@@ -34,7 +34,7 @@ func TestAddAndRemoveThingClass(t *testing.T) {
 	t.Log("Asserting that this class does not exist yet")
 	assert.NotContains(t, GetThingClassNames(t), randomThingClassName)
 
-	tc := &models.SemanticSchemaClass{
+	tc := &models.Class{
 		Class: randomThingClassName,
 	}
 
@@ -67,14 +67,14 @@ func TestDeleteSingleProperties(t *testing.T) {
 	t.Log("Asserting that this class does not exist yet")
 	assert.NotContains(t, GetThingClassNames(t), randomThingClassName)
 
-	tc := &models.SemanticSchemaClass{
+	tc := &models.Class{
 		Class: randomThingClassName,
-		Properties: []*models.SemanticSchemaClassProperty{
-			&models.SemanticSchemaClassProperty{
+		Properties: []*models.Property{
+			&models.Property{
 				DataType: []string{"string"},
 				Name:     "name",
 			},
-			&models.SemanticSchemaClassProperty{
+			&models.Property{
 				DataType: []string{"string"},
 				Name:     "description",
 			},
@@ -116,23 +116,23 @@ func TestDeleteSingleProperties(t *testing.T) {
 	assert.Equal(t, expectedSchema, thing.Schema)
 
 	t.Log("verifying that we can still retrieve the thing through graphQL")
-	result := gql.AssertGraphQL(t, helper.RootAuth, "{ Local { Get { Things { RedShip { name } } } } }")
-	ships := result.Get("Local", "Get", "Things", "RedShip").AsSlice()
+	result := gql.AssertGraphQL(t, helper.RootAuth, "{  Get { Things { RedShip { name } } } }")
+	ships := result.Get("Get", "Things", "RedShip").AsSlice()
 	expectedShip := map[string]interface{}{
 		"name": "my name",
 	}
 	assert.Contains(t, ships, expectedShip)
 
 	t.Log("verifying other GQL/REST queries still work")
-	gql.AssertGraphQL(t, helper.RootAuth, "{ Local { GetMeta { Things { RedShip { name { count } } } } } }")
-	gql.AssertGraphQL(t, helper.RootAuth, `{ Local { Aggregate { Things { RedShip(groupBy: ["name"]) { name { count } } } } } }`)
+	gql.AssertGraphQL(t, helper.RootAuth, "{  GetMeta { Things { RedShip { name { count } } } } }")
+	gql.AssertGraphQL(t, helper.RootAuth, `{  Aggregate { Things { RedShip(groupBy: ["name"]) { name { count } } } } }`)
 	_, err = helper.Client(t).Things.WeaviateThingsList(things.NewWeaviateThingsListParams(), nil)
 	assert.Nil(t, err, "listing things should not error")
 
 	t.Log("verifying we could re-add the property with the same name")
 	readdParams := schema.NewWeaviateSchemaThingsPropertiesAddParams().
 		WithClassName(randomThingClassName).
-		WithBody(&models.SemanticSchemaClassProperty{
+		WithBody(&models.Property{
 			Name:     "description",
 			DataType: []string{"string"},
 		})

@@ -1,15 +1,15 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE WEAVIATE OPEN SOURCE: https://www.semi.technology/playbook/playbook/contract-weaviate-OSS.html
- * LICENSE WEAVIATE ENTERPRISE: https://www.semi.technology/playbook/contract-weaviate-enterprise.html
- * CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
 package test
 
 import (
@@ -24,19 +24,17 @@ func TestLocalGetWithWithinGeoRangeFilter(t *testing.T) {
 	t.Run("Only Dusseldorf should be within 100km of Dusseldorf", func(t *testing.T) {
 		query := `
 		{
-			Local{
-				Get {
-					Things {
-						City(where:{
-							operator: WithinGeoRange
-							path: ["location"]
-							valueGeoRange: { geoCoordinates: {latitude: 51.225556, longitude: 6.782778} distance: { max: 100 } }
-						}){
-							name
-							location {
-								latitude
-								longitude
-							}
+			Get {
+				Things {
+					City(where:{
+						operator: WithinGeoRange
+						path: ["location"]
+						valueGeoRange: { geoCoordinates: {latitude: 51.225556, longitude: 6.782778} distance: { max: 100 } }
+					}){
+						name
+						location {
+							latitude
+							longitude
 						}
 					}
 				}
@@ -44,7 +42,7 @@ func TestLocalGetWithWithinGeoRangeFilter(t *testing.T) {
 		}
 		`
 		result := AssertGraphQL(t, helper.RootAuth, query)
-		cities := result.Get("Local", "Get", "Things", "City").AsSlice()
+		cities := result.Get("Get", "Things", "City").AsSlice()
 
 		expectedResults := []interface{}{
 			map[string]interface{}{
@@ -62,19 +60,17 @@ func TestLocalGetWithWithinGeoRangeFilter(t *testing.T) {
 	t.Run("Dusseldorf and Amsterdam should be within 200km of Dusseldorf", func(t *testing.T) {
 		query := `
 		{
-			Local{
-				Get {
-					Things {
-						City(where:{
-							operator: WithinGeoRange
-							path: ["location"]
-							valueGeoRange: { geoCoordinates: {latitude: 51.225556, longitude: 6.782778} distance: { max: 200 } }
-						}){
-							name
-							location {
-								latitude
-								longitude
-							}
+			Get {
+				Things {
+					City(where:{
+						operator: WithinGeoRange
+						path: ["location"]
+						valueGeoRange: { geoCoordinates: {latitude: 51.225556, longitude: 6.782778} distance: { max: 200 } }
+					}){
+						name
+						location {
+							latitude
+							longitude
 						}
 					}
 				}
@@ -82,7 +78,7 @@ func TestLocalGetWithWithinGeoRangeFilter(t *testing.T) {
 		}
 		`
 		result := AssertGraphQL(t, helper.RootAuth, query)
-		cities := result.Get("Local", "Get", "Things", "City").AsSlice()
+		cities := result.Get("Get", "Things", "City").AsSlice()
 
 		expectedResults := []interface{}{
 			map[string]interface{}{

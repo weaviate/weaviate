@@ -15,3 +15,4 @@
 10. [**Licenses**](./licenses.md)<br>Background information regarding the licenses of Weaviate dependencies.
 11. [**GraphQL prototype**](./graphql_prototype.md)<br>More information about the GraphQL prototype.
 12. [**Documentation Template**](documentation-template)<br>Documentation template.
+13. [**Development Troubleshooting**](./development-troubleshooting.md)<br>Documentation template.

@@ -1,15 +1,14 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE WEAVIATE OPEN SOURCE: https://www.semi.technology/playbook/playbook/contract-weaviate-OSS.html
- * LICENSE WEAVIATE ENTERPRISE: https://www.semi.technology/playbook/contract-weaviate-enterprise.html
- * CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
 
 package get
 
@@ -26,16 +25,16 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
 )
 
-// Build a single class in Local -> Get -> (k kind.Kind) -> (models.SemanticSchemaClass)
-func buildGetClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticSchemaClass,
+// Build a single class in Local -> Get -> (k kind.Kind) -> (models.Class)
+func buildGetClass(dbSchema *schema.Schema, k kind.Kind, class *models.Class,
 	knownClasses *map[string]*graphql.Object, knownRefClasses refclasses.ByNetworkClass,
 	peers peers.Peers) (*graphql.Field, error) {
 	classObject := buildGetClassObject(k.Name(), class, dbSchema, knownClasses, knownRefClasses, peers)
@@ -44,7 +43,7 @@ func buildGetClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticS
 	return &classField, nil
 }
 
-func buildGetClassObject(kindName string, class *models.SemanticSchemaClass, dbSchema *schema.Schema,
+func buildGetClassObject(kindName string, class *models.Class, dbSchema *schema.Schema,
 	knownClasses *map[string]*graphql.Object, knownRefClasses refclasses.ByNetworkClass,
 	peers peers.Peers) *graphql.Object {
 	return graphql.NewObject(graphql.ObjectConfig{
@@ -85,7 +84,7 @@ func buildGetClassObject(kindName string, class *models.SemanticSchemaClass, dbS
 }
 
 func buildPrimitiveField(propertyType schema.PropertyDataType,
-	property *models.SemanticSchemaClassProperty, kindName, className string) *graphql.Field {
+	property *models.Property, kindName, className string) *graphql.Field {
 	switch propertyType.AsPrimitive() {
 	case schema.DataTypeString:
 		return &graphql.Field{
@@ -179,7 +178,7 @@ func resolveGeoCoordinates(p graphql.ResolveParams) (interface{}, error) {
 }
 
 func buildGetClassField(classObject *graphql.Object, k kind.Kind,
-	class *models.SemanticSchemaClass) graphql.Field {
+	class *models.Class) graphql.Field {
 	kindName := strings.Title(k.Name())
 	return graphql.Field{
 		Type:        graphql.NewList(classObject),
@@ -189,18 +188,23 @@ func buildGetClassField(classObject *graphql.Object, k kind.Kind,
 				Description: descriptions.First,
 				Type:        graphql.Int,
 			},
-			"where": &graphql.ArgumentConfig{
-				Description: descriptions.LocalGetWhere,
-				Type: graphql.NewInputObject(
-					graphql.InputObjectConfig{
-						Name:        fmt.Sprintf("WeaviateLocalGet%ss%sWhereInpObj", kindName, class.Class),
-						Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateLocalGet%ss%s", kindName, class.Class)),
-						Description: descriptions.LocalGetWhereInpObj,
-					},
-				),
-			},
+			"explore": exploreArgument(kindName, class.Class),
+			"where":   whereArgument(kindName, class.Class),
 		},
 		Resolve: makeResolveGetClass(k, class.Class),
+	}
+}
+
+func whereArgument(kindName, className string) *graphql.ArgumentConfig {
+	return &graphql.ArgumentConfig{
+		Description: descriptions.LocalGetWhere,
+		Type: graphql.NewInputObject(
+			graphql.InputObjectConfig{
+				Name:        fmt.Sprintf("WeaviateLocalGet%ss%sWhereInpObj", kindName, className),
+				Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateLocalGet%ss%s", kindName, className)),
+				Description: descriptions.LocalGetWhereInpObj,
+			},
+		),
 	}
 }
 
@@ -237,12 +241,19 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 			return nil, fmt.Errorf("could not extract filters: %s", err)
 		}
 
-		params := kinds.LocalGetParams{
+		var exploreParams *traverser.ExploreParams
+		if explore, ok := p.Args["explore"]; ok {
+			p := common_filters.ExtractExplore(explore.(map[string]interface{}))
+			exploreParams = &p
+		}
+
+		params := traverser.LocalGetParams{
 			Filters:    filters,
 			Kind:       k,
 			ClassName:  className,
 			Pagination: pagination,
 			Properties: properties,
+			Explore:    exploreParams,
 		}
 
 		// Log the request
@@ -289,13 +300,13 @@ func isPrimitive(selectionSet *ast.SelectionSet) bool {
 	return false
 }
 
-func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.Definition) ([]kinds.SelectProperty, error) {
-	var properties []kinds.SelectProperty
+func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.Definition) ([]traverser.SelectProperty, error) {
+	var properties []traverser.SelectProperty
 
 	for _, selection := range selections.Selections {
 		field := selection.(*ast.Field)
 		name := field.Name.Value
-		property := kinds.SelectProperty{Name: name}
+		property := traverser.SelectProperty{Name: name}
 
 		property.IsPrimitive = isPrimitive(field.SelectionSet)
 		if !property.IsPrimitive {
@@ -340,10 +351,10 @@ func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.De
 	return properties, nil
 }
 
-func extractInlineFragment(fragment *ast.InlineFragment, fragments map[string]ast.Definition) (kinds.SelectClass, error) {
+func extractInlineFragment(fragment *ast.InlineFragment, fragments map[string]ast.Definition) (traverser.SelectClass, error) {
 	var className schema.ClassName
 	var err error
-	var result kinds.SelectClass
+	var result traverser.SelectClass
 
 	if strings.Contains(fragment.TypeCondition.Name.Value, "__") {
 		// is a helper type for a network ref
@@ -366,8 +377,8 @@ func extractInlineFragment(fragment *ast.InlineFragment, fragments map[string]as
 	return result, nil
 }
 
-func extractFragmentSpread(spread *ast.FragmentSpread, fragments map[string]ast.Definition) (kinds.SelectClass, error) {
-	var result kinds.SelectClass
+func extractFragmentSpread(spread *ast.FragmentSpread, fragments map[string]ast.Definition) (traverser.SelectClass, error) {
+	var result traverser.SelectClass
 	name := spread.Name.Value
 
 	def, ok := fragments[name]

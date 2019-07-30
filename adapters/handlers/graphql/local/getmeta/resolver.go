@@ -1,15 +1,14 @@
-/*                          _       _
- *__      _____  __ ___   ___  __ _| |_ ___
- *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
- * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
- *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
- * LICENSE WEAVIATE OPEN SOURCE: https://www.semi.technology/playbook/playbook/contract-weaviate-OSS.html
- * LICENSE WEAVIATE ENTERPRISE: https://www.semi.technology/playbook/contract-weaviate-enterprise.html
- * CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@semi.technology
- */
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 Weaviate. All rights reserved.
+//  LICENSE: https://github.com/semi-technologies/weaviate/blob/develop/LICENSE.md
+//  DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
 
 // Package getmeta provides the local get meta graphql endpoint for Weaviate
 package getmeta
@@ -25,15 +24,15 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 // Resolver is a local interface that can be composed with other interfaces to
 // form the overall GraphQL API main interface. All data-base connectors that
 // want to support the GetMeta feature must implement this interface.
 type Resolver interface {
-	LocalGetMeta(ctx context.Context, principal *models.Principal, info *kinds.GetMetaParams) (interface{}, error)
+	LocalGetMeta(ctx context.Context, principal *models.Principal, info *traverser.GetMetaParams) (interface{}, error)
 }
 
 // RequestsLog is a local abstraction on the RequestsLog that needs to be
@@ -81,7 +80,7 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 			return nil, fmt.Errorf("could not extract analytics props: %s", err)
 		}
 
-		params := &kinds.GetMetaParams{
+		params := &traverser.GetMetaParams{
 			Kind:       kind,
 			Filters:    filters,
 			ClassName:  className,
@@ -99,8 +98,8 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 	}
 }
 
-func extractMetaProperties(selections *ast.SelectionSet) ([]kinds.MetaProperty, error) {
-	var properties []kinds.MetaProperty
+func extractMetaProperties(selections *ast.SelectionSet) ([]traverser.MetaProperty, error) {
+	var properties []traverser.MetaProperty
 
 	for _, selection := range selections.Selections {
 		field := selection.(*ast.Field)
@@ -109,7 +108,7 @@ func extractMetaProperties(selections *ast.SelectionSet) ([]kinds.MetaProperty, 
 			continue
 		}
 
-		property := kinds.MetaProperty{Name: schema.PropertyName(name)}
+		property := traverser.MetaProperty{Name: schema.PropertyName(name)}
 		analysesProps, err := extractPropertyAnalyses(field.SelectionSet)
 		if err != nil {
 			return nil, err
@@ -129,8 +128,8 @@ func extractMetaProperties(selections *ast.SelectionSet) ([]kinds.MetaProperty, 
 	return properties, nil
 }
 
-func extractPropertyAnalyses(selections *ast.SelectionSet) ([]kinds.StatisticalAnalysis, error) {
-	analyses := []kinds.StatisticalAnalysis{}
+func extractPropertyAnalyses(selections *ast.SelectionSet) ([]traverser.StatisticalAnalysis, error) {
+	analyses := []traverser.StatisticalAnalysis{}
 	for _, selection := range selections.Selections {
 		field := selection.(*ast.Field)
 		name := field.Name.Value
@@ -141,12 +140,12 @@ func extractPropertyAnalyses(selections *ast.SelectionSet) ([]kinds.StatisticalA
 			continue
 		}
 
-		property, err := kinds.ParseAnalysisProp(name)
+		property, err := traverser.ParseAnalysisProp(name)
 		if err != nil {
 			return nil, err
 		}
 
-		if property == kinds.TopOccurrences {
+		if property == traverser.TopOccurrences {
 			// TopOccurrences is the only nested prop for now. It does have two
 			// subprops which we predict to be computed in the same query with
 			// neglible additional cost. In this case, we can save the effort of
@@ -155,7 +154,7 @@ func extractPropertyAnalyses(selections *ast.SelectionSet) ([]kinds.StatisticalA
 			// always only wants one of the two props (unlikely, as one is
 			// meaningless without the other), then we can improve this and actually
 			// parse the values.
-			analyses = append(analyses, kinds.TopOccurrencesValue, kinds.TopOccurrencesOccurs)
+			analyses = append(analyses, traverser.TopOccurrencesValue, traverser.TopOccurrencesOccurs)
 			continue
 		}
 
