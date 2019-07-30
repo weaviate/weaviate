@@ -77,14 +77,18 @@ func (r *Repo) VectorSearch(ctx context.Context, index string,
 			"function_score": map[string]interface{}{
 				"query":      query,
 				"boost_mode": "replace",
-				"script_score": map[string]interface{}{
-					"script": map[string]interface{}{
-						"inline": "binary_vector_score",
-						"lang":   "knn",
-						"params": map[string]interface{}{
-							"cosine": false,
-							"field":  "embedding_vector",
-							"vector": vector,
+				"functions": []interface{}{
+					map[string]interface{}{
+						"script_score": map[string]interface{}{
+							"script": map[string]interface{}{
+								"inline": "binary_vector_score",
+								"lang":   "knn",
+								"params": map[string]interface{}{
+									"cosine": false,
+									"field":  "embedding_vector",
+									"vector": vector,
+								},
+							},
 						},
 					},
 				},
