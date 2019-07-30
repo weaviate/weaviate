@@ -117,8 +117,8 @@ type matcher struct {
 func matcherFromOperator(o filters.Operator) (m matcher, err error) {
 	switch o {
 	case filters.OperatorEqual:
-		m.queryType = "term"
-		m.operator = "value"
+		m.queryType = "match"
+		m.operator = "query"
 	case filters.OperatorNotEqual:
 		m.queryType = "term"
 		m.operator = "value"

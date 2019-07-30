@@ -62,7 +62,7 @@ var cars = []models.Thing{
 				Longitude: -118.243683,
 			},
 			"contact":     "john@heavycars.example.com",
-			"description": "This car resembles a large van that can still be driven with a regular license",
+			"description": "This car resembles a large van that can still be driven with a regular license. Contact john@heavycars.example.com for details",
 		},
 	},
 	models.Thing{

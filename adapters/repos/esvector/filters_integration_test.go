@@ -141,6 +141,16 @@ func testPrmitiveProps(repo *Repo,
 				expectedIDs: []strfmt.UUID{carSprinterID},
 			},
 			{
+				name:        "weight == 2069.4",
+				filter:      buildFilter("weight", 2069.4, eq, dtNumber),
+				expectedIDs: []strfmt.UUID{},
+			},
+			{
+				name:        "weight == 2069.5",
+				filter:      buildFilter("weight", 2069.5, eq, dtNumber),
+				expectedIDs: []strfmt.UUID{carE63sID},
+			},
+			{
 				name:        "weight >= 2069.5",
 				filter:      buildFilter("weight", 2069.5, gte, dtNumber),
 				expectedIDs: []strfmt.UUID{carSprinterID, carE63sID},
@@ -158,6 +168,11 @@ func testPrmitiveProps(repo *Repo,
 			{
 				name:        "exactly matching a specific contact email",
 				filter:      buildFilter("contact", "john@heavycars.example.com", eq, dtString),
+				expectedIDs: []strfmt.UUID{carSprinterID},
+			},
+			{
+				name:        "matching an email from within a text (not string) field",
+				filter:      buildFilter("description", "john@heavycars.example.com", eq, dtText),
 				expectedIDs: []strfmt.UUID{carSprinterID},
 			},
 			{
