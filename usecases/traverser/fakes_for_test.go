@@ -123,7 +123,7 @@ type fakeVectorSearcher struct {
 }
 
 func (f *fakeVectorSearcher) VectorSearch(ctx context.Context, index string,
-	vector []float32, limit int) ([]VectorSearchResult, error) {
+	vector []float32, limit int, filters *filters.LocalFilter) ([]VectorSearchResult, error) {
 	f.calledWithVector = vector
 	f.calledWithLimit = limit
 	return f.results, nil
@@ -191,7 +191,7 @@ func (f *fakeVectorRepo) PutAction(ctx context.Context, index string,
 	return nil
 }
 func (f *fakeVectorRepo) VectorSearch(ctx context.Context, index string,
-	vector []float32, limit int) ([]VectorSearchResult, error) {
+	vector []float32, limit int, filters *filters.LocalFilter) ([]VectorSearchResult, error) {
 	return nil, nil
 }
 

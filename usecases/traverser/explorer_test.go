@@ -14,7 +14,6 @@ package traverser
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -27,22 +26,6 @@ import (
 )
 
 func Test_Explorer_GetClass(t *testing.T) {
-	t.Run("when a where filter is set", func(t *testing.T) {
-		// TODO: gh-911, replace this with actual functionality
-		explorer := NewExplorer(nil, nil, nil)
-
-		params := &LocalGetParams{
-			Explore: &ExploreParams{
-				Values: []string{"foo"},
-			},
-			Filters: &filters.LocalFilter{},
-		}
-
-		_, err := explorer.GetClass(context.Background(), params)
-		msg := "combining 'explore' and 'where' parameters not possible yet - coming soon!"
-		assert.Equal(t, errors.New(msg), err)
-	})
-
 	t.Run("when an explore param is set", func(t *testing.T) {
 		params := &LocalGetParams{
 			Kind:      kind.Thing,
@@ -175,7 +158,8 @@ func (f *fakeVectorClassSearch) VectorClassSearch(ctx context.Context,
 }
 
 func (f *fakeVectorClassSearch) VectorSearch(ctx context.Context,
-	className string, vector []float32, limit int) ([]VectorSearchResult, error) {
+	className string, vector []float32, limit int,
+	filters *filters.LocalFilter) ([]VectorSearchResult, error) {
 	return nil, nil
 }
 
