@@ -16,6 +16,14 @@ var carClass = &models.Class{
 			Name:     "modelName",
 		},
 		&models.Property{
+			DataType: []string{string(schema.DataTypeString)},
+			Name:     "contact",
+		},
+		&models.Property{
+			DataType: []string{string(schema.DataTypeText)},
+			Name:     "description",
+		},
+		&models.Property{
 			DataType: []string{string(schema.DataTypeInt)},
 			Name:     "horsepower",
 		},
@@ -26,6 +34,10 @@ var carClass = &models.Class{
 		&models.Property{
 			DataType: []string{string(schema.DataTypeGeoCoordinates)},
 			Name:     "parkedAt",
+		},
+		&models.Property{
+			DataType: []string{string(schema.DataTypeDate)},
+			Name:     "released",
 		},
 	},
 }
@@ -44,10 +56,13 @@ var cars = []models.Thing{
 			"modelName":  "sprinter",
 			"horsepower": "130",
 			"weight":     "3499.90",
+			"released":   "1995-08-17T12:47:00+02:00",
 			"parkedAt": &models.GeoCoordinates{
 				Latitude:  34.052235,
 				Longitude: -118.243683,
 			},
+			"contact":     "john@heavycars.example.com",
+			"description": "This car resembles a large van that can still be driven with a regular license",
 		},
 	},
 	models.Thing{
@@ -57,19 +72,25 @@ var cars = []models.Thing{
 			"modelName":  "e63s",
 			"horsepower": "612",
 			"weight":     "2069.5",
+			"released":   "2017-02-17T09:47:00+02:00",
 			"parkedAt": &models.GeoCoordinates{
 				Latitude:  40.730610,
 				Longitude: -73.935242,
 			},
+			"contact":     "jessica@fastcars.example.com",
+			"description": "This car has a huge motor, but it's also not exactly lightweight.",
 		},
 	},
 	models.Thing{
 		Class: carClass.Class,
 		ID:    carPoloID,
 		Schema: map[string]interface{}{
-			"modelName":  "polo",
-			"horsepower": "100",
-			"weight":     "1200",
+			"released":    "1975-01-01T10:12:00+02:00",
+			"modelName":   "polo",
+			"horsepower":  "100",
+			"weight":      "1200",
+			"contact":     "sandra@efficientcars.example.com",
+			"description": "This small car has a small engine, but it's very light, so it feels fater than it is.",
 		},
 	},
 }

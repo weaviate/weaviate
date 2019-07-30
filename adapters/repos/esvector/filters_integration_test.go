@@ -33,6 +33,8 @@ var (
 	dtInt            = schema.DataTypeInt
 	dtNumber         = schema.DataTypeNumber
 	dtString         = schema.DataTypeString
+	dtText           = schema.DataTypeText
+	dtDate           = schema.DataTypeDate
 	dtGeoCoordinates = schema.DataTypeGeoCoordinates
 )
 
@@ -142,6 +144,26 @@ func testPrmitiveProps(repo *Repo,
 				name:        "weight >= 2069.5",
 				filter:      buildFilter("weight", 2069.5, gte, dtNumber),
 				expectedIDs: []strfmt.UUID{carSprinterID, carE63sID},
+			},
+			{
+				name:        "before 1980",
+				filter:      buildFilter("released", "1980-01-01T00:00:00+02:00", lt, dtDate),
+				expectedIDs: []strfmt.UUID{carPoloID},
+			},
+			{
+				name:        "from 1995 on",
+				filter:      buildFilter("released", "1995-08-17T12:47:00+02:00", gte, dtDate),
+				expectedIDs: []strfmt.UUID{carSprinterID, carE63sID},
+			},
+			{
+				name:        "exactly matching a specific contact email",
+				filter:      buildFilter("contact", "john@heavycars.example.com", eq, dtString),
+				expectedIDs: []strfmt.UUID{carSprinterID},
+			},
+			{
+				name:        "full-text matching the word engine",
+				filter:      buildFilter("description", "engine", eq, dtText),
+				expectedIDs: []strfmt.UUID{carPoloID},
 			},
 			{
 				name: "within 600km of San Francisco",
