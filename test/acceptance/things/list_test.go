@@ -30,21 +30,21 @@ import (
 func TestListAll(t *testing.T) {
 	t.Parallel()
 
-	params1 := things.NewWeaviateThingsCreateParams().WithBody(
+	params1 := things.NewThingsCreateParams().WithBody(
 		&models.Thing{
 			Class:  "TestThing",
 			Schema: map[string]interface{}{},
 		})
-	resp1, err := helper.Client(t).Things.WeaviateThingsCreate(params1, nil)
+	resp1, err := helper.Client(t).Things.ThingsCreate(params1, nil)
 	assert.Nil(t, err, "creation should succeed")
 	thing1ID := resp1.Payload.ID
 
-	params2 := things.NewWeaviateThingsCreateParams().WithBody(
+	params2 := things.NewThingsCreateParams().WithBody(
 		&models.Thing{
 			Class:  "TestThing",
 			Schema: map[string]interface{}{},
 		})
-	resp2, err := helper.Client(t).Things.WeaviateThingsCreate(params2, nil)
+	resp2, err := helper.Client(t).Things.ThingsCreate(params2, nil)
 	assert.Nil(t, err, "creation should succeed")
 	thing2ID := resp2.Payload.ID
 
@@ -52,8 +52,8 @@ func TestListAll(t *testing.T) {
 	assertGetThingEventually(t, thing1ID)
 	assertGetThingEventually(t, thing2ID)
 
-	listParams := things.NewWeaviateThingsListParams()
-	resp, err := helper.Client(t).Things.WeaviateThingsList(listParams, nil)
+	listParams := things.NewThingsListParams()
+	resp, err := helper.Client(t).Things.ThingsList(listParams, nil)
 	require.Nil(t, err, "should not error")
 
 	found1 := false

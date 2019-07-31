@@ -24,7 +24,7 @@ import (
 var thingID = "711da979-4b0b-41e2-bcb8-fcc03554c7c8"
 
 func main() {
-	http.HandleFunc("/weaviate/v1/graphql", func(w http.ResponseWriter, req *http.Request) {
+	http.HandleFunc("/v1/graphql", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != "POST" {
 			w.WriteHeader(405)
 			w.Write([]byte("only POST allowed"))
@@ -84,7 +84,7 @@ func main() {
 		}
 	})
 
-	http.HandleFunc("/weaviate/v1/schema", func(w http.ResponseWriter, req *http.Request) {
+	http.HandleFunc("/v1/schema", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != "GET" {
 			w.WriteHeader(405)
 			w.Write([]byte("only GET allowed"))
@@ -95,7 +95,7 @@ func main() {
 		fmt.Fprintf(w, "%s", schemaResponse)
 	})
 
-	http.HandleFunc(fmt.Sprintf("/weaviate/v1/things/%s", thingID), func(w http.ResponseWriter, req *http.Request) {
+	http.HandleFunc(fmt.Sprintf("/v1/things/%s", thingID), func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != "GET" {
 			w.WriteHeader(405)
 			w.Write([]byte("only GET allowed"))

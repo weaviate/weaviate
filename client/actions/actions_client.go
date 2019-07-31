@@ -37,56 +37,25 @@ type Client struct {
 }
 
 /*
-WeaviateActionUpdate updates an action based on its UUID
-
-Updates an Action's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
-*/
-func (a *Client) WeaviateActionUpdate(params *WeaviateActionUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionUpdateOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewWeaviateActionUpdateParams()
-	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.action.update",
-		Method:             "PUT",
-		PathPattern:        "/actions/{id}",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
-		Schemes:            []string{"https"},
-		Params:             params,
-		Reader:             &WeaviateActionUpdateReader{formats: a.formats},
-		AuthInfo:           authInfo,
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result.(*WeaviateActionUpdateOK), nil
-
-}
-
-/*
-WeaviateActionsCreate creates actions between two things object and subject
+ActionsCreate creates actions between two things object and subject
 
 Registers a new Action. Provided meta-data and schema values are validated.
 */
-func (a *Client) WeaviateActionsCreate(params *WeaviateActionsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsCreateOK, error) {
+func (a *Client) ActionsCreate(params *ActionsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsCreateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateActionsCreateParams()
+		params = NewActionsCreateParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.actions.create",
+		ID:                 "actions.create",
 		Method:             "POST",
 		PathPattern:        "/actions",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateActionsCreateReader{formats: a.formats},
+		Reader:             &ActionsCreateReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -94,30 +63,30 @@ func (a *Client) WeaviateActionsCreate(params *WeaviateActionsCreateParams, auth
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateActionsCreateOK), nil
+	return result.(*ActionsCreateOK), nil
 
 }
 
 /*
-WeaviateActionsDelete deletes an action based on its UUID
+ActionsDelete deletes an action based on its UUID
 
 Deletes an Action from the system.
 */
-func (a *Client) WeaviateActionsDelete(params *WeaviateActionsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsDeleteNoContent, error) {
+func (a *Client) ActionsDelete(params *ActionsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsDeleteNoContent, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateActionsDeleteParams()
+		params = NewActionsDeleteParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.actions.delete",
+		ID:                 "actions.delete",
 		Method:             "DELETE",
 		PathPattern:        "/actions/{id}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateActionsDeleteReader{formats: a.formats},
+		Reader:             &ActionsDeleteReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -125,30 +94,30 @@ func (a *Client) WeaviateActionsDelete(params *WeaviateActionsDeleteParams, auth
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateActionsDeleteNoContent), nil
+	return result.(*ActionsDeleteNoContent), nil
 
 }
 
 /*
-WeaviateActionsGet gets a specific action based on its UUID and a thing UUID also available as websocket bus
+ActionsGet gets a specific action based on its UUID and a thing UUID also available as websocket bus
 
 Lists Actions.
 */
-func (a *Client) WeaviateActionsGet(params *WeaviateActionsGetParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsGetOK, error) {
+func (a *Client) ActionsGet(params *ActionsGetParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsGetOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateActionsGetParams()
+		params = NewActionsGetParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.actions.get",
+		ID:                 "actions.get",
 		Method:             "GET",
 		PathPattern:        "/actions/{id}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateActionsGetReader{formats: a.formats},
+		Reader:             &ActionsGetReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -156,30 +125,30 @@ func (a *Client) WeaviateActionsGet(params *WeaviateActionsGetParams, authInfo r
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateActionsGetOK), nil
+	return result.(*ActionsGetOK), nil
 
 }
 
 /*
-WeaviateActionsList gets a list of actions
+ActionsList gets a list of actions
 
 Lists all Actions in reverse order of creation, owned by the user that belongs to the used token.
 */
-func (a *Client) WeaviateActionsList(params *WeaviateActionsListParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsListOK, error) {
+func (a *Client) ActionsList(params *ActionsListParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsListOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateActionsListParams()
+		params = NewActionsListParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.actions.list",
+		ID:                 "actions.list",
 		Method:             "GET",
 		PathPattern:        "/actions",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateActionsListReader{formats: a.formats},
+		Reader:             &ActionsListReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -187,30 +156,30 @@ func (a *Client) WeaviateActionsList(params *WeaviateActionsListParams, authInfo
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateActionsListOK), nil
+	return result.(*ActionsListOK), nil
 
 }
 
 /*
-WeaviateActionsPatch updates an action based on its UUID using patch semantics
+ActionsPatch updates an action based on its UUID using patch semantics
 
 Updates an Action. This method supports patch semantics. Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
-func (a *Client) WeaviateActionsPatch(params *WeaviateActionsPatchParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsPatchOK, error) {
+func (a *Client) ActionsPatch(params *ActionsPatchParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsPatchOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateActionsPatchParams()
+		params = NewActionsPatchParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.actions.patch",
+		ID:                 "actions.patch",
 		Method:             "PATCH",
 		PathPattern:        "/actions/{id}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateActionsPatchReader{formats: a.formats},
+		Reader:             &ActionsPatchReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -218,30 +187,30 @@ func (a *Client) WeaviateActionsPatch(params *WeaviateActionsPatchParams, authIn
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateActionsPatchOK), nil
+	return result.(*ActionsPatchOK), nil
 
 }
 
 /*
-WeaviateActionsReferencesCreate adds a single reference to a class property when cardinality is set to has many
+ActionsReferencesCreate adds a single reference to a class property when cardinality is set to has many
 
 Add a single reference to a class-property when cardinality is set to 'hasMany'.
 */
-func (a *Client) WeaviateActionsReferencesCreate(params *WeaviateActionsReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsReferencesCreateOK, error) {
+func (a *Client) ActionsReferencesCreate(params *ActionsReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsReferencesCreateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateActionsReferencesCreateParams()
+		params = NewActionsReferencesCreateParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.actions.references.create",
+		ID:                 "actions.references.create",
 		Method:             "POST",
 		PathPattern:        "/actions/{id}/references/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateActionsReferencesCreateReader{formats: a.formats},
+		Reader:             &ActionsReferencesCreateReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -249,30 +218,30 @@ func (a *Client) WeaviateActionsReferencesCreate(params *WeaviateActionsReferenc
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateActionsReferencesCreateOK), nil
+	return result.(*ActionsReferencesCreateOK), nil
 
 }
 
 /*
-WeaviateActionsReferencesDelete deletes the single reference that is given in the body from the list of references that this property has
+ActionsReferencesDelete deletes the single reference that is given in the body from the list of references that this property has
 
 Delete the single reference that is given in the body from the list of references that this property has.
 */
-func (a *Client) WeaviateActionsReferencesDelete(params *WeaviateActionsReferencesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsReferencesDeleteNoContent, error) {
+func (a *Client) ActionsReferencesDelete(params *ActionsReferencesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsReferencesDeleteNoContent, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateActionsReferencesDeleteParams()
+		params = NewActionsReferencesDeleteParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.actions.references.delete",
+		ID:                 "actions.references.delete",
 		Method:             "DELETE",
 		PathPattern:        "/actions/{id}/references/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateActionsReferencesDeleteReader{formats: a.formats},
+		Reader:             &ActionsReferencesDeleteReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -280,30 +249,30 @@ func (a *Client) WeaviateActionsReferencesDelete(params *WeaviateActionsReferenc
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateActionsReferencesDeleteNoContent), nil
+	return result.(*ActionsReferencesDeleteNoContent), nil
 
 }
 
 /*
-WeaviateActionsReferencesUpdate replaces all references to a class property
+ActionsReferencesUpdate replaces all references to a class property
 
 Replace all references to a class-property.
 */
-func (a *Client) WeaviateActionsReferencesUpdate(params *WeaviateActionsReferencesUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsReferencesUpdateOK, error) {
+func (a *Client) ActionsReferencesUpdate(params *ActionsReferencesUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsReferencesUpdateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateActionsReferencesUpdateParams()
+		params = NewActionsReferencesUpdateParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.actions.references.update",
+		ID:                 "actions.references.update",
 		Method:             "PUT",
 		PathPattern:        "/actions/{id}/references/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateActionsReferencesUpdateReader{formats: a.formats},
+		Reader:             &ActionsReferencesUpdateReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -311,30 +280,61 @@ func (a *Client) WeaviateActionsReferencesUpdate(params *WeaviateActionsReferenc
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateActionsReferencesUpdateOK), nil
+	return result.(*ActionsReferencesUpdateOK), nil
 
 }
 
 /*
-WeaviateActionsValidate validates an action based on a schema
+ActionsUpdate updates an action based on its UUID
 
-Validate an Action's schema and meta-data. It has to be based on a schema, which is related to the given Action to be accepted by this validation.
+Updates an Action's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
-func (a *Client) WeaviateActionsValidate(params *WeaviateActionsValidateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsValidateOK, error) {
+func (a *Client) ActionsUpdate(params *ActionsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsUpdateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateActionsValidateParams()
+		params = NewActionsUpdateParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.actions.validate",
+		ID:                 "actions.update",
+		Method:             "PUT",
+		PathPattern:        "/actions/{id}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &ActionsUpdateReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*ActionsUpdateOK), nil
+
+}
+
+/*
+ActionsValidate validates an action based on a schema
+
+Validate an Action's schema and meta-data. It has to be based on a schema, which is related to the given Action to be accepted by this validation.
+*/
+func (a *Client) ActionsValidate(params *ActionsValidateParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsValidateOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewActionsValidateParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "actions.validate",
 		Method:             "POST",
 		PathPattern:        "/actions/validate",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateActionsValidateReader{formats: a.formats},
+		Reader:             &ActionsValidateReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -342,7 +342,7 @@ func (a *Client) WeaviateActionsValidate(params *WeaviateActionsValidateParams, 
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateActionsValidateOK), nil
+	return result.(*ActionsValidateOK), nil
 
 }
 

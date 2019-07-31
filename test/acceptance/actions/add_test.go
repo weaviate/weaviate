@@ -36,7 +36,7 @@ func TestCanCreateAction(t *testing.T) {
 	actionTestNumber := 1.337
 	actionTestDate := "2017-10-06T08:15:30+01:00"
 
-	params := actions.NewWeaviateActionsCreateParams().WithBody(
+	params := actions.NewActionsCreateParams().WithBody(
 		&models.Action{
 			Class: "TestAction",
 			Schema: map[string]interface{}{
@@ -48,7 +48,7 @@ func TestCanCreateAction(t *testing.T) {
 			},
 		})
 
-	resp, err := helper.Client(t).Actions.WeaviateActionsCreate(params, nil)
+	resp, err := helper.Client(t).Actions.ActionsCreate(params, nil)
 
 	// Ensure that the response is OK
 	helper.AssertRequestOk(t, resp, err, func() {
@@ -91,7 +91,7 @@ func TestCanCreateAndGetAction(t *testing.T) {
 	assertGetActionEventually(t, actionID)
 
 	// Now fetch the action
-	getResp, err := helper.Client(t).Actions.WeaviateActionsGet(actions.NewWeaviateActionsGetParams().WithID(actionID), nil)
+	getResp, err := helper.Client(t).Actions.ActionsGet(actions.NewActionsGetParams().WithID(actionID), nil)
 
 	helper.AssertRequestOk(t, getResp, err, func() {
 		action := getResp.Payload

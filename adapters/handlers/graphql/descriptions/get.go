@@ -33,7 +33,7 @@ const NetworkGetWeaviateObj string = "An object containing Get Things and Action
 const NetworkGetActions string = "Get Actions from a Weaviate in a network"
 const NetworkGetThings string = "Get Things from a Weaviate in a network"
 
-const NetworkGetWeaviateActionsObj string = "An object containing the Actions objects on this network Weaviate instance."
-const NetworkGetWeaviateThingsObj string = "An object containing the Things objects on this network Weaviate instance."
+const NetworkGetActionsObj string = "An object containing the Actions objects on this network Weaviate instance."
+const NetworkGetThingsObj string = "An object containing the Things objects on this network Weaviate instance."
 
 const NetworkGetClassUUID string = "The UUID of a Thing or Action, assigned by the Weaviate network" // TODO check this with @lauraham

@@ -34,10 +34,10 @@ type schemaManager interface {
 
 func setupMiscHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog,
 	serverConfig *config.WeaviateConfig, network network.Network, schemaManager schemaManager) {
-	api.MetaWeaviateMetaGetHandler = meta.WeaviateMetaGetHandlerFunc(func(params meta.WeaviateMetaGetParams, principal *models.Principal) middleware.Responder {
+	api.MetaMetaGetHandler = meta.MetaGetHandlerFunc(func(params meta.MetaGetParams, principal *models.Principal) middleware.Responder {
 		s, err := schemaManager.GetSchema(principal)
 		if err != nil {
-			return meta.NewWeaviateMetaGetForbidden().WithPayload(errPayloadFromSingleErr(err))
+			return meta.NewMetaGetForbidden().WithPayload(errPayloadFromSingleErr(err))
 		}
 
 		databaseSchema := schema.HackFromDatabaseSchema(s)
@@ -54,10 +54,10 @@ func setupMiscHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Reque
 		go func() {
 			requestsLog.Register(telemetry.TypeREST, telemetry.LocalQueryMeta)
 		}()
-		return meta.NewWeaviateMetaGetOK().WithPayload(metaResponse)
+		return meta.NewMetaGetOK().WithPayload(metaResponse)
 	})
 
-	api.P2PWeaviateP2pGenesisUpdateHandler = p2_p.WeaviateP2pGenesisUpdateHandlerFunc(func(params p2_p.WeaviateP2pGenesisUpdateParams) middleware.Responder {
+	api.P2PP2pGenesisUpdateHandler = p2_p.P2pGenesisUpdateHandlerFunc(func(params p2_p.P2pGenesisUpdateParams) middleware.Responder {
 		newPeers := make([]peers.Peer, 0)
 
 		for _, genesisPeer := range params.Peers {
@@ -78,14 +78,14 @@ func setupMiscHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Reque
 			go func() {
 				requestsLog.Register(telemetry.TypeREST, telemetry.NetworkQueryMeta)
 			}()
-			return p2_p.NewWeaviateP2pGenesisUpdateOK()
+			return p2_p.NewP2pGenesisUpdateOK()
 		}
-		return p2_p.NewWeaviateP2pGenesisUpdateInternalServerError()
+		return p2_p.NewP2pGenesisUpdateInternalServerError()
 	})
 
-	api.P2PWeaviateP2pHealthHandler = p2_p.WeaviateP2pHealthHandlerFunc(func(params p2_p.WeaviateP2pHealthParams) middleware.Responder {
+	api.P2PP2pHealthHandler = p2_p.P2pHealthHandlerFunc(func(params p2_p.P2pHealthParams) middleware.Responder {
 		// For now, always just return success.
-		return middleware.NotImplemented("operation P2PWeaviateP2pHealth has not yet been implemented")
+		return middleware.NotImplemented("operation P2PP2pHealth has not yet been implemented")
 	})
 
 	api.GetWellKnownOpenidConfigurationHandler = operations.GetWellKnownOpenidConfigurationHandlerFunc(

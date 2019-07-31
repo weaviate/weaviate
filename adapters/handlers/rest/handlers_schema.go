@@ -36,270 +36,270 @@ func (s *schemaHandlers) telemetryLogAsync(requestType, identifier string) {
 	}()
 }
 
-func (s *schemaHandlers) addAction(params schema.WeaviateSchemaActionsCreateParams,
+func (s *schemaHandlers) addAction(params schema.SchemaActionsCreateParams,
 	principal *models.Principal) middleware.Responder {
 	err := s.manager.AddAction(params.HTTPRequest.Context(), principal, params.ActionClass)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return schema.NewWeaviateSchemaActionsCreateForbidden().
+			return schema.NewSchemaActionsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewWeaviateSchemaActionsCreateUnprocessableEntity().
+			return schema.NewSchemaActionsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalAddMeta)
-	return schema.NewWeaviateSchemaActionsCreateOK().WithPayload(params.ActionClass)
+	return schema.NewSchemaActionsCreateOK().WithPayload(params.ActionClass)
 }
 
-func (s *schemaHandlers) deleteAction(params schema.WeaviateSchemaActionsDeleteParams, principal *models.Principal) middleware.Responder {
+func (s *schemaHandlers) deleteAction(params schema.SchemaActionsDeleteParams, principal *models.Principal) middleware.Responder {
 	err := s.manager.DeleteAction(params.HTTPRequest.Context(), principal, params.ClassName)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return schema.NewWeaviateSchemaActionsDeleteForbidden().
+			return schema.NewSchemaActionsDeleteForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewWeaviateSchemaActionsDeleteBadRequest().WithPayload(errPayloadFromSingleErr(err))
+			return schema.NewSchemaActionsDeleteBadRequest().WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
-	return schema.NewWeaviateSchemaActionsDeleteOK()
+	return schema.NewSchemaActionsDeleteOK()
 }
 
-func (s *schemaHandlers) addActionProperty(params schema.WeaviateSchemaActionsPropertiesAddParams,
+func (s *schemaHandlers) addActionProperty(params schema.SchemaActionsPropertiesAddParams,
 	principal *models.Principal) middleware.Responder {
 	err := s.manager.AddActionProperty(params.HTTPRequest.Context(), principal, params.ClassName, params.Body)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return schema.NewWeaviateSchemaActionsPropertiesAddForbidden().
+			return schema.NewSchemaActionsPropertiesAddForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewWeaviateSchemaActionsPropertiesAddUnprocessableEntity().
+			return schema.NewSchemaActionsPropertiesAddUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
-	return schema.NewWeaviateSchemaActionsPropertiesAddOK().WithPayload(params.Body)
+	return schema.NewSchemaActionsPropertiesAddOK().WithPayload(params.Body)
 }
 
-func (s *schemaHandlers) deleteActionProperty(params schema.WeaviateSchemaActionsPropertiesDeleteParams,
+func (s *schemaHandlers) deleteActionProperty(params schema.SchemaActionsPropertiesDeleteParams,
 	principal *models.Principal) middleware.Responder {
 	err := s.manager.DeleteActionProperty(params.HTTPRequest.Context(), principal, params.ClassName, params.PropertyName)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return schema.NewWeaviateSchemaActionsPropertiesDeleteForbidden().
+			return schema.NewSchemaActionsPropertiesDeleteForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewWeaviateSchemaActionsPropertiesDeleteInternalServerError().
+			return schema.NewSchemaActionsPropertiesDeleteInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
-	return schema.NewWeaviateSchemaActionsPropertiesDeleteOK()
+	return schema.NewSchemaActionsPropertiesDeleteOK()
 }
 
-func (s *schemaHandlers) updateActionProperty(params schema.WeaviateSchemaActionsPropertiesUpdateParams,
+func (s *schemaHandlers) updateActionProperty(params schema.SchemaActionsPropertiesUpdateParams,
 	principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 	err := s.manager.UpdateActionProperty(ctx, principal, params.ClassName, params.PropertyName, params.Body)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return schema.NewWeaviateSchemaActionsPropertiesUpdateForbidden().
+			return schema.NewSchemaActionsPropertiesUpdateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewWeaviateSchemaActionsPropertiesUpdateUnprocessableEntity().
+			return schema.NewSchemaActionsPropertiesUpdateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
-	return schema.NewWeaviateSchemaActionsPropertiesUpdateOK()
+	return schema.NewSchemaActionsPropertiesUpdateOK()
 }
 
-func (s *schemaHandlers) updateAction(params schema.WeaviateSchemaActionsUpdateParams, principal *models.Principal) middleware.Responder {
+func (s *schemaHandlers) updateAction(params schema.SchemaActionsUpdateParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 	err := s.manager.UpdateAction(ctx, principal, params.ClassName, params.Body)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return schema.NewWeaviateSchemaActionsUpdateForbidden().
+			return schema.NewSchemaActionsUpdateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewWeaviateSchemaActionsUpdateUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
+			return schema.NewSchemaActionsUpdateUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
-	return schema.NewWeaviateSchemaActionsUpdateOK()
+	return schema.NewSchemaActionsUpdateOK()
 }
 
-func (s *schemaHandlers) getSchema(params schema.WeaviateSchemaDumpParams, principal *models.Principal) middleware.Responder {
+func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *models.Principal) middleware.Responder {
 	dbSchema, err := s.manager.GetSchema(principal)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return schema.NewWeaviateSchemaDumpForbidden().
+			return schema.NewSchemaDumpForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewWeaviateSchemaDumpForbidden().WithPayload(errPayloadFromSingleErr(err))
+			return schema.NewSchemaDumpForbidden().WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
-	payload := &schema.WeaviateSchemaDumpOKBody{
+	payload := &schema.SchemaDumpOKBody{
 		Actions: dbSchema.Actions,
 		Things:  dbSchema.Things,
 	}
 
 	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
-	return schema.NewWeaviateSchemaDumpOK().WithPayload(payload)
+	return schema.NewSchemaDumpOK().WithPayload(payload)
 }
 
-func (s *schemaHandlers) addThing(params schema.WeaviateSchemaThingsCreateParams, principal *models.Principal) middleware.Responder {
+func (s *schemaHandlers) addThing(params schema.SchemaThingsCreateParams, principal *models.Principal) middleware.Responder {
 	err := s.manager.AddThing(params.HTTPRequest.Context(), principal, params.ThingClass)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return schema.NewWeaviateSchemaThingsCreateForbidden().
+			return schema.NewSchemaThingsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewWeaviateSchemaThingsCreateUnprocessableEntity().
+			return schema.NewSchemaThingsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalAddMeta)
-	return schema.NewWeaviateSchemaThingsCreateOK().WithPayload(params.ThingClass)
+	return schema.NewSchemaThingsCreateOK().WithPayload(params.ThingClass)
 }
 
-func (s *schemaHandlers) deleteThing(params schema.WeaviateSchemaThingsDeleteParams, principal *models.Principal) middleware.Responder {
+func (s *schemaHandlers) deleteThing(params schema.SchemaThingsDeleteParams, principal *models.Principal) middleware.Responder {
 	err := s.manager.DeleteThing(params.HTTPRequest.Context(), principal, params.ClassName)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return schema.NewWeaviateSchemaThingsDeleteForbidden().
+			return schema.NewSchemaThingsDeleteForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewWeaviateSchemaThingsDeleteBadRequest().WithPayload(errPayloadFromSingleErr(err))
+			return schema.NewSchemaThingsDeleteBadRequest().WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
-	return schema.NewWeaviateSchemaThingsDeleteOK()
+	return schema.NewSchemaThingsDeleteOK()
 }
 
-func (s *schemaHandlers) addThingProperty(params schema.WeaviateSchemaThingsPropertiesAddParams,
+func (s *schemaHandlers) addThingProperty(params schema.SchemaThingsPropertiesAddParams,
 	principal *models.Principal) middleware.Responder {
 	err := s.manager.AddThingProperty(params.HTTPRequest.Context(), principal, params.ClassName, params.Body)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return schema.NewWeaviateSchemaThingsPropertiesAddForbidden().
+			return schema.NewSchemaThingsPropertiesAddForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewWeaviateSchemaThingsPropertiesAddUnprocessableEntity().
+			return schema.NewSchemaThingsPropertiesAddUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
-	return schema.NewWeaviateSchemaThingsPropertiesAddOK().WithPayload(params.Body)
+	return schema.NewSchemaThingsPropertiesAddOK().WithPayload(params.Body)
 }
 
-func (s *schemaHandlers) deleteThingProperty(params schema.WeaviateSchemaThingsPropertiesDeleteParams,
+func (s *schemaHandlers) deleteThingProperty(params schema.SchemaThingsPropertiesDeleteParams,
 	principal *models.Principal) middleware.Responder {
 	err := s.manager.DeleteThingProperty(params.HTTPRequest.Context(), principal, params.ClassName, params.PropertyName)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return schema.NewWeaviateSchemaThingsPropertiesDeleteForbidden().
+			return schema.NewSchemaThingsPropertiesDeleteForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewWeaviateSchemaThingsPropertiesDeleteInternalServerError().
+			return schema.NewSchemaThingsPropertiesDeleteInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
-	return schema.NewWeaviateSchemaThingsPropertiesDeleteOK()
+	return schema.NewSchemaThingsPropertiesDeleteOK()
 }
 
-func (s *schemaHandlers) updateThingProperty(params schema.WeaviateSchemaThingsPropertiesUpdateParams,
+func (s *schemaHandlers) updateThingProperty(params schema.SchemaThingsPropertiesUpdateParams,
 	principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 	err := s.manager.UpdateThingProperty(ctx, principal, params.ClassName, params.PropertyName, params.Body)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return schema.NewWeaviateSchemaThingsPropertiesUpdateForbidden().
+			return schema.NewSchemaThingsPropertiesUpdateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewWeaviateSchemaThingsPropertiesUpdateUnprocessableEntity().
+			return schema.NewSchemaThingsPropertiesUpdateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
-	return schema.NewWeaviateSchemaThingsPropertiesUpdateOK()
+	return schema.NewSchemaThingsPropertiesUpdateOK()
 }
 
-func (s *schemaHandlers) updateThing(params schema.WeaviateSchemaThingsUpdateParams,
+func (s *schemaHandlers) updateThing(params schema.SchemaThingsUpdateParams,
 	principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 	err := s.manager.UpdateThing(ctx, principal, params.ClassName, params.Body)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return schema.NewWeaviateSchemaThingsUpdateForbidden().
+			return schema.NewSchemaThingsUpdateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewWeaviateSchemaThingsUpdateUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
+			return schema.NewSchemaThingsUpdateUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
-	return schema.NewWeaviateSchemaThingsUpdateOK()
+	return schema.NewSchemaThingsUpdateOK()
 }
 
 func setupSchemaHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog, manager *schemaUC.Manager) {
 	h := &schemaHandlers{requestsLog, manager}
 
-	api.SchemaWeaviateSchemaActionsCreateHandler = schema.
-		WeaviateSchemaActionsCreateHandlerFunc(h.addAction)
-	api.SchemaWeaviateSchemaActionsUpdateHandler = schema.
-		WeaviateSchemaActionsUpdateHandlerFunc(h.updateAction)
-	api.SchemaWeaviateSchemaActionsDeleteHandler = schema.
-		WeaviateSchemaActionsDeleteHandlerFunc(h.deleteAction)
-	api.SchemaWeaviateSchemaActionsPropertiesAddHandler = schema.
-		WeaviateSchemaActionsPropertiesAddHandlerFunc(h.addActionProperty)
-	api.SchemaWeaviateSchemaActionsPropertiesDeleteHandler = schema.
-		WeaviateSchemaActionsPropertiesDeleteHandlerFunc(h.deleteActionProperty)
-	api.SchemaWeaviateSchemaActionsPropertiesUpdateHandler = schema.
-		WeaviateSchemaActionsPropertiesUpdateHandlerFunc(h.updateActionProperty)
+	api.SchemaSchemaActionsCreateHandler = schema.
+		SchemaActionsCreateHandlerFunc(h.addAction)
+	api.SchemaSchemaActionsUpdateHandler = schema.
+		SchemaActionsUpdateHandlerFunc(h.updateAction)
+	api.SchemaSchemaActionsDeleteHandler = schema.
+		SchemaActionsDeleteHandlerFunc(h.deleteAction)
+	api.SchemaSchemaActionsPropertiesAddHandler = schema.
+		SchemaActionsPropertiesAddHandlerFunc(h.addActionProperty)
+	api.SchemaSchemaActionsPropertiesDeleteHandler = schema.
+		SchemaActionsPropertiesDeleteHandlerFunc(h.deleteActionProperty)
+	api.SchemaSchemaActionsPropertiesUpdateHandler = schema.
+		SchemaActionsPropertiesUpdateHandlerFunc(h.updateActionProperty)
 
-	api.SchemaWeaviateSchemaThingsCreateHandler = schema.
-		WeaviateSchemaThingsCreateHandlerFunc(h.addThing)
-	api.SchemaWeaviateSchemaThingsUpdateHandler = schema.
-		WeaviateSchemaThingsUpdateHandlerFunc(h.updateThing)
-	api.SchemaWeaviateSchemaThingsDeleteHandler = schema.
-		WeaviateSchemaThingsDeleteHandlerFunc(h.deleteThing)
-	api.SchemaWeaviateSchemaThingsPropertiesAddHandler = schema.
-		WeaviateSchemaThingsPropertiesAddHandlerFunc(h.addThingProperty)
-	api.SchemaWeaviateSchemaThingsPropertiesDeleteHandler = schema.
-		WeaviateSchemaThingsPropertiesDeleteHandlerFunc(h.deleteThingProperty)
-	api.SchemaWeaviateSchemaThingsPropertiesUpdateHandler = schema.
-		WeaviateSchemaThingsPropertiesUpdateHandlerFunc(h.updateThingProperty)
+	api.SchemaSchemaThingsCreateHandler = schema.
+		SchemaThingsCreateHandlerFunc(h.addThing)
+	api.SchemaSchemaThingsUpdateHandler = schema.
+		SchemaThingsUpdateHandlerFunc(h.updateThing)
+	api.SchemaSchemaThingsDeleteHandler = schema.
+		SchemaThingsDeleteHandlerFunc(h.deleteThing)
+	api.SchemaSchemaThingsPropertiesAddHandler = schema.
+		SchemaThingsPropertiesAddHandlerFunc(h.addThingProperty)
+	api.SchemaSchemaThingsPropertiesDeleteHandler = schema.
+		SchemaThingsPropertiesDeleteHandlerFunc(h.deleteThingProperty)
+	api.SchemaSchemaThingsPropertiesUpdateHandler = schema.
+		SchemaThingsPropertiesUpdateHandlerFunc(h.updateThingProperty)
 
-	api.SchemaWeaviateSchemaDumpHandler = schema.
-		WeaviateSchemaDumpHandlerFunc(h.getSchema)
+	api.SchemaSchemaDumpHandler = schema.
+		SchemaDumpHandlerFunc(h.getSchema)
 }
 
 type unlocker interface {

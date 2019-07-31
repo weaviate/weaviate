@@ -254,14 +254,14 @@ func fixupThings() {
 }
 
 func checkThingExists(id string) bool {
-	params := things.NewWeaviateThingsGetParams().WithID(strfmt.UUID(id))
-	resp, err := client.Things.WeaviateThingsGet(params, nil)
+	params := things.NewThingsGetParams().WithID(strfmt.UUID(id))
+	resp, err := client.Things.ThingsGet(params, nil)
 
 	if err != nil {
 		switch v := err.(type) {
-		case *things.WeaviateThingsGetNotFound:
+		case *things.ThingsGetNotFound:
 			return false
-		case *things.WeaviateThingsGetForbidden:
+		case *things.ThingsGetForbidden:
 			panic(v.Payload.Error[0].Message)
 		default:
 			panic(fmt.Sprintf("Can't create thing %#v, because %#v", resp, spew.Sdump(v)))
@@ -272,13 +272,13 @@ func checkThingExists(id string) bool {
 }
 
 func assertCreateThing(t *models.Thing) *models.Thing {
-	params := things.NewWeaviateThingsCreateParams().WithBody(t)
+	params := things.NewThingsCreateParams().WithBody(t)
 
-	resp, err := client.Things.WeaviateThingsCreate(params, nil)
+	resp, err := client.Things.ThingsCreate(params, nil)
 
 	if err != nil {
 		switch v := err.(type) {
-		case *things.WeaviateThingsCreateUnprocessableEntity:
+		case *things.ThingsCreateUnprocessableEntity:
 			panic(fmt.Sprintf("Can't create thing %#v, because %s", t, joinErrorMessages(v.Payload)))
 		default:
 			panic(fmt.Sprintf("Can't create thing %#v, because %#v", t, spew.Sdump(err)))
@@ -289,15 +289,15 @@ func assertCreateThing(t *models.Thing) *models.Thing {
 }
 
 func assertUpdateThing(id string, update *models.Thing) *models.Thing {
-	params := things.NewWeaviateThingsUpdateParams().WithBody(update).WithID(strfmt.UUID(id))
+	params := things.NewThingsUpdateParams().WithBody(update).WithID(strfmt.UUID(id))
 
-	resp, err := client.Things.WeaviateThingsUpdate(params, nil)
+	resp, err := client.Things.ThingsUpdate(params, nil)
 
 	if err != nil {
 		switch v := err.(type) {
-		case *things.WeaviateThingsUpdateNotFound:
+		case *things.ThingsUpdateNotFound:
 			panic(fmt.Sprintf("Can't patch thing with %s, because thing cannot be found", spew.Sdump(update)))
-		case *things.WeaviateThingsUpdateUnprocessableEntity:
+		case *things.ThingsUpdateUnprocessableEntity:
 			panic(fmt.Sprintf("Can't patch thing, because %s (patch: %#v)", joinErrorMessages(v.Payload), *update))
 		default:
 			_ = v
@@ -309,15 +309,15 @@ func assertUpdateThing(id string, update *models.Thing) *models.Thing {
 }
 
 func assertPatchThing(id string, p *models.PatchDocument) *models.Thing {
-	params := things.NewWeaviateThingsPatchParams().WithBody([]*models.PatchDocument{p}).WithID(strfmt.UUID(id))
+	params := things.NewThingsPatchParams().WithBody([]*models.PatchDocument{p}).WithID(strfmt.UUID(id))
 
-	resp, err := client.Things.WeaviateThingsPatch(params, nil)
+	resp, err := client.Things.ThingsPatch(params, nil)
 
 	if err != nil {
 		switch v := err.(type) {
-		case *things.WeaviateThingsPatchNotFound:
+		case *things.ThingsPatchNotFound:
 			panic(fmt.Sprintf("Can't patch thing with %s, because thing cannot be found", spew.Sdump(p)))
-		case *things.WeaviateThingsPatchUnprocessableEntity:
+		case *things.ThingsPatchUnprocessableEntity:
 			panic(fmt.Sprintf("Can't patch thing, because %s", joinErrorMessages(v.Payload)))
 		default:
 			_ = v

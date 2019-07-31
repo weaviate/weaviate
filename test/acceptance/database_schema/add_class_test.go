@@ -39,8 +39,8 @@ func TestAddAndRemoveThingClass(t *testing.T) {
 	}
 
 	t.Log("Creating class")
-	params := schema.NewWeaviateSchemaThingsCreateParams().WithThingClass(tc)
-	resp, err := helper.Client(t).Schema.WeaviateSchemaThingsCreate(params, nil)
+	params := schema.NewSchemaThingsCreateParams().WithThingClass(tc)
+	resp, err := helper.Client(t).Schema.SchemaThingsCreate(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
 
 	t.Log("Asserting that this class is now created")
@@ -48,8 +48,8 @@ func TestAddAndRemoveThingClass(t *testing.T) {
 
 	// Now clean up this class.
 	t.Log("Remove the class")
-	delParams := schema.NewWeaviateSchemaThingsDeleteParams().WithClassName(randomThingClassName)
-	delResp, err := helper.Client(t).Schema.WeaviateSchemaThingsDelete(delParams, nil)
+	delParams := schema.NewSchemaThingsDeleteParams().WithClassName(randomThingClassName)
+	delResp, err := helper.Client(t).Schema.SchemaThingsDelete(delParams, nil)
 	helper.AssertRequestOk(t, delResp, err, nil)
 
 	// And verify that the class does not exist anymore.
@@ -82,15 +82,15 @@ func TestDeleteSingleProperties(t *testing.T) {
 	}
 
 	t.Log("Creating class")
-	params := schema.NewWeaviateSchemaThingsCreateParams().WithThingClass(tc)
-	resp, err := helper.Client(t).Schema.WeaviateSchemaThingsCreate(params, nil)
+	params := schema.NewSchemaThingsCreateParams().WithThingClass(tc)
+	resp, err := helper.Client(t).Schema.SchemaThingsCreate(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
 
 	t.Log("Asserting that this class is now created")
 	assert.Contains(t, GetThingClassNames(t), randomThingClassName)
 
 	t.Log("adding an instance of this particular class that uses both properties")
-	instanceParams := things.NewWeaviateThingsCreateParams().WithBody(
+	instanceParams := things.NewThingsCreateParams().WithBody(
 		&models.Thing{
 			Class: randomThingClassName,
 			Schema: map[string]interface{}{
@@ -98,14 +98,14 @@ func TestDeleteSingleProperties(t *testing.T) {
 				"description": "my description",
 			},
 		})
-	instanceRes, err := helper.Client(t).Things.WeaviateThingsCreate(instanceParams, nil)
+	instanceRes, err := helper.Client(t).Things.ThingsCreate(instanceParams, nil)
 	assert.Nil(t, err, "adding a class instance should not error")
 
 	t.Log("delete a single property of the class")
-	deleteParams := schema.NewWeaviateSchemaThingsPropertiesDeleteParams().
+	deleteParams := schema.NewSchemaThingsPropertiesDeleteParams().
 		WithClassName(randomThingClassName).
 		WithPropertyName("description")
-	_, err = helper.Client(t).Schema.WeaviateSchemaThingsPropertiesDelete(deleteParams, nil)
+	_, err = helper.Client(t).Schema.SchemaThingsPropertiesDelete(deleteParams, nil)
 	assert.Nil(t, err, "deleting the property should not error")
 
 	t.Log("retrieve the class and make sure the property is gone")
@@ -126,24 +126,24 @@ func TestDeleteSingleProperties(t *testing.T) {
 	t.Log("verifying other GQL/REST queries still work")
 	gql.AssertGraphQL(t, helper.RootAuth, "{  GetMeta { Things { RedShip { name { count } } } } }")
 	gql.AssertGraphQL(t, helper.RootAuth, `{  Aggregate { Things { RedShip(groupBy: ["name"]) { name { count } } } } }`)
-	_, err = helper.Client(t).Things.WeaviateThingsList(things.NewWeaviateThingsListParams(), nil)
+	_, err = helper.Client(t).Things.ThingsList(things.NewThingsListParams(), nil)
 	assert.Nil(t, err, "listing things should not error")
 
 	t.Log("verifying we could re-add the property with the same name")
-	readdParams := schema.NewWeaviateSchemaThingsPropertiesAddParams().
+	readdParams := schema.NewSchemaThingsPropertiesAddParams().
 		WithClassName(randomThingClassName).
 		WithBody(&models.Property{
 			Name:     "description",
 			DataType: []string{"string"},
 		})
 
-	_, err = helper.Client(t).Schema.WeaviateSchemaThingsPropertiesAdd(readdParams, nil)
+	_, err = helper.Client(t).Schema.SchemaThingsPropertiesAdd(readdParams, nil)
 	assert.Nil(t, err, "adding the previously deleted property again should not error")
 
 	// Now clean up this class.
 	t.Log("Remove the class")
-	delParams := schema.NewWeaviateSchemaThingsDeleteParams().WithClassName(randomThingClassName)
-	delResp, err := helper.Client(t).Schema.WeaviateSchemaThingsDelete(delParams, nil)
+	delParams := schema.NewSchemaThingsDeleteParams().WithClassName(randomThingClassName)
+	delResp, err := helper.Client(t).Schema.SchemaThingsDelete(delParams, nil)
 	helper.AssertRequestOk(t, delResp, err, nil)
 
 	// And verify that the class does not exist anymore.
@@ -152,12 +152,12 @@ func TestDeleteSingleProperties(t *testing.T) {
 
 func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.Thing {
 	var (
-		resp *things.WeaviateThingsGetOK
+		resp *things.ThingsGetOK
 		err  error
 	)
 
 	checkThunk := func() interface{} {
-		resp, err = helper.Client(t).Things.WeaviateThingsGet(things.NewWeaviateThingsGetParams().WithID(uuid), nil)
+		resp, err = helper.Client(t).Things.ThingsGet(things.NewThingsGetParams().WithID(uuid), nil)
 		return err == nil
 	}
 

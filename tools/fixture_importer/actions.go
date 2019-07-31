@@ -150,12 +150,12 @@ func fixupActions() {
 }
 
 func checkActionExists(id string) bool {
-	params := actions.NewWeaviateActionsGetParams().WithID(strfmt.UUID(id))
-	resp, err := client.Actions.WeaviateActionsGet(params, nil)
+	params := actions.NewActionsGetParams().WithID(strfmt.UUID(id))
+	resp, err := client.Actions.ActionsGet(params, nil)
 
 	if err != nil {
 		switch v := err.(type) {
-		case *actions.WeaviateActionsGetNotFound:
+		case *actions.ActionsGetNotFound:
 			return false
 		default:
 			panic(fmt.Sprintf("Can't create action %#v, because %#v", resp, spew.Sdump(v)))
@@ -166,13 +166,13 @@ func checkActionExists(id string) bool {
 }
 
 func assertCreateAction(t *models.Action) *models.Action {
-	params := actions.NewWeaviateActionsCreateParams().WithBody(t)
+	params := actions.NewActionsCreateParams().WithBody(t)
 
-	resp, err := client.Actions.WeaviateActionsCreate(params, nil)
+	resp, err := client.Actions.ActionsCreate(params, nil)
 
 	if err != nil {
 		switch v := err.(type) {
-		case *actions.WeaviateActionsCreateUnprocessableEntity:
+		case *actions.ActionsCreateUnprocessableEntity:
 			panic(fmt.Sprintf("Can't create action %#v, because %s", t, joinErrorMessages(v.Payload)))
 		default:
 			panic(fmt.Sprintf("Can't create action %#v, because %#v", t, spew.Sdump(err)))
@@ -183,15 +183,15 @@ func assertCreateAction(t *models.Action) *models.Action {
 }
 
 func assertPatchAction(id string, p *models.PatchDocument) *models.Action {
-	params := actions.NewWeaviateActionsPatchParams().WithBody([]*models.PatchDocument{p}).WithID(strfmt.UUID(id))
+	params := actions.NewActionsPatchParams().WithBody([]*models.PatchDocument{p}).WithID(strfmt.UUID(id))
 
-	resp, err := client.Actions.WeaviateActionsPatch(params, nil)
+	resp, err := client.Actions.ActionsPatch(params, nil)
 
 	if err != nil {
 		switch v := err.(type) {
-		case *actions.WeaviateActionsPatchNotFound:
+		case *actions.ActionsPatchNotFound:
 			panic(fmt.Sprintf("Can't patch action with %s, because action cannot be found", spew.Sdump(p)))
-		case *actions.WeaviateActionsPatchUnprocessableEntity:
+		case *actions.ActionsPatchUnprocessableEntity:
 			panic(fmt.Sprintf("Can't patch action, because %s", joinErrorMessages(v.Payload)))
 		default:
 			_ = v

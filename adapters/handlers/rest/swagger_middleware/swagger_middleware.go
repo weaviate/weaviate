@@ -29,10 +29,10 @@ type templateData struct {
 
 func AddMiddleware(swaggerJSON []byte, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/weaviate/v1/swagger.json") && r.Method == http.MethodGet {
+		if strings.HasPrefix(r.URL.Path, "/v1/swagger.json") && r.Method == http.MethodGet {
 			w.Header().Set("Content-Type", "application/json")
 			w.Write(swaggerJSON)
-		} else if strings.HasPrefix(r.URL.Path, "/weaviate/v1/swagger") && r.Method == http.MethodGet {
+		} else if strings.HasPrefix(r.URL.Path, "/v1/swagger") && r.Method == http.MethodGet {
 			renderSwagger(w, r)
 		} else {
 			next.ServeHTTP(w, r)
@@ -115,7 +115,7 @@ const swaggerTemplate = `
 
       // Build a system
       const ui = SwaggerUIBundle({
-        url: "/weaviate/v1/swagger.json",
+        url: "/v1/swagger.json",
         dom_id: '#swagger-ui',
         deepLinking: true,
         presets: [

@@ -38,7 +38,7 @@ func ActionClassFieldsFromSchema(dbSchema *schema.Schema, getActionsAndThings *m
 	getActions := graphql.ObjectConfig{
 		Name:        fmt.Sprintf("%s%s%s", "WeaviateNetworkGet", weaviate, "ActionsObj"),
 		Fields:      actionClassFields,
-		Description: descriptions.NetworkGetWeaviateActionsObj,
+		Description: descriptions.NetworkGetActionsObj,
 	}
 
 	return graphql.NewObject(getActions), nil
@@ -165,7 +165,7 @@ func ThingClassFieldsFromSchema(dbSchema *schema.Schema, actionsAndThings *map[s
 	getThings := graphql.ObjectConfig{
 		Name:        fmt.Sprintf("%s%s%s", "WeaviateNetworkGet", weaviate, "ThingsObj"),
 		Fields:      thingClassFields,
-		Description: descriptions.NetworkGetWeaviateThingsObj,
+		Description: descriptions.NetworkGetThingsObj,
 	}
 
 	return graphql.NewObject(getThings), nil

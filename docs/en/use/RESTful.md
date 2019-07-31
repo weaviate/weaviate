@@ -25,7 +25,7 @@ Before you can add thing and action nodes to Weaviate you need to create an onto
 The complete things and actions schema can be dumped as follows:
 
 ```bash
-$ curl http://localhost:8080/weaviate/v1/meta
+$ curl http://localhost:8080/v1/meta
 ```
 
 Example result:
@@ -53,7 +53,7 @@ You can learn more about what should be part of the POST body [here](ontology-sc
 Example request:
 
 ```bash
-$ curl -X POST http://localhost:8080/weaviate/v1/schema/things -H "Content-Type: application/json" -d '{
+$ curl -X POST http://localhost:8080/v1/schema/things -H "Content-Type: application/json" -d '{
     "class": "Zoo",
     "keywords": [{
         "keyword": "park",
@@ -85,7 +85,7 @@ $ curl -X POST http://localhost:8080/weaviate/v1/schema/things -H "Content-Type:
 Example request:
 
 ```bash
-$ curl -X PUT http://localhost:8080/weaviate/v1/schema/things/Zoo -H "Content-Type: application/json" -d '{
+$ curl -X PUT http://localhost:8080/v1/schema/things/Zoo -H "Content-Type: application/json" -d '{
   "newName": "Menagerie",
   "keywords": [
     {
@@ -103,7 +103,7 @@ $ curl -X PUT http://localhost:8080/weaviate/v1/schema/things/Zoo -H "Content-Ty
 Example request:
 
 ```bash
-$ curl -X PUT http://localhost:8080/weaviate/v1/schema/actions/Zoo/properties/name -H "Content-Type: application/json" -d '{
+$ curl -X PUT http://localhost:8080/v1/schema/actions/Zoo/properties/name -H "Content-Type: application/json" -d '{
   "newName": "identifier",
   "keywords": [
     {
@@ -121,7 +121,7 @@ $ curl -X PUT http://localhost:8080/weaviate/v1/schema/actions/Zoo/properties/na
 Example request:
 
 ```bash
-$ curl -X DELETE http://localhost:8080/weaviate/v1/schema/things/Zoo
+$ curl -X DELETE http://localhost:8080/v1/schema/things/Zoo
 ```
 
 ### Add a _thing_ property to the ontology schema
@@ -133,7 +133,7 @@ You can learn more about what should be part of the POST body [here](ontology-sc
 Example request:
 
 ```bash
-$ curl -X PUT http://localhost:8080/weaviate/v1/schema/things/Zoo/properties -H "Content-Type: application/json" -d '{
+$ curl -X PUT http://localhost:8080/v1/schema/things/Zoo/properties -H "Content-Type: application/json" -d '{
   "dataType": [
     "City"
   ],
@@ -151,7 +151,7 @@ $ curl -X PUT http://localhost:8080/weaviate/v1/schema/things/Zoo/properties -H 
 Example request:
 
 ```bash
-$ curl -X DELETE http://localhost:8080/weaviate/v1/schema/things/Zoo/properties/inCity
+$ curl -X DELETE http://localhost:8080/v1/schema/things/Zoo/properties/inCity
 ```
 
 ### Define an _action_ in the ontology schema
@@ -163,7 +163,7 @@ You can learn more about what should be part of the POST body [here](ontology-sc
 Example request:
 
 ```bash
-$ curl -X POST http://localhost:8080/weaviate/v1/schema/actions -H "Content-Type: application/json" -d '{
+$ curl -X POST http://localhost:8080/v1/schema/actions -H "Content-Type: application/json" -d '{
     "class": "BuyAction",
     "keywords": [{
         "keyword": "consume",
@@ -191,7 +191,7 @@ $ curl -X POST http://localhost:8080/weaviate/v1/schema/actions -H "Content-Type
 Example request:
 
 ```bash
-$ curl -X PUT http://localhost:8080/weaviate/v1/schema/actions/BuyAction -H "Content-Type: application/json" -d '{
+$ curl -X PUT http://localhost:8080/v1/schema/actions/BuyAction -H "Content-Type: application/json" -d '{
   "newName": "PurchaseAction",
   "keywords": [
     {
@@ -209,7 +209,7 @@ $ curl -X PUT http://localhost:8080/weaviate/v1/schema/actions/BuyAction -H "Con
 Example request:
 
 ```bash
-$ curl -X PUT http://localhost:8080/weaviate/v1/schema/actions/BuyAction/properties/amount -H "Content-Type: application/json" -d '{
+$ curl -X PUT http://localhost:8080/v1/schema/actions/BuyAction/properties/amount -H "Content-Type: application/json" -d '{
   "newName": "quantity",
   "keywords": [
     {
@@ -227,7 +227,7 @@ $ curl -X PUT http://localhost:8080/weaviate/v1/schema/actions/BuyAction/propert
 Example request:
 
 ```bash
-$ curl -X DELETE http://localhost:8080/weaviate/v1/schema/things/BuyAction
+$ curl -X DELETE http://localhost:8080/v1/schema/things/BuyAction
 ```
 
 ### Add an _action_ property to the ontology schema
@@ -239,7 +239,7 @@ You can learn more about what should be part of the POST body [here](ontology-sc
 Example request:
 
 ```bash
-$ curl -X PUT http://localhost:8080/weaviate/v1/schema/actions/BuyAction/properties -H "Content-Type: application/json" -d '{
+$ curl -X PUT http://localhost:8080/v1/schema/actions/BuyAction/properties -H "Content-Type: application/json" -d '{
   "dataType": [
     "Shop"
   ],
@@ -257,7 +257,7 @@ $ curl -X PUT http://localhost:8080/weaviate/v1/schema/actions/BuyAction/propert
 Example request:
 
 ```bash
-$ curl -X DELETE http://localhost:8080/weaviate/v1/schema/actions/BuyAction/properties/inShop
+$ curl -X DELETE http://localhost:8080/v1/schema/actions/BuyAction/properties/inShop
 ```
 
 ## Things & Actions
@@ -271,7 +271,7 @@ The Weaviate graph contains two root-level concepts: things (noun-based) and act
 Example request:
 
 ```bash
-$ curl http://localhost:8080/weaviate/v1/things
+$ curl http://localhost:8080/v1/things
 ```
 
 ### Validate a _thing_
@@ -283,7 +283,7 @@ Can be used to validate if a concept is properly structured.
 Example request:
 
 ```bash
-$ curl http://localhost:8080/weaviate/v1/things/validate -H "Content-Type: application/json" -d '{
+$ curl http://localhost:8080/v1/things/validate -H "Content-Type: application/json" -d '{
     "class": "Animal",
     "schema": {
         "name": "Bert",
@@ -301,7 +301,7 @@ Returns the unique ID of the newly created concept.
 Example request:
 
 ```bash
-$ curl http://localhost:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
+$ curl http://localhost:8080/v1/things -H "Content-Type: application/json" -d '{
     "class": "Animal",
     "schema": {
         "name": "Bert",
@@ -317,7 +317,7 @@ $ curl http://localhost:8080/weaviate/v1/things -H "Content-Type: application/js
 Example request:
 
 ```bash
-$ curl http://localhost:8080/weaviate/v1/things/{uuid} -H "Content-Type: application/json" -d '{
+$ curl http://localhost:8080/v1/things/{uuid} -H "Content-Type: application/json" -d '{
     "class": "Animal",
     "schema": {
         "name": "Charles",
@@ -335,7 +335,7 @@ $ curl http://localhost:8080/weaviate/v1/things/{uuid} -H "Content-Type: applica
 Example where a `$cref` is added to the `inZoo` property:
 
 ```bash
-$ curl PATCH http://localhost:8080/weaviate/v1/actions/c354ba34-432e-4e51-97ef-f33e39f39e55 -H "Content-Type: application/json" -d '[
+$ curl PATCH http://localhost:8080/v1/actions/c354ba34-432e-4e51-97ef-f33e39f39e55 -H "Content-Type: application/json" -d '[
   {
     "op": "add",
     "path": "/schema/inZoo",
@@ -353,7 +353,7 @@ $ curl PATCH http://localhost:8080/weaviate/v1/actions/c354ba34-432e-4e51-97ef-f
 Example request:
 
 ```bash
-$ curl -X DELETE http://localhost:8080/weaviate/v1/things/{uuid}
+$ curl -X DELETE http://localhost:8080/v1/things/{uuid}
 ```
 
 ### Create a single _thing_ property
@@ -363,7 +363,7 @@ $ curl -X DELETE http://localhost:8080/weaviate/v1/things/{uuid}
 Add a single reference to a class-property when cardinality is set to 'hasMany'. You can learn more about Weaviate `$cref` definitions [here](ontology-schema.md#crossref-data-type).
 
 ```bash
-$ curl -X POST http://localhost:8080/weaviate/v1/things/{uuid}/properties/{propertyName} -H "Content-Type: application/json" -d '{
+$ curl -X POST http://localhost:8080/v1/things/{uuid}/properties/{propertyName} -H "Content-Type: application/json" -d '{
     "$cref": "weaviate://localhost/things/82f91e01-37b4-431c-98d1-43ebb48bca0f"
 }'
 ```
@@ -375,7 +375,7 @@ $ curl -X POST http://localhost:8080/weaviate/v1/things/{uuid}/properties/{prope
 Add an array of references to a class-property when cardinality is set to 'hasMany'. You can learn more about Weaviate `$cref` definitions [here](ontology-schema.md#crossref-data-type).
 
 ```bash
-$ curl -X PUT http://localhost:8080/weaviate/v1/things/{uuid}/properties/{propertyName} -H "Content-Type: application/json" -d '[
+$ curl -X PUT http://localhost:8080/v1/things/{uuid}/properties/{propertyName} -H "Content-Type: application/json" -d '[
   {
     "$cref": "weaviate://localhost/things/82f91e01-37b4-431c-98d1-43ebb48bca0f"
   }
@@ -387,7 +387,7 @@ $ curl -X PUT http://localhost:8080/weaviate/v1/things/{uuid}/properties/{proper
 (<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/things/weaviate.things.properties.delete" target="_blank">Definition on Swaggerhub</a>)
 
 ```bash
-$ curl -X DELETE http://localhost:8080/weaviate/v1/things/{uuid}/properties/{propertyName} -H "Content-Type: application/json" -d '{
+$ curl -X DELETE http://localhost:8080/v1/things/{uuid}/properties/{propertyName} -H "Content-Type: application/json" -d '{
     "$cref": "weaviate://localhost/things/82f91e01-37b4-431c-98d1-43ebb48bca0f"
 }'
 ```
@@ -399,7 +399,7 @@ $ curl -X DELETE http://localhost:8080/weaviate/v1/things/{uuid}/properties/{pro
 Example request:
 
 ```bash
-$ curl http://localhost:8080/weaviate/v1/actions
+$ curl http://localhost:8080/v1/actions
 ```
 
 ### Validate a _action_
@@ -411,7 +411,7 @@ Can be used to validate if a concept is properly structured.
 Example request:
 
 ```bash
-$ curl http://localhost:8080/weaviate/v1/actions/validate -H "Content-Type: application/json" -d '{
+$ curl http://localhost:8080/v1/actions/validate -H "Content-Type: application/json" -d '{
     "class": "Animal",
     "schema": {
         "name": "Bert",
@@ -429,7 +429,7 @@ Returns the unique ID of the newly created concept.
 Example request:
 
 ```bash
-$ curl http://localhost:8080/weaviate/v1/actions -H "Content-Type: application/json" -d '{
+$ curl http://localhost:8080/v1/actions -H "Content-Type: application/json" -d '{
     "class": "Animal",
     "schema": {
         "name": "Bert",
@@ -445,7 +445,7 @@ $ curl http://localhost:8080/weaviate/v1/actions -H "Content-Type: application/j
 Example request:
 
 ```bash
-$ curl http://localhost:8080/weaviate/v1/actions/{uuid} -H "Content-Type: application/json" -d '{
+$ curl http://localhost:8080/v1/actions/{uuid} -H "Content-Type: application/json" -d '{
     "class": "Animal",
     "schema": {
         "name": "Charles",
@@ -463,7 +463,7 @@ $ curl http://localhost:8080/weaviate/v1/actions/{uuid} -H "Content-Type: applic
 Example where a `$cref` is added to the `inZoo` property:
 
 ```bash
-$ curl PATCH http://localhost:8080/weaviate/v1/actions/c354ba34-432e-4e51-97ef-f33e39f39e55 -H "Content-Type: application/json" -d '[
+$ curl PATCH http://localhost:8080/v1/actions/c354ba34-432e-4e51-97ef-f33e39f39e55 -H "Content-Type: application/json" -d '[
   {
     "op": "add",
     "path": "/schema/inZoo",
@@ -481,7 +481,7 @@ $ curl PATCH http://localhost:8080/weaviate/v1/actions/c354ba34-432e-4e51-97ef-f
 Example request:
 
 ```bash
-$ curl -X DELETE http://localhost:8080/weaviate/v1/actions/{uuid}
+$ curl -X DELETE http://localhost:8080/v1/actions/{uuid}
 ```
 
 ### Create a single _action_ property
@@ -491,7 +491,7 @@ $ curl -X DELETE http://localhost:8080/weaviate/v1/actions/{uuid}
 Add a single reference to a class-property when cardinality is set to 'hasMany'. You can learn more about Weaviate `$cref` definitions [here](ontology-schema.md#crossref-data-type).
 
 ```bash
-$ curl -X POST http://localhost:8080/weaviate/v1/actions/{uuid}/properties/{propertyName} -H "Content-Type: application/json" -d '{
+$ curl -X POST http://localhost:8080/v1/actions/{uuid}/properties/{propertyName} -H "Content-Type: application/json" -d '{
     "$cref": "weaviate://localhost/actions/82f91e01-37b4-431c-98d1-43ebb48bca0f"
 }'
 ```
@@ -503,7 +503,7 @@ $ curl -X POST http://localhost:8080/weaviate/v1/actions/{uuid}/properties/{prop
 Add an array of references to a class-property when cardinality is set to 'hasMany'. You can learn more about Weaviate `$cref` definitions [here](ontology-schema.md#crossref-data-type).
 
 ```bash
-$ curl -X PUT http://localhost:8080/weaviate/v1/actions/{uuid}/properties/{propertyName} -H "Content-Type: application/json" -d '[
+$ curl -X PUT http://localhost:8080/v1/actions/{uuid}/properties/{propertyName} -H "Content-Type: application/json" -d '[
   {
     "$cref": "weaviate://localhost/actions/82f91e01-37b4-431c-98d1-43ebb48bca0f"
   }
@@ -515,7 +515,7 @@ $ curl -X PUT http://localhost:8080/weaviate/v1/actions/{uuid}/properties/{prope
 (<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/actions/weaviate.actions.properties.delete" target="_blank">Definition on Swaggerhub</a>)
 
 ```bash
-$ curl -X DELETE http://localhost:8080/weaviate/v1/actions/{uuid}/properties/{propertyName} -H "Content-Type: application/json" -d '{
+$ curl -X DELETE http://localhost:8080/v1/actions/{uuid}/properties/{propertyName} -H "Content-Type: application/json" -d '{
     "$cref": "weaviate://localhost/actions/82f91e01-37b4-431c-98d1-43ebb48bca0f"
 }'
 ```
@@ -535,7 +535,7 @@ Gives information about a set of words like nearest neighbors, relations to othe
 _Note: When only a single word is provided, one `individualWords` is returned._
 
 ```bash
-$ curl http://localhost:8080/weaviate/v1/c11y/words/monkeyZooBanana -H "Content-Type: application/json"
+$ curl http://localhost:8080/v1/c11y/words/monkeyZooBanana -H "Content-Type: application/json"
 ```
 
 ### Meta
@@ -545,5 +545,5 @@ $ curl http://localhost:8080/weaviate/v1/c11y/words/monkeyZooBanana -H "Content-
 Gives meta information about the server and can be used to provide information to another Weaviate instance that wants to interact with the current instance.
 
 ```bash
-$ curl http://localhost:8080/weaviate/v1/meta
+$ curl http://localhost:8080/v1/meta
 ```

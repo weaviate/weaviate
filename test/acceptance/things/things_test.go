@@ -37,7 +37,7 @@ func TestCreateThingWithUserSpecifiedID(t *testing.T) {
 	thingTestString := "Test string"
 	id := strfmt.UUID("d47ea61b-0ed7-4e5f-9c05-6d2c0786660f")
 
-	params := things.NewWeaviateThingsCreateParams().WithBody(
+	params := things.NewThingsCreateParams().WithBody(
 		&models.Thing{
 			ID:    id,
 			Class: "TestThing",
@@ -46,7 +46,7 @@ func TestCreateThingWithUserSpecifiedID(t *testing.T) {
 			},
 		})
 
-	resp, err := helper.Client(t).Things.WeaviateThingsCreate(params, nil)
+	resp, err := helper.Client(t).Things.ThingsCreate(params, nil)
 
 	// Ensure that the response is OK
 	helper.AssertRequestOk(t, resp, err, func() {
@@ -63,7 +63,7 @@ func TestCreateThingWithUserSpecifiedID(t *testing.T) {
 	})
 
 	// Try to create the same thing again and make sure it fails
-	params = things.NewWeaviateThingsCreateParams().WithBody(
+	params = things.NewThingsCreateParams().WithBody(
 		&models.Thing{
 			ID:    id,
 			Class: "TestThing",
@@ -72,9 +72,9 @@ func TestCreateThingWithUserSpecifiedID(t *testing.T) {
 			},
 		})
 
-	resp, err = helper.Client(t).Things.WeaviateThingsCreate(params, nil)
+	resp, err = helper.Client(t).Things.ThingsCreate(params, nil)
 	helper.AssertRequestFail(t, resp, err, func() {
-		errResponse, ok := err.(*things.WeaviateThingsCreateUnprocessableEntity)
+		errResponse, ok := err.(*things.ThingsCreateUnprocessableEntity)
 		if !ok {
 			t.Fatalf("Did not get not found response, but %#v", err)
 		}
@@ -93,7 +93,7 @@ func TestCreateThingWorks(t *testing.T) {
 	thingTestNumber := 1.337
 	thingTestDate := "2017-10-06T08:15:30+01:00"
 
-	params := things.NewWeaviateThingsCreateParams().WithBody(
+	params := things.NewThingsCreateParams().WithBody(
 		&models.Thing{
 			Class: "TestThing",
 			Schema: map[string]interface{}{
@@ -105,7 +105,7 @@ func TestCreateThingWorks(t *testing.T) {
 			},
 		})
 
-	resp, err := helper.Client(t).Things.WeaviateThingsCreate(params, nil)
+	resp, err := helper.Client(t).Things.ThingsCreate(params, nil)
 
 	// Ensure that the response is OK
 	helper.AssertRequestOk(t, resp, err, func() {
@@ -139,10 +139,10 @@ func TestCannotCreateInvalidThings(t *testing.T) {
 			example := example_ // Needed; example is updated to point to a new test case.
 			t.Parallel()
 
-			params := things.NewWeaviateThingsCreateParams().WithBody(example.thing())
-			resp, err := helper.Client(t).Things.WeaviateThingsCreate(params, nil)
+			params := things.NewThingsCreateParams().WithBody(example.thing())
+			resp, err := helper.Client(t).Things.ThingsCreate(params, nil)
 			helper.AssertRequestFail(t, resp, err, func() {
-				errResponse, ok := err.(*things.WeaviateThingsCreateUnprocessableEntity)
+				errResponse, ok := err.(*things.ThingsCreateUnprocessableEntity)
 				if !ok {
 					t.Fatalf("Did not get not found response, but %#v", err)
 				}
@@ -265,8 +265,8 @@ var invalidThingTestCases = []struct {
 }
 
 func cleanupThing(uuid strfmt.UUID) {
-	params := things.NewWeaviateThingsDeleteParams().WithID(uuid)
-	resp, err := helper.Client(nil).Things.WeaviateThingsDelete(params, nil)
+	params := things.NewThingsDeleteParams().WithID(uuid)
+	resp, err := helper.Client(nil).Things.ThingsDelete(params, nil)
 	if err != nil {
 		panic(fmt.Sprintf("Could not clean up thing '%s', because %v. Response: %#v", string(uuid), err, resp))
 	}
