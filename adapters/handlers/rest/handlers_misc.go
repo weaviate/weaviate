@@ -13,6 +13,7 @@
 package rest
 
 import (
+	"encoding/json"
 	"fmt"
 
 	middleware "github.com/go-openapi/runtime/middleware"
@@ -32,29 +33,33 @@ type schemaManager interface {
 	GetSchemaSkipAuth() schema.Schema
 }
 
+type swaggerJSON struct {
+	Info struct {
+		Version string `json:"version"`
+	} `json:"info"`
+}
+
 func setupMiscHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog,
 	serverConfig *config.WeaviateConfig, network network.Network, schemaManager schemaManager) {
+
+	var swj swaggerJSON
+	err := json.Unmarshal(SwaggerJSON, &swj)
+	if err != nil {
+		panic(err)
+	}
+
 	api.MetaMetaGetHandler = meta.MetaGetHandlerFunc(func(params meta.MetaGetParams, principal *models.Principal) middleware.Responder {
-		s, err := schemaManager.GetSchema(principal)
-		if err != nil {
-			return meta.NewMetaGetForbidden().WithPayload(errPayloadFromSingleErr(err))
-		}
-
-		databaseSchema := schema.HackFromDatabaseSchema(s)
-
 		// Create response object
-		metaResponse := &models.Meta{}
-
-		// Set the response object's values
-		metaResponse.Hostname = serverConfig.GetHostAddress()
-		metaResponse.ActionsSchema = databaseSchema.ActionSchema.Schema
-		metaResponse.ThingsSchema = databaseSchema.ThingSchema.Schema
+		res := &models.Meta{
+			Hostname: serverConfig.GetHostAddress(),
+			Version:  swj.Info.Version,
+		}
 
 		// Register the request
 		go func() {
 			requestsLog.Register(telemetry.TypeREST, telemetry.LocalQueryMeta)
 		}()
-		return meta.NewMetaGetOK().WithPayload(metaResponse)
+		return meta.NewMetaGetOK().WithPayload(res)
 	})
 
 	api.P2PP2pGenesisUpdateHandler = p2_p.P2pGenesisUpdateHandlerFunc(func(params p2_p.P2pGenesisUpdateParams) middleware.Responder {

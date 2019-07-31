@@ -20,7 +20,6 @@ package models
 import (
 	strfmt "github.com/go-openapi/strfmt"
 
-	"github.com/go-openapi/errors"
 	"github.com/go-openapi/swag"
 )
 
@@ -28,67 +27,21 @@ import (
 // swagger:model Meta
 type Meta struct {
 
-	// actions schema
-	ActionsSchema *Schema `json:"actionsSchema,omitempty"`
+	// Version of the contextionary service connected to weaviate
+	ContextionaryVersion string `json:"contextionaryVersion,omitempty"`
+
+	// Number of total words in the contextionary
+	ContextionaryWordCount int64 `json:"contextionaryWordCount,omitempty"`
 
 	// The url of the host.
 	Hostname string `json:"hostname,omitempty"`
 
-	// things schema
-	ThingsSchema *Schema `json:"thingsSchema,omitempty"`
+	// Version of weaviate you are currently running
+	Version string `json:"version,omitempty"`
 }
 
 // Validate validates this meta
 func (m *Meta) Validate(formats strfmt.Registry) error {
-	var res []error
-
-	if err := m.validateActionsSchema(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateThingsSchema(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
-	return nil
-}
-
-func (m *Meta) validateActionsSchema(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.ActionsSchema) { // not required
-		return nil
-	}
-
-	if m.ActionsSchema != nil {
-		if err := m.ActionsSchema.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("actionsSchema")
-			}
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (m *Meta) validateThingsSchema(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.ThingsSchema) { // not required
-		return nil
-	}
-
-	if m.ThingsSchema != nil {
-		if err := m.ThingsSchema.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("thingsSchema")
-			}
-			return err
-		}
-	}
-
 	return nil
 }
 
