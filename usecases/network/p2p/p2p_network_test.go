@@ -205,3 +205,5 @@ func sampleSchema() schema.Schema {
 		},
 	}
 }
+
+type requestMatcher func(t *testing.T, r *http.Request)

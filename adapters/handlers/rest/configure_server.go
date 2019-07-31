@@ -73,7 +73,7 @@ func rebuildGraphQL(updatedSchema schema.Schema, logger logrus.FieldLogger,
 		return nil, fmt.Errorf("could not list network peers to regenerate schema: %v", err)
 	}
 
-	updatedGraphQL, err := graphql.Build(&updatedSchema, peers, traverser, network, telemetryLogger, logger, config)
+	updatedGraphQL, err := graphql.Build(&updatedSchema, peers, traverser, telemetryLogger, logger, config)
 	if err != nil {
 		return nil, fmt.Errorf("Could not re-generate GraphQL schema, because: %v", err)
 	}
