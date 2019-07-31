@@ -13,6 +13,7 @@
 package rest
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -39,8 +40,12 @@ type swaggerJSON struct {
 	} `json:"info"`
 }
 
+type c11yMetaProvider interface {
+	Version(ctx context.Context) (string, error)
+}
+
 func setupMiscHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog,
-	serverConfig *config.WeaviateConfig, network network.Network, schemaManager schemaManager) {
+	serverConfig *config.WeaviateConfig, network network.Network, schemaManager schemaManager, c11y c11yMetaProvider) {
 
 	var swj swaggerJSON
 	err := json.Unmarshal(SwaggerJSON, &swj)
@@ -50,9 +55,16 @@ func setupMiscHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Reque
 
 	api.MetaMetaGetHandler = meta.MetaGetHandlerFunc(func(params meta.MetaGetParams, principal *models.Principal) middleware.Responder {
 		// Create response object
+		c11yVersion, err := c11y.Version(context.Background())
+		if err != nil {
+			return meta.NewMetaGetInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+
+		}
+
 		res := &models.Meta{
-			Hostname: serverConfig.GetHostAddress(),
-			Version:  swj.Info.Version,
+			Hostname:             serverConfig.GetHostAddress(),
+			Version:              swj.Info.Version,
+			ContextionaryVersion: c11yVersion,
 		}
 
 		// Register the request

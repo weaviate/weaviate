@@ -209,6 +209,15 @@ func (c *Client) NearestWordsByVector(ctx context.Context, vector []float32, n i
 	return res.Words, res.Distances, nil
 }
 
+func (c *Client) Version(ctx context.Context) (string, error) {
+	m, err := c.grpcClient.Meta(ctx, &pb.MetaParams{})
+	if err != nil {
+		return "", err
+	}
+
+	return m.Version, nil
+}
+
 func vectorToProto(in []float32) *pb.Vector {
 	output := make([]*pb.VectorEntry, len(in), len(in))
 	for i, entry := range in {
