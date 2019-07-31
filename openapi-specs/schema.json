@@ -312,16 +312,23 @@
     "Meta": {
       "description": "Contains meta information of the current Weaviate instance.",
       "properties": {
-        "actionsSchema": {
-          "$ref": "#/definitions/Schema"
-        },
         "hostname": {
           "description": "The url of the host.",
           "format": "url",
           "type": "string"
         },
-        "thingsSchema": {
-          "$ref": "#/definitions/Schema"
+        "version": {
+          "description": "Version of weaviate you are currently running",
+          "type": "string"
+        },
+        "contextionaryWordCount": {
+          "description": "Number of total words in the contextionary",
+          "type": "number",
+          "format": "int"
+        },
+        "contextionaryVersion": {
+          "description": "Version of the contextionary service connected to weaviate",
+          "type": "string"
         }
       },
       "type": "object"
