@@ -124,7 +124,7 @@ func TestDeleteSingleProperties(t *testing.T) {
 	assert.Contains(t, ships, expectedShip)
 
 	t.Log("verifying other GQL/REST queries still work")
-	gql.AssertGraphQL(t, helper.RootAuth, "{  GetMeta { Things { RedShip { name { count } } } } }")
+	gql.AssertGraphQL(t, helper.RootAuth, "{  Meta { Things { RedShip { name { count } } } } }")
 	gql.AssertGraphQL(t, helper.RootAuth, `{  Aggregate { Things { RedShip(groupBy: ["name"]) { name { count } } } } }`)
 	_, err = helper.Client(t).Things.ThingsList(things.NewThingsListParams(), nil)
 	assert.Nil(t, err, "listing things should not error")

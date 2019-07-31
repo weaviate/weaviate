@@ -37,7 +37,7 @@ type RequestsLog interface {
 
 // Resolver describes the requirements of this package
 type Resolver interface {
-	ProxyGetMetaInstance(info common.Params) (*models.GraphQLResponse, error)
+	ProxyMetaInstance(info common.Params) (*models.GraphQLResponse, error)
 }
 
 func Resolve(p graphql.ResolveParams) (interface{}, error) {
@@ -67,7 +67,7 @@ func Resolve(p graphql.ResolveParams) (interface{}, error) {
 		TargetInstance: p.Info.FieldName,
 	}
 
-	graphQLResponse, err := resolver.ProxyGetMetaInstance(params)
+	graphQLResponse, err := resolver.ProxyMetaInstance(params)
 	if err != nil {
 		return nil, fmt.Errorf("could not proxy to remote instance: %s", err)
 	}
@@ -88,7 +88,7 @@ func Resolve(p graphql.ResolveParams) (interface{}, error) {
 		requestsLog.Register(telemetry.TypeGQL, telemetry.NetworkQueryMeta)
 	}()
 
-	return local["GetMeta"], nil
+	return local["Meta"], nil
 }
 
 func replaceInstanceName(instanceName string, query []byte) ([]byte, error) {
@@ -97,5 +97,5 @@ func replaceInstanceName(instanceName string, query []byte) ([]byte, error) {
 		return []byte{}, err
 	}
 
-	return r.ReplaceAll(query, []byte("GetMeta ")), nil
+	return r.ReplaceAll(query, []byte("Meta ")), nil
 }

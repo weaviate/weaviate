@@ -37,12 +37,12 @@ func TestNetworkGetInstanceQueryWithoutFilters(t *testing.T) {
 	resolver := &fakeNetworkResolver{}
 
 	query := []byte(
-		`{ Network { GetMeta { weaviateA { Things { City { meta { count } } } } } } } `,
+		`{ Network { Meta { weaviateA { Things { City { meta { count } } } } } } } `,
 	)
 
-	expectedSubQuery := `{ Local { GetMeta { Things { City { meta { count } } } } } }`
+	expectedSubQuery := `{ Local { Meta { Things { City { meta { count } } } } } }`
 	expectedTarget := "weaviateA"
-	expectedResultString := "placeholder for result from Local.GetMeta"
+	expectedResultString := "placeholder for result from Local.Meta"
 
 	// in a real life scenario graphql will set the start and end
 	// correctly. We just need to manually specify them in the test
@@ -54,7 +54,7 @@ func TestNetworkGetInstanceQueryWithoutFilters(t *testing.T) {
 	}
 
 	if resolver.Called != true {
-		t.Error("expected resolver.ProxyNetworkGetMetaInstance to have been called, but it was never called")
+		t.Error("expected resolver.ProxyNetworkMetaInstance to have been called, but it was never called")
 	}
 
 	if actual := resolver.CalledWith.SubQuery; string(actual) != expectedSubQuery {
@@ -104,13 +104,13 @@ type fakeNetworkResolver struct {
 	CalledWith common.Params
 }
 
-func (r *fakeNetworkResolver) ProxyGetMetaInstance(info common.Params) (*models.GraphQLResponse, error) {
+func (r *fakeNetworkResolver) ProxyMetaInstance(info common.Params) (*models.GraphQLResponse, error) {
 	r.Called = true
 	r.CalledWith = info
 	return &models.GraphQLResponse{
 		Data: map[string]models.JSONObject{
 			"Local": map[string]interface{}{
-				"GetMeta": "placeholder for result from Local.GetMeta"},
+				"Meta": "placeholder for result from Local.Meta"},
 		},
 	}, nil
 }

@@ -87,7 +87,7 @@ func TestLocalGetWithComplexFilter(t *testing.T) {
 
 		query := `
 			{
-					GetMeta {
+					Meta {
 						Things {
 							City(where:{
 								operator:Or
@@ -112,7 +112,7 @@ func TestLocalGetWithComplexFilter(t *testing.T) {
 			}
 		`
 		result := AssertGraphQL(t, helper.RootAuth, query)
-		cityMeta := result.Get("GetMeta", "Things", "City").Result
+		cityMeta := result.Get("Meta", "Things", "City").Result
 
 		expected := map[string]interface{}{
 			"__typename": "MetaCity",

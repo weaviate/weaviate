@@ -26,36 +26,36 @@ func booleanPropertyFields(class *models.Class,
 	getMetaBooleanFields := graphql.Fields{
 		"type": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sType", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaPropertyType,
+			Description: descriptions.MetaPropertyType,
 			Type:        graphql.String,
 		},
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sCount", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaPropertyCount,
+			Description: descriptions.MetaPropertyCount,
 			Type:        graphql.Int,
 			Resolve:     common.JSONNumberResolver,
 		},
 		"totalTrue": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sTotalTrue", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaClassPropertyTotalTrue,
+			Description: descriptions.MetaClassPropertyTotalTrue,
 			Type:        graphql.Int,
 			Resolve:     common.JSONNumberResolver,
 		},
 		"percentageTrue": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sPercentageTrue", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaClassPropertyPercentageTrue,
+			Description: descriptions.MetaClassPropertyPercentageTrue,
 			Type:        graphql.Float,
 			Resolve:     common.JSONNumberResolver,
 		},
 		"totalFalse": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sTotalFalse", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaClassPropertyTotalFalse,
+			Description: descriptions.MetaClassPropertyTotalFalse,
 			Type:        graphql.Int,
 			Resolve:     common.JSONNumberResolver,
 		},
 		"percentageFalse": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sPercentageFalse", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaClassPropertyPercentageFalse,
+			Description: descriptions.MetaClassPropertyPercentageFalse,
 			Type:        graphql.Float,
 			Resolve:     common.JSONNumberResolver,
 		},
@@ -64,6 +64,6 @@ func booleanPropertyFields(class *models.Class,
 	return graphql.NewObject(graphql.ObjectConfig{
 		Name:        fmt.Sprintf("%s%s%sObj", prefix, class.Class, property.Name),
 		Fields:      getMetaBooleanFields,
-		Description: descriptions.GetMetaPropertyObject,
+		Description: descriptions.MetaPropertyObject,
 	})
 }

@@ -20,11 +20,11 @@ package test
 // 	"github.com/stretchr/testify/assert"
 // )
 
-// func TestNetworkGetMeta(t *testing.T) {
+// func TestNetworkMeta(t *testing.T) {
 // 	result := AssertGraphQL(t, helper.RootAuth, `
 // 		{
 // 			Network {
-// 				GetMeta{
+// 				Meta{
 // 					RemoteWeaviateForAcceptanceTest {
 // 						Things {
 // 							Instruments {
@@ -41,7 +41,7 @@ package test
 // 		}
 // 	`)
 
-// 	volume := result.Get("Network", "GetMeta", "RemoteWeaviateForAcceptanceTest", "Things", "Instruments", "volume").Result
+// 	volume := result.Get("Network", "Meta", "RemoteWeaviateForAcceptanceTest", "Things", "Instruments", "volume").Result
 // 	expected := map[string]interface{}{
 // 		"mean":    json.Number("82"),
 // 		"maximum": json.Number("110"),

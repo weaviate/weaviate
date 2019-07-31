@@ -80,7 +80,7 @@ func NewTraverser(locks locks, repo TraverserRepo, c11y c11y,
 // connected database
 type TraverserRepo interface {
 	LocalGetClass(context.Context, *LocalGetParams) (interface{}, error)
-	LocalGetMeta(context.Context, *GetMetaParams) (interface{}, error)
+	LocalMeta(context.Context, *MetaParams) (interface{}, error)
 	LocalAggregate(context.Context, *AggregateParams) (interface{}, error)
 }
 

@@ -24,9 +24,9 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
-// LocalGetMeta resolves meta queries
-func (t *Traverser) LocalGetMeta(ctx context.Context, principal *models.Principal,
-	params *GetMetaParams) (interface{}, error) {
+// LocalMeta resolves meta queries
+func (t *Traverser) LocalMeta(ctx context.Context, principal *models.Principal,
+	params *MetaParams) (interface{}, error) {
 
 	err := t.authorizer.Authorize(principal, "get", "traversal/*")
 	if err != nil {
@@ -39,13 +39,13 @@ func (t *Traverser) LocalGetMeta(ctx context.Context, principal *models.Principa
 	}
 	defer unlock()
 
-	return t.repo.LocalGetMeta(ctx, params)
+	return t.repo.LocalMeta(ctx, params)
 }
 
-// GetMetaParams to describe the Local->GetMeta->Kind->Class query. Will be
+// MetaParams to describe the Local->Meta->Kind->Class query. Will be
 // passed to the individual connector methods responsible for resolving the
-// GetMeta query.
-type GetMetaParams struct {
+// Meta query.
+type MetaParams struct {
 	Kind             kind.Kind
 	Filters          *filters.LocalFilter
 	Analytics        filters.AnalyticsProps
@@ -151,7 +151,7 @@ func ParseAnalysisProp(name string) (StatisticalAnalysis, error) {
 // 'forceRecalculate' however, will not change the hash. Doing so would prevent
 // us from ever retrieving a cached result that wass generated with the
 // 'forceRecalculate' option on.
-func (p GetMetaParams) AnalyticsHash() (string, error) {
+func (p MetaParams) AnalyticsHash() (string, error) {
 
 	// make sure to copy the params, so that we don't accidentaly mutate the
 	// original
@@ -163,7 +163,7 @@ func (p GetMetaParams) AnalyticsHash() (string, error) {
 	return params.md5()
 }
 
-func (p GetMetaParams) md5() (string, error) {
+func (p MetaParams) md5() (string, error) {
 	paramBytes, err := json.Marshal(p)
 	if err != nil {
 		return "", fmt.Errorf("couldnt convert params to json before hashing: %s", err)

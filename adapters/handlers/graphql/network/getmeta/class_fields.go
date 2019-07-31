@@ -18,7 +18,7 @@ import (
 	"strings"
 
 	"github.com/graphql-go/graphql"
-	commonGetMeta "github.com/semi-technologies/weaviate/adapters/handlers/graphql/common/getmeta"
+	commonMeta "github.com/semi-technologies/weaviate/adapters/handlers/graphql/common/getmeta"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -26,7 +26,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
-// Build the dynamically generated GetMeta Things part of the schema
+// Build the dynamically generated Meta Things part of the schema
 func classFields(databaseSchema []*models.Class, k kind.Kind, peerName string) (*graphql.Object, error) {
 	fields := graphql.Fields{}
 	var (
@@ -35,9 +35,9 @@ func classFields(databaseSchema []*models.Class, k kind.Kind, peerName string) (
 
 	switch k {
 	case kind.Thing:
-		description = descriptions.LocalGetMetaThingsObj
+		description = descriptions.LocalMetaThingsObj
 	case kind.Action:
-		description = descriptions.LocalGetMetaActionsObj
+		description = descriptions.LocalMetaActionsObj
 	default:
 		return nil, fmt.Errorf("unrecoginzed kind '%#v", k)
 	}
@@ -52,7 +52,7 @@ func classFields(databaseSchema []*models.Class, k kind.Kind, peerName string) (
 	}
 
 	return graphql.NewObject(graphql.ObjectConfig{
-		Name:        fmt.Sprintf("WeaviateNetworkGetMeta%s%ssObj", peerName, k.TitleizedName()),
+		Name:        fmt.Sprintf("WeaviateNetworkMeta%s%ssObj", peerName, k.TitleizedName()),
 		Fields:      fields,
 		Description: description,
 	}), nil
@@ -93,8 +93,8 @@ func classField(k kind.Kind, class *models.Class, description string,
 				Description: descriptions.LocalGetWhere,
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
-						Name:        fmt.Sprintf("WeaviateNetworkGetMeta%s%s%sWhereInpObj", peerName, k.Name(), class.Class),
-						Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateNetworkGetMeta%s%s%s", peerName, k.Name(), class.Class)),
+						Name:        fmt.Sprintf("WeaviateNetworkMeta%s%s%sWhereInpObj", peerName, k.Name(), class.Class),
+						Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateNetworkMeta%s%s%s", peerName, k.Name(), class.Class)),
 						Description: descriptions.LocalGetWhereInpObj,
 					},
 				),
@@ -108,7 +108,7 @@ func classField(k kind.Kind, class *models.Class, description string,
 func classPropertyFields(class *models.Class, peerName string) (graphql.Fields, error) {
 	fields := graphql.Fields{}
 	prefix := fmt.Sprintf("%sMeta", peerName)
-	metaField, err := commonGetMeta.MetaPropertyField(class, prefix)
+	metaField, err := commonMeta.MetaPropertyField(class, prefix)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +120,7 @@ func classPropertyFields(class *models.Class, peerName string) (graphql.Fields, 
 			return nil, fmt.Errorf("%s.%s: %s", class.Class, property.Name, err)
 		}
 
-		convertedDataType, err := commonGetMeta.ClassPropertyField(*propertyType, class, property, prefix)
+		convertedDataType, err := commonMeta.ClassPropertyField(*propertyType, class, property, prefix)
 		if err != nil {
 			return nil, err
 		}

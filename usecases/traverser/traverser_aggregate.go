@@ -42,8 +42,8 @@ func (t *Traverser) LocalAggregate(ctx context.Context, principal *models.Princi
 	return t.repo.LocalAggregate(ctx, params)
 }
 
-// AggregateParams to describe the Local->GetMeta->Kind->Class query. Will be passed to
-// the individual connector methods responsible for resolving the GetMeta
+// AggregateParams to describe the Local->Meta->Kind->Class query. Will be passed to
+// the individual connector methods responsible for resolving the Meta
 // query.
 type AggregateParams struct {
 	Kind       kind.Kind

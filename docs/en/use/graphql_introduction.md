@@ -71,20 +71,20 @@ The result will result in the following, which has the same shape as the query.
 
 ### Query structure and naming
 
-The following high level structure for GraphQL for querying Weaviate applies. At the highest level, the location where the request is sent is specified by `Local` or `Network`. The Local network is split up into a Get, GetMeta and Aggregate function. Similarly, the Network query has the queries Get, GetMeta and Aggegate, but also has Fetch and Introspect. Where `Get` implies that you retrieve something you have the sole possession of, the Network's `Fetch` means that an entity needs to go and get something which is remote. The Network query has an `Introspect` option, in contrast to `Local`, which can be used to discover what is (ontology wise) available in the Network.
+The following high level structure for GraphQL for querying Weaviate applies. At the highest level, the location where the request is sent is specified by `Local` or `Network`. The Local network is split up into a Get, Meta and Aggregate function. Similarly, the Network query has the queries Get, Meta and Aggegate, but also has Fetch and Introspect. Where `Get` implies that you retrieve something you have the sole possession of, the Network's `Fetch` means that an entity needs to go and get something which is remote. The Network query has an `Introspect` option, in contrast to `Local`, which can be used to discover what is (ontology wise) available in the Network.
 
 ``` graphql
 {
   Local {
     Get
-    GetMeta
+    Meta
     Aggregate
   }
   Network {
     Get
     Fetch
     Introspect
-    GetMeta
+    Meta
     Aggregate
   }
 }

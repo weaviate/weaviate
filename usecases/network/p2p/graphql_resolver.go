@@ -34,10 +34,10 @@ func (n *network) ProxyGetInstance(params common.Params) (*models.GraphQLRespons
 	return n.proxy(params)
 }
 
-// ProxyGetMetaInstance proxies a single SubQuery to a single Target Instance. It
-// is inteded to be called multiple times if you need to Network.GetMeta from
+// ProxyMetaInstance proxies a single SubQuery to a single Target Instance. It
+// is inteded to be called multiple times if you need to Network.Meta from
 // multiple instances.
-func (n *network) ProxyGetMetaInstance(params common.Params) (*models.GraphQLResponse, error) {
+func (n *network) ProxyMetaInstance(params common.Params) (*models.GraphQLResponse, error) {
 	return n.proxy(params)
 }
 

@@ -131,7 +131,7 @@ The query below returns metadata of the nodes in the class `City`.
 ``` graphql
 {
   Local {
-    GetMeta {
+    Meta {
       Things {
         City {
           meta {
@@ -179,7 +179,7 @@ The same filters as the converted fetch can be used to filter the data. The foll
 ``` graphql
 {
   Local {
-    GetMeta {
+    Meta {
       Things {
         City(where: {
           path: ["inCountry", "name"],

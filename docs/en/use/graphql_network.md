@@ -12,7 +12,7 @@
 - [Fetch function](#fetch-function)
   - [Fetch Things and Actions](#fetch-things-and-actions)
   - [Fuzzy Fetch](#fuzzy-fetch)
-- [GetMeta function](#getmeta-function)
+- [Meta function](#getmeta-function)
 - [Aggregate function](#aggregate-function)
 - [Filters](#filters)
 
@@ -45,7 +45,7 @@ The overall query structure of the networked query is:
       Actions
       Fuzzy
     }
-    GetMeta {
+    Meta {
       <weaviate_instance> {
         Things
         Actions
@@ -162,13 +162,13 @@ Where the property value `Amsterdam` and the minimal certainty of `0.95` are pro
 The result will be, like the `Fetch` for `Things` and `Actions`, a list of class names, beacons and corresponding certainty levels. With this information, more information could be requested by using the `Introspect` function. To get the data of the result, the beacon can be used in a REST API Get Things or Actions query.
 
 
-## GetMeta function
+## Meta function
 For nodes in the network, meta information can be queried just like for nodes in a [local Weaviate](graphql_local#getmeta-function). 
 
 ``` graphql
 {
   Network {
-    GetMeta {
+    Meta {
       weaviateB {
       	Things {
           Airport(where: {

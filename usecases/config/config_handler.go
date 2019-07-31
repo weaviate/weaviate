@@ -74,7 +74,7 @@ type VectorIndex struct {
 type AnalyticsEngine struct {
 	// Enabled configures whether an analytics engine should be used. Setting
 	// this to true leads to the options "useAnalyticsEngine" and
-	// "forceRecalculate" to become available in the GraphQL GetMeta->Kind->Class
+	// "forceRecalculate" to become available in the GraphQL Meta->Kind->Class
 	// and Aggregate->Kind->Class.
 	//
 	// Important: If enabled is set to true, you must also configure an analytics

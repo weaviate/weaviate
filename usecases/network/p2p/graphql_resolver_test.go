@@ -146,7 +146,7 @@ func TestProxyGetInstance(t *testing.T) {
 	// })
 }
 
-func TestProxyGetMetaInstance(t *testing.T) {
+func TestProxyMetaInstance(t *testing.T) {
 	var (
 		subject *network
 		remote  *httptest.Server
@@ -165,8 +165,8 @@ func TestProxyGetMetaInstance(t *testing.T) {
 	}
 
 	act := func() {
-		_, err = subject.ProxyGetMetaInstance(common.Params{
-			SubQuery:       common.SubQuery(`{ Local { GetMeta { WeaviateB { Things { City { meta { count } } } } } }`),
+		_, err = subject.ProxyMetaInstance(common.Params{
+			SubQuery:       common.SubQuery(`{ Local { Meta { WeaviateB { Things { City { meta { count } } } } } }`),
 			TargetInstance: "best-instance",
 		})
 	}
@@ -226,7 +226,7 @@ func TestProxyGetMetaInstance(t *testing.T) {
 
 	t.Run("should form a local query from the subquery in the request body", func(t *testing.T) {
 		matcher := func(t *testing.T, r *http.Request) {
-			expectedBody := fmt.Sprintf("%s\n", `{"query":"{ Local { GetMeta { WeaviateB { Things { City { meta { count } } } } } }"}`)
+			expectedBody := fmt.Sprintf("%s\n", `{"query":"{ Local { Meta { WeaviateB { Things { City { meta { count } } } } } }"}`)
 			defer r.Body.Close()
 			bodyBytes, err := ioutil.ReadAll(r.Body)
 			if err != nil {

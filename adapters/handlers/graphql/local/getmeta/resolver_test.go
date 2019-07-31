@@ -43,7 +43,7 @@ func Test_Resolve(t *testing.T) {
 	tests := testCases{
 		testCase{
 			name:  "single prop: mean",
-			query: "{ GetMeta { Things { Car { horsepower { mean } } } } }",
+			query: "{ Meta { Things { Car { horsepower { mean } } } } }",
 			expectedProps: []traverser.MetaProperty{
 				{
 					Name:                "horsepower",
@@ -56,14 +56,14 @@ func Test_Resolve(t *testing.T) {
 				},
 			},
 			expectedResults: []result{{
-				pathToField:   []string{"GetMeta", "Things", "Car", "horsepower", "mean"},
+				pathToField:   []string{"Meta", "Things", "Car", "horsepower", "mean"},
 				expectedValue: 275.7773,
 			}},
 		},
 
 		testCase{
 			name:  "single prop: type",
-			query: "{ GetMeta { Things { Car { horsepower { type } } } } }",
+			query: "{ Meta { Things { Car { horsepower { type } } } } }",
 			expectedProps: []traverser.MetaProperty{
 				{
 					Name:                "horsepower",
@@ -76,14 +76,14 @@ func Test_Resolve(t *testing.T) {
 				},
 			},
 			expectedResults: []result{{
-				pathToField:   []string{"GetMeta", "Things", "Car", "horsepower", "type"},
+				pathToField:   []string{"Meta", "Things", "Car", "horsepower", "type"},
 				expectedValue: "int",
 			}},
 		},
 
 		testCase{
 			name:  "two props: maximum, minimum, remaining int props",
-			query: "{ GetMeta { Things { Car { horsepower { maximum, minimum, count, sum } } } } }",
+			query: "{ Meta { Things { Car { horsepower { maximum, minimum, count, sum } } } } }",
 			expectedProps: []traverser.MetaProperty{
 				{
 					Name: "horsepower",
@@ -100,23 +100,23 @@ func Test_Resolve(t *testing.T) {
 				},
 			},
 			expectedResults: []result{{
-				pathToField:   []string{"GetMeta", "Things", "Car", "horsepower", "maximum"},
+				pathToField:   []string{"Meta", "Things", "Car", "horsepower", "maximum"},
 				expectedValue: 610.0,
 			}, {
-				pathToField:   []string{"GetMeta", "Things", "Car", "horsepower", "minimum"},
+				pathToField:   []string{"Meta", "Things", "Car", "horsepower", "minimum"},
 				expectedValue: 89.0,
 			}, {
-				pathToField:   []string{"GetMeta", "Things", "Car", "horsepower", "count"},
+				pathToField:   []string{"Meta", "Things", "Car", "horsepower", "count"},
 				expectedValue: 23,
 			}, {
-				pathToField:   []string{"GetMeta", "Things", "Car", "horsepower", "sum"},
+				pathToField:   []string{"Meta", "Things", "Car", "horsepower", "sum"},
 				expectedValue: 6343.0,
 			}},
 		},
 
 		testCase{
 			name: "all props on a bool field",
-			query: `{ GetMeta { Things { Car { stillInProduction {
+			query: `{ Meta { Things { Car { stillInProduction {
 					count, totalTrue, totalFalse, percentageTrue, percentageFalse
 				} } } } }`,
 			expectedProps: []traverser.MetaProperty{
@@ -136,26 +136,26 @@ func Test_Resolve(t *testing.T) {
 				},
 			},
 			expectedResults: []result{{
-				pathToField:   []string{"GetMeta", "Things", "Car", "stillInProduction", "count"},
+				pathToField:   []string{"Meta", "Things", "Car", "stillInProduction", "count"},
 				expectedValue: 7,
 			}, {
-				pathToField:   []string{"GetMeta", "Things", "Car", "stillInProduction", "totalTrue"},
+				pathToField:   []string{"Meta", "Things", "Car", "stillInProduction", "totalTrue"},
 				expectedValue: 20,
 			}, {
-				pathToField:   []string{"GetMeta", "Things", "Car", "stillInProduction", "totalFalse"},
+				pathToField:   []string{"Meta", "Things", "Car", "stillInProduction", "totalFalse"},
 				expectedValue: 30,
 			}, {
-				pathToField:   []string{"GetMeta", "Things", "Car", "stillInProduction", "percentageTrue"},
+				pathToField:   []string{"Meta", "Things", "Car", "stillInProduction", "percentageTrue"},
 				expectedValue: 0.4,
 			}, {
-				pathToField:   []string{"GetMeta", "Things", "Car", "stillInProduction", "percentageFalse"},
+				pathToField:   []string{"Meta", "Things", "Car", "stillInProduction", "percentageFalse"},
 				expectedValue: 0.6,
 			}},
 		},
 
 		testCase{
 			name:  "single prop: string",
-			query: "{ GetMeta { Things { Car { modelName { topOccurrences { value, occurs } } } } } }",
+			query: "{ Meta { Things { Car { modelName { topOccurrences { value, occurs } } } } } }",
 			expectedProps: []traverser.MetaProperty{
 				{
 					Name: "modelName",
@@ -172,7 +172,7 @@ func Test_Resolve(t *testing.T) {
 				},
 			},
 			expectedResults: []result{{
-				pathToField: []string{"GetMeta", "Things", "Car", "modelName", "topOccurrences"},
+				pathToField: []string{"Meta", "Things", "Car", "modelName", "topOccurrences"},
 				expectedValue: []interface{}{
 					map[string]interface{}{"value": "CheapNSlow", "occurs": 3},
 					map[string]interface{}{"value": "FastNPricy", "occurs": 2},
@@ -182,7 +182,7 @@ func Test_Resolve(t *testing.T) {
 
 		testCase{
 			name:  "single prop: date",
-			query: "{ GetMeta { Things { Car { startOfProduction { topOccurrences { value, occurs } } } } } }",
+			query: "{ Meta { Things { Car { startOfProduction { topOccurrences { value, occurs } } } } } }",
 			expectedProps: []traverser.MetaProperty{
 				{
 					Name: "startOfProduction",
@@ -199,7 +199,7 @@ func Test_Resolve(t *testing.T) {
 				},
 			},
 			expectedResults: []result{{
-				pathToField: []string{"GetMeta", "Things", "Car", "startOfProduction", "topOccurrences"},
+				pathToField: []string{"Meta", "Things", "Car", "startOfProduction", "topOccurrences"},
 				expectedValue: []interface{}{
 					map[string]interface{}{"value": "some-timestamp", "occurs": 3},
 					map[string]interface{}{"value": "another-timestamp", "occurs": 2},
@@ -209,7 +209,7 @@ func Test_Resolve(t *testing.T) {
 
 		testCase{
 			name:  "single prop: refprop",
-			query: "{ GetMeta { Things { Car { MadeBy { pointingTo } } } } }",
+			query: "{ Meta { Things { Car { MadeBy { pointingTo } } } } }",
 			expectedProps: []traverser.MetaProperty{
 				{
 					Name:                "MadeBy",
@@ -222,7 +222,7 @@ func Test_Resolve(t *testing.T) {
 				},
 			},
 			expectedResults: []result{{
-				pathToField: []string{"GetMeta", "Things", "Car", "MadeBy", "pointingTo"},
+				pathToField: []string{"Meta", "Things", "Car", "MadeBy", "pointingTo"},
 				expectedValue: []interface{}{
 					"Manufacturer",
 				},
@@ -231,7 +231,7 @@ func Test_Resolve(t *testing.T) {
 
 		testCase{
 			name:  "single prop: meta",
-			query: "{ GetMeta { Things { Car { meta { count } } } } }",
+			query: "{ Meta { Things { Car { meta { count } } } } }",
 			expectedProps: []traverser.MetaProperty{
 				{
 					Name:                "meta",
@@ -244,20 +244,20 @@ func Test_Resolve(t *testing.T) {
 				},
 			},
 			expectedResults: []result{{
-				pathToField:   []string{"GetMeta", "Things", "Car", "meta", "count"},
+				pathToField:   []string{"Meta", "Things", "Car", "meta", "count"},
 				expectedValue: 4,
 			}},
 		},
 
 		testCase{
 			name:           "single prop: __typename",
-			query:          "{ GetMeta { Things { Car { __typename } } } }",
+			query:          "{ Meta { Things { Car { __typename } } } }",
 			expectedProps:  nil,
 			resolverReturn: nil,
 		},
 		testCase{
 			name:           "single prop: __typename",
-			query:          "{ GetMeta { Things { Car { modelName { __typename } } } } }",
+			query:          "{ Meta { Things { Car { modelName { __typename } } } } }",
 			expectedProps:  nil,
 			resolverReturn: nil,
 		},
@@ -271,13 +271,13 @@ func (tests testCases) AssertExtraction(t *testing.T, k kind.Kind, className str
 		t.Run(testCase.name, func(t *testing.T) {
 			resolver := newMockResolver(config.Config{})
 
-			expectedParams := &traverser.GetMetaParams{
+			expectedParams := &traverser.MetaParams{
 				Kind:       k,
 				ClassName:  schema.ClassName(className),
 				Properties: testCase.expectedProps,
 			}
 
-			resolver.On("LocalGetMeta", expectedParams).
+			resolver.On("LocalMeta", expectedParams).
 				Return(testCase.resolverReturn, nil).Once()
 
 			result := resolver.AssertResolve(t, testCase.query)

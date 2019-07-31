@@ -48,7 +48,7 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		params := &traverser.GetMetaParams{
+		params := &traverser.MetaParams{
 			Properties: []traverser.MetaProperty{
 				traverser.MetaProperty{
 					Name: "myBoolProp",
@@ -95,7 +95,7 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		params := &traverser.GetMetaParams{
+		params := &traverser.MetaParams{
 			Properties: []traverser.MetaProperty{
 				traverser.MetaProperty{
 					Name: "myBoolProp",
@@ -142,7 +142,7 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		params := &traverser.GetMetaParams{
+		params := &traverser.MetaParams{
 			Properties: []traverser.MetaProperty{
 				traverser.MetaProperty{
 					Name: "myBoolProp",
@@ -180,7 +180,7 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), nil, &traverser.GetMetaParams{})
+		result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), nil, &traverser.MetaParams{})
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -214,7 +214,7 @@ func Test_QueryProcessor(t *testing.T) {
 				},
 			}
 
-			result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), typeInput, &traverser.GetMetaParams{})
+			result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), typeInput, &traverser.MetaParams{})
 
 			require.Nil(t, err, "should not error")
 			assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -246,7 +246,7 @@ func Test_QueryProcessor(t *testing.T) {
 				},
 			}
 
-			result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), typeInput, &traverser.GetMetaParams{})
+			result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), typeInput, &traverser.MetaParams{})
 
 			require.Nil(t, err, "should not error")
 			assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -269,7 +269,7 @@ func Test_QueryProcessor(t *testing.T) {
 				},
 			}
 
-			result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), typeInput, &traverser.GetMetaParams{})
+			result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), typeInput, &traverser.MetaParams{})
 			require.Nil(t, err, "should not error")
 			assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
 		})
@@ -310,7 +310,7 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), nil, &traverser.GetMetaParams{})
+		result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), nil, &traverser.MetaParams{})
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -354,7 +354,7 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), nil, &traverser.GetMetaParams{})
+		result, err := NewProcessor(executor, nil, nil).Process(context.Background(), gremlin.New(), nil, &traverser.MetaParams{})
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")

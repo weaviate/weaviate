@@ -21,7 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
-// New GetMeta Builder to build PeerFields
+// New Meta Builder to build PeerFields
 func New(peerName string, schema schema.Schema) *Builder {
 	return &Builder{
 		peerName: peerName,
@@ -29,13 +29,13 @@ func New(peerName string, schema schema.Schema) *Builder {
 	}
 }
 
-// Builder for Network -> GetMeta
+// Builder for Network -> Meta
 type Builder struct {
 	peerName string
 	schema   schema.Schema
 }
 
-// PeerField for Network -> GetMeta -> <Peer>
+// PeerField for Network -> Meta -> <Peer>
 func (b *Builder) PeerField() (*graphql.Field, error) {
 	kinds, err := b.buildKinds()
 	if err != nil {
@@ -49,9 +49,9 @@ func (b *Builder) PeerField() (*graphql.Field, error) {
 	}
 
 	object := graphql.NewObject(graphql.ObjectConfig{
-		Name:        fmt.Sprintf("WeaviateNetworkGetMeta%sObj", b.peerName),
+		Name:        fmt.Sprintf("WeaviateNetworkMeta%sObj", b.peerName),
 		Fields:      kinds,
-		Description: fmt.Sprintf("%s%s", descriptions.NetworkGetMetaWeaviateObj, b.peerName),
+		Description: fmt.Sprintf("%s%s", descriptions.NetworkMetaWeaviateObj, b.peerName),
 	})
 
 	field := &graphql.Field{
@@ -89,16 +89,16 @@ func (b *Builder) buildKinds() (graphql.Fields, error) {
 
 func newActionsField(actions *graphql.Object) *graphql.Field {
 	return &graphql.Field{
-		Name:        "WeaviateNetworkGetMetaActions",
-		Description: descriptions.NetworkGetMetaActions,
+		Name:        "WeaviateNetworkMetaActions",
+		Description: descriptions.NetworkMetaActions,
 		Type:        actions,
 	}
 }
 
 func newThingsField(things *graphql.Object) *graphql.Field {
 	return &graphql.Field{
-		Name:        "WeaviateNetworkGetMetaThings",
-		Description: descriptions.NetworkGetMetaThings,
+		Name:        "WeaviateNetworkMetaThings",
+		Description: descriptions.NetworkMetaThings,
 		Type:        things,
 	}
 }
