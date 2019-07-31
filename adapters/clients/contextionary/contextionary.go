@@ -218,6 +218,15 @@ func (c *Client) Version(ctx context.Context) (string, error) {
 	return m.Version, nil
 }
 
+func (c *Client) WordCount(ctx context.Context) (int64, error) {
+	m, err := c.grpcClient.Meta(ctx, &pb.MetaParams{})
+	if err != nil {
+		return 0, err
+	}
+
+	return m.WordCount, nil
+}
+
 func vectorToProto(in []float32) *pb.Vector {
 	output := make([]*pb.VectorEntry, len(in), len(in))
 	for i, entry := range in {
