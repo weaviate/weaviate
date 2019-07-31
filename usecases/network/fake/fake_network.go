@@ -15,10 +15,6 @@ package fake
 import (
 	"fmt"
 
-	graphqlnetwork "github.com/semi-technologies/weaviate/adapters/handlers/graphql/network"
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/network/common"
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/network/fetch"
-	"github.com/semi-technologies/weaviate/entities/models"
 	network "github.com/semi-technologies/weaviate/usecases/network"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 )
@@ -44,33 +40,8 @@ func (fn FakeNetwork) UpdatePeers(new_peers peers.Peers) error {
 	return fmt.Errorf("Cannot update peers, because there is no network configured")
 }
 
-func (fn FakeNetwork) ProxyGetInstance(common.Params) (*models.GraphQLResponse, error) {
-	return nil, fmt.Errorf("Cannot proxy get instance, because there is no network configured")
-}
-
-func (fn FakeNetwork) ProxyMetaInstance(common.Params) (*models.GraphQLResponse, error) {
-	return nil, fmt.Errorf("Cannot proxy get meta, because there is no network configured")
-}
-
-func (fn FakeNetwork) ProxyAggregateInstance(common.Params) (*models.GraphQLResponse, error) {
-	return nil, fmt.Errorf("Cannot proxy aggregate, because there is no network configured")
-}
-
-func (fn FakeNetwork) ProxyFetch(common.SubQuery) ([]fetch.Response, error) {
-	return nil, fmt.Errorf("Cannot proxy fetch, because there is no network configured")
-}
-
 func (fn FakeNetwork) RegisterUpdatePeerCallback(callbackFn network.PeerUpdateCallback) {
 	return
-}
-
-// GetNetworkResolver for now simply returns itself
-// because the network is not fully plugable yet.
-// Once we have made the network pluggable, then this would
-// be a method on the connector which returns the actual
-// plugged in Network
-func (fn FakeNetwork) GetNetworkResolver() graphqlnetwork.Resolver {
-	return fn
 }
 
 // RegisterSchemaGetter does nothing, since it's a fake network

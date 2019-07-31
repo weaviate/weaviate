@@ -21,7 +21,6 @@ import (
 	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get"
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/network"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
@@ -30,10 +29,6 @@ import (
 
 type Traverser interface {
 	local.Resolver
-}
-
-type NetworkTraverser interface {
-	network.Resolver
 }
 
 type RequestsLogger interface {
@@ -47,17 +42,16 @@ type GraphQL interface {
 }
 
 type graphQL struct {
-	schema           graphql.Schema
-	traverser        Traverser
-	networkTraverser NetworkTraverser
-	requestsLogger   RequestsLogger
-	networkPeers     peers.Peers
-	config           config.Config
+	schema         graphql.Schema
+	traverser      Traverser
+	requestsLogger RequestsLogger
+	networkPeers   peers.Peers
+	config         config.Config
 }
 
 // Construct a GraphQL API from the database schema, and resolver interface.
 func Build(schema *schema.Schema, peers peers.Peers, traverser Traverser,
-	networkTraverser NetworkTraverser, requestsLogger RequestsLogger,
+	requestsLogger RequestsLogger,
 	logger logrus.FieldLogger, config config.Config) (GraphQL, error) {
 
 	logger.WithField("action", "graphql_rebuild").
@@ -71,12 +65,11 @@ func Build(schema *schema.Schema, peers peers.Peers, traverser Traverser,
 	}
 
 	return &graphQL{
-		schema:           graphqlSchema,
-		traverser:        traverser,
-		networkTraverser: networkTraverser,
-		requestsLogger:   requestsLogger,
-		networkPeers:     peers,
-		config:           config,
+		schema:         graphqlSchema,
+		traverser:      traverser,
+		requestsLogger: requestsLogger,
+		networkPeers:   peers,
+		config:         config,
 	}, nil
 }
 
@@ -85,11 +78,10 @@ func (g *graphQL) Resolve(context context.Context, query string, operationName s
 	return graphql.Do(graphql.Params{
 		Schema: g.schema,
 		RootObject: map[string]interface{}{
-			"Resolver":        g.traverser,
-			"NetworkResolver": g.networkTraverser,
-			"NetworkPeers":    g.networkPeers,
-			"RequestsLog":     g.requestsLogger,
-			"Config":          g.config,
+			"Resolver":     g.traverser,
+			"NetworkPeers": g.networkPeers,
+			"RequestsLog":  g.requestsLogger,
+			"Config":       g.config,
 		},
 		RequestString:  query,
 		OperationName:  operationName,
