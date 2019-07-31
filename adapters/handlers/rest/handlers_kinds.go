@@ -31,256 +31,256 @@ type kindHandlers struct {
 	requestsLog *telemetry.RequestsLog
 }
 
-func (h *kindHandlers) addThing(params things.WeaviateThingsCreateParams,
+func (h *kindHandlers) addThing(params things.ThingsCreateParams,
 	principal *models.Principal) middleware.Responder {
 	thing, err := h.manager.AddThing(params.HTTPRequest.Context(), principal, params.Body)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return things.NewWeaviateThingsCreateForbidden().
+			return things.NewThingsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
-			return things.NewWeaviateThingsCreateUnprocessableEntity().
+			return things.NewThingsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return things.NewWeaviateThingsCreateInternalServerError().
+			return things.NewThingsCreateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalAdd)
-	return things.NewWeaviateThingsCreateOK().WithPayload(thing)
+	return things.NewThingsCreateOK().WithPayload(thing)
 }
 
-func (h *kindHandlers) validateThing(params things.WeaviateThingsValidateParams,
+func (h *kindHandlers) validateThing(params things.ThingsValidateParams,
 	principal *models.Principal) middleware.Responder {
 
 	err := h.manager.ValidateThing(params.HTTPRequest.Context(), principal, params.Body)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return things.NewWeaviateThingsValidateForbidden().
+			return things.NewThingsValidateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
-			return things.NewWeaviateThingsValidateUnprocessableEntity().
+			return things.NewThingsValidateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return things.NewWeaviateThingsValidateInternalServerError().
+			return things.NewThingsValidateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalQueryMeta)
-	return things.NewWeaviateThingsValidateOK()
+	return things.NewThingsValidateOK()
 }
 
-func (h *kindHandlers) addAction(params actions.WeaviateActionsCreateParams,
+func (h *kindHandlers) addAction(params actions.ActionsCreateParams,
 	principal *models.Principal) middleware.Responder {
 	action, err := h.manager.AddAction(params.HTTPRequest.Context(), principal, params.Body)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return actions.NewWeaviateActionsCreateForbidden().
+			return actions.NewActionsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
-			return actions.NewWeaviateActionsCreateUnprocessableEntity().
+			return actions.NewActionsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return actions.NewWeaviateActionsCreateInternalServerError().
+			return actions.NewActionsCreateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalAdd)
-	return actions.NewWeaviateActionsCreateOK().WithPayload(action)
+	return actions.NewActionsCreateOK().WithPayload(action)
 }
 
-func (h *kindHandlers) validateAction(params actions.WeaviateActionsValidateParams,
+func (h *kindHandlers) validateAction(params actions.ActionsValidateParams,
 	principal *models.Principal) middleware.Responder {
 
 	err := h.manager.ValidateAction(params.HTTPRequest.Context(), principal, params.Body)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return actions.NewWeaviateActionsValidateForbidden().
+			return actions.NewActionsValidateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
-			return actions.NewWeaviateActionsValidateUnprocessableEntity().
+			return actions.NewActionsValidateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return actions.NewWeaviateActionsValidateInternalServerError().
+			return actions.NewActionsValidateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalQueryMeta)
-	return actions.NewWeaviateActionsValidateOK()
+	return actions.NewActionsValidateOK()
 }
 
-func (h *kindHandlers) getThing(params things.WeaviateThingsGetParams,
+func (h *kindHandlers) getThing(params things.ThingsGetParams,
 	principal *models.Principal) middleware.Responder {
 	thing, err := h.manager.GetThing(params.HTTPRequest.Context(), principal, params.ID)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return things.NewWeaviateThingsGetForbidden().
+			return things.NewThingsGetForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrNotFound:
-			return things.NewWeaviateThingsGetNotFound()
+			return things.NewThingsGetNotFound()
 		default:
-			return things.NewWeaviateThingsGetInternalServerError().
+			return things.NewThingsGetInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalQuery)
-	return things.NewWeaviateThingsGetOK().WithPayload(thing)
+	return things.NewThingsGetOK().WithPayload(thing)
 }
 
-func (h *kindHandlers) getAction(params actions.WeaviateActionsGetParams,
+func (h *kindHandlers) getAction(params actions.ActionsGetParams,
 	principal *models.Principal) middleware.Responder {
 	action, err := h.manager.GetAction(params.HTTPRequest.Context(), principal, params.ID)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return actions.NewWeaviateActionsGetForbidden().
+			return actions.NewActionsGetForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrNotFound:
-			return actions.NewWeaviateActionsGetNotFound()
+			return actions.NewActionsGetNotFound()
 		default:
-			return actions.NewWeaviateActionsGetInternalServerError().
+			return actions.NewActionsGetInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalQuery)
-	return actions.NewWeaviateActionsGetOK().WithPayload(action)
+	return actions.NewActionsGetOK().WithPayload(action)
 }
 
-func (h *kindHandlers) getThings(params things.WeaviateThingsListParams,
+func (h *kindHandlers) getThings(params things.ThingsListParams,
 	principal *models.Principal) middleware.Responder {
 	list, err := h.manager.GetThings(params.HTTPRequest.Context(), principal, params.Limit)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return things.NewWeaviateThingsListForbidden().
+			return things.NewThingsListForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return things.NewWeaviateThingsListInternalServerError().
+			return things.NewThingsListInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalQuery)
-	return things.NewWeaviateThingsListOK().
+	return things.NewThingsListOK().
 		WithPayload(&models.ThingsListResponse{
 			Things:       list,
 			TotalResults: int64(len(list)),
 		})
 }
 
-func (h *kindHandlers) getActions(params actions.WeaviateActionsListParams,
+func (h *kindHandlers) getActions(params actions.ActionsListParams,
 	principal *models.Principal) middleware.Responder {
 	list, err := h.manager.GetActions(params.HTTPRequest.Context(), principal, params.Limit)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return actions.NewWeaviateActionsListForbidden().
+			return actions.NewActionsListForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return actions.NewWeaviateActionsListInternalServerError().
+			return actions.NewActionsListInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalQuery)
-	return actions.NewWeaviateActionsListOK().
+	return actions.NewActionsListOK().
 		WithPayload(&models.ActionsListResponse{
 			Actions:      list,
 			TotalResults: int64(len(list)),
 		})
 }
 
-func (h *kindHandlers) updateThing(params things.WeaviateThingsUpdateParams,
+func (h *kindHandlers) updateThing(params things.ThingsUpdateParams,
 	principal *models.Principal) middleware.Responder {
 	thing, err := h.manager.UpdateThing(params.HTTPRequest.Context(), principal, params.ID, params.Body)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return things.NewWeaviateThingsUpdateForbidden().
+			return things.NewThingsUpdateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
-			return things.NewWeaviateThingsUpdateUnprocessableEntity().
+			return things.NewThingsUpdateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return things.NewWeaviateThingsUpdateInternalServerError().
+			return things.NewThingsUpdateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
-	return things.NewWeaviateThingsUpdateOK().WithPayload(thing)
+	return things.NewThingsUpdateOK().WithPayload(thing)
 }
 
-func (h *kindHandlers) updateAction(params actions.WeaviateActionUpdateParams,
+func (h *kindHandlers) updateAction(params actions.ActionsUpdateParams,
 	principal *models.Principal) middleware.Responder {
 	action, err := h.manager.UpdateAction(params.HTTPRequest.Context(), principal, params.ID, params.Body)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return actions.NewWeaviateActionUpdateForbidden().
+			return actions.NewActionsUpdateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
-			return actions.NewWeaviateActionUpdateUnprocessableEntity().
+			return actions.NewActionsUpdateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return actions.NewWeaviateActionUpdateInternalServerError().
+			return actions.NewActionsUpdateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
-	return actions.NewWeaviateActionUpdateOK().WithPayload(action)
+	return actions.NewActionsUpdateOK().WithPayload(action)
 }
 
-func (h *kindHandlers) deleteThing(params things.WeaviateThingsDeleteParams,
+func (h *kindHandlers) deleteThing(params things.ThingsDeleteParams,
 	principal *models.Principal) middleware.Responder {
 	err := h.manager.DeleteThing(params.HTTPRequest.Context(), principal, params.ID)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return things.NewWeaviateThingsDeleteForbidden().
+			return things.NewThingsDeleteForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrNotFound:
-			return things.NewWeaviateThingsDeleteNotFound()
+			return things.NewThingsDeleteNotFound()
 		default:
-			return things.NewWeaviateThingsDeleteInternalServerError().
+			return things.NewThingsDeleteInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
-	return things.NewWeaviateThingsDeleteNoContent()
+	return things.NewThingsDeleteNoContent()
 }
 
-func (h *kindHandlers) deleteAction(params actions.WeaviateActionsDeleteParams,
+func (h *kindHandlers) deleteAction(params actions.ActionsDeleteParams,
 	principal *models.Principal) middleware.Responder {
 	err := h.manager.DeleteAction(params.HTTPRequest.Context(), principal, params.ID)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return actions.NewWeaviateActionsDeleteForbidden().
+			return actions.NewActionsDeleteForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrNotFound:
-			return actions.NewWeaviateActionsDeleteNotFound()
+			return actions.NewActionsDeleteNotFound()
 		default:
-			return actions.NewWeaviateActionsDeleteInternalServerError().
+			return actions.NewActionsDeleteInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
-	return actions.NewWeaviateActionsDeleteNoContent()
+	return actions.NewActionsDeleteNoContent()
 }
 
 // patchThing uses RFC 6902 semantics (https://tools.ietf.org/html/rfc6902) to allow
@@ -288,17 +288,17 @@ func (h *kindHandlers) deleteAction(params actions.WeaviateActionsDeleteParams,
 //
 // Internally, this means, we need to first run the Get UC, then apply the
 // patch and then run the update UC
-func (h *kindHandlers) patchThing(params things.WeaviateThingsPatchParams, principal *models.Principal) middleware.Responder {
+func (h *kindHandlers) patchThing(params things.ThingsPatchParams, principal *models.Principal) middleware.Responder {
 	origThing, err := h.manager.GetThing(params.HTTPRequest.Context(), principal, params.ID)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return things.NewWeaviateThingsPatchForbidden().
+			return things.NewThingsPatchForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrNotFound:
-			return things.NewWeaviateThingsPatchNotFound()
+			return things.NewThingsPatchNotFound()
 		default:
-			return things.NewWeaviateThingsPatchInternalServerError().
+			return things.NewThingsPatchInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
@@ -308,13 +308,13 @@ func (h *kindHandlers) patchThing(params things.WeaviateThingsPatchParams, princ
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return things.NewWeaviateThingsPatchForbidden().
+			return things.NewThingsPatchForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
-			return things.NewWeaviateThingsPatchUnprocessableEntity().
+			return things.NewThingsPatchUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return things.NewWeaviateThingsPatchInternalServerError().
+			return things.NewThingsPatchInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
@@ -323,20 +323,20 @@ func (h *kindHandlers) patchThing(params things.WeaviateThingsPatchParams, princ
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return things.NewWeaviateThingsPatchForbidden().
+			return things.NewThingsPatchForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
-			return things.NewWeaviateThingsUpdateUnprocessableEntity().
+			return things.NewThingsUpdateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return things.NewWeaviateThingsUpdateInternalServerError().
+			return things.NewThingsUpdateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
 
-	return things.NewWeaviateThingsPatchOK().WithPayload(updated)
+	return things.NewThingsPatchOK().WithPayload(updated)
 }
 
 // patchAction uses RFC 6902 semantics (https://tools.ietf.org/html/rfc6902) to allow
@@ -344,17 +344,17 @@ func (h *kindHandlers) patchThing(params things.WeaviateThingsPatchParams, princ
 //
 // Internally, this means, we need to first run the Get UC, then apply the
 // patch and then run the update UC
-func (h *kindHandlers) patchAction(params actions.WeaviateActionsPatchParams, principal *models.Principal) middleware.Responder {
+func (h *kindHandlers) patchAction(params actions.ActionsPatchParams, principal *models.Principal) middleware.Responder {
 	origAction, err := h.manager.GetAction(params.HTTPRequest.Context(), principal, params.ID)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return actions.NewWeaviateActionsPatchForbidden().
+			return actions.NewActionsPatchForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrNotFound:
-			return actions.NewWeaviateActionsPatchNotFound()
+			return actions.NewActionsPatchNotFound()
 		default:
-			return actions.NewWeaviateActionsPatchInternalServerError().
+			return actions.NewActionsPatchInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
@@ -364,13 +364,13 @@ func (h *kindHandlers) patchAction(params actions.WeaviateActionsPatchParams, pr
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return actions.NewWeaviateActionsPatchForbidden().
+			return actions.NewActionsPatchForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
-			return actions.NewWeaviateActionsPatchUnprocessableEntity().
+			return actions.NewActionsPatchUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return actions.NewWeaviateActionsPatchInternalServerError().
+			return actions.NewActionsPatchInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
@@ -379,13 +379,13 @@ func (h *kindHandlers) patchAction(params actions.WeaviateActionsPatchParams, pr
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return actions.NewWeaviateActionsPatchForbidden().
+			return actions.NewActionsPatchForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
-			return actions.NewWeaviateActionUpdateUnprocessableEntity().
+			return actions.NewActionsUpdateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return actions.NewWeaviateActionUpdateInternalServerError().
+			return actions.NewActionsUpdateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
@@ -393,7 +393,7 @@ func (h *kindHandlers) patchAction(params actions.WeaviateActionsPatchParams, pr
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
 
 	// Returns accepted so a Go routine can process in the background
-	return actions.NewWeaviateActionsPatchOK().WithPayload(updated)
+	return actions.NewActionsPatchOK().WithPayload(updated)
 }
 
 func (h *kindHandlers) getPatchedKind(orig interface{},
@@ -431,176 +431,176 @@ func (h *kindHandlers) getPatchedKind(orig interface{},
 	return nil
 }
 
-func (h *kindHandlers) addThingReference(params things.WeaviateThingsReferencesCreateParams,
+func (h *kindHandlers) addThingReference(params things.ThingsReferencesCreateParams,
 	principal *models.Principal) middleware.Responder {
 	err := h.manager.AddThingReference(params.HTTPRequest.Context(), principal, params.ID, params.PropertyName, params.Body)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return things.NewWeaviateThingsReferencesCreateForbidden().
+			return things.NewThingsReferencesCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrNotFound, kinds.ErrInvalidUserInput:
-			return things.NewWeaviateThingsReferencesCreateUnprocessableEntity().
+			return things.NewThingsReferencesCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return things.NewWeaviateThingsReferencesCreateInternalServerError().
+			return things.NewThingsReferencesCreateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
-	return things.NewWeaviateThingsReferencesCreateOK()
+	return things.NewThingsReferencesCreateOK()
 }
 
-func (h *kindHandlers) addActionReference(params actions.WeaviateActionsReferencesCreateParams,
+func (h *kindHandlers) addActionReference(params actions.ActionsReferencesCreateParams,
 	principal *models.Principal) middleware.Responder {
 	err := h.manager.AddActionReference(params.HTTPRequest.Context(), principal, params.ID, params.PropertyName, params.Body)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return actions.NewWeaviateActionsReferencesCreateForbidden().
+			return actions.NewActionsReferencesCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrNotFound, kinds.ErrInvalidUserInput:
-			return actions.NewWeaviateActionsReferencesCreateUnprocessableEntity().
+			return actions.NewActionsReferencesCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return actions.NewWeaviateActionsReferencesCreateInternalServerError().
+			return actions.NewActionsReferencesCreateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
-	return actions.NewWeaviateActionsReferencesCreateOK()
+	return actions.NewActionsReferencesCreateOK()
 }
 
-func (h *kindHandlers) updateActionReferences(params actions.WeaviateActionsReferencesUpdateParams,
+func (h *kindHandlers) updateActionReferences(params actions.ActionsReferencesUpdateParams,
 	principal *models.Principal) middleware.Responder {
 	err := h.manager.UpdateActionReferences(params.HTTPRequest.Context(), principal, params.ID, params.PropertyName, params.Body)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return actions.NewWeaviateActionsReferencesUpdateForbidden().
+			return actions.NewActionsReferencesUpdateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrNotFound, kinds.ErrInvalidUserInput:
-			return actions.NewWeaviateActionsReferencesUpdateUnprocessableEntity().
+			return actions.NewActionsReferencesUpdateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return actions.NewWeaviateActionsReferencesUpdateInternalServerError().
+			return actions.NewActionsReferencesUpdateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
-	return actions.NewWeaviateActionsReferencesUpdateOK()
+	return actions.NewActionsReferencesUpdateOK()
 }
 
-func (h *kindHandlers) updateThingReferences(params things.WeaviateThingsReferencesUpdateParams,
+func (h *kindHandlers) updateThingReferences(params things.ThingsReferencesUpdateParams,
 	principal *models.Principal) middleware.Responder {
 	err := h.manager.UpdateThingReferences(params.HTTPRequest.Context(), principal, params.ID, params.PropertyName, params.Body)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return things.NewWeaviateThingsReferencesUpdateForbidden().
+			return things.NewThingsReferencesUpdateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrNotFound, kinds.ErrInvalidUserInput:
-			return things.NewWeaviateThingsReferencesUpdateUnprocessableEntity().
+			return things.NewThingsReferencesUpdateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return things.NewWeaviateThingsReferencesUpdateInternalServerError().
+			return things.NewThingsReferencesUpdateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
-	return things.NewWeaviateThingsReferencesUpdateOK()
+	return things.NewThingsReferencesUpdateOK()
 }
 
-func (h *kindHandlers) deleteActionReference(params actions.WeaviateActionsReferencesDeleteParams,
+func (h *kindHandlers) deleteActionReference(params actions.ActionsReferencesDeleteParams,
 	principal *models.Principal) middleware.Responder {
 	err := h.manager.DeleteActionReference(params.HTTPRequest.Context(), principal, params.ID, params.PropertyName, params.Body)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return actions.NewWeaviateActionsReferencesDeleteForbidden().
+			return actions.NewActionsReferencesDeleteForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrNotFound, kinds.ErrInvalidUserInput:
-			return actions.NewWeaviateActionsReferencesDeleteNotFound().
+			return actions.NewActionsReferencesDeleteNotFound().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return actions.NewWeaviateActionsReferencesDeleteInternalServerError().
+			return actions.NewActionsReferencesDeleteInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
-	return actions.NewWeaviateActionsReferencesDeleteNoContent()
+	return actions.NewActionsReferencesDeleteNoContent()
 }
 
-func (h *kindHandlers) deleteThingReference(params things.WeaviateThingsReferencesDeleteParams,
+func (h *kindHandlers) deleteThingReference(params things.ThingsReferencesDeleteParams,
 	principal *models.Principal) middleware.Responder {
 	err := h.manager.DeleteThingReference(params.HTTPRequest.Context(), principal, params.ID, params.PropertyName, params.Body)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return things.NewWeaviateThingsReferencesDeleteForbidden().
+			return things.NewThingsReferencesDeleteForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrNotFound, kinds.ErrInvalidUserInput:
-			return things.NewWeaviateThingsReferencesDeleteNotFound().
+			return things.NewThingsReferencesDeleteNotFound().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return things.NewWeaviateThingsReferencesDeleteInternalServerError().
+			return things.NewThingsReferencesDeleteInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
-	return things.NewWeaviateThingsReferencesDeleteNoContent()
+	return things.NewThingsReferencesDeleteNoContent()
 }
 
 func setupKindHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog, manager *kinds.Manager) {
 	h := &kindHandlers{manager, requestsLog}
 
-	api.ThingsWeaviateThingsCreateHandler = things.
-		WeaviateThingsCreateHandlerFunc(h.addThing)
-	api.ThingsWeaviateThingsValidateHandler = things.
-		WeaviateThingsValidateHandlerFunc(h.validateThing)
-	api.ThingsWeaviateThingsGetHandler = things.
-		WeaviateThingsGetHandlerFunc(h.getThing)
-	api.ThingsWeaviateThingsDeleteHandler = things.
-		WeaviateThingsDeleteHandlerFunc(h.deleteThing)
-	api.ThingsWeaviateThingsListHandler = things.
-		WeaviateThingsListHandlerFunc(h.getThings)
-	api.ThingsWeaviateThingsUpdateHandler = things.
-		WeaviateThingsUpdateHandlerFunc(h.updateThing)
-	api.ThingsWeaviateThingsPatchHandler = things.
-		WeaviateThingsPatchHandlerFunc(h.patchThing)
-	api.ThingsWeaviateThingsReferencesCreateHandler = things.
-		WeaviateThingsReferencesCreateHandlerFunc(h.addThingReference)
-	api.ThingsWeaviateThingsReferencesDeleteHandler = things.
-		WeaviateThingsReferencesDeleteHandlerFunc(h.deleteThingReference)
-	api.ThingsWeaviateThingsReferencesUpdateHandler = things.
-		WeaviateThingsReferencesUpdateHandlerFunc(h.updateThingReferences)
+	api.ThingsThingsCreateHandler = things.
+		ThingsCreateHandlerFunc(h.addThing)
+	api.ThingsThingsValidateHandler = things.
+		ThingsValidateHandlerFunc(h.validateThing)
+	api.ThingsThingsGetHandler = things.
+		ThingsGetHandlerFunc(h.getThing)
+	api.ThingsThingsDeleteHandler = things.
+		ThingsDeleteHandlerFunc(h.deleteThing)
+	api.ThingsThingsListHandler = things.
+		ThingsListHandlerFunc(h.getThings)
+	api.ThingsThingsUpdateHandler = things.
+		ThingsUpdateHandlerFunc(h.updateThing)
+	api.ThingsThingsPatchHandler = things.
+		ThingsPatchHandlerFunc(h.patchThing)
+	api.ThingsThingsReferencesCreateHandler = things.
+		ThingsReferencesCreateHandlerFunc(h.addThingReference)
+	api.ThingsThingsReferencesDeleteHandler = things.
+		ThingsReferencesDeleteHandlerFunc(h.deleteThingReference)
+	api.ThingsThingsReferencesUpdateHandler = things.
+		ThingsReferencesUpdateHandlerFunc(h.updateThingReferences)
 
-	api.ActionsWeaviateActionsCreateHandler = actions.
-		WeaviateActionsCreateHandlerFunc(h.addAction)
-	api.ActionsWeaviateActionsValidateHandler = actions.
-		WeaviateActionsValidateHandlerFunc(h.validateAction)
-	api.ActionsWeaviateActionsGetHandler = actions.
-		WeaviateActionsGetHandlerFunc(h.getAction)
-	api.ActionsWeaviateActionsDeleteHandler = actions.
-		WeaviateActionsDeleteHandlerFunc(h.deleteAction)
-	api.ActionsWeaviateActionsListHandler = actions.
-		WeaviateActionsListHandlerFunc(h.getActions)
-	api.ActionsWeaviateActionUpdateHandler = actions.
-		WeaviateActionUpdateHandlerFunc(h.updateAction)
-	api.ActionsWeaviateActionsPatchHandler = actions.
-		WeaviateActionsPatchHandlerFunc(h.patchAction)
-	api.ActionsWeaviateActionsReferencesCreateHandler = actions.
-		WeaviateActionsReferencesCreateHandlerFunc(h.addActionReference)
-	api.ActionsWeaviateActionsReferencesDeleteHandler = actions.
-		WeaviateActionsReferencesDeleteHandlerFunc(h.deleteActionReference)
-	api.ActionsWeaviateActionsReferencesUpdateHandler = actions.
-		WeaviateActionsReferencesUpdateHandlerFunc(h.updateActionReferences)
+	api.ActionsActionsCreateHandler = actions.
+		ActionsCreateHandlerFunc(h.addAction)
+	api.ActionsActionsValidateHandler = actions.
+		ActionsValidateHandlerFunc(h.validateAction)
+	api.ActionsActionsGetHandler = actions.
+		ActionsGetHandlerFunc(h.getAction)
+	api.ActionsActionsDeleteHandler = actions.
+		ActionsDeleteHandlerFunc(h.deleteAction)
+	api.ActionsActionsListHandler = actions.
+		ActionsListHandlerFunc(h.getActions)
+	api.ActionsActionsUpdateHandler = actions.
+		ActionsUpdateHandlerFunc(h.updateAction)
+	api.ActionsActionsPatchHandler = actions.
+		ActionsPatchHandlerFunc(h.patchAction)
+	api.ActionsActionsReferencesCreateHandler = actions.
+		ActionsReferencesCreateHandlerFunc(h.addActionReference)
+	api.ActionsActionsReferencesDeleteHandler = actions.
+		ActionsReferencesDeleteHandlerFunc(h.deleteActionReference)
+	api.ActionsActionsReferencesUpdateHandler = actions.
+		ActionsReferencesUpdateHandlerFunc(h.updateActionReferences)
 
 }
 

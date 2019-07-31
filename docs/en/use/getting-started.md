@@ -75,7 +75,7 @@ to run Weaviate with Docker-compose.
 Check if Weaviate is up and running by using the following curl command:
 
 ```bash
-$ curl http://localhost:8080/weaviate/v1/meta
+$ curl http://localhost:8080/v1/meta
 ```
 
 The result should be an empty Weaviate:
@@ -105,7 +105,7 @@ In this example, we are going to create a [knowledge graph of a zoo](https://git
 First, we will create the `Zoo` as a Weaviate-thing like this;
 
 ```bash
-$ curl -X POST http://localhost:8080/weaviate/v1/schema/things -H "Content-Type: application/json" -d '{
+$ curl -X POST http://localhost:8080/v1/schema/things -H "Content-Type: application/json" -d '{
     "class": "Zoo",
     "keywords": [{
         "keyword": "park",
@@ -133,7 +133,7 @@ $ curl -X POST http://localhost:8080/weaviate/v1/schema/things -H "Content-Type:
 Next, we want to create a `City` class to describe which city a zoo is in.
 
 ```bash
-$ curl -X POST http://localhost:8080/weaviate/v1/schema/things -H "Content-Type: application/json" -d '{
+$ curl -X POST http://localhost:8080/v1/schema/things -H "Content-Type: application/json" -d '{
     "class": "City",
     "keywords": [{
         "keyword": "village",
@@ -162,7 +162,7 @@ Let's update both classes to include cross-references.
 First, we update the `Zoo` class:
 
 ```bash
-$ curl -X POST http://localhost:8080/weaviate/v1/schema/things/Zoo/properties -H "Content-Type: application/json" -d '{
+$ curl -X POST http://localhost:8080/v1/schema/things/Zoo/properties -H "Content-Type: application/json" -d '{
   "dataType": [
     "City"
   ],
@@ -176,7 +176,7 @@ $ curl -X POST http://localhost:8080/weaviate/v1/schema/things/Zoo/properties -H
 Secondly, we update the `City` class:
 
 ```bash
-$ curl -X POST http://localhost:8080/weaviate/v1/schema/things/City/properties -H "Content-Type: application/json" -d '{
+$ curl -X POST http://localhost:8080/v1/schema/things/City/properties -H "Content-Type: application/json" -d '{
   "dataType": [
     "Zoo"
   ],
@@ -194,7 +194,7 @@ Besides cross-references, Weaviate has a variety of special data types like geoc
 Let's update the `City` class with a location.
 
 ```bash
-$ curl -X POST http://localhost:8080/weaviate/v1/schema/things/City/properties -H "Content-Type: application/json" -d '{
+$ curl -X POST http://localhost:8080/v1/schema/things/City/properties -H "Content-Type: application/json" -d '{
   "dataType": [
     "geoCoordinates"
   ],
@@ -214,7 +214,7 @@ We are going to add two cities and two zoos.
 First the city of Amsterdam
 
 ```bash
-$ curl -X POST http://localhost:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
+$ curl -X POST http://localhost:8080/v1/things -H "Content-Type: application/json" -d '{
     "class": "City",
     "schema": {
         "name": "Amsterdam",
@@ -246,7 +246,7 @@ Results in:
 Next, the city of Berlin
 
 ```bash
-$ curl -X POST http://localhost:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
+$ curl -X POST http://localhost:8080/v1/things -H "Content-Type: application/json" -d '{
     "class": "City",
     "schema": {
         "name": "Berlin",
@@ -278,7 +278,7 @@ which results in:
 Now, we are going to add the Zoos, note how we are defining the cross-reference:
 
 ```bash
-$ curl -X POST http://localhost:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
+$ curl -X POST http://localhost:8080/v1/things -H "Content-Type: application/json" -d '{
     "class": "Zoo",
     "schema": {
         "name": "Artis",
@@ -310,7 +310,7 @@ Note how we are using the UUID of the city Amsterdam (which we created above) to
 We will do the same for the Berlin zoo:
 
 ```bash
-$ curl -X POST http://localhost:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
+$ curl -X POST http://localhost:8080/v1/things -H "Content-Type: application/json" -d '{
     "class": "Zoo",
     "schema": {
         "name": "The Berlin Zoological Garden",
@@ -346,7 +346,7 @@ In some cases, you want to set multiple references. In the following example, we
 First, we are going to create the `Animals` class.
 
 ```bash
-$ curl -X POST http://localhost:8080/weaviate/v1/schema/things -H "Content-Type: application/json" -d '{
+$ curl -X POST http://localhost:8080/v1/schema/things -H "Content-Type: application/json" -d '{
     "class": "Animal",
     "keywords": [{
         "keyword": "beast",
@@ -380,7 +380,7 @@ $ curl -X POST http://localhost:8080/weaviate/v1/schema/things -H "Content-Type:
 Next, we can extend the `Zoo` class to include many animals. Note the `cardinality` which is set to `many`.
 
 ```bash
-$ curl -X POST http://localhost:8080/weaviate/v1/schema/things/Zoo/properties -H "Content-Type: application/json" -d '{
+$ curl -X POST http://localhost:8080/v1/schema/things/Zoo/properties -H "Content-Type: application/json" -d '{
   "dataType": [
     "Animal"
   ],
@@ -394,7 +394,7 @@ $ curl -X POST http://localhost:8080/weaviate/v1/schema/things/Zoo/properties -H
 We will add two `Animals`, the elephants Alphonso and Bert and we are going to store their UUID's
 
 ```bash
-$ curl -X POST http://localhost:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
+$ curl -X POST http://localhost:8080/v1/things -H "Content-Type: application/json" -d '{
     "class": "Animal",
     "schema": {
         "name": "Alphonso",
@@ -404,7 +404,7 @@ $ curl -X POST http://localhost:8080/weaviate/v1/things -H "Content-Type: applic
 ```
 
 ```bash
-$ curl -X POST http://localhost:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
+$ curl -X POST http://localhost:8080/v1/things -H "Content-Type: application/json" -d '{
     "class": "Animal",
     "schema": {
         "name": "Bert",
@@ -421,7 +421,7 @@ The UUID's that are returned are;
 We can now add Alphonso and Bert to the Amsterdam `Zoo`.
 
 ```bash
-$ curl -X POST http://localhost:8080/weaviate/v1/things/3c6ac167-d7e5-4479-a726-8341b9113e40/properties/hasAnimals -H "Content-Type: application/json" -d '{
+$ curl -X POST http://localhost:8080/v1/things/3c6ac167-d7e5-4479-a726-8341b9113e40/properties/hasAnimals -H "Content-Type: application/json" -d '{
   "$cref": "weaviate://localhost/things/ac19c17b-63df-4d6f-9015-9086bb3466c4", # UUID of Alphonso
   "locationUrl": "localhost",
   "type": "Thing"
@@ -429,7 +429,7 @@ $ curl -X POST http://localhost:8080/weaviate/v1/things/3c6ac167-d7e5-4479-a726-
 ```
 
 ```bash
-$ curl -X POST http://localhost:8080/weaviate/v1/things/3c6ac167-d7e5-4479-a726-8341b9113e40/properties/hasAnimals -H "Content-Type: application/json" -d '{
+$ curl -X POST http://localhost:8080/v1/things/3c6ac167-d7e5-4479-a726-8341b9113e40/properties/hasAnimals -H "Content-Type: application/json" -d '{
   "$cref": "weaviate://localhost/things/82f91e01-37b4-431c-98d1-43ebb48bca0f", # UUID of Bert
   "locationUrl": "localhost",
   "type": "Thing"
@@ -441,7 +441,7 @@ $ curl -X POST http://localhost:8080/weaviate/v1/things/3c6ac167-d7e5-4479-a726-
 One of the features of Weaviate is the use of GraphQL to query the graph. The docker-compose setup comes with the Weaviate Playground which we will use to crawl the graph.
 
 1. Open the Weaviate Playground by going to [http://localhost](http://localhost).
-2. Fill in the URL of your Weaviate instance: `http://localhost:8080/weaviate/v1/graphql`.
+2. Fill in the URL of your Weaviate instance: `http://localhost:8080/v1/graphql`.
 3. When the Weaviate Playground is loaded, click "GraphQL" in the right bottom of the screen.
 
 You can learn more about all functionalities [here](index.md).
@@ -510,7 +510,7 @@ You can also query individual nodes through the RESTful API.
 The following example results in all Things that are added to Weaviate;
 
 ```bash
-$ curl http://localhost:8080/weaviate/v1/things
+$ curl http://localhost:8080/v1/things
 ```
 
 [Click here](RESTful.md) for a complete overview of RESTful API endpoint.

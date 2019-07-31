@@ -73,7 +73,7 @@ var weaviateUrlString string
 var fixtureFile string
 
 func main() {
-	flag.StringVar(&weaviateUrlString, "weaviate-url", "http://localhost:8080/weaviate/v1/", "The address where weaviate can be reached")
+	flag.StringVar(&weaviateUrlString, "weaviate-url", "http://localhost:8080/v1/", "The address where weaviate can be reached")
 	flag.StringVar(&fixtureFile, "fixture-file", "tools/dev/schema/demo_data.json", "The fixtures to import")
 	flag.StringVar(&APIKEY, "api-key", "657a48b9-e000-4d9a-b51d-69a0b621c1b9", "The key used to connect to weaviate")
 	flag.StringVar(&APITOKEN, "api-token", "57ac8392-1ecc-4e17-9350-c9c866ac832b", "The token used to authenticate the key")

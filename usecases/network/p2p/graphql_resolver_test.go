@@ -95,7 +95,7 @@ func TestProxyGetInstance(t *testing.T) {
 
 	t.Run("should call correct url path", func(t *testing.T) {
 		matcher := func(t *testing.T, r *http.Request) {
-			expectedPath := "/weaviate/v1/graphql"
+			expectedPath := "/v1/graphql"
 			if r.URL.Path != expectedPath {
 				t.Errorf("expected path to be %s, but was %s", expectedPath, r.URL.Path)
 			}
@@ -214,7 +214,7 @@ func TestProxyGetMetaInstance(t *testing.T) {
 
 	t.Run("should call correct url path", func(t *testing.T) {
 		matcher := func(t *testing.T, r *http.Request) {
-			expectedPath := "/weaviate/v1/graphql"
+			expectedPath := "/v1/graphql"
 			if r.URL.Path != expectedPath {
 				t.Errorf("expected path to be %s, but was %s", expectedPath, r.URL.Path)
 			}
@@ -333,7 +333,7 @@ func TestProxyAggregateInstance(t *testing.T) {
 
 	t.Run("should call correct url path", func(t *testing.T) {
 		matcher := func(t *testing.T, r *http.Request) {
-			expectedPath := "/weaviate/v1/graphql"
+			expectedPath := "/v1/graphql"
 			if r.URL.Path != expectedPath {
 				t.Errorf("expected path to be %s, but was %s", expectedPath, r.URL.Path)
 			}
@@ -462,7 +462,7 @@ func TestProxyFetch(t *testing.T) {
 
 	t.Run("should call correct url path", func(t *testing.T) {
 		matcher := func(t *testing.T, r *http.Request) {
-			expectedPath := "/weaviate/v1/graphql"
+			expectedPath := "/v1/graphql"
 			if r.URL.Path != expectedPath {
 				t.Errorf("expected path to be %s, but was %s", expectedPath, r.URL.Path)
 			}

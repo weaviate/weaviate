@@ -28,9 +28,9 @@ func download(peer peers.Peer) (schema.Schema, error) {
 			"could not create client for %s: %s", peer.Name, err)
 	}
 
-	params := &schemaclient.WeaviateSchemaDumpParams{}
+	params := &schemaclient.SchemaDumpParams{}
 	params.WithTimeout(2 * time.Second)
-	ok, err := peerClient.Schema.WeaviateSchemaDump(params, nil)
+	ok, err := peerClient.Schema.SchemaDump(params, nil)
 	if err != nil {
 		return schema.Schema{}, fmt.Errorf(
 			"could not download schema from %s: %s", peer.Name, err)

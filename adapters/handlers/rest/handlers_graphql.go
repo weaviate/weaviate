@@ -39,7 +39,7 @@ type graphQLProvider interface {
 }
 
 func setupGraphQLHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog, gqlProvider graphQLProvider) {
-	api.GraphqlWeaviateGraphqlPostHandler = graphql.WeaviateGraphqlPostHandlerFunc(func(params graphql.WeaviateGraphqlPostParams, principal *models.Principal) middleware.Responder {
+	api.GraphqlGraphqlPostHandler = graphql.GraphqlPostHandlerFunc(func(params graphql.GraphqlPostParams, principal *models.Principal) middleware.Responder {
 		errorResponse := &models.ErrorResponse{}
 
 		// Get all input from the body of the request, as it is a POST.
@@ -52,7 +52,7 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 				&models.ErrorResponseErrorItems0{
 					Message: "query cannot be empty",
 				}}
-			return graphql.NewWeaviateGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
+			return graphql.NewGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
 		}
 
 		// Only set variables if exists in request
@@ -68,7 +68,7 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 					Message: "no graphql provider present, " +
 						"this is most likely because no schema is present. Import a schema first!",
 				}}
-			return graphql.NewWeaviateGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
+			return graphql.NewGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
 		}
 
 		ctx := params.HTTPRequest.Context()
@@ -84,7 +84,7 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 				&models.ErrorResponseErrorItems0{
 					Message: fmt.Sprintf("couldn't marshal json: %s", jsonErr),
 				}}
-			return graphql.NewWeaviateGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
+			return graphql.NewGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
 		}
 
 		// Put the data in a response ready object
@@ -97,7 +97,7 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 				&models.ErrorResponseErrorItems0{
 					Message: fmt.Sprintf("couldn't unmarshal json: %s\noriginal result was %#v", marshallErr, result),
 				}}
-			return graphql.NewWeaviateGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
+			return graphql.NewGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
 		}
 
 		// Register the request
@@ -106,15 +106,15 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 		}()
 
 		// Return the response
-		return graphql.NewWeaviateGraphqlPostOK().WithPayload(graphQLResponse)
+		return graphql.NewGraphqlPostOK().WithPayload(graphQLResponse)
 	})
 
-	api.GraphqlWeaviateGraphqlBatchHandler = graphql.WeaviateGraphqlBatchHandlerFunc(func(params graphql.WeaviateGraphqlBatchParams, principal *models.Principal) middleware.Responder {
+	api.GraphqlGraphqlBatchHandler = graphql.GraphqlBatchHandlerFunc(func(params graphql.GraphqlBatchParams, principal *models.Principal) middleware.Responder {
 		amountOfBatchedRequests := len(params.Body)
 		errorResponse := &models.ErrorResponse{}
 
 		if amountOfBatchedRequests == 0 {
-			return graphql.NewWeaviateGraphqlBatchUnprocessableEntity().WithPayload(errorResponse)
+			return graphql.NewGraphqlBatchUnprocessableEntity().WithPayload(errorResponse)
 		}
 		requestResults := make(chan gqlUnbatchedRequestResponse, amountOfBatchedRequests)
 
@@ -127,7 +127,7 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 		if graphQL == nil {
 			errRes := errPayloadFromSingleErr(fmt.Errorf("no graphql provider present, " +
 				"this is most likely because no schema is present. Import a schema first!"))
-			return graphql.NewWeaviateGraphqlBatchUnprocessableEntity().WithPayload(errRes)
+			return graphql.NewGraphqlBatchUnprocessableEntity().WithPayload(errRes)
 		}
 
 		// Generate a goroutine for each separate request
@@ -147,7 +147,7 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 			batchedRequestResponse[unbatchedRequestResult.RequestIndex] = unbatchedRequestResult.Response
 		}
 
-		return graphql.NewWeaviateGraphqlBatchOK().WithPayload(batchedRequestResponse)
+		return graphql.NewGraphqlBatchOK().WithPayload(batchedRequestResponse)
 	})
 }
 
@@ -164,7 +164,7 @@ func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, grap
 	if query == "" {
 
 		// Regular error messages are returned as an error code in the request header, but that doesn't work for batched requests
-		errorCode := strconv.Itoa(graphql.WeaviateGraphqlBatchUnprocessableEntityCode)
+		errorCode := strconv.Itoa(graphql.GraphqlBatchUnprocessableEntityCode)
 		errorMessage := fmt.Sprintf("%s: %s", errorCode, error422)
 		errors := []*models.GraphQLError{&models.GraphQLError{Message: errorMessage}}
 		graphQLResponse := models.GraphQLResponse{Data: nil, Errors: errors}
@@ -189,7 +189,7 @@ func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, grap
 		if jsonErr != nil {
 
 			// Regular error messages are returned as an error code in the request header, but that doesn't work for batched requests
-			errorCode := strconv.Itoa(graphql.WeaviateGraphqlBatchUnprocessableEntityCode)
+			errorCode := strconv.Itoa(graphql.GraphqlBatchUnprocessableEntityCode)
 			errorMessage := fmt.Sprintf("%s: %s", errorCode, error422)
 			errors := []*models.GraphQLError{&models.GraphQLError{Message: errorMessage}}
 			graphQLResponse := models.GraphQLResponse{Data: nil, Errors: errors}
@@ -206,7 +206,7 @@ func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, grap
 			if marshallErr != nil {
 
 				// Regular error messages are returned as an error code in the request header, but that doesn't work for batched requests
-				errorCode := strconv.Itoa(graphql.WeaviateGraphqlBatchUnprocessableEntityCode)
+				errorCode := strconv.Itoa(graphql.GraphqlBatchUnprocessableEntityCode)
 				errorMessage := fmt.Sprintf("%s: %s", errorCode, error422)
 				errors := []*models.GraphQLError{&models.GraphQLError{Message: errorMessage}}
 				graphQLResponse := models.GraphQLResponse{Data: nil, Errors: errors}

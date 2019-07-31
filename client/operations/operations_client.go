@@ -68,25 +68,25 @@ func (a *Client) GetWellKnownOpenidConfiguration(params *GetWellKnownOpenidConfi
 }
 
 /*
-WeaviateBatchingActionsCreate creates new actions based on an action template as a batch
+BatchingActionsCreate creates new actions based on an action template as a batch
 
 Register new Actions in bulk. Given meta-data and schema values are validated.
 */
-func (a *Client) WeaviateBatchingActionsCreate(params *WeaviateBatchingActionsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateBatchingActionsCreateOK, error) {
+func (a *Client) BatchingActionsCreate(params *BatchingActionsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*BatchingActionsCreateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateBatchingActionsCreateParams()
+		params = NewBatchingActionsCreateParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.batching.actions.create",
+		ID:                 "batching.actions.create",
 		Method:             "POST",
 		PathPattern:        "/batching/actions",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateBatchingActionsCreateReader{formats: a.formats},
+		Reader:             &BatchingActionsCreateReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -94,30 +94,30 @@ func (a *Client) WeaviateBatchingActionsCreate(params *WeaviateBatchingActionsCr
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateBatchingActionsCreateOK), nil
+	return result.(*BatchingActionsCreateOK), nil
 
 }
 
 /*
-WeaviateBatchingReferencesCreate creates new cross references between arbitrary classes in bulk
+BatchingReferencesCreate creates new cross references between arbitrary classes in bulk
 
 Register cross-references between any class items (things or actions) in bulk.
 */
-func (a *Client) WeaviateBatchingReferencesCreate(params *WeaviateBatchingReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateBatchingReferencesCreateOK, error) {
+func (a *Client) BatchingReferencesCreate(params *BatchingReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter) (*BatchingReferencesCreateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateBatchingReferencesCreateParams()
+		params = NewBatchingReferencesCreateParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.batching.references.create",
+		ID:                 "batching.references.create",
 		Method:             "POST",
 		PathPattern:        "/batching/references",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateBatchingReferencesCreateReader{formats: a.formats},
+		Reader:             &BatchingReferencesCreateReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -125,30 +125,30 @@ func (a *Client) WeaviateBatchingReferencesCreate(params *WeaviateBatchingRefere
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateBatchingReferencesCreateOK), nil
+	return result.(*BatchingReferencesCreateOK), nil
 
 }
 
 /*
-WeaviateBatchingThingsCreate creates new things based on a thing template as a batch
+BatchingThingsCreate creates new things based on a thing template as a batch
 
 Register new Things in bulk. Provided meta-data and schema values are validated.
 */
-func (a *Client) WeaviateBatchingThingsCreate(params *WeaviateBatchingThingsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateBatchingThingsCreateOK, error) {
+func (a *Client) BatchingThingsCreate(params *BatchingThingsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*BatchingThingsCreateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateBatchingThingsCreateParams()
+		params = NewBatchingThingsCreateParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.batching.things.create",
+		ID:                 "batching.things.create",
 		Method:             "POST",
 		PathPattern:        "/batching/things",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateBatchingThingsCreateReader{formats: a.formats},
+		Reader:             &BatchingThingsCreateReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -156,7 +156,7 @@ func (a *Client) WeaviateBatchingThingsCreate(params *WeaviateBatchingThingsCrea
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateBatchingThingsCreateOK), nil
+	return result.(*BatchingThingsCreateOK), nil
 
 }
 

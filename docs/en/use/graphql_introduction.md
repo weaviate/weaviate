@@ -27,7 +27,7 @@ Because GraphQL APIs are organised in schemas with types and fields rather than 
 To query Weaviate, the most easy way is to use GraphQL. The endpoint for GraphQL is always the same:
 
 ```bash
-$ curl -X POST -H "X-API-KEY: [[apiKey]]" -H "X-API-TOKEN: [[apiToken]]" -H "Content-Type: application/json" --data '[[DATA]]' "https://weaviate-host/weaviate/v1/graphql"
+$ curl -X POST -H "X-API-KEY: [[apiKey]]" -H "X-API-TOKEN: [[apiToken]]" -H "Content-Type: application/json" --data '[[DATA]]' "https://weaviate-host/v1/graphql"
 ```
 
 ## How to write queries

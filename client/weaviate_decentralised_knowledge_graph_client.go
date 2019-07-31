@@ -42,7 +42,7 @@ const (
 	DefaultHost string = "localhost"
 	// DefaultBasePath is the default BasePath
 	// found in Meta (info) section of spec file
-	DefaultBasePath string = "/weaviate/v1"
+	DefaultBasePath string = "/v1"
 )
 
 // DefaultSchemes are the default schemes found in Meta (info) section of spec file

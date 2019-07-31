@@ -20,7 +20,7 @@ import (
 
 // Helper function to get all the names of Thing classes.
 func GetThingClassNames(t *testing.T) []string {
-	resp, err := helper.Client(t).Schema.WeaviateSchemaDump(nil, nil)
+	resp, err := helper.Client(t).Schema.SchemaDump(nil, nil)
 	var names []string
 
 	// Extract all names
@@ -35,7 +35,7 @@ func GetThingClassNames(t *testing.T) []string {
 
 // Helper function to get all the names of Action classes.
 func GetActionClassNames(t *testing.T) []string {
-	resp, err := helper.Client(t).Schema.WeaviateSchemaDump(nil, nil)
+	resp, err := helper.Client(t).Schema.SchemaDump(nil, nil)
 	var names []string
 
 	// Extract all names

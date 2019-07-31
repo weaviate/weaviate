@@ -31,8 +31,8 @@ type GraphQLResult struct {
 // Perform a GraphQL request
 func QueryGraphQL(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, operation string, query string, variables map[string]interface{}) (*models.GraphQLResponse, error) {
 	var vars interface{} = variables
-	params := graphql_client.NewWeaviateGraphqlPostParams().WithBody(&models.GraphQLQuery{OperationName: operation, Query: query, Variables: vars})
-	response, err := helper.Client(t).Graphql.WeaviateGraphqlPost(params, nil)
+	params := graphql_client.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{OperationName: operation, Query: query, Variables: vars})
+	response, err := helper.Client(t).Graphql.GraphqlPost(params, nil)
 
 	if err != nil {
 		return nil, err
@@ -45,7 +45,7 @@ func QueryGraphQL(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, operation
 func AssertGraphQL(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, query string) *GraphQLResult {
 	response, err := QueryGraphQL(t, auth, "", query, nil)
 	if err != nil {
-		parsedErr, ok := err.(*graphql.WeaviateGraphqlPostUnprocessableEntity)
+		parsedErr, ok := err.(*graphql.GraphqlPostUnprocessableEntity)
 		if !ok {
 			t.Fatalf("Expected the query to succeed, but failed due to: %#v", err)
 		}

@@ -114,17 +114,17 @@ func (n *network) sendQueryToPeer(q common.SubQuery, peer peers.Peer) (*models.G
 }
 
 func postToPeer(client *client.WeaviateDecentralisedKnowledgeGraph, subQuery common.SubQuery,
-	principal interface{}) (*graphql.WeaviateGraphqlPostOK, error) {
+	principal interface{}) (*graphql.GraphqlPostOK, error) {
 	localContext := context.Background()
 	localContext, cancel := context.WithTimeout(localContext, 1*time.Second)
 	defer cancel()
-	requestParams := &graphql.WeaviateGraphqlPostParams{
+	requestParams := &graphql.GraphqlPostParams{
 		Body:    &models.GraphQLQuery{Query: subQuery.String()},
 		Context: localContext,
 		// re-enable once we have auth again
 		// HTTPClient: clientWithTokenInjectorRoundTripper(principal),
 	}
-	return client.Graphql.WeaviateGraphqlPost(requestParams, nil)
+	return client.Graphql.GraphqlPost(requestParams, nil)
 }
 
 type tokenInjectorRoundTripper struct {

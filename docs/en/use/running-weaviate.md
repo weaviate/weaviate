@@ -59,7 +59,7 @@ $ docker-compose up -d && docker-compose logs -f weaviate
 ```
 
 Alternatively you can run docker-compose entirely detached with `docker-compose
-up -d` and poll `{bind_address}:{port}/weaviate/v1/meta` until you receive
+up -d` and poll `{bind_address}:{port}/v1/meta` until you receive
 status `200 OK`.
 
 #### Additional Information
@@ -79,7 +79,7 @@ _Note II: You can always enforce the latest `:latest` version by re-pulling
 - Runs with the latest open source Contextionary. More in-depth information
   about the contextionary can be found [here](../contribute/contextionary.md).
 - Weaviate becomes available as an HTTP service on port 8080 on
-  `http://{IP}/weaviate/v1/{RESOURCE}`.
+  `http://{IP}/v1/{RESOURCE}`.
 - The Weaviate Playground becomes available as an HTTP service on port 80 on
   `http://{IP}`.
 - If you want to manually download the files, download all files from
@@ -104,7 +104,7 @@ $ docker-compose up -d
 - Runs with the latest open source Contextionary. More in-depth information
   about the contextionary can be found [here](../contribute/contextionary.md).
 - Weaviate becomes available as HTTP service on port 8080 on
-  `://{IP}/weaviate/v1/{COMMAND}`.
+  `://{IP}/v1/{COMMAND}`.
 
 ## Run Weaviate stand-alone with Docker
 
@@ -121,7 +121,7 @@ $ docker run semi-technologies/weaviate:$VERSION
 - Runs with the latest open source Contextionary. More in-depth information
   about the contextionary can be found [here](../contribute/contextionary.md).
 - Weaviate becomes available as an HTTP service on port 8080 on
-  `://{IP}/weaviate/v1/{COMMAND}`.
+  `://{IP}/v1/{COMMAND}`.
 
 ## Running with Custom Contextionary
 

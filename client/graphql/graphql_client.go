@@ -37,25 +37,25 @@ type Client struct {
 }
 
 /*
-WeaviateGraphqlBatch gets a response based on graph q l
+GraphqlBatch gets a response based on graph q l
 
 Perform a batched GraphQL query
 */
-func (a *Client) WeaviateGraphqlBatch(params *WeaviateGraphqlBatchParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateGraphqlBatchOK, error) {
+func (a *Client) GraphqlBatch(params *GraphqlBatchParams, authInfo runtime.ClientAuthInfoWriter) (*GraphqlBatchOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateGraphqlBatchParams()
+		params = NewGraphqlBatchParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.graphql.batch",
+		ID:                 "graphql.batch",
 		Method:             "POST",
 		PathPattern:        "/graphql/batch",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateGraphqlBatchReader{formats: a.formats},
+		Reader:             &GraphqlBatchReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -63,30 +63,30 @@ func (a *Client) WeaviateGraphqlBatch(params *WeaviateGraphqlBatchParams, authIn
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateGraphqlBatchOK), nil
+	return result.(*GraphqlBatchOK), nil
 
 }
 
 /*
-WeaviateGraphqlPost gets a response based on graph q l
+GraphqlPost gets a response based on graph q l
 
 Get an object based on GraphQL
 */
-func (a *Client) WeaviateGraphqlPost(params *WeaviateGraphqlPostParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateGraphqlPostOK, error) {
+func (a *Client) GraphqlPost(params *GraphqlPostParams, authInfo runtime.ClientAuthInfoWriter) (*GraphqlPostOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateGraphqlPostParams()
+		params = NewGraphqlPostParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.graphql.post",
+		ID:                 "graphql.post",
 		Method:             "POST",
 		PathPattern:        "/graphql",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateGraphqlPostReader{formats: a.formats},
+		Reader:             &GraphqlPostReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -94,7 +94,7 @@ func (a *Client) WeaviateGraphqlPost(params *WeaviateGraphqlPostParams, authInfo
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateGraphqlPostOK), nil
+	return result.(*GraphqlPostOK), nil
 
 }
 

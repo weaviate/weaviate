@@ -39,8 +39,8 @@ func TestCanUpdateActionSetNumber(t *testing.T) {
 	update.Class = "TestAction"
 	update.ID = uuid
 
-	params := actions.NewWeaviateActionUpdateParams().WithID(uuid).WithBody(&update)
-	updateResp, err := helper.Client(t).Actions.WeaviateActionUpdate(params, nil)
+	params := actions.NewActionsUpdateParams().WithID(uuid).WithBody(&update)
+	updateResp, err := helper.Client(t).Actions.ActionsUpdate(params, nil)
 	helper.AssertRequestOk(t, updateResp, err, nil)
 
 	actualThunk := func() interface{} {
@@ -70,8 +70,8 @@ func TestCanUpdateActionSetString(t *testing.T) {
 	update.Class = "TestAction"
 	update.ID = uuid
 
-	params := actions.NewWeaviateActionUpdateParams().WithID(uuid).WithBody(&update)
-	updateResp, err := helper.Client(t).Actions.WeaviateActionUpdate(params, nil)
+	params := actions.NewActionsUpdateParams().WithID(uuid).WithBody(&update)
+	updateResp, err := helper.Client(t).Actions.ActionsUpdate(params, nil)
 	helper.AssertRequestOk(t, updateResp, err, nil)
 
 	actualThunk := func() interface{} {
@@ -96,8 +96,8 @@ func TestCanUpdateActionSetBool(t *testing.T) {
 	update.Class = "TestAction"
 	update.ID = uuid
 
-	params := actions.NewWeaviateActionUpdateParams().WithID(uuid).WithBody(&update)
-	updateResp, err := helper.Client(t).Actions.WeaviateActionUpdate(params, nil)
+	params := actions.NewActionsUpdateParams().WithID(uuid).WithBody(&update)
+	updateResp, err := helper.Client(t).Actions.ActionsUpdate(params, nil)
 
 	helper.AssertRequestOk(t, updateResp, err, nil)
 
@@ -129,10 +129,10 @@ func TestCanPatchActionsSetCref(t *testing.T) {
 	}
 
 	// Now to try to link
-	params := actions.NewWeaviateActionsPatchParams().
+	params := actions.NewActionsPatchParams().
 		WithBody([]*models.PatchDocument{patch}).
 		WithID(actionID)
-	patchResp, err := helper.Client(t).Actions.WeaviateActionsPatch(params, nil)
+	patchResp, err := helper.Client(t).Actions.ActionsPatch(params, nil)
 	helper.AssertRequestOk(t, patchResp, err, nil)
 
 	actualThunk := func() interface{} {

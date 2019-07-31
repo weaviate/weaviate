@@ -188,7 +188,7 @@ ID a valid UUID? However, weaviate cannot validatate whether all properties the
 user specified are valid in combination.
 
 If you are in doubt, send a representative request of your batching plan to a
-non-batched endpoint, such as `PATCH /weaviate/v1/things` first, where
+non-batched endpoint, such as `PATCH /v1/things` first, where
 validation is very strict. If validation is passed there it can be considered
 safe to be used in a batch setting as well.
 
@@ -268,8 +268,8 @@ or this format for `non-GraphQL` endpoints:
 
 Weaviate has a batch endpoint for a number of request types. These batch
 endpoints are specified below:
-* `POST weaviate/v1/batching/actions`
-* `POST weaviate/v1/batching/things`
-* `POST weaviate/v1/batching/references`
-* `POST weaviate/v1/graphql/batch`
+* `POST v1/batching/actions`
+* `POST v1/batching/things`
+* `POST v1/batching/references`
+* `POST v1/graphql/batch`
 

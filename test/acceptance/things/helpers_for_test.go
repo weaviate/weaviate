@@ -23,13 +23,13 @@ import (
 )
 
 func assertCreateThing(t *testing.T, className string, schema map[string]interface{}) strfmt.UUID {
-	params := things.NewWeaviateThingsCreateParams().WithBody(
+	params := things.NewThingsCreateParams().WithBody(
 		&models.Thing{
 			Class:  className,
 			Schema: schema,
 		})
 
-	resp, err := helper.Client(t).Things.WeaviateThingsCreate(params, nil)
+	resp, err := helper.Client(t).Things.ThingsCreate(params, nil)
 
 	var thingID strfmt.UUID
 
@@ -42,7 +42,7 @@ func assertCreateThing(t *testing.T, className string, schema map[string]interfa
 }
 
 func assertGetThing(t *testing.T, uuid strfmt.UUID) *models.Thing {
-	getResp, err := helper.Client(t).Things.WeaviateThingsGet(things.NewWeaviateThingsGetParams().WithID(uuid), nil)
+	getResp, err := helper.Client(t).Things.ThingsGet(things.NewThingsGetParams().WithID(uuid), nil)
 
 	var thing *models.Thing
 
@@ -55,12 +55,12 @@ func assertGetThing(t *testing.T, uuid strfmt.UUID) *models.Thing {
 
 func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.Thing {
 	var (
-		resp *things.WeaviateThingsGetOK
+		resp *things.ThingsGetOK
 		err  error
 	)
 
 	checkThunk := func() interface{} {
-		resp, err = helper.Client(t).Things.WeaviateThingsGet(things.NewWeaviateThingsGetParams().WithID(uuid), nil)
+		resp, err = helper.Client(t).Things.ThingsGet(things.NewThingsGetParams().WithID(uuid), nil)
 		return err == nil
 	}
 
@@ -75,9 +75,9 @@ func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.Thing {
 	return thing
 }
 
-func assertGetSchema(t *testing.T) *schema.WeaviateSchemaDumpOKBody {
-	getResp, err := helper.Client(t).Schema.WeaviateSchemaDump(schema.NewWeaviateSchemaDumpParams(), nil)
-	var schema *schema.WeaviateSchemaDumpOKBody
+func assertGetSchema(t *testing.T) *schema.SchemaDumpOKBody {
+	getResp, err := helper.Client(t).Schema.SchemaDump(schema.NewSchemaDumpParams(), nil)
+	var schema *schema.SchemaDumpOKBody
 	helper.AssertRequestOk(t, getResp, err, func() {
 		schema = getResp.Payload
 	})

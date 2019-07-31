@@ -76,10 +76,10 @@ func TestCanPatchNetworkRef(t *testing.T) {
 	}
 
 	t.Run("it can apply the patch", func(t *testing.T) {
-		params := things.NewWeaviateThingsPatchParams().
+		params := things.NewThingsPatchParams().
 			WithBody([]*models.PatchDocument{patch}).
 			WithID(thingID)
-		patchResp, err := helper.Client(t).Things.WeaviateThingsPatch(params, nil)
+		patchResp, err := helper.Client(t).Things.ThingsPatch(params, nil)
 		helper.AssertRequestOk(t, patchResp, err, nil)
 	})
 
