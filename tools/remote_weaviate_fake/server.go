@@ -50,7 +50,7 @@ func main() {
 		parsed := removeAllWhiteSpace(body["query"])
 
 		getQuery := fmt.Sprintf("%s", `{ Local { Get { Things { Instruments { name } } } } }`)
-		getMetaQuery := fmt.Sprintf("%s", `{ Local { GetMeta { Things { Instruments { volume { maximum minimum mean } } } } } }`)
+		getMetaQuery := fmt.Sprintf("%s", `{ Local { Meta { Things { Instruments { volume { maximum minimum mean } } } } } }`)
 		aggregateQuery := fmt.Sprintf("%s", ` { Local { Aggregate { Things { Instruments(groupBy:["name"]) { volume { count } } } } } }`)
 		fetchQuery := fmt.Sprintf("%s", ` { Local { Fetch { Things(where: { class: { name: "bestclass" certainty: 0.8 keywords: [{value: "foo", weight: 0.9}] }, properties: { name: "bestproperty" certainty: 0.8 keywords: [{value: "bar", weight: 0.9}] operator: Equal valueString: "some-value" }, }) { beacon certainty } } } }`)
 		fetchFuzzyQuery := fmt.Sprintf("%s", ` { Local { Fetch { Fuzzy(value:"something", certainty:0.5) { beacon certainty } } } }`)
@@ -61,7 +61,7 @@ func main() {
 			return
 		case removeAllWhiteSpace(getMetaQuery):
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintf(w, "%s", graphQLGetMetaResponse)
+			fmt.Fprintf(w, "%s", graphQLMetaResponse)
 			return
 		case removeAllWhiteSpace(aggregateQuery):
 			w.Header().Set("Content-Type", "application/json")
@@ -109,10 +109,10 @@ func main() {
 	log.Fatal(http.ListenAndServe(":8081", nil))
 }
 
-var graphQLGetMetaResponse = `{
+var graphQLMetaResponse = `{
   "data": {
     "Local": {
-      "GetMeta": {
+      "Meta": {
         "Things": {
           "Instruments": {
             "volume": {

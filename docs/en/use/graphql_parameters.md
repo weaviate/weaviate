@@ -33,7 +33,7 @@ But also:
 ```graphql
 {
   Local{
-    GetMeta{
+    Meta{
       Things{
         City(limit:10){
           name{
@@ -53,7 +53,7 @@ But also:
 ## OLAP
 OLAP queries take a long time (minutes to hours) to complete, so there is a way to send an OLAP query, let it run in the background, and come back later to get the results. The query result will be stored in cache. 
 
-This applies to `GetMeta` and `Aggregate` queries, where large amount of data may be processed. Currently, this is offered for `Local` queries. OLAP queries send to the `Network` can be computationally very expensive, and a design for this is not implemented yet.
+This applies to `Meta` and `Aggregate` queries, where large amount of data may be processed. Currently, this is offered for `Local` queries. OLAP queries send to the `Network` can be computationally very expensive, and a design for this is not implemented yet.
 
 The following two parameters can be set in the `<class>` level of GraphQL queries, which both allow boolean values:
 - `useAnalyticsEngine`
@@ -66,7 +66,7 @@ When you send a specific OLAP query for the first time for the first time, you w
 ``` graphql
 {
   Local {
-    GetMeta {
+    Meta {
       Things {
         City(groupBy: ["isCapital"],
           forceRecalculate: false,

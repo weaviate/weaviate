@@ -20,7 +20,7 @@ import (
 // GraphQLNetworkFieldContents contains all objects regarding GraphQL fields
 type GraphQLNetworkFieldContents struct {
 	NetworkGetObject        *graphql.Object // Object containing all fields for GraphQL Network Get schema generation
-	NetworkGetMetaObject    *graphql.Object // Object containing all fields for GraphQL Network GetMeta schema generation
+	NetworkMetaObject       *graphql.Object // Object containing all fields for GraphQL Network Meta schema generation
 	NetworkFetchObject      *graphql.Object // Object containing all fields for GraphQL Network Fetch schema generation
 	NetworkIntrospectObject *graphql.Object // Object containing all fields for GraphQL Network Introspect schema generation
 	NetworkAggregateObject  *graphql.Object // Object containing all fields for GraphQL Network Aggregate schema generation

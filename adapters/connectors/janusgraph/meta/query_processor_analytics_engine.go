@@ -22,7 +22,7 @@ import (
 )
 
 func (p *Processor) getResultFromAnalyticsEngine(ctx context.Context, query *gremlin.Query,
-	params *traverser.GetMetaParams) ([]interface{}, error) {
+	params *traverser.MetaParams) ([]interface{}, error) {
 	hash, err := params.AnalyticsHash()
 	if params.Analytics.ForceRecalculate {
 		// no need to even check the cache, the user wants to start a new job

@@ -30,13 +30,13 @@ import (
 
 // Resolver is a local interface that can be composed with other interfaces to
 // form the overall GraphQL API main interface. All data-base connectors that
-// want to support the GetMeta feature must implement this interface.
+// want to support the Meta feature must implement this interface.
 type Resolver interface {
-	LocalGetMeta(ctx context.Context, principal *models.Principal, info *traverser.GetMetaParams) (interface{}, error)
+	LocalMeta(ctx context.Context, principal *models.Principal, info *traverser.MetaParams) (interface{}, error)
 }
 
 // RequestsLog is a local abstraction on the RequestsLog that needs to be
-// provided to the graphQL API in order to log Local.GetMeta queries.
+// provided to the graphQL API in order to log Local.Meta queries.
 type RequestsLog interface {
 	Register(requestType string, identifier string)
 }
@@ -80,7 +80,7 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 			return nil, fmt.Errorf("could not extract analytics props: %s", err)
 		}
 
-		params := &traverser.GetMetaParams{
+		params := &traverser.MetaParams{
 			Kind:       kind,
 			Filters:    filters,
 			ClassName:  className,
@@ -94,7 +94,7 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 			requestsLog.Register(telemetry.TypeGQL, telemetry.LocalQueryMeta)
 		}()
 
-		return resolver.LocalGetMeta(p.Context, principalFromContext(p.Context), params)
+		return resolver.LocalMeta(p.Context, principalFromContext(p.Context), params)
 	}
 }
 

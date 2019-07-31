@@ -17,8 +17,8 @@ package descriptions
 const LocalGetWhere string = "Filter options for a local Get query, used to convert the result to the specified filters"
 const LocalGetWhereInpObj string = "An object containing filter options for a local Get query, used to convert the result to the specified filters"
 
-const LocalGetMetaWhere string = "Filter options for a local GetMeta query, used to convert the result to the specified filters"
-const LocalGetMetaWhereInpObj string = "An object containing filter options for a local GetMeta query, used to convert the result to the specified filters"
+const LocalMetaWhere string = "Filter options for a local Meta query, used to convert the result to the specified filters"
+const LocalMetaWhereInpObj string = "An object containing filter options for a local Meta query, used to convert the result to the specified filters"
 
 const LocalAggregateWhere string = "Filter options for a local Aggregate query, used to convert the result to the specified filters"
 const LocalAggregateWhereInpObj string = "An object containing filter options for a local Aggregate query, used to convert the result to the specified filters"
@@ -26,8 +26,8 @@ const LocalAggregateWhereInpObj string = "An object containing filter options fo
 const NetworkGetWhere string = "Filter options for a network Get query, used to convert the result to the specified filters"
 const NetworkGetWhereInpObj string = "An object containing filter options for a network Get query, used to convert the result to the specified filters"
 
-const NetworkGetMetaWhere string = "Filter options for a network GetMeta query, used to convert the result to the specified filters"
-const NetworkGetMetaWhereInpObj string = "An object containing filter options for a network GetMeta query, used to convert the result to the specified filters"
+const NetworkMetaWhere string = "Filter options for a network Meta query, used to convert the result to the specified filters"
+const NetworkMetaWhereInpObj string = "An object containing filter options for a network Meta query, used to convert the result to the specified filters"
 
 const NetworkAggregateWhere string = "Filter options for a network Aggregate query, used to convert the result to the specified filters"
 const NetworkAggregateWhereInpObj string = "An object containing filter options for a network Aggregate query, used to convert the result to the specified filters"

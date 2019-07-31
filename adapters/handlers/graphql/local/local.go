@@ -43,7 +43,7 @@ func Build(dbSchema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger
 
 	localFields := graphql.Fields{
 		"Get":       getField,
-		"GetMeta":   getMetaField,
+		"Meta":      getMetaField,
 		"Aggregate": aggregateField,
 		"Explore":   exploreField,
 	}

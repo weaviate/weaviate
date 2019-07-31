@@ -136,7 +136,7 @@ func (tests testCases) AssertQueryWithFilterSource(t *testing.T, nameSource name
 	filterSource filterSource) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			params := &traverser.GetMetaParams{
+			params := &traverser.MetaParams{
 				Properties: test.inputProps,
 			}
 			query, err := NewQuery(params, nameSource, &fakeTypeSource{}, filterSource).String()

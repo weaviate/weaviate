@@ -31,7 +31,7 @@ func NewTypeInspector(typeSource typeSource) *TypeInspector {
 
 // Process returns a simple map where each property is the key, the value
 // contains the analysis prop that the user asked for through the graphQL API
-func (t *TypeInspector) Process(params *traverser.GetMetaParams) (map[string]interface{}, error) {
+func (t *TypeInspector) Process(params *traverser.MetaParams) (map[string]interface{}, error) {
 	result := map[string]interface{}{}
 	for _, prop := range params.Properties {
 		if prop.Name == MetaProp {
@@ -55,7 +55,7 @@ func (t *TypeInspector) Process(params *traverser.GetMetaParams) (map[string]int
 	return result, nil
 }
 
-func (t *TypeInspector) analyzeAll(params *traverser.GetMetaParams,
+func (t *TypeInspector) analyzeAll(params *traverser.MetaParams,
 	prop traverser.MetaProperty) (map[string]interface{}, error) {
 	results := []map[string]interface{}{}
 	for _, analysis := range prop.StatisticalAnalyses {
@@ -89,7 +89,7 @@ func (t *TypeInspector) analyzeAll(params *traverser.GetMetaParams,
 	}
 }
 
-func (t *TypeInspector) analyze(params *traverser.GetMetaParams, prop traverser.MetaProperty,
+func (t *TypeInspector) analyze(params *traverser.MetaParams, prop traverser.MetaProperty,
 	analysis traverser.StatisticalAnalysis) (map[string]interface{}, error) {
 	err, schemaProp := t.typeSource.GetProperty(params.Kind, params.ClassName, untitle(prop.Name))
 	if err != nil {
@@ -112,7 +112,7 @@ func (t *TypeInspector) analyze(params *traverser.GetMetaParams, prop traverser.
 		return nil, nil
 	}
 }
-func (t *TypeInspector) analyzePrimitiveProp(params *traverser.GetMetaParams,
+func (t *TypeInspector) analyzePrimitiveProp(params *traverser.MetaParams,
 	propType schema.PropertyDataType) (map[string]interface{}, error) {
 	var typeName string
 	if propType.IsPrimitive() {
@@ -126,7 +126,7 @@ func (t *TypeInspector) analyzePrimitiveProp(params *traverser.GetMetaParams,
 	}, nil
 }
 
-func (t *TypeInspector) analyzeRefProp(params *traverser.GetMetaParams,
+func (t *TypeInspector) analyzeRefProp(params *traverser.MetaParams,
 	propType schema.PropertyDataType) (map[string]interface{}, error) {
 
 	if !propType.IsReference() {

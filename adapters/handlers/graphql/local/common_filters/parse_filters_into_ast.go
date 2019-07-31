@@ -22,7 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
-// Extract the filters from the arguments of a Local->Get or Local->GetMeta query.
+// Extract the filters from the arguments of a Local->Get or Local->Meta query.
 func ExtractFilters(args map[string]interface{}, rootClass string) (*filters.LocalFilter, error) {
 	where, wherePresent := args["where"]
 	if !wherePresent {

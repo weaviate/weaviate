@@ -26,18 +26,18 @@ func refPropertyObj(class *models.Class,
 	fields := graphql.Fields{
 		"type": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sType", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaPropertyType,
+			Description: descriptions.MetaPropertyType,
 			Type:        graphql.String,
 		},
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sCount", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaPropertyCount,
+			Description: descriptions.MetaPropertyCount,
 			Type:        graphql.Int,
 			Resolve:     common.JSONNumberResolver,
 		},
 		"pointingTo": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sPointingTo", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaClassPropertyPointingTo,
+			Description: descriptions.MetaClassPropertyPointingTo,
 			Type:        graphql.NewList(graphql.String),
 		},
 	}
@@ -45,6 +45,6 @@ func refPropertyObj(class *models.Class,
 	return graphql.NewObject(graphql.ObjectConfig{
 		Name:        fmt.Sprintf("%s%s%sObj", prefix, class.Class, property.Name),
 		Fields:      fields,
-		Description: descriptions.GetMetaPropertyObject,
+		Description: descriptions.MetaPropertyObject,
 	})
 }

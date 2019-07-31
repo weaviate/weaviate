@@ -40,7 +40,7 @@ type Network interface {
 	ListPeers() (peers.Peers, error)
 
 	ProxyGetInstance(common.Params) (*models.GraphQLResponse, error)
-	ProxyGetMetaInstance(common.Params) (*models.GraphQLResponse, error)
+	ProxyMetaInstance(common.Params) (*models.GraphQLResponse, error)
 	ProxyAggregateInstance(common.Params) (*models.GraphQLResponse, error)
 	ProxyFetch(query common.SubQuery) ([]fetch.Response, error)
 

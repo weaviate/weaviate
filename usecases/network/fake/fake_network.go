@@ -48,7 +48,7 @@ func (fn FakeNetwork) ProxyGetInstance(common.Params) (*models.GraphQLResponse, 
 	return nil, fmt.Errorf("Cannot proxy get instance, because there is no network configured")
 }
 
-func (fn FakeNetwork) ProxyGetMetaInstance(common.Params) (*models.GraphQLResponse, error) {
+func (fn FakeNetwork) ProxyMetaInstance(common.Params) (*models.GraphQLResponse, error) {
 	return nil, fmt.Errorf("Cannot proxy get meta, because there is no network configured")
 }
 

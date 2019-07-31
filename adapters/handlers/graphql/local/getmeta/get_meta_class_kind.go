@@ -10,7 +10,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-// Package getmeta provides the Local GetMeta graphql endpoint for Weaviate
+// Package getmeta provides the Local Meta graphql endpoint for Weaviate
 package getmeta
 
 import (
@@ -18,7 +18,7 @@ import (
 	"strings"
 
 	"github.com/graphql-go/graphql"
-	commonGetMeta "github.com/semi-technologies/weaviate/adapters/handlers/graphql/common/getmeta"
+	commonMeta "github.com/semi-technologies/weaviate/adapters/handlers/graphql/common/getmeta"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -27,7 +27,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/config"
 )
 
-// Build the dynamically generated GetMeta Things part of the schema
+// Build the dynamically generated Meta Things part of the schema
 func classFields(databaseSchema []*models.Class, k kind.Kind,
 	config config.Config) (*graphql.Object, error) {
 	fields := graphql.Fields{}
@@ -37,9 +37,9 @@ func classFields(databaseSchema []*models.Class, k kind.Kind,
 
 	switch k {
 	case kind.Thing:
-		description = descriptions.LocalGetMetaThingsObj
+		description = descriptions.LocalMetaThingsObj
 	case kind.Action:
-		description = descriptions.LocalGetMetaActionsObj
+		description = descriptions.LocalMetaActionsObj
 	default:
 		return nil, fmt.Errorf("unrecoginzed kind '%#v", k)
 	}
@@ -55,7 +55,7 @@ func classFields(databaseSchema []*models.Class, k kind.Kind,
 	}
 
 	return graphql.NewObject(graphql.ObjectConfig{
-		Name:        fmt.Sprintf("WeaviateLocalGetMeta%ssObj", k.TitleizedName()),
+		Name:        fmt.Sprintf("WeaviateLocalMeta%ssObj", k.TitleizedName()),
 		Fields:      fields,
 		Description: description,
 	}), nil
@@ -96,8 +96,8 @@ func classField(k kind.Kind, class *models.Class, description string,
 				Description: descriptions.LocalGetWhere,
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
-						Name:        fmt.Sprintf("WeaviateLocalGetMeta%s%sWhereInpObj", k.Name(), class.Class),
-						Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateLocalGetMeta%s%s", k.Name(), class.Class)),
+						Name:        fmt.Sprintf("WeaviateLocalMeta%s%sWhereInpObj", k.Name(), class.Class),
+						Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateLocalMeta%s%s", k.Name(), class.Class)),
 						Description: descriptions.LocalGetWhereInpObj,
 					},
 				),
@@ -130,7 +130,7 @@ func extendArgsWithAnalyticsConfig(field *graphql.Field, config config.Config) *
 
 func classPropertyFields(class *models.Class) (graphql.Fields, error) {
 	fields := graphql.Fields{}
-	metaField, err := commonGetMeta.MetaPropertyField(class, "Meta")
+	metaField, err := commonMeta.MetaPropertyField(class, "Meta")
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +142,7 @@ func classPropertyFields(class *models.Class) (graphql.Fields, error) {
 			return nil, fmt.Errorf("%s.%s: %s", class.Class, property.Name, err)
 		}
 
-		convertedDataType, err := commonGetMeta.ClassPropertyField(*propertyType, class, property, "Meta")
+		convertedDataType, err := commonMeta.ClassPropertyField(*propertyType, class, property, "Meta")
 		if err != nil {
 			return nil, err
 		}

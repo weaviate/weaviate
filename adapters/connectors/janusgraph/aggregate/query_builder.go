@@ -61,7 +61,7 @@ func (b *Query) String() (string, error) {
 
 	filterQuery, err := b.filterSource.String()
 	if err != nil {
-		return "", fmt.Errorf("could not extract filters from GetMeta query: %s", err)
+		return "", fmt.Errorf("could not extract filters from Meta query: %s", err)
 	}
 
 	q = q.Raw(filterQuery)

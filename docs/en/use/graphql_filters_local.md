@@ -5,14 +5,14 @@
 ## Purpose: Show how filters can be used in local queries
 
 ## Index
-- [Local Get and GetMeta](#local-get-and-getmeta)
+- [Local Get and Meta](#local-get-and-getmeta)
 - [Local Fetch](#local-fetch)
 - [Local Aggregate](#local-aggregate)
 - [Other parameters](#other-parameters)
   - [Limit](#limit)
   - [OLAP](#OLAP)
 
-## Local Get and GetMeta
+## Local Get and Meta
 Without filters, a local query could look like this:
 
 ``` graphql 
@@ -131,7 +131,7 @@ Without operator 'And' or 'Or' at the highest level:
 }
 ```
 
-The same holds for GetMeta queries.
+The same holds for Meta queries.
 
 ## geoCoordinates
 Distance ranges of geoCoordinates can be filtered as follows:
@@ -273,12 +273,12 @@ The limit filter (pagination) allows to request a certain amount of Things or Ac
 ### OLAP
 OLAP queries take a long time (minutes to hours) to complete, so there is a way to send an OLAP query, let it run in the background, and come back later to get the results. The query result will be stored in cache. 
 
-This applies to `GetMeta` and `Aggregate` queries, where large amount of data may be processed. An example of how this can be used is:
+This applies to `Meta` and `Aggregate` queries, where large amount of data may be processed. An example of how this can be used is:
 
 ``` graphql
 {
   Local {
-    GetMeta {
+    Meta {
       Things {
         City(groupBy: ["isCapital"],
           forceRecalculate: false,

@@ -28,7 +28,7 @@ import (
 // key-value cache storage
 const AnalyticsAPICachePrefix = "/weaviate/janusgraph-connector/analytics-cache/"
 
-// Processor is a simple Gremlin-Query Executor that is specific to GetMeta in
+// Processor is a simple Gremlin-Query Executor that is specific to Meta in
 // that it merges the results into the expected format and applies
 // post-processing where necessary
 type Processor struct {

@@ -39,12 +39,12 @@ type result struct {
 	expectedValue interface{}
 }
 
-func TestNetworkGetMeta(t *testing.T) {
+func TestNetworkMeta(t *testing.T) {
 
 	tests := testCases{
 		testCase{
 			name:  "network get meta happy path",
-			query: "{ GetMeta { PeerA { Things { Car { horsepower { sum }}}}}}",
+			query: "{ Meta { PeerA { Things { Car { horsepower { sum }}}}}}",
 			resolverReturn: map[string]interface{}{
 				"Things": map[string]interface{}{
 					"Car": map[string]interface{}{
@@ -55,7 +55,7 @@ func TestNetworkGetMeta(t *testing.T) {
 				},
 			},
 			expectedResults: []result{{
-				pathToField:   []string{"GetMeta", "PeerA", "Things", "Car", "horsepower", "sum"},
+				pathToField:   []string{"Meta", "PeerA", "Things", "Car", "horsepower", "sum"},
 				expectedValue: 10000.0,
 			}},
 		},
@@ -63,7 +63,7 @@ func TestNetworkGetMeta(t *testing.T) {
 		testCase{
 			name: "with every possible json number field there is",
 			query: `{ 
-				GetMeta { 
+				Meta { 
 					PeerA { 
 						Things { 
 							Car { 
@@ -137,7 +137,7 @@ func TestNetworkGetMeta(t *testing.T) {
 			},
 			expectedResults: []result{
 				{
-					pathToField: []string{"GetMeta", "PeerA", "Things", "Car", "horsepower"},
+					pathToField: []string{"Meta", "PeerA", "Things", "Car", "horsepower"},
 					expectedValue: map[string]interface{}{
 						"sum":     10000.0,
 						"maximum": 10000.0,
@@ -147,7 +147,7 @@ func TestNetworkGetMeta(t *testing.T) {
 					},
 				},
 				{
-					pathToField: []string{"GetMeta", "PeerA", "Things", "Car", "weight"},
+					pathToField: []string{"Meta", "PeerA", "Things", "Car", "weight"},
 					expectedValue: map[string]interface{}{
 						"sum":     10000.0,
 						"maximum": 10000.0,
@@ -157,7 +157,7 @@ func TestNetworkGetMeta(t *testing.T) {
 					},
 				},
 				{
-					pathToField: []string{"GetMeta", "PeerA", "Things", "Car", "stillInProduction"},
+					pathToField: []string{"Meta", "PeerA", "Things", "Car", "stillInProduction"},
 					expectedValue: map[string]interface{}{
 						"totalTrue":       10000,
 						"totalFalse":      10000,
@@ -167,19 +167,19 @@ func TestNetworkGetMeta(t *testing.T) {
 					},
 				},
 				{
-					pathToField:   []string{"GetMeta", "PeerA", "Things", "Car", "meta", "count"},
+					pathToField:   []string{"Meta", "PeerA", "Things", "Car", "meta", "count"},
 					expectedValue: 10000,
 				},
 				{
-					pathToField:   []string{"GetMeta", "PeerA", "Things", "Car", "MadeBy", "count"},
+					pathToField:   []string{"Meta", "PeerA", "Things", "Car", "MadeBy", "count"},
 					expectedValue: 10000,
 				},
 				{
-					pathToField:   []string{"GetMeta", "PeerA", "Things", "Car", "modelName", "topOccurrences"},
+					pathToField:   []string{"Meta", "PeerA", "Things", "Car", "modelName", "topOccurrences"},
 					expectedValue: []interface{}{map[string]interface{}{"occurs": 10000}},
 				},
 				{
-					pathToField:   []string{"GetMeta", "PeerA", "Things", "Car", "modelName", "count"},
+					pathToField:   []string{"Meta", "PeerA", "Things", "Car", "modelName", "count"},
 					expectedValue: 10000,
 				},
 			},
@@ -197,12 +197,12 @@ func (tests testCases) Assert(t *testing.T) {
 			resolverReturn := &models.GraphQLResponse{
 				Data: map[string]models.JSONObject{
 					"Local": map[string]interface{}{
-						"GetMeta": testCase.resolverReturn,
+						"Meta": testCase.resolverReturn,
 					},
 				},
 			}
 
-			resolver.On("ProxyGetMetaInstance", mock.AnythingOfType("Params")).
+			resolver.On("ProxyMetaInstance", mock.AnythingOfType("Params")).
 				Return(resolverReturn, nil).Once()
 
 			result := resolver.AssertResolve(t, testCase.query)
@@ -244,13 +244,13 @@ func newMockResolver() *mockResolver {
 
 	mocker := &mockResolver{}
 	mockLog := &mockRequestsLog{}
-	mocker.RootFieldName = "GetMeta"
+	mocker.RootFieldName = "Meta"
 	mocker.RootField = peerField
 	mocker.RootObject = map[string]interface{}{"NetworkResolver": Resolver(mocker), "RequestsLog": mockLog}
 	return mocker
 }
 
-func (m *mockResolver) ProxyGetMetaInstance(params common.Params) (*models.GraphQLResponse, error) {
+func (m *mockResolver) ProxyMetaInstance(params common.Params) (*models.GraphQLResponse, error) {
 	args := m.Called(params)
 	return args.Get(0).(*models.GraphQLResponse), args.Error(1)
 }

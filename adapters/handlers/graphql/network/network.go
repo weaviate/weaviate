@@ -67,7 +67,7 @@ func Build(peers peers.Peers, config config.Config) (*graphql.Field, error) {
 
 	graphQLNetworkFieldContents := utils.GraphQLNetworkFieldContents{
 		NetworkGetObject:        schemaObjects.get,
-		NetworkGetMetaObject:    schemaObjects.getMeta,
+		NetworkMetaObject:       schemaObjects.getMeta,
 		NetworkFetchObject:      network_fetch.New(),
 		NetworkIntrospectObject: networkIntrospectObject,
 		NetworkAggregateObject:  schemaObjects.aggregate,
@@ -93,7 +93,7 @@ func Build(peers peers.Peers, config config.Config) (*graphql.Field, error) {
 }
 
 func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldContents) *graphql.Object {
-	networkGetAndGetMetaFields := graphql.Fields{
+	networkGetAndMetaFields := graphql.Fields{
 
 		"Get": &graphql.Field{
 			Name:        descriptions.NetworkGet,
@@ -102,10 +102,10 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 			Resolve:     passThroughResolver,
 		},
 
-		"GetMeta": &graphql.Field{
-			Name:        "WeaviateNetworkGetMeta",
-			Type:        graphQLNetworkFieldContents.NetworkGetMetaObject,
-			Description: descriptions.NetworkGetMeta,
+		"Meta": &graphql.Field{
+			Name:        "WeaviateNetworkMeta",
+			Type:        graphQLNetworkFieldContents.NetworkMetaObject,
+			Description: descriptions.NetworkMeta,
 			Resolve:     passThroughResolver,
 		},
 
@@ -134,7 +134,7 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 
 	weaviateNetworkObject := &graphql.ObjectConfig{
 		Name:        "WeaviateNetworkObj",
-		Fields:      networkGetAndGetMetaFields,
+		Fields:      networkGetAndMetaFields,
 		Description: descriptions.NetworkObj,
 	}
 
@@ -144,7 +144,7 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 func buildSchemaDependentObjects(peers peers.Peers) (*schemaDependentObjects, error) {
 	if len(peers) == 0 {
 		// if we don't have any peers, we must return nil
-		// otherwise we'd have an empty Get and GetMeta object, which
+		// otherwise we'd have an empty Get and Meta object, which
 		// is not valid GraphQL
 		return nil, nil
 	}
@@ -162,7 +162,7 @@ func buildSchemaDependentObjects(peers peers.Peers) (*schemaDependentObjects, er
 
 		getMeta, err := network_getmeta.New(peer.Name, peer.Schema).PeerField()
 		if err != nil {
-			return nil, fmt.Errorf("could not build GetMeta for peer '%s': %s", peer.Name, err)
+			return nil, fmt.Errorf("could not build Meta for peer '%s': %s", peer.Name, err)
 		}
 		metaGetPeers[peer.Name] = getMeta
 
@@ -179,9 +179,9 @@ func buildSchemaDependentObjects(peers peers.Peers) (*schemaDependentObjects, er
 		Description: descriptions.NetworkGetObj,
 	})
 	getMeta := graphql.NewObject(graphql.ObjectConfig{
-		Name:        "WeaviateNetworkGetMetaObj",
+		Name:        "WeaviateNetworkMetaObj",
 		Fields:      metaGetPeers,
-		Description: descriptions.NetworkGetMetaObj,
+		Description: descriptions.NetworkMetaObj,
 	})
 	aggregate := graphql.NewObject(graphql.ObjectConfig{
 		Name:        "WeaviateNetworkAggregateObj",
