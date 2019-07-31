@@ -26,7 +26,7 @@ require (
 	github.com/prometheus/common v0.0.0-20190107103113-2998b132700a
 	github.com/rs/cors v1.5.0
 	github.com/satori/go.uuid v0.0.0-20180103174451-36e9d2ebbde5
-	github.com/semi-technologies/contextionary v0.0.0-20190527123400-07bbd00c0d7b8b80c1a5c0f5963f1b001620f0a3
+	github.com/semi-technologies/contextionary v0.0.0-20190527123400-7574cd1d3565e984f3d00db4f355d06361ea720f
 	github.com/sirupsen/logrus v1.2.0
 	github.com/square/go-jose v2.3.0+incompatible
 	github.com/stretchr/testify v1.3.0

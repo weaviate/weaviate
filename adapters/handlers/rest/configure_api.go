@@ -175,7 +175,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupKindBatchHandlers(api, appState.TelemetryLogger, batchKindsManager)
 	setupC11yHandlers(api, appState.TelemetryLogger, appState.Contextionary)
 	setupGraphQLHandlers(api, appState.TelemetryLogger, appState)
-	setupMiscHandlers(api, appState.TelemetryLogger, appState.ServerConfig, appState.Network, schemaManager)
+	setupMiscHandlers(api, appState.TelemetryLogger, appState.ServerConfig, appState.Network, schemaManager, appState.Contextionary)
 
 	api.ServerShutdown = func() {}
 	configureServer = makeConfigureServer(appState)
