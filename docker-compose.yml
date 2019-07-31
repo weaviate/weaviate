@@ -115,7 +115,7 @@ services:
     volumes:
      - ./data/scylla/data:/var/lib/scylla
   index:
-    image: elasticsearch:5
+    image: docker.elastic.co/elasticsearch/elasticsearch:6.8.1
     ports:
      - "9200:9200"
      - "9300:9300"
