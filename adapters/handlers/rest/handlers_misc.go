@@ -42,6 +42,7 @@ type swaggerJSON struct {
 
 type c11yMetaProvider interface {
 	Version(ctx context.Context) (string, error)
+	WordCount(ctx context.Context) (int64, error)
 }
 
 func setupMiscHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog,
@@ -58,13 +59,18 @@ func setupMiscHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Reque
 		c11yVersion, err := c11y.Version(context.Background())
 		if err != nil {
 			return meta.NewMetaGetInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+		}
 
+		c11yWordCount, err := c11y.WordCount(context.Background())
+		if err != nil {
+			return meta.NewMetaGetInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 		}
 
 		res := &models.Meta{
-			Hostname:             serverConfig.GetHostAddress(),
-			Version:              swj.Info.Version,
-			ContextionaryVersion: c11yVersion,
+			Hostname:               serverConfig.GetHostAddress(),
+			Version:                swj.Info.Version,
+			ContextionaryVersion:   c11yVersion,
+			ContextionaryWordCount: c11yWordCount,
 		}
 
 		// Register the request
