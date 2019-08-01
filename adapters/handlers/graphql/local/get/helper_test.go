@@ -38,14 +38,14 @@ type mockResolver struct {
 
 func newMockResolver(peers peers.Peers) *mockResolver {
 	logger, _ := test.NewNullLogger()
-	field, err := Build(&test_helper.SimpleSchema, peers, logger)
+	api, err := Build(&test_helper.SimpleSchema, peers, logger)
 	if err != nil {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
 	}
 	mocker := &mockResolver{}
 	mockLog := &mockRequestsLog{}
 	mocker.RootFieldName = "Get"
-	mocker.RootField = field
+	mocker.RootField = api.Field
 	mocker.RootObject = map[string]interface{}{"Resolver": Resolver(mocker), "RequestsLog": RequestsLog(mockLog)}
 	return mocker
 }
