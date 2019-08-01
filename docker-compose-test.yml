@@ -101,8 +101,8 @@ services:
       ES_JAVA_OPTS: -Xms500m -Xmx500m
       xpack.security.enabled: "false"
       discovery.type: single-node
-    volumes:
-     - ./data/elasticsearch/data:/usr/share/elasticsearch/data
+    # volumes:
+    #  - ./data/elasticsearch/data:/usr/share/elasticsearch/data
   genesis: # an actual genesis - not used in the weaviate tests, but used to test the genesis itself
     build:
       context: .
