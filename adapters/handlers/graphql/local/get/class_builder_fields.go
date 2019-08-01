@@ -20,12 +20,10 @@ import (
 
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get/refclasses"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 
@@ -33,57 +31,7 @@ import (
 	"github.com/graphql-go/graphql/language/ast"
 )
 
-// Build a single class in Local -> Get -> (k kind.Kind) -> (models.Class)
-func buildGetClass(dbSchema *schema.Schema, k kind.Kind, class *models.Class,
-	knownClasses *map[string]*graphql.Object, knownRefClasses refclasses.ByNetworkClass,
-	beaconClass *graphql.Object, peers peers.Peers) (*graphql.Field, error) {
-	classObject := buildGetClassObject(k.Name(), class, dbSchema, knownClasses, knownRefClasses, beaconClass, peers)
-	(*knownClasses)[class.Class] = classObject
-	classField := buildGetClassField(classObject, k, class)
-	return &classField, nil
-}
-
-func buildGetClassObject(kindName string, class *models.Class, dbSchema *schema.Schema,
-	knownClasses *map[string]*graphql.Object, knownRefClasses refclasses.ByNetworkClass,
-	beaconClass *graphql.Object, peers peers.Peers) *graphql.Object {
-	return graphql.NewObject(graphql.ObjectConfig{
-		Name: class.Class,
-		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
-			classProperties := graphql.Fields{}
-
-			classProperties["uuid"] = &graphql.Field{
-				Description: descriptions.LocalGetClassUUID,
-				Type:        graphql.String,
-			}
-
-			for _, property := range class.Properties {
-				propertyType, err := dbSchema.FindPropertyDataType(property.DataType)
-				if err != nil {
-					// We can't return an error in this FieldsThunk function, so we need to panic
-					panic(fmt.Sprintf("buildGetClass: wrong propertyType for %s.%s.%s; %s",
-						kindName, class.Class, property.Name, err.Error()))
-				}
-
-				var field *graphql.Field
-				var fieldName string
-				if propertyType.IsPrimitive() {
-					fieldName = property.Name
-					field = buildPrimitiveField(propertyType, property, kindName, class.Class)
-				} else {
-					// uppercase key because it's a reference
-					fieldName = strings.Title(property.Name)
-					field = buildReferenceField(propertyType, property, kindName, class.Class, knownClasses, knownRefClasses, peers, beaconClass)
-				}
-				classProperties[fieldName] = field
-			}
-
-			return classProperties
-		}),
-		Description: class.Description,
-	})
-}
-
-func buildPrimitiveField(propertyType schema.PropertyDataType,
+func (b *classBuilder) primitiveField(propertyType schema.PropertyDataType,
 	property *models.Property, kindName, className string) *graphql.Field {
 	switch propertyType.AsPrimitive() {
 	case schema.DataTypeString:
@@ -93,7 +41,6 @@ func buildPrimitiveField(propertyType schema.PropertyDataType,
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return p.Source.(map[string]interface{})[p.Info.FieldName], nil
-
 			},
 		}
 	case schema.DataTypeText:
@@ -160,23 +107,6 @@ func newGeoCoordinatesObject(className string, propertyName string) *graphql.Obj
 	})
 }
 
-func resolveGeoCoordinates(p graphql.ResolveParams) (interface{}, error) {
-	field := p.Source.(map[string]interface{})[p.Info.FieldName]
-	if field == nil {
-		return nil, nil
-	}
-
-	geo, ok := field.(*models.GeoCoordinates)
-	if !ok {
-		return nil, fmt.Errorf("expected a *models.GeoCoordinates, but got: %T", field)
-	}
-
-	return map[string]interface{}{
-		"latitude":  geo.Latitude,
-		"longitude": geo.Longitude,
-	}, nil
-}
-
 func buildGetClassField(classObject *graphql.Object, k kind.Kind,
 	class *models.Class) graphql.Field {
 	kindName := strings.Title(k.Name())
@@ -193,6 +123,23 @@ func buildGetClassField(classObject *graphql.Object, k kind.Kind,
 		},
 		Resolve: makeResolveGetClass(k, class.Class),
 	}
+}
+
+func resolveGeoCoordinates(p graphql.ResolveParams) (interface{}, error) {
+	field := p.Source.(map[string]interface{})[p.Info.FieldName]
+	if field == nil {
+		return nil, nil
+	}
+
+	geo, ok := field.(*models.GeoCoordinates)
+	if !ok {
+		return nil, fmt.Errorf("expected a *models.GeoCoordinates, but got: %T", field)
+	}
+
+	return map[string]interface{}{
+		"latitude":  geo.Latitude,
+		"longitude": geo.Longitude,
+	}, nil
 }
 
 func whereArgument(kindName, className string) *graphql.ArgumentConfig {
