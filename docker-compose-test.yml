@@ -1,19 +1,11 @@
 version: '3.4'
 services:
-  # Activate to build a new build cache
-  # weaviate_build_cache:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile
-  #     target: build_base
-
   weaviate:
+    image: weaviate/test-server
     build:
       context: .
       dockerfile: Dockerfile
       target: weaviate
-      cache_from:
-        - semitechnologies/weaviatebuildcache:latest
     depends_on:
       - janus
       - genesis_fake
@@ -36,8 +28,6 @@ services:
       context: .
       dockerfile: Dockerfile
       target: genesis_fake
-      cache_from:
-        - semitechnologies/weaviatebuildcache:latest
     restart: on-failure:0
     ports:
       - "8090:8090"
@@ -51,8 +41,6 @@ services:
       context: .
       dockerfile: Dockerfile
       target: telemetry_mock_api
-      cache_from:
-        - semitechnologies/weaviatebuildcache:latest
     restart: on-failure:0
     ports:
       - "8087:8087"
@@ -61,8 +49,6 @@ services:
       context: .
       dockerfile: Dockerfile
       target: remote_weaviate_fake
-      cache_from:
-        - semitechnologies/weaviatebuildcache:latest
     restart: on-failure:0
     ports:
       - "8081:8081"
@@ -70,8 +56,6 @@ services:
     build:
       context: ./tools/remote_weaviate_fake_with_test_schema/
       dockerfile: Dockerfile
-      cache_from:
-        - semitechnologies/weaviatebuildcache:latest
     restart: on-failure:0
     ports:
       - "8082:8082"

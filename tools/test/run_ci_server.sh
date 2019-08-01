@@ -5,8 +5,7 @@ set -euo pipefail
 
 function main() {
   echo "Pull images..."
-  surpress_on_success docker pull golang:1.11-alpine 
-  surpress_on_success docker pull semitechnologies/weaviatebuildcache:latest
+  surpress_on_success docker pull golang:1.11-alpine
   echo "Build containers (this will take the longest)..."
   docker-compose -f docker-compose-test.yml build weaviate janus index db telemetry_mock_api \
     genesis_fake remote_weaviate_fake remote_weaviate_fakes_with_test_schema genesis
