@@ -124,7 +124,7 @@ func TestCanPatchActionsSetCref(t *testing.T) {
 		Op:   &op,
 		Path: &path,
 		Value: map[string]interface{}{
-			"$cref": fmt.Sprintf("weaviate://localhost/things/%s", thingToRefID),
+			"beacon": fmt.Sprintf("weaviate://localhost/things/%s", thingToRefID),
 		},
 	}
 
@@ -141,7 +141,7 @@ func TestCanPatchActionsSetCref(t *testing.T) {
 		rawCref := patchedAction.Schema.(map[string]interface{})["testReference"]
 		cref := rawCref.(map[string]interface{})
 
-		return cref["$cref"]
+		return cref["beacon"]
 	}
 	helper.AssertEventuallyEqual(t, fmt.Sprintf("weaviate://localhost/things/%s", thingToRefID), actualThunk)
 }

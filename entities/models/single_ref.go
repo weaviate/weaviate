@@ -31,14 +31,14 @@ type SingleRef struct {
 
 	// URI to point to the cross-ref. Should be in the form of weaviate://localhost/things/<uuid> for the example of a local cross-ref to a thing
 	// Format: uri
-	NrDollarCref strfmt.URI `json:"$cref,omitempty"`
+	Beacon strfmt.URI `json:"beacon,omitempty"`
 }
 
 // Validate validates this single ref
 func (m *SingleRef) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateNrDollarCref(formats); err != nil {
+	if err := m.validateBeacon(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -48,13 +48,13 @@ func (m *SingleRef) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *SingleRef) validateNrDollarCref(formats strfmt.Registry) error {
+func (m *SingleRef) validateBeacon(formats strfmt.Registry) error {
 
-	if swag.IsZero(m.NrDollarCref) { // not required
+	if swag.IsZero(m.Beacon) { // not required
 		return nil
 	}
 
-	if err := validate.FormatOf("$cref", "body", "uri", m.NrDollarCref.String(), formats); err != nil {
+	if err := validate.FormatOf("beacon", "body", "uri", m.Beacon.String(), formats); err != nil {
 		return err
 	}
 

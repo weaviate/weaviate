@@ -27,17 +27,17 @@ import (
 
 const (
 	// ErrorInvalidSingleRef message
-	ErrorInvalidSingleRef string = "class '%s' with property '%s' requires exactly 1 arguments: '$cref'. Check your input schema, got: %#v"
+	ErrorInvalidSingleRef string = "class '%s' with property '%s' requires exactly 1 arguments: 'beacon'. Check your input schema, got: %#v"
 	// ErrorMissingSingleRefCRef message
-	ErrorMissingSingleRefCRef string = "class '%s' with property '%s' requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. '$cref' is missing, check your input schema"
+	ErrorMissingSingleRefCRef string = "class '%s' with property '%s' requires exactly 3 arguments: 'beacon', 'locationUrl' and 'type'. 'beacon' is missing, check your input schema"
 	// ErrorCrefInvalidURI message
 	ErrorCrefInvalidURI string = "class '%s' with property '%s' is not a valid URI: %s"
 	// ErrorCrefInvalidURIPath message
 	ErrorCrefInvalidURIPath string = "class '%s' with property '%s' does not contain a valid path, must have 2 segments: /<kind>/<id>"
 	// ErrorMissingSingleRefLocationURL message
-	ErrorMissingSingleRefLocationURL string = "class '%s' with property '%s' requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. 'locationUrl' is missing, check your input schema"
+	ErrorMissingSingleRefLocationURL string = "class '%s' with property '%s' requires exactly 3 arguments: 'beacon', 'locationUrl' and 'type'. 'locationUrl' is missing, check your input schema"
 	// ErrorMissingSingleRefType message
-	ErrorMissingSingleRefType string = "class '%s' with property '%s' requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. 'type' is missing, check your input schema"
+	ErrorMissingSingleRefType string = "class '%s' with property '%s' requires exactly 3 arguments: 'beacon', 'locationUrl' and 'type'. 'type' is missing, check your input schema"
 )
 
 // ValidateSchemaInBody Validate the schema in the given body
@@ -335,8 +335,8 @@ func parseAndValidateSingleRef(ctx context.Context, dbConnector getRepo, network
 			propertyName,
 			pvcr,
 		)
-	} else if _, ok := pvcr["$cref"]; !ok {
-		// Give an error if the cref is not filled with correct properties ($cref)
+	} else if _, ok := pvcr["beacon"]; !ok {
+		// Give an error if the cref is not filled with correct properties (beacon)
 		return nil, fmt.Errorf(
 			ErrorMissingSingleRefCRef,
 			className,
@@ -344,7 +344,7 @@ func parseAndValidateSingleRef(ctx context.Context, dbConnector getRepo, network
 		)
 	}
 
-	ref, err := crossref.Parse(pvcr["$cref"].(string))
+	ref, err := crossref.Parse(pvcr["beacon"].(string))
 	if err != nil {
 		return nil, fmt.Errorf("invalid reference: %s", err)
 	}

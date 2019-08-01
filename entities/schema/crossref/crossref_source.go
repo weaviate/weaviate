@@ -106,6 +106,6 @@ func (r *RefSource) String() string {
 // // containing a stringified representation (URI format) of the Ref
 // func (r *Ref) SingleRef() *models.SingleRef {
 // 	return &models.SingleRef{
-// 		NrDollarCref: strfmt.URI(r.String()),
+// 		Beacon: strfmt.URI(r.String()),
 // 	}
 // }
