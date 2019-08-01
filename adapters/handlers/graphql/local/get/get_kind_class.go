@@ -36,8 +36,8 @@ import (
 // Build a single class in Local -> Get -> (k kind.Kind) -> (models.Class)
 func buildGetClass(dbSchema *schema.Schema, k kind.Kind, class *models.Class,
 	knownClasses *map[string]*graphql.Object, knownRefClasses refclasses.ByNetworkClass,
-	peers peers.Peers) (*graphql.Field, error) {
-	classObject := buildGetClassObject(k.Name(), class, dbSchema, knownClasses, knownRefClasses, peers)
+	beaconClass *graphql.Object, peers peers.Peers) (*graphql.Field, error) {
+	classObject := buildGetClassObject(k.Name(), class, dbSchema, knownClasses, knownRefClasses, beaconClass, peers)
 	(*knownClasses)[class.Class] = classObject
 	classField := buildGetClassField(classObject, k, class)
 	return &classField, nil
@@ -45,7 +45,7 @@ func buildGetClass(dbSchema *schema.Schema, k kind.Kind, class *models.Class,
 
 func buildGetClassObject(kindName string, class *models.Class, dbSchema *schema.Schema,
 	knownClasses *map[string]*graphql.Object, knownRefClasses refclasses.ByNetworkClass,
-	peers peers.Peers) *graphql.Object {
+	beaconClass *graphql.Object, peers peers.Peers) *graphql.Object {
 	return graphql.NewObject(graphql.ObjectConfig{
 		Name: class.Class,
 		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
@@ -72,7 +72,7 @@ func buildGetClassObject(kindName string, class *models.Class, dbSchema *schema.
 				} else {
 					// uppercase key because it's a reference
 					fieldName = strings.Title(property.Name)
-					field = buildReferenceField(propertyType, property, kindName, class.Class, knownClasses, knownRefClasses, peers)
+					field = buildReferenceField(propertyType, property, kindName, class.Class, knownClasses, knownRefClasses, peers, beaconClass)
 				}
 				classProperties[fieldName] = field
 			}
@@ -365,6 +365,10 @@ func extractInlineFragment(fragment *ast.InlineFragment, fragments map[string]as
 		if err != nil {
 			return result, fmt.Errorf("the inline fragment type name '%s' is not a valid class name", fragment.TypeCondition.Name.Value)
 		}
+	}
+
+	if className == "Beacon" {
+		return result, fmt.Errorf("retrieving cross-refs by beacon is not supported yet - coming soon!")
 	}
 
 	subProperties, err := extractProperties(fragment.SelectionSet, fragments)
