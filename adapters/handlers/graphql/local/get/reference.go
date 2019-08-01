@@ -41,7 +41,7 @@ type LocalRef struct {
 func buildReferenceField(propertyType schema.PropertyDataType,
 	property *models.Property, kindName, className string,
 	knownClasses *map[string]*graphql.Object, knownRefClasses refclasses.ByNetworkClass,
-	peers peers.Peers) *graphql.Field {
+	peers peers.Peers, beaconClass *graphql.Object) *graphql.Field {
 	refClasses := propertyType.Classes()
 	propertyName := strings.Title(property.Name)
 	dataTypeClasses := []*graphql.Object{}
@@ -79,6 +79,8 @@ func buildReferenceField(propertyType schema.PropertyDataType,
 		// union field with an empty list of unions.
 		return nil
 	}
+
+	dataTypeClasses = append(dataTypeClasses, beaconClass)
 
 	classUnion := graphql.NewUnion(graphql.UnionConfig{
 		Name:        fmt.Sprintf("%s%s%s", className, propertyName, "Obj"),

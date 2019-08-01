@@ -45,8 +45,18 @@ func Build(dbSchema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger
 		logger.WithField("action", "graphql_rebuild").WithError(err).Warning(msg)
 	}
 
+	beaconClass := graphql.NewObject(graphql.ObjectConfig{
+		Name: "Beacon",
+		Fields: graphql.Fields{
+			"beacon": &graphql.Field{
+				Type: graphql.String,
+			},
+		},
+	})
+
 	if len(dbSchema.Actions.Classes) > 0 {
-		localGetActions, err := buildGetClasses(dbSchema, kind.Action, dbSchema.Actions, &knownClasses, knownRefClasses, peers)
+		localGetActions, err := buildGetClasses(dbSchema, kind.Action, dbSchema.Actions,
+			&knownClasses, knownRefClasses, beaconClass, peers)
 		if err != nil {
 			return nil, err
 		}
@@ -63,7 +73,8 @@ func Build(dbSchema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger
 	}
 
 	if len(dbSchema.Things.Classes) > 0 {
-		localGetThings, err := buildGetClasses(dbSchema, kind.Thing, dbSchema.Things, &knownClasses, knownRefClasses, peers)
+		localGetThings, err := buildGetClasses(dbSchema, kind.Thing, dbSchema.Things,
+			&knownClasses, knownRefClasses, beaconClass, peers)
 		if err != nil {
 			return nil, err
 		}
@@ -98,12 +109,12 @@ func Build(dbSchema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger
 // Builds the classes below a Local -> Get -> (k kind.Kind)
 func buildGetClasses(dbSchema *schema.Schema, k kind.Kind, semanticSchema *models.Schema,
 	knownClasses *map[string]*graphql.Object, knownRefClasses refclasses.ByNetworkClass,
-	peers peers.Peers) (*graphql.Object, error) {
+	beaconClass *graphql.Object, peers peers.Peers) (*graphql.Object, error) {
 	classFields := graphql.Fields{}
 	kindName := strings.Title(k.Name())
 
 	for _, class := range semanticSchema.Classes {
-		classField, err := buildGetClass(dbSchema, k, class, knownClasses, knownRefClasses, peers)
+		classField, err := buildGetClass(dbSchema, k, class, knownClasses, knownRefClasses, beaconClass, peers)
 		if err != nil {
 			return nil, fmt.Errorf("Could not build class for %s", class.Class)
 		}

@@ -123,8 +123,6 @@ services:
       ES_JAVA_OPTS: -Xms500m -Xmx500m
       xpack.security.enabled: "false"
       discovery.type: single-node
-    volumes:
-     - ./data/elasticsearch/data:/usr/share/elasticsearch/data
   etcd:
     image: gcr.io/etcd-development/etcd:v3.3.8
     ports:
