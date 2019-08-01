@@ -10,7 +10,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package get
+package merge
 
 import (
 	"fmt"
@@ -23,22 +23,16 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type GetAPI struct {
-	Field       *graphql.Field
-	Classes     map[string]*graphql.Object
-	RefClasses  refclasses.ByNetworkClass
-	BeaconClass *graphql.Object
-}
-
-// Build the Local.Get part of the graphql tree
-func Build(schema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger) (*GetAPI, error) {
-	getKinds := graphql.Fields{}
+// Build the Local.Merge part of the graphql tree
+func Build(schema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger,
+	classes map[string]*graphql.Object, refClasses refclasses.ByNetworkClass, beaconClass *graphql.Object) (*graphql.Field, error) {
+	mergeKinds := graphql.Fields{}
 
 	if len(schema.Actions.Classes) == 0 && len(schema.Things.Classes) == 0 {
 		return nil, fmt.Errorf("there are no Actions or Things classes defined yet")
 	}
 
-	cb := newClassBuilder(schema, peers, logger)
+	cb := newClassBuilder(schema, peers, logger, classes, refClasses, beaconClass)
 
 	if len(schema.Actions.Classes) > 0 {
 		actions, err := cb.actions()
@@ -46,9 +40,9 @@ func Build(schema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger) 
 			return nil, err
 		}
 
-		getKinds["Actions"] = &graphql.Field{
-			Name:        "WeaviateLocalGetActions",
-			Description: descriptions.LocalGetActions,
+		mergeKinds["Actions"] = &graphql.Field{
+			Name:        "WeaviateLocalMergeActions",
+			Description: descriptions.LocalMergeActions,
 			Type:        actions,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				// Does nothing; pass through the filters
@@ -63,9 +57,9 @@ func Build(schema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger) 
 			return nil, err
 		}
 
-		getKinds["Things"] = &graphql.Field{
-			Name:        "WeaviateLocalGetThings",
-			Description: descriptions.LocalGetThings,
+		mergeKinds["Things"] = &graphql.Field{
+			Name:        "WeaviateLocalMergeThings",
+			Description: descriptions.LocalMergeThings,
 			Type:        things,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				// Does nothing; pass through the filters
@@ -75,22 +69,17 @@ func Build(schema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger) 
 	}
 
 	field := graphql.Field{
-		Name:        "WeaviateLocalGet",
-		Description: descriptions.LocalGet,
+		Name:        "WeaviateLocalMerge",
+		Description: descriptions.LocalMerge,
 		Type: graphql.NewObject(graphql.ObjectConfig{
-			Name:        "WeaviateLocalGetObj",
-			Fields:      getKinds,
-			Description: descriptions.LocalGetObj,
+			Name:        "WeaviateLocalMergeObj",
+			Fields:      mergeKinds,
+			Description: descriptions.LocalMergeObj,
 		}),
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			return p.Source, nil
 		},
 	}
 
-	return &GetAPI{
-		Field:       &field,
-		Classes:     cb.knownClasses,
-		RefClasses:  cb.knownRefClasses,
-		BeaconClass: cb.beaconClass,
-	}, nil
+	return &field, nil
 }

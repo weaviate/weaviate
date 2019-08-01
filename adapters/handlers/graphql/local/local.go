@@ -18,6 +18,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/explore"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/getmeta"
+	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/merge"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
@@ -27,22 +28,31 @@ import (
 // Build the local queries from the database schema.
 func Build(dbSchema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger,
 	config config.Config) (graphql.Fields, error) {
-	getField, err := get.Build(dbSchema, peers, logger)
+	getAPI, err := get.Build(dbSchema, peers, logger)
 	if err != nil {
 		return nil, err
 	}
+
+	mergeField, err := merge.Build(dbSchema, peers, logger, getAPI.Classes, getAPI.RefClasses, getAPI.BeaconClass)
+	if err != nil {
+		return nil, err
+	}
+
 	getMetaField, err := getmeta.Build(dbSchema, config)
 	if err != nil {
 		return nil, err
 	}
+
 	aggregateField, err := aggregate.Build(dbSchema, config)
 	if err != nil {
 		return nil, err
+
 	}
 	exploreField := explore.Build()
 
 	localFields := graphql.Fields{
-		"Get":       getField,
+		"Get":       getAPI.Field,
+		"Merge":     mergeField,
 		"Meta":      getMetaField,
 		"Aggregate": aggregateField,
 		"Explore":   exploreField,
