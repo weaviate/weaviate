@@ -118,7 +118,7 @@ func (u *referenceSchemaUpdater) updateSchema(remoteKind interface{}, peerName s
 				remoteClass, u.fromClass, propName, err)
 		}
 	default:
-		return fmt.Errorf("unrecognized kind from remote peer for %s from %s", prop.NrDollarCref, peerName)
+		return fmt.Errorf("unrecognized kind from remote peer for %s from %s", prop.Beacon, peerName)
 	}
 
 	return nil

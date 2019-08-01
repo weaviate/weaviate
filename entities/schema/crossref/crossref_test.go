@@ -135,7 +135,7 @@ func Test_ParsingFromSingleRef(t *testing.T) {
 	t.Run("from a local thing ref that is well-formed", func(t *testing.T) {
 		uri := strfmt.URI("weaviate://localhost/things/c2cd3f91-0160-477e-869a-8da8829e0a4d")
 		singleRef := &models.SingleRef{
-			NrDollarCref: uri,
+			Beacon: uri,
 		}
 		ref, err := ParseSingleRef(singleRef)
 
@@ -171,7 +171,7 @@ func Test_SingleRef(t *testing.T) {
 	uri := "weaviate://localhost/things/c2cd3f91-0160-477e-869a-8da8829e0a4d"
 	ref, err := Parse(uri)
 	expectedResult := &models.SingleRef{
-		NrDollarCref: strfmt.URI(uri),
+		Beacon: strfmt.URI(uri),
 	}
 
 	require.Nil(t, err, "should not error")

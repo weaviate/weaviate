@@ -197,7 +197,7 @@ func fixupThings() {
 				Op:   &op,
 				Path: &path,
 				Value: map[string]interface{}{
-					"$cref": fmt.Sprintf("weaviate://localhost/things/%s", idMap[fixup.toId]),
+					"beacon": fmt.Sprintf("weaviate://localhost/things/%s", idMap[fixup.toId]),
 				},
 			}
 		} else {
@@ -206,7 +206,7 @@ func fixupThings() {
 				Op:   &op,
 				Path: &path,
 				Value: map[string]interface{}{
-					"$cref": fmt.Sprintf("weaviate://%s/things/%s", fixup.location, fixup.toId),
+					"beacon": fmt.Sprintf("weaviate://%s/things/%s", fixup.location, fixup.toId),
 				},
 			}
 		}
@@ -239,11 +239,11 @@ func fixupThings() {
 				}
 
 				patch.Value = append(patch.Value.([]map[string]interface{}), map[string]interface{}{
-					"$cref": fmt.Sprintf("weaviate://localhost/things/%s", idMap[fixup.toId]),
+					"beacon": fmt.Sprintf("weaviate://localhost/things/%s", idMap[fixup.toId]),
 				})
 			} else {
 				patch.Value = append(patch.Value.([]map[string]interface{}), map[string]interface{}{
-					"$cref": fmt.Sprintf("weaviate://%s/things/%s", fixup.location, fixup.toId),
+					"beacon": fmt.Sprintf("weaviate://%s/things/%s", fixup.location, fixup.toId),
 				})
 			}
 		}

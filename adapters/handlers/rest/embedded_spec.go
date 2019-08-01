@@ -2952,7 +2952,7 @@ func init() {
           ]
         },
         "dataType": {
-          "description": "Can be a reference ($cref) to another type when it starts with a capital (for example Person), otherwise \"string\" or \"int\".",
+          "description": "Can be a reference to another type when it starts with a capital (for example Person), otherwise \"string\" or \"int\".",
           "type": "array",
           "items": {
             "type": "string"
@@ -3011,7 +3011,7 @@ func init() {
     },
     "SingleRef": {
       "properties": {
-        "$cref": {
+        "beacon": {
           "description": "URI to point to the cross-ref. Should be in the form of weaviate://localhost/things/\u003cuuid\u003e for the example of a local cross-ref to a thing",
           "type": "string",
           "format": "uri"
@@ -6081,7 +6081,7 @@ func init() {
           ]
         },
         "dataType": {
-          "description": "Can be a reference ($cref) to another type when it starts with a capital (for example Person), otherwise \"string\" or \"int\".",
+          "description": "Can be a reference to another type when it starts with a capital (for example Person), otherwise \"string\" or \"int\".",
           "type": "array",
           "items": {
             "type": "string"
@@ -6140,7 +6140,7 @@ func init() {
     },
     "SingleRef": {
       "properties": {
-        "$cref": {
+        "beacon": {
           "description": "URI to point to the cross-ref. Should be in the form of weaviate://localhost/things/\u003cuuid\u003e for the example of a local cross-ref to a thing",
           "type": "string",
           "format": "uri"

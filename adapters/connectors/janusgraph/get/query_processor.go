@@ -214,9 +214,9 @@ func (p *Processor) processEdgeAndVertexObjects(o []interface{}, className schem
 }
 
 func (p *Processor) refTypeFromEdge(edgeMap map[string]interface{}) (*crossref.Ref, error) {
-	uuid, ok := edgeMap["$cref"]
+	uuid, ok := edgeMap["beacon"]
 	if !ok {
-		return nil, fmt.Errorf("expected edge object to be have key '$cref', but got %#v", edgeMap)
+		return nil, fmt.Errorf("expected edge object to be have key 'beacon', but got %#v", edgeMap)
 	}
 
 	location, ok := edgeMap["locationUrl"]

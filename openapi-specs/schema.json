@@ -470,7 +470,7 @@
     "Property": {
       "properties": {
         "dataType": {
-          "description": "Can be a reference ($cref) to another type when it starts with a capital (for example Person), otherwise \"string\" or \"int\".",
+          "description": "Can be a reference to another type when it starts with a capital (for example Person), otherwise \"string\" or \"int\".",
           "items": {
             "type": "string"
           },
@@ -498,7 +498,7 @@
     },
     "SingleRef": {
       "properties": {
-        "$cref": {
+        "beacon": {
           "description": "URI to point to the cross-ref. Should be in the form of weaviate://localhost/things/<uuid> for the example of a local cross-ref to a thing",
           "format": "uri",
           "type": "string"

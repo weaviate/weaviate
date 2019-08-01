@@ -332,7 +332,7 @@ $ curl http://localhost:8080/v1/things/{uuid} -H "Content-Type: application/json
 
 > Weaviate supports [RFC 6902](https://tools.ietf.org/html/rfc6902) patching ([learn](http://jsonpatch.com/)).
 
-Example where a `$cref` is added to the `inZoo` property:
+Example where a `beacon` is added to the `inZoo` property:
 
 ```bash
 $ curl PATCH http://localhost:8080/v1/actions/c354ba34-432e-4e51-97ef-f33e39f39e55 -H "Content-Type: application/json" -d '[
@@ -340,7 +340,7 @@ $ curl PATCH http://localhost:8080/v1/actions/c354ba34-432e-4e51-97ef-f33e39f39e
     "op": "add",
     "path": "/schema/inZoo",
     "value": {
-      "$cref": "weaviate://localhost/things/52eeba34-f562-4211-96b2-ea24d112b3d1"
+      "beacon": "weaviate://localhost/things/52eeba34-f562-4211-96b2-ea24d112b3d1"
     }
   }
 ]'
@@ -360,11 +360,11 @@ $ curl -X DELETE http://localhost:8080/v1/things/{uuid}
 
 (<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/things/weaviate.things.properties.create" target="_blank">Definition on Swaggerhub</a>)
 
-Add a single reference to a class-property when cardinality is set to 'hasMany'. You can learn more about Weaviate `$cref` definitions [here](ontology-schema.md#crossref-data-type).
+Add a single reference to a class-property when cardinality is set to 'hasMany'. You can learn more about Weaviate `beacon` definitions [here](ontology-schema.md#crossref-data-type).
 
 ```bash
 $ curl -X POST http://localhost:8080/v1/things/{uuid}/properties/{propertyName} -H "Content-Type: application/json" -d '{
-    "$cref": "weaviate://localhost/things/82f91e01-37b4-431c-98d1-43ebb48bca0f"
+    "beacon": "weaviate://localhost/things/82f91e01-37b4-431c-98d1-43ebb48bca0f"
 }'
 ```
 
@@ -372,12 +372,12 @@ $ curl -X POST http://localhost:8080/v1/things/{uuid}/properties/{propertyName} 
 
 (<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/things/weaviate.things.properties.update" target="_blank">Definition on Swaggerhub</a>)
 
-Add an array of references to a class-property when cardinality is set to 'hasMany'. You can learn more about Weaviate `$cref` definitions [here](ontology-schema.md#crossref-data-type).
+Add an array of references to a class-property when cardinality is set to 'hasMany'. You can learn more about Weaviate `beacon` definitions [here](ontology-schema.md#crossref-data-type).
 
 ```bash
 $ curl -X PUT http://localhost:8080/v1/things/{uuid}/properties/{propertyName} -H "Content-Type: application/json" -d '[
   {
-    "$cref": "weaviate://localhost/things/82f91e01-37b4-431c-98d1-43ebb48bca0f"
+    "beacon": "weaviate://localhost/things/82f91e01-37b4-431c-98d1-43ebb48bca0f"
   }
 ]'
 ```
@@ -388,7 +388,7 @@ $ curl -X PUT http://localhost:8080/v1/things/{uuid}/properties/{propertyName} -
 
 ```bash
 $ curl -X DELETE http://localhost:8080/v1/things/{uuid}/properties/{propertyName} -H "Content-Type: application/json" -d '{
-    "$cref": "weaviate://localhost/things/82f91e01-37b4-431c-98d1-43ebb48bca0f"
+    "beacon": "weaviate://localhost/things/82f91e01-37b4-431c-98d1-43ebb48bca0f"
 }'
 ```
 
@@ -460,7 +460,7 @@ $ curl http://localhost:8080/v1/actions/{uuid} -H "Content-Type: application/jso
 
 > Weaviate supports [RFC 6902](https://tools.ietf.org/html/rfc6902) patching ([learn](http://jsonpatch.com/)).
 
-Example where a `$cref` is added to the `inZoo` property:
+Example where a `beacon` is added to the `inZoo` property:
 
 ```bash
 $ curl PATCH http://localhost:8080/v1/actions/c354ba34-432e-4e51-97ef-f33e39f39e55 -H "Content-Type: application/json" -d '[
@@ -468,7 +468,7 @@ $ curl PATCH http://localhost:8080/v1/actions/c354ba34-432e-4e51-97ef-f33e39f39e
     "op": "add",
     "path": "/schema/inZoo",
     "value": {
-      "$cref": "weaviate://localhost/actions/52eeba34-f562-4211-96b2-ea24d112b3d1"
+      "beacon": "weaviate://localhost/actions/52eeba34-f562-4211-96b2-ea24d112b3d1"
     }
   }
 ]'
@@ -488,11 +488,11 @@ $ curl -X DELETE http://localhost:8080/v1/actions/{uuid}
 
 (<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/actions/weaviate.actions.properties.create" target="_blank">Definition on Swaggerhub</a>)
 
-Add a single reference to a class-property when cardinality is set to 'hasMany'. You can learn more about Weaviate `$cref` definitions [here](ontology-schema.md#crossref-data-type).
+Add a single reference to a class-property when cardinality is set to 'hasMany'. You can learn more about Weaviate `beacon` definitions [here](ontology-schema.md#crossref-data-type).
 
 ```bash
 $ curl -X POST http://localhost:8080/v1/actions/{uuid}/properties/{propertyName} -H "Content-Type: application/json" -d '{
-    "$cref": "weaviate://localhost/actions/82f91e01-37b4-431c-98d1-43ebb48bca0f"
+    "beacon": "weaviate://localhost/actions/82f91e01-37b4-431c-98d1-43ebb48bca0f"
 }'
 ```
 
@@ -500,12 +500,12 @@ $ curl -X POST http://localhost:8080/v1/actions/{uuid}/properties/{propertyName}
 
 (<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.70#/actions/weaviate.actions.properties.update" target="_blank">Definition on Swaggerhub</a>)
 
-Add an array of references to a class-property when cardinality is set to 'hasMany'. You can learn more about Weaviate `$cref` definitions [here](ontology-schema.md#crossref-data-type).
+Add an array of references to a class-property when cardinality is set to 'hasMany'. You can learn more about Weaviate `beacon` definitions [here](ontology-schema.md#crossref-data-type).
 
 ```bash
 $ curl -X PUT http://localhost:8080/v1/actions/{uuid}/properties/{propertyName} -H "Content-Type: application/json" -d '[
   {
-    "$cref": "weaviate://localhost/actions/82f91e01-37b4-431c-98d1-43ebb48bca0f"
+    "beacon": "weaviate://localhost/actions/82f91e01-37b4-431c-98d1-43ebb48bca0f"
   }
 ]'
 ```
@@ -516,7 +516,7 @@ $ curl -X PUT http://localhost:8080/v1/actions/{uuid}/properties/{propertyName} 
 
 ```bash
 $ curl -X DELETE http://localhost:8080/v1/actions/{uuid}/properties/{propertyName} -H "Content-Type: application/json" -d '{
-    "$cref": "weaviate://localhost/actions/82f91e01-37b4-431c-98d1-43ebb48bca0f"
+    "beacon": "weaviate://localhost/actions/82f91e01-37b4-431c-98d1-43ebb48bca0f"
 }'
 ```
 

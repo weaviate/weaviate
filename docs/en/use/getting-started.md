@@ -283,7 +283,7 @@ $ curl -X POST http://localhost:8080/v1/things -H "Content-Type: application/jso
     "schema": {
         "name": "Artis",
         "inCity": {
-            "$cref": "weaviate://localhost/things/6406759e-f6fb-47ba-a537-1a62728d2f55"
+            "beacon": "weaviate://localhost/things/6406759e-f6fb-47ba-a537-1a62728d2f55"
         }
     }
 }'
@@ -296,7 +296,7 @@ Which results in:
     "class": "Zoo",
     "schema": {
         "inCity": {
-            "$cref": "weaviate://localhost/things/6406759e-f6fb-47ba-a537-1a62728d2f55"
+            "beacon": "weaviate://localhost/things/6406759e-f6fb-47ba-a537-1a62728d2f55"
         },
         "name": "Artis"
     },
@@ -315,7 +315,7 @@ $ curl -X POST http://localhost:8080/v1/things -H "Content-Type: application/jso
     "schema": {
         "name": "The Berlin Zoological Garden",
         "inCity": {
-            "$cref": "weaviate://localhost/things/f15ba7e7-0635-4009-828b-7a631cd6840e"
+            "beacon": "weaviate://localhost/things/f15ba7e7-0635-4009-828b-7a631cd6840e"
         }
     }
 }'
@@ -328,7 +328,7 @@ Which results in:
     "class": "Zoo",
     "schema": {
         "inCity": {
-            "$cref": "weaviate://localhost/things/f15ba7e7-0635-4009-828b-7a631cd6840e"
+            "beacon": "weaviate://localhost/things/f15ba7e7-0635-4009-828b-7a631cd6840e"
         },
         "name": "The Berlin Zoological Garden"
     },
@@ -422,7 +422,7 @@ We can now add Alphonso and Bert to the Amsterdam `Zoo`.
 
 ```bash
 $ curl -X POST http://localhost:8080/v1/things/3c6ac167-d7e5-4479-a726-8341b9113e40/properties/hasAnimals -H "Content-Type: application/json" -d '{
-  "$cref": "weaviate://localhost/things/ac19c17b-63df-4d6f-9015-9086bb3466c4", # UUID of Alphonso
+  "beacon": "weaviate://localhost/things/ac19c17b-63df-4d6f-9015-9086bb3466c4", # UUID of Alphonso
   "locationUrl": "localhost",
   "type": "Thing"
 }'
@@ -430,7 +430,7 @@ $ curl -X POST http://localhost:8080/v1/things/3c6ac167-d7e5-4479-a726-8341b9113
 
 ```bash
 $ curl -X POST http://localhost:8080/v1/things/3c6ac167-d7e5-4479-a726-8341b9113e40/properties/hasAnimals -H "Content-Type: application/json" -d '{
-  "$cref": "weaviate://localhost/things/82f91e01-37b4-431c-98d1-43ebb48bca0f", # UUID of Bert
+  "beacon": "weaviate://localhost/things/82f91e01-37b4-431c-98d1-43ebb48bca0f", # UUID of Bert
   "locationUrl": "localhost",
   "type": "Thing"
 }'

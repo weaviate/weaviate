@@ -140,7 +140,7 @@ func fixupActions() {
 			Op:   &op,
 			Path: &path,
 			Value: map[string]interface{}{
-				"$cref": fmt.Sprintf("weaviate://localhost/things/%s", idMap[fixup.toId]),
+				"beacon": fmt.Sprintf("weaviate://localhost/things/%s", idMap[fixup.toId]),
 			},
 		}
 

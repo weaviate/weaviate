@@ -216,14 +216,14 @@ var invalidThingTestCases = []struct {
 
 		   for key, val := range(propertyValue) {
 		     switch key {
-		       case "$cref": cref = val
+		       case "beacon": cref = val
 		       case "type": type_ = val
 		       case "locationUrl": locationUrl = val
 		       default:
 		         return fmt.Errof("Unexpected key %s", key)
 		     }
 		   }
-		   if cref == nil { return fmt.Errorf("$cref missing") }
+		   if cref == nil { return fmt.Errorf("beacon missing") }
 		   if type_ == nil { return fmt.Errorf("type missing") }
 		   if locationUrl == nil { return fmt.Errorf("locationUrl missing") }
 
@@ -235,9 +235,9 @@ var invalidThingTestCases = []struct {
 				Class: "TestThing",
 				Schema: map[string]interface{}{
 					"testReference": map[string]interface{}{
-						"$cref": fakeThingId,
-						"x":     nil,
-						"type":  "Thing",
+						"beacon": fakeThingId,
+						"x":      nil,
+						"type":   "Thing",
 					},
 				},
 			}

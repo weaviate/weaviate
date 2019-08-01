@@ -28,7 +28,7 @@ func TestCanAddSingleNetworkRef(t *testing.T) {
 	networkRefID := "711da979-4b0b-41e2-bcb8-fcc03554c7c8"
 	actionID := assertCreateAction(t, "TestAction", map[string]interface{}{
 		"testReference": map[string]interface{}{
-			"$cref": strfmt.UUID(fmt.Sprintf("weaviate://RemoteWeaviateForAcceptanceTest/things/%s", networkRefID)),
+			"beacon": strfmt.UUID(fmt.Sprintf("weaviate://RemoteWeaviateForAcceptanceTest/things/%s", networkRefID)),
 		},
 	})
 	assertGetActionEventually(t, actionID)
@@ -39,7 +39,7 @@ func TestCanAddSingleNetworkRef(t *testing.T) {
 		require.NotNil(t, rawCref, "cross-ref is present")
 		cref := rawCref.(map[string]interface{})
 		assert.Equal(t,
-			fmt.Sprintf("weaviate://RemoteWeaviateForAcceptanceTest/things/%s", networkRefID), cref["$cref"])
+			fmt.Sprintf("weaviate://RemoteWeaviateForAcceptanceTest/things/%s", networkRefID), cref["beacon"])
 	})
 
 	t.Run("an implicit schema update has happened, we now include the network ref's class", func(t *testing.T) {
@@ -66,7 +66,7 @@ func TestCanPatchSingleNetworkRef(t *testing.T) {
 		Op:   &op,
 		Path: &path,
 		Value: map[string]interface{}{
-			"$cref": strfmt.UUID(fmt.Sprintf("weaviate://RemoteWeaviateForAcceptanceTest/things/%s", networkRefID)),
+			"beacon": strfmt.UUID(fmt.Sprintf("weaviate://RemoteWeaviateForAcceptanceTest/things/%s", networkRefID)),
 		},
 	}
 
@@ -83,7 +83,7 @@ func TestCanPatchSingleNetworkRef(t *testing.T) {
 		rawCref := patchedAction.Schema.(map[string]interface{})["testReference"]
 		require.NotNil(t, rawCref, "cross-ref is present")
 		cref := rawCref.(map[string]interface{})
-		assert.Equal(t, fmt.Sprintf("weaviate://RemoteWeaviateForAcceptanceTest/things/%s", networkRefID), cref["$cref"])
+		assert.Equal(t, fmt.Sprintf("weaviate://RemoteWeaviateForAcceptanceTest/things/%s", networkRefID), cref["beacon"])
 	})
 
 	t.Run("an implicit schema update has happened, we now include the network ref's class", func(t *testing.T) {

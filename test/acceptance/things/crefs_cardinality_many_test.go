@@ -100,7 +100,7 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 				Path: &path,
 				Value: []interface{}{
 					map[string]interface{}{
-						"$cref": fmt.Sprintf("weaviate://localhost/things/%s", place1ID.String()),
+						"beacon": fmt.Sprintf("weaviate://localhost/things/%s", place1ID.String()),
 					},
 				},
 			},
@@ -116,7 +116,7 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 		"name": "My City",
 		"hasPlaces": []interface{}{
 			map[string]interface{}{
-				"$cref": fmt.Sprintf("weaviate://localhost/things/%s", place1ID.String()),
+				"beacon": fmt.Sprintf("weaviate://localhost/things/%s", place1ID.String()),
 			},
 		},
 	}, cityAfterFirstPatch.Schema)
@@ -131,7 +131,7 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 				Op:   &add,
 				Path: &path,
 				Value: map[string]interface{}{
-					"$cref": fmt.Sprintf("weaviate://localhost/things/%s", place2ID.String()),
+					"beacon": fmt.Sprintf("weaviate://localhost/things/%s", place2ID.String()),
 				},
 			},
 		})
@@ -145,10 +145,10 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 	refs := cityAfterSecondPatch.Schema.(map[string]interface{})["hasPlaces"].([]interface{})
 	expectedRefs := []interface{}{
 		map[string]interface{}{
-			"$cref": fmt.Sprintf("weaviate://localhost/things/%s", place1ID.String()),
+			"beacon": fmt.Sprintf("weaviate://localhost/things/%s", place1ID.String()),
 		},
 		map[string]interface{}{
-			"$cref": fmt.Sprintf("weaviate://localhost/things/%s", place2ID.String()),
+			"beacon": fmt.Sprintf("weaviate://localhost/things/%s", place2ID.String()),
 		},
 	}
 
@@ -227,7 +227,7 @@ func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 		WithID(cityID).
 		WithPropertyName("hasPlaces").
 		WithBody(&models.SingleRef{
-			NrDollarCref: strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", place1ID.String())),
+			Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", place1ID.String())),
 		})
 	postRefResponse, err := helper.Client(t).Things.ThingsReferencesCreate(postRefParams, nil)
 	helper.AssertRequestOk(t, postRefResponse, err, nil)
@@ -240,7 +240,7 @@ func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 		"name": "My City",
 		"hasPlaces": []interface{}{
 			map[string]interface{}{
-				"$cref": fmt.Sprintf("weaviate://localhost/things/%s", place1ID.String()),
+				"beacon": fmt.Sprintf("weaviate://localhost/things/%s", place1ID.String()),
 			},
 		},
 	}, cityAfterFirstPatch.Schema)
@@ -250,7 +250,7 @@ func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 		WithID(cityID).
 		WithPropertyName("hasPlaces").
 		WithBody(&models.SingleRef{
-			NrDollarCref: strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", place2ID.String())),
+			Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", place2ID.String())),
 		})
 	postRefResponse, err = helper.Client(t).Things.ThingsReferencesCreate(postRefParams, nil)
 	helper.AssertRequestOk(t, postRefResponse, err, nil)
@@ -262,10 +262,10 @@ func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 	refs := cityAfterSecondPatch.Schema.(map[string]interface{})["hasPlaces"].([]interface{})
 	expectedRefs := []interface{}{
 		map[string]interface{}{
-			"$cref": fmt.Sprintf("weaviate://localhost/things/%s", place1ID.String()),
+			"beacon": fmt.Sprintf("weaviate://localhost/things/%s", place1ID.String()),
 		},
 		map[string]interface{}{
-			"$cref": fmt.Sprintf("weaviate://localhost/things/%s", place2ID.String()),
+			"beacon": fmt.Sprintf("weaviate://localhost/things/%s", place2ID.String()),
 		},
 	}
 
