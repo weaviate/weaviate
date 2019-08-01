@@ -93,12 +93,14 @@ services:
     volumes:
      - ./data/scylla/data:/var/lib/scylla
   index:
-    image: docker.elastic.co/elasticsearch/elasticsearch:6.8.1
+    image: docker.elastic.co/elasticsearch/elasticsearch:6.4.2
     ports:
      - "9200:9200"
      - "9300:9300"
     environment:
-     - ES_JAVA_OPTS=-Xms500m -Xmx500m
+      ES_JAVA_OPTS: -Xms500m -Xmx500m
+      xpack.security.enabled: "false"
+      discovery.type: single-node
     volumes:
      - ./data/elasticsearch/data:/usr/share/elasticsearch/data
   genesis: # an actual genesis - not used in the weaviate tests, but used to test the genesis itself
