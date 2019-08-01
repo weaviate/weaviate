@@ -38,10 +38,8 @@ type LocalRef struct {
 	Fields map[string]interface{}
 }
 
-func buildReferenceField(propertyType schema.PropertyDataType,
-	property *models.Property, kindName, className string,
-	knownClasses *map[string]*graphql.Object, knownRefClasses refclasses.ByNetworkClass,
-	peers peers.Peers, beaconClass *graphql.Object) *graphql.Field {
+func (b *classBuilder) referenceField(propertyType schema.PropertyDataType,
+	property *models.Property, kindName, className string) *graphql.Field {
 	refClasses := propertyType.Classes()
 	propertyName := strings.Title(property.Name)
 	dataTypeClasses := []*graphql.Object{}
@@ -49,7 +47,7 @@ func buildReferenceField(propertyType schema.PropertyDataType,
 	for _, refClassName := range refClasses {
 		if desiredRefClass, err := crossrefs.ParseClass(string(refClassName)); err == nil {
 			// is a network ref
-			refClass, ok := knownRefClasses[desiredRefClass]
+			refClass, ok := b.knownRefClasses[desiredRefClass]
 			if !ok {
 				// we seem to have referenced a network class that doesn't exist
 				// (anymore). This is unfortunate, but there are many good reasons for
@@ -62,7 +60,7 @@ func buildReferenceField(propertyType schema.PropertyDataType,
 			dataTypeClasses = append(dataTypeClasses, refClass)
 		} else {
 			// is a local ref
-			refClass, ok := (*knownClasses)[string(refClassName)]
+			refClass, ok := b.knownClasses[string(refClassName)]
 			if !ok {
 				panic(fmt.Sprintf("buildGetClass: unknown referenced class type for %s.%s.%s; %s",
 					kindName, className, property.Name, refClassName))
@@ -80,19 +78,19 @@ func buildReferenceField(propertyType schema.PropertyDataType,
 		return nil
 	}
 
-	dataTypeClasses = append(dataTypeClasses, beaconClass)
+	dataTypeClasses = append(dataTypeClasses, b.beaconClass)
 
 	classUnion := graphql.NewUnion(graphql.UnionConfig{
 		Name:        fmt.Sprintf("%s%s%s", className, propertyName, "Obj"),
 		Types:       dataTypeClasses,
-		ResolveType: makeResolveClassUnionType(knownClasses, knownRefClasses),
+		ResolveType: makeResolveClassUnionType(&b.knownClasses, b.knownRefClasses),
 		Description: property.Description,
 	})
 
 	return &graphql.Field{
 		Type:        graphql.NewList(classUnion),
 		Description: property.Description,
-		Resolve:     makeResolveRefField(peers),
+		Resolve:     makeResolveRefField(b.peers),
 	}
 }
 
@@ -175,6 +173,7 @@ func makeResolveRefField(peers peers.Peers) graphql.FieldResolveFn {
 		return results, nil
 	}
 }
+
 func extractSchemaFromKind(v NetworkRef, result interface{}) (map[string]interface{}, error) {
 	switch v.Kind {
 	case kind.Thing:
