@@ -32,12 +32,12 @@ var (
 func init() {
 	SwaggerJSON = json.RawMessage([]byte(`{
   "consumes": [
-    "application/yaml",
-    "application/json"
+    "application/json",
+    "application/yaml"
   ],
   "produces": [
-    "application/yaml",
-    "application/json"
+    "application/json",
+    "application/yaml"
   ],
   "schemes": [
     "https"
@@ -3147,12 +3147,12 @@ func init() {
 }`))
 	FlatSwaggerJSON = json.RawMessage([]byte(`{
   "consumes": [
-    "application/yaml",
-    "application/json"
+    "application/json",
+    "application/yaml"
   ],
   "produces": [
-    "application/yaml",
-    "application/json"
+    "application/json",
+    "application/yaml"
   ],
   "schemes": [
     "https"
