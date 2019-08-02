@@ -147,8 +147,8 @@ func whereArgument(kindName, className string) *graphql.ArgumentConfig {
 		Description: descriptions.LocalGetWhere,
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{
-				Name:        fmt.Sprintf("WeaviateLocalGet%ss%sWhereInpObj", kindName, className),
-				Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateLocalGet%ss%s", kindName, className)),
+				Name:        fmt.Sprintf("Get%ss%sWhereInpObj", kindName, className),
+				Fields:      common_filters.BuildNew(fmt.Sprintf("Get%ss%s", kindName, className)),
 				Description: descriptions.LocalGetWhereInpObj,
 			},
 		),

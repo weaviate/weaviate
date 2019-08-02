@@ -59,7 +59,7 @@ func (b *classBuilder) kinds(k kind.Kind, kindSchema *models.Schema) (*graphql.O
 	}
 
 	classes := graphql.NewObject(graphql.ObjectConfig{
-		Name:        fmt.Sprintf("WeaviateLocalMerge%ssObj", kindName),
+		Name:        fmt.Sprintf("Merge%ssObj", kindName),
 		Fields:      classFields,
 		Description: fmt.Sprintf(descriptions.LocalMergeThingsActionsObj, kindName),
 	})

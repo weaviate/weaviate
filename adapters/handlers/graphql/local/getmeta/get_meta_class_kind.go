@@ -55,7 +55,7 @@ func classFields(databaseSchema []*models.Class, k kind.Kind,
 	}
 
 	return graphql.NewObject(graphql.ObjectConfig{
-		Name:        fmt.Sprintf("WeaviateLocalMeta%ssObj", k.TitleizedName()),
+		Name:        fmt.Sprintf("Meta%ssObj", k.TitleizedName()),
 		Fields:      fields,
 		Description: description,
 	}), nil
@@ -96,8 +96,8 @@ func classField(k kind.Kind, class *models.Class, description string,
 				Description: descriptions.LocalGetWhere,
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
-						Name:        fmt.Sprintf("WeaviateLocalMeta%s%sWhereInpObj", k.Name(), class.Class),
-						Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateLocalMeta%s%s", k.Name(), class.Class)),
+						Name:        fmt.Sprintf("Meta%s%sWhereInpObj", k.Name(), class.Class),
+						Fields:      common_filters.BuildNew(fmt.Sprintf("Meta%s%s", k.Name(), class.Class)),
 						Description: descriptions.LocalGetWhereInpObj,
 					},
 				),

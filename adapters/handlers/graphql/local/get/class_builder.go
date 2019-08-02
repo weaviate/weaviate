@@ -87,7 +87,7 @@ func (b *classBuilder) kinds(k kind.Kind, kindSchema *models.Schema) (*graphql.O
 	}
 
 	classes := graphql.NewObject(graphql.ObjectConfig{
-		Name:        fmt.Sprintf("WeaviateLocalGet%ssObj", kindName),
+		Name:        fmt.Sprintf("Get%ssObj", kindName),
 		Fields:      classFields,
 		Description: fmt.Sprintf(descriptions.LocalGetThingsActionsObj, kindName),
 	})

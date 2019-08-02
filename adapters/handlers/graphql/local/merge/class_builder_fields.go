@@ -147,8 +147,8 @@ func whereArgument(kindName, className string) *graphql.ArgumentConfig {
 		Description: descriptions.LocalGetWhere,
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{
-				Name:        fmt.Sprintf("WeaviateLocalMerge%ss%sWhereInpObj", kindName, className),
-				Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateLocalMerge%ss%s", kindName, className)),
+				Name:        fmt.Sprintf("Merge%ss%sWhereInpObj", kindName, className),
+				Fields:      common_filters.BuildNew(fmt.Sprintf("Merge%ss%s", kindName, className)),
 				Description: descriptions.LocalGetWhereInpObj,
 			},
 		),

@@ -20,7 +20,7 @@ import (
 )
 
 func exploreArgument(kindName, className string) *graphql.ArgumentConfig {
-	prefix := fmt.Sprintf("WeaviateLocalMerge%ss%s", kindName, className)
+	prefix := fmt.Sprintf("Merge%ss%s", kindName, className)
 	return &graphql.ArgumentConfig{
 		// Description: descriptions.LocalMergeExplore,
 		Type: graphql.NewInputObject(

@@ -41,7 +41,7 @@ func Build(schema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger,
 		}
 
 		mergeKinds["Actions"] = &graphql.Field{
-			Name:        "WeaviateLocalMergeActions",
+			Name:        "MergeActions",
 			Description: descriptions.LocalMergeActions,
 			Type:        actions,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
@@ -58,7 +58,7 @@ func Build(schema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger,
 		}
 
 		mergeKinds["Things"] = &graphql.Field{
-			Name:        "WeaviateLocalMergeThings",
+			Name:        "MergeThings",
 			Description: descriptions.LocalMergeThings,
 			Type:        things,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
@@ -69,10 +69,10 @@ func Build(schema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger,
 	}
 
 	field := graphql.Field{
-		Name:        "WeaviateLocalMerge",
+		Name:        "Merge",
 		Description: descriptions.LocalMerge,
 		Type: graphql.NewObject(graphql.ObjectConfig{
-			Name:        "WeaviateLocalMergeObj",
+			Name:        "MergeObj",
 			Fields:      mergeKinds,
 			Description: descriptions.LocalMergeObj,
 		}),

@@ -47,7 +47,7 @@ func Build(schema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger) 
 		}
 
 		getKinds["Actions"] = &graphql.Field{
-			Name:        "WeaviateLocalGetActions",
+			Name:        "GetActions",
 			Description: descriptions.LocalGetActions,
 			Type:        actions,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
@@ -64,7 +64,7 @@ func Build(schema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger) 
 		}
 
 		getKinds["Things"] = &graphql.Field{
-			Name:        "WeaviateLocalGetThings",
+			Name:        "GetThings",
 			Description: descriptions.LocalGetThings,
 			Type:        things,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
@@ -75,10 +75,10 @@ func Build(schema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger) 
 	}
 
 	field := graphql.Field{
-		Name:        "WeaviateLocalGet",
+		Name:        "Get",
 		Description: descriptions.LocalGet,
 		Type: graphql.NewObject(graphql.ObjectConfig{
-			Name:        "WeaviateLocalGetObj",
+			Name:        "GetObj",
 			Fields:      getKinds,
 			Description: descriptions.LocalGetObj,
 		}),
