@@ -68,10 +68,37 @@ func (b *classBuilder) kinds(k kind.Kind, kindSchema *models.Schema) (*graphql.O
 }
 
 func (b *classBuilder) classField(k kind.Kind, class *models.Class) (*graphql.Field, error) {
-	c, ok := b.knownClasses[class.Class]
-	if !ok {
-		return nil, fmt.Errorf("merge: class %s not found in known classes", class.Class)
+	obj, err := b.classMergeObj(k, class)
+	if err != nil {
+		return nil, fmt.Errorf("class %s field: %v", class.Class, err)
 	}
-	classField := buildMergeClassField(c, k, class)
+
+	classField := b.buildMergeClassField(obj, k, class)
 	return &classField, nil
+}
+
+func (b *classBuilder) classMergeObj(k kind.Kind, class *models.Class) (*graphql.Object, error) {
+	fields, err := b.classMergeFields(k, class)
+	if err != nil {
+		return nil, fmt.Errorf("merge obj: %v", err)
+	}
+
+	obj := graphql.NewObject(graphql.ObjectConfig{
+		Name:   fmt.Sprintf("Merge%ss%sMergeObj", k.TitleizedName(), class.Class),
+		Fields: fields,
+	})
+
+	return obj, nil
+}
+
+func (b *classBuilder) classMergeFields(k kind.Kind, class *models.Class) (graphql.Fields, error) {
+	obj, ok := b.knownClasses[class.Class]
+	if !ok {
+		return nil, fmt.Errorf("merge fields: no object for class %s found", class.Class)
+	}
+
+	return graphql.Fields{
+		"MergedEntity":    &graphql.Field{Name: "Foo", Type: obj},
+		"GroupedEntities": &graphql.Field{Name: "Bar", Type: graphql.NewList(obj)},
+	}, nil
 }

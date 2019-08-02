@@ -20,11 +20,9 @@ import (
 
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
-	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/telemetry"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 
 	"github.com/graphql-go/graphql"
@@ -107,11 +105,11 @@ func newGeoCoordinatesObject(className string, propertyName string) *graphql.Obj
 	})
 }
 
-func buildMergeClassField(classObject *graphql.Object, k kind.Kind,
+func (b *classBuilder) buildMergeClassField(obj *graphql.Object, k kind.Kind,
 	class *models.Class) graphql.Field {
 	kindName := strings.Title(k.Name())
 	return graphql.Field{
-		Type:        graphql.NewList(classObject),
+		Type:        graphql.NewList(obj),
 		Description: class.Description,
 		Args: graphql.FieldConfigArgument{
 			"limit": &graphql.ArgumentConfig{
@@ -157,64 +155,66 @@ func whereArgument(kindName, className string) *graphql.ArgumentConfig {
 
 func makeResolveMergeClass(k kind.Kind, className string) graphql.FieldResolveFn {
 	return func(p graphql.ResolveParams) (interface{}, error) {
-		source, ok := p.Source.(map[string]interface{})
-		if !ok {
-			return nil, fmt.Errorf("expected graphql root to be a map, but was %T", p.Source)
-		}
+		return nil, fmt.Errorf("Merge API not supported yet - coming soon!")
 
-		resolver, ok := source["Resolver"].(Resolver)
-		if !ok {
-			return nil, fmt.Errorf("expected source map to have a usable Resolver, but got %#v", source["Resolver"])
-		}
+		// source, ok := p.Source.(map[string]interface{})
+		// if !ok {
+		// 	return nil, fmt.Errorf("expected graphql root to be a map, but was %T", p.Source)
+		// }
 
-		pagination, err := filters.ExtractPaginationFromArgs(p.Args)
-		if err != nil {
-			return nil, err
-		}
+		// resolver, ok := source["Resolver"].(Resolver)
+		// if !ok {
+		// 	return nil, fmt.Errorf("expected source map to have a usable Resolver, but got %#v", source["Resolver"])
+		// }
 
-		// There can only be exactly one ast.Field; it is the class name.
-		if len(p.Info.FieldASTs) != 1 {
-			panic("Only one Field expected here")
-		}
+		// pagination, err := filters.ExtractPaginationFromArgs(p.Args)
+		// if err != nil {
+		// 	return nil, err
+		// }
 
-		selectionsOfClass := p.Info.FieldASTs[0].SelectionSet
-		properties, err := extractProperties(selectionsOfClass, p.Info.Fragments)
-		if err != nil {
-			return nil, err
-		}
+		// // There can only be exactly one ast.Field; it is the class name.
+		// if len(p.Info.FieldASTs) != 1 {
+		// 	panic("Only one Field expected here")
+		// }
 
-		filters, err := common_filters.ExtractFilters(p.Args, p.Info.FieldName)
-		if err != nil {
-			return nil, fmt.Errorf("could not extract filters: %s", err)
-		}
+		// selectionsOfClass := p.Info.FieldASTs[0].SelectionSet
+		// properties, err := extractProperties(selectionsOfClass, p.Info.Fragments)
+		// if err != nil {
+		// 	return nil, err
+		// }
 
-		var exploreParams *traverser.ExploreParams
-		if explore, ok := p.Args["explore"]; ok {
-			p := common_filters.ExtractExplore(explore.(map[string]interface{}))
-			exploreParams = &p
-		}
+		// filters, err := common_filters.ExtractFilters(p.Args, p.Info.FieldName)
+		// if err != nil {
+		// 	return nil, fmt.Errorf("could not extract filters: %s", err)
+		// }
 
-		params := traverser.LocalGetParams{
-			Filters:    filters,
-			Kind:       k,
-			ClassName:  className,
-			Pagination: pagination,
-			Properties: properties,
-			Explore:    exploreParams,
-		}
+		// var exploreParams *traverser.ExploreParams
+		// if explore, ok := p.Args["explore"]; ok {
+		// 	p := common_filters.ExtractExplore(explore.(map[string]interface{}))
+		// 	exploreParams = &p
+		// }
 
-		// Log the request
-		requestsLog, logOk := source["RequestsLog"].(RequestsLog)
-		if !logOk {
-			return nil, fmt.Errorf("expected source map to have a usable RequestsLog, but got %#v", source["RequestsLog"])
-		}
-		go func() {
-			requestsLog.Register(telemetry.TypeGQL, telemetry.LocalQuery)
-		}()
+		// params := traverser.LocalGetParams{
+		// 	Filters:    filters,
+		// 	Kind:       k,
+		// 	ClassName:  className,
+		// 	Pagination: pagination,
+		// 	Properties: properties,
+		// 	Explore:    exploreParams,
+		// }
 
-		return func() (interface{}, error) {
-			return resolver.LocalGetClass(p.Context, principalFromContext(p.Context), &params)
-		}, nil
+		// // Log the request
+		// requestsLog, logOk := source["RequestsLog"].(RequestsLog)
+		// if !logOk {
+		// 	return nil, fmt.Errorf("expected source map to have a usable RequestsLog, but got %#v", source["RequestsLog"])
+		// }
+		// go func() {
+		// 	requestsLog.Register(telemetry.TypeGQL, telemetry.LocalQuery)
+		// }()
+
+		// return func() (interface{}, error) {
+		// 	return resolver.LocalGetClass(p.Context, principalFromContext(p.Context), &params)
+		// }, nil
 	}
 }
 
