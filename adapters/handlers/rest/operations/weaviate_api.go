@@ -62,6 +62,7 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		JSONConsumer:        runtime.JSONConsumer(),
 		YamlConsumer:        yamlpc.YAMLConsumer(),
 		JSONProducer:        runtime.JSONProducer(),
+		YamlProducer:        yamlpc.YAMLProducer(),
 		GetWellKnownOpenidConfigurationHandler: GetWellKnownOpenidConfigurationHandlerFunc(func(params GetWellKnownOpenidConfigurationParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation GetWellKnownOpenidConfiguration has not yet been implemented")
 		}),
@@ -233,6 +234,8 @@ type WeaviateAPI struct {
 
 	// JSONProducer registers a producer for a "application/json" mime type
 	JSONProducer runtime.Producer
+	// YamlProducer registers a producer for a "application/yaml" mime type
+	YamlProducer runtime.Producer
 
 	// OidcAuth registers a function that takes an access token and a collection of required scopes and returns a principal
 	// it performs authentication based on an oauth2 bearer token provided in the request
@@ -394,6 +397,10 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.JSONProducer == nil {
 		unregistered = append(unregistered, "JSONProducer")
+	}
+
+	if o.YamlProducer == nil {
+		unregistered = append(unregistered, "YamlProducer")
 	}
 
 	if o.OidcAuth == nil {
@@ -646,6 +653,9 @@ func (o *WeaviateAPI) ProducersFor(mediaTypes []string) map[string]runtime.Produ
 
 		case "application/json":
 			result["application/json"] = o.JSONProducer
+
+		case "application/yaml":
+			result["application/yaml"] = o.YamlProducer
 
 		}
 

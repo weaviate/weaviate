@@ -52,7 +52,7 @@ func (a *Client) WeaviateMetaGet(params *WeaviateMetaGetParams, authInfo runtime
 		ID:                 "weaviate.meta.get",
 		Method:             "GET",
 		PathPattern:        "/meta",
-		ProducesMediaTypes: []string{"application/json"},
+		ProducesMediaTypes: []string{"application/json", "application/yaml"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
