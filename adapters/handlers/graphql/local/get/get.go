@@ -17,21 +17,13 @@ import (
 
 	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get/refclasses"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	"github.com/sirupsen/logrus"
 )
 
-type GetAPI struct {
-	Field       *graphql.Field
-	Classes     map[string]*graphql.Object
-	RefClasses  refclasses.ByNetworkClass
-	BeaconClass *graphql.Object
-}
-
 // Build the Local.Get part of the graphql tree
-func Build(schema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger) (*GetAPI, error) {
+func Build(schema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger) (*graphql.Field, error) {
 	getKinds := graphql.Fields{}
 
 	if len(schema.Actions.Classes) == 0 && len(schema.Things.Classes) == 0 {
@@ -74,7 +66,7 @@ func Build(schema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger) 
 		}
 	}
 
-	field := graphql.Field{
+	return &graphql.Field{
 		Name:        "Get",
 		Description: descriptions.LocalGet,
 		Type: graphql.NewObject(graphql.ObjectConfig{
@@ -85,12 +77,5 @@ func Build(schema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger) 
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			return p.Source, nil
 		},
-	}
-
-	return &GetAPI{
-		Field:       &field,
-		Classes:     cb.knownClasses,
-		RefClasses:  cb.knownRefClasses,
-		BeaconClass: cb.beaconClass,
 	}, nil
 }
