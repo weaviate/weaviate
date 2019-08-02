@@ -120,6 +120,7 @@ func buildGetClassField(classObject *graphql.Object, k kind.Kind,
 			},
 			"explore": exploreArgument(kindName, class.Class),
 			"where":   whereArgument(kindName, class.Class),
+			"group":   groupArgument(kindName, class.Class),
 		},
 		Resolve: makeResolveGetClass(k, class.Class),
 	}
