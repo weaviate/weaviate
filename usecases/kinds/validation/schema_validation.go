@@ -27,9 +27,9 @@ import (
 
 const (
 	// ErrorInvalidSingleRef message
-	ErrorInvalidSingleRef string = "class '%s' with property '%s' requires exactly 1 arguments: 'beacon'. Check your input schema, got: %#v"
+	ErrorInvalidSingleRef string = "only direct references supported at the moment, concept references not supported yet: class '%s' with property '%s' requires exactly 1 arguments: 'beacon'. Check your input schema, got: %#v"
 	// ErrorMissingSingleRefCRef message
-	ErrorMissingSingleRefCRef string = "class '%s' with property '%s' requires exactly 3 arguments: 'beacon', 'locationUrl' and 'type'. 'beacon' is missing, check your input schema"
+	ErrorMissingSingleRefCRef string = "only direct references supported at the moment, concept references not supported yet:  class '%s' with property '%s' requires exactly 1 argument: 'beacon' is missing, check your input schema"
 	// ErrorCrefInvalidURI message
 	ErrorCrefInvalidURI string = "class '%s' with property '%s' is not a valid URI: %s"
 	// ErrorCrefInvalidURIPath message
