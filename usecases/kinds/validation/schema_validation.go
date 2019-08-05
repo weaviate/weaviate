@@ -154,19 +154,14 @@ func cRef(ctx context.Context, pv interface{}, dbConnector getRepo, network peer
 	serverConfig *config.WeaviateConfig, className, propertyName string) (interface{}, error) {
 	switch refValue := pv.(type) {
 	case map[string]interface{}:
-		cref, err := parseAndValidateSingleRef(ctx, dbConnector, network, serverConfig, refValue, className, propertyName)
-		if err != nil {
-			return nil, err
-		}
-
-		return cref, nil
+		return nil, fmt.Errorf("reference must be an array, but got a map: %#v", refValue)
 	case []interface{}:
 		crefs := models.MultipleRef{}
 		for _, ref := range refValue {
 
 			refTyped, ok := ref.(map[string]interface{})
 			if !ok {
-				return nil, fmt.Errorf("Multiple references in %s.%s should be a list of maps, but we got: %t",
+				return nil, fmt.Errorf("Multiple references in %s.%s should be a list of maps, but we got: %T",
 					className, propertyName, ref)
 			}
 
@@ -180,7 +175,7 @@ func cRef(ctx context.Context, pv interface{}, dbConnector getRepo, network peer
 
 		return crefs, nil
 	default:
-		return nil, fmt.Errorf("invalid ref type. Needs to be either map or []map")
+		return nil, fmt.Errorf("invalid ref type. Needs to be []map")
 	}
 }
 

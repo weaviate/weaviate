@@ -36,13 +36,13 @@ func createActions() {
 				continue
 			}
 
-			ref, isRef := value.(map[string]interface{})
+			ref, isRef := value.([]interface{})
 			if isRef {
 				actionFixups = append(actionFixups, fixupAddRef{
 					fromId:       uuid,
 					fromProperty: key,
-					toClass:      ref["class"].(string),
-					toId:         ref["uuid"].(string),
+					toClass:      ref[0].(map[string]interface{})["class"].(string),
+					toId:         ref[0].(map[string]interface{})["uuid"].(string),
 				})
 			} else {
 				class := findClass(schema.Actions, className)
@@ -72,7 +72,7 @@ func createActions() {
 				case "boolean":
 					properties[key] = value.(bool)
 				default:
-					panic(fmt.Sprintf("No such datatype supported: %s", dataType))
+					panic(fmt.Sprintf("No such datatype supported: %s, got %v", dataType, value))
 				}
 			}
 		}
@@ -139,8 +139,10 @@ func fixupActions() {
 		patch := &models.PatchDocument{
 			Op:   &op,
 			Path: &path,
-			Value: map[string]interface{}{
-				"beacon": fmt.Sprintf("weaviate://localhost/things/%s", idMap[fixup.toId]),
+			Value: []interface{}{
+				map[string]interface{}{
+					"beacon": fmt.Sprintf("weaviate://localhost/things/%s", idMap[fixup.toId]),
+				},
 			},
 		}
 

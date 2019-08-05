@@ -27,16 +27,18 @@ import (
 func TestCanAddSingleNetworkRef(t *testing.T) {
 	networkRefID := "711da979-4b0b-41e2-bcb8-fcc03554c7c8"
 	thingID := assertCreateThing(t, "TestThing", map[string]interface{}{
-		"testReference": map[string]interface{}{
-			"beacon": "weaviate://RemoteWeaviateForAcceptanceTest/things/" + networkRefID,
+		"testReference": []interface{}{
+			map[string]interface{}{
+				"beacon": "weaviate://RemoteWeaviateForAcceptanceTest/things/" + networkRefID,
+			},
 		},
 	})
 
 	t.Run("it can query the resource again to verify the cross ref was added", func(t *testing.T) {
 		thing := assertGetThingEventually(t, thingID)
-		rawCref := thing.Schema.(map[string]interface{})["testReference"]
-		require.NotNil(t, rawCref, "cross-ref is present")
-		cref := rawCref.(map[string]interface{})
+		list := thing.Schema.(map[string]interface{})["testReference"]
+		require.NotNil(t, list, "cross-ref is present")
+		cref := list.([]interface{})[0].(map[string]interface{})
 		assert.Equal(t, cref["beacon"], "weaviate://RemoteWeaviateForAcceptanceTest/things/"+networkRefID)
 	})
 
@@ -70,8 +72,10 @@ func TestCanPatchNetworkRef(t *testing.T) {
 	patch := &models.PatchDocument{
 		Op:   &op,
 		Path: &path,
-		Value: map[string]interface{}{
-			"beacon": "weaviate://RemoteWeaviateForAcceptanceTest/things/" + networkRefID,
+		Value: []interface{}{
+			map[string]interface{}{
+				"beacon": "weaviate://RemoteWeaviateForAcceptanceTest/things/" + networkRefID,
+			},
 		},
 	}
 
@@ -85,9 +89,9 @@ func TestCanPatchNetworkRef(t *testing.T) {
 
 	t.Run("it can query the resource again to verify the cross ref was added", func(t *testing.T) {
 		patchedThing := assertGetThing(t, thingID)
-		rawCref := patchedThing.Schema.(map[string]interface{})["testReference"]
-		require.NotNil(t, rawCref, "cross-ref is present")
-		cref := rawCref.(map[string]interface{})
+		list := patchedThing.Schema.(map[string]interface{})["testReference"]
+		require.NotNil(t, list, "cross-ref is present")
+		cref := list.([]interface{})[0].(map[string]interface{})
 		assert.Equal(t, cref["beacon"], "weaviate://RemoteWeaviateForAcceptanceTest/things/"+networkRefID)
 	})
 

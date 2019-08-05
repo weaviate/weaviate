@@ -219,17 +219,8 @@ func addPrimitivePropToQuery(q *gremlin.Query, propType schema.PropertyDataType,
 
 func (j *Janusgraph) edgesFromReferenceProp(ctx context.Context, property *models.Property,
 	value interface{}, propType schema.PropertyDataType, janusPropertyName string, sanitizedPropertyName schema.PropertyName) (edgeFromRefProp, error) {
-	result := edgeFromRefProp{}
 
-	switch schema.CardinalityOfProperty(property) {
-	case schema.CardinalityAtMostOne:
-		return j.singleRef(ctx, value, propType, janusPropertyName, sanitizedPropertyName)
-	case schema.CardinalityMany:
-		return j.multipleRefs(ctx, value, propType, janusPropertyName, sanitizedPropertyName)
-	default:
-		return result, fmt.Errorf("Unexpected cardinality %v",
-			schema.CardinalityOfProperty(property))
-	}
+	return j.multipleRefs(ctx, value, propType, janusPropertyName, sanitizedPropertyName)
 }
 
 func (j *Janusgraph) singleRef(ctx context.Context, value interface{}, propType schema.PropertyDataType,
