@@ -45,18 +45,7 @@ func createThings() {
 					continue
 				}
 
-				var location string
-				location, ok := ref["location"].(string)
-				if !ok {
-					location = ""
-				}
-				thingFixups = append(thingFixups, fixupAddRef{
-					fromId:       uuid,
-					fromProperty: key,
-					toClass:      ref["class"].(string),
-					toId:         ref["uuid"].(string),
-					location:     location,
-				})
+				panic(fmt.Sprintf("refs must always be lists at %#v %#v", key, value))
 			case []interface{}: // a list of objects implies multiple references
 				multiFixUps := []fixupAddRef{}
 				for _, singleRef := range ref {

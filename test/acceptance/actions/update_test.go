@@ -123,8 +123,10 @@ func TestCanPatchActionsSetCref(t *testing.T) {
 	patch := &models.PatchDocument{
 		Op:   &op,
 		Path: &path,
-		Value: map[string]interface{}{
-			"beacon": fmt.Sprintf("weaviate://localhost/things/%s", thingToRefID),
+		Value: []interface{}{
+			map[string]interface{}{
+				"beacon": fmt.Sprintf("weaviate://localhost/things/%s", thingToRefID),
+			},
 		},
 	}
 
@@ -139,7 +141,7 @@ func TestCanPatchActionsSetCref(t *testing.T) {
 		patchedAction := assertGetAction(t, actionID)
 
 		rawCref := patchedAction.Schema.(map[string]interface{})["testReference"]
-		cref := rawCref.(map[string]interface{})
+		cref := rawCref.([]interface{})[0].(map[string]interface{})
 
 		return cref["beacon"]
 	}

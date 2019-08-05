@@ -120,13 +120,15 @@ func TestCanAddSingleRefAction(t *testing.T) {
 
 	secondID := assertCreateAction(t, "TestActionTwo", map[string]interface{}{
 		"testString": "stringy",
-		"testReference": map[string]interface{}{
-			"beacon": fmt.Sprintf("weaviate://localhost/actions/%s", firstID),
+		"testReference": []interface{}{
+			map[string]interface{}{
+				"beacon": fmt.Sprintf("weaviate://localhost/actions/%s", firstID),
+			},
 		},
 	})
 
 	secondAction := assertGetActionEventually(t, secondID)
 
-	singleRef := secondAction.Schema.(map[string]interface{})["testReference"].(map[string]interface{})
+	singleRef := secondAction.Schema.(map[string]interface{})["testReference"].([]interface{})[0].(map[string]interface{})
 	assert.Equal(t, singleRef["beacon"].(string), fmt.Sprintf("weaviate://localhost/actions/%s", firstID))
 }
