@@ -3010,11 +3010,21 @@ func init() {
       "type": "object"
     },
     "SingleRef": {
+      "description": "Either set beacon (direct reference) or set class and schema (concept reference)",
       "properties": {
         "beacon": {
-          "description": "URI to point to the cross-ref. Should be in the form of weaviate://localhost/things/\u003cuuid\u003e for the example of a local cross-ref to a thing",
+          "description": "If using a direct reference, specify the URI to point to the cross-ref here. Should be in the form of weaviate://localhost/things/\u003cuuid\u003e for the example of a local cross-ref to a thing",
           "type": "string",
           "format": "uri"
+        },
+        "class": {
+          "description": "If using a concept reference (rather than a direct reference), specify the desired class name here",
+          "type": "string",
+          "format": "uri"
+        },
+        "schema": {
+          "description": "If using a concept reference (rather than a direct reference), specify the desired properties here",
+          "$ref": "#/definitions/PropertySchema"
         }
       }
     },
@@ -6139,11 +6149,21 @@ func init() {
       "type": "object"
     },
     "SingleRef": {
+      "description": "Either set beacon (direct reference) or set class and schema (concept reference)",
       "properties": {
         "beacon": {
-          "description": "URI to point to the cross-ref. Should be in the form of weaviate://localhost/things/\u003cuuid\u003e for the example of a local cross-ref to a thing",
+          "description": "If using a direct reference, specify the URI to point to the cross-ref here. Should be in the form of weaviate://localhost/things/\u003cuuid\u003e for the example of a local cross-ref to a thing",
           "type": "string",
           "format": "uri"
+        },
+        "class": {
+          "description": "If using a concept reference (rather than a direct reference), specify the desired class name here",
+          "type": "string",
+          "format": "uri"
+        },
+        "schema": {
+          "description": "If using a concept reference (rather than a direct reference), specify the desired properties here",
+          "$ref": "#/definitions/PropertySchema"
         }
       }
     },
