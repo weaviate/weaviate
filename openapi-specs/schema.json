@@ -638,7 +638,7 @@
     },
     "description": "Decentralised Knowledge Graph",
     "title": "Weaviate - Decentralised Knowledge Graph",
-    "version": "0.16.2"
+    "version": "0.16.3"
   },
   "parameters": {
     "CommonLimitParameterQuery": {
