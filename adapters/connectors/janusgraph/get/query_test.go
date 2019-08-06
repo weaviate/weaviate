@@ -91,7 +91,7 @@ func Test_QueryBuilder(t *testing.T) {
 			},
 			expectedQuery: `
 			g.V().has("kind", "thing").has("classId", "class_18")
-			  .union(has("prop_1", eq("Amsterdam")))
+			  .and(has("prop_1", eq("Amsterdam")))
 				.limit(33).path().by(valueMap())
 			`,
 		},
