@@ -23,6 +23,12 @@ function main() {
     else
       if [ $? -eq 7 ]; then
         echo "Weaviate is not up yet. (waited for ${ALREADY_WAITING}s)"
+        echo "Weaviate:"
+        docker-compose -f docker-compose-test.yml logs weaviate
+        echo "Index:"
+        docker-compose -f docker-compose-test.yml logs index
+        echo "Janus:"
+        docker-compose -f docker-compose-test.yml logs janus
         if [ $ALREADY_WAITING -gt $MAX_WAIT_SECONDS ]; then
           echo "Weaviate did not start up in $MAX_WAIT_SECONDS."
           docker-compose -f docker-compose-test.yml logs

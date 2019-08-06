@@ -14,9 +14,6 @@
 package network
 
 import (
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/network/common"
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/network/fetch"
-	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 )
@@ -39,11 +36,6 @@ type Network interface {
 	GetStatus() string
 
 	ListPeers() (peers.Peers, error)
-
-	ProxyGetInstance(common.Params) (*models.GraphQLResponse, error)
-	ProxyGetMetaInstance(common.Params) (*models.GraphQLResponse, error)
-	ProxyAggregateInstance(common.Params) (*models.GraphQLResponse, error)
-	ProxyFetch(query common.SubQuery) ([]fetch.Response, error)
 
 	// UpdatePeers is Invoked by the Genesis server via an HTTP endpoint.
 	UpdatePeers(newPeers peers.Peers) error

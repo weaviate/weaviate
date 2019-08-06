@@ -185,23 +185,17 @@ func (j *Janusgraph) getClass(ctx context.Context, k kind.Kind, searchUUID strfm
 				return fmt.Errorf("could not parse kind for ref with id '%s': %v", uuid, err)
 			}
 			crefURI := crossref.New(locationUrl, strfmt.UUID(uuid), refKind).String()
-			ref.NrDollarCref = strfmt.URI(crefURI)
-			switch schema.CardinalityOfProperty(property) {
-			case schema.CardinalityAtMostOne:
-				classSchema[propertyName.String()] = ref
-			case schema.CardinalityMany:
-				var potentialMany []interface{}
-				potentialMany_, present := classSchema[propertyName.String()]
-				if present {
-					potentialMany = potentialMany_.([]interface{})
-				} else {
-					potentialMany = make([]interface{}, 0)
-					classSchema[propertyName.String()] = potentialMany
-				}
-				classSchema[propertyName.String()] = append(potentialMany, ref)
-			default:
-				panic(fmt.Sprintf("Unexpected cardinality %v", schema.CardinalityOfProperty(property)))
+			ref.Beacon = strfmt.URI(crefURI)
+
+			var potentialMany []interface{}
+			potentialMany_, present := classSchema[propertyName.String()]
+			if present {
+				potentialMany = potentialMany_.([]interface{})
+			} else {
+				potentialMany = make([]interface{}, 0)
+				classSchema[propertyName.String()] = potentialMany
 			}
+			classSchema[propertyName.String()] = append(potentialMany, ref)
 		} else {
 			panic(fmt.Sprintf("Property '%s' should be a reference type!", propertyName))
 		}
@@ -333,7 +327,7 @@ func (j *Janusgraph) getClasses(ctx context.Context, k kind.Kind, className *sch
 					return nil, fmt.Errorf("could not parse kind for ref with id '%s': %v", uuid, err)
 				}
 				crefURI := crossref.New(locationUrl, strfmt.UUID(uuid), refKind).String()
-				ref["$cref"] = crefURI
+				ref["beacon"] = crefURI
 				switch schema.CardinalityOfProperty(property) {
 				case schema.CardinalityAtMostOne:
 					classSchema[propertyName.String()] = ref

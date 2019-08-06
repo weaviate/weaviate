@@ -35,7 +35,7 @@ func main() {
 
 	flag.StringVar(&rootApiKey, "api-key", "657a48b9-e000-4d9a-b51d-69a0b621c1b9", "API-KEY as used as haeder in the tests.")
 	flag.StringVar(&rootApiToken, "api-token", "57ac8392-1ecc-4e17-9350-c9c866ac832b", "API-KEY as used as haeder in the tests.")
-	flag.StringVar(&weaviateUrlString, "weaviate-url", "http://localhost:8080/weaviate/v1/", "The address where weaviate can be reached")
+	flag.StringVar(&weaviateUrlString, "weaviate-url", "http://localhost:8080/v1/", "The address where weaviate can be reached")
 	flag.StringVar(&actionSchemaFile, "action-schema", "", "The action schema to load")
 	flag.StringVar(&thingSchemaFile, "thing-schema", "", "The thing schema to load")
 	flag.BoolVar(&replaceExisting, "replace-existing", true, "Replace the existing schema classes in case they already exist")
@@ -73,10 +73,10 @@ func main() {
 	err = loader.Load()
 
 	if err != nil {
-		if errParsed, ok := err.(*schema.WeaviateSchemaThingsPropertiesAddUnprocessableEntity); ok {
+		if errParsed, ok := err.(*schema.SchemaThingsPropertiesAddUnprocessableEntity); ok {
 			panic(errParsed.Payload.Error[0].Message)
 		}
-		if errParsed, ok := err.(*schema.WeaviateSchemaActionsPropertiesAddUnprocessableEntity); ok {
+		if errParsed, ok := err.(*schema.SchemaActionsPropertiesAddUnprocessableEntity); ok {
 			panic(errParsed.Payload.Error[0].Message)
 		}
 		panic(err.Error())

@@ -65,7 +65,7 @@ As an example look at the following query.
 1. `WeaviateA` extracts the info from the `Local.Get` query and places it at
    the right point into the Network query and responds to the user.
 
-### Resolve `Network.GetMeta.<peerName>.<kind>.<className>`
+### Resolve `Network.Meta.<peerName>.<kind>.<className>`
 
 Not implemented yet, see [issue #644](https://github.com/semi-technologies/weaviate/issues/644).
 

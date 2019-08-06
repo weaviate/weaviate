@@ -32,19 +32,22 @@ func Build(dbSchema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger
 	if err != nil {
 		return nil, err
 	}
+
 	getMetaField, err := getmeta.Build(dbSchema, config)
 	if err != nil {
 		return nil, err
 	}
+
 	aggregateField, err := aggregate.Build(dbSchema, config)
 	if err != nil {
 		return nil, err
+
 	}
 	exploreField := explore.Build()
 
 	localFields := graphql.Fields{
 		"Get":       getField,
-		"GetMeta":   getMetaField,
+		"Meta":      getMetaField,
 		"Aggregate": aggregateField,
 		"Explore":   exploreField,
 	}

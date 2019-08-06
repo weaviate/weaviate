@@ -40,12 +40,12 @@ func TestCanAddAPropertyIndividually(t *testing.T) {
 	assert.Nil(t, updatedSchema["testReferences"])
 
 	// Append a property reference
-	params := actions.NewWeaviateActionsReferencesCreateParams().
+	params := actions.NewActionsReferencesCreateParams().
 		WithID(uuid).
 		WithPropertyName("testReferences").
 		WithBody(crossref.New("localhost", toPointToUuid, kind.Action).SingleRef())
 
-	updateResp, err := helper.Client(t).Actions.WeaviateActionsReferencesCreate(params, nil)
+	updateResp, err := helper.Client(t).Actions.ActionsReferencesCreate(params, nil)
 	helper.AssertRequestOk(t, updateResp, err, nil)
 
 	// Get the property again.
@@ -74,14 +74,14 @@ func TestCanReplaceAllProperties(t *testing.T) {
 	assert.NotNil(t, updatedSchema["testReferences"])
 
 	// Replace
-	params := actions.NewWeaviateActionsReferencesUpdateParams().
+	params := actions.NewActionsReferencesUpdateParams().
 		WithID(uuid).
 		WithPropertyName("testReferences").
 		WithBody(models.MultipleRef{
 			crossref.New("localhost", toPointToUuidLater, kind.Action).SingleRef(),
 		})
 
-	updateResp, err := helper.Client(t).Actions.WeaviateActionsReferencesUpdate(params, nil)
+	updateResp, err := helper.Client(t).Actions.ActionsReferencesUpdate(params, nil)
 	helper.AssertRequestOk(t, updateResp, err, nil)
 
 	// Get the property again.
@@ -108,14 +108,14 @@ func TestRemovePropertyIndividually(t *testing.T) {
 	assert.NotNil(t, updatedSchema["testReferences"])
 
 	// Delete a property reference
-	params := actions.NewWeaviateActionsReferencesDeleteParams().
+	params := actions.NewActionsReferencesDeleteParams().
 		WithID(uuid).
 		WithPropertyName("testReferences").
 		WithBody(
 			crossref.New("localhost", toPointToUuid, kind.Action).SingleRef(),
 		)
 
-	updateResp, err := helper.Client(t).Actions.WeaviateActionsReferencesDelete(params, nil)
+	updateResp, err := helper.Client(t).Actions.ActionsReferencesDelete(params, nil)
 	helper.AssertRequestOk(t, updateResp, err, nil)
 
 	// Get the property again.

@@ -243,6 +243,6 @@ func (tests testCases) AssertExtraction(t *testing.T) {
 // 		`Argument "where" has invalid value {class: {name: "bestclass", certainty: 0.8, concepts: `+
 // 			`[{value: "foo", weight: 0.9}]}, properties: {name: "bestproperty", certainty: 0.8, concepts: `+
 // 			`[{value: "bar", weight: 0.9}], valueString: "some-value"}}.`+"\n"+
-// 			`In field "properties": In field "operator": Expected "WeaviateLocalFetchThingWhereOperatorEnum!", found null.`,
+// 			`In field "properties": In field "operator": Expected "FetchThingWhereOperatorEnum!", found null.`,
 // 		res.Errors[0].Message)
 // }

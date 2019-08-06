@@ -182,7 +182,7 @@ func (j *Janusgraph) AddUnindexedProperty(ctx context.Context, kind kind.Kind, c
 	_, err = j.client.Execute(ctx, query)
 
 	if err != nil {
-		return fmt.Errorf("could not create property type in JanusGraph")
+		return fmt.Errorf("could not create property type in JanusGraph: %v", err)
 	}
 
 	// Update mapping
@@ -221,7 +221,7 @@ func (j *Janusgraph) AddProperty(ctx context.Context, kind kind.Kind, className 
 	_, err = j.client.Execute(ctx, query)
 
 	if err != nil {
-		return fmt.Errorf("could not create property type in JanusGraph")
+		return fmt.Errorf("could not create property type in JanusGraph: %v", err)
 	}
 
 	// Update mapping

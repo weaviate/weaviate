@@ -17,7 +17,7 @@ services:
       DEVELOPMENT_UI: "on"
       LOG_LEVEL: "debug"
   contextionary:
-    image: semitechnologies/contextionary:en0.8.0-v0.3.0-minimal
+    image: semitechnologies/contextionary:en0.8.0-v0.3.2-minimal
     ports:
       - "9999:9999"
     environment:
@@ -93,14 +93,16 @@ services:
     volumes:
      - ./data/scylla/data:/var/lib/scylla
   index:
-    image: elasticsearch:5
+    image: docker.elastic.co/elasticsearch/elasticsearch:6.4.2
     ports:
      - "9200:9200"
      - "9300:9300"
     environment:
-     - ES_JAVA_OPTS=-Xms500m -Xmx500m
-    volumes:
-     - ./data/elasticsearch/data:/usr/share/elasticsearch/data
+      ES_JAVA_OPTS: -Xms500m -Xmx500m
+      xpack.security.enabled: "false"
+      discovery.type: single-node
+    # volumes:
+    #  - ./data/elasticsearch/data:/usr/share/elasticsearch/data
   genesis: # an actual genesis - not used in the weaviate tests, but used to test the genesis itself
     build:
       context: .

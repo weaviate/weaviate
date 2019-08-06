@@ -21,7 +21,7 @@ import (
 )
 
 func exploreArgument(kindName, className string) *graphql.ArgumentConfig {
-	prefix := fmt.Sprintf("WeaviateLocalGet%ss%s", kindName, className)
+	prefix := fmt.Sprintf("Get%ss%s", kindName, className)
 	return &graphql.ArgumentConfig{
 		// Description: descriptions.LocalGetExplore,
 		Type: graphql.NewInputObject(

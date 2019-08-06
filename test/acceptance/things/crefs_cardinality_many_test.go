@@ -31,12 +31,12 @@ import (
 func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 	defer func() {
 		// clean up so we can run this test multiple times in a row
-		delCityParams := schema.NewWeaviateSchemaThingsDeleteParams().WithClassName("ReferenceTestCity")
-		dresp, err := helper.Client(t).Schema.WeaviateSchemaThingsDelete(delCityParams, nil)
+		delCityParams := schema.NewSchemaThingsDeleteParams().WithClassName("ReferenceTestCity")
+		dresp, err := helper.Client(t).Schema.SchemaThingsDelete(delCityParams, nil)
 		t.Logf("clean up - delete city \n%v\n %v", dresp, err)
 
-		delPlaceParams := schema.NewWeaviateSchemaThingsDeleteParams().WithClassName("ReferenceTestPlace")
-		dresp, err = helper.Client(t).Schema.WeaviateSchemaThingsDelete(delPlaceParams, nil)
+		delPlaceParams := schema.NewSchemaThingsDeleteParams().WithClassName("ReferenceTestPlace")
+		dresp, err = helper.Client(t).Schema.SchemaThingsDelete(delPlaceParams, nil)
 		t.Logf("clean up - delete place \n%v\n %v", dresp, err)
 	}()
 
@@ -50,8 +50,8 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 			},
 		},
 	}
-	params := schema.NewWeaviateSchemaThingsCreateParams().WithThingClass(placeClass)
-	resp, err := helper.Client(t).Schema.WeaviateSchemaThingsCreate(params, nil)
+	params := schema.NewSchemaThingsCreateParams().WithThingClass(placeClass)
+	resp, err := helper.Client(t).Schema.SchemaThingsCreate(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
 
 	t.Log("2. create ReferenceTestCity class with HasPlaces (many) cross-ref")
@@ -70,8 +70,8 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 			},
 		},
 	}
-	params = schema.NewWeaviateSchemaThingsCreateParams().WithThingClass(cityClass)
-	resp, err = helper.Client(t).Schema.WeaviateSchemaThingsCreate(params, nil)
+	params = schema.NewSchemaThingsCreateParams().WithThingClass(cityClass)
+	resp, err = helper.Client(t).Schema.SchemaThingsCreate(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
 
 	t.Log("3. add two places and save their IDs")
@@ -93,7 +93,7 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 	t.Log("5. patch city to point to the first place")
 	add := "add"
 	path := "/schema/hasPlaces"
-	patchParams := things.NewWeaviateThingsPatchParams().
+	patchParams := things.NewThingsPatchParams().
 		WithID(cityID).
 		WithBody([]*models.PatchDocument{
 			&models.PatchDocument{
@@ -101,12 +101,12 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 				Path: &path,
 				Value: []interface{}{
 					map[string]interface{}{
-						"$cref": fmt.Sprintf("weaviate://localhost/things/%s", place1ID.String()),
+						"beacon": fmt.Sprintf("weaviate://localhost/things/%s", place1ID.String()),
 					},
 				},
 			},
 		})
-	patchResp, err := helper.Client(t).Things.WeaviateThingsPatch(patchParams, nil)
+	patchResp, err := helper.Client(t).Things.ThingsPatch(patchParams, nil)
 	helper.AssertRequestOk(t, patchResp, err, nil)
 
 	t.Log("5. get city again")
@@ -117,7 +117,7 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 		"name": "My City",
 		"hasPlaces": []interface{}{
 			map[string]interface{}{
-				"$cref": fmt.Sprintf("weaviate://localhost/things/%s", place1ID.String()),
+				"beacon": fmt.Sprintf("weaviate://localhost/things/%s", place1ID.String()),
 			},
 		},
 	}, cityAfterFirstPatch.Schema)
@@ -125,18 +125,18 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 	t.Log("7. patch city to point to the second place")
 	add = "add"
 	path = "/schema/hasPlaces/-"
-	patchParams = things.NewWeaviateThingsPatchParams().
+	patchParams = things.NewThingsPatchParams().
 		WithID(cityID).
 		WithBody([]*models.PatchDocument{
 			&models.PatchDocument{
 				Op:   &add,
 				Path: &path,
 				Value: map[string]interface{}{
-					"$cref": fmt.Sprintf("weaviate://localhost/things/%s", place2ID.String()),
+					"beacon": fmt.Sprintf("weaviate://localhost/things/%s", place2ID.String()),
 				},
 			},
 		})
-	patchResp, err = helper.Client(t).Things.WeaviateThingsPatch(patchParams, nil)
+	patchResp, err = helper.Client(t).Things.ThingsPatch(patchParams, nil)
 	helper.AssertRequestOk(t, patchResp, err, nil)
 
 	t.Log("8. get city again")
@@ -146,10 +146,10 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 	refs := cityAfterSecondPatch.Schema.(map[string]interface{})["hasPlaces"].([]interface{})
 	expectedRefs := []interface{}{
 		map[string]interface{}{
-			"$cref": fmt.Sprintf("weaviate://localhost/things/%s", place1ID.String()),
+			"beacon": fmt.Sprintf("weaviate://localhost/things/%s", place1ID.String()),
 		},
 		map[string]interface{}{
-			"$cref": fmt.Sprintf("weaviate://localhost/things/%s", place2ID.String()),
+			"beacon": fmt.Sprintf("weaviate://localhost/things/%s", place2ID.String()),
 		},
 	}
 
@@ -162,12 +162,12 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 	defer func() {
 		// clean up so we can run this test multiple times in a row
-		delCityParams := schema.NewWeaviateSchemaThingsDeleteParams().WithClassName("ReferenceTestCity")
-		dresp, err := helper.Client(t).Schema.WeaviateSchemaThingsDelete(delCityParams, nil)
+		delCityParams := schema.NewSchemaThingsDeleteParams().WithClassName("ReferenceTestCity")
+		dresp, err := helper.Client(t).Schema.SchemaThingsDelete(delCityParams, nil)
 		t.Logf("clean up - delete city \n%v\n %v", dresp, err)
 
-		delPlaceParams := schema.NewWeaviateSchemaThingsDeleteParams().WithClassName("ReferenceTestPlace")
-		dresp, err = helper.Client(t).Schema.WeaviateSchemaThingsDelete(delPlaceParams, nil)
+		delPlaceParams := schema.NewSchemaThingsDeleteParams().WithClassName("ReferenceTestPlace")
+		dresp, err = helper.Client(t).Schema.SchemaThingsDelete(delPlaceParams, nil)
 		t.Logf("clean up - delete place \n%v\n %v", dresp, err)
 	}()
 
@@ -181,8 +181,8 @@ func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 			},
 		},
 	}
-	params := schema.NewWeaviateSchemaThingsCreateParams().WithThingClass(placeClass)
-	resp, err := helper.Client(t).Schema.WeaviateSchemaThingsCreate(params, nil)
+	params := schema.NewSchemaThingsCreateParams().WithThingClass(placeClass)
+	resp, err := helper.Client(t).Schema.SchemaThingsCreate(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
 
 	t.Log("2. create ReferenceTestCity class with HasPlaces (many) cross-ref")
@@ -201,8 +201,8 @@ func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 			},
 		},
 	}
-	params = schema.NewWeaviateSchemaThingsCreateParams().WithThingClass(cityClass)
-	resp, err = helper.Client(t).Schema.WeaviateSchemaThingsCreate(params, nil)
+	params = schema.NewSchemaThingsCreateParams().WithThingClass(cityClass)
+	resp, err = helper.Client(t).Schema.SchemaThingsCreate(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
 
 	t.Log("3. add two places and save their IDs")
@@ -224,13 +224,13 @@ func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 	assertGetThingEventually(t, cityID)
 
 	t.Log("5. POST /references/ for place 1")
-	postRefParams := things.NewWeaviateThingsReferencesCreateParams().
+	postRefParams := things.NewThingsReferencesCreateParams().
 		WithID(cityID).
 		WithPropertyName("hasPlaces").
 		WithBody(&models.SingleRef{
-			NrDollarCref: strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", place1ID.String())),
+			Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", place1ID.String())),
 		})
-	postRefResponse, err := helper.Client(t).Things.WeaviateThingsReferencesCreate(postRefParams, nil)
+	postRefResponse, err := helper.Client(t).Things.ThingsReferencesCreate(postRefParams, nil)
 	helper.AssertRequestOk(t, postRefResponse, err, nil)
 
 	t.Log("6. get city again")
@@ -241,19 +241,19 @@ func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 		"name": "My City",
 		"hasPlaces": []interface{}{
 			map[string]interface{}{
-				"$cref": fmt.Sprintf("weaviate://localhost/things/%s", place1ID.String()),
+				"beacon": fmt.Sprintf("weaviate://localhost/things/%s", place1ID.String()),
 			},
 		},
 	}, cityAfterFirstPatch.Schema)
 
 	t.Log("8. POST /references/ for place 2")
-	postRefParams = things.NewWeaviateThingsReferencesCreateParams().
+	postRefParams = things.NewThingsReferencesCreateParams().
 		WithID(cityID).
 		WithPropertyName("hasPlaces").
 		WithBody(&models.SingleRef{
-			NrDollarCref: strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", place2ID.String())),
+			Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", place2ID.String())),
 		})
-	postRefResponse, err = helper.Client(t).Things.WeaviateThingsReferencesCreate(postRefParams, nil)
+	postRefResponse, err = helper.Client(t).Things.ThingsReferencesCreate(postRefParams, nil)
 	helper.AssertRequestOk(t, postRefResponse, err, nil)
 
 	t.Log("8. get city again")
@@ -263,10 +263,10 @@ func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 	refs := cityAfterSecondPatch.Schema.(map[string]interface{})["hasPlaces"].([]interface{})
 	expectedRefs := []interface{}{
 		map[string]interface{}{
-			"$cref": fmt.Sprintf("weaviate://localhost/things/%s", place1ID.String()),
+			"beacon": fmt.Sprintf("weaviate://localhost/things/%s", place1ID.String()),
 		},
 		map[string]interface{}{
-			"$cref": fmt.Sprintf("weaviate://localhost/things/%s", place2ID.String()),
+			"beacon": fmt.Sprintf("weaviate://localhost/things/%s", place2ID.String()),
 		},
 	}
 

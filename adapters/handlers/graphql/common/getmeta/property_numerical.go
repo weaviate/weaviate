@@ -27,36 +27,36 @@ func numericalPropertyField(class *models.Class,
 	getMetaNumberFields := graphql.Fields{
 		"sum": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sSum", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaPropertySum,
+			Description: descriptions.MetaPropertySum,
 			Type:        graphql.Float,
 			Resolve:     common.JSONNumberResolver,
 		},
 		"type": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sType", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaPropertyType,
+			Description: descriptions.MetaPropertyType,
 			Type:        graphql.String,
 		},
 		"minimum": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sMinimum", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaPropertyMinimum,
+			Description: descriptions.MetaPropertyMinimum,
 			Type:        graphql.Float,
 			Resolve:     common.JSONNumberResolver,
 		},
 		"maximum": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sMaximum", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaPropertyMaximum,
+			Description: descriptions.MetaPropertyMaximum,
 			Type:        graphql.Float,
 			Resolve:     common.JSONNumberResolver,
 		},
 		"mean": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sMean", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaPropertyMean,
+			Description: descriptions.MetaPropertyMean,
 			Type:        graphql.Float,
 			Resolve:     common.JSONNumberResolver,
 		},
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sCount", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaPropertyCount,
+			Description: descriptions.MetaPropertyCount,
 			Type:        graphql.Int,
 			Resolve:     common.JSONNumberResolver,
 		},
@@ -65,6 +65,6 @@ func numericalPropertyField(class *models.Class,
 	return graphql.NewObject(graphql.ObjectConfig{
 		Name:        fmt.Sprintf("%s%s%sObj", prefix, class.Class, property.Name),
 		Fields:      getMetaNumberFields,
-		Description: descriptions.GetMetaPropertyObject,
+		Description: descriptions.MetaPropertyObject,
 	})
 }

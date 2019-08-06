@@ -25,7 +25,7 @@ import (
 var thingID = "711da979-4b0b-41e2-bcb8-fcc03554c7c8"
 
 func main() {
-	http.HandleFunc("/weaviate/v1/graphql", func(w http.ResponseWriter, req *http.Request) {
+	http.HandleFunc("/v1/graphql", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != "POST" {
 			w.WriteHeader(405)
 			w.Write([]byte("only POST allowed"))
@@ -51,7 +51,7 @@ func main() {
 		parsed := removeAllWhiteSpace(body["query"])
 
 		getQuery := fmt.Sprintf("%s", `{ Local { Get { Things { Instruments { name } } } } }`)
-		getMetaQuery := fmt.Sprintf("%s", `{ Local { GetMeta { Things { Instruments { volume { maximum minimum mean } } } } } }`)
+		getMetaQuery := fmt.Sprintf("%s", `{ Local { Meta { Things { Instruments { volume { maximum minimum mean } } } } } }`)
 		aggregateQuery := fmt.Sprintf("%s", ` { Local { Aggregate { Things { Instruments(groupBy:["name"]) { volume { count } } } } } }`)
 		fetchQuery := fmt.Sprintf("%s", ` { Local { Fetch { Things(where: { class: { name: "bestclass" certainty: 0.8 keywords: [{value: "foo", weight: 0.9}] }, properties: { name: "bestproperty" certainty: 0.8 keywords: [{value: "bar", weight: 0.9}] operator: Equal valueString: "some-value" }, }) { beacon certainty } } } }`)
 		fetchFuzzyQuery := fmt.Sprintf("%s", ` { Local { Fetch { Fuzzy(value:"something", certainty:0.5) { beacon certainty } } } }`)
@@ -62,7 +62,7 @@ func main() {
 			return
 		case removeAllWhiteSpace(getMetaQuery):
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintf(w, "%s", graphQLGetMetaResponse)
+			fmt.Fprintf(w, "%s", graphQLMetaResponse)
 			return
 		case removeAllWhiteSpace(aggregateQuery):
 			w.Header().Set("Content-Type", "application/json")
@@ -85,7 +85,7 @@ func main() {
 		}
 	})
 
-	http.HandleFunc("/weaviate/v1/schema", func(w http.ResponseWriter, req *http.Request) {
+	http.HandleFunc("/v1/schema", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != "GET" {
 			w.WriteHeader(405)
 			w.Write([]byte("only GET allowed"))
@@ -96,7 +96,7 @@ func main() {
 		fmt.Fprintf(w, "%s", schemaResponse)
 	})
 
-	http.HandleFunc(fmt.Sprintf("/weaviate/v1/things/%s", thingID), func(w http.ResponseWriter, req *http.Request) {
+	http.HandleFunc(fmt.Sprintf("/v1/things/%s", thingID), func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != "GET" {
 			w.WriteHeader(405)
 			w.Write([]byte("only GET allowed"))
@@ -110,10 +110,10 @@ func main() {
 	log.Fatal(http.ListenAndServe(":8081", nil))
 }
 
-var graphQLGetMetaResponse = `{
+var graphQLMetaResponse = `{
   "data": {
     "Local": {
-      "GetMeta": {
+      "Meta": {
         "Things": {
           "Instruments": {
             "volume": {

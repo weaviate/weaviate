@@ -43,7 +43,7 @@ func setupC11yHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Reque
 	 * HANDLE C11Y
 	 */
 
-	api.ContextionaryAPIWeaviateC11yWordsHandler = contextionary_api.WeaviateC11yWordsHandlerFunc(func(params contextionary_api.WeaviateC11yWordsParams, principal *models.Principal) middleware.Responder {
+	api.ContextionaryAPIC11yWordsHandler = contextionary_api.C11yWordsHandlerFunc(func(params contextionary_api.C11yWordsParams, principal *models.Principal) middleware.Responder {
 		ctx := params.HTTPRequest.Context()
 
 		// the word(s) from the request
@@ -60,7 +60,7 @@ func setupC11yHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Reque
 		// check if there are only letters present
 		match, _ := regexp.MatchString("^[a-zA-Z]*$", words)
 		if match == false {
-			return contextionary_api.NewWeaviateC11yWordsBadRequest().WithPayload(createErrorResponseObject("Can't parse the word(s). They should only contain a-zA-Z"))
+			return contextionary_api.NewC11yWordsBadRequest().WithPayload(createErrorResponseObject("Can't parse the word(s). They should only contain a-zA-Z"))
 		}
 
 		// split words to validate if they are in the contextionary
@@ -83,7 +83,7 @@ func setupC11yHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Reque
 			for _, word := range wordArray {
 				infoVector, err := c11y.VectorForWord(ctx, word)
 				if err != nil {
-					return contextionary_api.NewWeaviateC11yWordsBadRequest().WithPayload(createErrorResponseObject("Can't create the vector representation for the word"))
+					return contextionary_api.NewC11yWordsBadRequest().WithPayload(createErrorResponseObject("Can't create the vector representation for the word"))
 				}
 				// collect the word vector based on idx
 				collectVectors = append(collectVectors, core.NewVector(infoVector))
@@ -93,14 +93,14 @@ func setupC11yHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Reque
 			// compute the centroid
 			weightedCentroid, err := core.ComputeWeightedCentroid(collectVectors, collectWeights)
 			if err != nil {
-				return contextionary_api.NewWeaviateC11yWordsBadRequest().WithPayload(createErrorResponseObject("Can't compute weighted centroid"))
+				return contextionary_api.NewC11yWordsBadRequest().WithPayload(createErrorResponseObject("Can't compute weighted centroid"))
 			}
 			returnObject.ConcatenatedWord.ConcatenatedVector = weightedCentroid.ToArray()
 
 			// relate words of centroid
 			cnnWords, cnnDists, err := c11y.NearestWordsByVector(ctx, weightedCentroid.ToArray(), 12, 32)
 			if err != nil {
-				return contextionary_api.NewWeaviateC11yWordsBadRequest().WithPayload(createErrorResponseObject("Can't compute nearest neighbors of ComputeWeightedCentroid"))
+				return contextionary_api.NewC11yWordsBadRequest().WithPayload(createErrorResponseObject("Can't compute nearest neighbors of ComputeWeightedCentroid"))
 			}
 			returnObject.ConcatenatedWord.ConcatenatedNearestNeighbors = []*models.C11yNearestNeighborsItems0{}
 
@@ -123,7 +123,7 @@ func setupC11yHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Reque
 			singleReturnObject.Word = word
 			present, err := c11y.IsWordPresent(ctx, word)
 			if err != nil {
-				return contextionary_api.NewWeaviateC11yWordsBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf(
+				return contextionary_api.NewC11yWordsBadRequest().WithPayload(errPayloadFromSingleErr(fmt.Errorf(
 					"could not check word presence for word %s: %v", word, err)))
 			}
 
@@ -143,14 +143,14 @@ func setupC11yHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Reque
 				// collect & set the vector
 				infoVector, err := c11y.VectorForWord(ctx, word)
 				if err != nil {
-					return contextionary_api.NewWeaviateC11yWordsBadRequest().WithPayload(createErrorResponseObject("Can't create the vector representation for the word"))
+					return contextionary_api.NewC11yWordsBadRequest().WithPayload(createErrorResponseObject("Can't create the vector representation for the word"))
 				}
 				singleReturnObject.Info.Vector = infoVector
 
 				// collect & set the 28 nearestNeighbors
 				nnWords, nnDists, err := c11y.NearestWordsByVector(ctx, infoVector, 12, 32)
 				if err != nil {
-					return contextionary_api.NewWeaviateC11yWordsBadRequest().WithPayload(createErrorResponseObject("Can't collect nearestNeighbors for this vector"))
+					return contextionary_api.NewC11yWordsBadRequest().WithPayload(createErrorResponseObject("Can't collect nearestNeighbors for this vector"))
 				}
 				singleReturnObject.Info.NearestNeighbors = []*models.C11yNearestNeighborsItems0{}
 
@@ -173,11 +173,11 @@ func setupC11yHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Reque
 			requestsLog.Register(telemetry.TypeREST, telemetry.LocalTools)
 		}()
 
-		return contextionary_api.NewWeaviateC11yWordsOK().WithPayload(returnObject)
+		return contextionary_api.NewC11yWordsOK().WithPayload(returnObject)
 	})
 
-	api.ContextionaryAPIWeaviateC11yCorpusGetHandler = contextionary_api.WeaviateC11yCorpusGetHandlerFunc(func(params contextionary_api.WeaviateC11yCorpusGetParams, principal *models.Principal) middleware.Responder {
-		return middleware.NotImplemented("operation contextionary_api.WeaviateC11yCorpusGet has not yet been implemented")
+	api.ContextionaryAPIC11yCorpusGetHandler = contextionary_api.C11yCorpusGetHandlerFunc(func(params contextionary_api.C11yCorpusGetParams, principal *models.Principal) middleware.Responder {
+		return middleware.NotImplemented("operation contextionary_api.C11yCorpusGet has not yet been implemented")
 	})
 
 }

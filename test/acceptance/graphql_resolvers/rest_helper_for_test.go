@@ -23,7 +23,7 @@ import (
 )
 
 func assertGetThing(t *testing.T, uuid strfmt.UUID) *models.Thing {
-	getResp, err := helper.Client(t).Things.WeaviateThingsGet(things.NewWeaviateThingsGetParams().WithID(uuid), nil)
+	getResp, err := helper.Client(t).Things.ThingsGet(things.NewThingsGetParams().WithID(uuid), nil)
 
 	var thing *models.Thing
 

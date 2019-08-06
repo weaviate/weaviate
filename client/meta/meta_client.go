@@ -38,25 +38,25 @@ type Client struct {
 }
 
 /*
-WeaviateMetaGet returns meta information of the current weaviate instance
+MetaGet returns meta information of the current weaviate instance
 
 Gives meta information about the server and can be used to provide information to another Weaviate instance that wants to interact with the current instance.
 */
-func (a *Client) WeaviateMetaGet(params *WeaviateMetaGetParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateMetaGetOK, error) {
+func (a *Client) MetaGet(params *MetaGetParams, authInfo runtime.ClientAuthInfoWriter) (*MetaGetOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateMetaGetParams()
+		params = NewMetaGetParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.meta.get",
+		ID:                 "meta.get",
 		Method:             "GET",
 		PathPattern:        "/meta",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateMetaGetReader{formats: a.formats},
+		Reader:             &MetaGetReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -64,7 +64,7 @@ func (a *Client) WeaviateMetaGet(params *WeaviateMetaGetParams, authInfo runtime
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateMetaGetOK), nil
+	return result.(*MetaGetOK), nil
 
 }
 

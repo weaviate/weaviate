@@ -38,7 +38,7 @@ func (f *fakeRepo) LocalGetClass(ctx context.Context, params *LocalGetParams) (i
 	panic("not implemented")
 }
 
-func (f *fakeRepo) LocalGetMeta(ctx context.Context, params *GetMetaParams) (interface{}, error) {
+func (f *fakeRepo) LocalMeta(ctx context.Context, params *MetaParams) (interface{}, error) {
 	panic("not implemented")
 }
 

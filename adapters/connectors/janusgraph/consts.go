@@ -42,7 +42,7 @@ const PROP_KEY_EXPIRES_UNIX = "keyExpiresUnix"
 const PROP_KEY_TOKEN = "keyToken"
 
 // Properties for SingleRef/MultipleRef's
-const PROP_REF_EDGE_CREF = "$cref"
+const PROP_REF_EDGE_CREF = "beacon"
 const PROP_REF_EDGE_TYPE = "refType"
 const PROP_REF_EDGE_LOCATION = "locationUrl"
 

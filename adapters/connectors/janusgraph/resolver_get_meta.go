@@ -22,8 +22,8 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
-// LocalGetMeta based on GraphQL Query params
-func (j *Janusgraph) LocalGetMeta(ctx context.Context, params *traverser.GetMetaParams) (interface{}, error) {
+// LocalMeta based on GraphQL Query params
+func (j *Janusgraph) LocalMeta(ctx context.Context, params *traverser.MetaParams) (interface{}, error) {
 	className := j.state.MustGetMappedClassName(params.ClassName)
 	q := gremlin.New().Raw(`g.V()`).
 		HasString("kind", params.Kind.Name()).

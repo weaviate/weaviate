@@ -52,9 +52,9 @@ func broadcast_update(peer Peer, peers []Peer) {
 	}
 
 	client := weaviate_client.NewHTTPClientWithConfig(nil, &transport_config)
-	params := weaviate_p2p.NewWeaviateP2pGenesisUpdateParams()
+	params := weaviate_p2p.NewP2pGenesisUpdateParams()
 	params.Peers = peer_updates
-	_, err = client.P2P.WeaviateP2pGenesisUpdate(params)
+	_, err = client.P2P.P2pGenesisUpdate(params)
 	if err != nil {
 		log.Debugf("Failed to update %v, because %v", peer.Id, err)
 	}

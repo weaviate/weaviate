@@ -47,8 +47,8 @@ func Test_Traverser_Authorization(t *testing.T) {
 		},
 
 		testCase{
-			methodName:       "LocalGetMeta",
-			additionalArgs:   []interface{}{&GetMetaParams{}},
+			methodName:       "LocalMeta",
+			additionalArgs:   []interface{}{&MetaParams{}},
 			expectedVerb:     "get",
 			expectedResource: "traversal/*",
 		},

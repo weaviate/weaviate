@@ -38,23 +38,23 @@ type Client struct {
 }
 
 /*
-WeaviateSchemaActionsCreate creates a new action class in the ontology
+SchemaActionsCreate creates a new action class in the ontology
 */
-func (a *Client) WeaviateSchemaActionsCreate(params *WeaviateSchemaActionsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaActionsCreateOK, error) {
+func (a *Client) SchemaActionsCreate(params *SchemaActionsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsCreateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateSchemaActionsCreateParams()
+		params = NewSchemaActionsCreateParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.schema.actions.create",
+		ID:                 "schema.actions.create",
 		Method:             "POST",
 		PathPattern:        "/schema/actions",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateSchemaActionsCreateReader{formats: a.formats},
+		Reader:             &SchemaActionsCreateReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -62,28 +62,28 @@ func (a *Client) WeaviateSchemaActionsCreate(params *WeaviateSchemaActionsCreate
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateSchemaActionsCreateOK), nil
+	return result.(*SchemaActionsCreateOK), nil
 
 }
 
 /*
-WeaviateSchemaActionsDelete removes an action class and all data in the instances from the ontology
+SchemaActionsDelete removes an action class and all data in the instances from the ontology
 */
-func (a *Client) WeaviateSchemaActionsDelete(params *WeaviateSchemaActionsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaActionsDeleteOK, error) {
+func (a *Client) SchemaActionsDelete(params *SchemaActionsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsDeleteOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateSchemaActionsDeleteParams()
+		params = NewSchemaActionsDeleteParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.schema.actions.delete",
+		ID:                 "schema.actions.delete",
 		Method:             "DELETE",
 		PathPattern:        "/schema/actions/{className}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateSchemaActionsDeleteReader{formats: a.formats},
+		Reader:             &SchemaActionsDeleteReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -91,28 +91,28 @@ func (a *Client) WeaviateSchemaActionsDelete(params *WeaviateSchemaActionsDelete
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateSchemaActionsDeleteOK), nil
+	return result.(*SchemaActionsDeleteOK), nil
 
 }
 
 /*
-WeaviateSchemaActionsPropertiesAdd adds a property to an action class
+SchemaActionsPropertiesAdd adds a property to an action class
 */
-func (a *Client) WeaviateSchemaActionsPropertiesAdd(params *WeaviateSchemaActionsPropertiesAddParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaActionsPropertiesAddOK, error) {
+func (a *Client) SchemaActionsPropertiesAdd(params *SchemaActionsPropertiesAddParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsPropertiesAddOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateSchemaActionsPropertiesAddParams()
+		params = NewSchemaActionsPropertiesAddParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.schema.actions.properties.add",
+		ID:                 "schema.actions.properties.add",
 		Method:             "POST",
 		PathPattern:        "/schema/actions/{className}/properties",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateSchemaActionsPropertiesAddReader{formats: a.formats},
+		Reader:             &SchemaActionsPropertiesAddReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -120,28 +120,28 @@ func (a *Client) WeaviateSchemaActionsPropertiesAdd(params *WeaviateSchemaAction
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateSchemaActionsPropertiesAddOK), nil
+	return result.(*SchemaActionsPropertiesAddOK), nil
 
 }
 
 /*
-WeaviateSchemaActionsPropertiesDelete removes a property from an action class
+SchemaActionsPropertiesDelete removes a property from an action class
 */
-func (a *Client) WeaviateSchemaActionsPropertiesDelete(params *WeaviateSchemaActionsPropertiesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaActionsPropertiesDeleteOK, error) {
+func (a *Client) SchemaActionsPropertiesDelete(params *SchemaActionsPropertiesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsPropertiesDeleteOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateSchemaActionsPropertiesDeleteParams()
+		params = NewSchemaActionsPropertiesDeleteParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.schema.actions.properties.delete",
+		ID:                 "schema.actions.properties.delete",
 		Method:             "DELETE",
 		PathPattern:        "/schema/actions/{className}/properties/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateSchemaActionsPropertiesDeleteReader{formats: a.formats},
+		Reader:             &SchemaActionsPropertiesDeleteReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -149,28 +149,28 @@ func (a *Client) WeaviateSchemaActionsPropertiesDelete(params *WeaviateSchemaAct
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateSchemaActionsPropertiesDeleteOK), nil
+	return result.(*SchemaActionsPropertiesDeleteOK), nil
 
 }
 
 /*
-WeaviateSchemaActionsPropertiesUpdate renames or replace the keywords of the property
+SchemaActionsPropertiesUpdate renames or replace the keywords of the property
 */
-func (a *Client) WeaviateSchemaActionsPropertiesUpdate(params *WeaviateSchemaActionsPropertiesUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaActionsPropertiesUpdateOK, error) {
+func (a *Client) SchemaActionsPropertiesUpdate(params *SchemaActionsPropertiesUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsPropertiesUpdateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateSchemaActionsPropertiesUpdateParams()
+		params = NewSchemaActionsPropertiesUpdateParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.schema.actions.properties.update",
+		ID:                 "schema.actions.properties.update",
 		Method:             "PUT",
 		PathPattern:        "/schema/actions/{className}/properties/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateSchemaActionsPropertiesUpdateReader{formats: a.formats},
+		Reader:             &SchemaActionsPropertiesUpdateReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -178,28 +178,28 @@ func (a *Client) WeaviateSchemaActionsPropertiesUpdate(params *WeaviateSchemaAct
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateSchemaActionsPropertiesUpdateOK), nil
+	return result.(*SchemaActionsPropertiesUpdateOK), nil
 
 }
 
 /*
-WeaviateSchemaActionsUpdate renames or replace the keywords of the action
+SchemaActionsUpdate renames or replace the keywords of the action
 */
-func (a *Client) WeaviateSchemaActionsUpdate(params *WeaviateSchemaActionsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaActionsUpdateOK, error) {
+func (a *Client) SchemaActionsUpdate(params *SchemaActionsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsUpdateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateSchemaActionsUpdateParams()
+		params = NewSchemaActionsUpdateParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.schema.actions.update",
+		ID:                 "schema.actions.update",
 		Method:             "PUT",
 		PathPattern:        "/schema/actions/{className}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateSchemaActionsUpdateReader{formats: a.formats},
+		Reader:             &SchemaActionsUpdateReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -207,28 +207,28 @@ func (a *Client) WeaviateSchemaActionsUpdate(params *WeaviateSchemaActionsUpdate
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateSchemaActionsUpdateOK), nil
+	return result.(*SchemaActionsUpdateOK), nil
 
 }
 
 /*
-WeaviateSchemaDump dumps the current the database schema
+SchemaDump dumps the current the database schema
 */
-func (a *Client) WeaviateSchemaDump(params *WeaviateSchemaDumpParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaDumpOK, error) {
+func (a *Client) SchemaDump(params *SchemaDumpParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaDumpOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateSchemaDumpParams()
+		params = NewSchemaDumpParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.schema.dump",
+		ID:                 "schema.dump",
 		Method:             "GET",
 		PathPattern:        "/schema",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateSchemaDumpReader{formats: a.formats},
+		Reader:             &SchemaDumpReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -236,28 +236,28 @@ func (a *Client) WeaviateSchemaDump(params *WeaviateSchemaDumpParams, authInfo r
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateSchemaDumpOK), nil
+	return result.(*SchemaDumpOK), nil
 
 }
 
 /*
-WeaviateSchemaThingsCreate creates a new thing class in the ontology
+SchemaThingsCreate creates a new thing class in the ontology
 */
-func (a *Client) WeaviateSchemaThingsCreate(params *WeaviateSchemaThingsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaThingsCreateOK, error) {
+func (a *Client) SchemaThingsCreate(params *SchemaThingsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsCreateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateSchemaThingsCreateParams()
+		params = NewSchemaThingsCreateParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.schema.things.create",
+		ID:                 "schema.things.create",
 		Method:             "POST",
 		PathPattern:        "/schema/things",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateSchemaThingsCreateReader{formats: a.formats},
+		Reader:             &SchemaThingsCreateReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -265,28 +265,28 @@ func (a *Client) WeaviateSchemaThingsCreate(params *WeaviateSchemaThingsCreatePa
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateSchemaThingsCreateOK), nil
+	return result.(*SchemaThingsCreateOK), nil
 
 }
 
 /*
-WeaviateSchemaThingsDelete removes a thing class and all data in the instances from the ontology
+SchemaThingsDelete removes a thing class and all data in the instances from the ontology
 */
-func (a *Client) WeaviateSchemaThingsDelete(params *WeaviateSchemaThingsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaThingsDeleteOK, error) {
+func (a *Client) SchemaThingsDelete(params *SchemaThingsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsDeleteOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateSchemaThingsDeleteParams()
+		params = NewSchemaThingsDeleteParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.schema.things.delete",
+		ID:                 "schema.things.delete",
 		Method:             "DELETE",
 		PathPattern:        "/schema/things/{className}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateSchemaThingsDeleteReader{formats: a.formats},
+		Reader:             &SchemaThingsDeleteReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -294,28 +294,28 @@ func (a *Client) WeaviateSchemaThingsDelete(params *WeaviateSchemaThingsDeletePa
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateSchemaThingsDeleteOK), nil
+	return result.(*SchemaThingsDeleteOK), nil
 
 }
 
 /*
-WeaviateSchemaThingsPropertiesAdd adds a property to a thing class
+SchemaThingsPropertiesAdd adds a property to a thing class
 */
-func (a *Client) WeaviateSchemaThingsPropertiesAdd(params *WeaviateSchemaThingsPropertiesAddParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaThingsPropertiesAddOK, error) {
+func (a *Client) SchemaThingsPropertiesAdd(params *SchemaThingsPropertiesAddParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsPropertiesAddOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateSchemaThingsPropertiesAddParams()
+		params = NewSchemaThingsPropertiesAddParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.schema.things.properties.add",
+		ID:                 "schema.things.properties.add",
 		Method:             "POST",
 		PathPattern:        "/schema/things/{className}/properties",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateSchemaThingsPropertiesAddReader{formats: a.formats},
+		Reader:             &SchemaThingsPropertiesAddReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -323,28 +323,28 @@ func (a *Client) WeaviateSchemaThingsPropertiesAdd(params *WeaviateSchemaThingsP
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateSchemaThingsPropertiesAddOK), nil
+	return result.(*SchemaThingsPropertiesAddOK), nil
 
 }
 
 /*
-WeaviateSchemaThingsPropertiesDelete removes a property from a thing class
+SchemaThingsPropertiesDelete removes a property from a thing class
 */
-func (a *Client) WeaviateSchemaThingsPropertiesDelete(params *WeaviateSchemaThingsPropertiesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaThingsPropertiesDeleteOK, error) {
+func (a *Client) SchemaThingsPropertiesDelete(params *SchemaThingsPropertiesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsPropertiesDeleteOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateSchemaThingsPropertiesDeleteParams()
+		params = NewSchemaThingsPropertiesDeleteParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.schema.things.properties.delete",
+		ID:                 "schema.things.properties.delete",
 		Method:             "DELETE",
 		PathPattern:        "/schema/things/{className}/properties/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateSchemaThingsPropertiesDeleteReader{formats: a.formats},
+		Reader:             &SchemaThingsPropertiesDeleteReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -352,28 +352,28 @@ func (a *Client) WeaviateSchemaThingsPropertiesDelete(params *WeaviateSchemaThin
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateSchemaThingsPropertiesDeleteOK), nil
+	return result.(*SchemaThingsPropertiesDeleteOK), nil
 
 }
 
 /*
-WeaviateSchemaThingsPropertiesUpdate renames or replace the keywords of the property
+SchemaThingsPropertiesUpdate renames or replace the keywords of the property
 */
-func (a *Client) WeaviateSchemaThingsPropertiesUpdate(params *WeaviateSchemaThingsPropertiesUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaThingsPropertiesUpdateOK, error) {
+func (a *Client) SchemaThingsPropertiesUpdate(params *SchemaThingsPropertiesUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsPropertiesUpdateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateSchemaThingsPropertiesUpdateParams()
+		params = NewSchemaThingsPropertiesUpdateParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.schema.things.properties.update",
+		ID:                 "schema.things.properties.update",
 		Method:             "PUT",
 		PathPattern:        "/schema/things/{className}/properties/{propertyName}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateSchemaThingsPropertiesUpdateReader{formats: a.formats},
+		Reader:             &SchemaThingsPropertiesUpdateReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -381,28 +381,28 @@ func (a *Client) WeaviateSchemaThingsPropertiesUpdate(params *WeaviateSchemaThin
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateSchemaThingsPropertiesUpdateOK), nil
+	return result.(*SchemaThingsPropertiesUpdateOK), nil
 
 }
 
 /*
-WeaviateSchemaThingsUpdate renames or replace the keywords of the thing
+SchemaThingsUpdate renames or replace the keywords of the thing
 */
-func (a *Client) WeaviateSchemaThingsUpdate(params *WeaviateSchemaThingsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaThingsUpdateOK, error) {
+func (a *Client) SchemaThingsUpdate(params *SchemaThingsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsUpdateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateSchemaThingsUpdateParams()
+		params = NewSchemaThingsUpdateParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.schema.things.update",
+		ID:                 "schema.things.update",
 		Method:             "PUT",
 		PathPattern:        "/schema/things/{className}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateSchemaThingsUpdateReader{formats: a.formats},
+		Reader:             &SchemaThingsUpdateReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -410,7 +410,7 @@ func (a *Client) WeaviateSchemaThingsUpdate(params *WeaviateSchemaThingsUpdatePa
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateSchemaThingsUpdateOK), nil
+	return result.(*SchemaThingsUpdateOK), nil
 
 }
 

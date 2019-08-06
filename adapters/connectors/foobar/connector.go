@@ -410,10 +410,10 @@ func (f *Foobar) LocalGetClass(ctx context.Context, info *traverser.LocalGetPara
 	return nil, nil
 }
 
-// LocalGetMeta resolves a GraphQL request to retrieve meta info about a single
+// LocalMeta resolves a GraphQL request to retrieve meta info about a single
 // Class like so:
 //
-//	`{ Local { GetMeta { Things { City { population { count } } } } } }`
+//	`{ Local { Meta { Things { City { population { count } } } } } }`
 //
 // Where "City" is the particular className of kind "Thing". In the example
 // above the user asked to resolve one property named "population". On this
@@ -431,7 +431,7 @@ func (f *Foobar) LocalGetClass(ctx context.Context, info *traverser.LocalGetPara
 //			"count": 4,
 //		},
 //	}
-func (f *Foobar) LocalGetMeta(ctx context.Context, info *traverser.GetMetaParams) (interface{}, error) {
+func (f *Foobar) LocalMeta(ctx context.Context, info *traverser.MetaParams) (interface{}, error) {
 	return nil, nil
 }
 

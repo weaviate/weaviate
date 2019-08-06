@@ -24,7 +24,7 @@ import (
 
 func Test_TypeInspector_WithReferenceProp(t *testing.T) {
 	t.Run("when the user askes for 'pointingTo'", func(t *testing.T) {
-		input := traverser.GetMetaParams{
+		input := traverser.MetaParams{
 			ClassName: schema.ClassName("City"),
 			Properties: []traverser.MetaProperty{
 				traverser.MetaProperty{
@@ -49,7 +49,7 @@ func Test_TypeInspector_WithReferenceProp(t *testing.T) {
 	})
 
 	t.Run("when the user askes for type", func(t *testing.T) {
-		input := traverser.GetMetaParams{
+		input := traverser.MetaParams{
 			ClassName: schema.ClassName("City"),
 			Properties: []traverser.MetaProperty{
 				traverser.MetaProperty{
@@ -72,7 +72,7 @@ func Test_TypeInspector_WithReferenceProp(t *testing.T) {
 	})
 
 	t.Run("when the user asks for both 'type' and 'pointingTo'", func(t *testing.T) {
-		input := traverser.GetMetaParams{
+		input := traverser.MetaParams{
 			ClassName: schema.ClassName("City"),
 			Properties: []traverser.MetaProperty{
 				traverser.MetaProperty{
@@ -98,7 +98,7 @@ func Test_TypeInspector_WithReferenceProp(t *testing.T) {
 	})
 
 	t.Run("when the user askes for both 'count' and 'pointingTo'", func(t *testing.T) {
-		input := traverser.GetMetaParams{
+		input := traverser.MetaParams{
 			ClassName: schema.ClassName("City"),
 			Properties: []traverser.MetaProperty{
 				traverser.MetaProperty{
@@ -123,7 +123,7 @@ func Test_TypeInspector_WithReferenceProp(t *testing.T) {
 	})
 
 	t.Run("when the user askes for unrelated statisticals props (count)", func(t *testing.T) {
-		input := traverser.GetMetaParams{
+		input := traverser.MetaParams{
 			ClassName: schema.ClassName("City"),
 			Properties: []traverser.MetaProperty{
 				traverser.MetaProperty{
@@ -143,7 +143,7 @@ func Test_TypeInspector_WithReferenceProp(t *testing.T) {
 }
 
 func Test_TypeInspector_WithoutProperties(t *testing.T) {
-	input := traverser.GetMetaParams{
+	input := traverser.MetaParams{
 		ClassName:  schema.ClassName("City"),
 		Properties: []traverser.MetaProperty{},
 	}
@@ -157,7 +157,7 @@ func Test_TypeInspector_WithoutProperties(t *testing.T) {
 }
 
 func Test_TypeInspector_WithMetaProperties(t *testing.T) {
-	input := traverser.GetMetaParams{
+	input := traverser.MetaParams{
 		ClassName: schema.ClassName("City"),
 		Properties: []traverser.MetaProperty{
 			traverser.MetaProperty{
@@ -177,7 +177,7 @@ func Test_TypeInspector_WithMetaProperties(t *testing.T) {
 
 func Test_TypeInspector_WithPrimitiveProps(t *testing.T) {
 	t.Run("on an int with only 'type'", func(t *testing.T) {
-		input := traverser.GetMetaParams{
+		input := traverser.MetaParams{
 			ClassName: schema.ClassName("City"),
 			Properties: []traverser.MetaProperty{
 				traverser.MetaProperty{
@@ -200,7 +200,7 @@ func Test_TypeInspector_WithPrimitiveProps(t *testing.T) {
 	})
 
 	t.Run("on an int with 'type' and other statistical analyses", func(t *testing.T) {
-		input := traverser.GetMetaParams{
+		input := traverser.MetaParams{
 			ClassName: schema.ClassName("City"),
 			Properties: []traverser.MetaProperty{
 				traverser.MetaProperty{
@@ -225,7 +225,7 @@ func Test_TypeInspector_WithPrimitiveProps(t *testing.T) {
 
 func Test_TypeInspector_WithMultiplePropsOfDifferentTypes(t *testing.T) {
 	t.Run("with mixed prop types and mixed statistical analysis types", func(t *testing.T) {
-		input := traverser.GetMetaParams{
+		input := traverser.MetaParams{
 			ClassName: schema.ClassName("City"),
 			Properties: []traverser.MetaProperty{
 				traverser.MetaProperty{

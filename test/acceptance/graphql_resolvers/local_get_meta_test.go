@@ -21,11 +21,11 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestLocalGetMetaWithoutFilters(t *testing.T) {
+func TestLocalMetaWithoutFilters(t *testing.T) {
 	result := AssertGraphQL(t, helper.RootAuth, `
 		{
 			
-				GetMeta{
+				Meta{
 					Things {
 						City {
 							meta {
@@ -66,13 +66,13 @@ func TestLocalGetMetaWithoutFilters(t *testing.T) {
 	`)
 
 	t.Run("meta count", func(t *testing.T) {
-		count := result.Get("GetMeta", "Things", "City", "meta", "count").Result
+		count := result.Get("Meta", "Things", "City", "meta", "count").Result
 		expected := json.Number("4")
 		assert.Equal(t, expected, count)
 	})
 
 	t.Run("boolean props", func(t *testing.T) {
-		isCapital := result.Get("GetMeta", "Things", "City", "isCapital").Result
+		isCapital := result.Get("Meta", "Things", "City", "isCapital").Result
 		expected := map[string]interface{}{
 			"count":           json.Number("4"),
 			"percentageTrue":  json.Number("0.5"),
@@ -85,7 +85,7 @@ func TestLocalGetMetaWithoutFilters(t *testing.T) {
 	})
 
 	t.Run("int/number props", func(t *testing.T) {
-		isCapital := result.Get("GetMeta", "Things", "City", "population").Result
+		isCapital := result.Get("Meta", "Things", "City", "population").Result
 		expected := map[string]interface{}{
 			"mean":    json.Number("1917500"),
 			"count":   json.Number("4"),
@@ -98,7 +98,7 @@ func TestLocalGetMetaWithoutFilters(t *testing.T) {
 	})
 
 	t.Run("ref prop", func(t *testing.T) {
-		inCountry := result.Get("GetMeta", "Things", "City", "InCountry").Result
+		inCountry := result.Get("Meta", "Things", "City", "InCountry").Result
 		expected := map[string]interface{}{
 			"pointingTo": []interface{}{"Country"},
 			"type":       "cref",
@@ -107,9 +107,9 @@ func TestLocalGetMetaWithoutFilters(t *testing.T) {
 	})
 
 	t.Run("string prop", func(t *testing.T) {
-		typeField := result.Get("GetMeta", "Things", "City", "name", "type").Result
-		count := result.Get("GetMeta", "Things", "City", "name", "count").Result
-		topOccurrences := result.Get("GetMeta", "Things", "City", "name", "topOccurrences").Result
+		typeField := result.Get("Meta", "Things", "City", "name", "type").Result
+		count := result.Get("Meta", "Things", "City", "name", "count").Result
+		topOccurrences := result.Get("Meta", "Things", "City", "name", "topOccurrences").Result
 
 		assert.Equal(t, json.Number("4"), count)
 		assert.Equal(t, "string", typeField)
@@ -132,11 +132,11 @@ func TestLocalGetMetaWithoutFilters(t *testing.T) {
 	})
 }
 
-func TestLocalGetMetaWithFilters(t *testing.T) {
+func TestLocalMetaWithFilters(t *testing.T) {
 	result := AssertGraphQL(t, helper.RootAuth, `
 		{
 			
-				GetMeta{
+				Meta{
 					Things {
 						City (where: {
 							valueBoolean: true,
@@ -181,13 +181,13 @@ func TestLocalGetMetaWithFilters(t *testing.T) {
 	`)
 
 	t.Run("meta count", func(t *testing.T) {
-		count := result.Get("GetMeta", "Things", "City", "meta", "count").Result
+		count := result.Get("Meta", "Things", "City", "meta", "count").Result
 		expected := json.Number("2")
 		assert.Equal(t, expected, count)
 	})
 
 	t.Run("boolean props", func(t *testing.T) {
-		isCapital := result.Get("GetMeta", "Things", "City", "isCapital").Result
+		isCapital := result.Get("Meta", "Things", "City", "isCapital").Result
 		expected := map[string]interface{}{
 			"count":           json.Number("2"),
 			"percentageTrue":  json.Number("1"),
@@ -200,7 +200,7 @@ func TestLocalGetMetaWithFilters(t *testing.T) {
 	})
 
 	t.Run("int/number props", func(t *testing.T) {
-		isCapital := result.Get("GetMeta", "Things", "City", "population").Result
+		isCapital := result.Get("Meta", "Things", "City", "population").Result
 		expected := map[string]interface{}{
 			"mean":    json.Number("2635000"),
 			"count":   json.Number("2"),
@@ -213,7 +213,7 @@ func TestLocalGetMetaWithFilters(t *testing.T) {
 	})
 
 	t.Run("ref prop", func(t *testing.T) {
-		inCountry := result.Get("GetMeta", "Things", "City", "InCountry").Result
+		inCountry := result.Get("Meta", "Things", "City", "InCountry").Result
 		expected := map[string]interface{}{
 			"pointingTo": []interface{}{"Country"},
 			"type":       "cref",
@@ -222,9 +222,9 @@ func TestLocalGetMetaWithFilters(t *testing.T) {
 	})
 
 	t.Run("string prop", func(t *testing.T) {
-		typeField := result.Get("GetMeta", "Things", "City", "name", "type").Result
-		count := result.Get("GetMeta", "Things", "City", "name", "count").Result
-		topOccurrences := result.Get("GetMeta", "Things", "City", "name", "topOccurrences").Result
+		typeField := result.Get("Meta", "Things", "City", "name", "type").Result
+		count := result.Get("Meta", "Things", "City", "name", "count").Result
+		topOccurrences := result.Get("Meta", "Things", "City", "name", "topOccurrences").Result
 
 		assert.Equal(t, json.Number("2"), count)
 		assert.Equal(t, "string", typeField)
@@ -245,10 +245,10 @@ func TestLocalGetMetaWithFilters(t *testing.T) {
 
 // This test prevents a regression on the fix for
 // https://github.com/semi-technologies/weaviate/issues/824
-func TestLocalGetMeta_StringPropsNotSetEverywhere(t *testing.T) {
+func TestLocalMeta_StringPropsNotSetEverywhere(t *testing.T) {
 	AssertGraphQL(t, helper.RootAuth, `
 		{
-				GetMeta{
+				Meta{
 					Actions {
 						Event {
 							name {
@@ -267,10 +267,10 @@ func TestLocalGetMeta_StringPropsNotSetEverywhere(t *testing.T) {
 
 // This test prevents a regression on the fix for
 // https://github.com/semi-technologies/weaviate/issues/824
-func TestLocalGetMeta_TextPropsNotSetEverywhere(t *testing.T) {
+func TestLocalMeta_TextPropsNotSetEverywhere(t *testing.T) {
 	AssertGraphQL(t, helper.RootAuth, `
 		{
-				GetMeta{
+				Meta{
 					Actions {
 						Event {
 							description {

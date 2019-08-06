@@ -26,13 +26,13 @@ import (
 )
 
 type Query struct {
-	params       *traverser.GetMetaParams
+	params       *traverser.MetaParams
 	nameSource   nameSource
 	typeSource   typeSource
 	filterSource filterSource
 }
 
-func NewQuery(params *traverser.GetMetaParams, nameSource nameSource, typeSource typeSource,
+func NewQuery(params *traverser.MetaParams, nameSource nameSource, typeSource typeSource,
 	filterSource filterSource) *Query {
 	return &Query{
 		params:       params,
@@ -75,7 +75,7 @@ func (b *Query) String() (string, error) {
 
 	filterQuery, err := b.filterSource.String()
 	if err != nil {
-		return "", fmt.Errorf("could not extract filters from GetMeta query: %s", err)
+		return "", fmt.Errorf("could not extract filters from Meta query: %s", err)
 	}
 
 	q = q.Raw(filterQuery)
