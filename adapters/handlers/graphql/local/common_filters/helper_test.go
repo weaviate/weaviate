@@ -33,8 +33,8 @@ func newMockResolver() *mockResolver {
 				Description: "Filter options for the Get search, to convert the data to the filter input",
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
-						Name:        "WeaviateLocalGetWhereInpObj",
-						Fields:      BuildNew("WeaviateLocalGet"),
+						Name:        "GetWhereInpObj",
+						Fields:      BuildNew("Get"),
 						Description: "",
 					},
 				),

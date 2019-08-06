@@ -28,19 +28,22 @@ import (
 func TestCanAddSingleNetworkRef(t *testing.T) {
 	networkRefID := "711da979-4b0b-41e2-bcb8-fcc03554c7c8"
 	actionID := assertCreateAction(t, "TestAction", map[string]interface{}{
-		"testReference": map[string]interface{}{
-			"$cref": strfmt.UUID(fmt.Sprintf("weaviate://RemoteWeaviateForAcceptanceTest/things/%s", networkRefID)),
+		"testReference": []interface{}{
+			map[string]interface{}{
+				"beacon": strfmt.UUID(fmt.Sprintf("weaviate://RemoteWeaviateForAcceptanceTest/things/%s", networkRefID)),
+			},
 		},
 	})
 	assertGetActionEventually(t, actionID)
 
 	t.Run("it can query the resource again to verify the cross ref was added", func(t *testing.T) {
 		action := assertGetAction(t, actionID)
-		rawCref := action.Schema.(map[string]interface{})["testReference"]
-		require.NotNil(t, rawCref, "cross-ref is present")
+		list := action.Schema.(map[string]interface{})["testReference"]
+		require.NotNil(t, list, "cross-ref is present")
+		rawCref := list.([]interface{})[0]
 		cref := rawCref.(map[string]interface{})
 		assert.Equal(t,
-			fmt.Sprintf("weaviate://RemoteWeaviateForAcceptanceTest/things/%s", networkRefID), cref["$cref"])
+			fmt.Sprintf("weaviate://RemoteWeaviateForAcceptanceTest/things/%s", networkRefID), cref["beacon"])
 	})
 
 	t.Run("an implicit schema update has happened, we now include the network ref's class", func(t *testing.T) {
@@ -66,25 +69,28 @@ func TestCanPatchSingleNetworkRef(t *testing.T) {
 	patch := &models.PatchDocument{
 		Op:   &op,
 		Path: &path,
-		Value: map[string]interface{}{
-			"$cref": strfmt.UUID(fmt.Sprintf("weaviate://RemoteWeaviateForAcceptanceTest/things/%s", networkRefID)),
+		Value: []interface{}{
+			map[string]interface{}{
+				"beacon": strfmt.UUID(fmt.Sprintf("weaviate://RemoteWeaviateForAcceptanceTest/things/%s", networkRefID)),
+			},
 		},
 	}
 
 	t.Run("it can apply the patch", func(t *testing.T) {
-		params := actions.NewWeaviateActionsPatchParams().
+		params := actions.NewActionsPatchParams().
 			WithBody([]*models.PatchDocument{patch}).
 			WithID(actionID)
-		patchResp, err := helper.Client(t).Actions.WeaviateActionsPatch(params, nil)
+		patchResp, err := helper.Client(t).Actions.ActionsPatch(params, nil)
 		helper.AssertRequestOk(t, patchResp, err, nil)
 	})
 
 	t.Run("it can query the resource again to verify the cross ref was added", func(t *testing.T) {
 		patchedAction := assertGetAction(t, actionID)
-		rawCref := patchedAction.Schema.(map[string]interface{})["testReference"]
-		require.NotNil(t, rawCref, "cross-ref is present")
+		list := patchedAction.Schema.(map[string]interface{})["testReference"]
+		require.NotNil(t, list, "cross-ref is present")
+		rawCref := list.([]interface{})[0]
 		cref := rawCref.(map[string]interface{})
-		assert.Equal(t, fmt.Sprintf("weaviate://RemoteWeaviateForAcceptanceTest/things/%s", networkRefID), cref["$cref"])
+		assert.Equal(t, fmt.Sprintf("weaviate://RemoteWeaviateForAcceptanceTest/things/%s", networkRefID), cref["beacon"])
 	})
 
 	t.Run("an implicit schema update has happened, we now include the network ref's class", func(t *testing.T) {

@@ -25,7 +25,7 @@ import (
 
 const AnalyticsAPICachePrefix = "/weaviate/janusgraph-connector/analytics-cache/"
 
-// Processor is a simple Gremlin-Query Executor that is specific to GetMeta in
+// Processor is a simple Gremlin-Query Executor that is specific to Meta in
 // that it merges the results into the expected format and applies
 // post-processing where necessary
 type Processor struct {
@@ -51,7 +51,7 @@ func NewProcessor(executor executor, cache etcdClient, analytics analyticsClient
 }
 
 func (p *Processor) Process(ctx context.Context, query *gremlin.Query, typeInfo map[string]interface{},
-	params *traverser.GetMetaParams) (interface{}, error) {
+	params *traverser.MetaParams) (interface{}, error) {
 
 	result, err := p.getResult(ctx, query, params)
 	if err != nil {
@@ -67,7 +67,7 @@ func (p *Processor) Process(ctx context.Context, query *gremlin.Query, typeInfo 
 	return merged, nil
 }
 
-func (p *Processor) getResult(ctx context.Context, query *gremlin.Query, params *traverser.GetMetaParams) ([]interface{}, error) {
+func (p *Processor) getResult(ctx context.Context, query *gremlin.Query, params *traverser.MetaParams) ([]interface{}, error) {
 	if params.Analytics.UseAnaltyicsEngine == false {
 		result, err := p.executor.Execute(ctx, query)
 		if err != nil {
@@ -81,7 +81,7 @@ func (p *Processor) getResult(ctx context.Context, query *gremlin.Query, params 
 }
 
 func (p *Processor) mergeResults(input []interface{},
-	typeInfo map[string]interface{}, params *traverser.GetMetaParams) (interface{}, error) {
+	typeInfo map[string]interface{}, params *traverser.MetaParams) (interface{}, error) {
 	result := map[string]interface{}{}
 
 	for _, datum := range input {
@@ -132,7 +132,7 @@ func (p *Processor) mergeResults(input []interface{},
 }
 
 func (p *Processor) postProcess(propName string, m map[string]interface{},
-	params *traverser.GetMetaParams) (map[string]interface{}, error) {
+	params *traverser.MetaParams) (map[string]interface{}, error) {
 
 	if hasBoolAnalyses(propName, params) {
 		return p.postProcessBoolGroupCount(m)
@@ -170,7 +170,7 @@ func datumsToSlice(g *gremlin.Response) []interface{} {
 	return res
 }
 
-func hasBoolAnalyses(propName string, params *traverser.GetMetaParams) bool {
+func hasBoolAnalyses(propName string, params *traverser.MetaParams) bool {
 	for _, prop := range params.Properties {
 		if string(prop.Name) == propName && hasAtLeastOneBooleanAnalysis(prop.StatisticalAnalyses) {
 			return true

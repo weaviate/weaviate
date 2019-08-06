@@ -32,43 +32,43 @@ func Build(dbSchema *schema.Schema, config config.Config) (*graphql.Field, error
 
 	getMetaKinds := graphql.Fields{}
 	if len(dbSchema.Actions.Classes) > 0 {
-		localGetMetaActions, err := classFields(dbSchema.Actions.Classes, kind.Action, config)
+		localMetaActions, err := classFields(dbSchema.Actions.Classes, kind.Action, config)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate action fields from schema for local MetaGet because: %v", err)
 		}
 
 		getMetaKinds["Actions"] = &graphql.Field{
-			Name:        "WeaviateLocalGetMetaActions",
-			Description: descriptions.LocalGetMetaActions,
-			Type:        localGetMetaActions,
+			Name:        "MetaActions",
+			Description: descriptions.LocalMetaActions,
+			Type:        localMetaActions,
 			Resolve:     passThroughResolver,
 		}
 	}
 
 	if len(dbSchema.Things.Classes) > 0 {
-		localGetMetaThings, err := classFields(dbSchema.Things.Classes, kind.Thing, config)
+		localMetaThings, err := classFields(dbSchema.Things.Classes, kind.Thing, config)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate thing fields from schema for local MetaGet because: %v", err)
 		}
 
 		getMetaKinds["Things"] = &graphql.Field{
-			Name:        "WeaviateLocalGetMetaThings",
-			Description: descriptions.LocalGetMetaThings,
-			Type:        localGetMetaThings,
+			Name:        "MetaThings",
+			Description: descriptions.LocalMetaThings,
+			Type:        localMetaThings,
 			Resolve:     passThroughResolver,
 		}
 	}
 
 	getMetaObj := graphql.NewObject(graphql.ObjectConfig{
-		Name:        "WeaviateLocalGetMetaObj",
+		Name:        "MetaObj",
 		Fields:      getMetaKinds,
 		Description: descriptions.LocalGetObj,
 	})
 
 	localField := &graphql.Field{
-		Name:        "WeaviateLocalGetMeta",
+		Name:        "Meta",
 		Type:        getMetaObj,
-		Description: descriptions.LocalGetMeta,
+		Description: descriptions.LocalMeta,
 		Resolve:     passThroughResolver,
 	}
 

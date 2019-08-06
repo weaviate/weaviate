@@ -64,13 +64,13 @@ func Test_ReferencesAdd_CardinalityMany(t *testing.T) {
 		}
 		schemaManager.GetSchemaResponse = zooAnimalSchemaForTest()
 		newRef := &models.SingleRef{
-			NrDollarCref: strfmt.URI("weaviate://localhost/things/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7"),
+			Beacon: strfmt.URI("weaviate://localhost/things/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7"),
 		}
 		expectedSchema := map[string]interface{}{
 			"name": "MyZoo",
 			"hasAnimals": []interface{}{
 				&models.SingleRef{
-					NrDollarCref: strfmt.URI("weaviate://localhost/things/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7"),
+					Beacon: strfmt.URI("weaviate://localhost/things/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7"),
 				},
 			},
 		}
@@ -89,23 +89,23 @@ func Test_ReferencesAdd_CardinalityMany(t *testing.T) {
 				"name": "MyZoo",
 				"hasAnimals": []interface{}{
 					&models.SingleRef{
-						NrDollarCref: strfmt.URI("weaviate://localhost/things/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7"),
+						Beacon: strfmt.URI("weaviate://localhost/things/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7"),
 					},
 				},
 			},
 		}
 		schemaManager.GetSchemaResponse = zooAnimalSchemaForTest()
 		newRef := &models.SingleRef{
-			NrDollarCref: strfmt.URI("weaviate://localhost/things/1dd50566-93ce-4f68-81a2-2dfff2ab7835"),
+			Beacon: strfmt.URI("weaviate://localhost/things/1dd50566-93ce-4f68-81a2-2dfff2ab7835"),
 		}
 		expectedSchema := map[string]interface{}{
 			"name": "MyZoo",
 			"hasAnimals": []interface{}{
 				&models.SingleRef{
-					NrDollarCref: strfmt.URI("weaviate://localhost/things/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7"),
+					Beacon: strfmt.URI("weaviate://localhost/things/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7"),
 				},
 				&models.SingleRef{
-					NrDollarCref: strfmt.URI("weaviate://localhost/things/1dd50566-93ce-4f68-81a2-2dfff2ab7835"),
+					Beacon: strfmt.URI("weaviate://localhost/things/1dd50566-93ce-4f68-81a2-2dfff2ab7835"),
 				},
 			},
 		}

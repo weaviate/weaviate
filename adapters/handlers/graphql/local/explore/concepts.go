@@ -24,7 +24,7 @@ import (
 // Build builds the object containing the Local->Explore Fields, such as Things/Actions
 func Build() *graphql.Field {
 	return &graphql.Field{
-		Name:        "WeaviateLocalExplore",
+		Name:        "Explore",
 		Description: descriptions.LocalExplore,
 		Type:        graphql.NewList(exploreObject()),
 		Resolve:     resolve,
@@ -49,7 +49,7 @@ func Build() *graphql.Field {
 				Description: descriptions.VectorMovement,
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
-						Name:   "WeaviateLocalExploreMoveTo",
+						Name:   "ExploreMoveTo",
 						Fields: movementInp(),
 					}),
 			},
@@ -57,7 +57,7 @@ func Build() *graphql.Field {
 				Description: descriptions.VectorMovement,
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
-						Name:   "WeaviateLocalExploreMoveAwayFrom",
+						Name:   "ExploreMoveAwayFrom",
 						Fields: movementInp(),
 					}),
 			},
@@ -68,7 +68,7 @@ func Build() *graphql.Field {
 func exploreObject() *graphql.Object {
 	getLocalExploreFields := graphql.Fields{
 		"className": &graphql.Field{
-			Name:        "WeaviateLocalExploreClassName",
+			Name:        "ExploreClassName",
 			Description: descriptions.ClassName,
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
@@ -82,7 +82,7 @@ func exploreObject() *graphql.Object {
 		},
 
 		"beacon": &graphql.Field{
-			Name:        "WeaviateLocalExploreBeacon",
+			Name:        "ExploreBeacon",
 			Description: descriptions.Beacon,
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
@@ -96,7 +96,7 @@ func exploreObject() *graphql.Object {
 		},
 
 		"certainty": &graphql.Field{
-			Name:        "WeaviateLocalExploreBeacon",
+			Name:        "ExploreBeacon",
 			Description: descriptions.Distance,
 			Type:        graphql.Float,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
@@ -111,7 +111,7 @@ func exploreObject() *graphql.Object {
 	}
 
 	getLocalExploreFieldsObject := graphql.ObjectConfig{
-		Name:        "WeaviateLocalExploreObj",
+		Name:        "ExploreObj",
 		Fields:      getLocalExploreFields,
 		Description: descriptions.LocalExplore,
 	}

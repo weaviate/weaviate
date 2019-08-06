@@ -26,20 +26,31 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// SingleRef single ref
+// SingleRef Either set beacon (direct reference) or set class and schema (concept reference)
 // swagger:model SingleRef
 type SingleRef struct {
 
-	// URI to point to the cross-ref. Should be in the form of weaviate://localhost/things/<uuid> for the example of a local cross-ref to a thing
+	// If using a direct reference, specify the URI to point to the cross-ref here. Should be in the form of weaviate://localhost/things/<uuid> for the example of a local cross-ref to a thing
 	// Format: uri
-	NrDollarCref strfmt.URI `json:"$cref,omitempty"`
+	Beacon strfmt.URI `json:"beacon,omitempty"`
+
+	// If using a concept reference (rather than a direct reference), specify the desired class name here
+	// Format: uri
+	Class strfmt.URI `json:"class,omitempty"`
+
+	// If using a concept reference (rather than a direct reference), specify the desired properties here
+	Schema PropertySchema `json:"schema,omitempty"`
 }
 
 // Validate validates this single ref
 func (m *SingleRef) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateNrDollarCref(formats); err != nil {
+	if err := m.validateBeacon(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateClass(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -49,13 +60,26 @@ func (m *SingleRef) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *SingleRef) validateNrDollarCref(formats strfmt.Registry) error {
+func (m *SingleRef) validateBeacon(formats strfmt.Registry) error {
 
-	if swag.IsZero(m.NrDollarCref) { // not required
+	if swag.IsZero(m.Beacon) { // not required
 		return nil
 	}
 
-	if err := validate.FormatOf("$cref", "body", "uri", m.NrDollarCref.String(), formats); err != nil {
+	if err := validate.FormatOf("beacon", "body", "uri", m.Beacon.String(), formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *SingleRef) validateClass(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Class) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("class", "body", "uri", m.Class.String(), formats); err != nil {
 		return err
 	}
 

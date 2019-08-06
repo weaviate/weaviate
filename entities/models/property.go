@@ -36,7 +36,7 @@ type Property struct {
 	// Enum: [atMostOne many]
 	Cardinality *string `json:"cardinality,omitempty"`
 
-	// Can be a reference ($cref) to another type when it starts with a capital (for example Person), otherwise "string" or "int".
+	// Can be a reference to another type when it starts with a capital (for example Person), otherwise "string" or "int".
 	DataType []string `json:"dataType"`
 
 	// Description of the property.

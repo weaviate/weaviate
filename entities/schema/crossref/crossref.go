@@ -73,7 +73,7 @@ func Parse(uriString string) (*Ref, error) {
 // helper construct that represents the API structure. It will error if any of
 // the input parameters are not as expected.
 func ParseSingleRef(singleRef *models.SingleRef) (*Ref, error) {
-	return Parse(string(singleRef.NrDollarCref))
+	return Parse(string(singleRef.Beacon))
 }
 
 // New is a safe way to generate a Reference, as all required arguments must be
@@ -116,6 +116,6 @@ func pluralizeKindName(k kind.Kind) string {
 // containing a stringified representation (URI format) of the Ref
 func (r *Ref) SingleRef() *models.SingleRef {
 	return &models.SingleRef{
-		NrDollarCref: strfmt.URI(r.String()),
+		Beacon: strfmt.URI(r.String()),
 	}
 }

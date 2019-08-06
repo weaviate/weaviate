@@ -148,7 +148,7 @@ func removeRef(refs []interface{}, property *models.SingleRef) []interface{} {
 	// Remove if this reference is found.
 	for i, current := range refs {
 		currentRef := current.(*models.SingleRef)
-		if currentRef.NrDollarCref != property.NrDollarCref {
+		if currentRef.Beacon != property.Beacon {
 			continue
 		}
 

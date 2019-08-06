@@ -28,20 +28,20 @@ type batchKindHandlers struct {
 	requestsLog *telemetry.RequestsLog
 }
 
-func (h *batchKindHandlers) addThings(params operations.WeaviateBatchingThingsCreateParams,
+func (h *batchKindHandlers) addThings(params operations.BatchingThingsCreateParams,
 	principal *models.Principal) middleware.Responder {
 	things, err := h.manager.AddThings(params.HTTPRequest.Context(), principal,
 		params.Body.Things, params.Body.Fields)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return operations.NewWeaviateBatchingThingsCreateForbidden().
+			return operations.NewBatchingThingsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
-			return operations.NewWeaviateBatchingThingsCreateUnprocessableEntity().
+			return operations.NewBatchingThingsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return operations.NewWeaviateBatchingThingsCreateInternalServerError().
+			return operations.NewBatchingThingsCreateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
@@ -49,7 +49,7 @@ func (h *batchKindHandlers) addThings(params operations.WeaviateBatchingThingsCr
 	for range params.Body.Things {
 		h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalAdd)
 	}
-	return operations.NewWeaviateBatchingThingsCreateOK().
+	return operations.NewBatchingThingsCreateOK().
 		WithPayload(h.thingsResponse(things))
 }
 
@@ -73,20 +73,20 @@ func (h *batchKindHandlers) thingsResponse(input kinds.BatchThings) []*models.Th
 	return response
 }
 
-func (h *batchKindHandlers) addActions(params operations.WeaviateBatchingActionsCreateParams,
+func (h *batchKindHandlers) addActions(params operations.BatchingActionsCreateParams,
 	principal *models.Principal) middleware.Responder {
 	actions, err := h.manager.AddActions(params.HTTPRequest.Context(), principal,
 		params.Body.Actions, params.Body.Fields)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return operations.NewWeaviateBatchingActionsCreateForbidden().
+			return operations.NewBatchingActionsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
-			return operations.NewWeaviateBatchingActionsCreateUnprocessableEntity().
+			return operations.NewBatchingActionsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return operations.NewWeaviateBatchingActionsCreateInternalServerError().
+			return operations.NewBatchingActionsCreateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
@@ -94,7 +94,7 @@ func (h *batchKindHandlers) addActions(params operations.WeaviateBatchingActions
 	for range params.Body.Actions {
 		h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalAdd)
 	}
-	return operations.NewWeaviateBatchingActionsCreateOK().
+	return operations.NewBatchingActionsCreateOK().
 		WithPayload(h.actionsResponse(actions))
 }
 
@@ -118,19 +118,19 @@ func (h *batchKindHandlers) actionsResponse(input kinds.BatchActions) []*models.
 	return response
 }
 
-func (h *batchKindHandlers) addReferences(params operations.WeaviateBatchingReferencesCreateParams,
+func (h *batchKindHandlers) addReferences(params operations.BatchingReferencesCreateParams,
 	principal *models.Principal) middleware.Responder {
 	references, err := h.manager.AddReferences(params.HTTPRequest.Context(), principal, params.Body)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return operations.NewWeaviateBatchingReferencesCreateForbidden().
+			return operations.NewBatchingReferencesCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
-			return operations.NewWeaviateBatchingReferencesCreateUnprocessableEntity().
+			return operations.NewBatchingReferencesCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return operations.NewWeaviateBatchingReferencesCreateInternalServerError().
+			return operations.NewBatchingReferencesCreateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
@@ -138,7 +138,7 @@ func (h *batchKindHandlers) addReferences(params operations.WeaviateBatchingRefe
 	for range params.Body {
 		h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
 	}
-	return operations.NewWeaviateBatchingReferencesCreateOK().
+	return operations.NewBatchingReferencesCreateOK().
 		WithPayload(h.referencesResponse(references))
 }
 
@@ -172,12 +172,12 @@ func (h *batchKindHandlers) referencesResponse(input kinds.BatchReferences) []*m
 func setupKindBatchHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog, manager *kinds.BatchManager) {
 	h := &batchKindHandlers{manager, requestsLog}
 
-	api.WeaviateBatchingThingsCreateHandler = operations.
-		WeaviateBatchingThingsCreateHandlerFunc(h.addThings)
-	api.WeaviateBatchingActionsCreateHandler = operations.
-		WeaviateBatchingActionsCreateHandlerFunc(h.addActions)
-	api.WeaviateBatchingReferencesCreateHandler = operations.
-		WeaviateBatchingReferencesCreateHandlerFunc(h.addReferences)
+	api.BatchingThingsCreateHandler = operations.
+		BatchingThingsCreateHandlerFunc(h.addThings)
+	api.BatchingActionsCreateHandler = operations.
+		BatchingActionsCreateHandlerFunc(h.addActions)
+	api.BatchingReferencesCreateHandler = operations.
+		BatchingReferencesCreateHandlerFunc(h.addReferences)
 }
 
 func (h *batchKindHandlers) telemetryLogAsync(requestType, identifier string) {

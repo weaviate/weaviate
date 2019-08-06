@@ -23,11 +23,11 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
-func Test_ExtractAnalyticsPropsFromGetMeta(t *testing.T) {
+func Test_ExtractAnalyticsPropsFromMeta(t *testing.T) {
 	t.Parallel()
 
 	query :=
-		"{ GetMeta { Things { Car(forceRecalculate: true, useAnalyticsEngine: true) { horsepower { mean } } } } }"
+		"{ Meta { Things { Car(forceRecalculate: true, useAnalyticsEngine: true) { horsepower { mean } } } } }"
 	analytics := filters.AnalyticsProps{
 		UseAnaltyicsEngine: true,
 		ForceRecalculate:   true,
@@ -37,7 +37,7 @@ func Test_ExtractAnalyticsPropsFromGetMeta(t *testing.T) {
 			Enabled: true,
 		},
 	}
-	expectedParams := &traverser.GetMetaParams{
+	expectedParams := &traverser.MetaParams{
 		Kind:      kind.Thing,
 		ClassName: schema.ClassName("Car"),
 		Properties: []traverser.MetaProperty{
@@ -49,7 +49,7 @@ func Test_ExtractAnalyticsPropsFromGetMeta(t *testing.T) {
 		Analytics: analytics,
 	}
 	resolver := newMockResolver(cfg)
-	resolver.On("LocalGetMeta", expectedParams).
+	resolver.On("LocalMeta", expectedParams).
 		Return(map[string]interface{}{}, nil).Once()
 
 	resolver.AssertResolve(t, query)

@@ -38,60 +38,60 @@ type Client struct {
 }
 
 /*
-WeaviateP2pGenesisUpdate Receive an update from the Genesis server.
+P2pGenesisUpdate Receive an update from the Genesis server.
 */
-func (a *Client) WeaviateP2pGenesisUpdate(params *WeaviateP2pGenesisUpdateParams) (*WeaviateP2pGenesisUpdateOK, error) {
+func (a *Client) P2pGenesisUpdate(params *P2pGenesisUpdateParams) (*P2pGenesisUpdateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateP2pGenesisUpdateParams()
+		params = NewP2pGenesisUpdateParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.p2p.genesis_update",
+		ID:                 "p2p.genesis_update",
 		Method:             "PUT",
 		PathPattern:        "/p2p/genesis",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateP2pGenesisUpdateReader{formats: a.formats},
+		Reader:             &P2pGenesisUpdateReader{formats: a.formats},
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateP2pGenesisUpdateOK), nil
+	return result.(*P2pGenesisUpdateOK), nil
 
 }
 
 /*
-WeaviateP2pHealth checks if a peer is alive
+P2pHealth checks if a peer is alive
 
 Check if a peer is alive and healthy.
 */
-func (a *Client) WeaviateP2pHealth(params *WeaviateP2pHealthParams) (*WeaviateP2pHealthOK, error) {
+func (a *Client) P2pHealth(params *P2pHealthParams) (*P2pHealthOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewWeaviateP2pHealthParams()
+		params = NewP2pHealthParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.p2p.health",
+		ID:                 "p2p.health",
 		Method:             "GET",
 		PathPattern:        "/p2p/health",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &WeaviateP2pHealthReader{formats: a.formats},
+		Reader:             &P2pHealthReader{formats: a.formats},
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateP2pHealthOK), nil
+	return result.(*P2pHealthOK), nil
 
 }
 

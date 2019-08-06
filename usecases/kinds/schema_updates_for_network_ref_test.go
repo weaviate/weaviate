@@ -50,7 +50,7 @@ func TestSchemaUpdaterWithOnlyLocalRefs(t *testing.T) {
 	err := newReferenceSchemaUpdater(context.TODO(), nil, nil, nil, "FooThing", kind.Thing).
 		addNetworkDataTypes(map[string]interface{}{
 			"fooRef": &models.SingleRef{
-				NrDollarCref: strfmt.URI(loc),
+				Beacon: strfmt.URI(loc),
 			},
 		})
 
@@ -70,7 +70,7 @@ func TestSchemaUpdaterWithSingleNetworkRefFromThingToThing(t *testing.T) {
 	err := newReferenceSchemaUpdater(context.TODO(), nil, schemaManager, network, "FooThing", kind.Thing).
 		addNetworkDataTypes(map[string]interface{}{
 			"fooRef": &models.SingleRef{
-				NrDollarCref: strfmt.URI(loc),
+				Beacon: strfmt.URI(loc),
 			},
 		})
 
@@ -101,7 +101,7 @@ func TestSchemaUpdaterWithSingleNetworkRefFromActinToThing(t *testing.T) {
 	err := newReferenceSchemaUpdater(context.TODO(), nil, schemaManager, network, "FooAction", kind.Action).
 		addNetworkDataTypes(map[string]interface{}{
 			"fooRef": &models.SingleRef{
-				NrDollarCref: strfmt.URI(loc),
+				Beacon: strfmt.URI(loc),
 			},
 		})
 

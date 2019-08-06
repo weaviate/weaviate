@@ -53,7 +53,7 @@ func updatePeerWithList() {
 	// most likely this will become irrelevant as
 	// the p2p feature will only run in docker-compose
 	localPeerOrigin := getEnvOrDefault("LOCAL_PEER_URI", "http://docker.for.mac.localhost:8080")
-	req, err := http.NewRequest("PUT", fmt.Sprintf("%s/weaviate/v1/p2p/genesis", localPeerOrigin), bytes.NewReader(payloadBytes))
+	req, err := http.NewRequest("PUT", fmt.Sprintf("%s/v1/p2p/genesis", localPeerOrigin), bytes.NewReader(payloadBytes))
 	req.Header.Set("Content-Type", "application/json")
 	if err != nil {
 		log.Printf("could create put request: %s", err)

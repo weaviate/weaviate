@@ -272,7 +272,7 @@ In the [RESTful API](./RESTful.md) this will be shown as:
         "schema": {
             "name": "SomeOtherClass",
             "someProperty": {
-                "$cref": "weaviate://localhost/things/6406759e-f6fb-47ba-a537-1a62728d2f55"
+                "beacon": "weaviate://localhost/things/6406759e-f6fb-47ba-a537-1a62728d2f55"
             }
         }
     }

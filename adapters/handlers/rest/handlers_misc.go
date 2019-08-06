@@ -14,6 +14,8 @@
 package rest
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 
 	middleware "github.com/go-openapi/runtime/middleware"
@@ -33,32 +35,53 @@ type schemaManager interface {
 	GetSchemaSkipAuth() schema.Schema
 }
 
+type swaggerJSON struct {
+	Info struct {
+		Version string `json:"version"`
+	} `json:"info"`
+}
+
+type c11yMetaProvider interface {
+	Version(ctx context.Context) (string, error)
+	WordCount(ctx context.Context) (int64, error)
+}
+
 func setupMiscHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog,
-	serverConfig *config.WeaviateConfig, network network.Network, schemaManager schemaManager) {
-	api.MetaWeaviateMetaGetHandler = meta.WeaviateMetaGetHandlerFunc(func(params meta.WeaviateMetaGetParams, principal *models.Principal) middleware.Responder {
-		s, err := schemaManager.GetSchema(principal)
+	serverConfig *config.WeaviateConfig, network network.Network, schemaManager schemaManager, c11y c11yMetaProvider) {
+
+	var swj swaggerJSON
+	err := json.Unmarshal(SwaggerJSON, &swj)
+	if err != nil {
+		panic(err)
+	}
+
+	api.MetaMetaGetHandler = meta.MetaGetHandlerFunc(func(params meta.MetaGetParams, principal *models.Principal) middleware.Responder {
+		// Create response object
+		c11yVersion, err := c11y.Version(context.Background())
 		if err != nil {
-			return meta.NewWeaviateMetaGetForbidden().WithPayload(errPayloadFromSingleErr(err))
+			return meta.NewMetaGetInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 		}
 
-		databaseSchema := schema.HackFromDatabaseSchema(s)
+		c11yWordCount, err := c11y.WordCount(context.Background())
+		if err != nil {
+			return meta.NewMetaGetInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+		}
 
-		// Create response object
-		metaResponse := &models.Meta{}
-
-		// Set the response object's values
-		metaResponse.Hostname = serverConfig.GetHostAddress()
-		metaResponse.ActionsSchema = databaseSchema.ActionSchema.Schema
-		metaResponse.ThingsSchema = databaseSchema.ThingSchema.Schema
+		res := &models.Meta{
+			Hostname:               serverConfig.GetHostAddress(),
+			Version:                swj.Info.Version,
+			ContextionaryVersion:   c11yVersion,
+			ContextionaryWordCount: c11yWordCount,
+		}
 
 		// Register the request
 		go func() {
 			requestsLog.Register(telemetry.TypeREST, telemetry.LocalQueryMeta)
 		}()
-		return meta.NewWeaviateMetaGetOK().WithPayload(metaResponse)
+		return meta.NewMetaGetOK().WithPayload(res)
 	})
 
-	api.P2PWeaviateP2pGenesisUpdateHandler = p2_p.WeaviateP2pGenesisUpdateHandlerFunc(func(params p2_p.WeaviateP2pGenesisUpdateParams) middleware.Responder {
+	api.P2PP2pGenesisUpdateHandler = p2_p.P2pGenesisUpdateHandlerFunc(func(params p2_p.P2pGenesisUpdateParams) middleware.Responder {
 		newPeers := make([]peers.Peer, 0)
 
 		for _, genesisPeer := range params.Peers {
@@ -79,14 +102,14 @@ func setupMiscHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Reque
 			go func() {
 				requestsLog.Register(telemetry.TypeREST, telemetry.NetworkQueryMeta)
 			}()
-			return p2_p.NewWeaviateP2pGenesisUpdateOK()
+			return p2_p.NewP2pGenesisUpdateOK()
 		}
-		return p2_p.NewWeaviateP2pGenesisUpdateInternalServerError()
+		return p2_p.NewP2pGenesisUpdateInternalServerError()
 	})
 
-	api.P2PWeaviateP2pHealthHandler = p2_p.WeaviateP2pHealthHandlerFunc(func(params p2_p.WeaviateP2pHealthParams) middleware.Responder {
+	api.P2PP2pHealthHandler = p2_p.P2pHealthHandlerFunc(func(params p2_p.P2pHealthParams) middleware.Responder {
 		// For now, always just return success.
-		return middleware.NotImplemented("operation P2PWeaviateP2pHealth has not yet been implemented")
+		return middleware.NotImplemented("operation P2PP2pHealth has not yet been implemented")
 	})
 
 	api.GetWellKnownOpenidConfigurationHandler = operations.GetWellKnownOpenidConfigurationHandlerFunc(

@@ -44,7 +44,7 @@ import (
 // Create a client that logs with t.Logf, if a *testing.T is provided.
 // If there is no test case at hand, pass in nil to disable logging.
 func Client(t *testing.T) *apiclient.WeaviateDecentralisedKnowledgeGraph {
-	transport := httptransport.New(fmt.Sprintf("%s:%s", ServerHost, ServerPort), "/weaviate/v1", []string{ServerScheme})
+	transport := httptransport.New(fmt.Sprintf("%s:%s", ServerHost, ServerPort), "/v1", []string{ServerScheme})
 
 	// If a test case is provided, and we want to dump HTTP trafic,
 	// create a simple logger that logs HTTP trafic to the test case.

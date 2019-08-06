@@ -28,17 +28,17 @@ import (
 
 const (
 	// ErrorInvalidSingleRef message
-	ErrorInvalidSingleRef string = "class '%s' with property '%s' requires exactly 1 arguments: '$cref'. Check your input schema, got: %#v"
+	ErrorInvalidSingleRef string = "only direct references supported at the moment, concept references not supported yet: class '%s' with property '%s' requires exactly 1 arguments: 'beacon'. Check your input schema, got: %#v"
 	// ErrorMissingSingleRefCRef message
-	ErrorMissingSingleRefCRef string = "class '%s' with property '%s' requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. '$cref' is missing, check your input schema"
+	ErrorMissingSingleRefCRef string = "only direct references supported at the moment, concept references not supported yet:  class '%s' with property '%s' requires exactly 1 argument: 'beacon' is missing, check your input schema"
 	// ErrorCrefInvalidURI message
 	ErrorCrefInvalidURI string = "class '%s' with property '%s' is not a valid URI: %s"
 	// ErrorCrefInvalidURIPath message
 	ErrorCrefInvalidURIPath string = "class '%s' with property '%s' does not contain a valid path, must have 2 segments: /<kind>/<id>"
 	// ErrorMissingSingleRefLocationURL message
-	ErrorMissingSingleRefLocationURL string = "class '%s' with property '%s' requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. 'locationUrl' is missing, check your input schema"
+	ErrorMissingSingleRefLocationURL string = "class '%s' with property '%s' requires exactly 3 arguments: 'beacon', 'locationUrl' and 'type'. 'locationUrl' is missing, check your input schema"
 	// ErrorMissingSingleRefType message
-	ErrorMissingSingleRefType string = "class '%s' with property '%s' requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. 'type' is missing, check your input schema"
+	ErrorMissingSingleRefType string = "class '%s' with property '%s' requires exactly 3 arguments: 'beacon', 'locationUrl' and 'type'. 'type' is missing, check your input schema"
 )
 
 // ValidateSchemaInBody Validate the schema in the given body
@@ -155,19 +155,14 @@ func cRef(ctx context.Context, pv interface{}, dbConnector getRepo, network peer
 	serverConfig *config.WeaviateConfig, className, propertyName string) (interface{}, error) {
 	switch refValue := pv.(type) {
 	case map[string]interface{}:
-		cref, err := parseAndValidateSingleRef(ctx, dbConnector, network, serverConfig, refValue, className, propertyName)
-		if err != nil {
-			return nil, err
-		}
-
-		return cref, nil
+		return nil, fmt.Errorf("reference must be an array, but got a map: %#v", refValue)
 	case []interface{}:
 		crefs := models.MultipleRef{}
 		for _, ref := range refValue {
 
 			refTyped, ok := ref.(map[string]interface{})
 			if !ok {
-				return nil, fmt.Errorf("Multiple references in %s.%s should be a list of maps, but we got: %t",
+				return nil, fmt.Errorf("Multiple references in %s.%s should be a list of maps, but we got: %T",
 					className, propertyName, ref)
 			}
 
@@ -181,7 +176,7 @@ func cRef(ctx context.Context, pv interface{}, dbConnector getRepo, network peer
 
 		return crefs, nil
 	default:
-		return nil, fmt.Errorf("invalid ref type. Needs to be either map or []map")
+		return nil, fmt.Errorf("invalid ref type. Needs to be []map")
 	}
 }
 
@@ -336,8 +331,8 @@ func parseAndValidateSingleRef(ctx context.Context, dbConnector getRepo, network
 			propertyName,
 			pvcr,
 		)
-	} else if _, ok := pvcr["$cref"]; !ok {
-		// Give an error if the cref is not filled with correct properties ($cref)
+	} else if _, ok := pvcr["beacon"]; !ok {
+		// Give an error if the cref is not filled with correct properties (beacon)
 		return nil, fmt.Errorf(
 			ErrorMissingSingleRefCRef,
 			className,
@@ -345,7 +340,7 @@ func parseAndValidateSingleRef(ctx context.Context, dbConnector getRepo, network
 		)
 	}
 
-	ref, err := crossref.Parse(pvcr["$cref"].(string))
+	ref, err := crossref.Parse(pvcr["beacon"].(string))
 	if err != nil {
 		return nil, fmt.Errorf("invalid reference: %s", err)
 	}

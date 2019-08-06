@@ -37,7 +37,7 @@ type graphiqlData struct {
 
 func AddMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/weaviate/v1/graphql") && r.Method == http.MethodGet {
+		if strings.HasPrefix(r.URL.Path, "/v1/graphql") && r.Method == http.MethodGet {
 			renderGraphiQL(w, r)
 		} else {
 			next.ServeHTTP(w, r)

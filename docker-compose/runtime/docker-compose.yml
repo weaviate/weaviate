@@ -7,7 +7,7 @@ services:
     ports:
      - "80:80"
   weaviate:
-    image: semitechnologies/weaviate:0.18.1
+    image: semitechnologies/weaviate:preview-0.19.0-gql-changes
     command: 
       - "--host"
       - "0.0.0.0"
@@ -25,7 +25,7 @@ services:
     volumes:
      - ./config.yaml:/config.yaml
   contextionary:
-    image: semitechnologies/contextionary:en0.8.0-v0.3.0
+    image: semitechnologies/contextionary:en0.8.0-v0.3.2
     ports:
       - "9999:9999"
     environment:

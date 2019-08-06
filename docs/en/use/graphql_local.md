@@ -9,7 +9,7 @@
 - [Query a local Weaviate](#query-a-local-weaviate)
 - [Query structure](#query-structure)
 - [Get function](#get-function)
-- [GetMeta function](#getmeta-function)
+- [Meta function](#getmeta-function)
 - [Fetch function](#fetch-function)
   - [Fetch Things and Actions](#fetch-things-and-actions)
   - [Fuzzy Fetch](#fuzzy-fetch)
@@ -36,7 +36,7 @@ Data for Weaviate is devided into `Things` and `Actions`, this distinction is al
       Things
       Actions
     }
-    GetMeta {
+    Meta {
       Things
       Actions
     }
@@ -96,7 +96,7 @@ With the Local Get function, information about specific classes can be queried. 
 ```
 
 
-## GetMeta function
+## Meta function
 
 Generic meta data about classes and its properties can be queried. Property meta information consists of general meta information about classes and their properties, like the data `type` of property. In addition, certain statistics about nodes in classes can be retrieved. Examples are the `count` of nodes in the (potentially filtered) dataset. For different type of properties, different statistical meta information can be queried: 
 - `String`: 
@@ -136,7 +136,7 @@ The query below returns metadata of the nodes in the class `Animal`.
 ``` graphql 
 {
   Local {
-    GetMeta {
+    Meta {
       Things {
         Animal {
           meta {
@@ -284,7 +284,7 @@ The query below groups all the cities in a local Weaviate on the name of the cou
 ## Parameters
 
 ## Where filter
-For both functions `Get` and `GetMeta` in the Local Query filtering is possible. In the query introducted in the [Get function](#get-function) section, the result will contain the name and age of all the animals, and in which zoo they are. If you only want to `Get` all the Animals younger than 5 years old and living in the London Zoo, this can be specified in the `where` filter of the class in the `Get` function:
+For both functions `Get` and `Meta` in the Local Query filtering is possible. In the query introducted in the [Get function](#get-function) section, the result will contain the name and age of all the animals, and in which zoo they are. If you only want to `Get` all the Animals younger than 5 years old and living in the London Zoo, this can be specified in the `where` filter of the class in the `Get` function:
 
 ```graphql
 {
@@ -402,12 +402,12 @@ The limit filter (pagination) allows to request a certain amount of Things or Ac
 ### OLAP
 OLAP queries take a long time (minutes to hours) to complete, so there is a way to send an OLAP query, let it run in the background, and come back later to get the results. The query result will be stored in cache. 
 
-This applies to `GetMeta` and `Aggregate` queries, where large amount of data may be processed. An example of how this can be used is:
+This applies to `Meta` and `Aggregate` queries, where large amount of data may be processed. An example of how this can be used is:
 
 ``` graphql
 {
   Local {
-    GetMeta {
+    Meta {
       Things {
         City(groupBy: ["isCapital"],
           forceRecalculate: false,

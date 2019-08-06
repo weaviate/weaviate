@@ -11,7 +11,7 @@ This page explains by an example how the Network fetch works. The design of the 
 ## Index
 - [Network Get](#network-get)
 - [Network Fetch](#network-fetch)
-- [Network GetMeta](#network-getmeta)
+- [Network Meta](#network-getmeta)
 - [Network Aggregate](#network-aggregate)
 - [Other parameters](#other-parameters)
   - [Limit](#limit)
@@ -113,13 +113,13 @@ A `Fuzzy` `Fetch` requires less information in the filter. Only a property value
 ```
 
 
-## Network GetMeta
+## Network Meta
 Just like querying a [local Weaviate](graphql_filters_local#local-get-and-getmeta), meta data about instances in the Network can be retrieved. 
 
 ```graphql
 {
   Network {
-    GetMeta {
+    Meta {
       WeaviateB {
       	Things {
           Airport(where: {

@@ -41,7 +41,7 @@ func Build(dbSchema *schema.Schema, config config.Config) (*graphql.Field, error
 		}
 
 		getKinds["Actions"] = &graphql.Field{
-			Name:        "WeaviateLocalAggregateActions",
+			Name:        "AggregateActions",
 			Description: descriptions.LocalAggregateActions,
 			Type:        localAggregateActions,
 			Resolve:     passThroughResolver,
@@ -55,7 +55,7 @@ func Build(dbSchema *schema.Schema, config config.Config) (*graphql.Field, error
 		}
 
 		getKinds["Things"] = &graphql.Field{
-			Name:        "WeaviateLocalAggregateThings",
+			Name:        "AggregateThings",
 			Description: descriptions.LocalAggregateThings,
 			Type:        localAggregateThings,
 			Resolve:     passThroughResolver,
@@ -63,10 +63,10 @@ func Build(dbSchema *schema.Schema, config config.Config) (*graphql.Field, error
 	}
 
 	field := graphql.Field{
-		Name:        "WeaviateLocalAggregate",
+		Name:        "Aggregate",
 		Description: descriptions.LocalAggregateWhere,
 		Type: graphql.NewObject(graphql.ObjectConfig{
-			Name:        "WeaviateLocalAggregateObj",
+			Name:        "AggregateObj",
 			Fields:      getKinds,
 			Description: descriptions.LocalAggregateObj,
 		}),
@@ -90,7 +90,7 @@ func classFields(databaseSchema []*models.Class, k kind.Kind,
 	}
 
 	return graphql.NewObject(graphql.ObjectConfig{
-		Name:        fmt.Sprintf("WeaviateLocalAggregate%ssObj", k.TitleizedName()),
+		Name:        fmt.Sprintf("Aggregate%ssObj", k.TitleizedName()),
 		Fields:      fields,
 		Description: descriptions.LocalAggregateThingsActionsObj,
 	}), nil
@@ -139,9 +139,9 @@ func classField(k kind.Kind, class *models.Class, description string,
 				Description: descriptions.LocalGetWhere,
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
-						Name: fmt.Sprintf("WeaviateLocalAggregate%ss%sWhereInpObj",
+						Name: fmt.Sprintf("Aggregate%ss%sWhereInpObj",
 							k.TitleizedName(), class.Class),
-						Fields: common_filters.BuildNew(fmt.Sprintf("WeaviateLocalAggregate%ss%s",
+						Fields: common_filters.BuildNew(fmt.Sprintf("Aggregate%ss%s",
 							k.TitleizedName(), class.Class)),
 						Description: descriptions.LocalGetWhereInpObj,
 					},

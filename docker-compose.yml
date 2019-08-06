@@ -50,7 +50,7 @@ services:
     ports:
       - "8080:8080"
   contextionary:
-    image: semitechnologies/contextionary:en0.8.0-v0.3.0
+    image: semitechnologies/contextionary:en0.8.0-v0.3.2
     ports:
       - "9999:9999"
     environment:
@@ -115,14 +115,14 @@ services:
     volumes:
      - ./data/scylla/data:/var/lib/scylla
   index:
-    image: elasticsearch:5
+    image: docker.elastic.co/elasticsearch/elasticsearch:6.4.2
     ports:
      - "9200:9200"
      - "9300:9300"
     environment:
-     - ES_JAVA_OPTS=-Xms500m -Xmx500m
-    volumes:
-     - ./data/elasticsearch/data:/usr/share/elasticsearch/data
+      ES_JAVA_OPTS: -Xms500m -Xmx500m
+      xpack.security.enabled: "false"
+      discovery.type: single-node
   etcd:
     image: gcr.io/etcd-development/etcd:v3.3.8
     ports:
@@ -161,8 +161,8 @@ services:
     image: semitechnologies/esvector:7.1.0
     environment:
       xpack.security.enabled: "false"
-      ES_JAVA_OPTS: -Xms500m -Xmx500m
       discovery.type: single-node
+      ES_JAVA_OPTS: -Xms500m -Xmx500m
     ports: 
       - "9201:9200"
       - "9301:9300"

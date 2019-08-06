@@ -52,13 +52,13 @@ func TestBatchThingsCreateResultsOrder(t *testing.T) {
 	testFields := "ALL"
 
 	// generate request body
-	params := operations.NewWeaviateBatchingThingsCreateParams().WithBody(operations.WeaviateBatchingThingsCreateBody{
+	params := operations.NewBatchingThingsCreateParams().WithBody(operations.BatchingThingsCreateBody{
 		Things: []*models.Thing{thing1, thing2},
 		Fields: []*string{&testFields},
 	})
 
 	// perform the request
-	resp, err := helper.OperationsClient(t).WeaviateBatchingThingsCreate(params, nil)
+	resp, err := helper.OperationsClient(t).BatchingThingsCreate(params, nil)
 
 	// ensure that the response is OK
 	helper.AssertRequestOk(t, resp, err, func() {

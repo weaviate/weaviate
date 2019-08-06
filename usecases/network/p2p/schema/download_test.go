@@ -87,7 +87,7 @@ func TestDownloadSchemaFromPeer(t *testing.T) {
 				t.Fatalf("expected method to be GET, but was %s", r.Method)
 			}
 
-			expectedURI := "/weaviate/v1/schema"
+			expectedURI := "/v1/schema"
 			if r.RequestURI != expectedURI {
 				t.Fatalf("expected uri to be %s, but was %s",
 					expectedURI, r.RequestURI)

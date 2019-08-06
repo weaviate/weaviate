@@ -38,7 +38,7 @@ const GroupedByFieldName = "groupedBy"
 
 // Resolver is a local interface that can be composed with other interfaces to
 // form the overall GraphQL API main interface. All data-base connectors that
-// want to support the GetMeta feature must implement this interface.
+// want to support the Meta feature must implement this interface.
 type Resolver interface {
 	LocalAggregate(ctx context.Context, principal *models.Principal, info *traverser.AggregateParams) (interface{}, error)
 }

@@ -25,7 +25,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
-// ClassPropertyField builds one class field for a GetMeta Query based on the
+// ClassPropertyField builds one class field for a Meta Query based on the
 // underlying schema type
 func ClassPropertyField(dataType schema.DataType, class *models.Class,
 	property *models.Property, prefix string) (*graphql.Field, error) {
@@ -52,16 +52,16 @@ type propertyFieldMaker func(class *models.Class,
 func makePropertyField(class *models.Class, property *models.Property,
 	fieldMaker propertyFieldMaker, prefix string) (*graphql.Field, error) {
 	return &graphql.Field{
-		Description: fmt.Sprintf(`%s"%s"`, descriptions.GetMetaProperty, property.Name),
+		Description: fmt.Sprintf(`%s"%s"`, descriptions.MetaProperty, property.Name),
 		Type:        fieldMaker(class, property, prefix),
 	}, nil
 }
 
 // MetaPropertyField is a special kind of Property field that adds Meta.Count
-// info to a GetMeta Query regardless of the underlying schema
+// info to a Meta Query regardless of the underlying schema
 func MetaPropertyField(class *models.Class, prefix string) (*graphql.Field, error) {
 	return &graphql.Field{
-		Description: descriptions.GetMetaMetaProperty,
+		Description: descriptions.MetaMetaProperty,
 		Type:        metaPropertyObj(class, prefix),
 	}, nil
 }
@@ -70,7 +70,7 @@ func metaPropertyObj(class *models.Class, prefix string) *graphql.Object {
 	getMetaPropertyFields := graphql.Fields{
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%sMetaCount", prefix, class.Class),
-			Description: descriptions.GetMetaClassMetaCount,
+			Description: descriptions.MetaClassMetaCount,
 			Type:        graphql.Int,
 			Resolve:     common.JSONNumberResolver,
 		},
@@ -79,7 +79,7 @@ func metaPropertyObj(class *models.Class, prefix string) *graphql.Object {
 	metaPropertyFields := graphql.ObjectConfig{
 		Name:        fmt.Sprintf("%s%sMetaObj", prefix, class.Class),
 		Fields:      getMetaPropertyFields,
-		Description: descriptions.GetMetaClassMetaObj,
+		Description: descriptions.MetaClassMetaObj,
 	}
 
 	return graphql.NewObject(metaPropertyFields)

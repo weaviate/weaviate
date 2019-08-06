@@ -1,5 +1,5 @@
 {
-  "basePath": "/weaviate/v1",
+  "basePath": "/v1",
   "consumes": ["application/yaml", "application/json"],
   "definitions": {
     "Principal": {
@@ -312,16 +312,23 @@
     "Meta": {
       "description": "Contains meta information of the current Weaviate instance.",
       "properties": {
-        "actionsSchema": {
-          "$ref": "#/definitions/Schema"
-        },
         "hostname": {
           "description": "The url of the host.",
           "format": "url",
           "type": "string"
         },
-        "thingsSchema": {
-          "$ref": "#/definitions/Schema"
+        "version": {
+          "description": "Version of weaviate you are currently running",
+          "type": "string"
+        },
+        "contextionaryWordCount": {
+          "description": "Number of total words in the contextionary",
+          "type": "number",
+          "format": "int"
+        },
+        "contextionaryVersion": {
+          "description": "Version of the contextionary service connected to weaviate",
+          "type": "string"
         }
       },
       "type": "object"
@@ -463,7 +470,7 @@
     "Property": {
       "properties": {
         "dataType": {
-          "description": "Can be a reference ($cref) to another type when it starts with a capital (for example Person), otherwise \"string\" or \"int\".",
+          "description": "Can be a reference to another type when it starts with a capital (for example Person), otherwise \"string\" or \"int\".",
           "items": {
             "type": "string"
           },
@@ -490,9 +497,19 @@
       "type": "object"
     },
     "SingleRef": {
+      "description": "Either set beacon (direct reference) or set class and schema (concept reference)",
       "properties": {
-        "$cref": {
-          "description": "URI to point to the cross-ref. Should be in the form of weaviate://localhost/things/<uuid> for the example of a local cross-ref to a thing",
+        "class": {
+          "description": "If using a concept reference (rather than a direct reference), specify the desired class name here",
+          "format": "uri",
+          "type": "string"
+        },
+        "schema": {
+          "description": "If using a concept reference (rather than a direct reference), specify the desired properties here",
+          "$ref": "#/definitions/PropertySchema"
+        },
+        "beacon": {
+          "description": "If using a direct reference, specify the URI to point to the cross-ref here. Should be in the form of weaviate://localhost/things/<uuid> for the example of a local cross-ref to a thing",
           "format": "uri",
           "type": "string"
         }
@@ -638,7 +655,7 @@
     },
     "description": "Decentralised Knowledge Graph",
     "title": "Weaviate - Decentralised Knowledge Graph",
-    "version": "0.18.1"
+    "version": "0.19.0"
   },
   "parameters": {
     "CommonLimitParameterQuery": {
@@ -654,7 +671,7 @@
     "/actions": {
       "get": {
         "description": "Lists all Actions in reverse order of creation, owned by the user that belongs to the used token.",
-        "operationId": "weaviate.actions.list",
+        "operationId": "actions.list",
         "x-serviceIds": ["weaviate.local.query"],
         "parameters": [
           {
@@ -694,7 +711,7 @@
       },
       "post": {
         "description": "Registers a new Action. Provided meta-data and schema values are validated.",
-        "operationId": "weaviate.actions.create",
+        "operationId": "actions.create",
         "x-serviceIds": ["weaviate.local.add"],
         "parameters": [
           {
@@ -744,7 +761,7 @@
     "/actions/validate": {
       "post": {
         "description": "Validate an Action's schema and meta-data. It has to be based on a schema, which is related to the given Action to be accepted by this validation.",
-        "operationId": "weaviate.actions.validate",
+        "operationId": "actions.validate",
         "x-serviceIds": ["weaviate.local.query.meta"],
         "parameters": [
           {
@@ -791,7 +808,7 @@
     "/actions/{id}": {
       "delete": {
         "description": "Deletes an Action from the system.",
-        "operationId": "weaviate.actions.delete",
+        "operationId": "actions.delete",
         "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
           {
@@ -833,7 +850,7 @@
       },
       "get": {
         "description": "Lists Actions.",
-        "operationId": "weaviate.actions.get",
+        "operationId": "actions.get",
         "x-serviceIds": ["weaviate.local.query"],
         "parameters": [
           {
@@ -878,7 +895,7 @@
       },
       "patch": {
         "description": "Updates an Action. This method supports patch semantics. Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
-        "operationId": "weaviate.actions.patch",
+        "operationId": "actions.patch",
         "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
           {
@@ -944,7 +961,7 @@
       },
       "put": {
         "description": "Updates an Action's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
-        "operationId": "weaviate.action.update",
+        "operationId": "actions.update",
         "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
           {
@@ -1005,7 +1022,7 @@
     "/actions/{id}/references/{propertyName}": {
       "post": {
         "description": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
-        "operationId": "weaviate.actions.references.create",
+        "operationId": "actions.references.create",
         "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
           {
@@ -1065,7 +1082,7 @@
       },
       "put": {
         "description": "Replace all references to a class-property.",
-        "operationId": "weaviate.actions.references.update",
+        "operationId": "actions.references.update",
         "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
           {
@@ -1125,7 +1142,7 @@
       },
       "delete": {
         "description": "Delete the single reference that is given in the body from the list of references that this property has.",
-        "operationId": "weaviate.actions.references.delete",
+        "operationId": "actions.references.delete",
         "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
           {
@@ -1187,7 +1204,7 @@
     "/batching/things": {
       "post": {
         "description": "Register new Things in bulk. Provided meta-data and schema values are validated.",
-        "operationId": "weaviate.batching.things.create",
+        "operationId": "batching.things.create",
         "x-serviceIds": ["weaviate.local.add"],
         "parameters": [
           {
@@ -1257,7 +1274,7 @@
     "/batching/actions": {
       "post": {
         "description": "Register new Actions in bulk. Given meta-data and schema values are validated.",
-        "operationId": "weaviate.batching.actions.create",
+        "operationId": "batching.actions.create",
         "x-serviceIds": ["weaviate.local.add"],
         "parameters": [
           {
@@ -1327,7 +1344,7 @@
     "/batching/references": {
       "post": {
         "description": "Register cross-references between any class items (things or actions) in bulk.",
-        "operationId": "weaviate.batching.references.create",
+        "operationId": "batching.references.create",
         "x-serviceIds": ["weaviate.local.add"],
         "parameters": [
           {
@@ -1384,7 +1401,7 @@
     "/graphql": {
       "post": {
         "description": "Get an object based on GraphQL",
-        "operationId": "weaviate.graphql.post",
+        "operationId": "graphql.post",
         "x-serviceIds": [
           "weaviate.local.query",
           "weaviate.local.query.meta",
@@ -1440,7 +1457,7 @@
     "/graphql/batch": {
       "post": {
         "description": "Perform a batched GraphQL query",
-        "operationId": "weaviate.graphql.batch",
+        "operationId": "graphql.batch",
         "x-serviceIds": [
           "weaviate.local.query",
           "weaviate.local.query.meta",
@@ -1496,7 +1513,7 @@
     "/meta": {
       "get": {
         "description": "Gives meta information about the server and can be used to provide information to another Weaviate instance that wants to interact with the current instance.",
-        "operationId": "weaviate.meta.get",
+        "operationId": "meta.get",
         "x-serviceIds": ["weaviate.local.query.meta"],
         "responses": {
           "200": {
@@ -1530,7 +1547,7 @@
     "/p2p/health": {
       "get": {
         "description": "Check if a peer is alive and healthy.",
-        "operationId": "weaviate.p2p.health",
+        "operationId": "p2p.health",
         "x-serviceIds": ["weaviate.network.query.meta"],
         "responses": {
           "200": {
@@ -1553,7 +1570,7 @@
     "/p2p/genesis": {
       "put": {
         "description": "Receive an update from the Genesis server.",
-        "operationId": "weaviate.p2p.genesis_update",
+        "operationId": "p2p.genesis_update",
         "x-serviceIds": ["weaviate.network.query.meta"],
         "parameters": [
           {
@@ -1588,7 +1605,7 @@
     "/schema": {
       "get": {
         "summary": "Dump the current the database schema.",
-        "operationId": "weaviate.schema.dump",
+        "operationId": "schema.dump",
         "x-serviceIds": ["weaviate.local.query.meta"],
         "tags": ["schema"],
         "responses": {
@@ -1627,7 +1644,7 @@
     "/schema/actions": {
       "post": {
         "summary": "Create a new Action class in the ontology.",
-        "operationId": "weaviate.schema.actions.create",
+        "operationId": "schema.actions.create",
         "x-serviceIds": ["weaviate.local.add.meta"],
         "tags": ["schema"],
         "parameters": [
@@ -1674,7 +1691,7 @@
     "/schema/actions/{className}": {
       "delete": {
         "summary": "Remove an Action class (and all data in the instances) from the ontology.",
-        "operationId": "weaviate.schema.actions.delete",
+        "operationId": "schema.actions.delete",
         "x-serviceIds": ["weaviate.local.manipulate.meta"],
         "tags": ["schema"],
         "parameters": [
@@ -1714,7 +1731,7 @@
       },
       "put": {
         "summary": "Rename, or replace the keywords of the Action.",
-        "operationId": "weaviate.schema.actions.update",
+        "operationId": "schema.actions.update",
         "x-serviceIds": ["weaviate.local.manipulate.meta"],
         "tags": ["schema"],
         "parameters": [
@@ -1764,7 +1781,7 @@
     "/schema/actions/{className}/properties": {
       "post": {
         "summary": "Add a property to an Action class.",
-        "operationId": "weaviate.schema.actions.properties.add",
+        "operationId": "schema.actions.properties.add",
         "x-serviceIds": ["weaviate.local.manipulate.meta"],
         "tags": ["schema"],
         "parameters": [
@@ -1817,7 +1834,7 @@
     "/schema/actions/{className}/properties/{propertyName}": {
       "delete": {
         "summary": "Remove a property from an Action class.",
-        "operationId": "weaviate.schema.actions.properties.delete",
+        "operationId": "schema.actions.properties.delete",
         "x-serviceIds": ["weaviate.local.manipulate.meta"],
         "tags": ["schema"],
         "parameters": [
@@ -1857,7 +1874,7 @@
       },
       "put": {
         "summary": "Rename, or replace the keywords of the property.",
-        "operationId": "weaviate.schema.actions.properties.update",
+        "operationId": "schema.actions.properties.update",
         "x-serviceIds": ["weaviate.local.manipulate.meta"],
         "tags": ["schema"],
         "parameters": [
@@ -1913,7 +1930,7 @@
     "/schema/things": {
       "post": {
         "summary": "Create a new Thing class in the ontology.",
-        "operationId": "weaviate.schema.things.create",
+        "operationId": "schema.things.create",
         "x-serviceIds": ["weaviate.local.add.meta"],
         "tags": ["schema"],
         "parameters": [
@@ -1960,7 +1977,7 @@
     "/schema/things/{className}": {
       "delete": {
         "summary": "Remove a Thing class (and all data in the instances) from the ontology.",
-        "operationId": "weaviate.schema.things.delete",
+        "operationId": "schema.things.delete",
         "x-serviceIds": ["weaviate.local.manipulate.meta"],
         "tags": ["schema"],
         "parameters": [
@@ -2000,7 +2017,7 @@
       },
       "put": {
         "summary": "Rename, or replace the keywords of the Thing.",
-        "operationId": "weaviate.schema.things.update",
+        "operationId": "schema.things.update",
         "x-serviceIds": ["weaviate.local.manipulate.meta"],
         "tags": ["schema"],
         "parameters": [
@@ -2049,7 +2066,7 @@
     "/schema/things/{className}/properties": {
       "post": {
         "summary": "Add a property to a Thing class.",
-        "operationId": "weaviate.schema.things.properties.add",
+        "operationId": "schema.things.properties.add",
         "x-serviceIds": ["weaviate.local.manipulate.meta"],
         "tags": ["schema"],
         "parameters": [
@@ -2102,7 +2119,7 @@
     "/schema/things/{className}/properties/{propertyName}": {
       "delete": {
         "summary": "Remove a property from a Thing class.",
-        "operationId": "weaviate.schema.things.properties.delete",
+        "operationId": "schema.things.properties.delete",
         "x-serviceIds": ["weaviate.local.manipulate.meta"],
         "tags": ["schema"],
         "parameters": [
@@ -2142,7 +2159,7 @@
       },
       "put": {
         "summary": "Rename, or replace the keywords of the property.",
-        "operationId": "weaviate.schema.things.properties.update",
+        "operationId": "schema.things.properties.update",
         "x-serviceIds": ["weaviate.local.manipulate.meta"],
         "tags": ["schema"],
         "parameters": [
@@ -2198,7 +2215,7 @@
     "/things": {
       "get": {
         "description": "Lists all Things in reverse order of creation, owned by the user that belongs to the used token.",
-        "operationId": "weaviate.things.list",
+        "operationId": "things.list",
         "x-serviceIds": ["weaviate.local.query"],
         "parameters": [
           {
@@ -2238,7 +2255,7 @@
       },
       "post": {
         "description": "Registers a new Thing. Given meta-data and schema values are validated.",
-        "operationId": "weaviate.things.create",
+        "operationId": "things.create",
         "x-serviceIds": ["weaviate.local.add"],
         "parameters": [
           {
@@ -2288,7 +2305,7 @@
     "/things/validate": {
       "post": {
         "description": "Validate a Thing's schema and meta-data. It has to be based on a schema, which is related to the given Thing to be accepted by this validation.",
-        "operationId": "weaviate.things.validate",
+        "operationId": "things.validate",
         "x-serviceIds": ["weaviate.local.query.meta"],
         "parameters": [
           {
@@ -2335,7 +2352,7 @@
     "/things/{id}": {
       "delete": {
         "description": "Deletes a Thing from the system. All Actions pointing to this Thing, where the Thing is the object of the Action, are also being deleted.",
-        "operationId": "weaviate.things.delete",
+        "operationId": "things.delete",
         "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
           {
@@ -2377,7 +2394,7 @@
       },
       "get": {
         "description": "Returns a particular Thing data.",
-        "operationId": "weaviate.things.get",
+        "operationId": "things.get",
         "x-serviceIds": ["weaviate.local.query"],
         "parameters": [
           {
@@ -2422,7 +2439,7 @@
       },
       "patch": {
         "description": "Updates a Thing's data. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
-        "operationId": "weaviate.things.patch",
+        "operationId": "things.patch",
         "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
           {
@@ -2488,7 +2505,7 @@
       },
       "put": {
         "description": "Updates a Thing's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
-        "operationId": "weaviate.things.update",
+        "operationId": "things.update",
         "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
           {
@@ -2549,7 +2566,7 @@
     "/things/{id}/references/{propertyName}": {
       "post": {
         "description": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
-        "operationId": "weaviate.things.references.create",
+        "operationId": "things.references.create",
         "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
           {
@@ -2609,7 +2626,7 @@
       },
       "put": {
         "description": "Replace all references to a class-property.",
-        "operationId": "weaviate.things.references.update",
+        "operationId": "things.references.update",
         "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
           {
@@ -2669,7 +2686,7 @@
       },
       "delete": {
         "description": "Delete the single reference that is given in the body from the list of references that this property has.",
-        "operationId": "weaviate.things.references.delete",
+        "operationId": "things.references.delete",
         "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
           {
@@ -2731,7 +2748,7 @@
     "/c11y/words/{words}": {
       "get": {
         "description": "Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase",
-        "operationId": "weaviate.c11y.words",
+        "operationId": "c11y.words",
         "x-serviceIds": ["weaviate.c11y.words.get"],
         "parameters": [
           {
@@ -2783,7 +2800,7 @@
     "/c11y/corpus": {
       "post": {
         "description": "Analyzes a sentence based on the contextionary",
-        "operationId": "weaviate.c11y.corpus.get",
+        "operationId": "c11y.corpus.get",
         "x-serviceIds": ["weaviate.c11y.corpus.get"],
         "parameters": [
           {

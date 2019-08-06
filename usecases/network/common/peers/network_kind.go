@@ -51,10 +51,10 @@ func (p Peers) getRemoteThingOrAction(kind crossrefs.NetworkKind,
 	result := models.Thing{}
 	switch kind.Kind {
 	case libkind.Thing:
-		params := things.NewWeaviateThingsGetParams().
+		params := things.NewThingsGetParams().
 			WithTimeout(1 * time.Second).
 			WithID(kind.ID)
-		ok, err := client.Things.WeaviateThingsGet(params, nil)
+		ok, err := client.Things.ThingsGet(params, nil)
 		if err != nil {
 			return result, fmt.Errorf(
 				"could not get remote kind: could not GET things from peer: %s", err)
@@ -68,10 +68,10 @@ func (p Peers) getRemoteThingOrAction(kind crossrefs.NetworkKind,
 
 		return ok.Payload, nil
 	case libkind.Action:
-		params := actions.NewWeaviateActionsGetParams().
+		params := actions.NewActionsGetParams().
 			WithTimeout(1 * time.Second).
 			WithID(kind.ID)
-		ok, err := client.Actions.WeaviateActionsGet(params, nil)
+		ok, err := client.Actions.ActionsGet(params, nil)
 		if err != nil {
 			return result, fmt.Errorf(
 				"could not get remote kind: could not GET things from peer: %s", err)

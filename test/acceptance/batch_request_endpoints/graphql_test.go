@@ -71,8 +71,8 @@ func queryBatchEndpoint(t *testing.T) (models.GraphQLResponses, error) {
 
 	queries := models.GraphQLQueries{query1, query2}
 
-	params := graphql_client.NewWeaviateGraphqlBatchParams().WithBody(queries)
-	response, err := helper.Client(t).Graphql.WeaviateGraphqlBatch(params, nil)
+	params := graphql_client.NewGraphqlBatchParams().WithBody(queries)
+	response, err := helper.Client(t).Graphql.GraphqlBatch(params, nil)
 
 	if err != nil {
 		return nil, err

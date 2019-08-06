@@ -50,9 +50,9 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "0.18.1"
+    "version": "0.19.0"
   },
-  "basePath": "/weaviate/v1",
+  "basePath": "/v1",
   "paths": {
     "/.well-known/openid-configuration": {
       "get": {
@@ -95,7 +95,7 @@ func init() {
           "actions"
         ],
         "summary": "Get a list of Actions.",
-        "operationId": "weaviate.actions.list",
+        "operationId": "actions.list",
         "parameters": [
           {
             "$ref": "#/parameters/CommonLimitParameterQuery"
@@ -139,7 +139,7 @@ func init() {
           "actions"
         ],
         "summary": "Create Actions between two Things (object and subject).",
-        "operationId": "weaviate.actions.create",
+        "operationId": "actions.create",
         "parameters": [
           {
             "name": "body",
@@ -193,7 +193,7 @@ func init() {
           "actions"
         ],
         "summary": "Validate an Action based on a schema.",
-        "operationId": "weaviate.actions.validate",
+        "operationId": "actions.validate",
         "parameters": [
           {
             "name": "body",
@@ -244,7 +244,7 @@ func init() {
           "actions"
         ],
         "summary": "Get a specific Action based on its UUID and a Thing UUID. Also available as Websocket bus.",
-        "operationId": "weaviate.actions.get",
+        "operationId": "actions.get",
         "parameters": [
           {
             "type": "string",
@@ -293,7 +293,7 @@ func init() {
           "actions"
         ],
         "summary": "Update an Action based on its UUID.",
-        "operationId": "weaviate.action.update",
+        "operationId": "actions.update",
         "parameters": [
           {
             "type": "string",
@@ -356,7 +356,7 @@ func init() {
           "actions"
         ],
         "summary": "Delete an Action based on its UUID.",
-        "operationId": "weaviate.actions.delete",
+        "operationId": "actions.delete",
         "parameters": [
           {
             "type": "string",
@@ -402,7 +402,7 @@ func init() {
           "actions"
         ],
         "summary": "Update an Action based on its UUID (using patch semantics).",
-        "operationId": "weaviate.actions.patch",
+        "operationId": "actions.patch",
         "parameters": [
           {
             "type": "string",
@@ -474,7 +474,7 @@ func init() {
           "actions"
         ],
         "summary": "Replace all references to a class-property.",
-        "operationId": "weaviate.actions.references.update",
+        "operationId": "actions.references.update",
         "parameters": [
           {
             "type": "string",
@@ -538,7 +538,7 @@ func init() {
           "actions"
         ],
         "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
-        "operationId": "weaviate.actions.references.create",
+        "operationId": "actions.references.create",
         "parameters": [
           {
             "type": "string",
@@ -602,7 +602,7 @@ func init() {
           "actions"
         ],
         "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
-        "operationId": "weaviate.actions.references.delete",
+        "operationId": "actions.references.delete",
         "parameters": [
           {
             "type": "string",
@@ -669,7 +669,7 @@ func init() {
           "actions"
         ],
         "summary": "Creates new Actions based on an Action template as a batch.",
-        "operationId": "weaviate.batching.actions.create",
+        "operationId": "batching.actions.create",
         "parameters": [
           {
             "name": "body",
@@ -750,7 +750,7 @@ func init() {
           "references"
         ],
         "summary": "Creates new Cross-References between arbitrary classes in bulk.",
-        "operationId": "weaviate.batching.references.create",
+        "operationId": "batching.references.create",
         "parameters": [
           {
             "description": "A list of references to be batched. The ideal size depends on the used database connector. Please see the documentation of the used connector for help",
@@ -812,7 +812,7 @@ func init() {
           "things"
         ],
         "summary": "Creates new Things based on a Thing template as a batch.",
-        "operationId": "weaviate.batching.things.create",
+        "operationId": "batching.things.create",
         "parameters": [
           {
             "name": "body",
@@ -892,7 +892,7 @@ func init() {
           "contextionary-API"
         ],
         "summary": "Checks if a word or wordString is part of the contextionary.",
-        "operationId": "weaviate.c11y.corpus.get",
+        "operationId": "c11y.corpus.get",
         "parameters": [
           {
             "description": "A text corpus",
@@ -930,7 +930,7 @@ func init() {
           "contextionary-API"
         ],
         "summary": "Checks if a word or wordString is part of the contextionary.",
-        "operationId": "weaviate.c11y.words",
+        "operationId": "c11y.words",
         "parameters": [
           {
             "type": "string",
@@ -986,7 +986,7 @@ func init() {
           "graphql"
         ],
         "summary": "Get a response based on GraphQL",
-        "operationId": "weaviate.graphql.post",
+        "operationId": "graphql.post",
         "parameters": [
           {
             "description": "The GraphQL query request parameters.",
@@ -1044,7 +1044,7 @@ func init() {
           "graphql"
         ],
         "summary": "Get a response based on GraphQL.",
-        "operationId": "weaviate.graphql.batch",
+        "operationId": "graphql.batch",
         "parameters": [
           {
             "description": "The GraphQL queries.",
@@ -1102,7 +1102,7 @@ func init() {
           "meta"
         ],
         "summary": "Returns meta information of the current Weaviate instance.",
-        "operationId": "weaviate.meta.get",
+        "operationId": "meta.get",
         "responses": {
           "200": {
             "description": "Successful response.",
@@ -1140,7 +1140,7 @@ func init() {
         "tags": [
           "P2P"
         ],
-        "operationId": "weaviate.p2p.genesis_update",
+        "operationId": "p2p.genesis_update",
         "parameters": [
           {
             "name": "peers",
@@ -1180,7 +1180,7 @@ func init() {
           "P2P"
         ],
         "summary": "Check if a peer is alive.",
-        "operationId": "weaviate.p2p.health",
+        "operationId": "p2p.health",
         "responses": {
           "200": {
             "description": "Alive and kicking!"
@@ -1205,7 +1205,7 @@ func init() {
           "schema"
         ],
         "summary": "Dump the current the database schema.",
-        "operationId": "weaviate.schema.dump",
+        "operationId": "schema.dump",
         "responses": {
           "200": {
             "description": "Successfully dumped the database schema.",
@@ -1248,7 +1248,7 @@ func init() {
           "schema"
         ],
         "summary": "Create a new Action class in the ontology.",
-        "operationId": "weaviate.schema.actions.create",
+        "operationId": "schema.actions.create",
         "parameters": [
           {
             "name": "actionClass",
@@ -1299,7 +1299,7 @@ func init() {
           "schema"
         ],
         "summary": "Rename, or replace the keywords of the Action.",
-        "operationId": "weaviate.schema.actions.update",
+        "operationId": "schema.actions.update",
         "parameters": [
           {
             "type": "string",
@@ -1351,7 +1351,7 @@ func init() {
           "schema"
         ],
         "summary": "Remove an Action class (and all data in the instances) from the ontology.",
-        "operationId": "weaviate.schema.actions.delete",
+        "operationId": "schema.actions.delete",
         "parameters": [
           {
             "type": "string",
@@ -1397,7 +1397,7 @@ func init() {
           "schema"
         ],
         "summary": "Add a property to an Action class.",
-        "operationId": "weaviate.schema.actions.properties.add",
+        "operationId": "schema.actions.properties.add",
         "parameters": [
           {
             "type": "string",
@@ -1454,7 +1454,7 @@ func init() {
           "schema"
         ],
         "summary": "Rename, or replace the keywords of the property.",
-        "operationId": "weaviate.schema.actions.properties.update",
+        "operationId": "schema.actions.properties.update",
         "parameters": [
           {
             "type": "string",
@@ -1512,7 +1512,7 @@ func init() {
           "schema"
         ],
         "summary": "Remove a property from an Action class.",
-        "operationId": "weaviate.schema.actions.properties.delete",
+        "operationId": "schema.actions.properties.delete",
         "parameters": [
           {
             "type": "string",
@@ -1558,7 +1558,7 @@ func init() {
           "schema"
         ],
         "summary": "Create a new Thing class in the ontology.",
-        "operationId": "weaviate.schema.things.create",
+        "operationId": "schema.things.create",
         "parameters": [
           {
             "name": "thingClass",
@@ -1609,7 +1609,7 @@ func init() {
           "schema"
         ],
         "summary": "Rename, or replace the keywords of the Thing.",
-        "operationId": "weaviate.schema.things.update",
+        "operationId": "schema.things.update",
         "parameters": [
           {
             "type": "string",
@@ -1660,7 +1660,7 @@ func init() {
           "schema"
         ],
         "summary": "Remove a Thing class (and all data in the instances) from the ontology.",
-        "operationId": "weaviate.schema.things.delete",
+        "operationId": "schema.things.delete",
         "parameters": [
           {
             "type": "string",
@@ -1706,7 +1706,7 @@ func init() {
           "schema"
         ],
         "summary": "Add a property to a Thing class.",
-        "operationId": "weaviate.schema.things.properties.add",
+        "operationId": "schema.things.properties.add",
         "parameters": [
           {
             "type": "string",
@@ -1763,7 +1763,7 @@ func init() {
           "schema"
         ],
         "summary": "Rename, or replace the keywords of the property.",
-        "operationId": "weaviate.schema.things.properties.update",
+        "operationId": "schema.things.properties.update",
         "parameters": [
           {
             "type": "string",
@@ -1821,7 +1821,7 @@ func init() {
           "schema"
         ],
         "summary": "Remove a property from a Thing class.",
-        "operationId": "weaviate.schema.things.properties.delete",
+        "operationId": "schema.things.properties.delete",
         "parameters": [
           {
             "type": "string",
@@ -1868,7 +1868,7 @@ func init() {
           "things"
         ],
         "summary": "Get a list of Things.",
-        "operationId": "weaviate.things.list",
+        "operationId": "things.list",
         "parameters": [
           {
             "$ref": "#/parameters/CommonLimitParameterQuery"
@@ -1912,7 +1912,7 @@ func init() {
           "things"
         ],
         "summary": "Create a new Thing based on a Thing template.",
-        "operationId": "weaviate.things.create",
+        "operationId": "things.create",
         "parameters": [
           {
             "name": "body",
@@ -1966,7 +1966,7 @@ func init() {
           "things"
         ],
         "summary": "Validate Things schema.",
-        "operationId": "weaviate.things.validate",
+        "operationId": "things.validate",
         "parameters": [
           {
             "name": "body",
@@ -2017,7 +2017,7 @@ func init() {
           "things"
         ],
         "summary": "Get a Thing based on its UUID.",
-        "operationId": "weaviate.things.get",
+        "operationId": "things.get",
         "parameters": [
           {
             "type": "string",
@@ -2066,7 +2066,7 @@ func init() {
           "things"
         ],
         "summary": "Update a Thing based on its UUID.",
-        "operationId": "weaviate.things.update",
+        "operationId": "things.update",
         "parameters": [
           {
             "type": "string",
@@ -2129,7 +2129,7 @@ func init() {
           "things"
         ],
         "summary": "Delete a Thing based on its UUID.",
-        "operationId": "weaviate.things.delete",
+        "operationId": "things.delete",
         "parameters": [
           {
             "type": "string",
@@ -2175,7 +2175,7 @@ func init() {
           "things"
         ],
         "summary": "Update a Thing based on its UUID (using patch semantics).",
-        "operationId": "weaviate.things.patch",
+        "operationId": "things.patch",
         "parameters": [
           {
             "type": "string",
@@ -2247,7 +2247,7 @@ func init() {
           "things"
         ],
         "summary": "Replace all references to a class-property.",
-        "operationId": "weaviate.things.references.update",
+        "operationId": "things.references.update",
         "parameters": [
           {
             "type": "string",
@@ -2311,7 +2311,7 @@ func init() {
           "things"
         ],
         "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
-        "operationId": "weaviate.things.references.create",
+        "operationId": "things.references.create",
         "parameters": [
           {
             "type": "string",
@@ -2375,7 +2375,7 @@ func init() {
           "things"
         ],
         "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
-        "operationId": "weaviate.things.references.delete",
+        "operationId": "things.references.delete",
         "parameters": [
           {
             "type": "string",
@@ -2835,16 +2835,23 @@ func init() {
       "description": "Contains meta information of the current Weaviate instance.",
       "type": "object",
       "properties": {
-        "actionsSchema": {
-          "$ref": "#/definitions/Schema"
+        "contextionaryVersion": {
+          "description": "Version of the contextionary service connected to weaviate",
+          "type": "string"
+        },
+        "contextionaryWordCount": {
+          "description": "Number of total words in the contextionary",
+          "type": "number",
+          "format": "int"
         },
         "hostname": {
           "description": "The url of the host.",
           "type": "string",
           "format": "url"
         },
-        "thingsSchema": {
-          "$ref": "#/definitions/Schema"
+        "version": {
+          "description": "Version of weaviate you are currently running",
+          "type": "string"
         }
       }
     },
@@ -2946,7 +2953,7 @@ func init() {
           ]
         },
         "dataType": {
-          "description": "Can be a reference ($cref) to another type when it starts with a capital (for example Person), otherwise \"string\" or \"int\".",
+          "description": "Can be a reference to another type when it starts with a capital (for example Person), otherwise \"string\" or \"int\".",
           "type": "array",
           "items": {
             "type": "string"
@@ -3004,11 +3011,21 @@ func init() {
       "type": "object"
     },
     "SingleRef": {
+      "description": "Either set beacon (direct reference) or set class and schema (concept reference)",
       "properties": {
-        "$cref": {
-          "description": "URI to point to the cross-ref. Should be in the form of weaviate://localhost/things/\u003cuuid\u003e for the example of a local cross-ref to a thing",
+        "beacon": {
+          "description": "If using a direct reference, specify the URI to point to the cross-ref here. Should be in the form of weaviate://localhost/things/\u003cuuid\u003e for the example of a local cross-ref to a thing",
           "type": "string",
           "format": "uri"
+        },
+        "class": {
+          "description": "If using a concept reference (rather than a direct reference), specify the desired class name here",
+          "type": "string",
+          "format": "uri"
+        },
+        "schema": {
+          "description": "If using a concept reference (rather than a direct reference), specify the desired properties here",
+          "$ref": "#/definitions/PropertySchema"
         }
       }
     },
@@ -3164,9 +3181,9 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "0.18.1"
+    "version": "0.19.0"
   },
-  "basePath": "/weaviate/v1",
+  "basePath": "/v1",
   "paths": {
     "/.well-known/openid-configuration": {
       "get": {
@@ -3209,7 +3226,7 @@ func init() {
           "actions"
         ],
         "summary": "Get a list of Actions.",
-        "operationId": "weaviate.actions.list",
+        "operationId": "actions.list",
         "parameters": [
           {
             "type": "integer",
@@ -3257,7 +3274,7 @@ func init() {
           "actions"
         ],
         "summary": "Create Actions between two Things (object and subject).",
-        "operationId": "weaviate.actions.create",
+        "operationId": "actions.create",
         "parameters": [
           {
             "name": "body",
@@ -3311,7 +3328,7 @@ func init() {
           "actions"
         ],
         "summary": "Validate an Action based on a schema.",
-        "operationId": "weaviate.actions.validate",
+        "operationId": "actions.validate",
         "parameters": [
           {
             "name": "body",
@@ -3362,7 +3379,7 @@ func init() {
           "actions"
         ],
         "summary": "Get a specific Action based on its UUID and a Thing UUID. Also available as Websocket bus.",
-        "operationId": "weaviate.actions.get",
+        "operationId": "actions.get",
         "parameters": [
           {
             "type": "string",
@@ -3411,7 +3428,7 @@ func init() {
           "actions"
         ],
         "summary": "Update an Action based on its UUID.",
-        "operationId": "weaviate.action.update",
+        "operationId": "actions.update",
         "parameters": [
           {
             "type": "string",
@@ -3474,7 +3491,7 @@ func init() {
           "actions"
         ],
         "summary": "Delete an Action based on its UUID.",
-        "operationId": "weaviate.actions.delete",
+        "operationId": "actions.delete",
         "parameters": [
           {
             "type": "string",
@@ -3520,7 +3537,7 @@ func init() {
           "actions"
         ],
         "summary": "Update an Action based on its UUID (using patch semantics).",
-        "operationId": "weaviate.actions.patch",
+        "operationId": "actions.patch",
         "parameters": [
           {
             "type": "string",
@@ -3592,7 +3609,7 @@ func init() {
           "actions"
         ],
         "summary": "Replace all references to a class-property.",
-        "operationId": "weaviate.actions.references.update",
+        "operationId": "actions.references.update",
         "parameters": [
           {
             "type": "string",
@@ -3656,7 +3673,7 @@ func init() {
           "actions"
         ],
         "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
-        "operationId": "weaviate.actions.references.create",
+        "operationId": "actions.references.create",
         "parameters": [
           {
             "type": "string",
@@ -3720,7 +3737,7 @@ func init() {
           "actions"
         ],
         "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
-        "operationId": "weaviate.actions.references.delete",
+        "operationId": "actions.references.delete",
         "parameters": [
           {
             "type": "string",
@@ -3787,7 +3804,7 @@ func init() {
           "actions"
         ],
         "summary": "Creates new Actions based on an Action template as a batch.",
-        "operationId": "weaviate.batching.actions.create",
+        "operationId": "batching.actions.create",
         "parameters": [
           {
             "name": "body",
@@ -3868,7 +3885,7 @@ func init() {
           "references"
         ],
         "summary": "Creates new Cross-References between arbitrary classes in bulk.",
-        "operationId": "weaviate.batching.references.create",
+        "operationId": "batching.references.create",
         "parameters": [
           {
             "description": "A list of references to be batched. The ideal size depends on the used database connector. Please see the documentation of the used connector for help",
@@ -3930,7 +3947,7 @@ func init() {
           "things"
         ],
         "summary": "Creates new Things based on a Thing template as a batch.",
-        "operationId": "weaviate.batching.things.create",
+        "operationId": "batching.things.create",
         "parameters": [
           {
             "name": "body",
@@ -4010,7 +4027,7 @@ func init() {
           "contextionary-API"
         ],
         "summary": "Checks if a word or wordString is part of the contextionary.",
-        "operationId": "weaviate.c11y.corpus.get",
+        "operationId": "c11y.corpus.get",
         "parameters": [
           {
             "description": "A text corpus",
@@ -4048,7 +4065,7 @@ func init() {
           "contextionary-API"
         ],
         "summary": "Checks if a word or wordString is part of the contextionary.",
-        "operationId": "weaviate.c11y.words",
+        "operationId": "c11y.words",
         "parameters": [
           {
             "type": "string",
@@ -4104,7 +4121,7 @@ func init() {
           "graphql"
         ],
         "summary": "Get a response based on GraphQL",
-        "operationId": "weaviate.graphql.post",
+        "operationId": "graphql.post",
         "parameters": [
           {
             "description": "The GraphQL query request parameters.",
@@ -4162,7 +4179,7 @@ func init() {
           "graphql"
         ],
         "summary": "Get a response based on GraphQL.",
-        "operationId": "weaviate.graphql.batch",
+        "operationId": "graphql.batch",
         "parameters": [
           {
             "description": "The GraphQL queries.",
@@ -4220,7 +4237,7 @@ func init() {
           "meta"
         ],
         "summary": "Returns meta information of the current Weaviate instance.",
-        "operationId": "weaviate.meta.get",
+        "operationId": "meta.get",
         "responses": {
           "200": {
             "description": "Successful response.",
@@ -4258,7 +4275,7 @@ func init() {
         "tags": [
           "P2P"
         ],
-        "operationId": "weaviate.p2p.genesis_update",
+        "operationId": "p2p.genesis_update",
         "parameters": [
           {
             "name": "peers",
@@ -4298,7 +4315,7 @@ func init() {
           "P2P"
         ],
         "summary": "Check if a peer is alive.",
-        "operationId": "weaviate.p2p.health",
+        "operationId": "p2p.health",
         "responses": {
           "200": {
             "description": "Alive and kicking!"
@@ -4323,7 +4340,7 @@ func init() {
           "schema"
         ],
         "summary": "Dump the current the database schema.",
-        "operationId": "weaviate.schema.dump",
+        "operationId": "schema.dump",
         "responses": {
           "200": {
             "description": "Successfully dumped the database schema.",
@@ -4366,7 +4383,7 @@ func init() {
           "schema"
         ],
         "summary": "Create a new Action class in the ontology.",
-        "operationId": "weaviate.schema.actions.create",
+        "operationId": "schema.actions.create",
         "parameters": [
           {
             "name": "actionClass",
@@ -4417,7 +4434,7 @@ func init() {
           "schema"
         ],
         "summary": "Rename, or replace the keywords of the Action.",
-        "operationId": "weaviate.schema.actions.update",
+        "operationId": "schema.actions.update",
         "parameters": [
           {
             "type": "string",
@@ -4469,7 +4486,7 @@ func init() {
           "schema"
         ],
         "summary": "Remove an Action class (and all data in the instances) from the ontology.",
-        "operationId": "weaviate.schema.actions.delete",
+        "operationId": "schema.actions.delete",
         "parameters": [
           {
             "type": "string",
@@ -4515,7 +4532,7 @@ func init() {
           "schema"
         ],
         "summary": "Add a property to an Action class.",
-        "operationId": "weaviate.schema.actions.properties.add",
+        "operationId": "schema.actions.properties.add",
         "parameters": [
           {
             "type": "string",
@@ -4572,7 +4589,7 @@ func init() {
           "schema"
         ],
         "summary": "Rename, or replace the keywords of the property.",
-        "operationId": "weaviate.schema.actions.properties.update",
+        "operationId": "schema.actions.properties.update",
         "parameters": [
           {
             "type": "string",
@@ -4630,7 +4647,7 @@ func init() {
           "schema"
         ],
         "summary": "Remove a property from an Action class.",
-        "operationId": "weaviate.schema.actions.properties.delete",
+        "operationId": "schema.actions.properties.delete",
         "parameters": [
           {
             "type": "string",
@@ -4676,7 +4693,7 @@ func init() {
           "schema"
         ],
         "summary": "Create a new Thing class in the ontology.",
-        "operationId": "weaviate.schema.things.create",
+        "operationId": "schema.things.create",
         "parameters": [
           {
             "name": "thingClass",
@@ -4727,7 +4744,7 @@ func init() {
           "schema"
         ],
         "summary": "Rename, or replace the keywords of the Thing.",
-        "operationId": "weaviate.schema.things.update",
+        "operationId": "schema.things.update",
         "parameters": [
           {
             "type": "string",
@@ -4778,7 +4795,7 @@ func init() {
           "schema"
         ],
         "summary": "Remove a Thing class (and all data in the instances) from the ontology.",
-        "operationId": "weaviate.schema.things.delete",
+        "operationId": "schema.things.delete",
         "parameters": [
           {
             "type": "string",
@@ -4824,7 +4841,7 @@ func init() {
           "schema"
         ],
         "summary": "Add a property to a Thing class.",
-        "operationId": "weaviate.schema.things.properties.add",
+        "operationId": "schema.things.properties.add",
         "parameters": [
           {
             "type": "string",
@@ -4881,7 +4898,7 @@ func init() {
           "schema"
         ],
         "summary": "Rename, or replace the keywords of the property.",
-        "operationId": "weaviate.schema.things.properties.update",
+        "operationId": "schema.things.properties.update",
         "parameters": [
           {
             "type": "string",
@@ -4939,7 +4956,7 @@ func init() {
           "schema"
         ],
         "summary": "Remove a property from a Thing class.",
-        "operationId": "weaviate.schema.things.properties.delete",
+        "operationId": "schema.things.properties.delete",
         "parameters": [
           {
             "type": "string",
@@ -4986,7 +5003,7 @@ func init() {
           "things"
         ],
         "summary": "Get a list of Things.",
-        "operationId": "weaviate.things.list",
+        "operationId": "things.list",
         "parameters": [
           {
             "type": "integer",
@@ -5034,7 +5051,7 @@ func init() {
           "things"
         ],
         "summary": "Create a new Thing based on a Thing template.",
-        "operationId": "weaviate.things.create",
+        "operationId": "things.create",
         "parameters": [
           {
             "name": "body",
@@ -5088,7 +5105,7 @@ func init() {
           "things"
         ],
         "summary": "Validate Things schema.",
-        "operationId": "weaviate.things.validate",
+        "operationId": "things.validate",
         "parameters": [
           {
             "name": "body",
@@ -5139,7 +5156,7 @@ func init() {
           "things"
         ],
         "summary": "Get a Thing based on its UUID.",
-        "operationId": "weaviate.things.get",
+        "operationId": "things.get",
         "parameters": [
           {
             "type": "string",
@@ -5188,7 +5205,7 @@ func init() {
           "things"
         ],
         "summary": "Update a Thing based on its UUID.",
-        "operationId": "weaviate.things.update",
+        "operationId": "things.update",
         "parameters": [
           {
             "type": "string",
@@ -5251,7 +5268,7 @@ func init() {
           "things"
         ],
         "summary": "Delete a Thing based on its UUID.",
-        "operationId": "weaviate.things.delete",
+        "operationId": "things.delete",
         "parameters": [
           {
             "type": "string",
@@ -5297,7 +5314,7 @@ func init() {
           "things"
         ],
         "summary": "Update a Thing based on its UUID (using patch semantics).",
-        "operationId": "weaviate.things.patch",
+        "operationId": "things.patch",
         "parameters": [
           {
             "type": "string",
@@ -5369,7 +5386,7 @@ func init() {
           "things"
         ],
         "summary": "Replace all references to a class-property.",
-        "operationId": "weaviate.things.references.update",
+        "operationId": "things.references.update",
         "parameters": [
           {
             "type": "string",
@@ -5433,7 +5450,7 @@ func init() {
           "things"
         ],
         "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
-        "operationId": "weaviate.things.references.create",
+        "operationId": "things.references.create",
         "parameters": [
           {
             "type": "string",
@@ -5497,7 +5514,7 @@ func init() {
           "things"
         ],
         "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
-        "operationId": "weaviate.things.references.delete",
+        "operationId": "things.references.delete",
         "parameters": [
           {
             "type": "string",
@@ -5957,16 +5974,23 @@ func init() {
       "description": "Contains meta information of the current Weaviate instance.",
       "type": "object",
       "properties": {
-        "actionsSchema": {
-          "$ref": "#/definitions/Schema"
+        "contextionaryVersion": {
+          "description": "Version of the contextionary service connected to weaviate",
+          "type": "string"
+        },
+        "contextionaryWordCount": {
+          "description": "Number of total words in the contextionary",
+          "type": "number",
+          "format": "int"
         },
         "hostname": {
           "description": "The url of the host.",
           "type": "string",
           "format": "url"
         },
-        "thingsSchema": {
-          "$ref": "#/definitions/Schema"
+        "version": {
+          "description": "Version of weaviate you are currently running",
+          "type": "string"
         }
       }
     },
@@ -6068,7 +6092,7 @@ func init() {
           ]
         },
         "dataType": {
-          "description": "Can be a reference ($cref) to another type when it starts with a capital (for example Person), otherwise \"string\" or \"int\".",
+          "description": "Can be a reference to another type when it starts with a capital (for example Person), otherwise \"string\" or \"int\".",
           "type": "array",
           "items": {
             "type": "string"
@@ -6126,11 +6150,21 @@ func init() {
       "type": "object"
     },
     "SingleRef": {
+      "description": "Either set beacon (direct reference) or set class and schema (concept reference)",
       "properties": {
-        "$cref": {
-          "description": "URI to point to the cross-ref. Should be in the form of weaviate://localhost/things/\u003cuuid\u003e for the example of a local cross-ref to a thing",
+        "beacon": {
+          "description": "If using a direct reference, specify the URI to point to the cross-ref here. Should be in the form of weaviate://localhost/things/\u003cuuid\u003e for the example of a local cross-ref to a thing",
           "type": "string",
           "format": "uri"
+        },
+        "class": {
+          "description": "If using a concept reference (rather than a direct reference), specify the desired class name here",
+          "type": "string",
+          "format": "uri"
+        },
+        "schema": {
+          "description": "If using a concept reference (rather than a direct reference), specify the desired properties here",
+          "$ref": "#/definitions/PropertySchema"
         }
       }
     },

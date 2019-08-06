@@ -40,7 +40,7 @@ func newMockResolver(cfg config.Config) *mockResolver {
 	}
 	mocker := &mockResolver{}
 	mockLog := &mockRequestsLog{}
-	mocker.RootFieldName = "GetMeta"
+	mocker.RootFieldName = "Meta"
 	mocker.RootField = field
 	mocker.RootObject = map[string]interface{}{
 		"Resolver":    Resolver(mocker),
@@ -50,8 +50,8 @@ func newMockResolver(cfg config.Config) *mockResolver {
 	return mocker
 }
 
-func (m *mockResolver) LocalGetMeta(ctx context.Context, principal *models.Principal,
-	params *traverser.GetMetaParams) (interface{}, error) {
+func (m *mockResolver) LocalMeta(ctx context.Context, principal *models.Principal,
+	params *traverser.MetaParams) (interface{}, error) {
 	args := m.Called(params)
 	return args.Get(0), args.Error(1)
 }

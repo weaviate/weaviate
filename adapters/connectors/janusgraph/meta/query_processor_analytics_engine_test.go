@@ -230,8 +230,8 @@ func Test_QueryProcessor_AnalyticsEngine(t *testing.T) {
 	})
 }
 
-func paramsWithAnalyticsProps(a filters.AnalyticsProps) traverser.GetMetaParams {
-	return traverser.GetMetaParams{
+func paramsWithAnalyticsProps(a filters.AnalyticsProps) traverser.MetaParams {
+	return traverser.MetaParams{
 		Kind:      kind.Thing,
 		ClassName: schema.ClassName("Car"),
 		Properties: []traverser.MetaProperty{

@@ -140,7 +140,7 @@ func Test_QueryProcessor(t *testing.T) {
 							},
 							map[string]interface{}{
 								"refId":       "prop_3",
-								"$cref":       uuid2,
+								"beacon":      uuid2,
 								"locationUrl": "localhost",
 								"refType":     "thing",
 							},
@@ -211,7 +211,7 @@ func Test_QueryProcessor(t *testing.T) {
 							},
 							map[string]interface{}{
 								"refId":       "prop_3",
-								"$cref":       uuid2,
+								"beacon":      uuid2,
 								"locationUrl": "localhost",
 								"refType":     "thing",
 							},
@@ -251,7 +251,7 @@ func Test_QueryProcessor(t *testing.T) {
 							},
 							map[string]interface{}{
 								"refId":       "prop_3",
-								"$cref":       uuid3,
+								"beacon":      uuid3,
 								"locationUrl": "localhost",
 								"refType":     "thing",
 							},
@@ -326,7 +326,7 @@ func Test_QueryProcessor(t *testing.T) {
 							},
 							map[string]interface{}{
 								"refId":       "prop_3",
-								"$cref":       uuid3,
+								"beacon":      uuid3,
 								"locationUrl": "other-peer",
 								"refType":     "thing",
 							},
@@ -385,7 +385,7 @@ func Test_QueryProcessor(t *testing.T) {
 							},
 							map[string]interface{}{
 								"refId":       "prop_3",
-								"$cref":       uuid2,
+								"beacon":      uuid2,
 								"refType":     "thing",
 								"locationUrl": "localhost",
 							},
@@ -405,7 +405,7 @@ func Test_QueryProcessor(t *testing.T) {
 							},
 							map[string]interface{}{
 								"refId":       "prop_13",
-								"$cref":       uuid3,
+								"beacon":      uuid3,
 								"refType":     "thing",
 								"locationUrl": "localhost",
 							},
@@ -419,7 +419,7 @@ func Test_QueryProcessor(t *testing.T) {
 							},
 							map[string]interface{}{
 								"refId":       "prop_23",
-								"$cref":       uuid4,
+								"beacon":      uuid4,
 								"refType":     "thing",
 								"locationUrl": "localhost",
 							},
@@ -504,7 +504,7 @@ func Test_QueryProcessor(t *testing.T) {
 							},
 							map[string]interface{}{
 								"refId":       "prop_3",
-								"$cref":       uuid2,
+								"beacon":      uuid2,
 								"refType":     "thing",
 								"locationUrl": "localhost",
 							},
@@ -524,7 +524,7 @@ func Test_QueryProcessor(t *testing.T) {
 							},
 							map[string]interface{}{
 								"refId":       "prop_13",
-								"$cref":       uuid3,
+								"beacon":      uuid3,
 								"refType":     "thing",
 								"locationUrl": "localhost",
 							},
@@ -538,7 +538,7 @@ func Test_QueryProcessor(t *testing.T) {
 							},
 							map[string]interface{}{
 								"refId":       "prop_23",
-								"$cref":       uuid4,
+								"beacon":      uuid4,
 								"refType":     "thing",
 								"locationUrl": "localhost",
 							},
@@ -576,7 +576,7 @@ func Test_QueryProcessor(t *testing.T) {
 							},
 							map[string]interface{}{
 								"refId":       "prop_3",
-								"$cref":       uuid2,
+								"beacon":      uuid2,
 								"refType":     "thing",
 								"locationUrl": "localhost",
 							},
@@ -596,7 +596,7 @@ func Test_QueryProcessor(t *testing.T) {
 							},
 							map[string]interface{}{
 								"refId":       "prop_13",
-								"$cref":       uuid3,
+								"beacon":      uuid3,
 								"refType":     "thing",
 								"locationUrl": "localhost",
 							},
@@ -610,7 +610,7 @@ func Test_QueryProcessor(t *testing.T) {
 							},
 							map[string]interface{}{
 								"refId":       "prop_23",
-								"$cref":       uuid5,
+								"beacon":      uuid5,
 								"refType":     "thing",
 								"locationUrl": "localhost",
 							},

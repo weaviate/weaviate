@@ -15,13 +15,12 @@
 package descriptions
 
 // ROOT
-const WeaviateObj string = "The location of the root query"
-const WeaviateLocal string = "Query a local Weaviate"
-const WeaviateNetwork string = "Query a Weaviate network"
+const WeaviateObj = "The location of the root query"
+const WeaviateNetwork = "Query a Weaviate network"
 
 // LOCAL
-const LocalObj string = "A query on a local Weaviate"
+const LocalObj = "A query on a local Weaviate"
 
 // NETWORK
-const NetworkWeaviate string = "An object for the network Weaviate instance: "
-const NetworkObj string = "An object used to perform queries on a Weaviate network"
+const NetworkWeaviate = "An object for the network Weaviate instance: "
+const NetworkObj = "An object used to perform queries on a Weaviate network"

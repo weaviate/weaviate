@@ -23,9 +23,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_GetMetaParamsHashing(t *testing.T) {
-	params := func() GetMetaParams {
-		return GetMetaParams{
+func Test_MetaParamsHashing(t *testing.T) {
+	params := func() MetaParams {
+		return MetaParams{
 			Analytics:        filters.AnalyticsProps{UseAnaltyicsEngine: true},
 			IncludeMetaCount: true,
 			ClassName:        schema.ClassName("MyBestClass"),

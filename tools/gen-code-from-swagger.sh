@@ -15,7 +15,7 @@ if [ ! -f $SWAGGER ]; then
 fi
 
 # Remove old stuff.
-(cd $DIR/..; rm -rf entities/models client restapi/operations/)
+(cd $DIR/..; rm -rf entities/models client adapters/handlers/rest/operations/)
 
 (cd $DIR/..; $SWAGGER generate server --name=weaviate --model-package=entities/models --server-package=adapters/handlers/rest --spec=openapi-specs/schema.json -P models.Principal --default-scheme=https)
 (cd $DIR/..; $SWAGGER generate client --model-package=entities/models --spec=openapi-specs/schema.json -P models.Principal --default-scheme=https)
