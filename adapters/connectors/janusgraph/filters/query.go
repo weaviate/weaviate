@@ -51,7 +51,7 @@ func (f *FilterQuery) String() (string, error) {
 		return "", err
 	}
 
-	return fmt.Sprintf(".union(%s)", q.String()), nil
+	return fmt.Sprintf(".and(%s)", q.String()), nil
 }
 
 // A clause must meet either of 2 conditions:
