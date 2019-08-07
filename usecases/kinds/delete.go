@@ -54,9 +54,11 @@ func (m *Manager) deleteActionFromRepo(ctx context.Context, id strfmt.UUID) erro
 		return err
 	}
 
-	err = m.repo.DeleteAction(ctx, nil, id)
-	if err != nil {
-		return NewErrInternal("could not delete action: %v", err)
+	if !m.config.Config.EsvectorOnly {
+		err = m.repo.DeleteAction(ctx, nil, id)
+		if err != nil {
+			return NewErrInternal("could not delete action: %v", err)
+		}
 	}
 
 	err = m.vectorRepo.DeleteAction(ctx, action.Class, id)
@@ -90,9 +92,11 @@ func (m *Manager) deleteThingFromRepo(ctx context.Context, id strfmt.UUID) error
 		return err
 	}
 
-	err = m.repo.DeleteThing(ctx, nil, id)
-	if err != nil {
-		return NewErrInternal("could not delete thing: %v", err)
+	if !m.config.Config.EsvectorOnly {
+		err = m.repo.DeleteThing(ctx, nil, id)
+		if err != nil {
+			return NewErrInternal("could not delete thing: %v", err)
+		}
 	}
 
 	err = m.vectorRepo.DeleteThing(ctx, thing.Class, id)

@@ -96,9 +96,11 @@ func (m *Manager) addActionToConnectorAndSchema(ctx context.Context, principal *
 		return nil, NewErrInternal("could not update schema for network refs: %v", err)
 	}
 
-	err = m.repo.AddAction(ctx, class, class.ID)
-	if err != nil {
-		return nil, NewErrInternal("could not store action: %v", err)
+	if !m.config.Config.EsvectorOnly {
+		err = m.repo.AddAction(ctx, class, class.ID)
+		if err != nil {
+			return nil, NewErrInternal("could not store action: %v", err)
+		}
 	}
 
 	v, err := m.vectorizer.Action(ctx, class)
@@ -168,9 +170,11 @@ func (m *Manager) addThingToConnectorAndSchema(ctx context.Context, principal *m
 		return nil, NewErrInternal("could not update schema for network refs: %v", err)
 	}
 
-	err = m.repo.AddThing(ctx, class, class.ID)
-	if err != nil {
-		return nil, NewErrInternal("could not store thing: %v", err)
+	if !m.config.Config.EsvectorOnly {
+		err = m.repo.AddThing(ctx, class, class.ID)
+		if err != nil {
+			return nil, NewErrInternal("could not store thing: %v", err)
+		}
 	}
 
 	v, err := m.vectorizer.Thing(ctx, class)

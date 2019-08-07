@@ -30,6 +30,9 @@ import (
 // AddActions Class Instances in batch to the connected DB
 func (b *BatchManager) AddActions(ctx context.Context, principal *models.Principal,
 	classes []*models.Action, fields []*string) (BatchActions, error) {
+	if b.config.Config.EsvectorOnly {
+		return nil, fmt.Errorf("batch.AddActions not supported yet in esvector-only mode")
+	}
 
 	err := b.authorizer.Authorize(principal, "create", "batch/actions")
 	if err != nil {
@@ -150,6 +153,9 @@ func actionsChanToSlice(c chan BatchAction) BatchActions {
 // AddThings Class Instances in batch to the connected DB
 func (b *BatchManager) AddThings(ctx context.Context, principal *models.Principal,
 	classes []*models.Thing, fields []*string) (BatchThings, error) {
+	if b.config.Config.EsvectorOnly {
+		return nil, fmt.Errorf("batch.AddThings not supported yet in esvector-only mode")
+	}
 
 	err := b.authorizer.Authorize(principal, "create", "batch/things")
 	if err != nil {

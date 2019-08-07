@@ -29,6 +29,10 @@ import (
 func (t *Traverser) LocalMeta(ctx context.Context, principal *models.Principal,
 	params *MetaParams) (interface{}, error) {
 
+	if t.config.Config.EsvectorOnly {
+		return nil, fmt.Errorf("traverser.Meta not supported yet in esvector-only mode")
+	}
+
 	err := t.authorizer.Authorize(principal, "get", "traversal/*")
 	if err != nil {
 		return nil, err
