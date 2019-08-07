@@ -134,13 +134,14 @@ func TestEsVectorRepo(t *testing.T) {
 			"TheBestThingClass", searchVector, 10, nil)
 
 		require.Nil(t, err)
-		require.Len(t, res, 1)
-		assert.Equal(t, thingID, res[0].ID)
-		assert.Equal(t, kind.Thing, res[0].Kind)
-		assert.Equal(t, "TheBestThingClass", res[0].ClassName)
+		require.Len(t, res, 1, "got exactly one result")
+		assert.Equal(t, thingID, res[0].ID, "extracted the ID")
+		assert.Equal(t, kind.Thing, res[0].Kind, "matches the kind")
+		assert.Equal(t, "TheBestThingClass", res[0].ClassName, "matches the class name")
 		schema := res[0].Schema.(map[string]interface{})
-		assert.Equal(t, "some value", schema["stringProp"])
-		assert.Equal(t, &models.GeoCoordinates{1, 2}, schema["location"])
+		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
+		assert.Equal(t, &models.GeoCoordinates{1, 2}, schema["location"], "has correct geo prop")
+		assert.Equal(t, thingID.String(), schema["uuid"], "has id in schema as uuid field")
 	})
 
 	t.Run("deleting a thing again", func(t *testing.T) {

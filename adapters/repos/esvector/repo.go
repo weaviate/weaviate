@@ -32,8 +32,17 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+type internalKey string
+
+func (k internalKey) String() string {
+	return string(k)
+}
+
 const (
-	vectorProp = "embedding_vector"
+	keyVector    internalKey = "_embedding_vector"
+	keyID        internalKey = "_uuid"
+	keyKind      internalKey = "_kind"
+	keyClassName internalKey = "_class_name"
 )
 
 // Repo stores and retrieves vector info in elasticsearch
@@ -79,7 +88,7 @@ func (r *Repo) VectorSearch(ctx context.Context, index string,
 								"lang":   "knn",
 								"params": map[string]interface{}{
 									"cosine": false,
-									"field":  "embedding_vector",
+									"field":  keyVector,
 									"vector": vector,
 								},
 							},
@@ -141,12 +150,12 @@ func (sr searchResponse) toVectorSearchResult() ([]traverser.VectorSearchResult,
 	hits := sr.Hits.Hits
 	output := make([]traverser.VectorSearchResult, len(hits), len(hits))
 	for i, hit := range hits {
-		k, err := kind.Parse(hit.Source["kind"].(string))
+		k, err := kind.Parse(hit.Source[keyKind.String()].(string))
 		if err != nil {
 			return nil, fmt.Errorf("vector search: result %d: %v", i, err)
 		}
 
-		vector, err := base64ToVector(hit.Source["embedding_vector"].(string))
+		vector, err := base64ToVector(hit.Source[keyVector.String()].(string))
 		if err != nil {
 			return nil, fmt.Errorf("vector search: result %d: %v", i, err)
 		}
@@ -157,8 +166,8 @@ func (sr searchResponse) toVectorSearchResult() ([]traverser.VectorSearchResult,
 		}
 
 		output[i] = traverser.VectorSearchResult{
-			ClassName: hit.Source["class_name"].(string),
-			ID:        strfmt.UUID(hit.Source["id"].(string)),
+			ClassName: hit.Source[keyClassName.String()].(string),
+			ID:        strfmt.UUID(hit.ID),
 			Kind:      k,
 			Score:     hit.Score,
 			Vector:    vector,
@@ -199,10 +208,10 @@ func (r *Repo) putConcept(ctx context.Context,
 
 	var buf bytes.Buffer
 	bucket := map[string]interface{}{
-		"kind":             k.Name(),
-		"id":               id,
-		"class_name":       className,
-		"embedding_vector": vectorToBase64(vector),
+		keyKind.String():      k.Name(),
+		keyID.String():        id,
+		keyClassName.String(): className,
+		keyVector.String():    vectorToBase64(vector),
 	}
 
 	bucket = extendBucketWithProps(bucket, props)
