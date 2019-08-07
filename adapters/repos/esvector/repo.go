@@ -151,13 +151,18 @@ func (sr searchResponse) toVectorSearchResult() ([]traverser.VectorSearchResult,
 			return nil, fmt.Errorf("vector search: result %d: %v", i, err)
 		}
 
+		schema, err := parseSchema(hit.Source)
+		if err != nil {
+			return nil, fmt.Errorf("vector search: result %d: %v", i, err)
+		}
+
 		output[i] = traverser.VectorSearchResult{
 			ClassName: hit.Source["class_name"].(string),
 			ID:        strfmt.UUID(hit.Source["id"].(string)),
 			Kind:      k,
 			Score:     hit.Score,
 			Vector:    vector,
-			Schema:    hit.Source,
+			Schema:    schema,
 		}
 	}
 
