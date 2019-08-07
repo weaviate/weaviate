@@ -23,12 +23,12 @@ import (
 func groupArgument(kindName, className string) *graphql.ArgumentConfig {
 	prefix := fmt.Sprintf("Get%ss%s", kindName, className)
 	return &graphql.ArgumentConfig{
-		// Description: descriptions.LocalGetGroup,
+		// Description: descriptions.GetGroup,
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{
 				Name:        fmt.Sprintf("%sGroupInpObj", prefix),
 				Fields:      groupFields(prefix),
-				Description: descriptions.LocalGetWhereInpObj,
+				Description: descriptions.GetWhereInpObj,
 			},
 		),
 	}

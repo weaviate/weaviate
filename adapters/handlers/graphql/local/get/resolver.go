@@ -22,7 +22,7 @@ import (
 
 // Resolver is a local abstraction of the required UC resolvers
 type Resolver interface {
-	LocalGetClass(ctx context.Context, principal *models.Principal, info *traverser.LocalGetParams) (interface{}, error)
+	GetClass(ctx context.Context, principal *models.Principal, info *traverser.GetParams) (interface{}, error)
 }
 
 // RequestsLog is a local abstraction on the RequestsLog that needs to be

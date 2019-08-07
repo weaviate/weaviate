@@ -24,8 +24,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
-func (t *Traverser) LocalGetClass(ctx context.Context, principal *models.Principal,
-	params *LocalGetParams) (interface{}, error) {
+func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
+	params *GetParams) (interface{}, error) {
 	if t.config.Config.EsvectorOnly {
 		return nil, fmt.Errorf("traverser.Get not supported yet in esvector-only mode")
 	}
@@ -48,10 +48,10 @@ func (t *Traverser) LocalGetClass(ctx context.Context, principal *models.Princip
 		return t.explorer.GetClass(ctx, params)
 	}
 
-	return t.repo.LocalGetClass(ctx, params)
+	return t.repo.GetClass(ctx, params)
 }
 
-type LocalGetParams struct {
+type GetParams struct {
 	Kind       kind.Kind
 	Filters    *filters.LocalFilter
 	ClassName  string

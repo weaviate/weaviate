@@ -15,15 +15,15 @@
 package descriptions
 
 // Local
-const LocalGetActions = "Get Actions on a local Weaviate"
-const LocalGetThings = "Get Things on a local Weaviate"
+const GetActions = "Get Actions on a local Weaviate"
+const GetThings = "Get Things on a local Weaviate"
 
-const LocalGetObj = "An object used to Get Things or Actions on a local Weaviate"
-const LocalGet = "Get Things or Actions on a local Weaviate"
+const GetObj = "An object used to Get Things or Actions on a local Weaviate"
+const Get = "Get Things or Actions on a local Weaviate"
 
-const LocalGetThingsActionsObj = "An object used to get %ss on a local Weaviate"
+const GetThingsActionsObj = "An object used to get %ss on a local Weaviate"
 
-const LocalGetClassUUID = "The UUID of a Thing or Action, assigned by its local Weaviate"
+const GetClassUUID = "The UUID of a Thing or Action, assigned by its local Weaviate"
 
 // Network
 const NetworkGet = "Get Things or Actions from a Weaviate in a network"
