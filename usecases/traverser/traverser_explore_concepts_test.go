@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,7 +37,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		vectorSearcher := &fakeVectorSearcher{}
 		vectorRepo := &fakeVectorRepo{}
 		explorer := NewExplorer(vectorSearcher, vectorizer, vectorRepo)
-		traverser := NewTraverser(locks, repo, c11y, logger, authorizer,
+		traverser := NewTraverser(&config.WeaviateConfig{}, locks, repo, c11y, logger, authorizer,
 			vectorizer, vectorSearcher, explorer)
 		params := ExploreParams{
 			Values:  []string{"a search term", "another"},
@@ -58,7 +59,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		vectorSearcher := &fakeVectorSearcher{}
 		vectorRepo := &fakeVectorRepo{}
 		explorer := NewExplorer(vectorSearcher, vectorizer, vectorRepo)
-		traverser := NewTraverser(locks, repo, c11y, logger, authorizer,
+		traverser := NewTraverser(&config.WeaviateConfig{}, locks, repo, c11y, logger, authorizer,
 			vectorizer, vectorSearcher, explorer)
 		params := ExploreParams{
 			Values: []string{"a search term", "another"},
@@ -111,7 +112,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		vectorSearcher := &fakeVectorSearcher{}
 		vectorRepo := &fakeVectorRepo{}
 		explorer := NewExplorer(vectorSearcher, vectorizer, vectorRepo)
-		traverser := NewTraverser(locks, repo, c11y, logger, authorizer,
+		traverser := NewTraverser(&config.WeaviateConfig{}, locks, repo, c11y, logger, authorizer,
 			vectorizer, vectorSearcher, explorer)
 		params := ExploreParams{
 			Values:    []string{"a search term", "another"},
@@ -149,7 +150,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		vectorSearcher := &fakeVectorSearcher{}
 		vectorRepo := &fakeVectorRepo{}
 		explorer := NewExplorer(vectorSearcher, vectorizer, vectorRepo)
-		traverser := NewTraverser(locks, repo, c11y, logger, authorizer,
+		traverser := NewTraverser(&config.WeaviateConfig{}, locks, repo, c11y, logger, authorizer,
 			vectorizer, vectorSearcher, explorer)
 		params := ExploreParams{
 			Limit:  100,

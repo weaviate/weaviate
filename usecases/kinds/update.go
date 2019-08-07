@@ -41,6 +41,10 @@ type updateRepo interface {
 // include this particular network ref class.
 func (m *Manager) UpdateAction(ctx context.Context, principal *models.Principal, id strfmt.UUID,
 	class *models.Action) (*models.Action, error) {
+	if m.config.Config.EsvectorOnly {
+		return nil, fmt.Errorf("kinds.UpdateAction not supported yet in esvector-only mode")
+	}
+
 	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("actions/%s", id.String()))
 	if err != nil {
 		return nil, err
@@ -98,6 +102,10 @@ func (m *Manager) updateActionToConnectorAndSchema(ctx context.Context, principa
 // include this particular network ref class.
 func (m *Manager) UpdateThing(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, class *models.Thing) (*models.Thing, error) {
+	if m.config.Config.EsvectorOnly {
+		return nil, fmt.Errorf("kinds.UpdateThing not supported yet in esvector-only mode")
+	}
+
 	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("things/%s", id.String()))
 	if err != nil {
 		return nil, err

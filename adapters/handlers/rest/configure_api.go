@@ -94,7 +94,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		repo := esvector.NewRepo(esClient, appState.Logger)
 		vectorMigrator = esvector.NewMigrator(repo)
 		vectorRepo = repo
-		migrator = migrate.New(appState.Connector, vectorMigrator)
+		if appState.ServerConfig.Config.EsvectorOnly {
+			migrator = vectorMigrator
+		} else {
+			migrator = migrate.New(appState.Connector, vectorMigrator)
+		}
 		vectorizer = libvectorizer.New(appState.Contextionary)
 		explorer = traverser.NewExplorer(repo, vectorizer, appState.Connector)
 	} else {
@@ -124,7 +128,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,
 		appState.Authorizer)
 
-	kindsTraverser := traverser.NewTraverser(appState.Locks, appState.Connector,
+	kindsTraverser := traverser.NewTraverser(appState.ServerConfig, appState.Locks, appState.Connector,
 		appState.Contextionary, appState.Logger, appState.Authorizer, vectorizer,
 		vectorRepo, explorer)
 	connstateManager, err := connstate.NewManager(connstateRepo, appState.Logger)
@@ -143,17 +147,19 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	// allow up to 2 minutes for the connected db to be ready
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	if err := appState.Connector.Connect(ctx); err != nil {
-		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("could not connect connector")
-		os.Exit(1)
-	}
-	if err := appState.Connector.Init(context.Background()); err != nil {
-		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("could not init connector")
-		os.Exit(1)
+	if !appState.ServerConfig.Config.EsvectorOnly {
+		if err := appState.Connector.Connect(ctx); err != nil {
+			appState.Logger.
+				WithField("action", "startup").WithError(err).
+				Fatal("could not connect connector")
+			os.Exit(1)
+		}
+		if err := appState.Connector.Init(context.Background()); err != nil {
+			appState.Logger.
+				WithField("action", "startup").WithError(err).
+				Fatal("could not init connector")
+			os.Exit(1)
+		}
 	}
 
 	updateSchemaCallback := makeUpdateSchemaCall(appState.Logger, appState, kindsTraverser)

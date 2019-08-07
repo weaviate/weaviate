@@ -26,6 +26,9 @@ import (
 
 func (t *Traverser) LocalGetClass(ctx context.Context, principal *models.Principal,
 	params *LocalGetParams) (interface{}, error) {
+	if t.config.Config.EsvectorOnly {
+		return nil, fmt.Errorf("traverser.Get not supported yet in esvector-only mode")
+	}
 
 	err := t.authorizer.Authorize(principal, "get", "traversal/*")
 	if err != nil {

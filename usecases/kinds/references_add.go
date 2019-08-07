@@ -29,6 +29,9 @@ import (
 // include this particular network ref class.
 func (m *Manager) AddActionReference(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
+	if m.config.Config.EsvectorOnly {
+		return fmt.Errorf("kinds.AddActionReference not supported yet in esvector-only mode")
+	}
 
 	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("actions/%s", id.String()))
 	if err != nil {
@@ -89,6 +92,10 @@ func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, pr
 // include this particular network ref class.
 func (m *Manager) AddThingReference(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
+
+	if m.config.Config.EsvectorOnly {
+		return fmt.Errorf("kinds.AddThingReference not supported yet in esvector-only mode")
+	}
 
 	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("things/%s", id.String()))
 	if err != nil {

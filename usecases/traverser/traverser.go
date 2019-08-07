@@ -19,6 +19,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus"
 )
 
@@ -33,6 +34,7 @@ type authorizer interface {
 
 // Traverser can be used to dynamically traverse the knowledge graph
 type Traverser struct {
+	config         *config.WeaviateConfig
 	locks          locks
 	repo           TraverserRepo
 	c11y           c11y
@@ -61,11 +63,12 @@ type explorer interface {
 }
 
 // NewTraverser to traverse the knowledge graph
-func NewTraverser(locks locks, repo TraverserRepo, c11y c11y,
+func NewTraverser(config *config.WeaviateConfig, locks locks, repo TraverserRepo, c11y c11y,
 	logger logrus.FieldLogger, authorizer authorizer,
 	vectorizer CorpiVectorizer, vectorSearcher VectorSearcher,
 	explorer explorer) *Traverser {
 	return &Traverser{
+		config:         config,
 		locks:          locks,
 		c11y:           c11y,
 		repo:           repo,

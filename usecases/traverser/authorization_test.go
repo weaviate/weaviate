@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -90,7 +91,7 @@ func Test_Traverser_Authorization(t *testing.T) {
 			vectorizer := &fakeVectorizer{}
 			vectorRepo := &fakeVectorRepo{}
 			explorer := &fakeExplorer{}
-			manager := NewTraverser(locks, repo, c11y, logger, authorizer,
+			manager := NewTraverser(&config.WeaviateConfig{}, locks, repo, c11y, logger, authorizer,
 				vectorizer, vectorRepo, explorer)
 
 			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)

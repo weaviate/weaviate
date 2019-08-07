@@ -54,6 +54,7 @@ type Config struct {
 	Authorization        Authorization   `json:"authorization" yaml:"authorization"`
 	Telemetry            Telemetry       `json:"telemetry" yaml:"telemetry"`
 	VectorIndex          VectorIndex     `json:"vector_index" yaml:"vector_index"`
+	EsvectorOnly         bool            `json:"esvectorOnly" yaml:"esvectorOnly"`
 }
 
 // QueryDefaults for optional parameters
