@@ -47,13 +47,6 @@ func NewRepo(client *elasticsearch.Client, logger logrus.FieldLogger) *Repo {
 	return &Repo{client, logger}
 }
 
-type conceptBucket struct {
-	Kind            string `json:"kind"`
-	ID              string `json:"id"`
-	ClassName       string `json:"class_name"`
-	EmbeddingVector string `json:"embedding_vector"`
-}
-
 // VectorClassSearch limits the vector search to a specific class (and kind)
 func (r *Repo) VectorClassSearch(ctx context.Context, kind kind.Kind,
 	className string, vector []float32, limit int,
@@ -122,9 +115,9 @@ type searchResponse struct {
 }
 
 type hit struct {
-	ID     string        `json:"_id"`
-	Source conceptBucket `json:"_source"`
-	Score  float32       `json:"_score"`
+	ID     string                 `json:"_id"`
+	Source map[string]interface{} `json:"_source"`
+	Score  float32                `json:"_score"`
 }
 
 func (r *Repo) searchResponse(res *esapi.Response) ([]traverser.VectorSearchResult,
@@ -148,22 +141,23 @@ func (sr searchResponse) toVectorSearchResult() ([]traverser.VectorSearchResult,
 	hits := sr.Hits.Hits
 	output := make([]traverser.VectorSearchResult, len(hits), len(hits))
 	for i, hit := range hits {
-		k, err := kind.Parse(hit.Source.Kind)
+		k, err := kind.Parse(hit.Source["kind"].(string))
 		if err != nil {
 			return nil, fmt.Errorf("vector search: result %d: %v", i, err)
 		}
 
-		vector, err := base64ToVector(hit.Source.EmbeddingVector)
+		vector, err := base64ToVector(hit.Source["embedding_vector"].(string))
 		if err != nil {
 			return nil, fmt.Errorf("vector search: result %d: %v", i, err)
 		}
 
 		output[i] = traverser.VectorSearchResult{
-			ClassName: hit.Source.ClassName,
-			ID:        strfmt.UUID(hit.Source.ID),
+			ClassName: hit.Source["class_name"].(string),
+			ID:        strfmt.UUID(hit.Source["id"].(string)),
 			Kind:      k,
 			Score:     hit.Score,
 			Vector:    vector,
+			Schema:    hit.Source,
 		}
 	}
 

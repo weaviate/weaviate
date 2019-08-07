@@ -20,9 +20,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/elastic/go-elasticsearch/v5"
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -43,6 +45,12 @@ func TestEsVectorRepo(t *testing.T) {
 	t.Run("creating the thing class", func(t *testing.T) {
 		class := &models.Class{
 			Class: "TheBestThingClass",
+			Properties: []*models.Property{
+				&models.Property{
+					Name:     "stringProp",
+					DataType: []string{string(schema.DataTypeString)},
+				},
+			},
 		}
 
 		require.Nil(t,
@@ -61,9 +69,11 @@ func TestEsVectorRepo(t *testing.T) {
 	thingID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
 	t.Run("adding a thing", func(t *testing.T) {
 		thing := &models.Thing{
-			ID:     thingID,
-			Class:  "TheBestThingClass",
-			Schema: map[string]interface{}{},
+			ID:    thingID,
+			Class: "TheBestThingClass",
+			Schema: map[string]interface{}{
+				"stringProp": "some value",
+			},
 		}
 		vector := []float32{1, 3, 5, 0.4}
 
@@ -121,6 +131,9 @@ func TestEsVectorRepo(t *testing.T) {
 		assert.Equal(t, thingID, res[0].ID)
 		assert.Equal(t, kind.Thing, res[0].Kind)
 		assert.Equal(t, "TheBestThingClass", res[0].ClassName)
+		schema := res[0].Schema.(map[string]interface{})
+		spew.Dump(schema)
+		assert.Equal(t, "some value", schema["stringProp"])
 	})
 
 	t.Run("deleting a thing again", func(t *testing.T) {

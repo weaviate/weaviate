@@ -100,7 +100,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			migrator = migrate.New(appState.Connector, vectorMigrator)
 		}
 		vectorizer = libvectorizer.New(appState.Contextionary)
-		explorer = traverser.NewExplorer(repo, vectorizer, appState.Connector)
+		explorer = traverser.NewExplorer(repo, vectorizer)
 	} else {
 		vectorRepo = esvector.NewNoOpRepo()
 		vectorizer = libvectorizer.NewNoOp()

@@ -26,10 +26,6 @@ import (
 
 func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
 	params *GetParams) (interface{}, error) {
-	if t.config.Config.EsvectorOnly {
-		return nil, fmt.Errorf("traverser.Get not supported yet in esvector-only mode")
-	}
-
 	err := t.authorizer.Authorize(principal, "get", "traversal/*")
 	if err != nil {
 		return nil, err
