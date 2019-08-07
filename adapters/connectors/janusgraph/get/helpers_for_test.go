@@ -209,7 +209,7 @@ func (p *fakeDataType) ContainsClass(needle schema.ClassName) bool {
 
 type testCase struct {
 	name          string
-	inputParams   traverser.LocalGetParams
+	inputParams   traverser.GetParams
 	expectedQuery string
 	expectedErr   error
 }

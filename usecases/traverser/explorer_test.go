@@ -28,7 +28,7 @@ import (
 
 func Test_Explorer_GetClass(t *testing.T) {
 	t.Run("when an explore param is set", func(t *testing.T) {
-		params := &LocalGetParams{
+		params := &GetParams{
 			Kind:      kind.Thing,
 			ClassName: "BestClass",
 			Explore: &ExploreParams{
@@ -97,7 +97,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 	})
 
 	t.Run("when an explore param is set and the required certainty not met", func(t *testing.T) {
-		params := &LocalGetParams{
+		params := &GetParams{
 			Kind:      kind.Thing,
 			ClassName: "BestClass",
 			Explore: &ExploreParams{

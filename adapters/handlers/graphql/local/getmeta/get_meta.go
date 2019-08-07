@@ -62,7 +62,7 @@ func Build(dbSchema *schema.Schema, config config.Config) (*graphql.Field, error
 	getMetaObj := graphql.NewObject(graphql.ObjectConfig{
 		Name:        "MetaObj",
 		Fields:      getMetaKinds,
-		Description: descriptions.LocalGetObj,
+		Description: descriptions.GetObj,
 	})
 
 	localField := &graphql.Field{

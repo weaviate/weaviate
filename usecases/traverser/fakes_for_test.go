@@ -34,7 +34,7 @@ func (f *fakeRepo) LocalAggregate(ctx context.Context, params *AggregateParams) 
 	panic("not implemented")
 }
 
-func (f *fakeRepo) LocalGetClass(ctx context.Context, params *LocalGetParams) (interface{}, error) {
+func (f *fakeRepo) GetClass(ctx context.Context, params *GetParams) (interface{}, error) {
 	panic("not implemented")
 }
 
@@ -212,7 +212,7 @@ func (f *fakeVectorRepo) GetAction(ctx context.Context, uuid strfmt.UUID,
 
 type fakeExplorer struct{}
 
-func (f *fakeExplorer) GetClass(ctx context.Context, p *LocalGetParams) ([]interface{}, error) {
+func (f *fakeExplorer) GetClass(ctx context.Context, p *GetParams) ([]interface{}, error) {
 	return nil, nil
 }
 

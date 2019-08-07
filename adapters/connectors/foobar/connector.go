@@ -385,7 +385,7 @@ func (f *Foobar) SetState(ctx context.Context, state json.RawMessage) {
 func (f *Foobar) SetStateManager(manager connectors.StateManager) {
 }
 
-// LocalGetClass resolves a GraphQL request about a single Class like so
+// GetClass resolves a GraphQL request about a single Class like so
 //
 //	`{ Local { Get { Things { City { population } } } } }`
 //
@@ -406,7 +406,7 @@ func (f *Foobar) SetStateManager(manager connectors.StateManager) {
 //	  "population": 600000,
 //	 },
 //	}
-func (f *Foobar) LocalGetClass(ctx context.Context, info *traverser.LocalGetParams) (interface{}, error) {
+func (f *Foobar) GetClass(ctx context.Context, info *traverser.GetParams) (interface{}, error) {
 	return nil, nil
 }
 

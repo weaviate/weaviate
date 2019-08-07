@@ -31,7 +31,7 @@ import (
 // Query prepares a Local->Fetch Query. Can be built with String(). Create with
 // NewQuery() to be sure that all required properties are set
 type Query struct {
-	params     traverser.LocalGetParams
+	params     traverser.GetParams
 	nameSource nameSource
 	typeSource typeSource
 	defaults   config.QueryDefaults
@@ -44,7 +44,7 @@ func init() {
 }
 
 // NewQuery is the preferred way to create a query
-func NewQuery(p traverser.LocalGetParams, ns nameSource, ts typeSource, d config.QueryDefaults) *Query {
+func NewQuery(p traverser.GetParams, ns nameSource, ts typeSource, d config.QueryDefaults) *Query {
 	return &Query{
 		params:     p,
 		nameSource: ns,

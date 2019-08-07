@@ -53,7 +53,7 @@ func NewExplorer(search vectorClassSearch, vectorizer CorpiVectorizer,
 
 // GetClass from search and connector repo
 func (e *Explorer) GetClass(ctx context.Context,
-	params *LocalGetParams) ([]interface{}, error) {
+	params *GetParams) ([]interface{}, error) {
 	searchVector, err := e.vectorFromExploreParams(ctx, params.Explore)
 	if err != nil {
 		return nil, fmt.Errorf("explorer: get class: vectorize params: %v", err)
