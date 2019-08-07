@@ -20,7 +20,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/elastic/go-elasticsearch/v5"
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -50,6 +49,10 @@ func TestEsVectorRepo(t *testing.T) {
 					Name:     "stringProp",
 					DataType: []string{string(schema.DataTypeString)},
 				},
+				&models.Property{
+					Name:     "location",
+					DataType: []string{string(schema.DataTypeGeoCoordinates)},
+				},
 			},
 		}
 
@@ -73,6 +76,10 @@ func TestEsVectorRepo(t *testing.T) {
 			Class: "TheBestThingClass",
 			Schema: map[string]interface{}{
 				"stringProp": "some value",
+				"location": &models.GeoCoordinates{
+					Latitude:  1,
+					Longitude: 2,
+				},
 			},
 		}
 		vector := []float32{1, 3, 5, 0.4}
@@ -132,8 +139,8 @@ func TestEsVectorRepo(t *testing.T) {
 		assert.Equal(t, kind.Thing, res[0].Kind)
 		assert.Equal(t, "TheBestThingClass", res[0].ClassName)
 		schema := res[0].Schema.(map[string]interface{})
-		spew.Dump(schema)
 		assert.Equal(t, "some value", schema["stringProp"])
+		assert.Equal(t, &models.GeoCoordinates{1, 2}, schema["location"])
 	})
 
 	t.Run("deleting a thing again", func(t *testing.T) {
