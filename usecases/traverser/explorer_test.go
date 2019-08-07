@@ -17,9 +17,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -42,45 +40,32 @@ func Test_Explorer_GetClass(t *testing.T) {
 			{
 				Kind: kind.Thing,
 				ID:   "id1",
+				Schema: map[string]interface{}{
+					"name": "Foo",
+				},
 			},
 			{
 				Kind: kind.Action,
 				ID:   "id2",
-			},
-		}
-
-		thing := models.Thing{
-			Schema: map[string]interface{}{
-				"name": "Foo",
-			},
-		}
-		action := models.Action{
-			Schema: map[string]interface{}{
-				"age": 200,
+				Schema: map[string]interface{}{
+					"age": 200,
+				},
 			},
 		}
 
 		search := &fakeVectorClassSearch{}
 		vectorizer := &fakeVectorizer{}
-		repo := &fakeExplorerRepo{}
-		explorer := NewExplorer(search, vectorizer, repo)
+		explorer := NewExplorer(search, vectorizer)
 		search.
 			On("VectorClassSearch", kind.Thing, "BestClass", []float32{1, 2, 3},
 				100, (*filters.LocalFilter)(nil)).
 			Return(searchResults, nil)
-		repo.On("GetThing", strfmt.UUID("id1")).Return(thing, nil)
-		repo.On("GetAction", strfmt.UUID("id2")).Return(action, nil)
 
 		res, err := explorer.GetClass(context.Background(), params)
 
 		t.Run("vector search must be called with right params", func(t *testing.T) {
 			assert.Nil(t, err)
 			search.AssertExpectations(t)
-		})
-
-		t.Run("connected repo must be called once for each result", func(t *testing.T) {
-			// TODO gh-912 improve interface between connector and UC
-			repo.AssertExpectations(t)
 		})
 
 		t.Run("response must contain concepts", func(t *testing.T) {
@@ -121,8 +106,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		search := &fakeVectorClassSearch{}
 		vectorizer := &fakeVectorizer{}
-		repo := &fakeExplorerRepo{}
-		explorer := NewExplorer(search, vectorizer, repo)
+		explorer := NewExplorer(search, vectorizer)
 		search.
 			On("VectorClassSearch", kind.Thing, "BestClass", []float32{1, 2, 3},
 				100, (*filters.LocalFilter)(nil)).
@@ -133,12 +117,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 		t.Run("vector search must be called with right params", func(t *testing.T) {
 			assert.Nil(t, err)
 			search.AssertExpectations(t)
-		})
-
-		t.Run("connected repo must never be called", func(t *testing.T) {
-			// TODO gh-912 improve interface between connector and UC
-			// note that we have not set up any expected calls!
-			repo.AssertExpectations(t)
 		})
 
 		t.Run("no concept met the required certainty", func(t *testing.T) {
@@ -162,22 +140,4 @@ func (f *fakeVectorClassSearch) VectorSearch(ctx context.Context,
 	className string, vector []float32, limit int,
 	filters *filters.LocalFilter) ([]VectorSearchResult, error) {
 	return nil, nil
-}
-
-type fakeExplorerRepo struct {
-	mock.Mock
-}
-
-func (f *fakeExplorerRepo) GetThing(ctx context.Context, uuid strfmt.UUID,
-	res *models.Thing) error {
-	args := f.Called(uuid)
-	*res = args.Get(0).(models.Thing)
-	return args.Error(1)
-}
-
-func (f *fakeExplorerRepo) GetAction(ctx context.Context, uuid strfmt.UUID,
-	res *models.Action) error {
-	args := f.Called(uuid)
-	*res = args.Get(0).(models.Action)
-	return args.Error(1)
 }

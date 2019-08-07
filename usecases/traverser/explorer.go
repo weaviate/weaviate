@@ -29,7 +29,6 @@ import (
 type Explorer struct {
 	search     vectorClassSearch
 	vectorizer CorpiVectorizer
-	repo       explorerRepo
 }
 
 type vectorClassSearch interface {
@@ -46,9 +45,8 @@ type explorerRepo interface {
 }
 
 // NewExplorer with search and connector repo
-func NewExplorer(search vectorClassSearch, vectorizer CorpiVectorizer,
-	repo explorerRepo) *Explorer {
-	return &Explorer{search, vectorizer, repo}
+func NewExplorer(search vectorClassSearch, vectorizer CorpiVectorizer) *Explorer {
+	return &Explorer{search, vectorizer}
 }
 
 // GetClass from search and connector repo
@@ -89,18 +87,7 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 			continue
 		}
 
-		switch res.Kind {
-		case kind.Thing:
-			var thing models.Thing
-			e.repo.GetThing(ctx, res.ID, &thing)
-			output = append(output, thing.Schema)
-		case kind.Action:
-			var action models.Action
-			e.repo.GetAction(ctx, res.ID, &action)
-			output = append(output, action.Schema)
-		default:
-			return nil, fmt.Errorf("impossible kind %v", res.Kind)
-		}
+		output = append(output, res.Schema)
 	}
 
 	return output, nil
