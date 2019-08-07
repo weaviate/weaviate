@@ -108,7 +108,7 @@ func (r *Repo) SetMappings(ctx context.Context, index string, props map[string]i
 	var buf bytes.Buffer
 
 	// extend existing props with vectorProp
-	props[vectorProp] = map[string]interface{}{
+	props[keyVector.String()] = map[string]interface{}{
 		"type":       "binary",
 		"doc_values": true,
 	}

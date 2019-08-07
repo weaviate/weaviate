@@ -13,6 +13,14 @@ func parseSchema(input map[string]interface{}) (map[string]interface{}, error) {
 	output := map[string]interface{}{}
 
 	for key, value := range input {
+		if isID(key) {
+			output["uuid"] = value
+		}
+
+		if isInternal(key) {
+			continue
+		}
+
 		switch typed := value.(type) {
 		case map[string]interface{}:
 			parsed, err := parseMapProp(typed)
@@ -29,6 +37,14 @@ func parseSchema(input map[string]interface{}) (map[string]interface{}, error) {
 	}
 
 	return output, nil
+}
+
+func isID(key string) bool {
+	return key == keyID.String()
+}
+
+func isInternal(key string) bool {
+	return string(key[0]) == "_"
 }
 
 func parseMapProp(input map[string]interface{}) (interface{}, error) {
