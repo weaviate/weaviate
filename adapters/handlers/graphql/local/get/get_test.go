@@ -29,13 +29,13 @@ import (
 func TestSimpleFieldParamsOK(t *testing.T) {
 	t.Parallel()
 	resolver := newMockResolver(emptyPeers())
-	expectedParams := &traverser.LocalGetParams{
+	expectedParams := &traverser.GetParams{
 		Kind:       kind.Action,
 		ClassName:  "SomeAction",
 		Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
 	}
 
-	resolver.On("LocalGetClass", expectedParams).
+	resolver.On("GetClass", expectedParams).
 		Return(test_helper.EmptyList(), nil).Once()
 
 	resolver.AssertResolve(t, "{ Get { Actions { SomeAction { intField } } } }")
@@ -46,13 +46,13 @@ func TestExtractIntField(t *testing.T) {
 
 	resolver := newMockResolver(emptyPeers())
 
-	expectedParams := &traverser.LocalGetParams{
+	expectedParams := &traverser.GetParams{
 		Kind:       kind.Action,
 		ClassName:  "SomeAction",
 		Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
 	}
 
-	resolver.On("LocalGetClass", expectedParams).
+	resolver.On("GetClass", expectedParams).
 		Return(test_helper.EmptyList(), nil).Once()
 
 	query := "{ Get { Actions { SomeAction { intField } } } }"
@@ -64,7 +64,7 @@ func TestExtractGeoCoordinatesField(t *testing.T) {
 
 	resolver := newMockResolver(emptyPeers())
 
-	expectedParams := &traverser.LocalGetParams{
+	expectedParams := &traverser.GetParams{
 		Kind:       kind.Action,
 		ClassName:  "SomeAction",
 		Properties: []traverser.SelectProperty{{Name: "location", IsPrimitive: true}},
@@ -76,7 +76,7 @@ func TestExtractGeoCoordinatesField(t *testing.T) {
 		},
 	}
 
-	resolver.On("LocalGetClass", expectedParams).
+	resolver.On("GetClass", expectedParams).
 		Return(resolverReturn, nil).Once()
 
 	query := "{ Get { Actions { SomeAction { location { latitude longitude } } } } }"
@@ -110,7 +110,7 @@ func TestExploreRanker(t *testing.T) {
 								}
         			}) { intField } } } }`
 
-		expectedParams := &traverser.LocalGetParams{
+		expectedParams := &traverser.GetParams{
 			Kind:       kind.Action,
 			ClassName:  "SomeAction",
 			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
@@ -127,7 +127,7 @@ func TestExploreRanker(t *testing.T) {
 			},
 		}
 
-		resolver.On("LocalGetClass", expectedParams).
+		resolver.On("GetClass", expectedParams).
 			Return([]interface{}{}, nil).Once()
 
 		resolver.AssertResolve(t, query)
@@ -147,7 +147,7 @@ func TestExploreRanker(t *testing.T) {
 								}
         			}) { intField } } } }`
 
-		expectedParams := &traverser.LocalGetParams{
+		expectedParams := &traverser.GetParams{
 			Kind:       kind.Thing,
 			ClassName:  "SomeThing",
 			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
@@ -164,7 +164,7 @@ func TestExploreRanker(t *testing.T) {
 				},
 			},
 		}
-		resolver.On("LocalGetClass", expectedParams).
+		resolver.On("GetClass", expectedParams).
 			Return([]interface{}{}, nil).Once()
 
 		resolver.AssertResolve(t, query)
@@ -177,7 +177,7 @@ func TestExtractPagination(t *testing.T) {
 
 	resolver := newMockResolver(emptyPeers())
 
-	expectedParams := &traverser.LocalGetParams{
+	expectedParams := &traverser.GetParams{
 		Kind:       kind.Action,
 		ClassName:  "SomeAction",
 		Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
@@ -186,7 +186,7 @@ func TestExtractPagination(t *testing.T) {
 		},
 	}
 
-	resolver.On("LocalGetClass", expectedParams).
+	resolver.On("GetClass", expectedParams).
 		Return(test_helper.EmptyList(), nil).Once()
 
 	query := "{ Get { Actions { SomeAction(limit: 10) { intField } } } }"
@@ -199,7 +199,7 @@ func TestGetRelation(t *testing.T) {
 	t.Run("without using custom fragments", func(t *testing.T) {
 		resolver := newMockResolver(emptyPeers())
 
-		expectedParams := &traverser.LocalGetParams{
+		expectedParams := &traverser.GetParams{
 			Kind:      kind.Action,
 			ClassName: "SomeAction",
 			Properties: []traverser.SelectProperty{
@@ -236,7 +236,7 @@ func TestGetRelation(t *testing.T) {
 			},
 		}
 
-		resolver.On("LocalGetClass", expectedParams).
+		resolver.On("GetClass", expectedParams).
 			Return(test_helper.EmptyList(), nil).Once()
 
 		query := "{ Get { Actions { SomeAction { HasAction { ... on SomeAction { intField, HasAction { ... on SomeAction { intField } } } } } } } }"
@@ -246,7 +246,7 @@ func TestGetRelation(t *testing.T) {
 	t.Run("with a custom fragment one level deep", func(t *testing.T) {
 		resolver := newMockResolver(emptyPeers())
 
-		expectedParams := &traverser.LocalGetParams{
+		expectedParams := &traverser.GetParams{
 			Kind:      kind.Action,
 			ClassName: "SomeAction",
 			Properties: []traverser.SelectProperty{
@@ -268,7 +268,7 @@ func TestGetRelation(t *testing.T) {
 			},
 		}
 
-		resolver.On("LocalGetClass", expectedParams).
+		resolver.On("GetClass", expectedParams).
 			Return(test_helper.EmptyList(), nil).Once()
 
 		query := "fragment actionFragment on SomeAction { intField } { Get { Actions { SomeAction { HasAction { ...actionFragment } } } } }"
@@ -278,7 +278,7 @@ func TestGetRelation(t *testing.T) {
 	t.Run("with a custom fragment multiple levels deep", func(t *testing.T) {
 		resolver := newMockResolver(emptyPeers())
 
-		expectedParams := &traverser.LocalGetParams{
+		expectedParams := &traverser.GetParams{
 			Kind:      kind.Action,
 			ClassName: "SomeAction",
 			Properties: []traverser.SelectProperty{
@@ -315,7 +315,7 @@ func TestGetRelation(t *testing.T) {
 			},
 		}
 
-		resolver.On("LocalGetClass", expectedParams).
+		resolver.On("GetClass", expectedParams).
 			Return(test_helper.EmptyList(), nil).Once()
 
 		query := `

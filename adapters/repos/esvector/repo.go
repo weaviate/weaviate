@@ -25,15 +25,22 @@ import (
 	"github.com/elastic/go-elasticsearch/v5"
 	"github.com/elastic/go-elasticsearch/v5/esapi"
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 )
 
+type internalKey string
+
+func (k internalKey) String() string {
+	return string(k)
+}
+
 const (
-	vectorProp = "embedding_vector"
+	keyVector    internalKey = "_embedding_vector"
+	keyID        internalKey = "_uuid"
+	keyKind      internalKey = "_kind"
+	keyClassName internalKey = "_class_name"
 )
 
 // Repo stores and retrieves vector info in elasticsearch
@@ -45,129 +52,6 @@ type Repo struct {
 // NewRepo from existing es client
 func NewRepo(client *elasticsearch.Client, logger logrus.FieldLogger) *Repo {
 	return &Repo{client, logger}
-}
-
-type conceptBucket struct {
-	Kind            string `json:"kind"`
-	ID              string `json:"id"`
-	ClassName       string `json:"class_name"`
-	EmbeddingVector string `json:"embedding_vector"`
-}
-
-// VectorClassSearch limits the vector search to a specific class (and kind)
-func (r *Repo) VectorClassSearch(ctx context.Context, kind kind.Kind,
-	className string, vector []float32, limit int,
-	filters *filters.LocalFilter) ([]traverser.VectorSearchResult, error) {
-	index := classIndexFromClassName(kind, className)
-	return r.VectorSearch(ctx, index, vector, limit, filters)
-}
-
-// VectorSearch retrives the closest concepts by vector distance
-func (r *Repo) VectorSearch(ctx context.Context, index string,
-	vector []float32, limit int,
-	filters *filters.LocalFilter) ([]traverser.VectorSearchResult, error) {
-	var buf bytes.Buffer
-
-	query, err := queryFromFilter(filters)
-	if err != nil {
-		return nil, err
-	}
-
-	body := map[string]interface{}{
-		"query": map[string]interface{}{
-			"function_score": map[string]interface{}{
-				"query":      query,
-				"boost_mode": "replace",
-				"functions": []interface{}{
-					map[string]interface{}{
-						"script_score": map[string]interface{}{
-							"script": map[string]interface{}{
-								"inline": "binary_vector_score",
-								"lang":   "knn",
-								"params": map[string]interface{}{
-									"cosine": false,
-									"field":  "embedding_vector",
-									"vector": vector,
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-		"size": limit,
-	}
-
-	err = json.NewEncoder(&buf).Encode(body)
-	if err != nil {
-		return nil, fmt.Errorf("vector search: encode json: %v", err)
-	}
-
-	res, err := r.client.Search(
-		r.client.Search.WithContext(ctx),
-		r.client.Search.WithIndex(index),
-		r.client.Search.WithBody(&buf),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("vector search: %v", err)
-	}
-
-	return r.searchResponse(res)
-}
-
-type searchResponse struct {
-	Hits struct {
-		Hits []hit `json:"hits"`
-	} `json:"hits"`
-}
-
-type hit struct {
-	ID     string        `json:"_id"`
-	Source conceptBucket `json:"_source"`
-	Score  float32       `json:"_score"`
-}
-
-func (r *Repo) searchResponse(res *esapi.Response) ([]traverser.VectorSearchResult,
-	error) {
-	if err := errorResToErr(res, r.logger); err != nil {
-		return nil, fmt.Errorf("vector search: %v", err)
-	}
-
-	var sr searchResponse
-
-	defer res.Body.Close()
-	err := json.NewDecoder(res.Body).Decode(&sr)
-	if err != nil {
-		return nil, fmt.Errorf("vector search: decode json: %v", err)
-	}
-
-	return sr.toVectorSearchResult()
-}
-
-func (sr searchResponse) toVectorSearchResult() ([]traverser.VectorSearchResult, error) {
-	hits := sr.Hits.Hits
-	output := make([]traverser.VectorSearchResult, len(hits), len(hits))
-	for i, hit := range hits {
-		k, err := kind.Parse(hit.Source.Kind)
-		if err != nil {
-			return nil, fmt.Errorf("vector search: result %d: %v", i, err)
-		}
-
-		vector, err := base64ToVector(hit.Source.EmbeddingVector)
-		if err != nil {
-			return nil, fmt.Errorf("vector search: result %d: %v", i, err)
-		}
-
-		output[i] = traverser.VectorSearchResult{
-			ClassName: hit.Source.ClassName,
-			ID:        strfmt.UUID(hit.Source.ID),
-			Kind:      k,
-			Score:     hit.Score,
-			Vector:    vector,
-		}
-	}
-
-	return output, nil
 }
 
 // PutThing idempotently adds a Thing with its vector representation
@@ -200,10 +84,10 @@ func (r *Repo) putConcept(ctx context.Context,
 
 	var buf bytes.Buffer
 	bucket := map[string]interface{}{
-		"kind":             k.Name(),
-		"id":               id,
-		"class_name":       className,
-		"embedding_vector": vectorToBase64(vector),
+		keyKind.String():      k.Name(),
+		keyID.String():        id,
+		keyClassName.String(): className,
+		keyVector.String():    vectorToBase64(vector),
 	}
 
 	bucket = extendBucketWithProps(bucket, props)

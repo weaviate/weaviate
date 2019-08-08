@@ -297,4 +297,5 @@ func TestEsVectorMigrator_ImportingConcepts(t *testing.T) {
 		err := repo.PutThing(context.Background(), thing, []float32{0, 0, 0})
 		require.Nil(t, err)
 	})
+
 }

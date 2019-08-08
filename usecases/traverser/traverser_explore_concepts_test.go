@@ -35,8 +35,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorizer := &fakeVectorizer{}
 		vectorSearcher := &fakeVectorSearcher{}
-		vectorRepo := &fakeVectorRepo{}
-		explorer := NewExplorer(vectorSearcher, vectorizer, vectorRepo)
+		explorer := NewExplorer(vectorSearcher, vectorizer)
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, repo, c11y, logger, authorizer,
 			vectorizer, vectorSearcher, explorer)
 		params := ExploreParams{
@@ -57,8 +56,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorizer := &fakeVectorizer{}
 		vectorSearcher := &fakeVectorSearcher{}
-		vectorRepo := &fakeVectorRepo{}
-		explorer := NewExplorer(vectorSearcher, vectorizer, vectorRepo)
+		explorer := NewExplorer(vectorSearcher, vectorizer)
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, repo, c11y, logger, authorizer,
 			vectorizer, vectorSearcher, explorer)
 		params := ExploreParams{
@@ -110,8 +108,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorizer := &fakeVectorizer{}
 		vectorSearcher := &fakeVectorSearcher{}
-		vectorRepo := &fakeVectorRepo{}
-		explorer := NewExplorer(vectorSearcher, vectorizer, vectorRepo)
+		explorer := NewExplorer(vectorSearcher, vectorizer)
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, repo, c11y, logger, authorizer,
 			vectorizer, vectorSearcher, explorer)
 		params := ExploreParams{
@@ -148,8 +145,7 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorizer := &fakeVectorizer{}
 		vectorSearcher := &fakeVectorSearcher{}
-		vectorRepo := &fakeVectorRepo{}
-		explorer := NewExplorer(vectorSearcher, vectorizer, vectorRepo)
+		explorer := NewExplorer(vectorSearcher, vectorizer)
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, repo, c11y, logger, authorizer,
 			vectorizer, vectorSearcher, explorer)
 		params := ExploreParams{

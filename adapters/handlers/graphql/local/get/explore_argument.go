@@ -23,12 +23,12 @@ import (
 func exploreArgument(kindName, className string) *graphql.ArgumentConfig {
 	prefix := fmt.Sprintf("Get%ss%s", kindName, className)
 	return &graphql.ArgumentConfig{
-		// Description: descriptions.LocalGetExplore,
+		// Description: descriptions.GetExplore,
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{
 				Name:        fmt.Sprintf("%sExploreInpObj", prefix),
 				Fields:      exploreFields(prefix),
-				Description: descriptions.LocalGetWhereInpObj,
+				Description: descriptions.GetWhereInpObj,
 			},
 		),
 	}

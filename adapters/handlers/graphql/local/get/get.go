@@ -41,7 +41,7 @@ func Build(schema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger) 
 
 		getKinds["Actions"] = &graphql.Field{
 			Name:        "GetActions",
-			Description: descriptions.LocalGetActions,
+			Description: descriptions.GetActions,
 			Type:        actions,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				// Does nothing; pass through the filters
@@ -58,7 +58,7 @@ func Build(schema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger) 
 
 		getKinds["Things"] = &graphql.Field{
 			Name:        "GetThings",
-			Description: descriptions.LocalGetThings,
+			Description: descriptions.GetThings,
 			Type:        things,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				// Does nothing; pass through the filters
@@ -69,11 +69,11 @@ func Build(schema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger) 
 
 	return &graphql.Field{
 		Name:        "Get",
-		Description: descriptions.LocalGet,
+		Description: descriptions.Get,
 		Type: graphql.NewObject(graphql.ObjectConfig{
 			Name:        "GetObj",
 			Fields:      getKinds,
-			Description: descriptions.LocalGetObj,
+			Description: descriptions.GetObj,
 		}),
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			return p.Source, nil

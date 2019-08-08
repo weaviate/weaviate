@@ -71,7 +71,7 @@ func graphqlObjectFromClass(name string, networkClassName string, class *models.
 			classProperties := graphql.Fields{}
 
 			classProperties["uuid"] = &graphql.Field{
-				Description: descriptions.LocalGetClassUUID,
+				Description: descriptions.GetClassUUID,
 				Type:        graphql.String,
 			}
 

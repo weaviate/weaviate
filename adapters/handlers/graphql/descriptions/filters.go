@@ -15,8 +15,8 @@
 package descriptions
 
 // Where filter elements
-const LocalGetWhere = "Filter options for a local Get query, used to convert the result to the specified filters"
-const LocalGetWhereInpObj = "An object containing filter options for a local Get query, used to convert the result to the specified filters"
+const GetWhere = "Filter options for a local Get query, used to convert the result to the specified filters"
+const GetWhereInpObj = "An object containing filter options for a local Get query, used to convert the result to the specified filters"
 
 const LocalMetaWhere = "Filter options for a local Meta query, used to convert the result to the specified filters"
 const LocalMetaWhereInpObj = "An object containing filter options for a local Meta query, used to convert the result to the specified filters"

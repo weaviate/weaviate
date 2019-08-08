@@ -34,8 +34,7 @@ func (r *NoOpRepo) VectorClassSearch(ctx context.Context, kind kind.Kind,
 }
 
 // VectorSearch panics
-func (r *NoOpRepo) VectorSearch(ctx context.Context,
-	index string, vector []float32, limit int,
+func (r *NoOpRepo) VectorSearch(ctx context.Context, vector []float32, limit int,
 	filters *filters.LocalFilter) ([]traverser.VectorSearchResult, error) {
 	panic("no op repo: not implemented")
 }

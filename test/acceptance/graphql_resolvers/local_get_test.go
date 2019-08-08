@@ -21,7 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestLocalGetSimple(t *testing.T) {
+func TestGetSimple(t *testing.T) {
 	result := AssertGraphQL(t, helper.RootAuth, "{  Get { Things { City { name } } } }")
 	cities := result.Get("Get", "Things", "City").AsSlice()
 
@@ -37,7 +37,7 @@ func TestLocalGetSimple(t *testing.T) {
 	assert.ElementsMatch(t, expected, cities)
 }
 
-func TestLocalGetRelation(t *testing.T) {
+func TestGetRelation(t *testing.T) {
 	result := AssertGraphQL(t, helper.RootAuth, "{ Get { Things { City { name, InCountry { ... on Country { name } } } } } }")
 	cities := result.Get("Get", "Things", "City").AsSlice()
 

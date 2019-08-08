@@ -64,4 +64,5 @@ type VectorSearchResult struct {
 	Vector    []float32
 	Beacon    string
 	Certainty float32
+	Schema    models.PropertySchema
 }

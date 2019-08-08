@@ -28,7 +28,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestLocalGetWithNetworkRefResolvesCorrectly(t *testing.T) {
+func TestGetWithNetworkRefResolvesCorrectly(t *testing.T) {
 	t.Parallel()
 	server := newFakePeerServer(t)
 
@@ -69,7 +69,7 @@ func TestLocalGetWithNetworkRefResolvesCorrectly(t *testing.T) {
 	}
 	resolver := newMockResolver(peers)
 
-	expectedParams := &traverser.LocalGetParams{
+	expectedParams := &traverser.GetParams{
 		Kind:      kind.Thing,
 		ClassName: "SomeThing",
 		Properties: []traverser.SelectProperty{
@@ -109,7 +109,7 @@ func TestLocalGetWithNetworkRefResolvesCorrectly(t *testing.T) {
 		},
 	}
 
-	resolver.On("LocalGetClass", expectedParams).
+	resolver.On("GetClass", expectedParams).
 		Return(resolverResponse, nil).Once()
 
 	query := "{ Get { Things { SomeThing { NetworkRefField { ... on OtherInstance__SomeRemoteClass { bestString uuid } } } } } }"
@@ -136,7 +136,7 @@ func TestLocalGetWithNetworkRefResolvesCorrectly(t *testing.T) {
 
 }
 
-func TestLocalGetNoNetworkRequestIsMadeWhenUserDoesntWantNetworkRef(t *testing.T) {
+func TestGetNoNetworkRequestIsMadeWhenUserDoesntWantNetworkRef(t *testing.T) {
 	t.Parallel()
 	server := newFakePeerServer(t)
 
@@ -168,7 +168,7 @@ func TestLocalGetNoNetworkRequestIsMadeWhenUserDoesntWantNetworkRef(t *testing.T
 	}
 	resolver := newMockResolver(peers)
 
-	expectedParams := &traverser.LocalGetParams{
+	expectedParams := &traverser.GetParams{
 		Kind:      kind.Thing,
 		ClassName: "SomeThing",
 		Properties: []traverser.SelectProperty{
@@ -185,7 +185,7 @@ func TestLocalGetNoNetworkRequestIsMadeWhenUserDoesntWantNetworkRef(t *testing.T
 		},
 	}
 
-	resolver.On("LocalGetClass", expectedParams).
+	resolver.On("GetClass", expectedParams).
 		Return(resolverResponse, nil).Once()
 
 	query := "{ Get { Things { SomeThing { uuid } } } }"

@@ -102,7 +102,7 @@ func (b *classBuilder) kinds(k kind.Kind, kindSchema *models.Schema) (*graphql.O
 	classes := graphql.NewObject(graphql.ObjectConfig{
 		Name:        fmt.Sprintf("Get%ssObj", kindName),
 		Fields:      classFields,
-		Description: fmt.Sprintf(descriptions.LocalGetThingsActionsObj, kindName),
+		Description: fmt.Sprintf(descriptions.GetThingsActionsObj, kindName),
 	})
 
 	return classes, nil
@@ -122,7 +122,7 @@ func (b *classBuilder) classObject(kindName string, class *models.Class) *graphq
 			classProperties := graphql.Fields{}
 
 			classProperties["uuid"] = &graphql.Field{
-				Description: descriptions.LocalGetClassUUID,
+				Description: descriptions.GetClassUUID,
 				Type:        graphql.String,
 			}
 
