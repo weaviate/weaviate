@@ -38,6 +38,13 @@ func (r *NoOpRepo) VectorSearch(ctx context.Context, vector []float32, limit int
 	filters *filters.LocalFilter) ([]traverser.VectorSearchResult, error) {
 	panic("no op repo: not implemented")
 }
+func (r *NoOpRepo) ThingByID(ctx context.Context, id strfmt.UUID) (*traverser.VectorSearchResult, error) {
+	panic("no op repo: not implemented")
+}
+
+func (r *NoOpRepo) ActionByID(ctx context.Context, id strfmt.UUID) (*traverser.VectorSearchResult, error) {
+	panic("no op repo: not implemented")
+}
 
 // PutThing does nothing, but doesn't error either
 func (r *NoOpRepo) PutThing(ctx context.Context,
