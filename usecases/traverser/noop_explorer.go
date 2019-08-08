@@ -13,7 +13,11 @@
 
 package traverser
 
-import "context"
+import (
+	"context"
+
+	"github.com/semi-technologies/weaviate/entities/search"
+)
 
 // NoOpExplorer errors if an explore operation is attempted
 type NoOpExplorer struct {
@@ -28,7 +32,7 @@ func (n *NoOpExplorer) GetClass(ctx context.Context,
 
 // Concepts errors
 func (n *NoOpExplorer) Concepts(ctx context.Context,
-	params ExploreParams) ([]VectorSearchResult, error) {
+	params ExploreParams) ([]search.Result, error) {
 	return nil, n.err
 }
 

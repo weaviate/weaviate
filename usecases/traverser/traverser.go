@@ -19,6 +19,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus"
 )
@@ -54,12 +55,12 @@ type CorpiVectorizer interface {
 
 type VectorSearcher interface {
 	VectorSearch(ctx context.Context, vector []float32,
-		limit int, filters *filters.LocalFilter) ([]VectorSearchResult, error)
+		limit int, filters *filters.LocalFilter) ([]search.Result, error)
 }
 
 type explorer interface {
 	GetClass(ctx context.Context, params *GetParams) ([]interface{}, error)
-	Concepts(ctx context.Context, params ExploreParams) ([]VectorSearchResult, error)
+	Concepts(ctx context.Context, params ExploreParams) ([]search.Result, error)
 }
 
 // NewTraverser to traverse the knowledge graph

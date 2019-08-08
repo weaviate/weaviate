@@ -33,6 +33,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/etcd"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/connstate"
 	dblisting "github.com/semi-technologies/weaviate/usecases/connswitch"
@@ -66,7 +67,7 @@ type vectorizer interface {
 
 type explorer interface {
 	GetClass(ctx context.Context, params *traverser.GetParams) ([]interface{}, error)
-	Concepts(ctx context.Context, params traverser.ExploreParams) ([]traverser.VectorSearchResult, error)
+	Concepts(ctx context.Context, params traverser.ExploreParams) ([]search.Result, error)
 }
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {

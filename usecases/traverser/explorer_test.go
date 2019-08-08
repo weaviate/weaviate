@@ -19,6 +19,7 @@ import (
 
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -36,7 +37,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			Filters:    nil,
 		}
 
-		searchResults := []VectorSearchResult{
+		searchResults := []search.Result{
 			{
 				Kind: kind.Thing,
 				ID:   "id1",
@@ -93,7 +94,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			Filters:    nil,
 		}
 
-		searchResults := []VectorSearchResult{
+		searchResults := []search.Result{
 			{
 				Kind: kind.Thing,
 				ID:   "id1",
@@ -132,7 +133,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			Filters:    nil,
 		}
 
-		searchResults := []VectorSearchResult{
+		searchResults := []search.Result{
 			{
 				Kind: kind.Thing,
 				ID:   "id1",
@@ -183,19 +184,19 @@ type fakeVectorClassSearch struct {
 
 func (f *fakeVectorClassSearch) VectorClassSearch(ctx context.Context,
 	kind kind.Kind, className string, vector []float32, limit int,
-	filters *filters.LocalFilter) ([]VectorSearchResult, error) {
+	filters *filters.LocalFilter) ([]search.Result, error) {
 	args := f.Called(kind, className, vector, limit, filters)
-	return args.Get(0).([]VectorSearchResult), args.Error(1)
+	return args.Get(0).([]search.Result), args.Error(1)
 }
 
 func (f *fakeVectorClassSearch) ClassSearch(ctx context.Context,
 	kind kind.Kind, className string, limit int,
-	filters *filters.LocalFilter) ([]VectorSearchResult, error) {
+	filters *filters.LocalFilter) ([]search.Result, error) {
 	args := f.Called(kind, className, limit, filters)
-	return args.Get(0).([]VectorSearchResult), args.Error(1)
+	return args.Get(0).([]search.Result), args.Error(1)
 }
 
 func (f *fakeVectorClassSearch) VectorSearch(ctx context.Context,
-	vector []float32, limit int, filters *filters.LocalFilter) ([]VectorSearchResult, error) {
+	vector []float32, limit int, filters *filters.LocalFilter) ([]search.Result, error) {
 	return nil, nil
 }
