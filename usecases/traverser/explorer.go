@@ -35,8 +35,8 @@ type vectorClassSearch interface {
 	VectorClassSearch(ctx context.Context, kind kind.Kind,
 		className string, vector []float32, limit int,
 		filters *filters.LocalFilter) ([]VectorSearchResult, error)
-	VectorSearch(ctx context.Context, index string,
-		vector []float32, limit int, filters *filters.LocalFilter) ([]VectorSearchResult, error)
+	VectorSearch(ctx context.Context, vector []float32, limit int,
+		filters *filters.LocalFilter) ([]VectorSearchResult, error)
 }
 
 type explorerRepo interface {
@@ -104,7 +104,7 @@ func (e *Explorer) Concepts(ctx context.Context,
 		return nil, fmt.Errorf("vectorize params: %v", err)
 	}
 
-	res, err := e.search.VectorSearch(ctx, "*", vector, params.Limit, nil)
+	res, err := e.search.VectorSearch(ctx, vector, params.Limit, nil)
 	if err != nil {
 		return nil, fmt.Errorf("vector search: %v", err)
 	}

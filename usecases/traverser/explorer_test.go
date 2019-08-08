@@ -137,7 +137,6 @@ func (f *fakeVectorClassSearch) VectorClassSearch(ctx context.Context,
 }
 
 func (f *fakeVectorClassSearch) VectorSearch(ctx context.Context,
-	className string, vector []float32, limit int,
-	filters *filters.LocalFilter) ([]VectorSearchResult, error) {
+	vector []float32, limit int, filters *filters.LocalFilter) ([]VectorSearchResult, error) {
 	return nil, nil
 }

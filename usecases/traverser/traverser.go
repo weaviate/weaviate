@@ -53,7 +53,7 @@ type CorpiVectorizer interface {
 }
 
 type VectorSearcher interface {
-	VectorSearch(ctx context.Context, index string, vector []float32,
+	VectorSearch(ctx context.Context, vector []float32,
 		limit int, filters *filters.LocalFilter) ([]VectorSearchResult, error)
 }
 
