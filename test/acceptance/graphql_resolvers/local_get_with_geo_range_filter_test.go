@@ -21,7 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestLocalGetWithWithinGeoRangeFilter(t *testing.T) {
+func TestGetWithWithinGeoRangeFilter(t *testing.T) {
 	t.Run("Only Dusseldorf should be within 100km of Dusseldorf", func(t *testing.T) {
 		query := `
 		{

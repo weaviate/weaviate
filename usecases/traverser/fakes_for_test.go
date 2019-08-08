@@ -34,7 +34,7 @@ func (f *fakeRepo) LocalAggregate(ctx context.Context, params *AggregateParams) 
 	panic("not implemented")
 }
 
-func (f *fakeRepo) LocalGetClass(ctx context.Context, params *LocalGetParams) (interface{}, error) {
+func (f *fakeRepo) GetClass(ctx context.Context, params *GetParams) (interface{}, error) {
 	panic("not implemented")
 }
 
@@ -123,11 +123,18 @@ type fakeVectorSearcher struct {
 	results          []VectorSearchResult
 }
 
-func (f *fakeVectorSearcher) VectorSearch(ctx context.Context, index string,
+func (f *fakeVectorSearcher) VectorSearch(ctx context.Context,
 	vector []float32, limit int, filters *filters.LocalFilter) ([]VectorSearchResult, error) {
 	f.calledWithVector = vector
 	f.calledWithLimit = limit
 	return f.results, nil
+}
+
+func (f *fakeVectorSearcher) ClassSearch(ctx context.Context,
+	kind kind.Kind, className string, limit int,
+	filters *filters.LocalFilter) ([]VectorSearchResult, error) {
+	args := f.Called(kind, className, limit, filters)
+	return args.Get(0).([]VectorSearchResult), args.Error(1)
 }
 
 func (f *fakeVectorSearcher) VectorClassSearch(ctx context.Context,
@@ -191,7 +198,7 @@ func (f *fakeVectorRepo) PutAction(ctx context.Context, index string,
 	concept *models.Action, vector []float32) error {
 	return nil
 }
-func (f *fakeVectorRepo) VectorSearch(ctx context.Context, index string,
+func (f *fakeVectorRepo) VectorSearch(ctx context.Context,
 	vector []float32, limit int, filters *filters.LocalFilter) ([]VectorSearchResult, error) {
 	return nil, nil
 }
@@ -212,7 +219,7 @@ func (f *fakeVectorRepo) GetAction(ctx context.Context, uuid strfmt.UUID,
 
 type fakeExplorer struct{}
 
-func (f *fakeExplorer) GetClass(ctx context.Context, p *LocalGetParams) ([]interface{}, error) {
+func (f *fakeExplorer) GetClass(ctx context.Context, p *GetParams) ([]interface{}, error) {
 	return nil, nil
 }
 

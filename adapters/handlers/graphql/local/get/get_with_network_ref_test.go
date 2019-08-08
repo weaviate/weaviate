@@ -24,7 +24,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
-func TestLocalGetWithNetworkRef(t *testing.T) {
+func TestGetWithNetworkRef(t *testing.T) {
 	t.Parallel()
 
 	peers := peers.Peers{
@@ -49,7 +49,7 @@ func TestLocalGetWithNetworkRef(t *testing.T) {
 	}
 	resolver := newMockResolver(peers)
 
-	expectedParams := &traverser.LocalGetParams{
+	expectedParams := &traverser.GetParams{
 		Kind:      kind.Thing,
 		ClassName: "SomeThing",
 		Properties: []traverser.SelectProperty{
@@ -71,7 +71,7 @@ func TestLocalGetWithNetworkRef(t *testing.T) {
 		},
 	}
 
-	resolver.On("LocalGetClass", expectedParams).
+	resolver.On("GetClass", expectedParams).
 		Return(helper.EmptyListThunk(), nil).Once()
 
 	query := "{ Get { Things { SomeThing { NetworkRefField { ... on OtherInstance__SomeRemoteClass { bestString } } } } } }"

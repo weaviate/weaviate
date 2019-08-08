@@ -146,12 +146,12 @@ func resolveGeoCoordinates(p graphql.ResolveParams) (interface{}, error) {
 
 func whereArgument(kindName, className string) *graphql.ArgumentConfig {
 	return &graphql.ArgumentConfig{
-		Description: descriptions.LocalGetWhere,
+		Description: descriptions.GetWhere,
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{
 				Name:        fmt.Sprintf("Get%ss%sWhereInpObj", kindName, className),
 				Fields:      common_filters.BuildNew(fmt.Sprintf("Get%ss%s", kindName, className)),
-				Description: descriptions.LocalGetWhereInpObj,
+				Description: descriptions.GetWhereInpObj,
 			},
 		),
 	}
@@ -196,7 +196,7 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 			exploreParams = &p
 		}
 
-		params := traverser.LocalGetParams{
+		params := traverser.GetParams{
 			Filters:    filters,
 			Kind:       k,
 			ClassName:  className,
@@ -215,7 +215,7 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 		}()
 
 		return func() (interface{}, error) {
-			return resolver.LocalGetClass(p.Context, principalFromContext(p.Context), &params)
+			return resolver.GetClass(p.Context, principalFromContext(p.Context), &params)
 		}, nil
 	}
 }

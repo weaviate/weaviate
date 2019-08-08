@@ -23,6 +23,7 @@ import (
 	"github.com/elastic/go-elasticsearch/v5"
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -43,6 +44,16 @@ func TestEsVectorRepo(t *testing.T) {
 	t.Run("creating the thing class", func(t *testing.T) {
 		class := &models.Class{
 			Class: "TheBestThingClass",
+			Properties: []*models.Property{
+				&models.Property{
+					Name:     "stringProp",
+					DataType: []string{string(schema.DataTypeString)},
+				},
+				&models.Property{
+					Name:     "location",
+					DataType: []string{string(schema.DataTypeGeoCoordinates)},
+				},
+			},
 		}
 
 		require.Nil(t,
@@ -61,9 +72,15 @@ func TestEsVectorRepo(t *testing.T) {
 	thingID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
 	t.Run("adding a thing", func(t *testing.T) {
 		thing := &models.Thing{
-			ID:     thingID,
-			Class:  "TheBestThingClass",
-			Schema: map[string]interface{}{},
+			ID:    thingID,
+			Class: "TheBestThingClass",
+			Schema: map[string]interface{}{
+				"stringProp": "some value",
+				"location": &models.GeoCoordinates{
+					Latitude:  1,
+					Longitude: 2,
+				},
+			},
 		}
 		vector := []float32{1, 3, 5, 0.4}
 
@@ -94,8 +111,7 @@ func TestEsVectorRepo(t *testing.T) {
 		// somewhat far from the thing. So it should match the action closer
 		searchVector := []float32{2.9, 1.1, 0.5, 8.01}
 
-		res, err := repo.VectorSearch(context.Background(), "*",
-			searchVector, 10, nil)
+		res, err := repo.VectorSearch(context.Background(), searchVector, 10, nil)
 
 		require.Nil(t, err)
 		require.Equal(t, true, len(res) >= 2)
@@ -117,10 +133,29 @@ func TestEsVectorRepo(t *testing.T) {
 			"TheBestThingClass", searchVector, 10, nil)
 
 		require.Nil(t, err)
-		require.Len(t, res, 1)
-		assert.Equal(t, thingID, res[0].ID)
-		assert.Equal(t, kind.Thing, res[0].Kind)
-		assert.Equal(t, "TheBestThingClass", res[0].ClassName)
+		require.Len(t, res, 1, "got exactly one result")
+		assert.Equal(t, thingID, res[0].ID, "extracted the ID")
+		assert.Equal(t, kind.Thing, res[0].Kind, "matches the kind")
+		assert.Equal(t, "TheBestThingClass", res[0].ClassName, "matches the class name")
+		schema := res[0].Schema.(map[string]interface{})
+		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
+		assert.Equal(t, &models.GeoCoordinates{1, 2}, schema["location"], "has correct geo prop")
+		assert.Equal(t, thingID.String(), schema["uuid"], "has id in schema as uuid field")
+	})
+
+	t.Run("searching without vector for a single class", func(t *testing.T) {
+		res, err := repo.ClassSearch(context.Background(), kind.Thing,
+			"TheBestThingClass", 10, nil)
+
+		require.Nil(t, err)
+		require.Len(t, res, 1, "got exactly one result")
+		assert.Equal(t, thingID, res[0].ID, "extracted the ID")
+		assert.Equal(t, kind.Thing, res[0].Kind, "matches the kind")
+		assert.Equal(t, "TheBestThingClass", res[0].ClassName, "matches the class name")
+		schema := res[0].Schema.(map[string]interface{})
+		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
+		assert.Equal(t, &models.GeoCoordinates{1, 2}, schema["location"], "has correct geo prop")
+		assert.Equal(t, thingID.String(), schema["uuid"], "has id in schema as uuid field")
 	})
 
 	t.Run("deleting a thing again", func(t *testing.T) {

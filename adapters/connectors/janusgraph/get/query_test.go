@@ -26,7 +26,7 @@ func Test_QueryBuilder(t *testing.T) {
 	tests := testCases{
 		{
 			name: "with a Thing.City with a single primitive prop 'name'",
-			inputParams: traverser.LocalGetParams{
+			inputParams: traverser.GetParams{
 				ClassName: "City",
 				Properties: []traverser.SelectProperty{
 					traverser.SelectProperty{
@@ -46,7 +46,7 @@ func Test_QueryBuilder(t *testing.T) {
 		},
 		{
 			name: "without an explicit limit specified",
-			inputParams: traverser.LocalGetParams{
+			inputParams: traverser.GetParams{
 				ClassName: "City",
 				Properties: []traverser.SelectProperty{
 					traverser.SelectProperty{
@@ -63,7 +63,7 @@ func Test_QueryBuilder(t *testing.T) {
 		},
 		{
 			name: "with a Thing.City with a single primitive prop 'name' and a where filter",
-			inputParams: traverser.LocalGetParams{
+			inputParams: traverser.GetParams{
 				ClassName: "City",
 				Properties: []traverser.SelectProperty{
 					traverser.SelectProperty{
@@ -97,7 +97,7 @@ func Test_QueryBuilder(t *testing.T) {
 		},
 		{
 			name: "with a Thing.City with a ref prop one level deep",
-			inputParams: traverser.LocalGetParams{
+			inputParams: traverser.GetParams{
 				ClassName: "City",
 				Properties: []traverser.SelectProperty{
 					traverser.SelectProperty{
@@ -137,7 +137,7 @@ func Test_QueryBuilder(t *testing.T) {
 		},
 		{
 			name: "with a Thing.City with a network ref prop one level deep",
-			inputParams: traverser.LocalGetParams{
+			inputParams: traverser.GetParams{
 				ClassName: "City",
 				Properties: []traverser.SelectProperty{
 					traverser.SelectProperty{
@@ -177,7 +177,7 @@ func Test_QueryBuilder(t *testing.T) {
 		},
 		{
 			name: "with a Thing.City with a ref prop three levels deep",
-			inputParams: traverser.LocalGetParams{
+			inputParams: traverser.GetParams{
 				ClassName: "City",
 				Properties: []traverser.SelectProperty{
 					traverser.SelectProperty{

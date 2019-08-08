@@ -53,12 +53,12 @@ type CorpiVectorizer interface {
 }
 
 type VectorSearcher interface {
-	VectorSearch(ctx context.Context, index string, vector []float32,
+	VectorSearch(ctx context.Context, vector []float32,
 		limit int, filters *filters.LocalFilter) ([]VectorSearchResult, error)
 }
 
 type explorer interface {
-	GetClass(ctx context.Context, params *LocalGetParams) ([]interface{}, error)
+	GetClass(ctx context.Context, params *GetParams) ([]interface{}, error)
 	Concepts(ctx context.Context, params ExploreParams) ([]VectorSearchResult, error)
 }
 
@@ -83,7 +83,7 @@ func NewTraverser(config *config.WeaviateConfig, locks locks, repo TraverserRepo
 // TraverserRepo describes the dependencies of the Traverser UC to the
 // connected database
 type TraverserRepo interface {
-	LocalGetClass(context.Context, *LocalGetParams) (interface{}, error)
+	GetClass(context.Context, *GetParams) (interface{}, error)
 	LocalMeta(context.Context, *MetaParams) (interface{}, error)
 	LocalAggregate(context.Context, *AggregateParams) (interface{}, error)
 }

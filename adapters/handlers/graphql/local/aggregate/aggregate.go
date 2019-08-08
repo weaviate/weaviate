@@ -136,14 +136,14 @@ func classField(k kind.Kind, class *models.Class, description string,
 				Type:        graphql.Int,
 			},
 			"where": &graphql.ArgumentConfig{
-				Description: descriptions.LocalGetWhere,
+				Description: descriptions.GetWhere,
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
 						Name: fmt.Sprintf("Aggregate%ss%sWhereInpObj",
 							k.TitleizedName(), class.Class),
 						Fields: common_filters.BuildNew(fmt.Sprintf("Aggregate%ss%s",
 							k.TitleizedName(), class.Class)),
-						Description: descriptions.LocalGetWhereInpObj,
+						Description: descriptions.GetWhereInpObj,
 					},
 				),
 			},

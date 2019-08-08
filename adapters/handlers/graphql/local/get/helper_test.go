@@ -51,8 +51,8 @@ func newMockResolver(peers peers.Peers) *mockResolver {
 	return mocker
 }
 
-func (m *mockResolver) LocalGetClass(ctx context.Context, principal *models.Principal,
-	params *traverser.LocalGetParams) (interface{}, error) {
+func (m *mockResolver) GetClass(ctx context.Context, principal *models.Principal,
+	params *traverser.GetParams) (interface{}, error) {
 	args := m.Called(params)
 	return args.Get(0), args.Error(1)
 }
