@@ -25,7 +25,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -284,12 +284,12 @@ func waitForEsToBeReady(t *testing.T, client *elasticsearch.Client) {
 	}
 }
 
-func findID(list []traverser.VectorSearchResult, id strfmt.UUID) (traverser.VectorSearchResult, bool) {
+func findID(list []search.Result, id strfmt.UUID) (search.Result, bool) {
 	for _, item := range list {
 		if item.ID == id {
 			return item, true
 		}
 	}
 
-	return traverser.VectorSearchResult{}, false
+	return search.Result{}, false
 }

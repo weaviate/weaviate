@@ -20,6 +20,7 @@ import (
 	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
@@ -28,7 +29,7 @@ import (
 // want to support the Meta feature must implement this interface.
 type Resolver interface {
 	Explore(ctx context.Context, principal *models.Principal,
-		params traverser.ExploreParams) ([]traverser.VectorSearchResult, error)
+		params traverser.ExploreParams) ([]search.Result, error)
 }
 
 // RequestsLog is a local abstraction on the RequestsLog that needs to be

@@ -24,34 +24,34 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/semi-technologies/weaviate/entities/search"
 )
 
 // ThingSearch searches for all things with optional filters without vector scoring
 func (r *Repo) ThingSearch(ctx context.Context, limit int,
-	filters *filters.LocalFilter) ([]traverser.VectorSearchResult, error) {
+	filters *filters.LocalFilter) ([]search.Result, error) {
 	return r.search(ctx, allThingIndices, nil, limit, filters)
 }
 
 // ActionSearch searches for all things with optional filters without vector scoring
 func (r *Repo) ActionSearch(ctx context.Context, limit int,
-	filters *filters.LocalFilter) ([]traverser.VectorSearchResult, error) {
+	filters *filters.LocalFilter) ([]search.Result, error) {
 	return r.search(ctx, allActionIndices, nil, limit, filters)
 }
 
 // ThingByID extracts the one result matching the ID. Returns nil on no results
 // (without errors), but errors if it finds more than 1 results
-func (r *Repo) ThingByID(ctx context.Context, id strfmt.UUID) (*traverser.VectorSearchResult, error) {
+func (r *Repo) ThingByID(ctx context.Context, id strfmt.UUID) (*search.Result, error) {
 	return r.searchByID(ctx, allThingIndices, id)
 }
 
 // ActionByID extracts the one result matching the ID. Returns nil on no results
 // (without errors), but errors if it finds more than 1 results
-func (r *Repo) ActionByID(ctx context.Context, id strfmt.UUID) (*traverser.VectorSearchResult, error) {
+func (r *Repo) ActionByID(ctx context.Context, id strfmt.UUID) (*search.Result, error) {
 	return r.searchByID(ctx, allActionIndices, id)
 }
 
-func (r *Repo) searchByID(ctx context.Context, index string, id strfmt.UUID) (*traverser.VectorSearchResult, error) {
+func (r *Repo) searchByID(ctx context.Context, index string, id strfmt.UUID) (*search.Result, error) {
 	filters := &filters.LocalFilter{
 		Root: &filters.Clause{
 			On:       &filters.Path{Property: schema.PropertyName(keyID)},
@@ -76,7 +76,7 @@ func (r *Repo) searchByID(ctx context.Context, index string, id strfmt.UUID) (*t
 
 // ClassSearch searches for classes with optional filters without vector scoring
 func (r *Repo) ClassSearch(ctx context.Context, kind kind.Kind,
-	className string, limit int, filters *filters.LocalFilter) ([]traverser.VectorSearchResult, error) {
+	className string, limit int, filters *filters.LocalFilter) ([]search.Result, error) {
 	index := classIndexFromClassName(kind, className)
 	return r.search(ctx, index, nil, limit, filters)
 }
@@ -84,20 +84,20 @@ func (r *Repo) ClassSearch(ctx context.Context, kind kind.Kind,
 // VectorClassSearch limits the vector search to a specific class (and kind)
 func (r *Repo) VectorClassSearch(ctx context.Context, kind kind.Kind,
 	className string, vector []float32, limit int,
-	filters *filters.LocalFilter) ([]traverser.VectorSearchResult, error) {
+	filters *filters.LocalFilter) ([]search.Result, error) {
 	index := classIndexFromClassName(kind, className)
 	return r.search(ctx, index, vector, limit, filters)
 }
 
 // VectorSearch retrives the closest concepts by vector distance
 func (r *Repo) VectorSearch(ctx context.Context, vector []float32,
-	limit int, filters *filters.LocalFilter) ([]traverser.VectorSearchResult, error) {
+	limit int, filters *filters.LocalFilter) ([]search.Result, error) {
 	return r.search(ctx, "*", vector, limit, filters)
 }
 
 func (r *Repo) search(ctx context.Context, index string,
 	vector []float32, limit int,
-	filters *filters.LocalFilter) ([]traverser.VectorSearchResult, error) {
+	filters *filters.LocalFilter) ([]search.Result, error) {
 	var buf bytes.Buffer
 
 	query, err := queryFromFilter(filters)
@@ -171,7 +171,7 @@ type hit struct {
 	Score  float32                `json:"_score"`
 }
 
-func (r *Repo) searchResponse(res *esapi.Response) ([]traverser.VectorSearchResult,
+func (r *Repo) searchResponse(res *esapi.Response) ([]search.Result,
 	error) {
 	if err := errorResToErr(res, r.logger); err != nil {
 		return nil, fmt.Errorf("vector search: %v", err)
@@ -185,12 +185,12 @@ func (r *Repo) searchResponse(res *esapi.Response) ([]traverser.VectorSearchResu
 		return nil, fmt.Errorf("vector search: decode json: %v", err)
 	}
 
-	return sr.toVectorSearchResult()
+	return sr.toResults()
 }
 
-func (sr searchResponse) toVectorSearchResult() ([]traverser.VectorSearchResult, error) {
+func (sr searchResponse) toResults() ([]search.Result, error) {
 	hits := sr.Hits.Hits
-	output := make([]traverser.VectorSearchResult, len(hits), len(hits))
+	output := make([]search.Result, len(hits), len(hits))
 	for i, hit := range hits {
 		k, err := kind.Parse(hit.Source[keyKind.String()].(string))
 		if err != nil {
@@ -207,7 +207,7 @@ func (sr searchResponse) toVectorSearchResult() ([]traverser.VectorSearchResult,
 			return nil, fmt.Errorf("vector search: result %d: %v", i, err)
 		}
 
-		output[i] = traverser.VectorSearchResult{
+		output[i] = search.Result{
 			ClassName: hit.Source[keyClassName.String()].(string),
 			ID:        strfmt.UUID(hit.ID),
 			Kind:      k,

@@ -16,6 +16,7 @@ package explore
 import (
 	"testing"
 
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 )
@@ -24,7 +25,7 @@ type testCase struct {
 	name                      string
 	query                     string
 	expectedParamsToTraverser traverser.ExploreParams
-	resolverReturn            []traverser.VectorSearchResult
+	resolverReturn            []search.Result
 	expectedResults           []result
 }
 
@@ -50,8 +51,8 @@ func Test_ResolveExplore(t *testing.T) {
 			expectedParamsToTraverser: traverser.ExploreParams{
 				Values: []string{"car", "best brand"},
 			},
-			resolverReturn: []traverser.VectorSearchResult{
-				traverser.VectorSearchResult{
+			resolverReturn: []search.Result{
+				search.Result{
 					Beacon:    "weaviate://localhost/things/some-uuid",
 					ClassName: "bestClass",
 					Certainty: 0.7,
@@ -84,8 +85,8 @@ func Test_ResolveExplore(t *testing.T) {
 				Certainty: 0.6,
 				Network:   true,
 			},
-			resolverReturn: []traverser.VectorSearchResult{
-				traverser.VectorSearchResult{
+			resolverReturn: []search.Result{
+				search.Result{
 					Beacon:    "weaviate://localhost/things/some-uuid",
 					ClassName: "bestClass",
 				},
@@ -124,8 +125,8 @@ func Test_ResolveExplore(t *testing.T) {
 					Force:  0.7,
 				},
 			},
-			resolverReturn: []traverser.VectorSearchResult{
-				traverser.VectorSearchResult{
+			resolverReturn: []search.Result{
+				search.Result{
 					Beacon:    "weaviate://localhost/things/some-uuid",
 					ClassName: "bestClass",
 				},
@@ -172,8 +173,8 @@ func Test_ResolveExplore(t *testing.T) {
 					Force:  0.7,
 				},
 			},
-			resolverReturn: []traverser.VectorSearchResult{
-				traverser.VectorSearchResult{
+			resolverReturn: []search.Result{
+				search.Result{
 					Beacon:    "weaviate://localhost/things/some-uuid",
 					ClassName: "bestClass",
 				},

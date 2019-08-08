@@ -18,7 +18,7 @@ import (
 
 	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/semi-technologies/weaviate/entities/search"
 )
 
 // Build builds the object containing the Local->Explore Fields, such as Things/Actions
@@ -72,7 +72,7 @@ func exploreObject() *graphql.Object {
 			Description: descriptions.ClassName,
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				vsr, ok := p.Source.(traverser.VectorSearchResult)
+				vsr, ok := p.Source.(search.Result)
 				if !ok {
 					return nil, fmt.Errorf("unknown type %T in Explore..className resolver", p.Source)
 				}
@@ -86,7 +86,7 @@ func exploreObject() *graphql.Object {
 			Description: descriptions.Beacon,
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				vsr, ok := p.Source.(traverser.VectorSearchResult)
+				vsr, ok := p.Source.(search.Result)
 				if !ok {
 					return nil, fmt.Errorf("unknown type %T in Explore..className resolver", p.Source)
 				}
@@ -100,7 +100,7 @@ func exploreObject() *graphql.Object {
 			Description: descriptions.Distance,
 			Type:        graphql.Float,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				vsr, ok := p.Source.(traverser.VectorSearchResult)
+				vsr, ok := p.Source.(search.Result)
 				if !ok {
 					return nil, fmt.Errorf("unknown type %T in Explore..className resolver", p.Source)
 				}

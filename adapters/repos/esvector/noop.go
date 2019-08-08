@@ -20,7 +20,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/semi-technologies/weaviate/entities/search"
 )
 
 // NoOpRepo does nothing
@@ -29,20 +29,20 @@ type NoOpRepo struct{}
 // VectorClassSearch panics
 func (r *NoOpRepo) VectorClassSearch(ctx context.Context, kind kind.Kind,
 	className string, vector []float32, limit int,
-	filters *filters.LocalFilter) ([]traverser.VectorSearchResult, error) {
+	filters *filters.LocalFilter) ([]search.Result, error) {
 	panic("no op repo: not implemented")
 }
 
 // VectorSearch panics
 func (r *NoOpRepo) VectorSearch(ctx context.Context, vector []float32, limit int,
-	filters *filters.LocalFilter) ([]traverser.VectorSearchResult, error) {
+	filters *filters.LocalFilter) ([]search.Result, error) {
 	panic("no op repo: not implemented")
 }
-func (r *NoOpRepo) ThingByID(ctx context.Context, id strfmt.UUID) (*traverser.VectorSearchResult, error) {
+func (r *NoOpRepo) ThingByID(ctx context.Context, id strfmt.UUID) (*search.Result, error) {
 	panic("no op repo: not implemented")
 }
 
-func (r *NoOpRepo) ActionByID(ctx context.Context, id strfmt.UUID) (*traverser.VectorSearchResult, error) {
+func (r *NoOpRepo) ActionByID(ctx context.Context, id strfmt.UUID) (*search.Result, error) {
 	panic("no op repo: not implemented")
 }
 

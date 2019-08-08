@@ -16,14 +16,13 @@ package traverser
 import (
 	"context"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/entities/search"
 )
 
 // Explore through unstructured search terms
 func (t *Traverser) Explore(ctx context.Context,
-	principal *models.Principal, params ExploreParams) ([]VectorSearchResult, error) {
+	principal *models.Principal, params ExploreParams) ([]search.Result, error) {
 
 	if params.Limit == 0 {
 		params.Limit = 20
@@ -51,46 +50,4 @@ type ExploreParams struct {
 type ExploreMove struct {
 	Values []string
 	Force  float32
-}
-
-// VectorSearchResult contains some info of a concept (kind), but not all. For
-// additional info the ID can be used to retrieve the full concept from the
-// connector storage
-type VectorSearchResult struct {
-	ID        strfmt.UUID
-	Kind      kind.Kind
-	ClassName string
-	Score     float32
-	Vector    []float32
-	Beacon    string
-	Certainty float32
-	Schema    models.PropertySchema
-}
-
-func (r VectorSearchResult) Thing() *models.Thing {
-	schema, ok := r.Schema.(map[string]interface{})
-	if ok {
-		delete(schema, "uuid")
-	}
-
-	t := &models.Thing{
-		ID:     r.ID,
-		Schema: schema,
-	}
-
-	return t
-}
-
-func (r VectorSearchResult) Action() *models.Action {
-	schema, ok := r.Schema.(map[string]interface{})
-	if ok {
-		delete(schema, "uuid")
-	}
-
-	t := &models.Action{
-		ID:     r.ID,
-		Schema: schema,
-	}
-
-	return t
 }

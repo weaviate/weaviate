@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -62,13 +63,13 @@ func Test_ExploreConcepts(t *testing.T) {
 		params := ExploreParams{
 			Values: []string{"a search term", "another"},
 		}
-		vectorSearcher.results = []VectorSearchResult{
-			VectorSearchResult{
+		vectorSearcher.results = []search.Result{
+			search.Result{
 				ClassName: "BestClass",
 				Kind:      kind.Thing,
 				ID:        "123-456-789",
 			},
-			VectorSearchResult{
+			search.Result{
 				ClassName: "AnAction",
 				Kind:      kind.Action,
 				ID:        "987-654-321",
@@ -77,15 +78,15 @@ func Test_ExploreConcepts(t *testing.T) {
 
 		res, err := traverser.Explore(context.Background(), nil, params)
 		require.Nil(t, err)
-		assert.Equal(t, []VectorSearchResult{
-			VectorSearchResult{
+		assert.Equal(t, []search.Result{
+			search.Result{
 				ClassName: "BestClass",
 				Kind:      kind.Thing,
 				ID:        "123-456-789",
 				Beacon:    "weaviate://localhost/things/123-456-789",
 				Certainty: 0.5,
 			},
-			VectorSearchResult{
+			search.Result{
 				ClassName: "AnAction",
 				Kind:      kind.Action,
 				ID:        "987-654-321",
@@ -115,13 +116,13 @@ func Test_ExploreConcepts(t *testing.T) {
 			Values:    []string{"a search term", "another"},
 			Certainty: 0.6,
 		}
-		vectorSearcher.results = []VectorSearchResult{
-			VectorSearchResult{
+		vectorSearcher.results = []search.Result{
+			search.Result{
 				ClassName: "BestClass",
 				Kind:      kind.Thing,
 				ID:        "123-456-789",
 			},
-			VectorSearchResult{
+			search.Result{
 				ClassName: "AnAction",
 				Kind:      kind.Action,
 				ID:        "987-654-321",
@@ -130,7 +131,7 @@ func Test_ExploreConcepts(t *testing.T) {
 
 		res, err := traverser.Explore(context.Background(), nil, params)
 		require.Nil(t, err)
-		assert.Equal(t, []VectorSearchResult{}, res, "empty result because certainty is not met")
+		assert.Equal(t, []search.Result{}, res, "empty result because certainty is not met")
 		assert.Equal(t, []float32{1, 2, 3}, vectorSearcher.calledWithVector)
 		assert.Equal(t, 20, vectorSearcher.calledWithLimit,
 			"uses the default limit if not explicitly set")
@@ -160,13 +161,13 @@ func Test_ExploreConcepts(t *testing.T) {
 				Force:  0.7,
 			},
 		}
-		vectorSearcher.results = []VectorSearchResult{
-			VectorSearchResult{
+		vectorSearcher.results = []search.Result{
+			search.Result{
 				ClassName: "BestClass",
 				Kind:      kind.Thing,
 				ID:        "123-456-789",
 			},
-			VectorSearchResult{
+			search.Result{
 				ClassName: "AnAction",
 				Kind:      kind.Action,
 				ID:        "987-654-321",
@@ -175,15 +176,15 @@ func Test_ExploreConcepts(t *testing.T) {
 
 		res, err := traverser.Explore(context.Background(), nil, params)
 		require.Nil(t, err)
-		assert.Equal(t, []VectorSearchResult{
-			VectorSearchResult{
+		assert.Equal(t, []search.Result{
+			search.Result{
 				ClassName: "BestClass",
 				Kind:      kind.Thing,
 				ID:        "123-456-789",
 				Beacon:    "weaviate://localhost/things/123-456-789",
 				Certainty: 0.5,
 			},
-			VectorSearchResult{
+			search.Result{
 				ClassName: "AnAction",
 				Kind:      kind.Action,
 				ID:        "987-654-321",

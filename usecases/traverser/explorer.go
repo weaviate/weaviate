@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/entities/search"
 )
 
 // Explorer is a helper construct to perform vector-based searches. It does not
@@ -33,12 +34,12 @@ type Explorer struct {
 
 type vectorClassSearch interface {
 	ClassSearch(ctx context.Context, kind kind.Kind,
-		className string, limit int, filters *filters.LocalFilter) ([]VectorSearchResult, error)
+		className string, limit int, filters *filters.LocalFilter) ([]search.Result, error)
 	VectorClassSearch(ctx context.Context, kind kind.Kind,
 		className string, vector []float32, limit int,
-		filters *filters.LocalFilter) ([]VectorSearchResult, error)
+		filters *filters.LocalFilter) ([]search.Result, error)
 	VectorSearch(ctx context.Context, vector []float32, limit int,
-		filters *filters.LocalFilter) ([]VectorSearchResult, error)
+		filters *filters.LocalFilter) ([]search.Result, error)
 }
 
 type explorerRepo interface {
@@ -95,7 +96,7 @@ func (e *Explorer) getClassList(ctx context.Context,
 }
 
 func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
-	input []VectorSearchResult, requiredCertainty float64,
+	input []search.Result, requiredCertainty float64,
 	searchVector []float32) ([]interface{}, error) {
 	output := make([]interface{}, 0, len(input))
 
@@ -118,7 +119,7 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 }
 
 func (e *Explorer) Concepts(ctx context.Context,
-	params ExploreParams) ([]VectorSearchResult, error) {
+	params ExploreParams) ([]search.Result, error) {
 	if params.Network {
 		return nil, fmt.Errorf("explorer: network exploration currently not supported")
 	}
@@ -133,7 +134,7 @@ func (e *Explorer) Concepts(ctx context.Context,
 		return nil, fmt.Errorf("vector search: %v", err)
 	}
 
-	results := []VectorSearchResult{}
+	results := []search.Result{}
 	for _, item := range res {
 		item.Beacon = beacon(item)
 		dist, err := e.vectorizer.NormalizedDistance(vector, item.Vector)
@@ -187,7 +188,7 @@ func (e *Explorer) vectorFromExploreParams(ctx context.Context,
 	return vector, nil
 }
 
-func beacon(res VectorSearchResult) string {
+func beacon(res search.Result) string {
 	return fmt.Sprintf("weaviate://localhost/%ss/%s", res.Kind.Name(), res.ID)
 
 }

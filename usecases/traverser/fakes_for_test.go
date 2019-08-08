@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	"github.com/stretchr/testify/mock"
 )
@@ -120,11 +121,11 @@ type fakeVectorSearcher struct {
 	mock.Mock
 	calledWithVector []float32
 	calledWithLimit  int
-	results          []VectorSearchResult
+	results          []search.Result
 }
 
 func (f *fakeVectorSearcher) VectorSearch(ctx context.Context,
-	vector []float32, limit int, filters *filters.LocalFilter) ([]VectorSearchResult, error) {
+	vector []float32, limit int, filters *filters.LocalFilter) ([]search.Result, error) {
 	f.calledWithVector = vector
 	f.calledWithLimit = limit
 	return f.results, nil
@@ -132,16 +133,16 @@ func (f *fakeVectorSearcher) VectorSearch(ctx context.Context,
 
 func (f *fakeVectorSearcher) ClassSearch(ctx context.Context,
 	kind kind.Kind, className string, limit int,
-	filters *filters.LocalFilter) ([]VectorSearchResult, error) {
+	filters *filters.LocalFilter) ([]search.Result, error) {
 	args := f.Called(kind, className, limit, filters)
-	return args.Get(0).([]VectorSearchResult), args.Error(1)
+	return args.Get(0).([]search.Result), args.Error(1)
 }
 
 func (f *fakeVectorSearcher) VectorClassSearch(ctx context.Context,
 	kind kind.Kind, className string, vector []float32, limit int,
-	filters *filters.LocalFilter) ([]VectorSearchResult, error) {
+	filters *filters.LocalFilter) ([]search.Result, error) {
 	args := f.Called(kind, className, vector, limit, filters)
-	return args.Get(0).([]VectorSearchResult), args.Error(1)
+	return args.Get(0).([]search.Result), args.Error(1)
 }
 
 type fakeNetwork struct {
@@ -199,7 +200,7 @@ func (f *fakeVectorRepo) PutAction(ctx context.Context, index string,
 	return nil
 }
 func (f *fakeVectorRepo) VectorSearch(ctx context.Context,
-	vector []float32, limit int, filters *filters.LocalFilter) ([]VectorSearchResult, error) {
+	vector []float32, limit int, filters *filters.LocalFilter) ([]search.Result, error) {
 	return nil, nil
 }
 
@@ -223,6 +224,6 @@ func (f *fakeExplorer) GetClass(ctx context.Context, p *GetParams) ([]interface{
 	return nil, nil
 }
 
-func (f *fakeExplorer) Concepts(ctx context.Context, p ExploreParams) ([]VectorSearchResult, error) {
+func (f *fakeExplorer) Concepts(ctx context.Context, p ExploreParams) ([]search.Result, error) {
 	return nil, nil
 }
