@@ -22,9 +22,57 @@ import (
 	"github.com/elastic/go-elasticsearch/v5/esapi"
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
+
+// ThingSearch searches for all things with optional filters without vector scoring
+func (r *Repo) ThingSearch(ctx context.Context, limit int,
+	filters *filters.LocalFilter) ([]traverser.VectorSearchResult, error) {
+	return r.search(ctx, allThingIndices, nil, limit, filters)
+}
+
+// ActionSearch searches for all things with optional filters without vector scoring
+func (r *Repo) ActionSearch(ctx context.Context, limit int,
+	filters *filters.LocalFilter) ([]traverser.VectorSearchResult, error) {
+	return r.search(ctx, allActionIndices, nil, limit, filters)
+}
+
+// ThingByID extracts the one result matching the ID. Returns nil on no results
+// (without errors), but errors if it finds more than 1 results
+func (r *Repo) ThingByID(ctx context.Context, id strfmt.UUID) (*traverser.VectorSearchResult, error) {
+	return r.searchByID(ctx, allThingIndices, id)
+}
+
+// ActionByID extracts the one result matching the ID. Returns nil on no results
+// (without errors), but errors if it finds more than 1 results
+func (r *Repo) ActionByID(ctx context.Context, id strfmt.UUID) (*traverser.VectorSearchResult, error) {
+	return r.searchByID(ctx, allActionIndices, id)
+}
+
+func (r *Repo) searchByID(ctx context.Context, index string, id strfmt.UUID) (*traverser.VectorSearchResult, error) {
+	filters := &filters.LocalFilter{
+		Root: &filters.Clause{
+			On:       &filters.Path{Property: schema.PropertyName(keyID)},
+			Value:    &filters.Value{Value: id},
+			Operator: filters.OperatorEqual,
+		},
+	}
+	res, err := r.search(ctx, index, nil, 2, filters)
+	if err != nil {
+		return nil, err
+	}
+
+	switch len(res) {
+	case 0:
+		return nil, nil
+	case 1:
+		return &res[0], nil
+	default:
+		return nil, fmt.Errorf("invalid number of results (%d) for if '%s'", len(res), id)
+	}
+}
 
 // ClassSearch searches for classes with optional filters without vector scoring
 func (r *Repo) ClassSearch(ctx context.Context, kind kind.Kind,

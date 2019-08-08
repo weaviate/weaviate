@@ -121,6 +121,9 @@ func classIndexFromClassName(kind kind.Kind, className string) string {
 		indexPrefix, kind.Name(), strings.ToLower(className))
 }
 
+const allThingIndices = indexPrefix + "thing_*"
+const allActionIndices = indexPrefix + "action_*"
+
 func (m *Migrator) setMappings(ctx context.Context, index string,
 	props []*models.Property) error {
 	esProperties := map[string]interface{}{}
