@@ -96,6 +96,23 @@ func (m *Manager) GetActions(ctx context.Context, principal *models.Principal, l
 }
 
 func (m *Manager) getThingFromRepo(ctx context.Context, id strfmt.UUID) (*models.Thing, error) {
+	if !m.config.Config.EsvectorOnly {
+		return m.legacyThingFromConnector(ctx, id)
+	}
+
+	res, err := m.vectorRepo.ThingByID(ctx, id)
+	if err != nil {
+		return nil, NewErrInternal("repo: thing by id: %v", err)
+	}
+
+	if res == nil {
+		return nil, NewErrNotFound("no thing with id '%s'", id)
+	}
+
+	return res.Thing(), nil
+}
+
+func (m *Manager) legacyThingFromConnector(ctx context.Context, id strfmt.UUID) (*models.Thing, error) {
 	thing := models.Thing{}
 	thing.Schema = map[string]models.JSONObject{}
 	err := m.repo.GetThing(ctx, id, &thing)
@@ -123,6 +140,23 @@ func (m *Manager) getThingsFromRepo(ctx context.Context, limit *int64) ([]*model
 }
 
 func (m *Manager) getActionFromRepo(ctx context.Context, id strfmt.UUID) (*models.Action, error) {
+	if !m.config.Config.EsvectorOnly {
+		return m.legacyActionFromConnector(ctx, id)
+	}
+
+	res, err := m.vectorRepo.ActionByID(ctx, id)
+	if err != nil {
+		return nil, NewErrInternal("repo: action by id: %v", err)
+	}
+
+	if res == nil {
+		return nil, NewErrNotFound("no action with id '%s'", id)
+	}
+
+	return res.Action(), nil
+}
+
+func (m *Manager) legacyActionFromConnector(ctx context.Context, id strfmt.UUID) (*models.Action, error) {
 	action := models.Action{}
 	action.Schema = map[string]models.JSONObject{}
 	err := m.repo.GetAction(ctx, id, &action)

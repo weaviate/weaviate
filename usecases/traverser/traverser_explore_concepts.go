@@ -66,3 +66,31 @@ type VectorSearchResult struct {
 	Certainty float32
 	Schema    models.PropertySchema
 }
+
+func (r VectorSearchResult) Thing() *models.Thing {
+	schema, ok := r.Schema.(map[string]interface{})
+	if ok {
+		delete(schema, "uuid")
+	}
+
+	t := &models.Thing{
+		ID:     r.ID,
+		Schema: schema,
+	}
+
+	return t
+}
+
+func (r VectorSearchResult) Action() *models.Action {
+	schema, ok := r.Schema.(map[string]interface{})
+	if ok {
+		delete(schema, "uuid")
+	}
+
+	t := &models.Action{
+		ID:     r.ID,
+		Schema: schema,
+	}
+
+	return t
+}

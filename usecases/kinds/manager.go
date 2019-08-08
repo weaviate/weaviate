@@ -27,6 +27,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 )
 
@@ -77,6 +78,9 @@ type VectorRepo interface {
 
 	DeleteAction(ctx context.Context, className string, id strfmt.UUID) error
 	DeleteThing(ctx context.Context, className string, id strfmt.UUID) error
+
+	ThingByID(ctx context.Context, id strfmt.UUID) (*traverser.VectorSearchResult, error)
+	ActionByID(ctx context.Context, id strfmt.UUID) (*traverser.VectorSearchResult, error)
 }
 
 // NewManager creates a new manager
