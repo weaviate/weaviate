@@ -130,6 +130,13 @@ func (f *fakeVectorSearcher) VectorSearch(ctx context.Context,
 	return f.results, nil
 }
 
+func (f *fakeVectorSearcher) ClassSearch(ctx context.Context,
+	kind kind.Kind, className string, limit int,
+	filters *filters.LocalFilter) ([]VectorSearchResult, error) {
+	args := f.Called(kind, className, limit, filters)
+	return args.Get(0).([]VectorSearchResult), args.Error(1)
+}
+
 func (f *fakeVectorSearcher) VectorClassSearch(ctx context.Context,
 	kind kind.Kind, className string, vector []float32, limit int,
 	filters *filters.LocalFilter) ([]VectorSearchResult, error) {

@@ -32,6 +32,8 @@ type Explorer struct {
 }
 
 type vectorClassSearch interface {
+	ClassSearch(ctx context.Context, kind kind.Kind,
+		className string, limit int, filters *filters.LocalFilter) ([]VectorSearchResult, error)
 	VectorClassSearch(ctx context.Context, kind kind.Kind,
 		className string, vector []float32, limit int,
 		filters *filters.LocalFilter) ([]VectorSearchResult, error)
@@ -52,10 +54,6 @@ func NewExplorer(search vectorClassSearch, vectorizer CorpiVectorizer) *Explorer
 // GetClass from search and connector repo
 func (e *Explorer) GetClass(ctx context.Context,
 	params *GetParams) ([]interface{}, error) {
-	searchVector, err := e.vectorFromExploreParams(ctx, params.Explore)
-	if err != nil {
-		return nil, fmt.Errorf("explorer: get class: vectorize params: %v", err)
-	}
 
 	// TODO: gh-881 default to config limit
 	limit := 100
@@ -63,6 +61,18 @@ func (e *Explorer) GetClass(ctx context.Context,
 		limit = params.Pagination.Limit
 	}
 
+	if params.Explore != nil {
+		return e.getClassExploration(ctx, params, limit)
+	}
+	return e.getClassList(ctx, params, limit)
+}
+
+func (e *Explorer) getClassExploration(ctx context.Context,
+	params *GetParams, limit int) ([]interface{}, error) {
+	searchVector, err := e.vectorFromExploreParams(ctx, params.Explore)
+	if err != nil {
+		return nil, fmt.Errorf("explorer: get class: vectorize params: %v", err)
+	}
 	res, err := e.search.VectorClassSearch(ctx, params.Kind, params.ClassName,
 		searchVector, limit, params.Filters)
 	if err != nil {
@@ -72,19 +82,33 @@ func (e *Explorer) GetClass(ctx context.Context,
 	return e.searchResultsToGetResponse(ctx, res, params.Explore.Certainty, searchVector)
 }
 
+func (e *Explorer) getClassList(ctx context.Context,
+	params *GetParams, limit int) ([]interface{}, error) {
+
+	res, err := e.search.ClassSearch(ctx, params.Kind, params.ClassName,
+		limit, params.Filters)
+	if err != nil {
+		return nil, fmt.Errorf("explorer: get class: search: %v", err)
+	}
+
+	return e.searchResultsToGetResponse(ctx, res, 0, nil)
+}
+
 func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 	input []VectorSearchResult, requiredCertainty float64,
 	searchVector []float32) ([]interface{}, error) {
 	output := make([]interface{}, 0, len(input))
 
 	for _, res := range input {
-		dist, err := e.vectorizer.NormalizedDistance(res.Vector, searchVector)
-		if err != nil {
-			return nil, fmt.Errorf("explorer: calculate distance: %v", err)
-		}
+		if searchVector != nil {
+			dist, err := e.vectorizer.NormalizedDistance(res.Vector, searchVector)
+			if err != nil {
+				return nil, fmt.Errorf("explorer: calculate distance: %v", err)
+			}
 
-		if 1-(dist) < float32(requiredCertainty) {
-			continue
+			if 1-(dist) < float32(requiredCertainty) {
+				continue
+			}
 		}
 
 		output = append(output, res.Schema)
