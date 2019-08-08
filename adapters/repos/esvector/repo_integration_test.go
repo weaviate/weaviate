@@ -111,8 +111,7 @@ func TestEsVectorRepo(t *testing.T) {
 		// somewhat far from the thing. So it should match the action closer
 		searchVector := []float32{2.9, 1.1, 0.5, 8.01}
 
-		res, err := repo.VectorSearch(context.Background(), "*",
-			searchVector, 10, nil)
+		res, err := repo.VectorSearch(context.Background(), searchVector, 10, nil)
 
 		require.Nil(t, err)
 		require.Equal(t, true, len(res) >= 2)
@@ -132,6 +131,21 @@ func TestEsVectorRepo(t *testing.T) {
 
 		res, err := repo.VectorClassSearch(context.Background(), kind.Thing,
 			"TheBestThingClass", searchVector, 10, nil)
+
+		require.Nil(t, err)
+		require.Len(t, res, 1, "got exactly one result")
+		assert.Equal(t, thingID, res[0].ID, "extracted the ID")
+		assert.Equal(t, kind.Thing, res[0].Kind, "matches the kind")
+		assert.Equal(t, "TheBestThingClass", res[0].ClassName, "matches the class name")
+		schema := res[0].Schema.(map[string]interface{})
+		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
+		assert.Equal(t, &models.GeoCoordinates{1, 2}, schema["location"], "has correct geo prop")
+		assert.Equal(t, thingID.String(), schema["uuid"], "has id in schema as uuid field")
+	})
+
+	t.Run("searching without vector for a single class", func(t *testing.T) {
+		res, err := repo.ClassSearch(context.Background(), kind.Thing,
+			"TheBestThingClass", 10, nil)
 
 		require.Nil(t, err)
 		require.Len(t, res, 1, "got exactly one result")
