@@ -25,6 +25,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -63,6 +64,12 @@ func TestEsVectorRepo(t *testing.T) {
 	t.Run("creating the action class", func(t *testing.T) {
 		class := &models.Class{
 			Class: "TheBestActionClass",
+			Properties: []*models.Property{
+				&models.Property{
+					Name:     "stringProp",
+					DataType: []string{string(schema.DataTypeString)},
+				},
+			},
 		}
 
 		require.Nil(t,
@@ -92,9 +99,11 @@ func TestEsVectorRepo(t *testing.T) {
 	actionID := strfmt.UUID("022ca5ba-7c0b-4a78-85bf-26346bbcfae7")
 	t.Run("adding an action", func(t *testing.T) {
 		action := &models.Action{
-			ID:     actionID,
-			Class:  "TheBestActionClass",
-			Schema: map[string]interface{}{},
+			ID:    actionID,
+			Class: "TheBestActionClass",
+			Schema: map[string]interface{}{
+				"stringProp": "some act-citing value",
+			},
 		}
 		vector := []float32{3, 1, 0.3, 12}
 
@@ -143,7 +152,7 @@ func TestEsVectorRepo(t *testing.T) {
 		assert.Equal(t, thingID.String(), schema["uuid"], "has id in schema as uuid field")
 	})
 
-	t.Run("searching without vector for a single class", func(t *testing.T) {
+	t.Run("searching by class type", func(t *testing.T) {
 		res, err := repo.ClassSearch(context.Background(), kind.Thing,
 			"TheBestThingClass", 10, nil)
 
@@ -156,6 +165,62 @@ func TestEsVectorRepo(t *testing.T) {
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
 		assert.Equal(t, &models.GeoCoordinates{1, 2}, schema["location"], "has correct geo prop")
 		assert.Equal(t, thingID.String(), schema["uuid"], "has id in schema as uuid field")
+	})
+
+	t.Run("searching all things", func(t *testing.T) {
+		res, err := repo.ThingSearch(context.Background(), 10, nil)
+		require.Nil(t, err)
+
+		item, ok := findID(res, thingID)
+		require.Equal(t, true, ok, "results should contain our desired thing id")
+
+		assert.Equal(t, thingID, item.ID, "extracted the ID")
+		assert.Equal(t, kind.Thing, item.Kind, "matches the kind")
+		assert.Equal(t, "TheBestThingClass", item.ClassName, "matches the class name")
+		schema := item.Schema.(map[string]interface{})
+		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
+		assert.Equal(t, &models.GeoCoordinates{1, 2}, schema["location"], "has correct geo prop")
+		assert.Equal(t, thingID.String(), schema["uuid"], "has id in schema as uuid field")
+	})
+
+	t.Run("searching a thing by ID", func(t *testing.T) {
+		item, err := repo.ThingByID(context.Background(), thingID)
+		require.Nil(t, err)
+		require.NotNil(t, item, "must have a result")
+
+		assert.Equal(t, thingID, item.ID, "extracted the ID")
+		assert.Equal(t, kind.Thing, item.Kind, "matches the kind")
+		assert.Equal(t, "TheBestThingClass", item.ClassName, "matches the class name")
+		schema := item.Schema.(map[string]interface{})
+		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
+		assert.Equal(t, &models.GeoCoordinates{1, 2}, schema["location"], "has correct geo prop")
+		assert.Equal(t, thingID.String(), schema["uuid"], "has id in schema as uuid field")
+	})
+
+	t.Run("searching an action by ID", func(t *testing.T) {
+		item, err := repo.ActionByID(context.Background(), actionID)
+		require.Nil(t, err)
+		require.NotNil(t, item, "must have a result")
+
+		assert.Equal(t, actionID, item.ID, "extracted the ID")
+		assert.Equal(t, kind.Action, item.Kind, "matches the kind")
+		assert.Equal(t, "TheBestActionClass", item.ClassName, "matches the class name")
+		schema := item.Schema.(map[string]interface{})
+		assert.Equal(t, "some act-citing value", schema["stringProp"], "has correct string prop")
+	})
+
+	t.Run("searching all actions", func(t *testing.T) {
+		res, err := repo.ActionSearch(context.Background(), 10, nil)
+		require.Nil(t, err)
+
+		item, ok := findID(res, actionID)
+		require.Equal(t, true, ok, "results should contain our desired action id")
+
+		assert.Equal(t, actionID, item.ID, "extracted the ID")
+		assert.Equal(t, kind.Action, item.Kind, "matches the kind")
+		assert.Equal(t, "TheBestActionClass", item.ClassName, "matches the class name")
+		schema := item.Schema.(map[string]interface{})
+		assert.Equal(t, "some act-citing value", schema["stringProp"], "has correct string prop")
 	})
 
 	t.Run("deleting a thing again", func(t *testing.T) {
@@ -217,4 +282,14 @@ func waitForEsToBeReady(t *testing.T, client *elasticsearch.Client) {
 
 		time.Sleep(2 * time.Second)
 	}
+}
+
+func findID(list []traverser.VectorSearchResult, id strfmt.UUID) (traverser.VectorSearchResult, bool) {
+	for _, item := range list {
+		if item.ID == id {
+			return item, true
+		}
+	}
+
+	return traverser.VectorSearchResult{}, false
 }
