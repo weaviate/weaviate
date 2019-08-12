@@ -41,6 +41,8 @@ const (
 	keyID        internalKey = "_uuid"
 	keyKind      internalKey = "_kind"
 	keyClassName internalKey = "_class_name"
+	keyCreated   internalKey = "_created"
+	keyUpdated   internalKey = "_updated"
 )
 
 // Repo stores and retrieves vector info in elasticsearch
@@ -58,7 +60,8 @@ func NewRepo(client *elasticsearch.Client, logger logrus.FieldLogger) *Repo {
 func (r *Repo) PutThing(ctx context.Context,
 	concept *models.Thing, vector []float32) error {
 	err := r.putConcept(ctx, kind.Thing, concept.ID.String(),
-		concept.Class, concept.Schema, vector)
+		concept.Class, concept.Schema, vector, concept.CreationTimeUnix,
+		concept.LastUpdateTimeUnix)
 	if err != nil {
 		return fmt.Errorf("put thing: %v", err)
 	}
@@ -70,7 +73,8 @@ func (r *Repo) PutThing(ctx context.Context,
 func (r *Repo) PutAction(ctx context.Context,
 	concept *models.Action, vector []float32) error {
 	err := r.putConcept(ctx, kind.Action, concept.ID.String(),
-		concept.Class, concept.Schema, vector)
+		concept.Class, concept.Schema, vector, concept.CreationTimeUnix,
+		concept.LastUpdateTimeUnix)
 	if err != nil {
 		return fmt.Errorf("put action: %v", err)
 	}
@@ -80,7 +84,7 @@ func (r *Repo) PutAction(ctx context.Context,
 
 func (r *Repo) putConcept(ctx context.Context,
 	k kind.Kind, id, className string, props models.PropertySchema,
-	vector []float32) error {
+	vector []float32, createTime, updateTime int64) error {
 
 	var buf bytes.Buffer
 	bucket := map[string]interface{}{
@@ -88,6 +92,8 @@ func (r *Repo) putConcept(ctx context.Context,
 		keyID.String():        id,
 		keyClassName.String(): className,
 		keyVector.String():    vectorToBase64(vector),
+		keyCreated.String():   createTime,
+		keyUpdated.String():   updateTime,
 	}
 
 	bucket = extendBucketWithProps(bucket, props)

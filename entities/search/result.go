@@ -31,6 +31,8 @@ type Result struct {
 	Beacon    string
 	Certainty float32
 	Schema    models.PropertySchema
+	Created   int64
+	Updated   int64
 }
 
 type Results []Result
@@ -42,8 +44,10 @@ func (r Result) Thing() *models.Thing {
 	}
 
 	t := &models.Thing{
-		ID:     r.ID,
-		Schema: schema,
+		ID:                 r.ID,
+		Schema:             schema,
+		CreationTimeUnix:   r.Created,
+		LastUpdateTimeUnix: r.Updated,
 	}
 
 	return t
@@ -56,8 +60,10 @@ func (r Result) Action() *models.Action {
 	}
 
 	t := &models.Action{
-		ID:     r.ID,
-		Schema: schema,
+		ID:                 r.ID,
+		Schema:             schema,
+		CreationTimeUnix:   r.Created,
+		LastUpdateTimeUnix: r.Updated,
 	}
 
 	return t
