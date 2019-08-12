@@ -207,6 +207,9 @@ func (sr searchResponse) toResults() ([]search.Result, error) {
 			return nil, fmt.Errorf("vector search: result %d: %v", i, err)
 		}
 
+		created := hit.Source[keyCreated.String()].(float64)
+		updated := hit.Source[keyUpdated.String()].(float64)
+
 		output[i] = search.Result{
 			ClassName: hit.Source[keyClassName.String()].(string),
 			ID:        strfmt.UUID(hit.ID),
@@ -214,6 +217,8 @@ func (sr searchResponse) toResults() ([]search.Result, error) {
 			Score:     hit.Score,
 			Vector:    vector,
 			Schema:    schema,
+			Created:   int64(created),
+			Updated:   int64(updated),
 		}
 	}
 

@@ -79,8 +79,10 @@ func TestEsVectorRepo(t *testing.T) {
 	thingID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
 	t.Run("adding a thing", func(t *testing.T) {
 		thing := &models.Thing{
-			ID:    thingID,
-			Class: "TheBestThingClass",
+			CreationTimeUnix:   1565612833955,
+			LastUpdateTimeUnix: 1000001,
+			ID:                 thingID,
+			Class:              "TheBestThingClass",
 			Schema: map[string]interface{}{
 				"stringProp": "some value",
 				"location": &models.GeoCoordinates{
@@ -99,8 +101,10 @@ func TestEsVectorRepo(t *testing.T) {
 	actionID := strfmt.UUID("022ca5ba-7c0b-4a78-85bf-26346bbcfae7")
 	t.Run("adding an action", func(t *testing.T) {
 		action := &models.Action{
-			ID:    actionID,
-			Class: "TheBestActionClass",
+			CreationTimeUnix:   1000002,
+			LastUpdateTimeUnix: 1000003,
+			ID:                 actionID,
+			Class:              "TheBestActionClass",
 			Schema: map[string]interface{}{
 				"stringProp": "some act-citing value",
 			},
@@ -128,9 +132,13 @@ func TestEsVectorRepo(t *testing.T) {
 		assert.Equal(t, kind.Action, res[0].Kind)
 		assert.Equal(t, "TheBestActionClass", res[0].ClassName)
 		assert.Equal(t, "TheBestActionClass", res[0].ClassName)
+		assert.Equal(t, int64(1000002), res[0].Created)
+		assert.Equal(t, int64(1000003), res[0].Updated)
 		assert.Equal(t, thingID, res[1].ID)
 		assert.Equal(t, kind.Thing, res[1].Kind)
 		assert.Equal(t, "TheBestThingClass", res[1].ClassName)
+		assert.Equal(t, int64(1565612833955), res[1].Created)
+		assert.Equal(t, int64(1000001), res[1].Updated)
 	})
 
 	t.Run("searching by vector for a single class", func(t *testing.T) {

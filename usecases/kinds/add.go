@@ -96,6 +96,10 @@ func (m *Manager) addActionToConnectorAndSchema(ctx context.Context, principal *
 		return nil, NewErrInternal("could not update schema for network refs: %v", err)
 	}
 
+	now := unixNow()
+	class.CreationTimeUnix = now
+	class.LastUpdateTimeUnix = now
+
 	if !m.config.Config.EsvectorOnly {
 		err = m.repo.AddAction(ctx, class, class.ID)
 		if err != nil {
@@ -169,6 +173,10 @@ func (m *Manager) addThingToConnectorAndSchema(ctx context.Context, principal *m
 	if err != nil {
 		return nil, NewErrInternal("could not update schema for network refs: %v", err)
 	}
+
+	now := unixNow()
+	class.CreationTimeUnix = now
+	class.LastUpdateTimeUnix = now
 
 	if !m.config.Config.EsvectorOnly {
 		err = m.repo.AddThing(ctx, class, class.ID)
