@@ -121,6 +121,18 @@ func (r *Repo) SetMappings(ctx context.Context, index string, props map[string]i
 		"type": "date",
 	}
 
+	props[keyID.String()] = map[string]interface{}{
+		"type": "keyword",
+	}
+
+	props[keyClassName.String()] = map[string]interface{}{
+		"type": "keyword",
+	}
+
+	props[keyKind.String()] = map[string]interface{}{
+		"type": "keyword",
+	}
+
 	body := map[string]interface{}{
 		"properties": props,
 	}

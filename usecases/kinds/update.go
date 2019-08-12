@@ -41,9 +41,6 @@ type updateRepo interface {
 // include this particular network ref class.
 func (m *Manager) UpdateAction(ctx context.Context, principal *models.Principal, id strfmt.UUID,
 	class *models.Action) (*models.Action, error) {
-	if m.config.Config.EsvectorOnly {
-		return nil, fmt.Errorf("kinds.UpdateAction not supported yet in esvector-only mode")
-	}
 
 	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("actions/%s", id.String()))
 	if err != nil {
@@ -89,9 +86,14 @@ func (m *Manager) updateActionToConnectorAndSchema(ctx context.Context, principa
 	}
 
 	class.LastUpdateTimeUnix = unixNow()
-	err = m.repo.UpdateAction(ctx, class, class.ID)
+
+	if !m.config.Config.EsvectorOnly {
+		err = m.repo.UpdateAction(ctx, class, class.ID)
+	} else {
+		err = m.vectorizeAndPutAction(ctx, class)
+	}
 	if err != nil {
-		return nil, NewErrInternal("could not store updated action: %v", err)
+		return nil, NewErrInternal("update action: %v", err)
 	}
 
 	return class, nil
@@ -102,9 +104,6 @@ func (m *Manager) updateActionToConnectorAndSchema(ctx context.Context, principa
 // include this particular network ref class.
 func (m *Manager) UpdateThing(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, class *models.Thing) (*models.Thing, error) {
-	if m.config.Config.EsvectorOnly {
-		return nil, fmt.Errorf("kinds.UpdateThing not supported yet in esvector-only mode")
-	}
 
 	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("things/%s", id.String()))
 	if err != nil {
@@ -146,13 +145,18 @@ func (m *Manager) updateThingToConnectorAndSchema(ctx context.Context, principal
 
 	err = m.addNetworkDataTypesForThing(ctx, principal, class)
 	if err != nil {
-		return nil, NewErrInternal("could not update schema for network refs: %v", err)
+		return nil, NewErrInternal("update schema for network refs: %v", err)
 	}
 
 	class.LastUpdateTimeUnix = unixNow()
-	err = m.repo.UpdateThing(ctx, class, class.ID)
+
+	if !m.config.Config.EsvectorOnly {
+		err = m.repo.UpdateThing(ctx, class, class.ID)
+	} else {
+		err = m.vectorizeAndPutThing(ctx, class)
+	}
 	if err != nil {
-		return nil, NewErrInternal("could not store updated thing: %v", err)
+		return nil, NewErrInternal("update thing: %v", err)
 	}
 
 	return class, nil

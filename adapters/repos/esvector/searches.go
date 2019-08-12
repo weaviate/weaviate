@@ -70,7 +70,7 @@ func (r *Repo) searchByID(ctx context.Context, index string, id strfmt.UUID) (*s
 	case 1:
 		return &res[0], nil
 	default:
-		return nil, fmt.Errorf("invalid number of results (%d) for if '%s'", len(res), id)
+		return nil, fmt.Errorf("invalid number of results (%d) for id '%s'", len(res), id)
 	}
 }
 
