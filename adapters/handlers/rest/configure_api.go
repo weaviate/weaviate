@@ -128,6 +128,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	batchKindsManager := kinds.NewBatchManager(appState.Connector, appState.Locks,
 		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,
 		appState.Authorizer)
+	vectorInspector := libvectorizer.NewInspector(appState.Contextionary)
 
 	kindsTraverser := traverser.NewTraverser(appState.ServerConfig, appState.Locks, appState.Connector,
 		appState.Contextionary, appState.Logger, appState.Authorizer, vectorizer,
@@ -181,7 +182,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupSchemaHandlers(api, appState.TelemetryLogger, schemaManager)
 	setupKindHandlers(api, appState.TelemetryLogger, kindsManager)
 	setupKindBatchHandlers(api, appState.TelemetryLogger, batchKindsManager)
-	setupC11yHandlers(api, appState.TelemetryLogger, appState.Contextionary)
+	setupC11yHandlers(api, appState.TelemetryLogger, vectorInspector)
 	setupGraphQLHandlers(api, appState.TelemetryLogger, appState)
 	setupMiscHandlers(api, appState.TelemetryLogger, appState.ServerConfig, appState.Network, schemaManager, appState.Contextionary)
 
