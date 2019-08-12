@@ -152,7 +152,8 @@ func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, pri
 }
 
 func (m *Manager) validateReference(ctx context.Context, reference *models.SingleRef) error {
-	err := validation.ValidateSingleRef(ctx, m.config, reference, m.exists, m.network, "reference not found")
+	err := validation.New(schema.Schema{}, m.exists, m.network, m.config).
+		ValidateSingleRef(ctx, reference, "reference not found")
 	if err != nil {
 		return NewErrInvalidUserInput("invalid reference: %v", err)
 	}

@@ -141,9 +141,7 @@ func (m *Manager) validateAction(ctx context.Context, principal *models.Principa
 		return err
 	}
 
-	databaseSchema := schema.HackFromDatabaseSchema(s)
-	return validation.ValidateActionBody(
-		ctx, class, databaseSchema, m.exists, m.network, m.config)
+	return validation.New(s, m.exists, m.network, m.config).Action(ctx, class)
 }
 
 func (m *Manager) exists(ctx context.Context, k kind.Kind, id strfmt.UUID) (bool, error) {
@@ -246,10 +244,7 @@ func (m *Manager) validateThing(ctx context.Context, principal *models.Principal
 		return err
 	}
 
-	// Validate schema given in body with the weaviate schema
-	databaseSchema := schema.HackFromDatabaseSchema(s)
-	return validation.ValidateThingBody(
-		ctx, class, databaseSchema, m.exists, m.network, m.config)
+	return validation.New(s, m.exists, m.network, m.config).Thing(ctx, class)
 }
 
 func (m *Manager) addNetworkDataTypesForThing(ctx context.Context, principal *models.Principal, class *models.Thing) error {

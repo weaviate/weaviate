@@ -23,7 +23,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	uuid "github.com/satori/go.uuid"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/kinds/validation"
 )
@@ -114,7 +113,6 @@ func (b *BatchManager) validateAction(ctx context.Context, principal *models.Pri
 	// Validate schema given in body with the weaviate schema
 	s, err := b.schemaManager.GetSchema(principal)
 	ec.add(err)
-	databaseSchema := schema.HackFromDatabaseSchema(s)
 
 	// Create Action object
 	action := &models.Action{}
@@ -130,8 +128,7 @@ func (b *BatchManager) validateAction(ctx context.Context, principal *models.Pri
 		action.CreationTimeUnix = unixNow()
 	}
 
-	err = validation.ValidateActionBody(ctx, concept, databaseSchema, b.exists,
-		b.network, b.config)
+	err = validation.New(s, b.exists, b.network, b.config).Action(ctx, action)
 	ec.add(err)
 
 	*resultsC <- BatchAction{
@@ -254,7 +251,6 @@ func (b *BatchManager) validateThing(ctx context.Context, principal *models.Prin
 	// Validate schema given in body with the weaviate schema
 	s, err := b.schemaManager.GetSchema(principal)
 	ec.add(err)
-	databaseSchema := schema.HackFromDatabaseSchema(s)
 
 	// Create Thing object
 	thing := &models.Thing{}
@@ -270,8 +266,7 @@ func (b *BatchManager) validateThing(ctx context.Context, principal *models.Prin
 		thing.CreationTimeUnix = unixNow()
 	}
 
-	err = validation.ValidateThingBody(ctx, concept, databaseSchema, b.exists,
-		b.network, b.config)
+	err = validation.New(s, b.exists, b.network, b.config).Thing(ctx, thing)
 	ec.add(err)
 
 	*resultsC <- BatchThing{

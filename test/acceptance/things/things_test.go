@@ -191,7 +191,7 @@ var invalidThingTestCases = []struct {
 			}
 		},
 		errorCheck: func(t *testing.T, err *models.ErrorResponse) {
-			assert.Equal(t, fmt.Sprintf("invalid thing: "+schema.ErrorNoSuchClass, "NonExistingClass"), err.Error[0].Message)
+			assert.Equal(t, fmt.Sprintf("invalid thing: class '%s' not present in schema", "NonExistingClass"), err.Error[0].Message)
 		},
 	},
 	{
