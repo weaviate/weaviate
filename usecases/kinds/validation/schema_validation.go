@@ -43,7 +43,7 @@ const (
 
 // ValidateSchemaInBody Validate the schema in the given body
 func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.Schema, object interface{},
-	k kind.Kind, dbConnector getRepo, network peerLister,
+	k kind.Kind, exists exists, network peerLister,
 	serverConfig *config.WeaviateConfig) error {
 	var isp interface{}
 	var className string
@@ -77,7 +77,7 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.Schema, ob
 			return err
 		}
 
-		data, err := extractAndValidateProperty(ctx, propertyValue, dbConnector, network, serverConfig, class.Class, propertyKey, dataType)
+		data, err := extractAndValidateProperty(ctx, propertyValue, exists, network, serverConfig, class.Class, propertyKey, dataType)
 		if err != nil {
 			return err
 		}
@@ -96,7 +96,7 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.Schema, ob
 	return nil
 }
 
-func extractAndValidateProperty(ctx context.Context, pv interface{}, dbConnector getRepo, network peerLister,
+func extractAndValidateProperty(ctx context.Context, pv interface{}, exists exists, network peerLister,
 	serverConfig *config.WeaviateConfig, className, propertyName string, dataType *schema.DataType) (interface{}, error) {
 	var (
 		data interface{}
@@ -105,7 +105,7 @@ func extractAndValidateProperty(ctx context.Context, pv interface{}, dbConnector
 
 	switch *dataType {
 	case schema.DataTypeCRef:
-		data, err = cRef(ctx, pv, dbConnector, network, serverConfig, className, propertyName)
+		data, err = cRef(ctx, pv, exists, network, serverConfig, className, propertyName)
 		if err != nil {
 			return nil, fmt.Errorf("invalid cref: %s", err)
 		}
@@ -151,7 +151,7 @@ func extractAndValidateProperty(ctx context.Context, pv interface{}, dbConnector
 	return data, nil
 }
 
-func cRef(ctx context.Context, pv interface{}, dbConnector getRepo, network peerLister,
+func cRef(ctx context.Context, pv interface{}, exists exists, network peerLister,
 	serverConfig *config.WeaviateConfig, className, propertyName string) (interface{}, error) {
 	switch refValue := pv.(type) {
 	case map[string]interface{}:
@@ -166,7 +166,7 @@ func cRef(ctx context.Context, pv interface{}, dbConnector getRepo, network peer
 					className, propertyName, ref)
 			}
 
-			cref, err := parseAndValidateSingleRef(ctx, dbConnector, network, serverConfig, refTyped, className, propertyName)
+			cref, err := parseAndValidateSingleRef(ctx, exists, network, serverConfig, refTyped, className, propertyName)
 			if err != nil {
 				return nil, err
 			}
@@ -318,7 +318,7 @@ func parseCoordinate(raw interface{}) (float64, error) {
 	}
 }
 
-func parseAndValidateSingleRef(ctx context.Context, dbConnector getRepo, network peerLister,
+func parseAndValidateSingleRef(ctx context.Context, exists exists, network peerLister,
 	serverConfig *config.WeaviateConfig, pvcr map[string]interface{},
 	className, propertyName string) (*models.SingleRef, error) {
 
@@ -345,7 +345,7 @@ func parseAndValidateSingleRef(ctx context.Context, dbConnector getRepo, network
 		return nil, fmt.Errorf("invalid reference: %s", err)
 	}
 	errVal := fmt.Sprintf("'cref' %s %s:%s", ref.Kind.Name(), className, propertyName)
-	err = ValidateSingleRef(ctx, serverConfig, ref.SingleRef(), dbConnector, network, errVal)
+	err = ValidateSingleRef(ctx, serverConfig, ref.SingleRef(), exists, network, errVal)
 	if err != nil {
 		return nil, err
 	}

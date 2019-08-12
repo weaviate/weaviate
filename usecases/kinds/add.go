@@ -143,7 +143,24 @@ func (m *Manager) validateAction(ctx context.Context, principal *models.Principa
 
 	databaseSchema := schema.HackFromDatabaseSchema(s)
 	return validation.ValidateActionBody(
-		ctx, class, databaseSchema, m.repo, m.network, m.config)
+		ctx, class, databaseSchema, m.exists, m.network, m.config)
+}
+
+func (m *Manager) exists(ctx context.Context, k kind.Kind, id strfmt.UUID) (bool, error) {
+	if !m.config.Config.EsvectorOnly {
+		return m.repo.ClassExists(ctx, id)
+	} else {
+		switch k {
+		case kind.Thing:
+			res, err := m.vectorRepo.ThingByID(ctx, id)
+			return res != nil, err
+		case kind.Action:
+			res, err := m.vectorRepo.ActionByID(ctx, id)
+			return res != nil, err
+		default:
+			panic("impossible kind")
+		}
+	}
 }
 
 // AddThing Class Instance to the connected DB. If the class contains a network
@@ -232,7 +249,7 @@ func (m *Manager) validateThing(ctx context.Context, principal *models.Principal
 	// Validate schema given in body with the weaviate schema
 	databaseSchema := schema.HackFromDatabaseSchema(s)
 	return validation.ValidateThingBody(
-		ctx, class, databaseSchema, m.repo, m.network, m.config)
+		ctx, class, databaseSchema, m.exists, m.network, m.config)
 }
 
 func (m *Manager) addNetworkDataTypesForThing(ctx context.Context, principal *models.Principal, class *models.Thing) error {

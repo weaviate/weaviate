@@ -52,7 +52,8 @@ func Test_BatchManager_AddActions(t *testing.T) {
 		}
 		logger, _ := test.NewNullLogger()
 		authorizer := &fakeAuthorizer{}
-		manager = NewBatchManager(repo, locks, schemaManager, nil,
+		vectorRepo := &fakeVectorRepo{}
+		manager = NewBatchManager(repo, vectorRepo, locks, schemaManager, nil,
 			config, logger, authorizer)
 	}
 
@@ -165,7 +166,8 @@ func Test_BatchManager_AddThings(t *testing.T) {
 		}
 		logger, _ := test.NewNullLogger()
 		authorizer := &fakeAuthorizer{}
-		manager = NewBatchManager(repo, locks, schemaManager, nil,
+		vectorRepo := &fakeVectorRepo{}
+		manager = NewBatchManager(repo, vectorRepo, locks, schemaManager, nil,
 			config, logger, authorizer)
 	}
 

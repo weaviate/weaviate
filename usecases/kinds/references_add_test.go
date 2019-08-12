@@ -23,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -43,6 +44,7 @@ func Test_ReferencesAdd_CardinalityMany(t *testing.T) {
 
 	reset := func() {
 		repo = &fakeRepo{}
+		repo.On("ClassExists", mock.Anything).Return(true, nil)
 		schemaManager = &fakeSchemaManager{}
 		locks = &fakeLocks{}
 		network = &fakeNetwork{}

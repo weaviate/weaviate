@@ -24,6 +24,7 @@ import (
 	uuid "github.com/satori/go.uuid"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/kinds/validation"
 )
 
@@ -129,7 +130,7 @@ func (b *BatchManager) validateAction(ctx context.Context, principal *models.Pri
 		action.CreationTimeUnix = unixNow()
 	}
 
-	err = validation.ValidateActionBody(ctx, concept, databaseSchema, b.repo,
+	err = validation.ValidateActionBody(ctx, concept, databaseSchema, b.exists,
 		b.network, b.config)
 	ec.add(err)
 
@@ -138,6 +139,23 @@ func (b *BatchManager) validateAction(ctx context.Context, principal *models.Pri
 		Action:        action,
 		Err:           ec.toError(),
 		OriginalIndex: originalIndex,
+	}
+}
+
+func (b *BatchManager) exists(ctx context.Context, k kind.Kind, id strfmt.UUID) (bool, error) {
+	if !b.config.Config.EsvectorOnly {
+		return b.repo.ClassExists(ctx, id)
+	} else {
+		switch k {
+		case kind.Thing:
+			res, err := b.vectorRepo.ThingByID(ctx, id)
+			return res != nil, err
+		case kind.Action:
+			res, err := b.vectorRepo.ActionByID(ctx, id)
+			return res != nil, err
+		default:
+			panic("impossible kind")
+		}
 	}
 }
 
@@ -252,7 +270,7 @@ func (b *BatchManager) validateThing(ctx context.Context, principal *models.Prin
 		thing.CreationTimeUnix = unixNow()
 	}
 
-	err = validation.ValidateThingBody(ctx, concept, databaseSchema, b.repo,
+	err = validation.ValidateThingBody(ctx, concept, databaseSchema, b.exists,
 		b.network, b.config)
 	ec.add(err)
 

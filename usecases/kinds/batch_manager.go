@@ -16,6 +16,7 @@ package kinds
 import (
 	"context"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus"
 )
@@ -30,6 +31,7 @@ type BatchManager struct {
 	schemaManager schemaManager
 	logger        logrus.FieldLogger
 	authorizer    authorizer
+	vectorRepo    VectorRepo
 }
 
 // Repo describes the requirements the kinds UC has to the connected database
@@ -42,10 +44,11 @@ type batchRepo interface {
 type batchAndGetRepo interface {
 	batchRepo
 	getRepo
+	ClassExists(ctx context.Context, id strfmt.UUID) (bool, error)
 }
 
 // NewBatchManager creates a new manager
-func NewBatchManager(repo Repo, locks locks, schemaManager schemaManager, network network,
+func NewBatchManager(repo Repo, vectorRepo VectorRepo, locks locks, schemaManager schemaManager, network network,
 	config *config.WeaviateConfig, logger logrus.FieldLogger, authorizer authorizer) *BatchManager {
 	return &BatchManager{
 		network:       network,
@@ -54,6 +57,7 @@ func NewBatchManager(repo Repo, locks locks, schemaManager schemaManager, networ
 		locks:         locks,
 		schemaManager: schemaManager,
 		logger:        logger,
+		vectorRepo:    vectorRepo,
 		authorizer:    authorizer,
 	}
 }
