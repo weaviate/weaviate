@@ -71,45 +71,40 @@ const (
 	ErrorNotFoundInDatabase string = "error finding the '%s' in the database: '%s' at %s"
 )
 
-// ValidateThingBody Validates a thing body using the 'Thing' object.
-func ValidateThingBody(ctx context.Context, thing *models.Thing, databaseSchema schema.WeaviateSchema,
-	exists exists, network peerLister, serverConfig *config.WeaviateConfig) error {
-	// Validate the body
-	bve := validateBody(thing.Class)
-
-	// Return error if possible
-	if bve != nil {
-		return bve
-	}
-
-	// Return the schema validation error
-	sve := ValidateSchemaInBody(ctx, databaseSchema.ThingSchema.Schema, thing, kind.Thing,
-		exists, network, serverConfig)
-
-	return sve
+type Validator struct {
+	schema     schema.Schema
+	exists     exists
+	peerLister peerLister
+	config     *config.WeaviateConfig
 }
 
-// ValidateActionBody Validates a action body using the 'Action' object.
-func ValidateActionBody(ctx context.Context, action *models.Action, databaseSchema schema.WeaviateSchema,
-	exists exists, network peerLister, serverConfig *config.WeaviateConfig,
-) error {
-	// Validate the body
-	bve := validateBody(action.Class)
-
-	// Return error if possible
-	if bve != nil {
-		return bve
+func New(schema schema.Schema, exists exists, peerLister peerLister,
+	config *config.WeaviateConfig) *Validator {
+	return &Validator{
+		schema:     schema,
+		exists:     exists,
+		peerLister: peerLister,
+		config:     config,
 	}
-
-	// Return the schema validation error
-	sve := ValidateSchemaInBody(ctx, databaseSchema.ActionSchema.Schema, action, kind.Action,
-		exists, network, serverConfig)
-
-	return sve
 }
 
-// validateBody Validates the overlapping body values
-func validateBody(class string) error {
+func (v *Validator) Thing(ctx context.Context, thing *models.Thing) error {
+	if err := validateClass(thing.Class); err != nil {
+		return err
+	}
+
+	return v.properties(ctx, kind.Thing, thing)
+}
+
+func (v *Validator) Action(ctx context.Context, action *models.Action) error {
+	if err := validateClass(action.Class); err != nil {
+		return err
+	}
+
+	return v.properties(ctx, kind.Action, action)
+}
+
+func validateClass(class string) error {
 	// If the given class is empty, return an error
 	if class == "" {
 		return fmt.Errorf(ErrorMissingClass)
@@ -125,8 +120,8 @@ func validateRefType(s string) bool {
 }
 
 // ValidateSingleRef validates a single ref based on location URL and existence of the object in the database
-func ValidateSingleRef(ctx context.Context, serverConfig *config.WeaviateConfig, cref *models.SingleRef,
-	exists exists, network peerLister, errorVal string) error {
+func (v *Validator) ValidateSingleRef(ctx context.Context, cref *models.SingleRef,
+	errorVal string) error {
 
 	ref, err := crossref.ParseSingleRef(cref)
 	if err != nil {
@@ -134,17 +129,17 @@ func ValidateSingleRef(ctx context.Context, serverConfig *config.WeaviateConfig,
 	}
 
 	if !ref.Local {
-		return validateNetworkRef(network, ref)
+		return v.validateNetworkRef(ref)
 	}
 
-	return validateLocalRef(ctx, exists, ref, errorVal)
+	return v.validateLocalRef(ctx, ref, errorVal)
 }
 
-func validateLocalRef(ctx context.Context, exists exists, ref *crossref.Ref, errorVal string) error {
+func (v *Validator) validateLocalRef(ctx context.Context, ref *crossref.Ref, errorVal string) error {
 	// Check whether the given Object exists in the DB
 	var err error
 
-	ok, err := exists(ctx, ref.Kind, ref.TargetID)
+	ok, err := v.exists(ctx, ref.Kind, ref.TargetID)
 	if err != nil {
 		return err
 	}
@@ -156,9 +151,9 @@ func validateLocalRef(ctx context.Context, exists exists, ref *crossref.Ref, err
 	return nil
 }
 
-func validateNetworkRef(network peerLister, ref *crossref.Ref) error {
+func (v *Validator) validateNetworkRef(ref *crossref.Ref) error {
 	// Network ref
-	peers, err := network.ListPeers()
+	peers, err := v.peerLister.ListPeers()
 	if err != nil {
 		return fmt.Errorf("could not validate network reference: could not list network peers: %s", err)
 	}
@@ -171,15 +166,14 @@ func validateNetworkRef(network peerLister, ref *crossref.Ref) error {
 	return nil
 }
 
-func ValidateMultipleRef(ctx context.Context, serverConfig *config.WeaviateConfig,
-	refs *models.MultipleRef, exists exists, network peerLister,
+func (v *Validator) ValidateMultipleRef(ctx context.Context, refs *models.MultipleRef,
 	errorVal string) error {
 	if refs == nil {
 		return nil
 	}
 
 	for _, ref := range *refs {
-		err := ValidateSingleRef(ctx, serverConfig, ref, exists, network, errorVal)
+		err := v.ValidateSingleRef(ctx, ref, errorVal)
 		if err != nil {
 			return err
 		}

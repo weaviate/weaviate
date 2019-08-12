@@ -23,7 +23,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/config"
 )
 
 const (
@@ -41,10 +40,7 @@ const (
 	ErrorMissingSingleRefType string = "class '%s' with property '%s' requires exactly 3 arguments: 'beacon', 'locationUrl' and 'type'. 'type' is missing, check your input schema"
 )
 
-// ValidateSchemaInBody Validate the schema in the given body
-func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.Schema, object interface{},
-	k kind.Kind, exists exists, network peerLister,
-	serverConfig *config.WeaviateConfig) error {
+func (v *Validator) properties(ctx context.Context, k kind.Kind, object interface{}) error {
 	var isp interface{}
 	var className string
 	if k == kind.Action {
@@ -57,10 +53,9 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.Schema, ob
 		return fmt.Errorf(schema.ErrorInvalidRefType)
 	}
 
-	class, err := schema.GetClassByName(weaviateSchema, className)
-	if err != nil {
-		// className doesn't exist
-		return err
+	class := v.schema.GetClass(k, schema.ClassName(className))
+	if class == nil {
+		return fmt.Errorf("class '%s' not present in schema", className)
 	}
 
 	if isp == nil {
@@ -77,7 +72,7 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.Schema, ob
 			return err
 		}
 
-		data, err := extractAndValidateProperty(ctx, propertyValue, exists, network, serverConfig, class.Class, propertyKey, dataType)
+		data, err := v.extractAndValidateProperty(ctx, propertyKey, propertyValue, className, dataType)
 		if err != nil {
 			return err
 		}
@@ -96,8 +91,8 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.Schema, ob
 	return nil
 }
 
-func extractAndValidateProperty(ctx context.Context, pv interface{}, exists exists, network peerLister,
-	serverConfig *config.WeaviateConfig, className, propertyName string, dataType *schema.DataType) (interface{}, error) {
+func (v *Validator) extractAndValidateProperty(ctx context.Context, propertyName string, pv interface{},
+	className string, dataType *schema.DataType) (interface{}, error) {
 	var (
 		data interface{}
 		err  error
@@ -105,7 +100,7 @@ func extractAndValidateProperty(ctx context.Context, pv interface{}, exists exis
 
 	switch *dataType {
 	case schema.DataTypeCRef:
-		data, err = cRef(ctx, pv, exists, network, serverConfig, className, propertyName)
+		data, err = v.cRef(ctx, propertyName, pv, className)
 		if err != nil {
 			return nil, fmt.Errorf("invalid cref: %s", err)
 		}
@@ -151,8 +146,8 @@ func extractAndValidateProperty(ctx context.Context, pv interface{}, exists exis
 	return data, nil
 }
 
-func cRef(ctx context.Context, pv interface{}, exists exists, network peerLister,
-	serverConfig *config.WeaviateConfig, className, propertyName string) (interface{}, error) {
+func (v *Validator) cRef(ctx context.Context, propertyName string, pv interface{},
+	className string) (interface{}, error) {
 	switch refValue := pv.(type) {
 	case map[string]interface{}:
 		return nil, fmt.Errorf("reference must be an array, but got a map: %#v", refValue)
@@ -166,7 +161,7 @@ func cRef(ctx context.Context, pv interface{}, exists exists, network peerLister
 					className, propertyName, ref)
 			}
 
-			cref, err := parseAndValidateSingleRef(ctx, exists, network, serverConfig, refTyped, className, propertyName)
+			cref, err := v.parseAndValidateSingleRef(ctx, propertyName, refTyped, className)
 			if err != nil {
 				return nil, err
 			}
@@ -318,9 +313,8 @@ func parseCoordinate(raw interface{}) (float64, error) {
 	}
 }
 
-func parseAndValidateSingleRef(ctx context.Context, exists exists, network peerLister,
-	serverConfig *config.WeaviateConfig, pvcr map[string]interface{},
-	className, propertyName string) (*models.SingleRef, error) {
+func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName string,
+	pvcr map[string]interface{}, className string) (*models.SingleRef, error) {
 
 	// Return different types of errors for cref input
 	if len(pvcr) != 1 {
@@ -345,7 +339,7 @@ func parseAndValidateSingleRef(ctx context.Context, exists exists, network peerL
 		return nil, fmt.Errorf("invalid reference: %s", err)
 	}
 	errVal := fmt.Sprintf("'cref' %s %s:%s", ref.Kind.Name(), className, propertyName)
-	err = ValidateSingleRef(ctx, serverConfig, ref.SingleRef(), exists, network, errVal)
+	err = v.ValidateSingleRef(ctx, ref.SingleRef(), errVal)
 	if err != nil {
 		return nil, err
 	}

@@ -36,7 +36,7 @@ func TestBatchActionsCreateResultsOrder(t *testing.T) {
 
 	classOneName := "ItIsExtremelyUnlikelyThatThisClassActuallyExistsButJustToBeSureHereAreSomeRandomNumbers12987825624398509861298409782539802434516542"
 	classTwoName := "ItIsExtremelyUnlikelyThatThisClassActuallyExistsButJustToBeSureHereAreSomeRandomNumbers12987825624398509861298409782539802434516541"
-	expectedResult := "no such class with name '%s' found in the schema. Check your schema files for which classes are available"
+	expectedResult := "class '%s' not present in schema"
 
 	// generate actioncreate content
 	action1 := &models.Action{

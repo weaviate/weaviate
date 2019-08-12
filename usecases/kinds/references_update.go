@@ -19,6 +19,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/kinds/validation"
 )
@@ -152,7 +153,8 @@ func (m *Manager) updateThingReferenceToConnectorAndSchema(ctx context.Context, 
 }
 
 func (m *Manager) validateReferences(ctx context.Context, references models.MultipleRef) error {
-	err := validation.ValidateMultipleRef(ctx, m.config, &references, m.exists, m.network, "reference not found")
+	err := validation.New(schema.Schema{}, m.exists, m.network, m.config).
+		ValidateMultipleRef(ctx, &references, "reference not found")
 	if err != nil {
 		return NewErrInvalidUserInput("invalid references: %v", err)
 	}
