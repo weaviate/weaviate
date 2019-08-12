@@ -24,6 +24,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	uuid "github.com/satori/go.uuid"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
@@ -81,6 +82,9 @@ type VectorRepo interface {
 
 	ThingByID(ctx context.Context, id strfmt.UUID) (*search.Result, error)
 	ActionByID(ctx context.Context, id strfmt.UUID) (*search.Result, error)
+
+	ThingSearch(ctx context.Context, limit int, filters *filters.LocalFilter) (search.Results, error)
+	ActionSearch(ctx context.Context, limit int, filters *filters.LocalFilter) (search.Results, error)
 }
 
 // NewManager creates a new manager

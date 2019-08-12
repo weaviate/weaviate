@@ -33,6 +33,8 @@ type Result struct {
 	Schema    models.PropertySchema
 }
 
+type Results []Result
+
 func (r Result) Thing() *models.Thing {
 	schema, ok := r.Schema.(map[string]interface{})
 	if ok {
@@ -59,4 +61,22 @@ func (r Result) Action() *models.Action {
 	}
 
 	return t
+}
+
+func (rs Results) Things() []*models.Thing {
+	things := make([]*models.Thing, len(rs), len(rs))
+	for i, res := range rs {
+		things[i] = res.Thing()
+	}
+
+	return things
+}
+
+func (rs Results) Actions() []*models.Action {
+	actions := make([]*models.Action, len(rs), len(rs))
+	for i, res := range rs {
+		actions[i] = res.Action()
+	}
+
+	return actions
 }

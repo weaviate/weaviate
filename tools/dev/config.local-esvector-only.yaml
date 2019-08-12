@@ -14,7 +14,7 @@ configuration_storage:
 contextionary:
   url: localhost:9999
 query_defaults:
-  limit: 20
+  limit: 100
 debug: true
 logging:
   interval: 1
