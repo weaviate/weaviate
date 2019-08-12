@@ -46,6 +46,14 @@ func (r *NoOpRepo) ActionByID(ctx context.Context, id strfmt.UUID) (*search.Resu
 	panic("no op repo: not implemented")
 }
 
+func (r *NoOpRepo) ThingSearch(ctx context.Context, limit int, filters *filters.LocalFilter) (search.Results, error) {
+	panic("no op repo: not implemented")
+}
+
+func (r *NoOpRepo) ActionSearch(ctx context.Context, limit int, filters *filters.LocalFilter) (search.Results, error) {
+	panic("no op repo: not implemented")
+}
+
 // PutThing does nothing, but doesn't error either
 func (r *NoOpRepo) PutThing(ctx context.Context,
 	concept *models.Thing, vector []float32) error {

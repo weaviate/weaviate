@@ -17,6 +17,7 @@ import (
 	"context"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
@@ -202,6 +203,16 @@ func (f *fakeVectorRepo) ThingByID(ctx context.Context,
 
 func (f *fakeVectorRepo) ActionByID(ctx context.Context,
 	id strfmt.UUID) (*search.Result, error) {
+	return nil, nil
+}
+
+func (f *fakeVectorRepo) ThingSearch(ctx context.Context, limit int,
+	filters *filters.LocalFilter) (search.Results, error) {
+	return nil, nil
+}
+
+func (f *fakeVectorRepo) ActionSearch(ctx context.Context, limit int,
+	filters *filters.LocalFilter) (search.Results, error) {
 	return nil, nil
 }
 

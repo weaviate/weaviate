@@ -129,9 +129,23 @@ func (m *Manager) legacyThingFromConnector(ctx context.Context, id strfmt.UUID) 
 }
 
 func (m *Manager) getThingsFromRepo(ctx context.Context, limit *int64) ([]*models.Thing, error) {
+	smartLimit := m.localLimitOrGlobalLimit(limit)
+	if !m.config.Config.EsvectorOnly {
+		return m.legacyThingsFromConnector(ctx, smartLimit)
+	}
+
+	res, err := m.vectorRepo.ThingSearch(ctx, smartLimit, nil)
+	if err != nil {
+		return nil, NewErrInternal("list things: %v", err)
+	}
+
+	return res.Things(), nil
+}
+
+func (m *Manager) legacyThingsFromConnector(ctx context.Context, limit int) ([]*models.Thing, error) {
 	thingsResponse := models.ThingsListResponse{}
 	thingsResponse.Things = []*models.Thing{}
-	err := m.repo.ListThings(ctx, m.localLimitOrGlobalLimit(limit), &thingsResponse)
+	err := m.repo.ListThings(ctx, limit, &thingsResponse)
 	if err != nil {
 		return nil, NewErrInternal("could not list things: %v", err)
 	}
@@ -173,9 +187,23 @@ func (m *Manager) legacyActionFromConnector(ctx context.Context, id strfmt.UUID)
 }
 
 func (m *Manager) getActionsFromRepo(ctx context.Context, limit *int64) ([]*models.Action, error) {
+	smartLimit := m.localLimitOrGlobalLimit(limit)
+	if !m.config.Config.EsvectorOnly {
+		return m.legacyActionsFromConnector(ctx, smartLimit)
+	}
+
+	res, err := m.vectorRepo.ActionSearch(ctx, smartLimit, nil)
+	if err != nil {
+		return nil, NewErrInternal("list actions: %v", err)
+	}
+
+	return res.Actions(), nil
+}
+
+func (m *Manager) legacyActionsFromConnector(ctx context.Context, limit int) ([]*models.Action, error) {
 	actionsResponse := models.ActionsListResponse{}
 	actionsResponse.Actions = []*models.Action{}
-	err := m.repo.ListActions(ctx, m.localLimitOrGlobalLimit(limit), &actionsResponse)
+	err := m.repo.ListActions(ctx, limit, &actionsResponse)
 	if err != nil {
 		return nil, NewErrInternal("could not list actions: %v", err)
 	}
