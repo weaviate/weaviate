@@ -15,6 +15,7 @@ package kinds
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-openapi/strfmt"
 	uuid "github.com/satori/go.uuid"
@@ -107,17 +108,26 @@ func (m *Manager) addActionToConnectorAndSchema(ctx context.Context, principal *
 		}
 	}
 
+	err = m.vectorizeAndPutAction(ctx, class)
+	if err != nil {
+		return nil, NewErrInternal("add action: %v", err)
+	}
+
+	return class, nil
+}
+
+func (m *Manager) vectorizeAndPutAction(ctx context.Context, class *models.Action) error {
 	v, err := m.vectorizer.Action(ctx, class)
 	if err != nil {
-		return nil, NewErrInternal("could not create vector from action: %v", err)
+		return fmt.Errorf("vectorize: %v", err)
 	}
 
 	err = m.vectorRepo.PutAction(ctx, class, v)
 	if err != nil {
-		return nil, NewErrInternal("could not store vector for thing: %v", err)
+		return fmt.Errorf("store: %v", err)
 	}
 
-	return class, nil
+	return nil
 }
 
 func (m *Manager) validateAction(ctx context.Context, principal *models.Principal, class *models.Action) error {
@@ -185,17 +195,26 @@ func (m *Manager) addThingToConnectorAndSchema(ctx context.Context, principal *m
 		}
 	}
 
+	err = m.vectorizeAndPutThing(ctx, class)
+	if err != nil {
+		return nil, NewErrInternal("add thing: %v", err)
+	}
+
+	return class, nil
+}
+
+func (m *Manager) vectorizeAndPutThing(ctx context.Context, class *models.Thing) error {
 	v, err := m.vectorizer.Thing(ctx, class)
 	if err != nil {
-		return nil, NewErrInternal("could not create vector from thing: %v", err)
+		return fmt.Errorf("vectorize: %v", err)
 	}
 
 	err = m.vectorRepo.PutThing(ctx, class, v)
 	if err != nil {
-		return nil, NewErrInternal("could not store vector for thing: %v", err)
+		return fmt.Errorf("store: %v", err)
 	}
 
-	return class, nil
+	return nil
 }
 
 func (m *Manager) validateThing(ctx context.Context, principal *models.Principal,

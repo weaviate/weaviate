@@ -44,6 +44,7 @@ func (r Result) Thing() *models.Thing {
 	}
 
 	t := &models.Thing{
+		Class:              r.ClassName,
 		ID:                 r.ID,
 		Schema:             schema,
 		CreationTimeUnix:   r.Created,
@@ -60,6 +61,7 @@ func (r Result) Action() *models.Action {
 	}
 
 	t := &models.Action{
+		Class:              r.ClassName,
 		ID:                 r.ID,
 		Schema:             schema,
 		CreationTimeUnix:   r.Created,
