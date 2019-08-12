@@ -32,6 +32,8 @@ type getRepo interface {
 	GetAction(context.Context, strfmt.UUID, *models.Action) error
 }
 
+type exists func(context.Context, kind.Kind, strfmt.UUID) (bool, error)
+
 type peerLister interface {
 	ListPeers() (peers.Peers, error)
 }
@@ -71,7 +73,7 @@ const (
 
 // ValidateThingBody Validates a thing body using the 'Thing' object.
 func ValidateThingBody(ctx context.Context, thing *models.Thing, databaseSchema schema.WeaviateSchema,
-	dbConnector getRepo, network peerLister, serverConfig *config.WeaviateConfig) error {
+	exists exists, network peerLister, serverConfig *config.WeaviateConfig) error {
 	// Validate the body
 	bve := validateBody(thing.Class)
 
@@ -82,14 +84,14 @@ func ValidateThingBody(ctx context.Context, thing *models.Thing, databaseSchema 
 
 	// Return the schema validation error
 	sve := ValidateSchemaInBody(ctx, databaseSchema.ThingSchema.Schema, thing, kind.Thing,
-		dbConnector, network, serverConfig)
+		exists, network, serverConfig)
 
 	return sve
 }
 
 // ValidateActionBody Validates a action body using the 'Action' object.
 func ValidateActionBody(ctx context.Context, action *models.Action, databaseSchema schema.WeaviateSchema,
-	dbConnector getRepo, network peerLister, serverConfig *config.WeaviateConfig,
+	exists exists, network peerLister, serverConfig *config.WeaviateConfig,
 ) error {
 	// Validate the body
 	bve := validateBody(action.Class)
@@ -101,7 +103,7 @@ func ValidateActionBody(ctx context.Context, action *models.Action, databaseSche
 
 	// Return the schema validation error
 	sve := ValidateSchemaInBody(ctx, databaseSchema.ActionSchema.Schema, action, kind.Action,
-		dbConnector, network, serverConfig)
+		exists, network, serverConfig)
 
 	return sve
 }
@@ -123,7 +125,8 @@ func validateRefType(s string) bool {
 }
 
 // ValidateSingleRef validates a single ref based on location URL and existence of the object in the database
-func ValidateSingleRef(ctx context.Context, serverConfig *config.WeaviateConfig, cref *models.SingleRef, dbConnector getRepo, network peerLister, errorVal string) error {
+func ValidateSingleRef(ctx context.Context, serverConfig *config.WeaviateConfig, cref *models.SingleRef,
+	exists exists, network peerLister, errorVal string) error {
 
 	ref, err := crossref.ParseSingleRef(cref)
 	if err != nil {
@@ -134,22 +137,19 @@ func ValidateSingleRef(ctx context.Context, serverConfig *config.WeaviateConfig,
 		return validateNetworkRef(network, ref)
 	}
 
-	return validateLocalRef(ctx, dbConnector, ref, errorVal)
+	return validateLocalRef(ctx, exists, ref, errorVal)
 }
 
-func validateLocalRef(ctx context.Context, dbConnector getRepo, ref *crossref.Ref, errorVal string) error {
+func validateLocalRef(ctx context.Context, exists exists, ref *crossref.Ref, errorVal string) error {
 	// Check whether the given Object exists in the DB
 	var err error
-	switch ref.Kind {
-	case kind.Thing:
-		obj := &models.Thing{}
-		err = dbConnector.GetThing(ctx, ref.TargetID, obj)
-	case kind.Action:
-		obj := &models.Action{}
-		err = dbConnector.GetAction(ctx, ref.TargetID, obj)
+
+	ok, err := exists(ctx, ref.Kind, ref.TargetID)
+	if err != nil {
+		return err
 	}
 
-	if err != nil {
+	if !ok {
 		return fmt.Errorf(ErrorNotFoundInDatabase, ref.Kind.Name(), err, errorVal)
 	}
 
@@ -172,14 +172,14 @@ func validateNetworkRef(network peerLister, ref *crossref.Ref) error {
 }
 
 func ValidateMultipleRef(ctx context.Context, serverConfig *config.WeaviateConfig,
-	refs *models.MultipleRef, dbConnector getRepo, network peerLister,
+	refs *models.MultipleRef, exists exists, network peerLister,
 	errorVal string) error {
 	if refs == nil {
 		return nil
 	}
 
 	for _, ref := range *refs {
-		err := ValidateSingleRef(ctx, serverConfig, ref, dbConnector, network, errorVal)
+		err := ValidateSingleRef(ctx, serverConfig, ref, exists, network, errorVal)
 		if err != nil {
 			return err
 		}
