@@ -108,7 +108,7 @@ func testNumericalAggregations(repo *Repo) func(t *testing.T) {
 						Properties: map[string]aggregation.Property{
 							"dividendYield": aggregation.Property{
 								NumericalAggregations: map[string]float64{
-									"mean": 2.3166666626930237,
+									"mean": 2.0666666626930237,
 								},
 							},
 						},
@@ -121,7 +121,7 @@ func testNumericalAggregations(repo *Repo) func(t *testing.T) {
 						Properties: map[string]aggregation.Property{
 							"dividendYield": aggregation.Property{
 								NumericalAggregations: map[string]float64{
-									"mean": 2.599999984105428,
+									"mean": 2.199999968210856,
 								},
 							},
 						},
@@ -129,7 +129,7 @@ func testNumericalAggregations(repo *Repo) func(t *testing.T) {
 				},
 			}
 
-			assert.Equal(t, expectedResult, res)
+			assert.ElementsMatch(t, expectedResult.Groups, res.Groups)
 		})
 
 		t.Run("multiple fields, multiple aggregators, grouped by string", func(t *testing.T) {
@@ -148,6 +148,7 @@ func testNumericalAggregations(repo *Repo) func(t *testing.T) {
 							traverser.MaximumAggregator,
 							traverser.MinimumAggregator,
 							traverser.SumAggregator,
+							traverser.ModeAggregator,
 						},
 					},
 				},
@@ -166,10 +167,11 @@ func testNumericalAggregations(repo *Repo) func(t *testing.T) {
 						Properties: map[string]aggregation.Property{
 							"dividendYield": aggregation.Property{
 								NumericalAggregations: map[string]float64{
-									"mean":    2.3166666626930237,
+									"mean":    2.0666666626930237,
 									"maximum": 8.0,
 									"minimum": 0.0,
-									"sum":     13.899999976158142,
+									"sum":     12.399999976158142,
+									"mode":    0,
 								},
 							},
 						},
@@ -182,10 +184,11 @@ func testNumericalAggregations(repo *Repo) func(t *testing.T) {
 						Properties: map[string]aggregation.Property{
 							"dividendYield": aggregation.Property{
 								NumericalAggregations: map[string]float64{
-									"mean":    2.599999984105428,
+									"mean":    2.199999968210856,
 									"maximum": 4.0,
 									"minimum": 1.2999999523162842,
-									"sum":     7.799999952316284,
+									"sum":     6.599999904632568,
+									"mode":    1.2999999523162842,
 								},
 							},
 						},
@@ -193,7 +196,7 @@ func testNumericalAggregations(repo *Repo) func(t *testing.T) {
 				},
 			}
 
-			assert.Equal(t, expectedResult, res)
+			assert.ElementsMatch(t, expectedResult.Groups, res.Groups)
 		})
 	}
 }
