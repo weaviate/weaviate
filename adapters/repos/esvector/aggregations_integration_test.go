@@ -105,11 +105,10 @@ func testNumericalAggregations(repo *Repo) func(t *testing.T) {
 							Path:  []string{"sector"},
 							Value: "Food",
 						},
-						Properties: map[string][]aggregation.Property{
-							"dividendYield": []aggregation.Property{
-								aggregation.Numerical{
-									Aggregator: "mean",
-									Value:      2.3166666626930237,
+						Properties: map[string]aggregation.Property{
+							"dividendYield": aggregation.Property{
+								NumericalAggregations: map[string]float64{
+									"mean": 2.3166666626930237,
 								},
 							},
 						},
@@ -119,11 +118,10 @@ func testNumericalAggregations(repo *Repo) func(t *testing.T) {
 							Path:  []string{"sector"},
 							Value: "Financials",
 						},
-						Properties: map[string][]aggregation.Property{
-							"dividendYield": []aggregation.Property{
-								aggregation.Numerical{
-									Aggregator: "mean",
-									Value:      2.599999984105428,
+						Properties: map[string]aggregation.Property{
+							"dividendYield": aggregation.Property{
+								NumericalAggregations: map[string]float64{
+									"mean": 2.599999984105428,
 								},
 							},
 						},
@@ -132,11 +130,70 @@ func testNumericalAggregations(repo *Repo) func(t *testing.T) {
 			}
 
 			assert.Equal(t, expectedResult, res)
-
 		})
 
-		t.Run("multiple fields, multiple aggregators", func(t *testing.T) {
+		t.Run("multiple fields, multiple aggregators, grouped by string", func(t *testing.T) {
+			params := traverser.AggregateParams{
+				Kind:      kind.Thing,
+				ClassName: schema.ClassName(companyClass.Class),
+				GroupBy: &filters.Path{
+					Class:    schema.ClassName(companyClass.Class),
+					Property: schema.PropertyName("sector"),
+				},
+				Properties: []traverser.AggregateProperty{
+					traverser.AggregateProperty{
+						Name: schema.PropertyName("dividendYield"),
+						Aggregators: []traverser.Aggregator{
+							traverser.MeanAggregator,
+							traverser.MaximumAggregator,
+							traverser.MinimumAggregator,
+							traverser.SumAggregator,
+						},
+					},
+				},
+			}
 
+			res, err := repo.Aggregate(context.Background(), params)
+			require.Nil(t, err)
+
+			expectedResult := &aggregation.Result{
+				Groups: []aggregation.Group{
+					aggregation.Group{
+						GroupedBy: aggregation.GroupedBy{
+							Path:  []string{"sector"},
+							Value: "Food",
+						},
+						Properties: map[string]aggregation.Property{
+							"dividendYield": aggregation.Property{
+								NumericalAggregations: map[string]float64{
+									"mean":    2.3166666626930237,
+									"maximum": 8.0,
+									"minimum": 0.0,
+									"sum":     13.899999976158142,
+								},
+							},
+						},
+					},
+					aggregation.Group{
+						GroupedBy: aggregation.GroupedBy{
+							Path:  []string{"sector"},
+							Value: "Financials",
+						},
+						Properties: map[string]aggregation.Property{
+							"dividendYield": aggregation.Property{
+								NumericalAggregations: map[string]float64{
+									"mean":    2.599999984105428,
+									"maximum": 4.0,
+									"minimum": 1.2999999523162842,
+									"sum":     7.799999952316284,
+								},
+							},
+						},
+					},
+				},
+			}
+
+			assert.Equal(t, expectedResult, res)
 		})
 	}
 }
