@@ -176,7 +176,8 @@ func TestEsVectorRepo(t *testing.T) {
 	})
 
 	t.Run("searching all things", func(t *testing.T) {
-		res, err := repo.ThingSearch(context.Background(), 10, nil)
+		// as the test suits grow we might have to extend the limit
+		res, err := repo.ThingSearch(context.Background(), 100, nil)
 		require.Nil(t, err)
 
 		item, ok := findID(res, thingID)
