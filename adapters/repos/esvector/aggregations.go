@@ -76,18 +76,17 @@ func aggBody(params traverser.AggregateParams) (map[string]interface{}, error) {
 }
 
 func innerAggs(properties []traverser.AggregateProperty) (map[string]interface{}, error) {
-	property := properties[0]
-
 	inner := map[string]interface{}{}
+	for _, property := range properties {
+		for _, aggregator := range property.Aggregators {
+			v, err := aggValue(property.Name, aggregator)
+			if err != nil {
+				return nil, fmt.Errorf("prop '%s': %v", property.Name, err)
+			}
 
-	aggregator := property.Aggregators[0]
-
-	v, err := aggValue(property.Name, aggregator)
-	if err != nil {
-		return nil, fmt.Errorf("prop '%s': %v", property.Name, err)
+			inner[aggName(property.Name, aggregator)] = v
+		}
 	}
-
-	inner[aggName(property.Name, aggregator)] = v
 
 	return inner, nil
 }
@@ -97,7 +96,10 @@ func aggName(prop schema.PropertyName, agg traverser.Aggregator) string {
 }
 
 var aggTranslation = map[traverser.Aggregator]string{
-	traverser.MeanAggregator: "avg",
+	traverser.MeanAggregator:    "avg",
+	traverser.MaximumAggregator: "max",
+	traverser.MinimumAggregator: "min",
+	traverser.SumAggregator:     "sum",
 }
 
 func lookupAgg(input traverser.Aggregator) (string, error) {
@@ -165,9 +167,13 @@ func (sr searchResponse) aggregations(path []string) (*aggregation.Result, error
 type aggregationBucket struct {
 	groupedValue interface{}
 	property     string
-	aggregator   string
-	value        interface{}
+	aggregations []aggregatorAndValue
 	count        int
+}
+
+type aggregatorAndValue struct {
+	aggregator string
+	value      interface{}
 }
 
 type aggregationBuckets []aggregationBucket
@@ -190,14 +196,17 @@ func (sr searchResponse) parseAggBucket(input map[string]interface{}) (aggregati
 			}
 
 			bucket.property = p
-			bucket.aggregator = a
 
 			v, err := parseAggBucketPropertyValue(value)
 			if err != nil {
 				return bucket, fmt.Errorf("key '%s': %v", key, err)
 			}
 
-			bucket.value = v
+			av := aggregatorAndValue{
+				aggregator: a,
+				value:      v,
+			}
+			bucket.aggregations = append(bucket.aggregations, av)
 		}
 	}
 
@@ -240,32 +249,67 @@ func (b aggregationBuckets) result(path []string) (*aggregation.Result, error) {
 }
 
 func (b aggregationBuckets) groups(path []string) ([]aggregation.Group, error) {
-	groups := make([]aggregation.Group, len(b), len(b))
-	for i, bucket := range b {
-		groups[i] = aggregation.Group{
+
+	groups := map[interface{}]aggregation.Group{}
+	for _, bucket := range b {
+		// _, ok := groups[bucket.groupedValue]
+		// if !ok {
+		aggs, err := bucket.numericalAggregations()
+		if err != nil {
+			return nil, err
+		}
+
+		groups[bucket.groupedValue] = aggregation.Group{
 			GroupedBy: aggregation.GroupedBy{
 				Path:  path,
 				Value: bucket.groupedValue,
 			},
-			Properties: map[string][]aggregation.Property{
-				bucket.property: []aggregation.Property{
-					aggregation.Numerical{
-						Aggregator: bucket.aggregator,
-						Value:      bucket.value.(float64),
-					},
+			Properties: map[string]aggregation.Property{
+				bucket.property: aggregation.Property{
+					NumericalAggregations: aggs,
 				},
 			},
 		}
-
+		// else {
+		// 	fmt.Printf("\n\n\n---- we are appending ---\n\n\n\n")
+		// 	groups[bucket.groupedValue].Properties[bucket.property] = append(
+		// 		groups[bucket.groupedValue].Properties[bucket.property],
+		// 		aggregation.Numerical{
+		// 			Aggregator: bucket.aggregator,
+		// 			Value:      bucket.value.(float64),
+		// 		})
+		// }
 	}
 
-	return groups, nil
+	return groupsMapToSlice(groups), nil
+}
+
+func (b aggregationBucket) numericalAggregations() (map[string]float64, error) {
+	res := map[string]float64{}
+
+	for _, agg := range b.aggregations {
+		res[agg.aggregator] = agg.value.(float64)
+	}
+
+	return res, nil
 }
 
 func interfaceToStringSlice(input []interface{}) []string {
 	output := make([]string, len(input), len(input))
 	for i, value := range input {
 		output[i] = value.(string)
+	}
+
+	return output
+}
+
+func groupsMapToSlice(groups map[interface{}]aggregation.Group) []aggregation.Group {
+	output := make([]aggregation.Group, len(groups), len(groups))
+
+	i := 0
+	for _, group := range groups {
+		output[i] = group
+		i++
 	}
 
 	return output
