@@ -112,6 +112,10 @@ func lookupAgg(input traverser.Aggregator) (string, error) {
 }
 
 func aggValue(prop schema.PropertyName, agg traverser.Aggregator) (map[string]interface{}, error) {
+	if agg == traverser.ModeAggregator {
+		return aggValueMode(prop)
+	}
+
 	esAgg, err := lookupAgg(agg)
 	if err != nil {
 		return nil, err
@@ -120,6 +124,15 @@ func aggValue(prop schema.PropertyName, agg traverser.Aggregator) (map[string]in
 	return map[string]interface{}{
 		esAgg: map[string]interface{}{
 			"field": prop,
+		},
+	}, nil
+}
+
+func aggValueMode(prop schema.PropertyName) (map[string]interface{}, error) {
+	return map[string]interface{}{
+		"terms": map[string]interface{}{
+			"field": prop,
+			"size":  1,
 		},
 	}, nil
 }
@@ -190,21 +203,34 @@ func (sr searchResponse) parseAggBucket(input map[string]interface{}) (aggregati
 		case "doc_count":
 			bucket.count = int(value.(float64))
 		default:
-			p, a, err := parseAggBucketPropertyKey(key)
+			property, aggregator, err := parseAggBucketPropertyKey(key)
 			if err != nil {
 				return bucket, fmt.Errorf("key '%s': %v", key, err)
 			}
 
-			bucket.property = p
+			bucket.property = property
 
-			v, err := parseAggBucketPropertyValue(value)
-			if err != nil {
-				return bucket, fmt.Errorf("key '%s': %v", key, err)
+			var parsed interface{}
+
+			if aggregator == string(traverser.ModeAggregator) {
+				v, err := parseAggBucketPropertyValueAsMode(value)
+				if err != nil {
+					return bucket, fmt.Errorf("key '%s': %v", key, err)
+				}
+
+				parsed = v
+			} else {
+				v, err := parseAggBucketPropertyValue(value)
+				if err != nil {
+					return bucket, fmt.Errorf("key '%s' (mode): %v", key, err)
+				}
+
+				parsed = v
 			}
 
 			av := aggregatorAndValue{
-				aggregator: a,
-				value:      v,
+				aggregator: aggregator,
+				value:      parsed,
 			}
 			bucket.aggregations = append(bucket.aggregations, av)
 		}
@@ -222,6 +248,33 @@ func parseAggBucketPropertyValue(input interface{}) (interface{}, error) {
 	v, ok := asMap["value"]
 	if !ok {
 		return nil, fmt.Errorf("expected map to have key 'value', but got %v", asMap)
+	}
+
+	return v, nil
+}
+
+func parseAggBucketPropertyValueAsMode(input interface{}) (interface{}, error) {
+	asMap, ok := input.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("expected value to be a map, but was %T", input)
+	}
+
+	b, ok := asMap["buckets"]
+	if !ok {
+		return nil, fmt.Errorf("expected map to have key 'value', but got %v", asMap)
+	}
+
+	buckets := b.([]interface{})
+
+	if len(buckets) != 1 {
+		return nil, fmt.Errorf("expected inner buckets of mode query to have len 1, but got %d", len(buckets))
+	}
+
+	bucket := buckets[0].(map[string]interface{})
+
+	v, ok := bucket["key"]
+	if !ok {
+		return nil, fmt.Errorf("expected inner mode bucket to have key 'key', but got %v", bucket)
 	}
 
 	return v, nil
