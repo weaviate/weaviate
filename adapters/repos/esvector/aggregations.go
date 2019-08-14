@@ -86,6 +86,7 @@ var aggTranslation = map[traverser.Aggregator]string{
 	traverser.MaximumAggregator: "max",
 	traverser.MinimumAggregator: "min",
 	traverser.SumAggregator:     "sum",
+	traverser.CountAggregator:   "value_count",
 }
 
 func lookupAgg(input traverser.Aggregator) (string, error) {

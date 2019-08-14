@@ -241,6 +241,7 @@ func (b aggregationBuckets) groups(path []string) ([]aggregation.Group, error) {
 		// 			Value:      bucket.value.(float64),
 		// 		})
 		// }
+
 	}
 
 	return groupsMapToSlice(groups), nil
