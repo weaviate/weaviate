@@ -20,6 +20,7 @@ import (
 	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
@@ -201,6 +202,16 @@ func classPropertyFields(class *models.Class) (graphql.Fields, error) {
 	fields["groupedBy"] = &graphql.Field{
 		Description: descriptions.LocalAggregateGroupedBy,
 		Type:        groupedByProperty(class),
+		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+			switch typed := p.Source.(type) {
+			case aggregation.Group:
+				return typed.GroupedBy, nil
+			case map[string]interface{}:
+				return typed["groupedBy"], nil
+			default:
+				return nil, fmt.Errorf("groupedBy: unsupported type %T", p.Source)
+			}
+		},
 	}
 
 	return fields, nil
@@ -239,6 +250,21 @@ func makePropertyField(class *models.Class, property *models.Property,
 	return &graphql.Field{
 		Description: fmt.Sprintf(`%s"%s"`, descriptions.AggregateProperty, property.Name),
 		Type:        fieldMaker(class, property, prefix),
+		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+			switch typed := p.Source.(type) {
+			case aggregation.Group:
+				res, ok := typed.Properties[property.Name]
+				if !ok {
+					return nil, fmt.Errorf("missing property '%s'", property.Name)
+				}
+
+				return res, nil
+			case map[string]interface{}:
+				return typed[property.Name], nil
+			default:
+				return nil, fmt.Errorf("property %s, unsupported type %T", property.Name, p.Source)
+			}
+		},
 	}, nil
 }
 

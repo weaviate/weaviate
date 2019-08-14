@@ -28,9 +28,6 @@ import (
 // LocalAggregate resolves meta queries
 func (t *Traverser) LocalAggregate(ctx context.Context, principal *models.Principal,
 	params *AggregateParams) (interface{}, error) {
-	if t.config.Config.EsvectorOnly {
-		return nil, fmt.Errorf("traverser.Aggregate not supported yet in esvector-only mode")
-	}
 
 	err := t.authorizer.Authorize(principal, "get", "traversal/*")
 	if err != nil {
@@ -43,7 +40,10 @@ func (t *Traverser) LocalAggregate(ctx context.Context, principal *models.Princi
 	}
 	defer unlock()
 
-	return t.repo.LocalAggregate(ctx, params)
+	if !t.config.Config.EsvectorOnly {
+		return t.repo.LocalAggregate(ctx, params)
+	}
+	return t.vectorSearcher.Aggregate(ctx, *params)
 }
 
 // AggregateParams to describe the Local->Meta->Kind->Class query. Will be passed to
