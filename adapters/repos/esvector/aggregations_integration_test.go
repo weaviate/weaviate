@@ -78,7 +78,6 @@ func cleanupCompanyTestSchemaAndData(repo *Repo,
 
 func testNumericalAggregations(repo *Repo) func(t *testing.T) {
 	return func(t *testing.T) {
-
 		t.Run("single field, single aggregator", func(t *testing.T) {
 			params := traverser.AggregateParams{
 				Kind:      kind.Thing,
@@ -153,6 +152,18 @@ func testNumericalAggregations(repo *Repo) func(t *testing.T) {
 							traverser.CountAggregator,
 						},
 					},
+					traverser.AggregateProperty{
+						Name: schema.PropertyName("price"),
+						Aggregators: []traverser.Aggregator{
+							traverser.MeanAggregator,
+							traverser.MaximumAggregator,
+							traverser.MinimumAggregator,
+							traverser.SumAggregator,
+							traverser.ModeAggregator,
+							traverser.MedianAggregator,
+							traverser.CountAggregator,
+						},
+					},
 				},
 			}
 
@@ -178,6 +189,17 @@ func testNumericalAggregations(repo *Repo) func(t *testing.T) {
 									"count":   6,
 								},
 							},
+							"price": aggregation.Property{
+								NumericalAggregations: map[string]float64{
+									"mean":    218.33333,
+									"maximum": 800,
+									"minimum": 10,
+									"sum":     1310,
+									"mode":    70,
+									"median":  115,
+									"count":   6,
+								},
+							},
 						},
 					},
 					aggregation.Group{
@@ -194,6 +216,17 @@ func testNumericalAggregations(repo *Repo) func(t *testing.T) {
 									"sum":     6.6,
 									"mode":    1.3,
 									"median":  1.3,
+									"count":   3,
+								},
+							},
+							"price": aggregation.Property{
+								NumericalAggregations: map[string]float64{
+									"mean":    265.66667,
+									"maximum": 600,
+									"minimum": 47,
+									"sum":     797,
+									"mode":    47,
+									"median":  150,
 									"count":   3,
 								},
 							},
