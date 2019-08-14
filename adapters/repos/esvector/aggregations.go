@@ -50,6 +50,7 @@ func aggBody(params traverser.AggregateParams) (map[string]interface{}, error) {
 		"outer": map[string]interface{}{
 			"terms": map[string]interface{}{
 				"field": params.GroupBy.Property,
+				"size":  100,
 			},
 			"aggs": inner,
 		},

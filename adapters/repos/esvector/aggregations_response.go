@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/elastic/go-elasticsearch/v5/esapi"
@@ -234,6 +235,7 @@ func (b aggregationBuckets) groups(path []string) ([]aggregation.Group, error) {
 		_, ok := groups[bucket.groupedValue]
 		if !ok {
 			groups[bucket.groupedValue] = aggregation.Group{
+				Count: bucket.count,
 				GroupedBy: aggregation.GroupedBy{
 					Path:  path,
 					Value: bucket.groupedValue,
@@ -283,6 +285,27 @@ func groupsMapToSlice(groups map[interface{}]aggregation.Group) []aggregation.Gr
 		i++
 	}
 
+	sort.Slice(output, func(i, j int) bool {
+		if output[i].Count != output[j].Count {
+			// first priority by count
+			return output[i].Count > output[j].Count
+		} else {
+			// on equal count try using group by property
+			iValue := output[i].GroupedBy.Value
+			jValue := output[j].GroupedBy.Value
+
+			switch left := iValue.(type) {
+			case float64:
+				return left > jValue.(float64)
+			case string:
+				return left > jValue.(string)
+			default:
+				// can't sort, just return something
+				return false
+			}
+		}
+	})
+
 	return output
 }
 
@@ -294,6 +317,10 @@ func bucketMapToSlice(buckets map[string]aggregationBucket) aggregationBuckets {
 		output[i] = b
 		i++
 	}
+
+	sort.Slice(output, func(i, j int) bool {
+		return output[i].count < output[j].count
+	})
 
 	return output
 }
