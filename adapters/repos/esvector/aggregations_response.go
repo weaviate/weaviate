@@ -43,13 +43,13 @@ func (r *Repo) aggregationResponse(res *esapi.Response, path []string) (*aggrega
 func (sr searchResponse) aggregations(path []string) (*aggregation.Result, error) {
 
 	rawBuckets := sr.Aggreagtions["outer"].Buckets
-	buckets := make(aggregationBuckets, len(rawBuckets), len(rawBuckets))
-	for i, bucket := range rawBuckets {
-		b, err := sr.parseAggBucket(bucket)
+	var buckets aggregationBuckets
+	for _, bucket := range rawBuckets {
+		bs, err := sr.parseAggBuckets(bucket)
 		if err != nil {
 			return nil, err
 		}
-		buckets[i] = b
+		buckets = append(buckets, bs...)
 	}
 
 	return buckets.result(path)
@@ -69,35 +69,47 @@ type aggregatorAndValue struct {
 
 type aggregationBuckets []aggregationBucket
 
-func (sr searchResponse) parseAggBucket(input map[string]interface{}) (aggregationBucket, error) {
-	var (
-		bucket aggregationBucket
-	)
+func (sr searchResponse) parseAggBuckets(input map[string]interface{}) (aggregationBuckets, error) {
+	buckets := map[string]aggregationBucket{}
+
+	groupedValue := input["key"]
+	count := int(input["doc_count"].(float64))
 
 	for key, value := range input {
 		switch key {
-		case "key":
-			bucket.groupedValue = value
-		case "doc_count":
-			bucket.count = int(value.(float64))
+		case "key", "doc_count":
+			continue
 		default:
 			property, aggregator, err := parseAggBucketPropertyKey(key)
 			if err != nil {
-				return bucket, fmt.Errorf("key '%s': %v", key, err)
+				return nil, fmt.Errorf("key '%s': %v", key, err)
 			}
-
-			bucket.property = property
 
 			av, err := extractAggregatorAndValue(aggregator, value)
 			if err != nil {
-				return bucket, fmt.Errorf("key '%s': %v", key, err)
+				return nil, fmt.Errorf("key '%s': %v", key, err)
 			}
 
+			bucket := getOrInitBucket(buckets, property, groupedValue, count)
 			bucket.aggregations = append(bucket.aggregations, av)
+			buckets[property] = bucket
 		}
 	}
 
-	return bucket, nil
+	return bucketMapToSlice(buckets), nil
+}
+
+func getOrInitBucket(buckets map[string]aggregationBucket, property string,
+	groupedValue interface{}, count int) aggregationBucket {
+	b, ok := buckets[property]
+	if ok {
+		return b
+	}
+	return aggregationBucket{
+		groupedValue: groupedValue,
+		count:        count,
+		property:     property,
+	}
 }
 
 func extractAggregatorAndValue(aggregator string, value interface{}) (aggregatorAndValue, error) {
@@ -214,33 +226,29 @@ func (b aggregationBuckets) groups(path []string) ([]aggregation.Group, error) {
 
 	groups := map[interface{}]aggregation.Group{}
 	for _, bucket := range b {
-		// _, ok := groups[bucket.groupedValue]
-		// if !ok {
 		aggs, err := bucket.numericalAggregations()
 		if err != nil {
 			return nil, err
 		}
 
-		groups[bucket.groupedValue] = aggregation.Group{
-			GroupedBy: aggregation.GroupedBy{
-				Path:  path,
-				Value: bucket.groupedValue,
-			},
-			Properties: map[string]aggregation.Property{
-				bucket.property: aggregation.Property{
-					NumericalAggregations: aggs,
+		_, ok := groups[bucket.groupedValue]
+		if !ok {
+			groups[bucket.groupedValue] = aggregation.Group{
+				GroupedBy: aggregation.GroupedBy{
+					Path:  path,
+					Value: bucket.groupedValue,
 				},
-			},
+				Properties: map[string]aggregation.Property{
+					bucket.property: aggregation.Property{
+						NumericalAggregations: aggs,
+					},
+				},
+			}
+		} else {
+			groups[bucket.groupedValue].Properties[bucket.property] = aggregation.Property{
+				NumericalAggregations: aggs,
+			}
 		}
-		// else {
-		// 	fmt.Printf("\n\n\n---- we are appending ---\n\n\n\n")
-		// 	groups[bucket.groupedValue].Properties[bucket.property] = append(
-		// 		groups[bucket.groupedValue].Properties[bucket.property],
-		// 		aggregation.Numerical{
-		// 			Aggregator: bucket.aggregator,
-		// 			Value:      bucket.value.(float64),
-		// 		})
-		// }
 
 	}
 
@@ -272,6 +280,18 @@ func groupsMapToSlice(groups map[interface{}]aggregation.Group) []aggregation.Gr
 	i := 0
 	for _, group := range groups {
 		output[i] = group
+		i++
+	}
+
+	return output
+}
+
+func bucketMapToSlice(buckets map[string]aggregationBucket) aggregationBuckets {
+	output := make(aggregationBuckets, len(buckets), len(buckets))
+
+	i := 0
+	for _, b := range buckets {
+		output[i] = b
 		i++
 	}
 
