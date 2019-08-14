@@ -7,6 +7,7 @@ type Result struct {
 type Group struct {
 	Properties map[string]Property
 	GroupedBy  GroupedBy
+	Count      int
 }
 
 type Property struct {

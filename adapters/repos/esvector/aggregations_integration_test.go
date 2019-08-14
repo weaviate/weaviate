@@ -100,6 +100,7 @@ func testNumericalAggregations(repo *Repo) func(t *testing.T) {
 			expectedResult := &aggregation.Result{
 				Groups: []aggregation.Group{
 					aggregation.Group{
+						Count: 6,
 						GroupedBy: aggregation.GroupedBy{
 							Path:  []string{"sector"},
 							Value: "Food",
@@ -113,6 +114,7 @@ func testNumericalAggregations(repo *Repo) func(t *testing.T) {
 						},
 					},
 					aggregation.Group{
+						Count: 3,
 						GroupedBy: aggregation.GroupedBy{
 							Path:  []string{"sector"},
 							Value: "Financials",
@@ -173,6 +175,7 @@ func testNumericalAggregations(repo *Repo) func(t *testing.T) {
 			expectedResult := &aggregation.Result{
 				Groups: []aggregation.Group{
 					aggregation.Group{
+						Count: 6,
 						GroupedBy: aggregation.GroupedBy{
 							Path:  []string{"sector"},
 							Value: "Food",
@@ -203,6 +206,7 @@ func testNumericalAggregations(repo *Repo) func(t *testing.T) {
 						},
 					},
 					aggregation.Group{
+						Count: 3,
 						GroupedBy: aggregation.GroupedBy{
 							Path:  []string{"sector"},
 							Value: "Financials",
