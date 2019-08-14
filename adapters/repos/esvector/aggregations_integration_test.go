@@ -108,7 +108,7 @@ func testNumericalAggregations(repo *Repo) func(t *testing.T) {
 						Properties: map[string]aggregation.Property{
 							"dividendYield": aggregation.Property{
 								NumericalAggregations: map[string]float64{
-									"mean": 2.0666666626930237,
+									"mean": 2.06667,
 								},
 							},
 						},
@@ -121,7 +121,7 @@ func testNumericalAggregations(repo *Repo) func(t *testing.T) {
 						Properties: map[string]aggregation.Property{
 							"dividendYield": aggregation.Property{
 								NumericalAggregations: map[string]float64{
-									"mean": 2.199999968210856,
+									"mean": 2.2,
 								},
 							},
 						},
@@ -149,6 +149,7 @@ func testNumericalAggregations(repo *Repo) func(t *testing.T) {
 							traverser.MinimumAggregator,
 							traverser.SumAggregator,
 							traverser.ModeAggregator,
+							traverser.MedianAggregator,
 						},
 					},
 				},
@@ -167,11 +168,12 @@ func testNumericalAggregations(repo *Repo) func(t *testing.T) {
 						Properties: map[string]aggregation.Property{
 							"dividendYield": aggregation.Property{
 								NumericalAggregations: map[string]float64{
-									"mean":    2.0666666626930237,
+									"mean":    2.06667,
 									"maximum": 8.0,
 									"minimum": 0.0,
-									"sum":     12.399999976158142,
+									"sum":     12.4,
 									"mode":    0,
+									"median":  1.2,
 								},
 							},
 						},
@@ -184,11 +186,12 @@ func testNumericalAggregations(repo *Repo) func(t *testing.T) {
 						Properties: map[string]aggregation.Property{
 							"dividendYield": aggregation.Property{
 								NumericalAggregations: map[string]float64{
-									"mean":    2.199999968210856,
+									"mean":    2.2,
 									"maximum": 4.0,
-									"minimum": 1.2999999523162842,
-									"sum":     6.599999904632568,
-									"mode":    1.2999999523162842,
+									"minimum": 1.3,
+									"sum":     6.6,
+									"mode":    1.3,
+									"median":  1.3,
 								},
 							},
 						},
