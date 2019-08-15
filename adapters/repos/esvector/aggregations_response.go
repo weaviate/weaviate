@@ -74,11 +74,14 @@ func (sr searchResponse) parseAggBuckets(input map[string]interface{}) (aggregat
 	buckets := map[string]aggregationBucket{}
 
 	groupedValue := input["key"]
+	if groupedValue == nil {
+		groupedValue = input["key_as_string"]
+	}
 	count := int(input["doc_count"].(float64))
 
 	for key, value := range input {
 		switch key {
-		case "key", "doc_count":
+		case "key", "key_as_string", "doc_count":
 			continue
 		default:
 			property, aggregator, err := parseAggBucketPropertyKey(key)

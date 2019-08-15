@@ -133,6 +133,61 @@ func testNumericalAggregations(repo *Repo) func(t *testing.T) {
 			assert.ElementsMatch(t, expectedResult.Groups, res.Groups)
 		})
 
+		t.Run("grouping by a non-numerical, non-string prop", func(t *testing.T) {
+			params := traverser.AggregateParams{
+				Kind:      kind.Thing,
+				ClassName: schema.ClassName(companyClass.Class),
+				GroupBy: &filters.Path{
+					Class:    schema.ClassName(companyClass.Class),
+					Property: schema.PropertyName("listedInIndex"),
+				},
+				Properties: []traverser.AggregateProperty{
+					traverser.AggregateProperty{
+						Name:        schema.PropertyName("dividendYield"),
+						Aggregators: []traverser.Aggregator{traverser.MeanAggregator},
+					},
+				},
+			}
+
+			res, err := repo.Aggregate(context.Background(), params)
+			require.Nil(t, err)
+
+			expectedResult := &aggregation.Result{
+				Groups: []aggregation.Group{
+					aggregation.Group{
+						Count: 8,
+						GroupedBy: aggregation.GroupedBy{
+							Path:  []string{"listedInIndex"},
+							Value: 1.0,
+						},
+						Properties: map[string]aggregation.Property{
+							"dividendYield": aggregation.Property{
+								NumericalAggregations: map[string]float64{
+									"mean": 2.375,
+								},
+							},
+						},
+					},
+					aggregation.Group{
+						Count: 1,
+						GroupedBy: aggregation.GroupedBy{
+							Path:  []string{"listedInIndex"},
+							Value: 0.0,
+						},
+						Properties: map[string]aggregation.Property{
+							"dividendYield": aggregation.Property{
+								NumericalAggregations: map[string]float64{
+									"mean": 0.0,
+								},
+							},
+						},
+					},
+				},
+			}
+
+			assert.ElementsMatch(t, expectedResult.Groups, res.Groups)
+		})
+
 		t.Run("multiple fields, multiple aggregators, grouped by string", func(t *testing.T) {
 			params := traverser.AggregateParams{
 				Kind:      kind.Thing,
