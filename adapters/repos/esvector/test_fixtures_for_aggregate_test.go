@@ -24,17 +24,21 @@ var companyClass = &models.Class{
 			DataType: []string{"int"}, // unrealistic for this to be an int, but
 			// we've already tested another number prop ;-)
 		},
+		&models.Property{
+			Name:     "listedInIndex",
+			DataType: []string{"boolean"},
+		},
 	},
 }
 
 var companies = []map[string]interface{}{
-	{"sector": "Financials", "location": "New York", "dividendYield": 1.3, "price": 150},
-	{"sector": "Financials", "location": "New York", "dividendYield": 4, "price": 600},
-	{"sector": "Financials", "location": "San Francisco", "dividendYield": 1.3, "price": 47},
-	{"sector": "Food", "location": "Atlanta", "dividendYield": 1.3, "price": 160},
-	{"sector": "Food", "location": "Atlanta", "dividendYield": 2.0, "price": 70},
-	{"sector": "Food", "location": "Los Angeles", "dividendYield": 0, "price": 800},
-	{"sector": "Food", "location": "Detroit", "dividendYield": 8, "price": 10},
-	{"sector": "Food", "location": "San Francisco", "dividendYield": 0, "price": 200},
-	{"sector": "Food", "location": "New York", "dividendYield": 1.1, "price": 70},
+	{"sector": "Financials", "location": "New York", "dividendYield": 1.3, "price": 150, "listedInIndex": true},
+	{"sector": "Financials", "location": "New York", "dividendYield": 4, "price": 600, "listedInIndex": true},
+	{"sector": "Financials", "location": "San Francisco", "dividendYield": 1.3, "price": 47, "listedInIndex": true},
+	{"sector": "Food", "location": "Atlanta", "dividendYield": 1.3, "price": 160, "listedInIndex": true},
+	{"sector": "Food", "location": "Atlanta", "dividendYield": 2.0, "price": 70, "listedInIndex": true},
+	{"sector": "Food", "location": "Los Angeles", "dividendYield": 0, "price": 800, "listedInIndex": false},
+	{"sector": "Food", "location": "Detroit", "dividendYield": 8, "price": 10, "listedInIndex": true},
+	{"sector": "Food", "location": "San Francisco", "dividendYield": 0, "price": 200, "listedInIndex": true},
+	{"sector": "Food", "location": "New York", "dividendYield": 1.1, "price": 70, "listedInIndex": true},
 }
