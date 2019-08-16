@@ -49,7 +49,7 @@ func (r Repo) encodeBatchActions(enc *json.Encoder, batch kinds.BatchActions) er
 
 		a := single.Action
 		bucket := r.objectBucket(kind.Action, a.ID.String(), a.Class, a.Schema,
-			[]float32{}, a.CreationTimeUnix, a.LastUpdateTimeUnix)
+			single.Vector, a.CreationTimeUnix, a.LastUpdateTimeUnix)
 
 		index := classIndexFromClassName(kind.Action, a.Class)
 		control := r.bulkIndexControlObject(index, a.ID.String())
@@ -97,7 +97,7 @@ func (r Repo) encodeBatchThings(enc *json.Encoder, batch kinds.BatchThings) erro
 
 		t := single.Thing
 		bucket := r.objectBucket(kind.Thing, t.ID.String(), t.Class, t.Schema,
-			[]float32{}, t.CreationTimeUnix, t.LastUpdateTimeUnix)
+			single.Vector, t.CreationTimeUnix, t.LastUpdateTimeUnix)
 
 		index := classIndexFromClassName(kind.Thing, t.Class)
 		control := r.bulkIndexControlObject(index, t.ID.String())

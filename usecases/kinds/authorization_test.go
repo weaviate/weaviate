@@ -248,7 +248,8 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			cfg := &config.WeaviateConfig{}
 			authorizer := &authDenier{}
 			vectorRepo := &fakeVectorRepo{}
-			manager := NewBatchManager(repo, vectorRepo, locks, schemaManager, network, cfg, logger, authorizer)
+			vectorizer := &fakeVectorizer{}
+			manager := NewBatchManager(repo, vectorRepo, vectorizer, locks, schemaManager, network, cfg, logger, authorizer)
 
 			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 			out, _ := callFuncByName(manager, test.methodName, args...)
