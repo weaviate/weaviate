@@ -225,6 +225,14 @@ func (f *fakeVectorRepo) PutAction(ctx context.Context,
 	return nil
 }
 
+func (r *fakeVectorRepo) BatchPutThings(ctx context.Context, batch BatchThings) error {
+	return nil
+}
+
+func (r *fakeVectorRepo) BatchPutActions(ctx context.Context, batch BatchActions) error {
+	return nil
+}
+
 func (f *fakeVectorRepo) DeleteAction(ctx context.Context,
 	className string, id strfmt.UUID) error {
 	args := f.Called(className, id)
