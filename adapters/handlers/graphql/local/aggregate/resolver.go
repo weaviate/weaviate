@@ -24,6 +24,7 @@ import (
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -115,7 +116,17 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 			Analytics:  analytics,
 		}
 
-		return resolver.LocalAggregate(p.Context, principalFromContext(p.Context), params)
+		res, err := resolver.LocalAggregate(p.Context, principalFromContext(p.Context), params)
+		if err != nil {
+			return nil, err
+		}
+
+		switch parsed := res.(type) {
+		case *aggregation.Result:
+			return parsed.Groups, nil
+		default:
+			return res, nil
+		}
 	}
 }
 

@@ -16,6 +16,7 @@ package traverser
 import (
 	"context"
 
+	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
@@ -56,6 +57,7 @@ type CorpiVectorizer interface {
 type VectorSearcher interface {
 	VectorSearch(ctx context.Context, vector []float32,
 		limit int, filters *filters.LocalFilter) ([]search.Result, error)
+	Aggregate(ctx context.Context, params AggregateParams) (*aggregation.Result, error)
 }
 
 type explorer interface {
