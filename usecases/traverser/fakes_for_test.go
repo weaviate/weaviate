@@ -17,6 +17,7 @@ import (
 	"context"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -131,6 +132,12 @@ func (f *fakeVectorSearcher) VectorSearch(ctx context.Context,
 	return f.results, nil
 }
 
+func (f *fakeVectorSearcher) Aggregate(ctx context.Context,
+	params AggregateParams) (*aggregation.Result, error) {
+	args := f.Called(params)
+	return args.Get(0).(*aggregation.Result), args.Error(1)
+}
+
 func (f *fakeVectorSearcher) ClassSearch(ctx context.Context,
 	kind kind.Kind, className string, limit int,
 	filters *filters.LocalFilter) ([]search.Result, error) {
@@ -201,6 +208,11 @@ func (f *fakeVectorRepo) PutAction(ctx context.Context, index string,
 }
 func (f *fakeVectorRepo) VectorSearch(ctx context.Context,
 	vector []float32, limit int, filters *filters.LocalFilter) ([]search.Result, error) {
+	return nil, nil
+}
+
+func (f *fakeVectorRepo) Aggregate(ctx context.Context,
+	params AggregateParams) (*aggregation.Result, error) {
 	return nil, nil
 }
 

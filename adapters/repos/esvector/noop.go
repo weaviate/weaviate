@@ -17,10 +17,12 @@ import (
 	"context"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 // NoOpRepo does nothing
@@ -51,6 +53,10 @@ func (r *NoOpRepo) ThingSearch(ctx context.Context, limit int, filters *filters.
 }
 
 func (r *NoOpRepo) ActionSearch(ctx context.Context, limit int, filters *filters.LocalFilter) (search.Results, error) {
+	panic("no op repo: not implemented")
+}
+
+func (r *NoOpRepo) Aggregate(ctx context.Context, params traverser.AggregateParams) (*aggregation.Result, error) {
 	panic("no op repo: not implemented")
 }
 
