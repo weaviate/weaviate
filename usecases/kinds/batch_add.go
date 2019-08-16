@@ -30,9 +30,6 @@ import (
 // AddActions Class Instances in batch to the connected DB
 func (b *BatchManager) AddActions(ctx context.Context, principal *models.Principal,
 	classes []*models.Action, fields []*string) (BatchActions, error) {
-	if b.config.Config.EsvectorOnly {
-		return nil, fmt.Errorf("batch.AddActions not supported yet in esvector-only mode")
-	}
 
 	err := b.authorizer.Authorize(principal, "create", "batch/actions")
 	if err != nil {
@@ -124,6 +121,7 @@ func (b *BatchManager) validateAction(ctx context.Context, principal *models.Pri
 	// Create Action object
 	action := &models.Action{}
 	action.LastUpdateTimeUnix = 0
+	action.ID = id
 
 	if _, ok := fieldsToKeep["class"]; ok {
 		action.Class = concept.Class
@@ -175,10 +173,6 @@ func actionsChanToSlice(c chan BatchAction) BatchActions {
 // AddThings Class Instances in batch to the connected DB
 func (b *BatchManager) AddThings(ctx context.Context, principal *models.Principal,
 	classes []*models.Thing, fields []*string) (BatchThings, error) {
-	if b.config.Config.EsvectorOnly {
-		return nil, fmt.Errorf("batch.AddThings not supported yet in esvector-only mode")
-	}
-
 	err := b.authorizer.Authorize(principal, "create", "batch/things")
 	if err != nil {
 		return nil, err
@@ -280,6 +274,8 @@ func (b *BatchManager) validateThing(ctx context.Context, principal *models.Prin
 	if _, ok := fieldsToKeep["creationtimeunix"]; ok {
 		thing.CreationTimeUnix = unixNow()
 	}
+
+	thing.ID = id
 
 	err = validation.New(s, b.exists, b.network, b.config).Thing(ctx, thing)
 	ec.add(err)
