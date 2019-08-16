@@ -12,18 +12,35 @@ if [[ "$*" == *--spark* ]]; then
   ADDITIONAL_SERVICES+=('analytics-api')
   ADDITIONAL_SERVICES+=('spark-master')
   ADDITIONAL_SERVICES+=('spark-worker')
- elif [[ "$*" == *--keycloak* ]]; then
+  ADDITIONAL_SERVICES+=('janus')
+  ADDITIONAL_SERVICES+=('db')
+  ADDITIONAL_SERVICES+=('index')
+  ADDITIONAL_SERVICES+=('genesis_fake')
+  ADDITIONAL_SERVICES+=('weaviate_b_fake')
+elif [[ "$*" == *--keycloak* ]]; then
   DOCKER_COMPOSE_FILE=docker-compose.yml
   ADDITIONAL_SERVICES+=('keycloak')
+  ADDITIONAL_SERVICES+=('janus')
+  ADDITIONAL_SERVICES+=('db')
+  ADDITIONAL_SERVICES+=('index')
+  ADDITIONAL_SERVICES+=('genesis_fake')
+  ADDITIONAL_SERVICES+=('weaviate_b_fake')
+elif [[ "$*" == *--esvector-only* ]]; then
+  DOCKER_COMPOSE_FILE=docker-compose-esonly.yml
 else
   DOCKER_COMPOSE_FILE=docker-compose.yml
+  ADDITIONAL_SERVICES+=('janus')
+  ADDITIONAL_SERVICES+=('db')
+  ADDITIONAL_SERVICES+=('index')
+  ADDITIONAL_SERVICES+=('genesis_fake')
+  ADDITIONAL_SERVICES+=('weaviate_b_fake')
 fi
 
 docker-compose -f $DOCKER_COMPOSE_FILE down --remove-orphans
 
 rm -rf data connector_state.json schema_state.json
 
-docker-compose -f $DOCKER_COMPOSE_FILE up -d index janus db etcd genesis_fake weaviate_b_fake contextionary esvector kibana "${ADDITIONAL_SERVICES[@]}"
+docker-compose -f $DOCKER_COMPOSE_FILE up -d etcd contextionary esvector kibana "${ADDITIONAL_SERVICES[@]}"
 
 if [[ "$*" == *--keycloak* ]]; then
   echo "Since you have specified the --keycloak option, we must now wait for"
