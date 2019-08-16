@@ -39,7 +39,7 @@ func (b *BatchManager) AddActions(ctx context.Context, principal *models.Princip
 		return nil, err
 	}
 
-	unlock, err := b.locks.LockSchema()
+	unlock, err := b.locks.LockConnector()
 	if err != nil {
 		return nil, NewErrInternal("could not aquire lock: %v", err)
 	}
@@ -56,8 +56,15 @@ func (b *BatchManager) addActions(ctx context.Context, principal *models.Princip
 	}
 
 	batchActions := b.validateActionsConcurrently(ctx, principal, classes, fields)
-	if err := b.repo.AddActionsBatch(ctx, batchActions); err != nil {
-		return nil, NewErrInternal("could not add batch request to connector: %v", err)
+	if !b.config.Config.EsvectorOnly {
+		if err := b.repo.AddActionsBatch(ctx, batchActions); err != nil {
+			return nil, NewErrInternal("could not add batch request to connector: %v", err)
+		}
+		return batchActions, nil
+	}
+
+	if err := b.vectorRepo.BatchPutActions(ctx, batchActions); err != nil {
+		return nil, NewErrInternal("batch actions: %#v", err)
 	}
 
 	return batchActions, nil
@@ -177,7 +184,7 @@ func (b *BatchManager) AddThings(ctx context.Context, principal *models.Principa
 		return nil, err
 	}
 
-	unlock, err := b.locks.LockSchema()
+	unlock, err := b.locks.LockConnector()
 	if err != nil {
 		return nil, NewErrInternal("could not aquire lock: %v", err)
 	}
@@ -194,8 +201,16 @@ func (b *BatchManager) addThings(ctx context.Context, principal *models.Principa
 	}
 
 	batchThings := b.validateThingsConcurrently(ctx, principal, classes, fields)
-	if err := b.repo.AddThingsBatch(ctx, batchThings); err != nil {
-		return nil, NewErrInternal("could not add batch request to connector: %v", err)
+
+	if !b.config.Config.EsvectorOnly {
+		if err := b.repo.AddThingsBatch(ctx, batchThings); err != nil {
+			return nil, NewErrInternal("could not add batch request to connector: %v", err)
+		}
+		return batchThings, nil
+	}
+
+	if err := b.vectorRepo.BatchPutThings(ctx, batchThings); err != nil {
+		return nil, NewErrInternal("batch things: %#v", err)
 	}
 
 	return batchThings, nil

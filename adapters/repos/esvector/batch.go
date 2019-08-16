@@ -20,7 +20,7 @@ type bulkIndex struct {
 	ID    string `json:"_id"`
 }
 
-func (r *Repo) BatchPutAction(ctx context.Context, batch kinds.BatchActions) error {
+func (r *Repo) BatchPutActions(ctx context.Context, batch kinds.BatchActions) error {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	r.encodeBatchActions(enc, batch)
@@ -68,7 +68,7 @@ func (r Repo) encodeBatchActions(enc *json.Encoder, batch kinds.BatchActions) er
 	return nil
 }
 
-func (r *Repo) BatchPutThing(ctx context.Context, batch kinds.BatchThings) error {
+func (r *Repo) BatchPutThings(ctx context.Context, batch kinds.BatchThings) error {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	r.encodeBatchThings(enc, batch)

@@ -111,7 +111,7 @@ func testBatchImportThings(repo *Repo) func(t *testing.T) {
 		}
 
 		t.Run("can import", func(t *testing.T) {
-			err := repo.BatchPutThing(context.Background(), batch)
+			err := repo.BatchPutThings(context.Background(), batch)
 			require.Nil(t, err)
 		})
 
@@ -178,7 +178,7 @@ func testBatchImportActions(repo *Repo) func(t *testing.T) {
 		}
 
 		t.Run("can import", func(t *testing.T) {
-			err := repo.BatchPutAction(context.Background(), batch)
+			err := repo.BatchPutActions(context.Background(), batch)
 			require.Nil(t, err)
 		})
 
