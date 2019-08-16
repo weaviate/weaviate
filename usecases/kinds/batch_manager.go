@@ -32,6 +32,7 @@ type BatchManager struct {
 	logger        logrus.FieldLogger
 	authorizer    authorizer
 	vectorRepo    BatchVectorRepo
+	vectorizer    Vectorizer
 }
 
 type BatchVectorRepo interface {
@@ -58,7 +59,7 @@ type batchAndGetRepo interface {
 }
 
 // NewBatchManager creates a new manager
-func NewBatchManager(repo Repo, vectorRepo BatchVectorRepo, locks locks, schemaManager schemaManager, network network,
+func NewBatchManager(repo Repo, vectorRepo BatchVectorRepo, vectorizer Vectorizer, locks locks, schemaManager schemaManager, network network,
 	config *config.WeaviateConfig, logger logrus.FieldLogger, authorizer authorizer) *BatchManager {
 	return &BatchManager{
 		network:       network,
@@ -68,6 +69,7 @@ func NewBatchManager(repo Repo, vectorRepo BatchVectorRepo, locks locks, schemaM
 		schemaManager: schemaManager,
 		logger:        logger,
 		vectorRepo:    vectorRepo,
+		vectorizer:    vectorizer,
 		authorizer:    authorizer,
 	}
 }

@@ -136,11 +136,15 @@ func (b *BatchManager) validateAction(ctx context.Context, principal *models.Pri
 	err = validation.New(s, b.exists, b.network, b.config).Action(ctx, action)
 	ec.add(err)
 
+	vector, err := b.vectorizer.Action(ctx, action)
+	ec.add(err)
+
 	*resultsC <- BatchAction{
 		UUID:          id,
 		Action:        action,
 		Err:           ec.toError(),
 		OriginalIndex: originalIndex,
+		Vector:        vector,
 	}
 }
 
@@ -280,11 +284,15 @@ func (b *BatchManager) validateThing(ctx context.Context, principal *models.Prin
 	err = validation.New(s, b.exists, b.network, b.config).Thing(ctx, thing)
 	ec.add(err)
 
+	vector, err := b.vectorizer.Thing(ctx, thing)
+	ec.add(err)
+
 	*resultsC <- BatchThing{
 		UUID:          id,
 		Thing:         thing,
 		Err:           ec.toError(),
 		OriginalIndex: originalIndex,
+		Vector:        vector,
 	}
 }
 
