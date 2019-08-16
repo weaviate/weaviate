@@ -58,13 +58,12 @@ func Test_Filters(t *testing.T) {
 	require.Nil(t, err)
 	waitForEsToBeReady(t, client)
 
-	// logger, _ := test.NewNullLogger()
 	logger := logrus.New()
 	repo := NewRepo(client, logger)
 	migrator := NewMigrator(repo)
 
 	t.Run("prepare test schema and data ",
-		prepareTestSchemaAndData(repo, migrator))
+		prepareCarTestSchemaAndData(repo, migrator))
 
 	t.Run("primitve props without nesting",
 		testPrmitiveProps(repo, migrator))
@@ -73,7 +72,7 @@ func Test_Filters(t *testing.T) {
 		testChainedPrmitiveProps(repo, migrator))
 }
 
-func prepareTestSchemaAndData(repo *Repo,
+func prepareCarTestSchemaAndData(repo *Repo,
 	migrator *Migrator) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Run("creating the class", func(t *testing.T) {
