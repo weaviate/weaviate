@@ -30,16 +30,13 @@ import (
 // AddActions Class Instances in batch to the connected DB
 func (b *BatchManager) AddActions(ctx context.Context, principal *models.Principal,
 	classes []*models.Action, fields []*string) (BatchActions, error) {
-	if b.config.Config.EsvectorOnly {
-		return nil, fmt.Errorf("batch.AddActions not supported yet in esvector-only mode")
-	}
 
 	err := b.authorizer.Authorize(principal, "create", "batch/actions")
 	if err != nil {
 		return nil, err
 	}
 
-	unlock, err := b.locks.LockSchema()
+	unlock, err := b.locks.LockConnector()
 	if err != nil {
 		return nil, NewErrInternal("could not aquire lock: %v", err)
 	}
@@ -56,11 +53,22 @@ func (b *BatchManager) addActions(ctx context.Context, principal *models.Princip
 	}
 
 	batchActions := b.validateActionsConcurrently(ctx, principal, classes, fields)
-	if err := b.repo.AddActionsBatch(ctx, batchActions); err != nil {
-		return nil, NewErrInternal("could not add batch request to connector: %v", err)
+	if !b.config.Config.EsvectorOnly {
+		if err := b.repo.AddActionsBatch(ctx, batchActions); err != nil {
+			return nil, NewErrInternal("could not add batch request to connector: %v", err)
+		}
+		return batchActions, nil
 	}
 
-	return batchActions, nil
+	var (
+		res BatchActions
+		err error
+	)
+	if res, err = b.vectorRepo.BatchPutActions(ctx, batchActions); err != nil {
+		return nil, NewErrInternal("batch actions: %#v", err)
+	}
+
+	return res, nil
 }
 
 func (b *BatchManager) validateActionForm(classes []*models.Action) error {
@@ -117,6 +125,7 @@ func (b *BatchManager) validateAction(ctx context.Context, principal *models.Pri
 	// Create Action object
 	action := &models.Action{}
 	action.LastUpdateTimeUnix = 0
+	action.ID = id
 
 	if _, ok := fieldsToKeep["class"]; ok {
 		action.Class = concept.Class
@@ -131,11 +140,15 @@ func (b *BatchManager) validateAction(ctx context.Context, principal *models.Pri
 	err = validation.New(s, b.exists, b.network, b.config).Action(ctx, action)
 	ec.add(err)
 
+	vector, err := b.vectorizer.Action(ctx, action)
+	ec.add(err)
+
 	*resultsC <- BatchAction{
 		UUID:          id,
 		Action:        action,
 		Err:           ec.toError(),
 		OriginalIndex: originalIndex,
+		Vector:        vector,
 	}
 }
 
@@ -168,16 +181,12 @@ func actionsChanToSlice(c chan BatchAction) BatchActions {
 // AddThings Class Instances in batch to the connected DB
 func (b *BatchManager) AddThings(ctx context.Context, principal *models.Principal,
 	classes []*models.Thing, fields []*string) (BatchThings, error) {
-	if b.config.Config.EsvectorOnly {
-		return nil, fmt.Errorf("batch.AddThings not supported yet in esvector-only mode")
-	}
-
 	err := b.authorizer.Authorize(principal, "create", "batch/things")
 	if err != nil {
 		return nil, err
 	}
 
-	unlock, err := b.locks.LockSchema()
+	unlock, err := b.locks.LockConnector()
 	if err != nil {
 		return nil, NewErrInternal("could not aquire lock: %v", err)
 	}
@@ -194,11 +203,23 @@ func (b *BatchManager) addThings(ctx context.Context, principal *models.Principa
 	}
 
 	batchThings := b.validateThingsConcurrently(ctx, principal, classes, fields)
-	if err := b.repo.AddThingsBatch(ctx, batchThings); err != nil {
-		return nil, NewErrInternal("could not add batch request to connector: %v", err)
+
+	if !b.config.Config.EsvectorOnly {
+		if err := b.repo.AddThingsBatch(ctx, batchThings); err != nil {
+			return nil, NewErrInternal("could not add batch request to connector: %v", err)
+		}
+		return batchThings, nil
 	}
 
-	return batchThings, nil
+	var (
+		res BatchThings
+		err error
+	)
+	if res, err = b.vectorRepo.BatchPutThings(ctx, batchThings); err != nil {
+		return nil, NewErrInternal("batch things: %#v", err)
+	}
+
+	return res, nil
 }
 
 func (b *BatchManager) validateThingForm(classes []*models.Thing) error {
@@ -266,7 +287,12 @@ func (b *BatchManager) validateThing(ctx context.Context, principal *models.Prin
 		thing.CreationTimeUnix = unixNow()
 	}
 
+	thing.ID = id
+
 	err = validation.New(s, b.exists, b.network, b.config).Thing(ctx, thing)
+	ec.add(err)
+
+	vector, err := b.vectorizer.Thing(ctx, thing)
 	ec.add(err)
 
 	*resultsC <- BatchThing{
@@ -274,6 +300,7 @@ func (b *BatchManager) validateThing(ctx context.Context, principal *models.Prin
 		Thing:         thing,
 		Err:           ec.toError(),
 		OriginalIndex: originalIndex,
+		Vector:        vector,
 	}
 }
 

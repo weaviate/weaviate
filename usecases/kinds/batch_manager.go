@@ -31,7 +31,13 @@ type BatchManager struct {
 	schemaManager schemaManager
 	logger        logrus.FieldLogger
 	authorizer    authorizer
-	vectorRepo    VectorRepo
+	vectorRepo    BatchVectorRepo
+	vectorizer    Vectorizer
+}
+
+type BatchVectorRepo interface {
+	VectorRepo
+	batchRepoNew
 }
 
 // Repo describes the requirements the kinds UC has to the connected database
@@ -41,6 +47,11 @@ type batchRepo interface {
 	AddBatchReferences(ctx context.Context, references BatchReferences) error
 }
 
+type batchRepoNew interface {
+	BatchPutThings(ctx context.Context, things BatchThings) (BatchThings, error)
+	BatchPutActions(ctx context.Context, actions BatchActions) (BatchActions, error)
+}
+
 type batchAndGetRepo interface {
 	batchRepo
 	getRepo
@@ -48,7 +59,7 @@ type batchAndGetRepo interface {
 }
 
 // NewBatchManager creates a new manager
-func NewBatchManager(repo Repo, vectorRepo VectorRepo, locks locks, schemaManager schemaManager, network network,
+func NewBatchManager(repo Repo, vectorRepo BatchVectorRepo, vectorizer Vectorizer, locks locks, schemaManager schemaManager, network network,
 	config *config.WeaviateConfig, logger logrus.FieldLogger, authorizer authorizer) *BatchManager {
 	return &BatchManager{
 		network:       network,
@@ -58,6 +69,7 @@ func NewBatchManager(repo Repo, vectorRepo VectorRepo, locks locks, schemaManage
 		schemaManager: schemaManager,
 		logger:        logger,
 		vectorRepo:    vectorRepo,
+		vectorizer:    vectorizer,
 		authorizer:    authorizer,
 	}
 }

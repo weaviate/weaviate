@@ -33,6 +33,7 @@ type BatchAction struct {
 	Err           error
 	Action        *models.Action
 	UUID          strfmt.UUID
+	Vector        []float32
 }
 
 // BatchActions groups many BatchAction items together. The order matches the
@@ -54,6 +55,7 @@ type BatchThing struct {
 	Err           error
 	Thing         *models.Thing
 	UUID          strfmt.UUID
+	Vector        []float32
 }
 
 // BatchThings groups many Thing items together. The order matches the

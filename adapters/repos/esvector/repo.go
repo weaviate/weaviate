@@ -82,11 +82,9 @@ func (r *Repo) PutAction(ctx context.Context,
 	return nil
 }
 
-func (r *Repo) putConcept(ctx context.Context,
-	k kind.Kind, id, className string, props models.PropertySchema,
-	vector []float32, createTime, updateTime int64) error {
+func (r *Repo) objectBucket(k kind.Kind, id, className string, props models.PropertySchema,
+	vector []float32, createTime, updateTime int64) map[string]interface{} {
 
-	var buf bytes.Buffer
 	bucket := map[string]interface{}{
 		keyKind.String():      k.Name(),
 		keyID.String():        id,
@@ -96,8 +94,16 @@ func (r *Repo) putConcept(ctx context.Context,
 		keyUpdated.String():   updateTime,
 	}
 
-	bucket = extendBucketWithProps(bucket, props)
+	return extendBucketWithProps(bucket, props)
+}
 
+func (r *Repo) putConcept(ctx context.Context,
+	k kind.Kind, id, className string, props models.PropertySchema,
+	vector []float32, createTime, updateTime int64) error {
+
+	bucket := r.objectBucket(k, id, className, props, vector, createTime, updateTime)
+
+	var buf bytes.Buffer
 	err := json.NewEncoder(&buf).Encode(bucket)
 	if err != nil {
 		return fmt.Errorf("index request: encode json: %v", err)
