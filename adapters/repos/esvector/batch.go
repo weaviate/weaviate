@@ -20,7 +20,22 @@ type bulkIndex struct {
 	ID    string `json:"_id"`
 }
 
-func (r *Repo) BatchPutActions(ctx context.Context, batch kinds.BatchActions) error {
+// warning: only use if all bulk requests are of type index, as this particular
+// struct might not catch errors of other operations
+type bulkIndexResponse struct {
+	Errors bool       `json:"errors"`
+	Items  []bulkItem `json:"items"`
+}
+
+type bulkItem struct {
+	Index *bulkIndexItem `json:"index"`
+}
+
+type bulkIndexItem struct {
+	Error interface{}
+}
+
+func (r *Repo) BatchPutActions(ctx context.Context, batch kinds.BatchActions) (kinds.BatchActions, error) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	r.encodeBatchActions(enc, batch)
@@ -30,14 +45,14 @@ func (r *Repo) BatchPutActions(ctx context.Context, batch kinds.BatchActions) er
 
 	res, err := req.Do(ctx, r.client)
 	if err != nil {
-		return fmt.Errorf("batch put action request: %v", err)
+		return nil, fmt.Errorf("batch put action request: %v", err)
 	}
 
 	if err := errorResToErr(res, r.logger); err != nil {
-		return fmt.Errorf("batch put action request: %v", err)
+		return nil, fmt.Errorf("batch put action request: %v", err)
 	}
 
-	return nil
+	return mergeBatchActionsWithErrors(batch, res)
 }
 
 func (r Repo) encodeBatchActions(enc *json.Encoder, batch kinds.BatchActions) error {
@@ -68,7 +83,37 @@ func (r Repo) encodeBatchActions(enc *json.Encoder, batch kinds.BatchActions) er
 	return nil
 }
 
-func (r *Repo) BatchPutThings(ctx context.Context, batch kinds.BatchThings) error {
+func mergeBatchActionsWithErrors(batch kinds.BatchActions, res *esapi.Response) (kinds.BatchActions, error) {
+	var parsed bulkIndexResponse
+	err := json.NewDecoder(res.Body).Decode(&parsed)
+	if err != nil {
+		return nil, err
+	}
+
+	if !parsed.Errors {
+		// no need to check for error positions if there are none
+		return batch, nil
+	}
+
+	bulkIndex := 0
+	for i, action := range batch {
+		if action.Err != nil {
+			// already had a validation error, was therefore never sent off to es
+			continue
+		}
+
+		err := parsed.Items[bulkIndex].Index.Error
+		if err != nil {
+			batch[i].Err = fmt.Errorf("%v", err)
+		}
+
+		bulkIndex++
+	}
+
+	return batch, nil
+}
+
+func (r *Repo) BatchPutThings(ctx context.Context, batch kinds.BatchThings) (kinds.BatchThings, error) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	r.encodeBatchThings(enc, batch)
@@ -78,14 +123,14 @@ func (r *Repo) BatchPutThings(ctx context.Context, batch kinds.BatchThings) erro
 
 	res, err := req.Do(ctx, r.client)
 	if err != nil {
-		return fmt.Errorf("batch put thing request: %v", err)
+		return nil, fmt.Errorf("batch put thing request: %v", err)
 	}
 
 	if err := errorResToErr(res, r.logger); err != nil {
-		return fmt.Errorf("batch put thing request: %v", err)
+		return nil, fmt.Errorf("batch put thing request: %v", err)
 	}
 
-	return nil
+	return mergeBatchThingsWithErrors(batch, res)
 }
 
 func (r Repo) encodeBatchThings(enc *json.Encoder, batch kinds.BatchThings) error {
@@ -114,6 +159,36 @@ func (r Repo) encodeBatchThings(enc *json.Encoder, batch kinds.BatchThings) erro
 	}
 
 	return nil
+}
+
+func mergeBatchThingsWithErrors(batch kinds.BatchThings, res *esapi.Response) (kinds.BatchThings, error) {
+	var parsed bulkIndexResponse
+	err := json.NewDecoder(res.Body).Decode(&parsed)
+	if err != nil {
+		return nil, err
+	}
+
+	if !parsed.Errors {
+		// no need to check for error positions if there are none
+		return batch, nil
+	}
+
+	bulkIndex := 0
+	for i, thing := range batch {
+		if thing.Err != nil {
+			// already had a validation error, was therefore never sent off to es
+			continue
+		}
+
+		err := parsed.Items[bulkIndex].Index.Error
+		if err != nil {
+			batch[i].Err = fmt.Errorf("%v", err)
+		}
+
+		bulkIndex++
+	}
+
+	return batch, nil
 }
 
 func (r *Repo) bulkIndexControlObject(index, id string) bulkControlObject {

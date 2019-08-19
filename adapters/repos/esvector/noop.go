@@ -67,8 +67,8 @@ func (r *NoOpRepo) PutThing(ctx context.Context,
 	return nil
 }
 
-func (r *NoOpRepo) BatchPutThings(ctx context.Context, batch kinds.BatchThings) error {
-	return nil
+func (r *NoOpRepo) BatchPutThings(ctx context.Context, batch kinds.BatchThings) (kinds.BatchThings, error) {
+	return nil, nil
 }
 
 //DeleteThing does nothing, but doesn't error either
@@ -82,8 +82,8 @@ func (r *NoOpRepo) PutAction(ctx context.Context,
 	return nil
 }
 
-func (r *NoOpRepo) BatchPutActions(ctx context.Context, batch kinds.BatchActions) error {
-	return nil
+func (r *NoOpRepo) BatchPutActions(ctx context.Context, batch kinds.BatchActions) (kinds.BatchActions, error) {
+	return nil, nil
 }
 
 //DeleteAction does nothing, but doesn't error either
