@@ -192,10 +192,10 @@ func (r *Repo) searchResponse(res *esapi.Response) ([]search.Result,
 		return nil, fmt.Errorf("vector search: decode json: %v", err)
 	}
 
-	return sr.toResults()
+	return sr.toResults(r)
 }
 
-func (sr searchResponse) toResults() ([]search.Result, error) {
+func (sr searchResponse) toResults(r *Repo) ([]search.Result, error) {
 	hits := sr.Hits.Hits
 	output := make([]search.Result, len(hits), len(hits))
 	for i, hit := range hits {
@@ -209,7 +209,7 @@ func (sr searchResponse) toResults() ([]search.Result, error) {
 			return nil, fmt.Errorf("vector search: result %d: %v", i, err)
 		}
 
-		schema, err := parseSchema(hit.Source)
+		schema, err := r.parseSchema(hit.Source)
 		if err != nil {
 			return nil, fmt.Errorf("vector search: result %d: %v", i, err)
 		}

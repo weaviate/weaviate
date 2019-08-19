@@ -205,6 +205,8 @@ func fixupThings() {
 		fmt.Printf("Patched thing %s\n", idMap[fixup.fromId])
 	}
 
+	time.Sleep(1 * time.Second)
+
 	for _, fixups := range thingManyFixups {
 		var patch *models.PatchDocument
 		if len(fixups) == 0 {
@@ -286,7 +288,7 @@ func assertUpdateThing(id string, update *models.Thing) *models.Thing {
 	if err != nil {
 		switch v := err.(type) {
 		case *things.ThingsUpdateNotFound:
-			panic(fmt.Sprintf("Can't patch thing with %s, because thing cannot be found", spew.Sdump(update)))
+			panic(fmt.Sprintf("Can't patch thing with %s, because thing cannot be found: %v", spew.Sdump(update), spew.Sdump(err)))
 		case *things.ThingsUpdateUnprocessableEntity:
 			panic(fmt.Sprintf("Can't patch thing, because %s (patch: %#v)", joinErrorMessages(v.Payload), *update))
 		default:
@@ -306,7 +308,7 @@ func assertPatchThing(id string, p *models.PatchDocument) *models.Thing {
 	if err != nil {
 		switch v := err.(type) {
 		case *things.ThingsPatchNotFound:
-			panic(fmt.Sprintf("Can't patch thing with %s, because thing cannot be found", spew.Sdump(p)))
+			panic(fmt.Sprintf("Can't patch thing with %s, because thing cannot be found: %v", spew.Sdump(p), v.Error()))
 		case *things.ThingsPatchUnprocessableEntity:
 			panic(fmt.Sprintf("Can't patch thing, because %s", joinErrorMessages(v.Payload)))
 		default:
