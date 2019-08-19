@@ -56,7 +56,7 @@ func makeConfigureServer(appState *state.State) func(*http.Server, string, strin
 }
 
 type vectorRepo interface {
-	kinds.VectorRepo
+	kinds.BatchVectorRepo
 	traverser.VectorSearcher
 }
 
@@ -125,7 +125,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	kindsManager := kinds.NewManager(appState.Connector, appState.Locks,
 		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, vectorizer, vectorRepo)
-	batchKindsManager := kinds.NewBatchManager(appState.Connector, vectorRepo, appState.Locks,
+	batchKindsManager := kinds.NewBatchManager(appState.Connector, vectorRepo, vectorizer, appState.Locks,
 		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,
 		appState.Authorizer)
 	vectorInspector := libvectorizer.NewInspector(appState.Contextionary)
