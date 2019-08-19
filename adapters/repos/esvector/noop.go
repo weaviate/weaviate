@@ -22,6 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
@@ -66,6 +67,10 @@ func (r *NoOpRepo) PutThing(ctx context.Context,
 	return nil
 }
 
+func (r *NoOpRepo) BatchPutThings(ctx context.Context, batch kinds.BatchThings) (kinds.BatchThings, error) {
+	return nil, nil
+}
+
 //DeleteThing does nothing, but doesn't error either
 func (r *NoOpRepo) DeleteThing(ctx context.Context, className string, id strfmt.UUID) error {
 	return nil
@@ -75,6 +80,10 @@ func (r *NoOpRepo) DeleteThing(ctx context.Context, className string, id strfmt.
 func (r *NoOpRepo) PutAction(ctx context.Context,
 	concept *models.Action, vector []float32) error {
 	return nil
+}
+
+func (r *NoOpRepo) BatchPutActions(ctx context.Context, batch kinds.BatchActions) (kinds.BatchActions, error) {
+	return nil, nil
 }
 
 //DeleteAction does nothing, but doesn't error either
