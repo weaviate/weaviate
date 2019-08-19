@@ -1,0 +1,97 @@
+# With this compose file you'll be able to start a development version of Weaviate,
+# including it's backing database, contextionary, and demo data set.
+#
+# Usage:
+#   $ docker-compose -f docker-compose.yml up
+#
+# It will be finished when the output of
+#   $ docker-compose -f docker-compose.yml ps
+#
+#   mentions that the importer has existed with status 0,
+#   as is shown in the example output below
+#
+#                  Name                             Command               State                                   Ports
+#    --------------------------------------------------------------------------------------------------------------------------------------------------
+#    weaviate_db_1                       /docker-entrypoint.py            Up       0.0.0.0:10000->10000/tcp, 0.0.0.0:7000->7000/tcp,
+#                                                                                  0.0.0.0:7001->7001/tcp, 0.0.0.0:7199->7199/tcp,
+#                                                                                  0.0.0.0:9042->9042/tcp, 0.0.0.0:9100->9100/tcp,
+#                                                                                  0.0.0.0:9160->9160/tcp, 0.0.0.0:9180->9180/tcp
+#    weaviate_index_1                    /docker-entrypoint.sh elas ...   Up       0.0.0.0:9200->9200/tcp, 0.0.0.0:9300->9300/tcp
+#    weaviate_janus_1                    /bin/bash -e /workspace/ja ...   Up       0.0.0.0:8182->8182/tcp, 0.0.0.0:8184->8184/tcp
+#    weaviate_weaviate_1                 /bin/weaviate --host 0.0.0 ...   Up
+#    weaviate_weaviate_demo_importer_1   ./tools/dev/import_demo_da ...   Exit 0
+#
+#
+# NOTE:
+#   If you abort the janusstack hard (not a clean shutdown), it won't come up again;
+#   destroy the containers and retry.
+version: '3.4'
+services:
+  weaviate:
+    image: weaviate/dev-server
+    command: 
+      - "--host"
+      - "${HOST:-0.0.0.0}"
+      - "--port"
+      - "${PORT:-8080}"
+      - "--scheme"
+      - "${SCHEME:-http}"
+      - "--config-file"
+      - "./weaviate.conf.yaml"
+      - "--config"
+      - "janusgraph_docker"
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: weaviate
+    depends_on:
+      - esvector
+    restart: on-failure:0
+    ports:
+      - "8080:8080"
+  contextionary:
+    image: semitechnologies/contextionary:en0.8.0-v0.3.2
+    ports:
+      - "9999:9999"
+    environment:
+      SCHEMA_PROVIDER_URL: etcd:2379
+      OCCURRENCE_WEIGHT_LINEAR_FACTOR: 0.75
+  etcd:
+    image: gcr.io/etcd-development/etcd:v3.3.8
+    ports:
+      - "2379:2379"
+    entrypoint: /usr/local/bin/etcd
+    command: 
+      - "--name"
+      - "s1"
+      - "--data-dir"
+      - "/etcd-data"
+      - "--listen-client-urls"
+      - "http://0.0.0.0:2379"
+      - "--advertise-client-urls"
+      - "http://0.0.0.0:2379"
+      - "--listen-peer-urls"
+      - "http://0.0.0.0:2380"
+      - "--initial-advertise-peer-urls"
+      - "http://0.0.0.0:2380"
+      - "--initial-cluster"
+      - "s1=http://0.0.0.0:2380"
+      - "--initial-cluster-token"
+      - "tkn"
+      - "--initial-cluster-state"
+      - "new"
+  esvector:
+    image: semitechnologies/esvector:7.1.0
+    environment:
+      xpack.security.enabled: "false"
+      discovery.type: single-node
+      ES_JAVA_OPTS: -Xms2048m -Xmx2048m
+    ports: 
+      - "9201:9200"
+      - "9301:9300"
+  kibana:
+    image: kibana:7.1.0
+    environment:
+      ELASTICSEARCH_HOSTS: http://esvector:9200
+    ports:
+      - "5601:5601"
