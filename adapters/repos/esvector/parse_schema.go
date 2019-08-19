@@ -14,15 +14,20 @@
 package esvector
 
 import (
+	"context"
 	"fmt"
+	"strings"
 
+	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema/crossref"
+	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 // parseSchema lightly parses the schema, while most fields stay untyped, those
 // with special meaning, such as GeoCoordinates are marshalled into their
 // required types
-func parseSchema(input map[string]interface{}) (map[string]interface{}, error) {
+func (r *Repo) parseSchema(input map[string]interface{}) (map[string]interface{}, error) {
 	output := map[string]interface{}{}
 
 	for key, value := range input {
@@ -42,6 +47,17 @@ func parseSchema(input map[string]interface{}) (map[string]interface{}, error) {
 			}
 
 			output[key] = parsed
+
+		case []interface{}:
+			// must be a ref
+			parsed, err := r.parseRefs(typed)
+			if err != nil {
+				return output, fmt.Errorf("prop '%s': %v", key, err)
+			}
+
+			// ref keys are uppercased in the desired response
+			refKey := uppercaseFirstLetter(key)
+			output[refKey] = parsed
 
 		default:
 			// anything else remains unchanged
@@ -84,4 +100,57 @@ func parseGeoProp(lat interface{}, lon interface{}) (*models.GeoCoordinates, err
 	}
 
 	return &models.GeoCoordinates{Latitude: float32(latFloat), Longitude: float32(lonFloat)}, nil
+}
+
+func (r *Repo) parseRefs(input []interface{}) ([]interface{}, error) {
+	output := make([]interface{}, len(input), len(input))
+
+	for i, item := range input {
+		refMap, ok := item.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("expected ref item to be a map, but got %T", item)
+		}
+
+		beacon, ok := refMap["beacon"]
+		if !ok {
+			return nil, fmt.Errorf("expected ref object to have field beacon, but got %#v", refMap)
+		}
+
+		ref, err := crossref.Parse(beacon.(string))
+		if err != nil {
+			return nil, err
+		}
+
+		switch ref.Kind {
+		case kind.Thing:
+			res, err := r.ThingByID(context.TODO(), ref.TargetID)
+			if err != nil {
+				return nil, err
+			}
+
+			output[i] = get.LocalRef{
+				Class:  res.ClassName,
+				Fields: res.Schema.(map[string]interface{}),
+			}
+		case kind.Action:
+			res, err := r.ActionByID(context.TODO(), ref.TargetID)
+			if err != nil {
+				return nil, err
+			}
+
+			output[i] = get.LocalRef{
+				Class:  res.ClassName,
+				Fields: res.Schema.(map[string]interface{}),
+			}
+		}
+	}
+
+	return output, nil
+}
+
+func uppercaseFirstLetter(in string) string {
+	first := string(in[0])
+	rest := string(in[1:])
+
+	return strings.ToUpper(first) + rest
 }

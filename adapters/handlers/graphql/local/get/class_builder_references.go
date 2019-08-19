@@ -168,7 +168,7 @@ func makeResolveRefField(peers peers.Peers) graphql.FieldResolveFn {
 				results[i] = networkRef
 
 			default:
-				return nil, fmt.Errorf("unsupported type %t", v)
+				return nil, fmt.Errorf("unsupported type, expeced LocalRef or NetworkRef, got %T", v)
 			}
 		}
 		return results, nil
