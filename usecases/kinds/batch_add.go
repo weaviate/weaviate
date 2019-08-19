@@ -60,11 +60,15 @@ func (b *BatchManager) addActions(ctx context.Context, principal *models.Princip
 		return batchActions, nil
 	}
 
-	if err := b.vectorRepo.BatchPutActions(ctx, batchActions); err != nil {
+	var (
+		res BatchActions
+		err error
+	)
+	if res, err = b.vectorRepo.BatchPutActions(ctx, batchActions); err != nil {
 		return nil, NewErrInternal("batch actions: %#v", err)
 	}
 
-	return batchActions, nil
+	return res, nil
 }
 
 func (b *BatchManager) validateActionForm(classes []*models.Action) error {
@@ -207,11 +211,15 @@ func (b *BatchManager) addThings(ctx context.Context, principal *models.Principa
 		return batchThings, nil
 	}
 
-	if err := b.vectorRepo.BatchPutThings(ctx, batchThings); err != nil {
+	var (
+		res BatchThings
+		err error
+	)
+	if res, err = b.vectorRepo.BatchPutThings(ctx, batchThings); err != nil {
 		return nil, NewErrInternal("batch things: %#v", err)
 	}
 
-	return batchThings, nil
+	return res, nil
 }
 
 func (b *BatchManager) validateThingForm(classes []*models.Thing) error {

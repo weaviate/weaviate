@@ -48,8 +48,8 @@ type batchRepo interface {
 }
 
 type batchRepoNew interface {
-	BatchPutThings(ctx context.Context, things BatchThings) error
-	BatchPutActions(ctx context.Context, actions BatchActions) error
+	BatchPutThings(ctx context.Context, things BatchThings) (BatchThings, error)
+	BatchPutActions(ctx context.Context, actions BatchActions) (BatchActions, error)
 }
 
 type batchAndGetRepo interface {
