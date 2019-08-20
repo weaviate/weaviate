@@ -23,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
@@ -89,6 +90,10 @@ func (r *NoOpRepo) BatchPutActions(ctx context.Context, batch kinds.BatchActions
 //DeleteAction does nothing, but doesn't error either
 func (r *NoOpRepo) DeleteAction(ctx context.Context, className string, id strfmt.UUID) error {
 	return nil
+}
+
+func (r *NoOpRepo) SetSchemaGetter(sg schema.SchemaGetter) {
+	return
 }
 
 // NewNoOpRepo for when vector indexing is not desired

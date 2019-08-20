@@ -61,7 +61,8 @@ func (m *Manager) AddAction(ctx context.Context, principal *models.Principal,
 	return m.addActionToConnectorAndSchema(ctx, principal, class)
 }
 
-func (m *Manager) checkIDOrAssignNew(ctx context.Context, id strfmt.UUID) (strfmt.UUID, error) {
+func (m *Manager) checkIDOrAssignNew(ctx context.Context, kind kind.Kind,
+	id strfmt.UUID) (strfmt.UUID, error) {
 	if id == "" {
 		newID, err := generateUUID()
 		if err != nil {
@@ -71,7 +72,7 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, id strfmt.UUID) (strfm
 	}
 
 	// only validate ID uniqueness if explicitly set
-	if ok, err := m.repo.ClassExists(ctx, id); ok {
+	if ok, err := m.exists(ctx, kind, id); ok {
 		return "", NewErrInvalidUserInput("id '%s' already exists", id)
 	} else if err != nil {
 		return "", NewErrInternal(err.Error())
@@ -81,7 +82,7 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, id strfmt.UUID) (strfm
 
 func (m *Manager) addActionToConnectorAndSchema(ctx context.Context, principal *models.Principal,
 	class *models.Action) (*models.Action, error) {
-	id, err := m.checkIDOrAssignNew(ctx, class.ID)
+	id, err := m.checkIDOrAssignNew(ctx, kind.Action, class.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -183,7 +184,7 @@ func (m *Manager) AddThing(ctx context.Context, principal *models.Principal,
 
 func (m *Manager) addThingToConnectorAndSchema(ctx context.Context, principal *models.Principal,
 	class *models.Thing) (*models.Thing, error) {
-	id, err := m.checkIDOrAssignNew(ctx, class.ID)
+	id, err := m.checkIDOrAssignNew(ctx, kind.Thing, class.ID)
 	if err != nil {
 		return nil, err
 	}

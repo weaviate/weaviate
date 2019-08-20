@@ -42,6 +42,10 @@ type Manager struct {
 	authorizer       authorizer
 }
 
+type SchemaGetter interface {
+	GetSchemaSkipAuth() schema.Schema
+}
+
 // Repo describes the requirements the schema manager has to a database to load
 // and persist the schema state
 type Repo interface {

@@ -58,6 +58,7 @@ func makeConfigureServer(appState *state.State) func(*http.Server, string, strin
 type vectorRepo interface {
 	kinds.BatchVectorRepo
 	traverser.VectorSearcher
+	SetSchemaGetter(schemaUC.SchemaGetter)
 }
 
 type vectorizer interface {
@@ -92,7 +93,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	var explorer explorer
 
 	if appState.ServerConfig.Config.VectorIndex.Enabled {
-		repo := esvector.NewRepo(esClient, appState.Logger)
+		repo := esvector.NewRepo(esClient, appState.Logger, nil)
 		vectorMigrator = esvector.NewMigrator(repo)
 		vectorRepo = repo
 		if appState.ServerConfig.Config.EsvectorOnly {
@@ -121,6 +122,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			Fatal("could not initialize schema manager")
 		os.Exit(1)
 	}
+
+	vectorRepo.SetSchemaGetter(schemaManager)
 
 	kindsManager := kinds.NewManager(appState.Connector, appState.Locks,
 		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,

@@ -43,7 +43,8 @@ func Test_Aggregations(t *testing.T) {
 	waitForEsToBeReady(t, client)
 
 	logger := logrus.New()
-	repo := NewRepo(client, logger)
+	schemaGetter := &fakeSchemaGetter{}
+	repo := NewRepo(client, logger, schemaGetter)
 	migrator := NewMigrator(repo)
 
 	t.Run("prepare test schema and data ",

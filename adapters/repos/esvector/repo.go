@@ -27,6 +27,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/sirupsen/logrus"
 )
 
@@ -43,17 +44,24 @@ const (
 	keyClassName internalKey = "_class_name"
 	keyCreated   internalKey = "_created"
 	keyUpdated   internalKey = "_updated"
+	keyCache     internalKey = "_cache"
 )
 
 // Repo stores and retrieves vector info in elasticsearch
 type Repo struct {
-	client *elasticsearch.Client
-	logger logrus.FieldLogger
+	client       *elasticsearch.Client
+	logger       logrus.FieldLogger
+	schemaGetter schemaUC.SchemaGetter
 }
 
 // NewRepo from existing es client
-func NewRepo(client *elasticsearch.Client, logger logrus.FieldLogger) *Repo {
-	return &Repo{client, logger}
+func NewRepo(client *elasticsearch.Client, logger logrus.FieldLogger,
+	schemaGetter schemaUC.SchemaGetter) *Repo {
+	return &Repo{client, logger, schemaGetter}
+}
+
+func (r *Repo) SetSchemaGetter(sg schemaUC.SchemaGetter) {
+	r.schemaGetter = sg
 }
 
 // PutThing idempotently adds a Thing with its vector representation
