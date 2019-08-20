@@ -85,7 +85,10 @@ services:
     environment:
       xpack.security.enabled: "false"
       discovery.type: single-node
-      ES_JAVA_OPTS: -Xms2048m -Xmx2048m
+      ES_JAVA_OPTS: -Xms4096m -Xmx4096m
+      path.repo: "/mounts/backups,"
+    volumes:
+      - "./esbackups:/mounts/backups"
     ports: 
       - "9201:9200"
       - "9301:9300"

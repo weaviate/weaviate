@@ -39,7 +39,8 @@ func TestEsVectorRepo(t *testing.T) {
 	waitForEsToBeReady(t, client)
 
 	logger, _ := test.NewNullLogger()
-	repo := NewRepo(client, logger)
+	schemaGetter := &fakeSchemaGetter{}
+	repo := NewRepo(client, logger, schemaGetter)
 	migrator := NewMigrator(repo)
 
 	t.Run("creating the thing class", func(t *testing.T) {

@@ -45,10 +45,40 @@ func TestEsVectorMigrator(t *testing.T) {
 	client, err := elasticsearch.NewClient(elasticsearch.Config{
 		Addresses: []string{"http://localhost:9201"},
 	})
+
+	refSchema := schema.Schema{
+		Things: &models.Schema{
+			Classes: []*models.Class{
+				&models.Class{
+					Class: "AnotherClass",
+					Properties: []*models.Property{
+						&models.Property{
+							Name:     "label",
+							DataType: []string{string(schema.DataTypeString)},
+						},
+						&models.Property{
+							Name:     "anotherRef",
+							DataType: []string{"YetAnotherClass"},
+						},
+					},
+				},
+				&models.Class{
+					Class: "YetAnotherClass",
+					Properties: []*models.Property{
+						&models.Property{
+							Name:     "amount",
+							DataType: []string{string(schema.DataTypeInt)},
+						},
+					},
+				},
+			},
+		},
+	}
 	require.Nil(t, err)
 	waitForEsToBeReady(t, client)
 	logger, _ := test.NewNullLogger()
-	repo := NewRepo(client, logger)
+	schemaGetter := &fakeSchemaGetter{schema: refSchema}
+	repo := NewRepo(client, logger, schemaGetter)
 	migrator := NewMigrator(repo)
 
 	t.Run("adding a class", func(t *testing.T) {
@@ -143,11 +173,11 @@ func TestEsVectorMigrator(t *testing.T) {
 				name: "action class with a ref prop",
 				kind: kind.Action,
 				class: &models.Class{
-					Class: "MyClass",
+					Class: "MyClassWithRefs",
 					Properties: []*models.Property{
 						&models.Property{
 							Name:     "awesome",
-							DataType: []string{"SomeClass"},
+							DataType: []string{"AnotherClass"},
 						},
 					},
 				},
@@ -241,7 +271,8 @@ func TestEsVectorMigrator_ImportingConcepts(t *testing.T) {
 	require.Nil(t, err)
 	waitForEsToBeReady(t, client)
 	logger, _ := test.NewNullLogger()
-	repo := NewRepo(client, logger)
+	schemaGetter := &fakeSchemaGetter{}
+	repo := NewRepo(client, logger, schemaGetter)
 	migrator := NewMigrator(repo)
 
 	t.Run("add a thing to the schema", func(t *testing.T) {

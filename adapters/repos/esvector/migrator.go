@@ -126,11 +126,22 @@ const allActionIndices = indexPrefix + "action_*"
 
 func (m *Migrator) setMappings(ctx context.Context, index string,
 	props []*models.Property) error {
+	esProperties, err := m.esPropsFromClassProps(props)
+	if err != nil {
+		return err
+	}
+
+	return m.repo.SetMappings(ctx, index, esProperties)
+}
+
+func (m *Migrator) esPropsFromClassProps(props []*models.Property) (map[string]interface{}, error) {
 	esProperties := map[string]interface{}{}
+	cache := map[string]interface{}{}
 
 	for _, prop := range props {
 		if len(prop.DataType) > 1 {
 			// this must be a ref-type prop, so we can safely skip it
+			// TODO:  support multiple ref types
 			continue
 		}
 
@@ -150,16 +161,48 @@ func (m *Migrator) setMappings(ctx context.Context, index string,
 		case string(schema.DataTypeGeoCoordinates):
 			esProperties[prop.Name] = typeMap(GeoPoint)
 		default:
-			// assume everythings else must be a ref prop, simply ignore
-			continue
+			refProp, err := m.mapRefProp(prop.DataType[0])
+			if err != nil {
+				return nil, fmt.Errorf("ref prop '%s': %v", prop.Name, err)
+			}
+
+			cache[prop.Name] = refProp
 		}
 	}
 
-	return m.repo.SetMappings(ctx, index, esProperties)
+	if len(cache) != 0 {
+		esProperties[keyCache.String()] = map[string]interface{}{
+			"properties": cache,
+		}
+	}
+	return esProperties, nil
 }
 
 func typeMap(ft FieldType) map[string]interface{} {
 	return map[string]interface{}{
 		"type": ft,
 	}
+}
+
+func (m *Migrator) mapRefProp(className string) (map[string]interface{}, error) {
+	s := m.repo.schemaGetter.GetSchemaSkipAuth()
+	class := s.FindClassByName(schema.ClassName(className))
+	if class == nil {
+		return nil, fmt.Errorf("class '%s' not found", className)
+	}
+
+	esProperties, err := m.esPropsFromClassProps(class.Properties)
+	if err != nil {
+		return nil, fmt.Errorf("target class '%s': %#v", className, err)
+	}
+
+	return map[string]interface{}{
+		"properties": map[string]interface{}{
+			className: map[string]interface{}{
+				"properties": esProperties,
+				"type":       "nested",
+			},
+		},
+	}, nil
+
 }
