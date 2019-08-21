@@ -100,7 +100,7 @@ func (m *Manager) getThingFromRepo(ctx context.Context, id strfmt.UUID) (*models
 		return m.legacyThingFromConnector(ctx, id)
 	}
 
-	res, err := m.vectorRepo.ThingByID(ctx, id)
+	res, err := m.vectorRepo.ThingByID(ctx, id, 0)
 	if err != nil {
 		return nil, NewErrInternal("repo: thing by id: %v", err)
 	}
@@ -158,7 +158,7 @@ func (m *Manager) getActionFromRepo(ctx context.Context, id strfmt.UUID) (*model
 		return m.legacyActionFromConnector(ctx, id)
 	}
 
-	res, err := m.vectorRepo.ActionByID(ctx, id)
+	res, err := m.vectorRepo.ActionByID(ctx, id, 0)
 	if err != nil {
 		return nil, NewErrInternal("repo: action by id: %v", err)
 	}

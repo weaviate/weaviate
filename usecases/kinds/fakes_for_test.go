@@ -197,12 +197,12 @@ type fakeVectorRepo struct {
 }
 
 func (f *fakeVectorRepo) ThingByID(ctx context.Context,
-	id strfmt.UUID) (*search.Result, error) {
+	id strfmt.UUID, depth int) (*search.Result, error) {
 	return nil, nil
 }
 
 func (f *fakeVectorRepo) ActionByID(ctx context.Context,
-	id strfmt.UUID) (*search.Result, error) {
+	id strfmt.UUID, depth int) (*search.Result, error) {
 	return nil, nil
 }
 

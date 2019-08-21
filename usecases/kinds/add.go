@@ -151,10 +151,10 @@ func (m *Manager) exists(ctx context.Context, k kind.Kind, id strfmt.UUID) (bool
 	} else {
 		switch k {
 		case kind.Thing:
-			res, err := m.vectorRepo.ThingByID(ctx, id)
+			res, err := m.vectorRepo.ThingByID(ctx, id, 0)
 			return res != nil, err
 		case kind.Action:
-			res, err := m.vectorRepo.ActionByID(ctx, id)
+			res, err := m.vectorRepo.ActionByID(ctx, id, 0)
 			return res != nil, err
 		default:
 			panic("impossible kind")

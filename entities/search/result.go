@@ -33,6 +33,7 @@ type Result struct {
 	Schema    models.PropertySchema
 	Created   int64
 	Updated   int64
+	CacheHot  bool
 }
 
 type Results []Result
