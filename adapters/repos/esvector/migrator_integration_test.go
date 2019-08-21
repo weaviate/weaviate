@@ -69,6 +69,12 @@ func TestEsVectorMigrator(t *testing.T) {
 							Name:     "amount",
 							DataType: []string{string(schema.DataTypeInt)},
 						},
+						&models.Property{
+							Name: "circular",
+							// references self, so without a depth limit we'd end up in an
+							// infite loop
+							DataType: []string{"YetAnotherClass"},
+						},
 					},
 				},
 			},

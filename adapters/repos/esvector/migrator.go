@@ -126,7 +126,7 @@ const allActionIndices = indexPrefix + "action_*"
 
 func (m *Migrator) setMappings(ctx context.Context, index string,
 	props []*models.Property) error {
-	esProperties, err := m.esPropsFromClassProps(props)
+	esProperties, err := m.esPropsFromClassProps(props, 0)
 	if err != nil {
 		return err
 	}
@@ -134,7 +134,7 @@ func (m *Migrator) setMappings(ctx context.Context, index string,
 	return m.repo.SetMappings(ctx, index, esProperties)
 }
 
-func (m *Migrator) esPropsFromClassProps(props []*models.Property) (map[string]interface{}, error) {
+func (m *Migrator) esPropsFromClassProps(props []*models.Property, depth int) (map[string]interface{}, error) {
 	esProperties := map[string]interface{}{}
 	cache := map[string]interface{}{}
 
@@ -161,13 +161,21 @@ func (m *Migrator) esPropsFromClassProps(props []*models.Property) (map[string]i
 		case string(schema.DataTypeGeoCoordinates):
 			esProperties[prop.Name] = typeMap(GeoPoint)
 		default:
-			refProp, err := m.mapRefProp(prop.DataType[0])
+			if depth+1 > m.repo.denormalizationDepthLimit {
+				continue
+			}
+
+			refProp, err := m.mapRefProp(prop.DataType[0], depth+1)
 			if err != nil {
 				return nil, fmt.Errorf("ref prop '%s': %v", prop.Name, err)
 			}
 
 			cache[prop.Name] = refProp
 		}
+	}
+
+	cache[keyCacheHot.String()] = map[string]interface{}{
+		"type": "boolean",
 	}
 
 	if len(cache) != 0 {
@@ -184,14 +192,14 @@ func typeMap(ft FieldType) map[string]interface{} {
 	}
 }
 
-func (m *Migrator) mapRefProp(className string) (map[string]interface{}, error) {
+func (m *Migrator) mapRefProp(className string, depth int) (map[string]interface{}, error) {
 	s := m.repo.schemaGetter.GetSchemaSkipAuth()
 	class := s.FindClassByName(schema.ClassName(className))
 	if class == nil {
 		return nil, fmt.Errorf("class '%s' not found", className)
 	}
 
-	esProperties, err := m.esPropsFromClassProps(class.Properties)
+	esProperties, err := m.esPropsFromClassProps(class.Properties, depth)
 	if err != nil {
 		return nil, fmt.Errorf("target class '%s': %#v", className, err)
 	}

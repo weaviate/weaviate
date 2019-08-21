@@ -158,10 +158,10 @@ func (b *BatchManager) exists(ctx context.Context, k kind.Kind, id strfmt.UUID) 
 	} else {
 		switch k {
 		case kind.Thing:
-			res, err := b.vectorRepo.ThingByID(ctx, id)
+			res, err := b.vectorRepo.ThingByID(ctx, id, 0)
 			return res != nil, err
 		case kind.Action:
-			res, err := b.vectorRepo.ActionByID(ctx, id)
+			res, err := b.vectorRepo.ActionByID(ctx, id, 0)
 			return res != nil, err
 		default:
 			panic("impossible kind")

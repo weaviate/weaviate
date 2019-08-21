@@ -30,28 +30,31 @@ import (
 // ThingSearch searches for all things with optional filters without vector scoring
 func (r *Repo) ThingSearch(ctx context.Context, limit int,
 	filters *filters.LocalFilter) (search.Results, error) {
-	return r.search(ctx, allThingIndices, nil, limit, filters)
+	return r.search(ctx, allThingIndices, nil, limit, filters, 100)
 }
 
 // ActionSearch searches for all things with optional filters without vector scoring
 func (r *Repo) ActionSearch(ctx context.Context, limit int,
 	filters *filters.LocalFilter) (search.Results, error) {
-	return r.search(ctx, allActionIndices, nil, limit, filters)
+	return r.search(ctx, allActionIndices, nil, limit, filters, 100)
 }
 
 // ThingByID extracts the one result matching the ID. Returns nil on no results
 // (without errors), but errors if it finds more than 1 results
-func (r *Repo) ThingByID(ctx context.Context, id strfmt.UUID) (*search.Result, error) {
-	return r.searchByID(ctx, allThingIndices, id)
+func (r *Repo) ThingByID(ctx context.Context, id strfmt.UUID,
+	resolveDepth int) (*search.Result, error) {
+	return r.searchByID(ctx, allThingIndices, id, resolveDepth)
 }
 
 // ActionByID extracts the one result matching the ID. Returns nil on no results
 // (without errors), but errors if it finds more than 1 results
-func (r *Repo) ActionByID(ctx context.Context, id strfmt.UUID) (*search.Result, error) {
-	return r.searchByID(ctx, allActionIndices, id)
+func (r *Repo) ActionByID(ctx context.Context, id strfmt.UUID,
+	resolveDepth int) (*search.Result, error) {
+	return r.searchByID(ctx, allActionIndices, id, resolveDepth)
 }
 
-func (r *Repo) searchByID(ctx context.Context, index string, id strfmt.UUID) (*search.Result, error) {
+func (r *Repo) searchByID(ctx context.Context, index string, id strfmt.UUID,
+	resolveDepth int) (*search.Result, error) {
 	filters := &filters.LocalFilter{
 		Root: &filters.Clause{
 			On:       &filters.Path{Property: schema.PropertyName(keyID)},
@@ -59,7 +62,7 @@ func (r *Repo) searchByID(ctx context.Context, index string, id strfmt.UUID) (*s
 			Operator: filters.OperatorEqual,
 		},
 	}
-	res, err := r.search(ctx, index, nil, 2, filters)
+	res, err := r.search(ctx, index, nil, 2, filters, resolveDepth)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +81,7 @@ func (r *Repo) searchByID(ctx context.Context, index string, id strfmt.UUID) (*s
 func (r *Repo) ClassSearch(ctx context.Context, kind kind.Kind,
 	className string, limit int, filters *filters.LocalFilter) ([]search.Result, error) {
 	index := classIndexFromClassName(kind, className)
-	return r.search(ctx, index, nil, limit, filters)
+	return r.search(ctx, index, nil, limit, filters, 100)
 }
 
 // VectorClassSearch limits the vector search to a specific class (and kind)
@@ -86,18 +89,18 @@ func (r *Repo) VectorClassSearch(ctx context.Context, kind kind.Kind,
 	className string, vector []float32, limit int,
 	filters *filters.LocalFilter) ([]search.Result, error) {
 	index := classIndexFromClassName(kind, className)
-	return r.search(ctx, index, vector, limit, filters)
+	return r.search(ctx, index, vector, limit, filters, 100)
 }
 
 // VectorSearch retrives the closest concepts by vector distance
 func (r *Repo) VectorSearch(ctx context.Context, vector []float32,
 	limit int, filters *filters.LocalFilter) ([]search.Result, error) {
-	return r.search(ctx, "*", vector, limit, filters)
+	return r.search(ctx, "*", vector, limit, filters, 100)
 }
 
 func (r *Repo) search(ctx context.Context, index string,
 	vector []float32, limit int,
-	filters *filters.LocalFilter) ([]search.Result, error) {
+	filters *filters.LocalFilter, resolveDepth int) ([]search.Result, error) {
 	var buf bytes.Buffer
 
 	query, err := queryFromFilter(filters)
@@ -121,7 +124,7 @@ func (r *Repo) search(ctx context.Context, index string,
 		return nil, fmt.Errorf("vector search: %v", err)
 	}
 
-	return r.searchResponse(res)
+	return r.searchResponse(res, resolveDepth)
 }
 
 func (r *Repo) buildSearchBody(filterQuery map[string]interface{}, vector []float32, limit int) map[string]interface{} {
@@ -178,7 +181,7 @@ type hit struct {
 	Score  float32                `json:"_score"`
 }
 
-func (r *Repo) searchResponse(res *esapi.Response) ([]search.Result,
+func (r *Repo) searchResponse(res *esapi.Response, resolveDepth int) ([]search.Result,
 	error) {
 	if err := errorResToErr(res, r.logger); err != nil {
 		return nil, fmt.Errorf("vector search: %v", err)
@@ -192,10 +195,10 @@ func (r *Repo) searchResponse(res *esapi.Response) ([]search.Result,
 		return nil, fmt.Errorf("vector search: decode json: %v", err)
 	}
 
-	return sr.toResults(r)
+	return sr.toResults(r, resolveDepth)
 }
 
-func (sr searchResponse) toResults(r *Repo) ([]search.Result, error) {
+func (sr searchResponse) toResults(r *Repo, resolveDepth int) ([]search.Result, error) {
 	hits := sr.Hits.Hits
 	output := make([]search.Result, len(hits), len(hits))
 	for i, hit := range hits {
@@ -209,13 +212,15 @@ func (sr searchResponse) toResults(r *Repo) ([]search.Result, error) {
 			return nil, fmt.Errorf("vector search: result %d: %v", i, err)
 		}
 
-		schema, err := r.parseSchema(hit.Source)
+		cache := r.extractCache(hit.Source)
+		schema, err := r.parseSchema(hit.Source, resolveDepth, cache)
 		if err != nil {
 			return nil, fmt.Errorf("vector search: result %d: %v", i, err)
 		}
 
-		created := hit.Source[keyCreated.String()].(float64)
-		updated := hit.Source[keyUpdated.String()].(float64)
+		created := parseFloat64(hit.Source, keyCreated.String())
+		updated := parseFloat64(hit.Source, keyUpdated.String())
+		cacheHot := parseCacheHot(hit.Source)
 
 		output[i] = search.Result{
 			ClassName: hit.Source[keyClassName.String()].(string),
@@ -226,8 +231,37 @@ func (sr searchResponse) toResults(r *Repo) ([]search.Result, error) {
 			Schema:    schema,
 			Created:   int64(created),
 			Updated:   int64(updated),
+			CacheHot:  cacheHot,
 		}
 	}
 
 	return output, nil
+}
+
+func parseFloat64(source map[string]interface{}, key string) float64 {
+	untyped := source[key]
+	if v, ok := untyped.(float64); ok {
+		return v
+	}
+
+	return 0
+}
+
+func parseCacheHot(source map[string]interface{}) bool {
+	untyped := source[keyCache.String()]
+	m, ok := untyped.(map[string]interface{})
+	if !ok {
+		return false
+	}
+
+	hotUntyped, ok := m[keyCacheHot.String()]
+	if !ok {
+		return false
+	}
+
+	if v, ok := hotUntyped.(bool); ok {
+		return v
+	}
+
+	return false
 }

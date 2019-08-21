@@ -45,19 +45,22 @@ const (
 	keyCreated   internalKey = "_created"
 	keyUpdated   internalKey = "_updated"
 	keyCache     internalKey = "_cache"
+	keyCacheHot  internalKey = "_hot"
 )
 
 // Repo stores and retrieves vector info in elasticsearch
 type Repo struct {
-	client       *elasticsearch.Client
-	logger       logrus.FieldLogger
-	schemaGetter schemaUC.SchemaGetter
+	client                    *elasticsearch.Client
+	logger                    logrus.FieldLogger
+	schemaGetter              schemaUC.SchemaGetter
+	denormalizationDepthLimit int
 }
 
 // NewRepo from existing es client
 func NewRepo(client *elasticsearch.Client, logger logrus.FieldLogger,
 	schemaGetter schemaUC.SchemaGetter) *Repo {
-	return &Repo{client, logger, schemaGetter}
+	denormalizationLimit := 3
+	return &Repo{client, logger, schemaGetter, denormalizationLimit}
 }
 
 func (r *Repo) SetSchemaGetter(sg schemaUC.SchemaGetter) {
@@ -140,6 +143,10 @@ func (r *Repo) putConcept(ctx context.Context,
 		return fmt.Errorf("index request: %v", err)
 	}
 
+	// TODO
+	// time.Sleep(1 * time.Second)
+	// return r.PopulateCache(ctx, kind.Thing, strfmt.UUID(id))
+
 	return nil
 }
 
@@ -184,6 +191,8 @@ func extendBucketWithProps(bucket map[string]interface{}, props models.PropertyS
 		return bucket
 	}
 
+	hasRefs := false
+
 	propsMap := props.(map[string]interface{})
 	for key, value := range propsMap {
 		if gc, ok := value.(*models.GeoCoordinates); ok {
@@ -193,9 +202,19 @@ func extendBucketWithProps(bucket map[string]interface{}, props models.PropertyS
 			}
 		}
 
+		if _, ok := value.(*models.MultipleRef); ok {
+			hasRefs = true
+		}
+
 		bucket[key] = value
 	}
 
+	bucket[keyCache.String()] = map[string]interface{}{
+		// if a prop has Refs, it requires caching, therefore the intial state of
+		// the cache is cold. However, if there are no ref props set,no caching is
+		// required making the cache state hot
+		keyCacheHot.String(): !hasRefs,
+	}
 	return bucket
 }
 
