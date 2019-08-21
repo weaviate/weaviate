@@ -222,7 +222,7 @@ func (r *Repo) parseCacheSchemaToRefs(in map[string]interface{}, prop string) ([
 	refClassesMap, ok := in[prop].(map[string]interface{})
 	if !ok {
 		// not a ref
-		return nil, fmt.Errorf("not a map: %#v", in[prop])
+		return nil, fmt.Errorf("prop %s: not a map: %#v", prop, in[prop])
 	}
 
 	for className, refs := range refClassesMap {

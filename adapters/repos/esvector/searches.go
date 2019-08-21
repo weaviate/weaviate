@@ -223,15 +223,16 @@ func (sr searchResponse) toResults(r *Repo, resolveDepth int) ([]search.Result, 
 		cacheHot := parseCacheHot(hit.Source)
 
 		output[i] = search.Result{
-			ClassName: hit.Source[keyClassName.String()].(string),
-			ID:        strfmt.UUID(hit.ID),
-			Kind:      k,
-			Score:     hit.Score,
-			Vector:    vector,
-			Schema:    schema,
-			Created:   int64(created),
-			Updated:   int64(updated),
-			CacheHot:  cacheHot,
+			ClassName:   hit.Source[keyClassName.String()].(string),
+			ID:          strfmt.UUID(hit.ID),
+			Kind:        k,
+			Score:       hit.Score,
+			Vector:      vector,
+			Schema:      schema,
+			Created:     int64(created),
+			Updated:     int64(updated),
+			CacheHot:    cacheHot,
+			CacheSchema: cache.schema,
 		}
 	}
 
