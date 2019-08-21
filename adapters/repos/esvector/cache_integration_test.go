@@ -106,7 +106,7 @@ func TestEsVectorCache(t *testing.T) {
 				Class: "City",
 				Schema: map[string]interface{}{
 					"name": "San Francisco",
-					"inCountry": &models.MultipleRef{
+					"inCountry": models.MultipleRef{
 						&models.SingleRef{
 							Beacon: "weaviate://localhost/things/18c80a16-346a-477d-849d-9d92e5040ac9",
 						},
@@ -118,7 +118,7 @@ func TestEsVectorCache(t *testing.T) {
 				Class: "Place",
 				Schema: map[string]interface{}{
 					"name": "Tim Apple's Fruit Bar",
-					"inCity": &models.MultipleRef{
+					"inCity": models.MultipleRef{
 						&models.SingleRef{
 							Beacon: "weaviate://localhost/things/2297e094-6218-43d4-85b1-3d20af752f23",
 						},

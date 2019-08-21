@@ -17,7 +17,11 @@ import (
 func (r *Repo) PopulateCache(ctx context.Context, kind kind.Kind, id strfmt.UUID) error {
 	manager := newCacheManager(r)
 	_, err := manager.populate(ctx, kind, id)
-	return err
+	if err != nil {
+		return fmt.Errorf("populate cache for %s with id %s: %v", kind.Name(), id, err)
+	}
+
+	return nil
 }
 
 type cacheManager struct {
@@ -47,27 +51,36 @@ func (c *cacheManager) populate(ctx context.Context, kind kind.Kind, id strfmt.U
 		// nothing to do, cache is already hot
 		// TODO: make this check dependent on when the cache was last populated,
 		// otherwise we can never renew if it becomes stale
-		return obj, nil
+		return prepareForStoringAsCache(obj), nil
 	}
 
 	resolvedSchema := map[string]interface{}{}
 	schemaMap := obj.Schema.(map[string]interface{})
 	for prop, value := range schemaMap {
-		refs, ok := value.(*models.MultipleRef)
-		if !ok {
-			resolvedSchema[prop] = value
+		if gc, ok := value.(*models.GeoCoordinates); ok {
+			resolvedSchema[prop] = map[string]interface{}{
+				"lat": gc.Latitude,
+				"lon": gc.Longitude,
+			}
 			continue
 		}
 
-		resolvedRefs, err := c.resolveRefs(ctx, refs)
-		if err != nil {
-			return nil, err
+		refs, ok := value.(*models.MultipleRef)
+		if ok {
+			resolvedRefs, err := c.resolveRefs(ctx, refs)
+			if err != nil {
+				return nil, err
+			}
+
+			resolvedSchema[prop] = groupRefByClassType(resolvedRefs)
+			continue
 		}
 
-		resolvedSchema[prop] = groupRefByClassType(resolvedRefs)
+		resolvedSchema[prop] = value
 	}
 
 	obj.Schema = resolvedSchema
+
 	if err := c.repo.upsertCache(ctx, id.String(), obj.Kind, obj.ClassName, resolvedSchema); err != nil {
 		return nil, err
 	}
@@ -178,4 +191,36 @@ func copyMap(in map[string]interface{}) map[string]interface{} {
 	}
 
 	return out
+}
+
+// this function is only ever called if we had a hot cache. calling it will
+// prepare the output for another insertion and will itself take refs from
+// cache if it has any or leave them untouched if not cached
+func prepareForStoringAsCache(in *search.Result) *search.Result {
+	schema := map[string]interface{}{}
+
+	for prop, value := range in.Schema.(map[string]interface{}) {
+		switch v := value.(type) {
+		case *models.GeoCoordinates:
+			// geoocordniates need to be prepared for ES
+			schema[prop] = map[string]interface{}{
+				"lat": v.Latitude,
+				"lon": v.Longitude,
+			}
+
+		case *models.MultipleRef:
+			// refs need to be taken from cache if present or left untouched otherwise
+			if ref, ok := in.CacheSchema[prop]; ok {
+				schema[prop] = ref
+			} else {
+				schema[prop] = value
+			}
+		default:
+			// primitive props are good to go
+			schema[prop] = value
+		}
+	}
+
+	in.Schema = schema
+	return in
 }

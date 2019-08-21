@@ -105,7 +105,8 @@ func (r *Repo) objectBucket(k kind.Kind, id, className string, props models.Prop
 		keyUpdated.String():   updateTime,
 	}
 
-	return extendBucketWithProps(bucket, props)
+	ex := extendBucketWithProps(bucket, props)
+	return ex
 }
 
 func (r *Repo) putConcept(ctx context.Context,
@@ -124,6 +125,7 @@ func (r *Repo) putConcept(ctx context.Context,
 		Index:      classIndexFromClassName(k, className),
 		DocumentID: id,
 		Body:       &buf,
+		Refresh:    "true",
 	}
 
 	res, err := req.Do(ctx, r.client)
@@ -143,9 +145,8 @@ func (r *Repo) putConcept(ctx context.Context,
 		return fmt.Errorf("index request: %v", err)
 	}
 
-	// TODO
-	// time.Sleep(1 * time.Second)
-	// return r.PopulateCache(ctx, kind.Thing, strfmt.UUID(id))
+	// // TODO
+	// return r.PopulateCache(ctx, k, strfmt.UUID(id))
 
 	return nil
 }
@@ -202,7 +203,7 @@ func extendBucketWithProps(bucket map[string]interface{}, props models.PropertyS
 			}
 		}
 
-		if _, ok := value.(*models.MultipleRef); ok {
+		if _, ok := value.(models.MultipleRef); ok {
 			hasRefs = true
 		}
 
