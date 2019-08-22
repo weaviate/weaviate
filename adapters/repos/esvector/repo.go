@@ -125,7 +125,6 @@ func (r *Repo) putConcept(ctx context.Context,
 		Index:      classIndexFromClassName(k, className),
 		DocumentID: id,
 		Body:       &buf,
-		Refresh:    "true",
 	}
 
 	res, err := req.Do(ctx, r.client)
@@ -144,9 +143,6 @@ func (r *Repo) putConcept(ctx context.Context,
 
 		return fmt.Errorf("index request: %v", err)
 	}
-
-	// // TODO
-	// return r.PopulateCache(ctx, k, strfmt.UUID(id))
 
 	return nil
 }
