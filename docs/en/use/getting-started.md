@@ -421,18 +421,14 @@ The UUID's that are returned are;
 We can now add Alphonso and Bert to the Amsterdam `Zoo`.
 
 ```bash
-$ curl -X POST http://localhost:8080/v1/things/3c6ac167-d7e5-4479-a726-8341b9113e40/properties/hasAnimals -H "Content-Type: application/json" -d '{
+$ curl -X POST http://localhost:8080/v1/things/3c6ac167-d7e5-4479-a726-8341b9113e40/references/hasAnimals -H "Content-Type: application/json" -d '{
   "beacon": "weaviate://localhost/things/ac19c17b-63df-4d6f-9015-9086bb3466c4", # UUID of Alphonso
-  "locationUrl": "localhost",
-  "type": "Thing"
 }'
 ```
 
 ```bash
-$ curl -X POST http://localhost:8080/v1/things/3c6ac167-d7e5-4479-a726-8341b9113e40/properties/hasAnimals -H "Content-Type: application/json" -d '{
+$ curl -X POST http://localhost:8080/v1/things/3c6ac167-d7e5-4479-a726-8341b9113e40/references/hasAnimals -H "Content-Type: application/json" -d '{
   "beacon": "weaviate://localhost/things/82f91e01-37b4-431c-98d1-43ebb48bca0f", # UUID of Bert
-  "locationUrl": "localhost",
-  "type": "Thing"
 }'
 ```
 
@@ -450,12 +446,10 @@ Getting an overview of all Zoos would look like this:
 
 ```graphql
 {
-  Local{
-    Get{
-      Things{
-        Zoo{
-          name
-        }
+  Get{
+    Things{
+      Zoo{
+        name
       }
     }
   }
@@ -466,15 +460,13 @@ We have added the Zoo to a city, to get the name of the City, we have to use the
 
 ```graphql
 {
-  Local {
-    Get {
-      Things {
-        Zoo {
-          name
-          InCity{
-            ... on City{
-              name
-            }
+  Get {
+    Things {
+      Zoo {
+        name
+        InCity{
+          ... on City{
+            name
           }
         }
       }
@@ -487,14 +479,12 @@ Because we have set the `HasZoo` property, we can also reverse the query:
 
 ```graphql
 {
-  Local {
-    Get {
-      Things {
-        City {
-          HasZoo {
-            ... on Zoo {
-              name
-            }
+  Get {
+    Things {
+      City {
+        HasZoo {
+          ... on Zoo {
+            name
           }
         }
       }
