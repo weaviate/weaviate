@@ -53,6 +53,11 @@ func (r *Repo) ActionByID(ctx context.Context, id strfmt.UUID,
 	return r.searchByID(ctx, allActionIndices, id, resolveDepth)
 }
 
+func (r *Repo) byIndexAndID(ctx context.Context, index string, id strfmt.UUID,
+	resolveDepth int) (*search.Result, error) {
+	return r.searchByID(ctx, index, id, resolveDepth)
+}
+
 func (r *Repo) searchByID(ctx context.Context, index string, id strfmt.UUID,
 	resolveDepth int) (*search.Result, error) {
 	filters := &filters.LocalFilter{
@@ -179,6 +184,7 @@ type hit struct {
 	ID     string                 `json:"_id"`
 	Source map[string]interface{} `json:"_source"`
 	Score  float32                `json:"_score"`
+	Index  string                 `json:"_index"`
 }
 
 func (r *Repo) searchResponse(res *esapi.Response, resolveDepth int) ([]search.Result,
@@ -188,7 +194,6 @@ func (r *Repo) searchResponse(res *esapi.Response, resolveDepth int) ([]search.R
 	}
 
 	var sr searchResponse
-
 	defer res.Body.Close()
 	err := json.NewDecoder(res.Body).Decode(&sr)
 	if err != nil {

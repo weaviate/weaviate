@@ -100,7 +100,8 @@ func TestEsVectorCache(t *testing.T) {
 				Schema: map[string]interface{}{
 					"name": "USA",
 				},
-				ID: "18c80a16-346a-477d-849d-9d92e5040ac9",
+				ID:               "18c80a16-346a-477d-849d-9d92e5040ac9",
+				CreationTimeUnix: 1566464896,
 			},
 			models.Thing{
 				Class: "City",
@@ -112,7 +113,8 @@ func TestEsVectorCache(t *testing.T) {
 						},
 					},
 				},
-				ID: "2297e094-6218-43d4-85b1-3d20af752f23",
+				ID:               "2297e094-6218-43d4-85b1-3d20af752f23",
+				CreationTimeUnix: 1566464899,
 			},
 			models.Thing{
 				Class: "Place",
@@ -124,7 +126,8 @@ func TestEsVectorCache(t *testing.T) {
 						},
 					},
 				},
-				ID: "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
+				ID:               "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
+				CreationTimeUnix: 1566464904,
 			},
 		}
 
@@ -146,9 +149,8 @@ func TestEsVectorCache(t *testing.T) {
 			before = res
 		})
 
-		t.Run("populate cache for the place", func(t *testing.T) {
-			err := repo.PopulateCache(context.Background(), kind.Thing, "4ef47fb0-3cf5-44fc-b378-9e217dff13ac")
-			require.Nil(t, err)
+		t.Run("init caching state machine", func(t *testing.T) {
+			repo.InitCacheIndexing(50, 1*time.Second)
 		})
 
 		// wait for changes to take effect
