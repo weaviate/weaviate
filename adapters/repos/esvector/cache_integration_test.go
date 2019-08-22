@@ -150,7 +150,7 @@ func TestEsVectorCache(t *testing.T) {
 		})
 
 		t.Run("init caching state machine", func(t *testing.T) {
-			repo.InitCacheIndexing(50, 1*time.Second)
+			repo.InitCacheIndexing(50, 200*time.Millisecond)
 		})
 
 		// wait for changes to take effect
@@ -176,5 +176,33 @@ func TestEsVectorCache(t *testing.T) {
 
 			assert.Equal(t, before.Schema, res.Schema, "result without a cache and with a cache should look the same")
 		})
+
+		t.Run("adding a new place to verify idnexing is constantly happening in the background", func(t *testing.T) {
+			newPlace := models.Thing{
+				Class: "Place",
+				Schema: map[string]interface{}{
+					"name": "John Oliver's Avocados",
+					"inCity": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: "weaviate://localhost/things/2297e094-6218-43d4-85b1-3d20af752f23",
+						},
+					},
+				},
+				ID:               "0f02d525-902d-4dc0-8052-647cb420c1a6",
+				CreationTimeUnix: 1566464912,
+			}
+
+			err := repo.PutThing(context.Background(), &newPlace, []float32{1, 2, 3, 4, 5, 6, 7})
+			require.Nil(t, err)
+		})
+
+		// wait for both es indexing as well as esvector caching to be complete
+		time.Sleep(2500 * time.Millisecond)
+	})
+
+	t.Run("the newly added place must have a hot cache by now", func(t *testing.T) {
+		res, err := repo.ThingByID(context.Background(), "0f02d525-902d-4dc0-8052-647cb420c1a6", 0)
+		require.Nil(t, err)
+		assert.Equal(t, true, res.CacheHot)
 	})
 }

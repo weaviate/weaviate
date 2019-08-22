@@ -28,22 +28,42 @@ func newCacheIndexer(bulkSize int, wait time.Duration, repo *Repo) *cacheIndexer
 }
 
 func (i *cacheIndexer) init() {
-	fmt.Print(i.singleCycle())
+	go func() {
+		for {
+			count, err := i.singleCycle()
+			if err != nil {
+				i.repo.logger.WithError(err).
+					WithField("action", "esvector_cache_cycle").
+					Error("could not complete caching cycle")
+			}
 
+			if count == 0 {
+				// nothing to do at the moment, let's sleep for the configured duration
+				// before trying again
+				time.Sleep(i.wait)
+				continue
+			}
+
+			i.repo.logger.
+				WithField("action", "esvector_cache_cycle_complete").
+				WithField("count", count).
+				Debugf("succesfully populated cache for %d items", count)
+		}
+	}()
 }
 
-func (i *cacheIndexer) singleCycle() error {
+func (i *cacheIndexer) singleCycle() (int, error) {
 	worklist, err := i.listWork()
 	if err != nil {
-		return fmt.Errorf("caching cycle: %v", err)
+		return 0, fmt.Errorf("caching cycle: %v", err)
 	}
 
 	err = i.populateWork(worklist)
 	if err != nil {
-		return fmt.Errorf("caching cycle: %v", err)
+		return 0, fmt.Errorf("caching cycle: %v", err)
 	}
 
-	return nil
+	return len(worklist), nil
 }
 
 func (i *cacheIndexer) listWork() ([]hit, error) {
