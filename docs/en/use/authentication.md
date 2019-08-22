@@ -1,5 +1,8 @@
 # Authentication
 
+> We are updating our docs and they will be moved to [www.semi.technology](https://www.semi.technology) soon.
+> You can leave your email [here](http://eepurl.com/gye_bX) to get a notification when they are live.
+
 > Authentication in weaviate is modular and can be configured to suit your
 > needs. Popular Authentication mechanisms, such as OpenID Connect (based on
 > OAuth 2.0), are supported.

@@ -57,6 +57,9 @@ We highly recommend starting with the _Getting Started_ (for [users](./docs/en/u
 
 ### Usage docs
 
+> We are updating our docs and they will be moved to [www.semi.technology](https://www.semi.technology) soon.
+> You can leave your email [here](http://eepurl.com/gye_bX) to get a notification when they are live.
+
 - [Index of all documentation for users](./docs/en/use/index.md)
 - [Getting Started](./docs/en/use/getting-started.md)
 
