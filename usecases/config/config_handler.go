@@ -67,8 +67,30 @@ type Contextionary struct {
 }
 
 type VectorIndex struct {
-	Enabled bool   `json:"enabled" yaml:"enabled"`
-	URL     string `json:"url" yaml:"url"`
+	Enabled                bool   `json:"enabled" yaml:"enabled"`
+	URL                    string `json:"url" yaml:"url"`
+	DenormalizationDepth   int    `json:"denormalizationDepth" yaml:"denormalizationDepth"`
+	CacheCycleIdleWaitTime int    `json:"cacheCycleIdleWaitTime" yaml:"cacheCycleIdleWaitTime"`
+	CacheCycleBusyWaitTime int    `json:"cacheCycleBusyWaitTime" yaml:"cacheCycleBusyWaitTime"`
+	CacheCycleBulkSize     int    `json:"cacheCycleBulkSize" yaml:"cacheCycleBulkSize"`
+}
+
+func (v *VectorIndex) SetDefaults() {
+	if v.DenormalizationDepth == 0 {
+		v.DenormalizationDepth = 5
+	}
+
+	if v.CacheCycleIdleWaitTime == 0 {
+		v.CacheCycleIdleWaitTime = 1000
+	}
+
+	if v.CacheCycleBusyWaitTime == 0 {
+		v.CacheCycleBusyWaitTime = 500
+	}
+
+	if v.CacheCycleBulkSize == 0 {
+		v.CacheCycleBulkSize = 200
+	}
 }
 
 // AnalyticsEngine represents an external analytics engine, such as Spark for
@@ -168,6 +190,8 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 	if err := f.Config.Authorization.Validate(); err != nil {
 		return fmt.Errorf("invalid config: %v", err)
 	}
+
+	(&f.Config.VectorIndex).SetDefaults()
 
 	return nil
 }

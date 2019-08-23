@@ -58,8 +58,7 @@ type Repo struct {
 
 // NewRepo from existing es client
 func NewRepo(client *elasticsearch.Client, logger logrus.FieldLogger,
-	schemaGetter schemaUC.SchemaGetter) *Repo {
-	denormalizationLimit := 3
+	schemaGetter schemaUC.SchemaGetter, denormalizationLimit int) *Repo {
 	return &Repo{client, logger, schemaGetter, denormalizationLimit}
 }
 

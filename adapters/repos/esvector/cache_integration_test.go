@@ -81,7 +81,7 @@ func TestEsVectorCache(t *testing.T) {
 	waitForEsToBeReady(t, client)
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{schema: refSchema}
-	repo := NewRepo(client, logger, schemaGetter)
+	repo := NewRepo(client, logger, schemaGetter, 3)
 	migrator := NewMigrator(repo)
 
 	t.Run("adding all classes to the schema", func(t *testing.T) {
