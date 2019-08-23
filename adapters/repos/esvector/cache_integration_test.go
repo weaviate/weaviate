@@ -150,7 +150,7 @@ func TestEsVectorCache(t *testing.T) {
 		})
 
 		t.Run("init caching state machine", func(t *testing.T) {
-			repo.InitCacheIndexing(50, 200*time.Millisecond)
+			repo.InitCacheIndexing(50, 200*time.Millisecond, 200*time.Millisecond)
 		})
 
 		// wait for changes to take effect

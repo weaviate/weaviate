@@ -123,6 +123,7 @@ func classIndexFromClassName(kind kind.Kind, className string) string {
 
 const allThingIndices = indexPrefix + "thing_*"
 const allActionIndices = indexPrefix + "action_*"
+const allClassIndices = indexPrefix + "*"
 
 func (m *Migrator) setMappings(ctx context.Context, index string,
 	props []*models.Property) error {
