@@ -61,8 +61,7 @@ func (r *Repo) parseSchema(input map[string]interface{}, resolveDepth int, cache
 						&models.SingleRef{Beacon: strfmt.URI(ref.(map[string]interface{})["beacon"].(string))})
 				}
 
-				mref := models.MultipleRef(refs)
-				output[key] = &mref
+				output[key] = models.MultipleRef(refs)
 				continue
 			}
 

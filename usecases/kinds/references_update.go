@@ -154,7 +154,7 @@ func (m *Manager) updateThingReferenceToConnectorAndSchema(ctx context.Context, 
 
 func (m *Manager) validateReferences(ctx context.Context, references models.MultipleRef) error {
 	err := validation.New(schema.Schema{}, m.exists, m.network, m.config).
-		ValidateMultipleRef(ctx, &references, "reference not found")
+		ValidateMultipleRef(ctx, references, "reference not found")
 	if err != nil {
 		return NewErrInvalidUserInput("invalid references: %v", err)
 	}

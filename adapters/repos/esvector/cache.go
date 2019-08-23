@@ -65,7 +65,14 @@ func (c *cacheManager) populate(ctx context.Context, kind kind.Kind, id strfmt.U
 			continue
 		}
 
-		refs, ok := value.(*models.MultipleRef)
+		if _, ok := value.(*models.MultipleRef); ok {
+			return nil, fmt.Errorf("if you see this message you have found a bug in weaviate" +
+				", congrutulations! please open an issue at github.com/semi-technologies/weaviate" +
+				" with the following error: found *models.MultipleRef in cache population, but" +
+				" expected to only ever see models.MultipleRef")
+		}
+
+		refs, ok := value.(models.MultipleRef)
 		if ok {
 			resolvedRefs, err := c.resolveRefs(ctx, refs)
 			if err != nil {
@@ -99,10 +106,10 @@ func (c *cacheManager) getObject(ctx context.Context, k kind.Kind, id strfmt.UUI
 	}
 }
 
-func (c *cacheManager) resolveRefs(ctx context.Context, refs *models.MultipleRef) ([]refClassAndSchema, error) {
+func (c *cacheManager) resolveRefs(ctx context.Context, refs models.MultipleRef) ([]refClassAndSchema, error) {
 	var resolvedRefs []refClassAndSchema
 
-	refSlice := []*models.SingleRef(*refs)
+	refSlice := []*models.SingleRef(refs)
 	for _, ref := range refSlice {
 		details, err := crossref.Parse(ref.Beacon.String())
 		if err != nil {
@@ -208,7 +215,7 @@ func prepareForStoringAsCache(in *search.Result) *search.Result {
 				"lon": v.Longitude,
 			}
 
-		case *models.MultipleRef:
+		case models.MultipleRef:
 			// refs need to be taken from cache if present or left untouched otherwise
 			if ref, ok := in.CacheSchema[prop]; ok {
 				schema[prop] = ref
