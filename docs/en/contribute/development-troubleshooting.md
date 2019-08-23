@@ -19,3 +19,18 @@ wrong instance
 
 #### Solution
 Exit the locally running version and restart the test suite
+
+### Issue Docker for Mac hangs during local load tests
+
+#### Symptoms
+When generating a bit more load than usual with the local docker-compose setup,
+such as during load tests, at some point the entire docker daemon stops responding,
+requests to containers simply hang and commands like `docker ps` either fail
+or are incredibly slow.
+
+#### Reason 
+Docker for mac seems broken.
+
+#### Solution
+As described in [this comment](https://github.com/docker/for-mac/issues/3674#issuecomment-498039937) 
+downgrading to the mentioned version fixes the problem.
