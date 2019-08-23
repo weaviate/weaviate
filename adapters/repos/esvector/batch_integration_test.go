@@ -27,7 +27,7 @@ func TestEsVectorRepoBatch(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{}
-	repo := NewRepo(client, logger, schemaGetter)
+	repo := NewRepo(client, logger, schemaGetter, 3)
 	migrator := NewMigrator(repo)
 
 	t.Run("creating the thing class", testAddBatchThingClass(repo, migrator))

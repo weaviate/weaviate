@@ -94,7 +94,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	var explorer explorer
 
 	if appState.ServerConfig.Config.VectorIndex.Enabled {
-		repo := esvector.NewRepo(esClient, appState.Logger, nil)
+		repo := esvector.NewRepo(esClient, appState.Logger, nil,
+			appState.ServerConfig.Config.VectorIndex.DenormalizationDepth)
 		vectorMigrator = esvector.NewMigrator(repo)
 		vectorRepo = repo
 		if appState.ServerConfig.Config.EsvectorOnly {
@@ -125,7 +126,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	vectorRepo.SetSchemaGetter(schemaManager)
-	vectorRepo.InitCacheIndexing(200, 1*time.Second, 500*time.Millisecond)
+	vectorRepo.InitCacheIndexing(
+		appState.ServerConfig.Config.VectorIndex.CacheCycleBulkSize,
+		time.Duration(appState.ServerConfig.Config.VectorIndex.CacheCycleIdleWaitTime)*time.Millisecond,
+		time.Duration(appState.ServerConfig.Config.VectorIndex.CacheCycleBusyWaitTime)*time.Millisecond,
+	)
 
 	kindsManager := kinds.NewManager(appState.Connector, appState.Locks,
 		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,
