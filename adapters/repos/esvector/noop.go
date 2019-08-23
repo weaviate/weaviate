@@ -15,6 +15,7 @@ package esvector
 
 import (
 	"context"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
@@ -93,6 +94,10 @@ func (r *NoOpRepo) DeleteAction(ctx context.Context, className string, id strfmt
 }
 
 func (r *NoOpRepo) SetSchemaGetter(sg schema.SchemaGetter) {
+	return
+}
+
+func (r *NoOpRepo) InitCacheIndexing(size int, waitOnIdle, waitOnBusy time.Duration) {
 	return
 }
 

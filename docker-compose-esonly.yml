@@ -85,10 +85,16 @@ services:
     environment:
       xpack.security.enabled: "false"
       discovery.type: single-node
-      ES_JAVA_OPTS: -Xms4096m -Xmx4096m
+      ES_JAVA_OPTS: -Xms6096m -Xmx6096m
+      bootstrap.memory_lock: "true"
       path.repo: "/mounts/backups,"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
     volumes:
-      - "./esbackups:/mounts/backups"
+      - "./esbackups:/mounts/backups:delegated"
+      - "./data/esvector:/usr/share/elasticsearch/data:delegated"
     ports: 
       - "9201:9200"
       - "9301:9300"

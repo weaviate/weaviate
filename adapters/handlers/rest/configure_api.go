@@ -59,6 +59,7 @@ type vectorRepo interface {
 	kinds.BatchVectorRepo
 	traverser.VectorSearcher
 	SetSchemaGetter(schemaUC.SchemaGetter)
+	InitCacheIndexing(int, time.Duration, time.Duration)
 }
 
 type vectorizer interface {
@@ -124,6 +125,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	vectorRepo.SetSchemaGetter(schemaManager)
+	vectorRepo.InitCacheIndexing(200, 1*time.Second, 500*time.Millisecond)
 
 	kindsManager := kinds.NewManager(appState.Connector, appState.Locks,
 		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,

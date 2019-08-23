@@ -12,19 +12,25 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
-func (r *Repo) InitCacheIndexing(bulkSize int, wait time.Duration) {
-	i := newCacheIndexer(bulkSize, wait, r)
+func (r *Repo) InitCacheIndexing(bulkSize int, waitOnIdle time.Duration, waitOnBusy time.Duration) {
+	i := newCacheIndexer(bulkSize, waitOnIdle, waitOnBusy, r)
 	i.init()
 }
 
 type cacheIndexer struct {
-	bulkSize int
-	wait     time.Duration
-	repo     *Repo
+	bulkSize   int
+	waitOnIdle time.Duration
+	waitOnBusy time.Duration
+	repo       *Repo
 }
 
-func newCacheIndexer(bulkSize int, wait time.Duration, repo *Repo) *cacheIndexer {
-	return &cacheIndexer{bulkSize: bulkSize, wait: wait, repo: repo}
+func newCacheIndexer(bulkSize int, waitOnIdle, waitOnBusy time.Duration, repo *Repo) *cacheIndexer {
+	return &cacheIndexer{
+		bulkSize:   bulkSize,
+		waitOnIdle: waitOnIdle,
+		waitOnBusy: waitOnBusy,
+		repo:       repo,
+	}
 }
 
 func (i *cacheIndexer) init() {
@@ -40,7 +46,7 @@ func (i *cacheIndexer) init() {
 			if count == 0 {
 				// nothing to do at the moment, let's sleep for the configured duration
 				// before trying again
-				time.Sleep(i.wait)
+				time.Sleep(i.waitOnIdle)
 				continue
 			}
 
@@ -48,6 +54,11 @@ func (i *cacheIndexer) init() {
 				WithField("action", "esvector_cache_cycle_complete").
 				WithField("count", count).
 				Debugf("succesfully populated cache for %d items", count)
+
+				// don't immediately take up work, as it is more effecient to work to
+				// off a longer queue, so wait some time for the queue to gain a few
+				// items
+			time.Sleep(i.waitOnBusy)
 		}
 	}()
 }
@@ -63,11 +74,17 @@ func (i *cacheIndexer) singleCycle() (int, error) {
 		return 0, fmt.Errorf("caching cycle: %v", err)
 	}
 
+	err = i.refreshIndices()
+	if err != nil {
+		return len(worklist), fmt.Errorf("caching cycle: refresh indices: %v", err)
+	}
+
 	return len(worklist), nil
 }
 
 func (i *cacheIndexer) listWork() ([]hit, error) {
-	ctx := context.Background()
+	ctx, cancel := ctx()
+	defer cancel()
 
 	body := map[string]interface{}{
 		"size":    i.bulkSize,
@@ -94,6 +111,7 @@ func (i *cacheIndexer) listWork() ([]hit, error) {
 
 	res, err := i.repo.client.Search(
 		i.repo.client.Search.WithContext(ctx),
+		i.repo.client.Search.WithIndex(allClassIndices),
 		i.repo.client.Search.WithBody(&buf),
 	)
 	if err != nil {
@@ -119,6 +137,7 @@ func (i *cacheIndexer) indexAndIDsFromRes(res *esapi.Response) ([]hit, error) {
 }
 
 func (i *cacheIndexer) populateWork(worklist []hit) error {
+
 	for _, obj := range worklist {
 		kindString, ok := obj.Source[keyKind.String()]
 		if !ok {
@@ -126,11 +145,45 @@ func (i *cacheIndexer) populateWork(worklist []hit) error {
 		}
 
 		k, _ := kind.Parse(kindString.(string))
-		err := i.repo.PopulateCache(context.Background(), k, strfmt.UUID(obj.ID))
+
+		ctx, cancel := ctx()
+		defer cancel()
+
+		err := i.repo.PopulateCache(ctx, k, strfmt.UUID(obj.ID))
 		if err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+func (i *cacheIndexer) refreshIndices() error {
+	req := esapi.IndicesRefreshRequest{
+		Index: []string{allClassIndices},
+	}
+
+	ctx, cancel := ctx()
+	defer cancel()
+
+	res, err := req.Do(ctx, i.repo.client)
+	if err != nil {
+		return fmt.Errorf("index refresh request: %v", err)
+	}
+
+	if err := errorResToErr(res, i.repo.logger); err != nil {
+		i.repo.logger.WithField("action", "esvector_cache_cycle_final_refresh").
+			WithError(err).
+			WithField("request", req).
+			WithField("res", res).
+			Errorf("final refresh after populating work list failed")
+
+		return fmt.Errorf("index refresh request: %v", err)
+	}
+
+	return nil
+}
+
+func ctx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), 2*time.Second)
 }
