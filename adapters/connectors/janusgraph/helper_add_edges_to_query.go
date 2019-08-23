@@ -298,9 +298,13 @@ func (j *Janusgraph) multipleRefs(ctx context.Context, value interface{}, propTy
 	result := edgeFromRefProp{}
 	result.edgesToDrop = []string{janusPropertyName}
 	switch t := value.(type) {
-	case models.MultipleRef, *models.MultipleRef:
-		refs := derefMultipleRefsIfNeeded(t)
-		for _, ref := range refs {
+	case *models.MultipleRef:
+		return result, fmt.Errorf("if you see this message you have found a bug in weaviate" +
+			", congrutulations! please open an issue at github.com/semi-technologies/weaviate" +
+			" with the following error: found *models.MultipleRef in janus adding edges, but" +
+			" expected to only ever see models.MultipleRef")
+	case models.MultipleRef:
+		for _, ref := range t {
 			singleRef, err := j.singleRef(ctx, ref, propType, janusPropertyName, sanitizedPropertyName)
 			if err != nil {
 				return result, err
@@ -328,19 +332,5 @@ func (j *Janusgraph) multipleRefs(ctx context.Context, value interface{}, propTy
 	default:
 		return result, fmt.Errorf("illegal value for property %s, expected *models.MultipleRef, but got %#v",
 			sanitizedPropertyName, value)
-	}
-}
-
-func derefMultipleRefsIfNeeded(t interface{}) models.MultipleRef {
-	switch typed := t.(type) {
-	case models.MultipleRef:
-		// during a patch we don't get a pointer type
-		return typed
-	case *models.MultipleRef:
-		// during a put we get a pointer type
-		return *typed
-	default:
-		// impossible to reach since it's only used after previous type assertion
-		panic("neither *models.MultipleRef nor models.MultipleRef received")
 	}
 }

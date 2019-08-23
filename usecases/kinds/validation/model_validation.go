@@ -166,13 +166,13 @@ func (v *Validator) validateNetworkRef(ref *crossref.Ref) error {
 	return nil
 }
 
-func (v *Validator) ValidateMultipleRef(ctx context.Context, refs *models.MultipleRef,
+func (v *Validator) ValidateMultipleRef(ctx context.Context, refs models.MultipleRef,
 	errorVal string) error {
 	if refs == nil {
 		return nil
 	}
 
-	for _, ref := range *refs {
+	for _, ref := range refs {
 		err := v.ValidateSingleRef(ctx, ref, errorVal)
 		if err != nil {
 			return err

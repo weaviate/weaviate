@@ -63,7 +63,7 @@ func TestCanReplaceAllProperties(t *testing.T) {
 	assertGetActionEventually(t, toPointToUuidLater)
 
 	uuid := assertCreateAction(t, "TestActionTwo", map[string]interface{}{
-		"testReferences": &models.MultipleRef{
+		"testReferences": models.MultipleRef{
 			crossref.New("localhost", toPointToUuidFirst, kind.Action).SingleRef(),
 		},
 	})
@@ -97,7 +97,7 @@ func TestRemovePropertyIndividually(t *testing.T) {
 	assertGetActionEventually(t, toPointToUuid)
 
 	uuid := assertCreateAction(t, "TestActionTwo", map[string]interface{}{
-		"testReferences": &models.MultipleRef{
+		"testReferences": models.MultipleRef{
 			crossref.New("localhost", toPointToUuid, kind.Action).SingleRef(),
 		},
 	})
