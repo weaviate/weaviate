@@ -8,6 +8,7 @@ database:
 vector_index:
   enabled: true
   url: http://localhost:9201
+  denormalizationDepth: 3
 configuration_storage:
   type: etcd
   url: http://localhost:2379
