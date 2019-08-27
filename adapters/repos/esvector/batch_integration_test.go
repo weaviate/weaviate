@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/elastic/go-elasticsearch/v5"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -117,8 +116,7 @@ func testBatchImportThings(repo *Repo) func(t *testing.T) {
 				require.Nil(t, err)
 			})
 
-			// sleep for index to become available
-			time.Sleep(2 * time.Second)
+			refreshAll(t, repo.client)
 
 			res, err := repo.ClassSearch(context.Background(), kind.Thing, "ThingForBatching", 10, nil)
 			require.Nil(t, err)
@@ -188,8 +186,7 @@ func testBatchImportThings(repo *Repo) func(t *testing.T) {
 				})
 			})
 
-			// sleep for index to become available
-			time.Sleep(2 * time.Second)
+			refreshAll(t, repo.client)
 
 			res, err := repo.ClassSearch(context.Background(), kind.Thing, "ThingForBatching", 10, nil)
 			require.Nil(t, err)
@@ -259,8 +256,7 @@ func testBatchImportActions(repo *Repo) func(t *testing.T) {
 			require.Nil(t, err)
 		})
 
-		// sleep for index to become available
-		time.Sleep(2 * time.Second)
+		refreshAll(t, repo.client)
 
 		res, err := repo.ClassSearch(context.Background(), kind.Action, "ActionForBatching", 10, nil)
 		require.Nil(t, err)

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/elastic/go-elasticsearch/v5"
+	"github.com/elastic/go-elasticsearch/v5/esapi"
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -117,8 +118,7 @@ func TestEsVectorRepo(t *testing.T) {
 		assert.Nil(t, err)
 	})
 
-	// sleep 2s to wait for index to become available
-	time.Sleep(2 * time.Second)
+	refreshAll(t, client)
 
 	t.Run("searching by vector", func(t *testing.T) {
 		// the search vector is designed to be very close to the action, but
@@ -247,8 +247,7 @@ func TestEsVectorRepo(t *testing.T) {
 		assert.Nil(t, err)
 	})
 
-	// sleep for index changes to take effect
-	time.Sleep(2 * time.Second)
+	refreshAll(t, client)
 
 	t.Run("searching by vector for a single thing class again after deletion", func(t *testing.T) {
 		searchVector := []float32{2.9, 1.1, 0.5, 8.01}
@@ -302,4 +301,26 @@ func findID(list []search.Result, id strfmt.UUID) (search.Result, bool) {
 	}
 
 	return search.Result{}, false
+}
+
+// not the most effecient way, but reduces the wait time in tests
+func refreshAll(t *testing.T, c *elasticsearch.Client) {
+	req := esapi.IndicesRefreshRequest{
+		Index: []string{allClassIndices},
+	}
+
+	ctx, cancel := ctx()
+	defer cancel()
+
+	res, err := req.Do(ctx, c)
+	if err != nil {
+		t.Errorf("index refresh request: %v", err)
+		return
+	}
+
+	log, _ := test.NewNullLogger()
+	if err := errorResToErr(res, log); err != nil {
+		t.Errorf("index refresh request: %v", err)
+		return
+	}
 }
