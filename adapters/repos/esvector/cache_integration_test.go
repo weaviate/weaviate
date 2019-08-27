@@ -190,8 +190,7 @@ func TestEsVectorCache(t *testing.T) {
 			})
 		}
 
-		// wait for index to become available
-		time.Sleep(1 * time.Second)
+		refreshAll(t, client)
 
 		var before *search.Result
 		t.Run("resolving the place before we have cache", func(t *testing.T) {
@@ -205,8 +204,8 @@ func TestEsVectorCache(t *testing.T) {
 			repo.InitCacheIndexing(50, 200*time.Millisecond, 200*time.Millisecond)
 		})
 
-		// wait for changes to take effect
-		time.Sleep(1 * time.Second)
+		// wait for both es indexing as well as esvector caching to be complete
+		time.Sleep(1000 * time.Millisecond)
 
 		t.Run("all 3 (outer) things must now have a hot cache", func(t *testing.T) {
 			res, err := repo.ThingByID(context.Background(), "18c80a16-346a-477d-849d-9d92e5040ac9", 0)
@@ -247,9 +246,10 @@ func TestEsVectorCache(t *testing.T) {
 			err := repo.PutThing(context.Background(), &newPlace, []float32{1, 2, 3, 4, 5, 6, 7})
 			require.Nil(t, err)
 		})
+		refreshAll(t, client)
 
 		// wait for both es indexing as well as esvector caching to be complete
-		time.Sleep(2500 * time.Millisecond)
+		time.Sleep(1000 * time.Millisecond)
 	})
 
 	t.Run("the newly added place must have a hot cache by now", func(t *testing.T) {

@@ -19,7 +19,6 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/elastic/go-elasticsearch/v5"
 	"github.com/go-openapi/strfmt"
@@ -88,8 +87,7 @@ func prepareCarTestSchemaAndData(repo *Repo,
 			})
 		}
 
-		// sleep for index to become available
-		time.Sleep(2 * time.Second)
+		refreshAll(t, repo.client)
 	}
 }
 
