@@ -40,11 +40,37 @@ func TestEsVectorCache(t *testing.T) {
 		Things: &models.Schema{
 			Classes: []*models.Class{
 				&models.Class{
+					Class: "Planet",
+					Properties: []*models.Property{
+						&models.Property{
+							Name:     "name",
+							DataType: []string{string(schema.DataTypeString)},
+						},
+					},
+				},
+				&models.Class{
+					Class: "Continent",
+					Properties: []*models.Property{
+						&models.Property{
+							Name:     "name",
+							DataType: []string{string(schema.DataTypeString)},
+						},
+						&models.Property{
+							Name:     "onPlanet",
+							DataType: []string{"Planet"},
+						},
+					},
+				},
+				&models.Class{
 					Class: "Country",
 					Properties: []*models.Property{
 						&models.Property{
 							Name:     "name",
 							DataType: []string{string(schema.DataTypeString)},
+						},
+						&models.Property{
+							Name:     "onContinent",
+							DataType: []string{"Continent"},
 						},
 					},
 				},
@@ -96,9 +122,35 @@ func TestEsVectorCache(t *testing.T) {
 	t.Run("importing some thing objects with references", func(t *testing.T) {
 		objects := []models.Thing{
 			models.Thing{
+				Class: "Planet",
+				Schema: map[string]interface{}{
+					"name": "Earth",
+				},
+				ID:               "32c69af9-cbbe-4ec9-bf6c-365cd6c22fdf",
+				CreationTimeUnix: 1566464889,
+			},
+			models.Thing{
+				Class: "Continent",
+				Schema: map[string]interface{}{
+					"name": "North America",
+					"onPlanet": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: "weaviate://localhost/things/32c69af9-cbbe-4ec9-bf6c-365cd6c22fdf",
+						},
+					},
+				},
+				ID:               "4aad8154-e7f3-45b8-81a6-725171419e55",
+				CreationTimeUnix: 1566464892,
+			},
+			models.Thing{
 				Class: "Country",
 				Schema: map[string]interface{}{
 					"name": "USA",
+					"onContinent": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: "weaviate://localhost/things/4aad8154-e7f3-45b8-81a6-725171419e55",
+						},
+					},
 				},
 				ID:               "18c80a16-346a-477d-849d-9d92e5040ac9",
 				CreationTimeUnix: 1566464896,
@@ -156,7 +208,7 @@ func TestEsVectorCache(t *testing.T) {
 		// wait for changes to take effect
 		time.Sleep(1 * time.Second)
 
-		t.Run("all 3 things must now have a hot cache", func(t *testing.T) {
+		t.Run("all 3 (outer) things must now have a hot cache", func(t *testing.T) {
 			res, err := repo.ThingByID(context.Background(), "18c80a16-346a-477d-849d-9d92e5040ac9", 0)
 			require.Nil(t, err)
 			assert.Equal(t, true, res.CacheHot)

@@ -28,7 +28,8 @@ import (
 // parseSchema lightly parses the schema, while most fields stay untyped, those
 // with special meaning, such as GeoCoordinates are marshalled into their
 // required types
-func (r *Repo) parseSchema(input map[string]interface{}, resolveDepth int, cache cache) (map[string]interface{}, error) {
+func (r *Repo) parseSchema(input map[string]interface{}, resolveDepth int, cache cache,
+	currentDepth int) (map[string]interface{}, error) {
 	output := map[string]interface{}{}
 
 	for key, value := range input {
@@ -65,7 +66,7 @@ func (r *Repo) parseSchema(input map[string]interface{}, resolveDepth int, cache
 				continue
 			}
 
-			parsed, err := r.parseRefs(typed, key, cache)
+			parsed, err := r.parseRefs(typed, key, cache, currentDepth)
 			if err != nil {
 				return output, fmt.Errorf("prop '%s': %v", key, err)
 			}
@@ -117,11 +118,15 @@ func parseGeoProp(lat interface{}, lon interface{}) (*models.GeoCoordinates, err
 	return &models.GeoCoordinates{Latitude: float32(latFloat), Longitude: float32(lonFloat)}, nil
 }
 
-func (r *Repo) parseRefs(input []interface{}, prop string, cache cache) ([]interface{}, error) {
-	output := make([]interface{}, len(input), len(input))
+// parseRef is only called on the outer layer
+func (r *Repo) parseRefs(input []interface{}, prop string, cache cache, depth int) ([]interface{}, error) {
+
 	if cache.hot {
 		// TODO: instead of removing the classes, actually take them into account
-		refs, err := r.parseCacheSchemaToRefs(cache.schema, prop)
+
+		// start with depth=1, parseRefs was called on the outermost class
+		// (depth=0), so the first ref is depth=1
+		refs, err := r.parseCacheSchemaToRefs(cache.schema, prop, 1)
 		if err != nil {
 			return nil, fmt.Errorf("parse cache: %v", err)
 		}
@@ -129,48 +134,70 @@ func (r *Repo) parseRefs(input []interface{}, prop string, cache cache) ([]inter
 		return refs, nil
 	} else {
 
-		for i, item := range input {
-			refMap, ok := item.(map[string]interface{})
-			if !ok {
-				return nil, fmt.Errorf("expected ref item to be a map, but got %T", item)
-			}
-
-			beacon, ok := refMap["beacon"]
-			if !ok {
-				return nil, fmt.Errorf("expected ref object to have field beacon, but got %#v", refMap)
-			}
-
-			ref, err := crossref.Parse(beacon.(string))
-			if err != nil {
-				return nil, err
-			}
-
-			switch ref.Kind {
-			case kind.Thing:
-				res, err := r.ThingByID(context.TODO(), ref.TargetID, 100)
-				if err != nil {
-					return nil, err
-				}
-
-				output[i] = get.LocalRef{
-					Class:  res.ClassName,
-					Fields: res.Schema.(map[string]interface{}),
-				}
-			case kind.Action:
-				res, err := r.ActionByID(context.TODO(), ref.TargetID, 100)
-				if err != nil {
-					return nil, err
-				}
-
-				output[i] = get.LocalRef{
-					Class:  res.ClassName,
-					Fields: res.Schema.(map[string]interface{}),
-				}
-			}
+		refs, err := r.resolveRefsWithoutCache(input)
+		if err != nil {
+			return nil, fmt.Errorf("resolve without cache: %v", err)
 		}
+
+		return refs, nil
+	}
+
+}
+
+func (r *Repo) resolveRefsWithoutCache(input []interface{}) ([]interface{}, error) {
+	output := make([]interface{}, len(input), len(input))
+	for i, item := range input {
+		resolved, err := r.resolveRefWithoutCache(item)
+		if err != nil {
+			return nil, fmt.Errorf("at position %d: %v", i, err)
+		}
+
+		output[i] = resolved
 	}
 
 	return output, nil
+}
+
+func (r *Repo) resolveRefWithoutCache(item interface{}) (get.LocalRef, error) {
+	var out get.LocalRef
+
+	refMap, ok := item.(map[string]interface{})
+	if !ok {
+		return out, fmt.Errorf("expected ref item to be a map, but got %T", item)
+	}
+
+	beacon, ok := refMap["beacon"]
+	if !ok {
+		return out, fmt.Errorf("expected ref object to have field beacon, but got %#v", refMap)
+	}
+
+	ref, err := crossref.Parse(beacon.(string))
+	if err != nil {
+		return out, err
+	}
+
+	switch ref.Kind {
+	case kind.Thing:
+		res, err := r.ThingByID(context.TODO(), ref.TargetID, 100)
+		if err != nil {
+			return out, err
+		}
+
+		out.Class = res.ClassName
+		out.Fields = res.Schema.(map[string]interface{})
+		return out, nil
+	case kind.Action:
+		res, err := r.ActionByID(context.TODO(), ref.TargetID, 100)
+		if err != nil {
+			return out, err
+		}
+
+		out.Class = res.ClassName
+		out.Fields = res.Schema.(map[string]interface{})
+		return out, nil
+	default:
+		return out, fmt.Errorf("impossible kind: %v", ref.Kind)
+	}
 }
 
 type cache struct {
@@ -216,7 +243,8 @@ func uppercaseFirstLetter(in string) string {
 	return strings.ToUpper(first) + rest
 }
 
-func (r *Repo) parseCacheSchemaToRefs(in map[string]interface{}, prop string) ([]interface{}, error) {
+func (r *Repo) parseCacheSchemaToRefs(in map[string]interface{}, prop string, depth int) ([]interface{}, error) {
+	fmt.Printf("\n\nparse cache schema to refs for %s with depth %d\n", prop, depth)
 	var out []interface{}
 	refClassesMap, ok := in[prop].(map[string]interface{})
 	if !ok {
@@ -237,7 +265,7 @@ func (r *Repo) parseCacheSchemaToRefs(in map[string]interface{}, prop string) ([
 				return nil, fmt.Errorf("expected refs to be slice, but got %#v", refs)
 			}
 
-			parsed, err := r.parseInnerRefFromCache(refMap)
+			parsed, err := r.parseInnerRefFromCache(refMap, depth+1)
 			if err != nil {
 				return nil, err
 			}
@@ -252,17 +280,29 @@ func (r *Repo) parseCacheSchemaToRefs(in map[string]interface{}, prop string) ([
 	return out, nil
 }
 
-func (r *Repo) parseInnerRefFromCache(in map[string]interface{}) (map[string]interface{}, error) {
+func (r *Repo) parseInnerRefFromCache(in map[string]interface{}, depth int) (map[string]interface{}, error) {
 	out := map[string]interface{}{}
 
 	for prop, value := range in {
 		if _, ok := value.(map[string]interface{}); ok {
-			parsed, err := r.parseCacheSchemaToRefs(in, prop)
+			// this is the structure of an already cached ref
+			parsed, err := r.parseCacheSchemaToRefs(in, prop, depth)
 			if err != nil {
 				return nil, err
 			}
 
 			out[uppercaseFirstLetter(prop)] = parsed
+			continue
+		}
+
+		if list, ok := value.([]interface{}); ok {
+			// a list indicates an unresolved ref
+			resolved, err := r.resolveRefsWithoutCache(list)
+			if err != nil {
+				return nil, fmt.Errorf("resolving refs without cache because cache ended: %v", err)
+			}
+
+			out[uppercaseFirstLetter(prop)] = resolved
 			continue
 		}
 
