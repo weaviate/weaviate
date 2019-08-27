@@ -218,7 +218,7 @@ func (sr searchResponse) toResults(r *Repo, resolveDepth int) ([]search.Result, 
 		}
 
 		cache := r.extractCache(hit.Source)
-		schema, err := r.parseSchema(hit.Source, resolveDepth, cache)
+		schema, err := r.parseSchema(hit.Source, resolveDepth, cache, 0)
 		if err != nil {
 			return nil, fmt.Errorf("vector search: result %d: %v", i, err)
 		}

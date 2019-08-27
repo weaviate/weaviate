@@ -16,7 +16,7 @@ import (
 
 func (r *Repo) PopulateCache(ctx context.Context, kind kind.Kind, id strfmt.UUID) error {
 	manager := newCacheManager(r)
-	_, err := manager.populate(ctx, kind, id)
+	_, err := manager.populate(ctx, kind, id, 0)
 	if err != nil {
 		return fmt.Errorf("populate cache for %s with id %s: %v", kind.Name(), id, err)
 	}
@@ -37,7 +37,7 @@ type refClassAndSchema struct {
 	schema map[string]interface{}
 }
 
-func (c *cacheManager) populate(ctx context.Context, kind kind.Kind, id strfmt.UUID) (*search.Result, error) {
+func (c *cacheManager) populate(ctx context.Context, kind kind.Kind, id strfmt.UUID, depth int) (*search.Result, error) {
 	obj, err := c.getObject(ctx, kind, id)
 	if err != nil {
 		return nil, err
@@ -74,7 +74,13 @@ func (c *cacheManager) populate(ctx context.Context, kind kind.Kind, id strfmt.U
 
 		refs, ok := value.(models.MultipleRef)
 		if ok {
-			resolvedRefs, err := c.resolveRefs(ctx, refs)
+			if depth+1 >= c.repo.denormalizationDepthLimit {
+				// too deep to resolve, return unresolved instead
+				resolvedSchema[prop] = value
+				continue
+			}
+
+			resolvedRefs, err := c.resolveRefs(ctx, refs, depth+1)
 			if err != nil {
 				return nil, err
 			}
@@ -88,8 +94,27 @@ func (c *cacheManager) populate(ctx context.Context, kind kind.Kind, id strfmt.U
 
 	obj.Schema = resolvedSchema
 
-	if err := c.repo.upsertCache(ctx, id.String(), obj.Kind, obj.ClassName, resolvedSchema); err != nil {
-		return nil, err
+	if depth == 0 {
+		// only ever store the outermost layer. The indexer will make sure that
+		// every class will be resolved once. So, by storing inner layers we'd
+		// essentially cut the inner object short. Imagine the following chain:
+		//
+		// Place->inCity->City->inCountry->Country->onContinent->Continent
+		//
+		// Assume a depth limit of 3. The indexer will call every one of those
+		// once. So when it called the "City" it resolved three levels deep,
+		// i.e. City->inCountry->Country->onContinent->Continent. That is exactly
+		// the cache depth we want to have for this object.
+		//
+		// However, when we resolve the Place, the deepest we would go is to the
+		// Country, as Continent would be 4 levels deep and therefore deper than
+		// the maximum depth. If we were to store each inner item, we would
+		// overwrite the City (which already had a perfect cache of 3 levels), with
+		// the City from the perspective of the the Place. which only goes up until
+		// the Country, but never to the Continent.
+		if err := c.repo.upsertCache(ctx, id.String(), obj.Kind, obj.ClassName, resolvedSchema); err != nil {
+			return nil, err
+		}
 	}
 
 	return obj, nil
@@ -106,7 +131,7 @@ func (c *cacheManager) getObject(ctx context.Context, k kind.Kind, id strfmt.UUI
 	}
 }
 
-func (c *cacheManager) resolveRefs(ctx context.Context, refs models.MultipleRef) ([]refClassAndSchema, error) {
+func (c *cacheManager) resolveRefs(ctx context.Context, refs models.MultipleRef, depth int) ([]refClassAndSchema, error) {
 	var resolvedRefs []refClassAndSchema
 
 	refSlice := []*models.SingleRef(refs)
@@ -116,7 +141,7 @@ func (c *cacheManager) resolveRefs(ctx context.Context, refs models.MultipleRef)
 			return nil, fmt.Errorf("parse %s: %v", ref.Beacon, err)
 		}
 
-		innerRef, err := c.populate(ctx, details.Kind, details.TargetID)
+		innerRef, err := c.populate(ctx, details.Kind, details.TargetID, depth)
 		if err != nil {
 			return nil, fmt.Errorf("populate %s: %v", ref.Beacon, err)
 		}
