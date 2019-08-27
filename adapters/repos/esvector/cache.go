@@ -74,7 +74,7 @@ func (c *cacheManager) populate(ctx context.Context, kind kind.Kind, id strfmt.U
 
 		refs, ok := value.(models.MultipleRef)
 		if ok {
-			if depth+1 >= c.repo.denormalizationDepthLimit {
+			if depth+1 > c.repo.denormalizationDepthLimit {
 				// too deep to resolve, return unresolved instead
 				resolvedSchema[prop] = value
 				continue

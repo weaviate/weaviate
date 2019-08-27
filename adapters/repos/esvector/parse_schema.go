@@ -244,7 +244,12 @@ func uppercaseFirstLetter(in string) string {
 }
 
 func (r *Repo) parseCacheSchemaToRefs(in map[string]interface{}, prop string, depth int) ([]interface{}, error) {
-	fmt.Printf("\n\nparse cache schema to refs for %s with depth %d\n", prop, depth)
+	// TODO: investigate why sometimes prop is nil, but sometmes slice of len 0
+	// See test schema with Plane OfAirline
+	if in[prop] == nil {
+		return nil, nil
+	}
+
 	var out []interface{}
 	refClassesMap, ok := in[prop].(map[string]interface{})
 	if !ok {
@@ -256,13 +261,13 @@ func (r *Repo) parseCacheSchemaToRefs(in map[string]interface{}, prop string, de
 
 		refsSlice, ok := refs.([]interface{})
 		if !ok {
-			return nil, fmt.Errorf("expected refs to be slice, but got %#v", refs)
+			return nil, fmt.Errorf("prop %s: expected refs to be slice, but got %#v", prop, refs)
 		}
 
 		for _, ref := range refsSlice {
 			refMap, ok := ref.(map[string]interface{})
 			if !ok {
-				return nil, fmt.Errorf("expected refs to be slice, but got %#v", refs)
+				return nil, fmt.Errorf("prop %s: expected ref item to be map, but got %#v", prop, refs)
 			}
 
 			parsed, err := r.parseInnerRefFromCache(refMap, depth+1)
@@ -284,8 +289,17 @@ func (r *Repo) parseInnerRefFromCache(in map[string]interface{}, depth int) (map
 	out := map[string]interface{}{}
 
 	for prop, value := range in {
-		if _, ok := value.(map[string]interface{}); ok {
-			// this is the structure of an already cached ref
+		if m, ok := value.(map[string]interface{}); ok {
+			mp, err := parseMapProp(m)
+			if err == nil {
+				// this was probably a geo prop
+				out[prop] = mp
+				continue
+			}
+
+			// we have a map that could not be parsed into a known map prop, such as
+			// a geo prop, therefore it must be the structure of an already cached
+			// ref
 			parsed, err := r.parseCacheSchemaToRefs(in, prop, depth)
 			if err != nil {
 				return nil, err
@@ -306,7 +320,6 @@ func (r *Repo) parseInnerRefFromCache(in map[string]interface{}, depth int) (map
 			continue
 		}
 
-		// TODO: Deal with geo location props
 		out[prop] = value
 	}
 
