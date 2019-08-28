@@ -23,10 +23,12 @@ import (
 	"github.com/elastic/go-elasticsearch/v5"
 	"github.com/elastic/go-elasticsearch/v5/esapi"
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -147,8 +149,14 @@ func TestEsVectorRepo(t *testing.T) {
 		// somewhat far from the thing. So it should match the action closer
 		searchVector := []float32{2.9, 1.1, 0.5, 8.01}
 
-		res, err := repo.VectorClassSearch(context.Background(), kind.Thing,
-			"TheBestThingClass", searchVector, 10, nil)
+		params := traverser.GetParams{
+			SearchVector: searchVector,
+			Kind:         kind.Thing,
+			ClassName:    "TheBestThingClass",
+			Pagination:   &filters.Pagination{Limit: 10},
+			Filters:      nil,
+		}
+		res, err := repo.VectorClassSearch(context.Background(), params)
 
 		require.Nil(t, err)
 		require.Len(t, res, 1, "got exactly one result")
@@ -162,8 +170,14 @@ func TestEsVectorRepo(t *testing.T) {
 	})
 
 	t.Run("searching by class type", func(t *testing.T) {
-		res, err := repo.ClassSearch(context.Background(), kind.Thing,
-			"TheBestThingClass", 10, nil)
+		params := traverser.GetParams{
+			SearchVector: nil,
+			Kind:         kind.Thing,
+			ClassName:    "TheBestThingClass",
+			Pagination:   &filters.Pagination{Limit: 10},
+			Filters:      nil,
+		}
+		res, err := repo.ClassSearch(context.Background(), params)
 
 		require.Nil(t, err)
 		require.Len(t, res, 1, "got exactly one result")
@@ -251,9 +265,15 @@ func TestEsVectorRepo(t *testing.T) {
 
 	t.Run("searching by vector for a single thing class again after deletion", func(t *testing.T) {
 		searchVector := []float32{2.9, 1.1, 0.5, 8.01}
+		params := traverser.GetParams{
+			SearchVector: searchVector,
+			Kind:         kind.Thing,
+			ClassName:    "TheBestThingClass",
+			Pagination:   &filters.Pagination{Limit: 10},
+			Filters:      nil,
+		}
 
-		res, err := repo.VectorClassSearch(context.Background(), kind.Thing,
-			"TheBestThingClass", searchVector, 10, nil)
+		res, err := repo.VectorClassSearch(context.Background(), params)
 
 		require.Nil(t, err)
 		assert.Len(t, res, 0)
@@ -261,9 +281,15 @@ func TestEsVectorRepo(t *testing.T) {
 
 	t.Run("searching by vector for a single action class again after deletion", func(t *testing.T) {
 		searchVector := []float32{2.9, 1.1, 0.5, 8.01}
+		params := traverser.GetParams{
+			SearchVector: searchVector,
+			Kind:         kind.Action,
+			ClassName:    "TheBestActionClass",
+			Pagination:   &filters.Pagination{Limit: 10},
+			Filters:      nil,
+		}
 
-		res, err := repo.VectorClassSearch(context.Background(), kind.Action,
-			"TheBestActionClass", searchVector, 10, nil)
+		res, err := repo.VectorClassSearch(context.Background(), params)
 
 		require.Nil(t, err)
 		assert.Len(t, res, 0)

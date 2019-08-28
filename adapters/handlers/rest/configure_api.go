@@ -68,7 +68,7 @@ type vectorizer interface {
 }
 
 type explorer interface {
-	GetClass(ctx context.Context, params *traverser.GetParams) ([]interface{}, error)
+	GetClass(ctx context.Context, params traverser.GetParams) ([]interface{}, error)
 	Concepts(ctx context.Context, params traverser.ExploreParams) ([]search.Result, error)
 }
 

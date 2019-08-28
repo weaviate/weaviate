@@ -26,7 +26,7 @@ type NoOpExplorer struct {
 
 // GetClass errors
 func (n *NoOpExplorer) GetClass(ctx context.Context,
-	params *GetParams) ([]interface{}, error) {
+	params GetParams) ([]interface{}, error) {
 	return nil, n.err
 }
 

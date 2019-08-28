@@ -61,7 +61,7 @@ type VectorSearcher interface {
 }
 
 type explorer interface {
-	GetClass(ctx context.Context, params *GetParams) ([]interface{}, error)
+	GetClass(ctx context.Context, params GetParams) ([]interface{}, error)
 	Concepts(ctx context.Context, params ExploreParams) ([]search.Result, error)
 }
 

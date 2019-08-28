@@ -25,6 +25,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 // ThingSearch searches for all things with optional filters without vector scoring
@@ -83,18 +84,15 @@ func (r *Repo) searchByID(ctx context.Context, index string, id strfmt.UUID,
 }
 
 // ClassSearch searches for classes with optional filters without vector scoring
-func (r *Repo) ClassSearch(ctx context.Context, kind kind.Kind,
-	className string, limit int, filters *filters.LocalFilter) ([]search.Result, error) {
-	index := classIndexFromClassName(kind, className)
-	return r.search(ctx, index, nil, limit, filters, 100)
+func (r *Repo) ClassSearch(ctx context.Context, params traverser.GetParams) ([]search.Result, error) {
+	index := classIndexFromClassName(params.Kind, params.ClassName)
+	return r.search(ctx, index, nil, params.Pagination.Limit, params.Filters, 100)
 }
 
 // VectorClassSearch limits the vector search to a specific class (and kind)
-func (r *Repo) VectorClassSearch(ctx context.Context, kind kind.Kind,
-	className string, vector []float32, limit int,
-	filters *filters.LocalFilter) ([]search.Result, error) {
-	index := classIndexFromClassName(kind, className)
-	return r.search(ctx, index, vector, limit, filters, 100)
+func (r *Repo) VectorClassSearch(ctx context.Context, params traverser.GetParams) ([]search.Result, error) {
+	index := classIndexFromClassName(params.Kind, params.ClassName)
+	return r.search(ctx, index, params.SearchVector, params.Pagination.Limit, params.Filters, 100)
 }
 
 // VectorSearch retrives the closest concepts by vector distance

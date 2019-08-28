@@ -26,6 +26,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -206,8 +207,14 @@ func testPrmitiveProps(repo *Repo,
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				res, err := repo.VectorClassSearch(context.Background(), kind.Thing,
-					carClass.Class, []float32{0.1, 0.1, 0.1, 1.1, 0.1}, 100, test.filter)
+				params := traverser.GetParams{
+					SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
+					Kind:         kind.Thing,
+					ClassName:    carClass.Class,
+					Pagination:   &filters.Pagination{Limit: 100},
+					Filters:      test.filter,
+				}
+				res, err := repo.VectorClassSearch(context.Background(), params)
 				require.Nil(t, err)
 				require.Len(t, res, len(test.expectedIDs))
 
@@ -278,8 +285,14 @@ func testChainedPrmitiveProps(repo *Repo,
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				res, err := repo.VectorClassSearch(context.Background(), kind.Thing,
-					carClass.Class, []float32{0.1, 0.1, 0.1, 1.1, 0.1}, 100, test.filter)
+				params := traverser.GetParams{
+					SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
+					Kind:         kind.Thing,
+					ClassName:    carClass.Class,
+					Pagination:   &filters.Pagination{Limit: 100},
+					Filters:      test.filter,
+				}
+				res, err := repo.VectorClassSearch(context.Background(), params)
 				require.Nil(t, err)
 				require.Len(t, res, len(test.expectedIDs))
 
