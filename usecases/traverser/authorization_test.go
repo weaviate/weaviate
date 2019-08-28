@@ -42,7 +42,7 @@ func Test_Traverser_Authorization(t *testing.T) {
 	tests := []testCase{
 		testCase{
 			methodName:       "GetClass",
-			additionalArgs:   []interface{}{&GetParams{}},
+			additionalArgs:   []interface{}{GetParams{}},
 			expectedVerb:     "get",
 			expectedResource: "traversal/*",
 		},

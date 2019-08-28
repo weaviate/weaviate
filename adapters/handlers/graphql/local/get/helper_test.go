@@ -52,7 +52,7 @@ func newMockResolver(peers peers.Peers) *mockResolver {
 }
 
 func (m *mockResolver) GetClass(ctx context.Context, principal *models.Principal,
-	params *traverser.GetParams) (interface{}, error) {
+	params traverser.GetParams) (interface{}, error) {
 	args := m.Called(params)
 	return args.Get(0), args.Error(1)
 }

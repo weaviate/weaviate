@@ -215,7 +215,7 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 		}()
 
 		return func() (interface{}, error) {
-			return resolver.GetClass(p.Context, principalFromContext(p.Context), &params)
+			return resolver.GetClass(p.Context, principalFromContext(p.Context), params)
 		}, nil
 	}
 }

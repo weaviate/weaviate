@@ -138,17 +138,15 @@ func (f *fakeVectorSearcher) Aggregate(ctx context.Context,
 	return args.Get(0).(*aggregation.Result), args.Error(1)
 }
 
-func (f *fakeVectorSearcher) ClassSearch(ctx context.Context,
-	kind kind.Kind, className string, limit int,
-	filters *filters.LocalFilter) ([]search.Result, error) {
-	args := f.Called(kind, className, limit, filters)
+func (f *fakeVectorSearcher) VectorClassSearch(ctx context.Context,
+	params GetParams) ([]search.Result, error) {
+	args := f.Called(params)
 	return args.Get(0).([]search.Result), args.Error(1)
 }
 
-func (f *fakeVectorSearcher) VectorClassSearch(ctx context.Context,
-	kind kind.Kind, className string, vector []float32, limit int,
-	filters *filters.LocalFilter) ([]search.Result, error) {
-	args := f.Called(kind, className, vector, limit, filters)
+func (f *fakeVectorSearcher) ClassSearch(ctx context.Context,
+	params GetParams) ([]search.Result, error) {
+	args := f.Called(params)
 	return args.Get(0).([]search.Result), args.Error(1)
 }
 
@@ -232,7 +230,7 @@ func (f *fakeVectorRepo) GetAction(ctx context.Context, uuid strfmt.UUID,
 
 type fakeExplorer struct{}
 
-func (f *fakeExplorer) GetClass(ctx context.Context, p *GetParams) ([]interface{}, error) {
+func (f *fakeExplorer) GetClass(ctx context.Context, p GetParams) ([]interface{}, error) {
 	return nil, nil
 }
 

@@ -25,7 +25,7 @@ import (
 )
 
 func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
-	params *GetParams) (interface{}, error) {
+	params GetParams) (interface{}, error) {
 	err := t.authorizer.Authorize(principal, "get", "traversal/*")
 	if err != nil {
 		return nil, err
@@ -44,16 +44,17 @@ func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
 		return t.explorer.GetClass(ctx, params)
 	}
 
-	return t.repo.GetClass(ctx, params)
+	return t.repo.GetClass(ctx, &params)
 }
 
 type GetParams struct {
-	Kind       kind.Kind
-	Filters    *filters.LocalFilter
-	ClassName  string
-	Pagination *filters.Pagination
-	Properties []SelectProperty
-	Explore    *ExploreParams
+	Kind         kind.Kind
+	Filters      *filters.LocalFilter
+	ClassName    string
+	Pagination   *filters.Pagination
+	Properties   []SelectProperty
+	Explore      *ExploreParams
+	SearchVector []float32
 }
 
 type SelectProperty struct {
