@@ -43,11 +43,11 @@ func (r *NoOpRepo) VectorSearch(ctx context.Context, vector []float32, limit int
 	filters *filters.LocalFilter) ([]search.Result, error) {
 	panic("no op repo: not implemented")
 }
-func (r *NoOpRepo) ThingByID(ctx context.Context, id strfmt.UUID, depth int) (*search.Result, error) {
+func (r *NoOpRepo) ThingByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties) (*search.Result, error) {
 	panic("no op repo: not implemented")
 }
 
-func (r *NoOpRepo) ActionByID(ctx context.Context, id strfmt.UUID, depth int) (*search.Result, error) {
+func (r *NoOpRepo) ActionByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties) (*search.Result, error) {
 	panic("no op repo: not implemented")
 }
 

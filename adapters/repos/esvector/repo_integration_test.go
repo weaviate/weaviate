@@ -208,7 +208,7 @@ func TestEsVectorRepo(t *testing.T) {
 	})
 
 	t.Run("searching a thing by ID", func(t *testing.T) {
-		item, err := repo.ThingByID(context.Background(), thingID, 0)
+		item, err := repo.ThingByID(context.Background(), thingID, traverser.SelectProperties{})
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
@@ -222,7 +222,7 @@ func TestEsVectorRepo(t *testing.T) {
 	})
 
 	t.Run("searching an action by ID", func(t *testing.T) {
-		item, err := repo.ActionByID(context.Background(), actionID, 0)
+		item, err := repo.ActionByID(context.Background(), actionID, traverser.SelectProperties{})
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 

@@ -12,6 +12,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func (r *Repo) PopulateCache(ctx context.Context, kind kind.Kind, id strfmt.UUID) error {
@@ -123,9 +124,11 @@ func (c *cacheManager) populate(ctx context.Context, kind kind.Kind, id strfmt.U
 func (c *cacheManager) getObject(ctx context.Context, k kind.Kind, id strfmt.UUID) (*search.Result, error) {
 	switch k {
 	case kind.Thing:
-		return c.repo.ThingByID(ctx, id, 0)
+		// empty selectproperties make sure that we don't resolve any refs
+		return c.repo.ThingByID(ctx, id, traverser.SelectProperties{})
 	case kind.Action:
-		return c.repo.ActionByID(ctx, id, 0)
+		// empty selectproperties make sure that we don't resolve any refs
+		return c.repo.ActionByID(ctx, id, traverser.SelectProperties{})
 	default:
 		return nil, fmt.Errorf("impossible kind: %v", k)
 	}

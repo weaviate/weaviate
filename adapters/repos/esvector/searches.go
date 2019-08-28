@@ -31,36 +31,36 @@ import (
 // ThingSearch searches for all things with optional filters without vector scoring
 func (r *Repo) ThingSearch(ctx context.Context, limit int,
 	filters *filters.LocalFilter) (search.Results, error) {
-	return r.search(ctx, allThingIndices, nil, limit, filters, 100)
+	return r.search(ctx, allThingIndices, nil, limit, filters, traverser.GetParams{})
 }
 
 // ActionSearch searches for all things with optional filters without vector scoring
 func (r *Repo) ActionSearch(ctx context.Context, limit int,
 	filters *filters.LocalFilter) (search.Results, error) {
-	return r.search(ctx, allActionIndices, nil, limit, filters, 100)
+	return r.search(ctx, allActionIndices, nil, limit, filters, traverser.GetParams{})
 }
 
 // ThingByID extracts the one result matching the ID. Returns nil on no results
 // (without errors), but errors if it finds more than 1 results
 func (r *Repo) ThingByID(ctx context.Context, id strfmt.UUID,
-	resolveDepth int) (*search.Result, error) {
-	return r.searchByID(ctx, allThingIndices, id, resolveDepth)
+	params traverser.SelectProperties) (*search.Result, error) {
+	return r.searchByID(ctx, allThingIndices, id, params)
 }
 
 // ActionByID extracts the one result matching the ID. Returns nil on no results
 // (without errors), but errors if it finds more than 1 results
 func (r *Repo) ActionByID(ctx context.Context, id strfmt.UUID,
-	resolveDepth int) (*search.Result, error) {
-	return r.searchByID(ctx, allActionIndices, id, resolveDepth)
+	params traverser.SelectProperties) (*search.Result, error) {
+	return r.searchByID(ctx, allActionIndices, id, params)
 }
 
 func (r *Repo) byIndexAndID(ctx context.Context, index string, id strfmt.UUID,
-	resolveDepth int) (*search.Result, error) {
-	return r.searchByID(ctx, index, id, resolveDepth)
+	params traverser.SelectProperties) (*search.Result, error) {
+	return r.searchByID(ctx, index, id, params)
 }
 
 func (r *Repo) searchByID(ctx context.Context, index string, id strfmt.UUID,
-	resolveDepth int) (*search.Result, error) {
+	properties traverser.SelectProperties) (*search.Result, error) {
 	filters := &filters.LocalFilter{
 		Root: &filters.Clause{
 			On:       &filters.Path{Property: schema.PropertyName(keyID)},
@@ -68,7 +68,7 @@ func (r *Repo) searchByID(ctx context.Context, index string, id strfmt.UUID,
 			Operator: filters.OperatorEqual,
 		},
 	}
-	res, err := r.search(ctx, index, nil, 2, filters, resolveDepth)
+	res, err := r.search(ctx, index, nil, 2, filters, traverser.GetParams{Properties: properties})
 	if err != nil {
 		return nil, err
 	}
@@ -86,24 +86,24 @@ func (r *Repo) searchByID(ctx context.Context, index string, id strfmt.UUID,
 // ClassSearch searches for classes with optional filters without vector scoring
 func (r *Repo) ClassSearch(ctx context.Context, params traverser.GetParams) ([]search.Result, error) {
 	index := classIndexFromClassName(params.Kind, params.ClassName)
-	return r.search(ctx, index, nil, params.Pagination.Limit, params.Filters, 100)
+	return r.search(ctx, index, nil, params.Pagination.Limit, params.Filters, params)
 }
 
 // VectorClassSearch limits the vector search to a specific class (and kind)
 func (r *Repo) VectorClassSearch(ctx context.Context, params traverser.GetParams) ([]search.Result, error) {
 	index := classIndexFromClassName(params.Kind, params.ClassName)
-	return r.search(ctx, index, params.SearchVector, params.Pagination.Limit, params.Filters, 100)
+	return r.search(ctx, index, params.SearchVector, params.Pagination.Limit, params.Filters, params)
 }
 
 // VectorSearch retrives the closest concepts by vector distance
 func (r *Repo) VectorSearch(ctx context.Context, vector []float32,
 	limit int, filters *filters.LocalFilter) ([]search.Result, error) {
-	return r.search(ctx, "*", vector, limit, filters, 100)
+	return r.search(ctx, "*", vector, limit, filters, traverser.GetParams{})
 }
 
 func (r *Repo) search(ctx context.Context, index string,
 	vector []float32, limit int,
-	filters *filters.LocalFilter, resolveDepth int) ([]search.Result, error) {
+	filters *filters.LocalFilter, params traverser.GetParams) ([]search.Result, error) {
 	var buf bytes.Buffer
 
 	query, err := queryFromFilter(filters)
@@ -127,7 +127,7 @@ func (r *Repo) search(ctx context.Context, index string,
 		return nil, fmt.Errorf("vector search: %v", err)
 	}
 
-	return r.searchResponse(res, resolveDepth)
+	return r.searchResponse(res, params.Properties)
 }
 
 func (r *Repo) buildSearchBody(filterQuery map[string]interface{}, vector []float32, limit int) map[string]interface{} {
@@ -185,7 +185,7 @@ type hit struct {
 	Index  string                 `json:"_index"`
 }
 
-func (r *Repo) searchResponse(res *esapi.Response, resolveDepth int) ([]search.Result,
+func (r *Repo) searchResponse(res *esapi.Response, properties traverser.SelectProperties) ([]search.Result,
 	error) {
 	if err := errorResToErr(res, r.logger); err != nil {
 		return nil, fmt.Errorf("vector search: %v", err)
@@ -198,10 +198,10 @@ func (r *Repo) searchResponse(res *esapi.Response, resolveDepth int) ([]search.R
 		return nil, fmt.Errorf("vector search: decode json: %v", err)
 	}
 
-	return sr.toResults(r, resolveDepth)
+	return sr.toResults(r, properties)
 }
 
-func (sr searchResponse) toResults(r *Repo, resolveDepth int) ([]search.Result, error) {
+func (sr searchResponse) toResults(r *Repo, properties traverser.SelectProperties) ([]search.Result, error) {
 	hits := sr.Hits.Hits
 	output := make([]search.Result, len(hits), len(hits))
 	for i, hit := range hits {
@@ -216,7 +216,7 @@ func (sr searchResponse) toResults(r *Repo, resolveDepth int) ([]search.Result, 
 		}
 
 		cache := r.extractCache(hit.Source)
-		schema, err := r.parseSchema(hit.Source, resolveDepth, cache, 0)
+		schema, err := r.parseSchema(hit.Source, properties, cache, 0)
 		if err != nil {
 			return nil, fmt.Errorf("vector search: result %d: %v", i, err)
 		}
