@@ -102,6 +102,11 @@ func TestGetParams(t *testing.T) {
 			require.Nil(t, err)
 			assert.Equal(t, false, resolve)
 		})
+
+		t.Run("selecting a specific prop", func(t *testing.T) {
+			prop := sp.FindProperty("inCity")
+			assert.Equal(t, prop, &sp[1])
+		})
 	})
 
 }

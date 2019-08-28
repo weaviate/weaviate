@@ -23,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/kinds/validation"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type addAndGetRepo interface {
@@ -151,10 +152,10 @@ func (m *Manager) exists(ctx context.Context, k kind.Kind, id strfmt.UUID) (bool
 	} else {
 		switch k {
 		case kind.Thing:
-			res, err := m.vectorRepo.ThingByID(ctx, id, 0)
+			res, err := m.vectorRepo.ThingByID(ctx, id, traverser.SelectProperties{})
 			return res != nil, err
 		case kind.Action:
-			res, err := m.vectorRepo.ActionByID(ctx, id, 0)
+			res, err := m.vectorRepo.ActionByID(ctx, id, traverser.SelectProperties{})
 			return res != nil, err
 		default:
 			panic("impossible kind")

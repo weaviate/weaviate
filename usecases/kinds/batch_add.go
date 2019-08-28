@@ -25,6 +25,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/kinds/validation"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 // AddActions Class Instances in batch to the connected DB
@@ -158,10 +159,10 @@ func (b *BatchManager) exists(ctx context.Context, k kind.Kind, id strfmt.UUID) 
 	} else {
 		switch k {
 		case kind.Thing:
-			res, err := b.vectorRepo.ThingByID(ctx, id, 0)
+			res, err := b.vectorRepo.ThingByID(ctx, id, traverser.SelectProperties{})
 			return res != nil, err
 		case kind.Action:
-			res, err := b.vectorRepo.ActionByID(ctx, id, 0)
+			res, err := b.vectorRepo.ActionByID(ctx, id, traverser.SelectProperties{})
 			return res != nil, err
 		default:
 			panic("impossible kind")

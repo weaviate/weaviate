@@ -29,6 +29,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 )
 
@@ -80,8 +81,8 @@ type VectorRepo interface {
 	DeleteAction(ctx context.Context, className string, id strfmt.UUID) error
 	DeleteThing(ctx context.Context, className string, id strfmt.UUID) error
 
-	ThingByID(ctx context.Context, id strfmt.UUID, depth int) (*search.Result, error)
-	ActionByID(ctx context.Context, id strfmt.UUID, depth int) (*search.Result, error)
+	ThingByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties) (*search.Result, error)
+	ActionByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties) (*search.Result, error)
 
 	ThingSearch(ctx context.Context, limit int, filters *filters.LocalFilter) (search.Results, error)
 	ActionSearch(ctx context.Context, limit int, filters *filters.LocalFilter) (search.Results, error)

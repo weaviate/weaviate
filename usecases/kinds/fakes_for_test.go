@@ -23,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -197,12 +198,12 @@ type fakeVectorRepo struct {
 }
 
 func (f *fakeVectorRepo) ThingByID(ctx context.Context,
-	id strfmt.UUID, depth int) (*search.Result, error) {
+	id strfmt.UUID, props traverser.SelectProperties) (*search.Result, error) {
 	return nil, nil
 }
 
 func (f *fakeVectorRepo) ActionByID(ctx context.Context,
-	id strfmt.UUID, depth int) (*search.Result, error) {
+	id strfmt.UUID, props traverser.SelectProperties) (*search.Result, error) {
 	return nil, nil
 }
 

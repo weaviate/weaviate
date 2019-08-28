@@ -108,3 +108,13 @@ func (sp SelectProperties) ShouldResolve(path []string) (bool, error) {
 
 	return false, nil
 }
+
+func (sp SelectProperties) FindProperty(propName string) *SelectProperty {
+	for _, prop := range sp {
+		if prop.Name == propName {
+			return &prop
+		}
+	}
+
+	return nil
+}
