@@ -39,11 +39,11 @@ func TestEsVectorRepo(t *testing.T) {
 		Addresses: []string{"http://localhost:9201"},
 	})
 	require.Nil(t, err)
-	waitForEsToBeReady(t, client)
 
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{}
 	repo := NewRepo(client, logger, schemaGetter, 3)
+	waitForEsToBeReady(t, repo)
 	migrator := NewMigrator(repo)
 
 	t.Run("creating the thing class", func(t *testing.T) {
@@ -296,29 +296,6 @@ func TestEsVectorRepo(t *testing.T) {
 	})
 }
 
-func waitForEsToBeReady(t *testing.T, client *elasticsearch.Client) {
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
-	t.Log("waiting for ES to start up")
-	defer cancel()
-
-	var lastErr error
-
-	for {
-		if err := ctx.Err(); err != nil {
-			t.Fatalf("es didn't start up in time: %v, last error: %v", err, lastErr)
-		}
-
-		_, err := client.Info()
-		if err != nil {
-			lastErr = err
-		} else {
-			return
-		}
-
-		time.Sleep(2 * time.Second)
-	}
-}
-
 func findID(list []search.Result, id strfmt.UUID) (search.Result, bool) {
 	for _, item := range list {
 		if item.ID == id {
@@ -348,5 +325,12 @@ func refreshAll(t *testing.T, c *elasticsearch.Client) {
 	if err := errorResToErr(res, log); err != nil {
 		t.Errorf("index refresh request: %v", err)
 		return
+	}
+}
+
+func waitForEsToBeReady(t *testing.T, repo *Repo) {
+	err := repo.WaitForStartup(1 * time.Minute)
+	if err != nil {
+		t.Errorf("didn't start up: %v", err)
 	}
 }

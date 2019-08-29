@@ -60,6 +60,7 @@ type vectorRepo interface {
 	traverser.VectorSearcher
 	SetSchemaGetter(schemaUC.SchemaGetter)
 	InitCacheIndexing(int, time.Duration, time.Duration)
+	WaitForStartup(time.Duration) error
 }
 
 type vectorizer interface {
@@ -126,6 +127,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	vectorRepo.SetSchemaGetter(schemaManager)
+	err = vectorRepo.WaitForStartup(2 * time.Minute)
+	if err != nil {
+		appState.Logger.
+			WithError(err).
+			WithField("action", "startup").WithError(err).
+			Fatal("esvector didn't start up")
+		os.Exit(1)
+	}
 	vectorRepo.InitCacheIndexing(
 		appState.ServerConfig.Config.VectorIndex.CacheCycleBulkSize,
 		time.Duration(appState.ServerConfig.Config.VectorIndex.CacheCycleIdleWaitTime)*time.Millisecond,

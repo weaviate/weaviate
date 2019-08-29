@@ -101,6 +101,10 @@ func (r *NoOpRepo) InitCacheIndexing(size int, waitOnIdle, waitOnBusy time.Durat
 	return
 }
 
+func (r *NoOpRepo) WaitForStartup(time.Duration) error {
+	return nil
+}
+
 // NewNoOpRepo for when vector indexing is not desired
 func NewNoOpRepo() *NoOpRepo {
 	return &NoOpRepo{}

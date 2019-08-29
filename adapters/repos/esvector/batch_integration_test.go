@@ -24,11 +24,11 @@ func TestEsVectorRepoBatch(t *testing.T) {
 		Addresses: []string{"http://localhost:9201"},
 	})
 	require.Nil(t, err)
-	waitForEsToBeReady(t, client)
 
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{}
 	repo := NewRepo(client, logger, schemaGetter, 3)
+	waitForEsToBeReady(t, repo)
 	migrator := NewMigrator(repo)
 
 	t.Run("creating the thing class", testAddBatchThingClass(repo, migrator))

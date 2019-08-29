@@ -56,11 +56,11 @@ func Test_Filters(t *testing.T) {
 		Addresses: []string{"http://localhost:9201"},
 	})
 	require.Nil(t, err)
-	waitForEsToBeReady(t, client)
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{}
 	repo := NewRepo(client, logger, schemaGetter, 3)
+	waitForEsToBeReady(t, repo)
 	migrator := NewMigrator(repo)
 
 	t.Run("prepare test schema and data ",
