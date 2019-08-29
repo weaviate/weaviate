@@ -81,10 +81,10 @@ func TestEsVectorMigrator(t *testing.T) {
 		},
 	}
 	require.Nil(t, err)
-	waitForEsToBeReady(t, client)
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{schema: refSchema}
 	repo := NewRepo(client, logger, schemaGetter, 3)
+	waitForEsToBeReady(t, repo)
 	migrator := NewMigrator(repo)
 
 	t.Run("adding a class", func(t *testing.T) {
@@ -275,10 +275,10 @@ func TestEsVectorMigrator_ImportingConcepts(t *testing.T) {
 		Addresses: []string{"http://localhost:9201"},
 	})
 	require.Nil(t, err)
-	waitForEsToBeReady(t, client)
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{}
 	repo := NewRepo(client, logger, schemaGetter, 3)
+	waitForEsToBeReady(t, repo)
 	migrator := NewMigrator(repo)
 
 	t.Run("add a thing to the schema", func(t *testing.T) {

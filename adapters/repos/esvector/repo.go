@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/elastic/go-elasticsearch/v5"
 	"github.com/elastic/go-elasticsearch/v5/esapi"
@@ -73,6 +74,35 @@ func NewRepo(client *elasticsearch.Client, logger logrus.FieldLogger,
 
 func (r *Repo) SetSchemaGetter(sg schemaUC.SchemaGetter) {
 	r.schemaGetter = sg
+}
+
+func (r *Repo) WaitForStartup(maxWaitTime time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), maxWaitTime)
+	defer cancel()
+
+	r.logger.
+		WithField("action", "esvector_startup").
+		WithField("maxWaitTime", maxWaitTime).
+		Infof("waiting for es vector to start up (maximum %s)", maxWaitTime)
+
+	var lastErr error
+
+	for {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("esvector didn't start up in time: %v, last error: %v", err, lastErr)
+		}
+
+		_, err := r.client.Info()
+		if err != nil {
+			lastErr = err
+			r.logger.WithError(err).WithField("action", "esvector_startup_cycle").
+				Debug("esvector not ready yet, trying again in 1s")
+		} else {
+			return nil
+		}
+
+		time.Sleep(1 * time.Second)
+	}
 }
 
 // PutThing idempotently adds a Thing with its vector representation

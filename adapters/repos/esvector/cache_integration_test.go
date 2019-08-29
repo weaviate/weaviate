@@ -107,10 +107,10 @@ func TestEsVectorCache(t *testing.T) {
 		},
 	}
 	require.Nil(t, err)
-	waitForEsToBeReady(t, client)
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{schema: refSchema}
 	repo := NewRepo(client, logger, schemaGetter, 2)
+	waitForEsToBeReady(t, repo)
 	requestCounter := &testCounter{}
 	repo.requestCounter = requestCounter
 	migrator := NewMigrator(repo)
