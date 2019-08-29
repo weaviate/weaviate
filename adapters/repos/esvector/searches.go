@@ -113,6 +113,8 @@ func (r *Repo) search(ctx context.Context, index string,
 		WithField("params", params).
 		Debug("starting search to esvector")
 
+	r.requestCounter.Inc()
+
 	var buf bytes.Buffer
 
 	query, err := queryFromFilter(filters)

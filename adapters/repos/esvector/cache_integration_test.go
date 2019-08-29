@@ -18,6 +18,7 @@ package esvector
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -109,7 +110,9 @@ func TestEsVectorCache(t *testing.T) {
 	waitForEsToBeReady(t, client)
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{schema: refSchema}
-	repo := NewRepo(client, logger, schemaGetter, 3)
+	repo := NewRepo(client, logger, schemaGetter, 2)
+	requestCounter := &testCounter{}
+	repo.requestCounter = requestCounter
 	migrator := NewMigrator(repo)
 
 	t.Run("adding all classes to the schema", func(t *testing.T) {
@@ -239,11 +242,16 @@ func TestEsVectorCache(t *testing.T) {
 			"uuid": "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
 		}
 
+		requestCounter.reset()
 		res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
 			fullyNestedSelectProperties())
 		require.Nil(t, err)
 		assert.Equal(t, false, res.CacheHot)
 		assert.Equal(t, expectedSchema, res.Schema)
+		// we are expecting 5 request to be made for this, since cache is not hot
+		// yet. Quering the initial places is a single request, each nested level
+		// is another request; 1+4=5
+		assert.Equal(t, 5, requestCounter.count)
 		before = res
 	})
 
@@ -275,11 +283,14 @@ func TestEsVectorCache(t *testing.T) {
 			"uuid": "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
 		}
 
+		requestCounter.reset()
 		res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
 			partiallyNestedSelectProperties())
 		require.Nil(t, err)
 		assert.Equal(t, false, res.CacheHot)
 		assert.Equal(t, expectedSchema, res.Schema)
+		// 2 Requests: Place + (inCity->City)
+		assert.Equal(t, 2, requestCounter.count)
 	})
 
 	t.Run("init caching state machine", func(t *testing.T) {
@@ -305,24 +316,26 @@ func TestEsVectorCache(t *testing.T) {
 
 	t.Run("inspecting the cache for the place to make sure caching stopped at the configured boundary",
 		func(t *testing.T) {
+			requestCounter.reset()
 			res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
 				traverser.SelectProperties{})
 			require.Nil(t, err)
+			// we didn't specify any selectProperties, so there shouldn't be any
+			// additional requests at all, only the initial request to get the place
+			assert.Equal(t, 1, requestCounter.count)
 
-			// our desired depth is three, this means three refs should be fully
-			// resolved, whereas the fourth one is merely referenced by a beacon.
+			// our desired depth is 2, this means 2 refs should be fully
+			// resolved, whereas the 3rd one is merely referenced by a beacon.
 			// This means we should see fully resolved
-			// inCity/City->inCountry/Country->onContinent/Continent, the next level
-			// (onPlanet/Planet) should merely be referenced by an unresolved beacon
+			// inCity/City->inCountry/Country->, the next level
+			// (onContinent/continent) should merely be referenced by an unresolved beacon
 
 			inCity := res.CacheSchema["inCity"].(map[string]interface{})
 			city := inCity["City"].([]interface{})[0].(map[string]interface{})
 			inCountry := city["inCountry"].(map[string]interface{})
 			country := inCountry["Country"].([]interface{})[0].(map[string]interface{})
-			onContinent := country["onContinent"].(map[string]interface{})
-			continent := onContinent["Continent"].([]interface{})[0].(map[string]interface{})
 
-			refs, ok := continent["onPlanet"].([]interface{})
+			refs, ok := country["onContinent"].([]interface{})
 			// if onPlanet were resolved it would be a map. The fact that it's a
 			// slice is the first indication that it was unresolved
 			assert.True(t, ok)
@@ -332,12 +345,15 @@ func TestEsVectorCache(t *testing.T) {
 
 			beacon, ok := firstRef["beacon"]
 			assert.True(t, ok)
-			assert.Equal(t, "weaviate://localhost/things/32c69af9-cbbe-4ec9-bf6c-365cd6c22fdf", beacon)
+			assert.Equal(t, "weaviate://localhost/things/4aad8154-e7f3-45b8-81a6-725171419e55", beacon)
 		})
 
 	t.Run("fully resolving the place after cache is hot", func(t *testing.T) {
+		requestCounter.reset()
 		res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
 			fullyNestedSelectProperties())
+		// we are crossing the cache boundary, so we are expecting an additional request
+		assert.Equal(t, 2, requestCounter.count)
 
 		require.Nil(t, err)
 
@@ -478,4 +494,23 @@ func partiallyNestedSelectProperties() traverser.SelectProperties {
 			},
 		},
 	}
+}
+
+type testCounter struct {
+	sync.Mutex
+	count int
+}
+
+func (c *testCounter) Inc() {
+	c.Lock()
+	defer c.Unlock()
+
+	c.count = c.count + 1
+}
+
+func (c *testCounter) reset() {
+	c.Lock()
+	defer c.Unlock()
+
+	c.count = 0
 }

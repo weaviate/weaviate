@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -319,6 +320,7 @@ func (r *Repo) parseInnerRefFromCache(in map[string]interface{}, depth int,
 	out := map[string]interface{}{}
 
 	for prop, value := range in {
+
 		if m, ok := value.(map[string]interface{}); ok {
 			mp, err := parseMapProp(m)
 			if err == nil {
@@ -326,15 +328,15 @@ func (r *Repo) parseInnerRefFromCache(in map[string]interface{}, depth int,
 				out[prop] = mp
 				continue
 			}
-
-			// we have a map that could not be parsed into a known map prop, such as
-			// a geo prop, therefore it must be the structure of an already cached
-			// ref
 			innerSelectProp := selectClass.RefProperties.FindProperty(uppercaseFirstLetter(prop))
 			if innerSelectProp == nil {
 				// the user is not interested in this prop
 				continue
 			}
+
+			// we have a map that could not be parsed into a known map prop, such as
+			// a geo prop, therefore it must be the structure of an already cached
+			// ref
 
 			parsed, err := r.parseCacheSchemaToRefs(in, prop, depth, *innerSelectProp)
 			if err != nil {
@@ -348,12 +350,25 @@ func (r *Repo) parseInnerRefFromCache(in map[string]interface{}, depth int,
 		}
 
 		if list, ok := value.([]interface{}); ok {
-			// a list indicates an unresolved ref
-			// TODO: use real properties!
-			resolved, err := r.resolveRefsWithoutCache(list, traverser.SelectProperties{})
+			innerSelectProp := selectClass.RefProperties.FindProperty(uppercaseFirstLetter(prop))
+			if innerSelectProp == nil {
+				// the user is not interested in this prop
+				continue
+			}
+
+			if len(innerSelectProp.Refs) == 0 {
+				continue
+			}
+
+			// TODO: Don't hard-code first class, but accept all
+			innerRefProps := innerSelectProp.Refs[0].RefProperties
+			resolved, err := r.resolveRefsWithoutCache(list, innerRefProps)
 			if err != nil {
 				return nil, fmt.Errorf("resolving refs without cache because cache ended: %v", err)
 			}
+
+			fmt.Printf("\nwe got this back from our additional request:\n")
+			spew.Dump(resolved)
 
 			out[uppercaseFirstLetter(prop)] = resolved
 			continue
