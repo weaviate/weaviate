@@ -191,193 +191,224 @@ func TestEsVectorCache(t *testing.T) {
 				require.Nil(t, err)
 			})
 		}
+	})
 
-		refreshAll(t, client)
+	refreshAll(t, client)
 
-		var before *search.Result
-		t.Run("fully resolving the place before we have cache", func(t *testing.T) {
-			expectedSchema := map[string]interface{}{
-				"InCity": []interface{}{
-					get.LocalRef{
-						Class: "City",
-						Fields: map[string]interface{}{
-							"InCountry": []interface{}{
-								get.LocalRef{
-									Class: "Country",
-									Fields: map[string]interface{}{
-										"OnContinent": []interface{}{
-											get.LocalRef{
-												Class: "Continent",
-												Fields: map[string]interface{}{
-													"OnPlanet": []interface{}{
-														get.LocalRef{
-															Class: "Planet",
-															Fields: map[string]interface{}{
-																"name": "Earth",
-																"uuid": "32c69af9-cbbe-4ec9-bf6c-365cd6c22fdf",
-															},
+	var before *search.Result
+	_ = before
+	t.Run("fully resolving the place before we have cache", func(t *testing.T) {
+		expectedSchema := map[string]interface{}{
+			"InCity": []interface{}{
+				get.LocalRef{
+					Class: "City",
+					Fields: map[string]interface{}{
+						"InCountry": []interface{}{
+							get.LocalRef{
+								Class: "Country",
+								Fields: map[string]interface{}{
+									"OnContinent": []interface{}{
+										get.LocalRef{
+											Class: "Continent",
+											Fields: map[string]interface{}{
+												"OnPlanet": []interface{}{
+													get.LocalRef{
+														Class: "Planet",
+														Fields: map[string]interface{}{
+															"name": "Earth",
+															"uuid": "32c69af9-cbbe-4ec9-bf6c-365cd6c22fdf",
 														},
 													},
-													"name": "North America",
-													"uuid": "4aad8154-e7f3-45b8-81a6-725171419e55",
 												},
+												"name": "North America",
+												"uuid": "4aad8154-e7f3-45b8-81a6-725171419e55",
 											},
 										},
-										"name": "USA",
-										"uuid": "18c80a16-346a-477d-849d-9d92e5040ac9",
 									},
-								},
-							},
-							"name": "San Francisco",
-							"uuid": "2297e094-6218-43d4-85b1-3d20af752f23",
-						},
-					},
-				},
-				"name": "Tim Apple's Fruit Bar",
-				"uuid": "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-			}
-
-			res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-				fullyNestedSelectProperties())
-			require.Nil(t, err)
-			assert.Equal(t, false, res.CacheHot)
-			assert.Equal(t, expectedSchema, res.Schema)
-			before = res
-		})
-
-		t.Run("partially resolving the place before we have cache", func(t *testing.T) {
-			expectedSchema := map[string]interface{}{
-				"InCity": []interface{}{
-					get.LocalRef{
-						Class: "City",
-						Fields: map[string]interface{}{
-							"name": "San Francisco",
-							"uuid": "2297e094-6218-43d4-85b1-3d20af752f23",
-							// why is inCountry present here? We didn't specify it our select
-							// properties. Note it is "inCountry" with a lowercase letter
-							// (meaning unresolved) whereas "InCountry" would mean it was
-							// resolved. In GraphQL this property would simply be hidden (as
-							// the GQL is unaware of unresolved properties)
-							// However, for caching and other queries it is helpful that this
-							// info is still present, the important thing is that we're
-							// avoiding the costly resolving of it, if we don't need it.
-							"inCountry": models.MultipleRef{
-								&models.SingleRef{
-									Beacon: "weaviate://localhost/things/18c80a16-346a-477d-849d-9d92e5040ac9",
+									"name": "USA",
+									"uuid": "18c80a16-346a-477d-849d-9d92e5040ac9",
 								},
 							},
 						},
+						"name": "San Francisco",
+						"uuid": "2297e094-6218-43d4-85b1-3d20af752f23",
 					},
 				},
-				"name": "Tim Apple's Fruit Bar",
-				"uuid": "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-			}
+			},
+			"name": "Tim Apple's Fruit Bar",
+			"uuid": "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
+		}
 
-			res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-				partiallyNestedSelectProperties())
-			require.Nil(t, err)
-			assert.Equal(t, false, res.CacheHot)
-			assert.Equal(t, expectedSchema, res.Schema)
-		})
+		res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
+			fullyNestedSelectProperties())
+		require.Nil(t, err)
+		assert.Equal(t, false, res.CacheHot)
+		assert.Equal(t, expectedSchema, res.Schema)
+		before = res
+	})
 
-		t.Run("init caching state machine", func(t *testing.T) {
-			repo.InitCacheIndexing(50, 200*time.Millisecond, 200*time.Millisecond)
-		})
+	t.Run("partially resolving the place before we have cache", func(t *testing.T) {
+		expectedSchema := map[string]interface{}{
+			"InCity": []interface{}{
+				get.LocalRef{
+					Class: "City",
+					Fields: map[string]interface{}{
+						"name": "San Francisco",
+						"uuid": "2297e094-6218-43d4-85b1-3d20af752f23",
+						// why is inCountry present here? We didn't specify it our select
+						// properties. Note it is "inCountry" with a lowercase letter
+						// (meaning unresolved) whereas "InCountry" would mean it was
+						// resolved. In GraphQL this property would simply be hidden (as
+						// the GQL is unaware of unresolved properties)
+						// However, for caching and other queries it is helpful that this
+						// info is still present, the important thing is that we're
+						// avoiding the costly resolving of it, if we don't need it.
+						"inCountry": models.MultipleRef{
+							&models.SingleRef{
+								Beacon: "weaviate://localhost/things/18c80a16-346a-477d-849d-9d92e5040ac9",
+							},
+						},
+					},
+				},
+			},
+			"name": "Tim Apple's Fruit Bar",
+			"uuid": "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
+		}
 
-		// wait for both es indexing as well as esvector caching to be complete
-		time.Sleep(1000 * time.Millisecond)
+		res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
+			partiallyNestedSelectProperties())
+		require.Nil(t, err)
+		assert.Equal(t, false, res.CacheHot)
+		assert.Equal(t, expectedSchema, res.Schema)
+	})
 
-		t.Run("all 3 (outer) things must now have a hot cache", func(t *testing.T) {
-			res, err := repo.ThingByID(context.Background(), "18c80a16-346a-477d-849d-9d92e5040ac9", traverser.SelectProperties{})
-			require.Nil(t, err)
-			assert.Equal(t, true, res.CacheHot)
+	t.Run("init caching state machine", func(t *testing.T) {
+		repo.InitCacheIndexing(50, 200*time.Millisecond, 200*time.Millisecond)
+	})
 
-			res, err = repo.ThingByID(context.Background(), "18c80a16-346a-477d-849d-9d92e5040ac9", traverser.SelectProperties{})
-			require.Nil(t, err)
-			assert.Equal(t, true, res.CacheHot)
+	// wait for both es indexing as well as esvector caching to be complete
+	time.Sleep(1000 * time.Millisecond)
 
-			res, err = repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac", traverser.SelectProperties{})
-			require.Nil(t, err)
-			assert.Equal(t, true, res.CacheHot)
-		})
+	t.Run("all 3 (outer) things must now have a hot cache", func(t *testing.T) {
+		res, err := repo.ThingByID(context.Background(), "18c80a16-346a-477d-849d-9d92e5040ac9", traverser.SelectProperties{})
+		require.Nil(t, err)
+		assert.Equal(t, true, res.CacheHot)
 
-		_ = before
+		res, err = repo.ThingByID(context.Background(), "18c80a16-346a-477d-849d-9d92e5040ac9", traverser.SelectProperties{})
+		require.Nil(t, err)
+		assert.Equal(t, true, res.CacheHot)
 
-		t.Run("fully resolving the place after cache is hot", func(t *testing.T) {
-			res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-				fullyNestedSelectProperties())
+		res, err = repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac", traverser.SelectProperties{})
+		require.Nil(t, err)
+		assert.Equal(t, true, res.CacheHot)
+	})
 
-			require.Nil(t, err)
-
-			assert.Equal(t, before.Schema, res.Schema, "result without a cache and with a cache should look the same")
-		})
-
-		t.Run("resolving without any refs", func(t *testing.T) {
+	t.Run("inspecting the cache for the place to make sure caching stopped at the configured boundary",
+		func(t *testing.T) {
 			res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
 				traverser.SelectProperties{})
+			require.Nil(t, err)
 
-			expectedSchema := map[string]interface{}{
-				"uuid": "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
+			// our desired depth is three, this means three refs should be fully
+			// resolved, whereas the fourth one is merely referenced by a beacon.
+			// This means we should see fully resolved
+			// inCity/City->inCountry/Country->onContinent/Continent, the next level
+			// (onPlanet/Planet) should merely be referenced by an unresolved beacon
+
+			inCity := res.CacheSchema["inCity"].(map[string]interface{})
+			city := inCity["City"].([]interface{})[0].(map[string]interface{})
+			inCountry := city["inCountry"].(map[string]interface{})
+			country := inCountry["Country"].([]interface{})[0].(map[string]interface{})
+			onContinent := country["onContinent"].(map[string]interface{})
+			continent := onContinent["Continent"].([]interface{})[0].(map[string]interface{})
+
+			refs, ok := continent["onPlanet"].([]interface{})
+			// if onPlanet were resolved it would be a map. The fact that it's a
+			// slice is the first indication that it was unresolved
+			assert.True(t, ok)
+
+			firstRef, ok := refs[0].(map[string]interface{})
+			assert.True(t, ok)
+
+			beacon, ok := firstRef["beacon"]
+			assert.True(t, ok)
+			assert.Equal(t, "weaviate://localhost/things/32c69af9-cbbe-4ec9-bf6c-365cd6c22fdf", beacon)
+		})
+
+	t.Run("fully resolving the place after cache is hot", func(t *testing.T) {
+		res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
+			fullyNestedSelectProperties())
+
+		require.Nil(t, err)
+
+		assert.Equal(t, before.Schema, res.Schema, "result without a cache and with a cache should look the same")
+	})
+
+	t.Run("resolving without any refs", func(t *testing.T) {
+		res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
+			traverser.SelectProperties{})
+
+		expectedSchema := map[string]interface{}{
+			"uuid": "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
+			"inCity": models.MultipleRef{
+				&models.SingleRef{
+					Beacon: "weaviate://localhost/things/2297e094-6218-43d4-85b1-3d20af752f23",
+				},
+			},
+			"name": "Tim Apple's Fruit Bar",
+		}
+
+		require.Nil(t, err)
+
+		assert.Equal(t, expectedSchema, res.Schema, "does not contain any resolved refs")
+	})
+
+	t.Run("partially resolving the place after cache is hot", func(t *testing.T) {
+		res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
+			partiallyNestedSelectProperties())
+		expectedSchema := map[string]interface{}{
+			"InCity": []interface{}{
+				get.LocalRef{
+					Class: "City",
+					Fields: map[string]interface{}{
+						"name": "San Francisco",
+						"uuid": "2297e094-6218-43d4-85b1-3d20af752f23",
+					},
+				},
+			},
+			"name": "Tim Apple's Fruit Bar",
+			"uuid": "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
+		}
+
+		require.Nil(t, err)
+
+		assert.Equal(t, expectedSchema, res.Schema, "result without a cache and with a cache should look the same")
+	})
+
+	// TODO: partially resolve up until cache end to verify no additional request is made
+
+	t.Run("adding a new place to verify idnexing is constantly happening in the background", func(t *testing.T) {
+		newPlace := models.Thing{
+			Class: "Place",
+			Schema: map[string]interface{}{
+				"name": "John Oliver's Avocados",
 				"inCity": models.MultipleRef{
 					&models.SingleRef{
 						Beacon: "weaviate://localhost/things/2297e094-6218-43d4-85b1-3d20af752f23",
 					},
 				},
-				"name": "Tim Apple's Fruit Bar",
-			}
+			},
+			ID:               "0f02d525-902d-4dc0-8052-647cb420c1a6",
+			CreationTimeUnix: 1566464912,
+		}
 
-			require.Nil(t, err)
-
-			assert.Equal(t, expectedSchema, res.Schema, "does not contain any resolved refs")
-		})
-
-		t.Run("partially resolving the place after cache is hot", func(t *testing.T) {
-			res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-				partiallyNestedSelectProperties())
-			expectedSchema := map[string]interface{}{
-				"InCity": []interface{}{
-					get.LocalRef{
-						Class: "City",
-						Fields: map[string]interface{}{
-							"name": "San Francisco",
-							"uuid": "2297e094-6218-43d4-85b1-3d20af752f23",
-						},
-					},
-				},
-				"name": "Tim Apple's Fruit Bar",
-				"uuid": "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-			}
-
-			require.Nil(t, err)
-
-			assert.Equal(t, expectedSchema, res.Schema, "result without a cache and with a cache should look the same")
-		})
-
-		// TODO: partially resolve up until cache end to verify no additional request is made
-
-		t.Run("adding a new place to verify idnexing is constantly happening in the background", func(t *testing.T) {
-			newPlace := models.Thing{
-				Class: "Place",
-				Schema: map[string]interface{}{
-					"name": "John Oliver's Avocados",
-					"inCity": models.MultipleRef{
-						&models.SingleRef{
-							Beacon: "weaviate://localhost/things/2297e094-6218-43d4-85b1-3d20af752f23",
-						},
-					},
-				},
-				ID:               "0f02d525-902d-4dc0-8052-647cb420c1a6",
-				CreationTimeUnix: 1566464912,
-			}
-
-			err := repo.PutThing(context.Background(), &newPlace, []float32{1, 2, 3, 4, 5, 6, 7})
-			require.Nil(t, err)
-		})
-		refreshAll(t, client)
-
-		// wait for both es indexing as well as esvector caching to be complete
-		time.Sleep(1000 * time.Millisecond)
+		err := repo.PutThing(context.Background(), &newPlace, []float32{1, 2, 3, 4, 5, 6, 7})
+		require.Nil(t, err)
 	})
+	refreshAll(t, client)
+
+	// wait for both es indexing as well as esvector caching to be complete
+	time.Sleep(1000 * time.Millisecond)
 
 	t.Run("the newly added place must have a hot cache by now", func(t *testing.T) {
 		res, err := repo.ThingByID(context.Background(), "0f02d525-902d-4dc0-8052-647cb420c1a6", traverser.SelectProperties{})
