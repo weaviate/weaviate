@@ -104,6 +104,15 @@ func (r *Repo) VectorSearch(ctx context.Context, vector []float32,
 func (r *Repo) search(ctx context.Context, index string,
 	vector []float32, limit int,
 	filters *filters.LocalFilter, params traverser.GetParams) ([]search.Result, error) {
+
+	r.logger.
+		WithField("action", "esvector_search").
+		WithField("index", index).
+		WithField("vector", vector).
+		WithField("filters", filters).
+		WithField("params", params).
+		Debug("starting search to esvector")
+
 	var buf bytes.Buffer
 
 	query, err := queryFromFilter(filters)
