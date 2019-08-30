@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/elastic/go-elasticsearch/v5"
 	"github.com/go-openapi/strfmt"
@@ -191,30 +192,38 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 					}
 
 					t.Run("asking for no refs", func(t *testing.T) {
+						requestCounter.reset()
 						res, err := repo.ThingByID(context.Background(), id, nil)
 						require.Nil(t, err)
 
+						assert.Equal(t, 1, requestCounter.count)
 						assert.Equal(t, expectedSchema, res.Schema)
 					})
 
 					t.Run("asking for refs of type garage", func(t *testing.T) {
+						requestCounter.reset()
 						res, err := repo.ThingByID(context.Background(), id, parkedAtGarage())
 						require.Nil(t, err)
 
+						assert.Equal(t, 1, requestCounter.count)
 						assert.Equal(t, expectedSchema, res.Schema)
 					})
 
 					t.Run("asking for refs of type lot", func(t *testing.T) {
+						requestCounter.reset()
 						res, err := repo.ThingByID(context.Background(), id, parkedAtLot())
 						require.Nil(t, err)
 
+						assert.Equal(t, 1, requestCounter.count)
 						assert.Equal(t, expectedSchema, res.Schema)
 					})
 
 					t.Run("asking for refs of both types", func(t *testing.T) {
+						requestCounter.reset()
 						res, err := repo.ThingByID(context.Background(), id, parkedAtEither())
 						require.Nil(t, err)
 
+						assert.Equal(t, 1, requestCounter.count)
 						assert.Equal(t, expectedSchema, res.Schema)
 					})
 				})
@@ -253,30 +262,38 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 					}
 
 					t.Run("asking for no refs", func(t *testing.T) {
+						requestCounter.reset()
 						res, err := repo.ThingByID(context.Background(), id, nil)
 						require.Nil(t, err)
 
+						assert.Equal(t, 1, requestCounter.count)
 						assert.Equal(t, expectedSchemaUnresolved, res.Schema)
 					})
 
 					t.Run("asking for refs of type garage", func(t *testing.T) {
+						requestCounter.reset()
 						res, err := repo.ThingByID(context.Background(), id, parkedAtGarage())
 						require.Nil(t, err)
 
+						assert.Equal(t, 2, requestCounter.count)
 						assert.Equal(t, expectedSchemaWithRefs, res.Schema)
 					})
 
 					t.Run("asking for refs of type lot", func(t *testing.T) {
+						requestCounter.reset()
 						res, err := repo.ThingByID(context.Background(), id, parkedAtLot())
 						require.Nil(t, err)
 
+						assert.Equal(t, 2, requestCounter.count)
 						assert.Equal(t, expectedSchemaNoRefs, res.Schema)
 					})
 
 					t.Run("asking for refs of both types", func(t *testing.T) {
+						requestCounter.reset()
 						res, err := repo.ThingByID(context.Background(), id, parkedAtEither())
 						require.Nil(t, err)
 
+						assert.Equal(t, 3, requestCounter.count)
 						assert.Equal(t, expectedSchemaWithRefs, res.Schema)
 					})
 				})
@@ -315,30 +332,38 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 					}
 
 					t.Run("asking for no refs", func(t *testing.T) {
+						requestCounter.reset()
 						res, err := repo.ThingByID(context.Background(), id, nil)
 						require.Nil(t, err)
 
+						assert.Equal(t, 1, requestCounter.count)
 						assert.Equal(t, expectedSchemaUnresolved, res.Schema)
 					})
 
 					t.Run("asking for refs of type garage", func(t *testing.T) {
+						requestCounter.reset()
 						res, err := repo.ThingByID(context.Background(), id, parkedAtGarage())
 						require.Nil(t, err)
 
+						assert.Equal(t, 2, requestCounter.count)
 						assert.Equal(t, expectedSchemaNoRefs, res.Schema)
 					})
 
 					t.Run("asking for refs of type lot", func(t *testing.T) {
+						requestCounter.reset()
 						res, err := repo.ThingByID(context.Background(), id, parkedAtLot())
 						require.Nil(t, err)
 
+						assert.Equal(t, 2, requestCounter.count)
 						assert.Equal(t, expectedSchemaWithRefs, res.Schema)
 					})
 
 					t.Run("asking for refs of both types", func(t *testing.T) {
+						requestCounter.reset()
 						res, err := repo.ThingByID(context.Background(), id, parkedAtEither())
 						require.Nil(t, err)
 
+						assert.Equal(t, 3, requestCounter.count)
 						assert.Equal(t, expectedSchemaWithRefs, res.Schema)
 					})
 				})
@@ -407,37 +432,342 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 					}
 
 					t.Run("asking for no refs", func(t *testing.T) {
+						requestCounter.reset()
 						res, err := repo.ThingByID(context.Background(), id, nil)
 						require.Nil(t, err)
 
+						assert.Equal(t, 1, requestCounter.count)
 						assert.Equal(t, expectedSchemaUnresolved, res.Schema)
 					})
 
 					t.Run("asking for refs of type garage", func(t *testing.T) {
+						requestCounter.reset()
 						res, err := repo.ThingByID(context.Background(), id, parkedAtGarage())
 						require.Nil(t, err)
 
+						assert.Equal(t, 3, requestCounter.count)
 						assert.Equal(t, expectedSchemaWithGarageRef, res.Schema)
 					})
 
 					t.Run("asking for refs of type lot", func(t *testing.T) {
+						requestCounter.reset()
 						res, err := repo.ThingByID(context.Background(), id, parkedAtLot())
 						require.Nil(t, err)
 
+						assert.Equal(t, 3, requestCounter.count)
 						assert.Equal(t, expectedSchemaWithLotRef, res.Schema)
 					})
 
 					t.Run("asking for refs of both types", func(t *testing.T) {
+						requestCounter.reset()
 						res, err := repo.ThingByID(context.Background(), id, parkedAtEither())
 						require.Nil(t, err)
 
+						assert.Equal(t, 5, requestCounter.count)
 						assert.Equal(t, expectedSchemaWithAllRefs, res.Schema)
 					})
 				})
 
 			})
 
+			repo.InitCacheIndexing(50, 200*time.Millisecond, 200*time.Millisecond)
+			time.Sleep(1500 * time.Millisecond)
+
+			t.Run("verify that cache is hot", func(t *testing.T) {
+				// by checking if the cache of the last imported thing is hot
+
+				res, err := repo.ThingByID(context.Background(), "fe3ca25d-8734-4ede-9a81-bc1ed8c3ea43", nil)
+				require.Nil(t, err)
+				require.Equal(t, true, res.CacheHot)
+			})
+
 			t.Run("after cache indexing", func(t *testing.T) {
+				t.Run("car with no refs", func(t *testing.T) {
+					var id strfmt.UUID = "329c306b-c912-4ec7-9b1d-55e5e0ca8dea"
+					expectedSchema := map[string]interface{}{
+						"name": "Car which is parked no where",
+						"uuid": id.String(),
+					}
+
+					t.Run("asking for no refs", func(t *testing.T) {
+						requestCounter.reset()
+						res, err := repo.ThingByID(context.Background(), id, nil)
+						require.Nil(t, err)
+
+						assert.Equal(t, 1, requestCounter.count)
+						assert.Equal(t, expectedSchema, res.Schema)
+					})
+
+					t.Run("asking for refs of type garage", func(t *testing.T) {
+						requestCounter.reset()
+						res, err := repo.ThingByID(context.Background(), id, parkedAtGarage())
+						require.Nil(t, err)
+
+						assert.Equal(t, 1, requestCounter.count)
+						assert.Equal(t, expectedSchema, res.Schema)
+					})
+
+					t.Run("asking for refs of type lot", func(t *testing.T) {
+						requestCounter.reset()
+						res, err := repo.ThingByID(context.Background(), id, parkedAtLot())
+						require.Nil(t, err)
+
+						assert.Equal(t, 1, requestCounter.count)
+						assert.Equal(t, expectedSchema, res.Schema)
+					})
+
+					t.Run("asking for refs of both types", func(t *testing.T) {
+						requestCounter.reset()
+						res, err := repo.ThingByID(context.Background(), id, parkedAtEither())
+						require.Nil(t, err)
+
+						assert.Equal(t, 1, requestCounter.count)
+						assert.Equal(t, expectedSchema, res.Schema)
+					})
+				})
+
+				t.Run("car with single ref to garage", func(t *testing.T) {
+					var id strfmt.UUID = "fe3ca25d-8734-4ede-9a81-bc1ed8c3ea43"
+					expectedSchemaUnresolved := map[string]interface{}{
+						"name": "Car which is parked in a garage",
+						"uuid": id.String(),
+						// ref is present, but unresolved, therefore the lowercase letter
+						"parkedAt": models.MultipleRef{
+							&models.SingleRef{
+								Beacon: "weaviate://localhost/things/a7e10b55-1ac4-464f-80df-82508eea1951",
+							},
+						},
+					}
+
+					expectedSchemaNoRefs := map[string]interface{}{
+						"name": "Car which is parked in a garage",
+						"uuid": id.String(),
+						// ref is not present at all
+					}
+
+					expectedSchemaWithRefs := map[string]interface{}{
+						"name": "Car which is parked in a garage",
+						"uuid": id.String(),
+						"ParkedAt": []interface{}{
+							get.LocalRef{
+								Class: "MultiRefParkingGarage",
+								Fields: map[string]interface{}{
+									"name": "Luxury Parking Garage",
+									"uuid": "a7e10b55-1ac4-464f-80df-82508eea1951",
+								},
+							},
+						},
+					}
+
+					t.Run("asking for no refs", func(t *testing.T) {
+						requestCounter.reset()
+						res, err := repo.ThingByID(context.Background(), id, nil)
+						require.Nil(t, err)
+
+						assert.Equal(t, 1, requestCounter.count)
+						assert.Equal(t, expectedSchemaUnresolved, res.Schema)
+					})
+
+					t.Run("asking for refs of type garage", func(t *testing.T) {
+						requestCounter.reset()
+						res, err := repo.ThingByID(context.Background(), id, parkedAtGarage())
+						require.Nil(t, err)
+
+						assert.Equal(t, 1, requestCounter.count)
+						assert.Equal(t, expectedSchemaWithRefs, res.Schema)
+					})
+
+					t.Run("asking for refs of type lot", func(t *testing.T) {
+						requestCounter.reset()
+						res, err := repo.ThingByID(context.Background(), id, parkedAtLot())
+						require.Nil(t, err)
+
+						assert.Equal(t, 1, requestCounter.count)
+						assert.Equal(t, expectedSchemaNoRefs, res.Schema)
+					})
+
+					t.Run("asking for refs of both types", func(t *testing.T) {
+						requestCounter.reset()
+						res, err := repo.ThingByID(context.Background(), id, parkedAtEither())
+						require.Nil(t, err)
+
+						assert.Equal(t, 1, requestCounter.count)
+						assert.Equal(t, expectedSchemaWithRefs, res.Schema)
+					})
+				})
+
+				t.Run("car with single ref to lot", func(t *testing.T) {
+					var id strfmt.UUID = "21ab5130-627a-4268-baef-1a516bd6cad4"
+					expectedSchemaUnresolved := map[string]interface{}{
+						"name": "Car which is parked in a lot",
+						"uuid": id.String(),
+						// ref is present, but unresolved, therefore the lowercase letter
+						"parkedAt": models.MultipleRef{
+							&models.SingleRef{
+								Beacon: "weaviate://localhost/things/1023967b-9512-475b-8ef9-673a110b695d",
+							},
+						},
+					}
+
+					expectedSchemaNoRefs := map[string]interface{}{
+						"name": "Car which is parked in a lot",
+						"uuid": id.String(),
+						// ref is not present at all
+					}
+
+					expectedSchemaWithRefs := map[string]interface{}{
+						"name": "Car which is parked in a lot",
+						"uuid": id.String(),
+						"ParkedAt": []interface{}{
+							get.LocalRef{
+								Class: "MultiRefParkingLot",
+								Fields: map[string]interface{}{
+									"name": "Fancy Parking Lot",
+									"uuid": "1023967b-9512-475b-8ef9-673a110b695d",
+								},
+							},
+						},
+					}
+
+					t.Run("asking for no refs", func(t *testing.T) {
+						requestCounter.reset()
+						res, err := repo.ThingByID(context.Background(), id, nil)
+						require.Nil(t, err)
+
+						assert.Equal(t, 1, requestCounter.count)
+						assert.Equal(t, expectedSchemaUnresolved, res.Schema)
+					})
+
+					t.Run("asking for refs of type garage", func(t *testing.T) {
+						requestCounter.reset()
+						res, err := repo.ThingByID(context.Background(), id, parkedAtGarage())
+						require.Nil(t, err)
+
+						assert.Equal(t, 1, requestCounter.count)
+						assert.Equal(t, expectedSchemaNoRefs, res.Schema)
+					})
+
+					t.Run("asking for refs of type lot", func(t *testing.T) {
+						requestCounter.reset()
+						res, err := repo.ThingByID(context.Background(), id, parkedAtLot())
+						require.Nil(t, err)
+
+						assert.Equal(t, 1, requestCounter.count)
+						assert.Equal(t, expectedSchemaWithRefs, res.Schema)
+					})
+
+					t.Run("asking for refs of both types", func(t *testing.T) {
+						requestCounter.reset()
+						res, err := repo.ThingByID(context.Background(), id, parkedAtEither())
+						require.Nil(t, err)
+
+						assert.Equal(t, 1, requestCounter.count)
+						assert.Equal(t, expectedSchemaWithRefs, res.Schema)
+					})
+				})
+
+				t.Run("car with refs to both", func(t *testing.T) {
+					var id strfmt.UUID = "533673a7-2a5c-4e1c-b35d-a3809deabace"
+					expectedSchemaUnresolved := map[string]interface{}{
+						"name": "Car which is parked in two places at the same time (magic!)",
+						"uuid": id.String(),
+						// ref is present, but unresolved, therefore the lowercase letter
+						"parkedAt": models.MultipleRef{
+							&models.SingleRef{
+								Beacon: "weaviate://localhost/things/a7e10b55-1ac4-464f-80df-82508eea1951",
+							},
+							&models.SingleRef{
+								Beacon: "weaviate://localhost/things/1023967b-9512-475b-8ef9-673a110b695d",
+							},
+						},
+					}
+
+					expectedSchemaWithLotRef := map[string]interface{}{
+						"name": "Car which is parked in two places at the same time (magic!)",
+						"uuid": id.String(),
+						"ParkedAt": []interface{}{
+							get.LocalRef{
+								Class: "MultiRefParkingLot",
+								Fields: map[string]interface{}{
+									"name": "Fancy Parking Lot",
+									"uuid": "1023967b-9512-475b-8ef9-673a110b695d",
+								},
+							},
+						},
+					}
+					expectedSchemaWithGarageRef := map[string]interface{}{
+						"name": "Car which is parked in two places at the same time (magic!)",
+						"uuid": id.String(),
+						"ParkedAt": []interface{}{
+							get.LocalRef{
+								Class: "MultiRefParkingGarage",
+								Fields: map[string]interface{}{
+									"name": "Luxury Parking Garage",
+									"uuid": "a7e10b55-1ac4-464f-80df-82508eea1951",
+								},
+							},
+						},
+					}
+
+					bothRefs := []interface{}{
+						get.LocalRef{
+							Class: "MultiRefParkingLot",
+							Fields: map[string]interface{}{
+								"name": "Fancy Parking Lot",
+								"uuid": "1023967b-9512-475b-8ef9-673a110b695d",
+							},
+						},
+						get.LocalRef{
+							Class: "MultiRefParkingGarage",
+							Fields: map[string]interface{}{
+								"name": "Luxury Parking Garage",
+								"uuid": "a7e10b55-1ac4-464f-80df-82508eea1951",
+							},
+						},
+					}
+
+					t.Run("asking for no refs", func(t *testing.T) {
+						requestCounter.reset()
+						res, err := repo.ThingByID(context.Background(), id, nil)
+						require.Nil(t, err)
+
+						assert.Equal(t, 1, requestCounter.count)
+						assert.Equal(t, expectedSchemaUnresolved, res.Schema)
+					})
+
+					t.Run("asking for refs of type garage", func(t *testing.T) {
+						requestCounter.reset()
+						res, err := repo.ThingByID(context.Background(), id, parkedAtGarage())
+						require.Nil(t, err)
+
+						assert.Equal(t, 1, requestCounter.count)
+						assert.Equal(t, expectedSchemaWithGarageRef, res.Schema)
+					})
+
+					t.Run("asking for refs of type lot", func(t *testing.T) {
+						requestCounter.reset()
+						res, err := repo.ThingByID(context.Background(), id, parkedAtLot())
+						require.Nil(t, err)
+
+						assert.Equal(t, 1, requestCounter.count)
+						assert.Equal(t, expectedSchemaWithLotRef, res.Schema)
+					})
+
+					t.Run("asking for refs of both types", func(t *testing.T) {
+						requestCounter.reset()
+						res, err := repo.ThingByID(context.Background(), id, parkedAtEither())
+						require.Nil(t, err)
+
+						assert.Equal(t, 1, requestCounter.count)
+						parkedAt, ok := res.Schema.(map[string]interface{})["ParkedAt"]
+						require.True(t, ok)
+
+						parkedAtSlice, ok := parkedAt.([]interface{})
+						require.True(t, ok)
+
+						assert.ElementsMatch(t, bothRefs, parkedAtSlice)
+					})
+				})
 
 			})
 
