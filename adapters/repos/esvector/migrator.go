@@ -140,12 +140,6 @@ func (m *Migrator) esPropsFromClassProps(props []*models.Property, depth int) (m
 	cache := map[string]interface{}{}
 
 	for _, prop := range props {
-		if len(prop.DataType) > 1 {
-			// this must be a ref-type prop, so we can safely skip it
-			// TODO:  support multiple ref types
-			continue
-		}
-
 		switch prop.DataType[0] {
 		case string(schema.DataTypeString):
 			esProperties[prop.Name] = typeMap(Keyword)
@@ -166,7 +160,7 @@ func (m *Migrator) esPropsFromClassProps(props []*models.Property, depth int) (m
 				continue
 			}
 
-			refProp, err := m.mapRefProp(prop.DataType[0], depth+1)
+			refProp, err := m.mapRefProp(prop.DataType, depth+1)
 			if err != nil {
 				return nil, fmt.Errorf("ref prop '%s': %v", prop.Name, err)
 			}
@@ -193,25 +187,30 @@ func typeMap(ft FieldType) map[string]interface{} {
 	}
 }
 
-func (m *Migrator) mapRefProp(className string, depth int) (map[string]interface{}, error) {
+func (m *Migrator) mapRefProp(classNames []string, depth int) (map[string]interface{}, error) {
 	s := m.repo.schemaGetter.GetSchemaSkipAuth()
-	class := s.FindClassByName(schema.ClassName(className))
-	if class == nil {
-		return nil, fmt.Errorf("class '%s' not found", className)
-	}
 
-	esProperties, err := m.esPropsFromClassProps(class.Properties, depth)
-	if err != nil {
-		return nil, fmt.Errorf("target class '%s': %#v", className, err)
+	properties := map[string]interface{}{}
+
+	for _, className := range classNames {
+		class := s.FindClassByName(schema.ClassName(className))
+		if class == nil {
+			return nil, fmt.Errorf("class '%s' not found", className)
+		}
+
+		esProperties, err := m.esPropsFromClassProps(class.Properties, depth)
+		if err != nil {
+			return nil, fmt.Errorf("target class '%s': %#v", className, err)
+		}
+
+		properties[className] = map[string]interface{}{
+			"properties": esProperties,
+			"type":       "nested",
+		}
 	}
 
 	return map[string]interface{}{
-		"properties": map[string]interface{}{
-			className: map[string]interface{}{
-				"properties": esProperties,
-				"type":       "nested",
-			},
-		},
+		"properties": properties,
 	}, nil
 
 }

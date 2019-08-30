@@ -14,7 +14,12 @@ import (
 
 func (r *Repo) InitCacheIndexing(bulkSize int, waitOnIdle time.Duration, waitOnBusy time.Duration) {
 	i := newCacheIndexer(bulkSize, waitOnIdle, waitOnBusy, r)
-	i.init()
+	r.cacheIndexer = i
+	r.cacheIndexer.init()
+}
+
+func (r *Repo) StopCacheIndexing() {
+	r.cacheIndexer.stop <- struct{}{}
 }
 
 type cacheIndexer struct {
@@ -22,6 +27,7 @@ type cacheIndexer struct {
 	waitOnIdle time.Duration
 	waitOnBusy time.Duration
 	repo       *Repo
+	stop       chan struct{}
 }
 
 func newCacheIndexer(bulkSize int, waitOnIdle, waitOnBusy time.Duration, repo *Repo) *cacheIndexer {
@@ -30,12 +36,20 @@ func newCacheIndexer(bulkSize int, waitOnIdle, waitOnBusy time.Duration, repo *R
 		waitOnIdle: waitOnIdle,
 		waitOnBusy: waitOnBusy,
 		repo:       repo,
+		stop:       make(chan struct{}),
 	}
 }
 
 func (i *cacheIndexer) init() {
 	go func() {
 		for {
+
+			select {
+			case <-i.stop:
+				return
+			default:
+			}
+
 			count, err := i.singleCycle()
 			if err != nil {
 				i.repo.logger.WithError(err).
