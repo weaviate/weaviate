@@ -431,6 +431,8 @@ func TestEsVectorCache(t *testing.T) {
 		require.Nil(t, err)
 		assert.Equal(t, true, res.CacheHot)
 	})
+
+	repo.StopCacheIndexing()
 }
 
 func fullyNestedSelectProperties() traverser.SelectProperties {

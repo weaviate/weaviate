@@ -56,6 +56,7 @@ type Repo struct {
 	schemaGetter              schemaUC.SchemaGetter
 	denormalizationDepthLimit int
 	requestCounter            counter
+	cacheIndexer              *cacheIndexer
 }
 
 type counter interface {
@@ -69,7 +70,7 @@ func (c *noopCounter) Inc() {}
 // NewRepo from existing es client
 func NewRepo(client *elasticsearch.Client, logger logrus.FieldLogger,
 	schemaGetter schemaUC.SchemaGetter, denormalizationLimit int) *Repo {
-	return &Repo{client, logger, schemaGetter, denormalizationLimit, &noopCounter{}}
+	return &Repo{client, logger, schemaGetter, denormalizationLimit, &noopCounter{}, nil}
 }
 
 func (r *Repo) SetSchemaGetter(sg schemaUC.SchemaGetter) {

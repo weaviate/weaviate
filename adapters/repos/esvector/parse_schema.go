@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -135,8 +134,6 @@ func (r *Repo) parseRefs(input []interface{}, prop string, cache cache, depth in
 	selectProp traverser.SelectProperty) ([]interface{}, error) {
 
 	if cache.hot {
-		// TODO: instead of removing the classes, actually take them into account
-
 		// start with depth=1, parseRefs was called on the outermost class
 		// (depth=0), so the first ref is depth=1
 		refs, err := r.parseCacheSchemaToRefs(cache.schema, prop, 1, selectProp)
@@ -146,73 +143,88 @@ func (r *Repo) parseRefs(input []interface{}, prop string, cache cache, depth in
 
 		return refs, nil
 	} else {
+		var refs []interface{}
+		for _, selectPropRef := range selectProp.Refs {
+			innerProperties := selectPropRef.RefProperties
+			perClass, err := r.resolveRefsWithoutCache(input, selectPropRef.ClassName, innerProperties)
+			if err != nil {
+				return nil, fmt.Errorf("resolve without cache: %v", err)
+			}
 
-		// TODO: Don't hard-code first ref class, but support all of them
-		innerProperties := selectProp.Refs[0].RefProperties
-		refs, err := r.resolveRefsWithoutCache(input, innerProperties)
-		if err != nil {
-			return nil, fmt.Errorf("resolve without cache: %v", err)
+			refs = append(refs, perClass...)
 		}
-
 		return refs, nil
 	}
 
 }
 
 func (r *Repo) resolveRefsWithoutCache(input []interface{},
-	innerProperties traverser.SelectProperties) ([]interface{}, error) {
-	output := make([]interface{}, len(input), len(input))
+	desiredClass string, innerProperties traverser.SelectProperties) ([]interface{}, error) {
+	var output []interface{}
 	for i, item := range input {
-		resolved, err := r.resolveRefWithoutCache(item, innerProperties)
+		resolved, err := r.resolveRefWithoutCache(item, desiredClass, innerProperties)
 		if err != nil {
 			return nil, fmt.Errorf("at position %d: %v", i, err)
 		}
 
-		output[i] = resolved
+		if resolved == nil {
+			continue
+		}
+
+		output = append(output, *resolved)
 	}
 
 	return output, nil
 }
 
-func (r *Repo) resolveRefWithoutCache(item interface{}, innerProperties traverser.SelectProperties) (get.LocalRef, error) {
+func (r *Repo) resolveRefWithoutCache(item interface{}, desiredClass string,
+	innerProperties traverser.SelectProperties) (*get.LocalRef, error) {
 	var out get.LocalRef
 
 	refMap, ok := item.(map[string]interface{})
 	if !ok {
-		return out, fmt.Errorf("expected ref item to be a map, but got %T", item)
+		return nil, fmt.Errorf("expected ref item to be a map, but got %T", item)
 	}
 
 	beacon, ok := refMap["beacon"]
 	if !ok {
-		return out, fmt.Errorf("expected ref object to have field beacon, but got %#v", refMap)
+		return nil, fmt.Errorf("expected ref object to have field beacon, but got %#v", refMap)
 	}
 
 	ref, err := crossref.Parse(beacon.(string))
 	if err != nil {
-		return out, err
+		return nil, err
 	}
 
 	switch ref.Kind {
 	case kind.Thing:
 		res, err := r.ThingByID(context.TODO(), ref.TargetID, innerProperties)
 		if err != nil {
-			return out, err
+			return nil, err
+		}
+
+		if res.ClassName != desiredClass {
+			return nil, nil
 		}
 
 		out.Class = res.ClassName
 		out.Fields = res.Schema.(map[string]interface{})
-		return out, nil
+		return &out, nil
 	case kind.Action:
 		res, err := r.ActionByID(context.TODO(), ref.TargetID, innerProperties)
 		if err != nil {
-			return out, err
+			return nil, err
+		}
+
+		if res.ClassName != desiredClass {
+			return nil, nil
 		}
 
 		out.Class = res.ClassName
 		out.Fields = res.Schema.(map[string]interface{})
-		return out, nil
+		return &out, nil
 	default:
-		return out, fmt.Errorf("impossible kind: %v", ref.Kind)
+		return nil, fmt.Errorf("impossible kind: %v", ref.Kind)
 	}
 }
 
@@ -350,6 +362,8 @@ func (r *Repo) parseInnerRefFromCache(in map[string]interface{}, depth int,
 		}
 
 		if list, ok := value.([]interface{}); ok {
+			// a list is an indication of unresolved refs which we need to resolve at
+			// runtime if they user is interested in them
 			innerSelectProp := selectClass.RefProperties.FindProperty(uppercaseFirstLetter(prop))
 			if innerSelectProp == nil {
 				// the user is not interested in this prop
@@ -362,15 +376,14 @@ func (r *Repo) parseInnerRefFromCache(in map[string]interface{}, depth int,
 
 			// TODO: Don't hard-code first class, but accept all
 			innerRefProps := innerSelectProp.Refs[0].RefProperties
-			resolved, err := r.resolveRefsWithoutCache(list, innerRefProps)
+			resolved, err := r.resolveRefsWithoutCache(list, innerSelectProp.Refs[0].ClassName, innerRefProps)
 			if err != nil {
 				return nil, fmt.Errorf("resolving refs without cache because cache ended: %v", err)
 			}
 
-			fmt.Printf("\nwe got this back from our additional request:\n")
-			spew.Dump(resolved)
-
-			out[uppercaseFirstLetter(prop)] = resolved
+			if len(resolved) > 0 {
+				out[uppercaseFirstLetter(prop)] = resolved
+			}
 			continue
 		}
 
