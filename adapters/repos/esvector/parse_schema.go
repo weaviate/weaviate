@@ -374,11 +374,15 @@ func (r *Repo) parseInnerRefFromCache(in map[string]interface{}, depth int,
 				continue
 			}
 
-			// TODO: Don't hard-code first class, but accept all
-			innerRefProps := innerSelectProp.Refs[0].RefProperties
-			resolved, err := r.resolveRefsWithoutCache(list, innerSelectProp.Refs[0].ClassName, innerRefProps)
-			if err != nil {
-				return nil, fmt.Errorf("resolving refs without cache because cache ended: %v", err)
+			var resolved []interface{}
+			for _, selectPropRef := range innerSelectProp.Refs {
+				innerProperties := selectPropRef.RefProperties
+				perClass, err := r.resolveRefsWithoutCache(list, selectPropRef.ClassName, innerProperties)
+				if err != nil {
+					return nil, fmt.Errorf("resolve without cache, because cache boundary is crossed: %v", err)
+				}
+
+				resolved = append(resolved, perClass...)
 			}
 
 			if len(resolved) > 0 {
