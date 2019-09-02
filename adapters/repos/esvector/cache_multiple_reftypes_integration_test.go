@@ -795,23 +795,6 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 						},
 					}
 
-					bothRefs := []interface{}{
-						get.LocalRef{
-							Class: "MultiRefParkingLot",
-							Fields: map[string]interface{}{
-								"name": "Fancy Parking Lot",
-								"uuid": "1023967b-9512-475b-8ef9-673a110b695d",
-							},
-						},
-						get.LocalRef{
-							Class: "MultiRefParkingGarage",
-							Fields: map[string]interface{}{
-								"name": "Luxury Parking Garage",
-								"uuid": "a7e10b55-1ac4-464f-80df-82508eea1951",
-							},
-						},
-					}
-
 					t.Run("asking for no refs", func(t *testing.T) {
 						requestCounter.reset()
 						res, err := repo.ThingByID(context.Background(), id, nil)
@@ -851,7 +834,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 						parkedAtSlice, ok := parkedAt.([]interface{})
 						require.True(t, ok)
 
-						assert.ElementsMatch(t, bothRefs, parkedAtSlice)
+						assert.ElementsMatch(t, refToBothGarages(), parkedAtSlice)
 					})
 				})
 
@@ -906,23 +889,6 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 						},
 					}
 
-					bothRefs := []interface{}{
-						get.LocalRef{
-							Class: "MultiRefParkingLot",
-							Fields: map[string]interface{}{
-								"name": "Fancy Parking Lot",
-								"uuid": "1023967b-9512-475b-8ef9-673a110b695d",
-							},
-						},
-						get.LocalRef{
-							Class: "MultiRefParkingGarage",
-							Fields: map[string]interface{}{
-								"name": "Luxury Parking Garage",
-								"uuid": "a7e10b55-1ac4-464f-80df-82508eea1951",
-							},
-						},
-					}
-
 					t.Run("asking for refs of type lot", func(t *testing.T) {
 						requestCounter.reset()
 						res, err := repo.ThingByID(context.Background(), id, drivesCarParkedAtLot())
@@ -963,7 +929,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 						parkedAtSlice, ok := parkedAt.([]interface{})
 						require.True(t, ok)
 
-						assert.ElementsMatch(t, bothRefs, parkedAtSlice)
+						assert.ElementsMatch(t, refToBothGarages(), parkedAtSlice)
 					})
 				})
 
@@ -1036,23 +1002,6 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 						},
 					}
 
-					bothRefs := []interface{}{
-						get.LocalRef{
-							Class: "MultiRefParkingLot",
-							Fields: map[string]interface{}{
-								"name": "Fancy Parking Lot",
-								"uuid": "1023967b-9512-475b-8ef9-673a110b695d",
-							},
-						},
-						get.LocalRef{
-							Class: "MultiRefParkingGarage",
-							Fields: map[string]interface{}{
-								"name": "Luxury Parking Garage",
-								"uuid": "a7e10b55-1ac4-464f-80df-82508eea1951",
-							},
-						},
-					}
-
 					t.Run("asking for refs of type lot", func(t *testing.T) {
 						requestCounter.reset()
 						res, err := repo.ThingByID(context.Background(), id, friendsWithDrivesCarParkedAtLot())
@@ -1109,7 +1058,163 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 						parkedAtSlice, ok := parkedAt.([]interface{})
 						require.True(t, ok)
 
-						assert.ElementsMatch(t, bothRefs, parkedAtSlice)
+						assert.ElementsMatch(t, refToBothGarages(), parkedAtSlice)
+					})
+				})
+
+				t.Run("car with refs to both (fours levels deep)", func(t *testing.T) {
+					// society -> person -> driver -> car -> garage
+					// cache bounday is crossed at driver->car which means car->garage
+					// should be in cache again
+					var id strfmt.UUID = "5cd9afa6-f3df-4f57-a204-840d6b256dba"
+
+					expectedSchemaWithLotRef := map[string]interface{}{
+						"uuid": id.String(),
+						"name": "Cool People",
+						"HasMembers": []interface{}{
+							get.LocalRef{
+								Class: "MultiRefPerson",
+								Fields: map[string]interface{}{
+									"uuid": "91ad23a3-07ba-4d4c-9836-76c57094f734",
+									"name": "Jane Doughnut",
+									"FriendsWith": []interface{}{
+										get.LocalRef{
+											Class: "MultiRefDriver",
+											Fields: map[string]interface{}{
+												"uuid": "9653ab38-c16b-4561-80df-7a7e19300dd0",
+												"name": "Johny Drivemuch",
+												"Drives": []interface{}{
+													get.LocalRef{
+														Class: "MultiRefCar",
+														Fields: map[string]interface{}{
+															"uuid": "533673a7-2a5c-4e1c-b35d-a3809deabace",
+															"name": "Car which is parked in two places at the same time (magic!)",
+															"ParkedAt": []interface{}{
+																get.LocalRef{
+																	Class: "MultiRefParkingLot",
+																	Fields: map[string]interface{}{
+																		"name": "Fancy Parking Lot",
+																		"uuid": "1023967b-9512-475b-8ef9-673a110b695d",
+																	},
+																},
+															},
+														},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					}
+
+					expectedSchemaWithGarageRef := map[string]interface{}{
+						"uuid": id.String(),
+						"name": "Cool People",
+						"HasMembers": []interface{}{
+							get.LocalRef{
+								Class: "MultiRefPerson",
+								Fields: map[string]interface{}{
+									"uuid": "91ad23a3-07ba-4d4c-9836-76c57094f734",
+									"name": "Jane Doughnut",
+									"FriendsWith": []interface{}{
+										get.LocalRef{
+											Class: "MultiRefDriver",
+											Fields: map[string]interface{}{
+												"uuid": "9653ab38-c16b-4561-80df-7a7e19300dd0",
+												"name": "Johny Drivemuch",
+												"Drives": []interface{}{
+													get.LocalRef{
+														Class: "MultiRefCar",
+														Fields: map[string]interface{}{
+															"uuid": "533673a7-2a5c-4e1c-b35d-a3809deabace",
+															"name": "Car which is parked in two places at the same time (magic!)",
+															"ParkedAt": []interface{}{
+																get.LocalRef{
+																	Class: "MultiRefParkingGarage",
+																	Fields: map[string]interface{}{
+																		"name": "Luxury Parking Garage",
+																		"uuid": "a7e10b55-1ac4-464f-80df-82508eea1951",
+																	},
+																},
+															},
+														},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					}
+
+					t.Run("asking for refs of type lot", func(t *testing.T) {
+						requestCounter.reset()
+						res, err := repo.ThingByID(context.Background(), id, hasMembersFriendsWithDrivesCarParkedAtLot())
+						require.Nil(t, err)
+
+						// initial call + cache boundary crossed at driver->car
+						assert.Equal(t, 2, requestCounter.count)
+						assert.Equal(t, expectedSchemaWithLotRef, res.Schema)
+					})
+
+					t.Run("asking for refs of type garage", func(t *testing.T) {
+						requestCounter.reset()
+						res, err := repo.ThingByID(context.Background(), id, hasMembersFriendsWithDrivesCarParkedAtGarage())
+						require.Nil(t, err)
+
+						// initial call + cache boundary crossed at driver->car
+						assert.Equal(t, 2, requestCounter.count)
+						assert.Equal(t, expectedSchemaWithGarageRef, res.Schema)
+					})
+
+					t.Run("asking for refs of both types", func(t *testing.T) {
+						requestCounter.reset()
+						res, err := repo.ThingByID(context.Background(), id, hasMembersFriendsWithDrivesCarParkedAtEither())
+						require.Nil(t, err)
+
+						// initial call + cache boundary crossed at driver->car
+						assert.Equal(t, 2, requestCounter.count)
+
+						hasMembers, ok := res.Schema.(map[string]interface{})["HasMembers"]
+						require.True(t, ok)
+
+						membersSlice, ok := hasMembers.([]interface{})
+						require.True(t, ok)
+						require.Len(t, membersSlice, 1)
+
+						membersRef, ok := membersSlice[0].(get.LocalRef)
+						require.True(t, ok)
+
+						friendsWith, ok := membersRef.Fields["FriendsWith"]
+						require.True(t, ok)
+
+						friendsSlice, ok := friendsWith.([]interface{})
+						require.True(t, ok)
+						require.Len(t, friendsSlice, 1)
+
+						friendsRef, ok := friendsSlice[0].(get.LocalRef)
+						require.True(t, ok)
+
+						drives, ok := friendsRef.Fields["Drives"]
+						require.True(t, ok)
+
+						drivesSlice, ok := drives.([]interface{})
+						require.True(t, ok)
+						require.Len(t, drivesSlice, 1)
+
+						drivesRef, ok := drivesSlice[0].(get.LocalRef)
+						require.True(t, ok)
+
+						parkedAt, ok := drivesRef.Fields["ParkedAt"]
+						require.True(t, ok)
+
+						parkedAtSlice, ok := parkedAt.([]interface{})
+						require.True(t, ok)
+
+						assert.ElementsMatch(t, refToBothGarages(), parkedAtSlice)
 					})
 				})
 
@@ -1273,6 +1378,70 @@ func friendsWithDrivesCarParkedAtEither() traverser.SelectProperties {
 					ClassName:     "MultiRefDriver",
 					RefProperties: drivesCarParkedAtEither(),
 				},
+			},
+		},
+	}
+}
+
+func hasMembersFriendsWithDrivesCarParkedAtLot() traverser.SelectProperties {
+	return traverser.SelectProperties{
+		traverser.SelectProperty{
+			Name:        "HasMembers",
+			IsPrimitive: false,
+			Refs: []traverser.SelectClass{
+				traverser.SelectClass{
+					ClassName:     "MultiRefPerson",
+					RefProperties: friendsWithDrivesCarParkedAtLot(),
+				},
+			},
+		},
+	}
+}
+
+func hasMembersFriendsWithDrivesCarParkedAtGarage() traverser.SelectProperties {
+	return traverser.SelectProperties{
+		traverser.SelectProperty{
+			Name:        "HasMembers",
+			IsPrimitive: false,
+			Refs: []traverser.SelectClass{
+				traverser.SelectClass{
+					ClassName:     "MultiRefPerson",
+					RefProperties: friendsWithDrivesCarParkedAtGarage(),
+				},
+			},
+		},
+	}
+}
+
+func hasMembersFriendsWithDrivesCarParkedAtEither() traverser.SelectProperties {
+	return traverser.SelectProperties{
+		traverser.SelectProperty{
+			Name:        "HasMembers",
+			IsPrimitive: false,
+			Refs: []traverser.SelectClass{
+				traverser.SelectClass{
+					ClassName:     "MultiRefPerson",
+					RefProperties: friendsWithDrivesCarParkedAtEither(),
+				},
+			},
+		},
+	}
+}
+
+func refToBothGarages() []interface{} {
+	return []interface{}{
+		get.LocalRef{
+			Class: "MultiRefParkingLot",
+			Fields: map[string]interface{}{
+				"name": "Fancy Parking Lot",
+				"uuid": "1023967b-9512-475b-8ef9-673a110b695d",
+			},
+		},
+		get.LocalRef{
+			Class: "MultiRefParkingGarage",
+			Fields: map[string]interface{}{
+				"name": "Luxury Parking Garage",
+				"uuid": "a7e10b55-1ac4-464f-80df-82508eea1951",
 			},
 		},
 	}
