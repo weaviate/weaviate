@@ -1,4 +1,4 @@
-Copyright (c) 2016-2019, SeMI Technologies B.V. (registered @ Dutch Chamber of Commerce no 75231824)
+Copyright (c) 2016-2019, SeMI Holding B.V. (registered @ Dutch Chamber of Commerce no 75221632)
 
 All rights reserved.
 
