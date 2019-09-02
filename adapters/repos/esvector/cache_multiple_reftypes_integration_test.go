@@ -967,6 +967,152 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 					})
 				})
 
+				t.Run("car with refs to both (three levels deep)", func(t *testing.T) {
+					// person -> driver -> car -> garage
+					// should no longer be in cache
+					var id strfmt.UUID = "91ad23a3-07ba-4d4c-9836-76c57094f734"
+
+					expectedSchemaWithLotRef := map[string]interface{}{
+						"uuid": id.String(),
+						"name": "Jane Doughnut",
+						"FriendsWith": []interface{}{
+							get.LocalRef{
+								Class: "MultiRefDriver",
+								Fields: map[string]interface{}{
+									"uuid": "9653ab38-c16b-4561-80df-7a7e19300dd0",
+									"name": "Johny Drivemuch",
+									"Drives": []interface{}{
+										get.LocalRef{
+											Class: "MultiRefCar",
+											Fields: map[string]interface{}{
+												"uuid": "533673a7-2a5c-4e1c-b35d-a3809deabace",
+												"name": "Car which is parked in two places at the same time (magic!)",
+												"ParkedAt": []interface{}{
+													get.LocalRef{
+														Class: "MultiRefParkingLot",
+														Fields: map[string]interface{}{
+															"name": "Fancy Parking Lot",
+															"uuid": "1023967b-9512-475b-8ef9-673a110b695d",
+														},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					}
+
+					expectedSchemaWithGarageRef := map[string]interface{}{
+						"uuid": id.String(),
+						"name": "Jane Doughnut",
+						"FriendsWith": []interface{}{
+							get.LocalRef{
+								Class: "MultiRefDriver",
+								Fields: map[string]interface{}{
+									"uuid": "9653ab38-c16b-4561-80df-7a7e19300dd0",
+									"name": "Johny Drivemuch",
+									"Drives": []interface{}{
+										get.LocalRef{
+											Class: "MultiRefCar",
+											Fields: map[string]interface{}{
+												"uuid": "533673a7-2a5c-4e1c-b35d-a3809deabace",
+												"name": "Car which is parked in two places at the same time (magic!)",
+												"ParkedAt": []interface{}{
+													get.LocalRef{
+														Class: "MultiRefParkingGarage",
+														Fields: map[string]interface{}{
+															"name": "Luxury Parking Garage",
+															"uuid": "a7e10b55-1ac4-464f-80df-82508eea1951",
+														},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					}
+
+					bothRefs := []interface{}{
+						get.LocalRef{
+							Class: "MultiRefParkingLot",
+							Fields: map[string]interface{}{
+								"name": "Fancy Parking Lot",
+								"uuid": "1023967b-9512-475b-8ef9-673a110b695d",
+							},
+						},
+						get.LocalRef{
+							Class: "MultiRefParkingGarage",
+							Fields: map[string]interface{}{
+								"name": "Luxury Parking Garage",
+								"uuid": "a7e10b55-1ac4-464f-80df-82508eea1951",
+							},
+						},
+					}
+
+					t.Run("asking for refs of type lot", func(t *testing.T) {
+						requestCounter.reset()
+						res, err := repo.ThingByID(context.Background(), id, friendsWithDrivesCarParkedAtLot())
+						require.Nil(t, err)
+
+						// 3 calls, the initial one, outside of the cache there are two
+						// possible types, so 2 additional requests
+						assert.Equal(t, 3, requestCounter.count)
+						assert.Equal(t, expectedSchemaWithLotRef, res.Schema)
+					})
+
+					t.Run("asking for refs of type garage", func(t *testing.T) {
+						requestCounter.reset()
+						res, err := repo.ThingByID(context.Background(), id, friendsWithDrivesCarParkedAtGarage())
+						require.Nil(t, err)
+
+						// 3 calls, the initial one, outside of the cache there are two
+						// possible types, so 2 additional requests
+						assert.Equal(t, 3, requestCounter.count)
+						assert.Equal(t, expectedSchemaWithGarageRef, res.Schema)
+					})
+
+					t.Run("asking for refs of both types", func(t *testing.T) {
+						requestCounter.reset()
+						res, err := repo.ThingByID(context.Background(), id, friendsWithDrivesCarParkedAtEither())
+						require.Nil(t, err)
+
+						// 5 calls: 1 initial call, at boundary 2 requested props * 2 beacons = 4, 1+4=5
+						assert.Equal(t, 5, requestCounter.count)
+
+						friendsWith, ok := res.Schema.(map[string]interface{})["FriendsWith"]
+						require.True(t, ok)
+
+						friendsSlice, ok := friendsWith.([]interface{})
+						require.True(t, ok)
+						require.Len(t, friendsSlice, 1)
+
+						friendsRef, ok := friendsSlice[0].(get.LocalRef)
+						require.True(t, ok)
+
+						drives, ok := friendsRef.Fields["Drives"]
+						require.True(t, ok)
+
+						drivesSlice, ok := drives.([]interface{})
+						require.True(t, ok)
+						require.Len(t, drivesSlice, 1)
+
+						drivesRef, ok := drivesSlice[0].(get.LocalRef)
+						require.True(t, ok)
+
+						parkedAt, ok := drivesRef.Fields["ParkedAt"]
+						require.True(t, ok)
+
+						parkedAtSlice, ok := parkedAt.([]interface{})
+						require.True(t, ok)
+
+						assert.ElementsMatch(t, bothRefs, parkedAtSlice)
+					})
+				})
+
 			})
 
 		})
@@ -1081,6 +1227,51 @@ func drivesCarParkedAtEither() traverser.SelectProperties {
 				traverser.SelectClass{
 					ClassName:     "MultiRefCar",
 					RefProperties: parkedAtEither(),
+				},
+			},
+		},
+	}
+}
+
+func friendsWithDrivesCarParkedAtLot() traverser.SelectProperties {
+	return traverser.SelectProperties{
+		traverser.SelectProperty{
+			Name:        "FriendsWith",
+			IsPrimitive: false,
+			Refs: []traverser.SelectClass{
+				traverser.SelectClass{
+					ClassName:     "MultiRefDriver",
+					RefProperties: drivesCarParkedAtLot(),
+				},
+			},
+		},
+	}
+}
+
+func friendsWithDrivesCarParkedAtGarage() traverser.SelectProperties {
+	return traverser.SelectProperties{
+		traverser.SelectProperty{
+			Name:        "FriendsWith",
+			IsPrimitive: false,
+			Refs: []traverser.SelectClass{
+				traverser.SelectClass{
+					ClassName:     "MultiRefDriver",
+					RefProperties: drivesCarParkedAtGarage(),
+				},
+			},
+		},
+	}
+}
+
+func friendsWithDrivesCarParkedAtEither() traverser.SelectProperties {
+	return traverser.SelectProperties{
+		traverser.SelectProperty{
+			Name:        "FriendsWith",
+			IsPrimitive: false,
+			Refs: []traverser.SelectClass{
+				traverser.SelectClass{
+					ClassName:     "MultiRefDriver",
+					RefProperties: drivesCarParkedAtEither(),
 				},
 			},
 		},
