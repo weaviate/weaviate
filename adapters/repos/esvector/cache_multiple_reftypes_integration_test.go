@@ -62,6 +62,45 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 							},
 						},
 					},
+					&models.Class{
+						Class: "MultiRefDriver",
+						Properties: []*models.Property{
+							&models.Property{
+								Name:     "name",
+								DataType: []string{string(schema.DataTypeString)},
+							},
+							&models.Property{
+								Name:     "drives",
+								DataType: []string{"MultiRefCar"},
+							},
+						},
+					},
+					&models.Class{
+						Class: "MultiRefPerson",
+						Properties: []*models.Property{
+							&models.Property{
+								Name:     "name",
+								DataType: []string{string(schema.DataTypeString)},
+							},
+							&models.Property{
+								Name:     "friendsWith",
+								DataType: []string{"MultiRefDriver"},
+							},
+						},
+					},
+					&models.Class{
+						Class: "MultiRefSociety",
+						Properties: []*models.Property{
+							&models.Property{
+								Name:     "name",
+								DataType: []string{string(schema.DataTypeString)},
+							},
+							&models.Property{
+								Name:     "hasMembers",
+								DataType: []string{"MultiRefPerson"},
+							},
+						},
+					},
 				},
 			},
 		}
@@ -73,6 +112,14 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 
 		logger, _ := test.NewNullLogger()
 		schemaGetter := &fakeSchemaGetter{schema: refSchema}
+
+		// we're caching two levels deep, so we can easily catch all cases:
+		//
+		// - one level -> fully in cache
+		// - two levels -> fully in cache, but recursively resolved
+		// - three levels -> outside cache, resolved at runtime
+		// - four levels -> level three retrieved at runtime, but the retrieved
+		//   item should itself have a cache of level four
 		repo := NewRepo(client, logger, schemaGetter, 2)
 		waitForEsToBeReady(t, repo)
 		requestCounter := &testCounter{}
@@ -171,6 +218,45 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 					},
 					ID:               "533673a7-2a5c-4e1c-b35d-a3809deabace",
 					CreationTimeUnix: 1566469909,
+				},
+				models.Thing{
+					Class: "MultiRefDriver",
+					Schema: map[string]interface{}{
+						"name": "Johny Drivemuch",
+						"drives": models.MultipleRef{
+							&models.SingleRef{
+								Beacon: "weaviate://localhost/things/533673a7-2a5c-4e1c-b35d-a3809deabace",
+							},
+						},
+					},
+					ID:               "9653ab38-c16b-4561-80df-7a7e19300dd0",
+					CreationTimeUnix: 1566469912,
+				},
+				models.Thing{
+					Class: "MultiRefPerson",
+					Schema: map[string]interface{}{
+						"name": "Jane Doughnut",
+						"friendsWith": models.MultipleRef{
+							&models.SingleRef{
+								Beacon: "weaviate://localhost/things/9653ab38-c16b-4561-80df-7a7e19300dd0",
+							},
+						},
+					},
+					ID:               "91ad23a3-07ba-4d4c-9836-76c57094f734",
+					CreationTimeUnix: 1566469915,
+				},
+				models.Thing{
+					Class: "MultiRefSociety",
+					Schema: map[string]interface{}{
+						"name": "Cool People",
+						"hasMembers": models.MultipleRef{
+							&models.SingleRef{
+								Beacon: "weaviate://localhost/things/91ad23a3-07ba-4d4c-9836-76c57094f734",
+							},
+						},
+					},
+					ID:               "5cd9afa6-f3df-4f57-a204-840d6b256dba",
+					CreationTimeUnix: 1566469918,
 				},
 			}
 
@@ -666,7 +752,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 					})
 				})
 
-				t.Run("car with refs to both", func(t *testing.T) {
+				t.Run("car with refs to both (one level deep)", func(t *testing.T) {
 					var id strfmt.UUID = "533673a7-2a5c-4e1c-b35d-a3809deabace"
 					expectedSchemaUnresolved := map[string]interface{}{
 						"name": "Car which is parked in two places at the same time (magic!)",
@@ -769,6 +855,118 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 					})
 				})
 
+				t.Run("car with refs to both (two levels deep)", func(t *testing.T) {
+					// driver -> car -> garage
+					// should be fully in cache
+					var id strfmt.UUID = "9653ab38-c16b-4561-80df-7a7e19300dd0"
+
+					expectedSchemaWithLotRef := map[string]interface{}{
+						"uuid": id.String(),
+						"name": "Johny Drivemuch",
+						"Drives": []interface{}{
+							get.LocalRef{
+								Class: "MultiRefCar",
+								Fields: map[string]interface{}{
+									"uuid": "533673a7-2a5c-4e1c-b35d-a3809deabace",
+									"name": "Car which is parked in two places at the same time (magic!)",
+									"ParkedAt": []interface{}{
+										get.LocalRef{
+											Class: "MultiRefParkingLot",
+											Fields: map[string]interface{}{
+												"name": "Fancy Parking Lot",
+												"uuid": "1023967b-9512-475b-8ef9-673a110b695d",
+											},
+										},
+									},
+								},
+							},
+						},
+					}
+
+					expectedSchemaWithGarageRef := map[string]interface{}{
+						"uuid": id.String(),
+						"name": "Johny Drivemuch",
+						"Drives": []interface{}{
+							get.LocalRef{
+								Class: "MultiRefCar",
+								Fields: map[string]interface{}{
+									"uuid": "533673a7-2a5c-4e1c-b35d-a3809deabace",
+									"name": "Car which is parked in two places at the same time (magic!)",
+									"ParkedAt": []interface{}{
+										get.LocalRef{
+											Class: "MultiRefParkingGarage",
+											Fields: map[string]interface{}{
+												"name": "Luxury Parking Garage",
+												"uuid": "a7e10b55-1ac4-464f-80df-82508eea1951",
+											},
+										},
+									},
+								},
+							},
+						},
+					}
+
+					bothRefs := []interface{}{
+						get.LocalRef{
+							Class: "MultiRefParkingLot",
+							Fields: map[string]interface{}{
+								"name": "Fancy Parking Lot",
+								"uuid": "1023967b-9512-475b-8ef9-673a110b695d",
+							},
+						},
+						get.LocalRef{
+							Class: "MultiRefParkingGarage",
+							Fields: map[string]interface{}{
+								"name": "Luxury Parking Garage",
+								"uuid": "a7e10b55-1ac4-464f-80df-82508eea1951",
+							},
+						},
+					}
+
+					t.Run("asking for refs of type lot", func(t *testing.T) {
+						requestCounter.reset()
+						res, err := repo.ThingByID(context.Background(), id, drivesCarParkedAtLot())
+						require.Nil(t, err)
+
+						assert.Equal(t, 1, requestCounter.count)
+						assert.Equal(t, expectedSchemaWithLotRef, res.Schema)
+					})
+
+					t.Run("asking for refs of type garage", func(t *testing.T) {
+						requestCounter.reset()
+						res, err := repo.ThingByID(context.Background(), id, drivesCarParkedAtGarage())
+						require.Nil(t, err)
+
+						assert.Equal(t, 1, requestCounter.count)
+						assert.Equal(t, expectedSchemaWithGarageRef, res.Schema)
+					})
+
+					t.Run("asking for refs of both types", func(t *testing.T) {
+						requestCounter.reset()
+						res, err := repo.ThingByID(context.Background(), id, drivesCarParkedAtEither())
+						require.Nil(t, err)
+
+						assert.Equal(t, 1, requestCounter.count)
+						drives, ok := res.Schema.(map[string]interface{})["Drives"]
+						require.True(t, ok)
+
+						drivesSlice, ok := drives.([]interface{})
+						require.True(t, ok)
+						require.Len(t, drivesSlice, 1)
+
+						drivesRef, ok := drivesSlice[0].(get.LocalRef)
+						require.True(t, ok)
+
+						parkedAt, ok := drivesRef.Fields["ParkedAt"]
+						require.True(t, ok)
+
+						parkedAtSlice, ok := parkedAt.([]interface{})
+						require.True(t, ok)
+
+						assert.ElementsMatch(t, bothRefs, parkedAtSlice)
+					})
+				})
+
 			})
 
 		})
@@ -838,6 +1036,51 @@ func parkedAtEither() traverser.SelectProperties {
 							IsPrimitive: true,
 						},
 					},
+				},
+			},
+		},
+	}
+}
+
+func drivesCarParkedAtLot() traverser.SelectProperties {
+	return traverser.SelectProperties{
+		traverser.SelectProperty{
+			Name:        "Drives",
+			IsPrimitive: false,
+			Refs: []traverser.SelectClass{
+				traverser.SelectClass{
+					ClassName:     "MultiRefCar",
+					RefProperties: parkedAtLot(),
+				},
+			},
+		},
+	}
+}
+
+func drivesCarParkedAtGarage() traverser.SelectProperties {
+	return traverser.SelectProperties{
+		traverser.SelectProperty{
+			Name:        "Drives",
+			IsPrimitive: false,
+			Refs: []traverser.SelectClass{
+				traverser.SelectClass{
+					ClassName:     "MultiRefCar",
+					RefProperties: parkedAtGarage(),
+				},
+			},
+		},
+	}
+}
+
+func drivesCarParkedAtEither() traverser.SelectProperties {
+	return traverser.SelectProperties{
+		traverser.SelectProperty{
+			Name:        "Drives",
+			IsPrimitive: false,
+			Refs: []traverser.SelectClass{
+				traverser.SelectClass{
+					ClassName:     "MultiRefCar",
+					RefProperties: parkedAtEither(),
 				},
 			},
 		},

@@ -339,6 +339,7 @@ func TestEsVectorCache(t *testing.T) {
 			// if onPlanet were resolved it would be a map. The fact that it's a
 			// slice is the first indication that it was unresolved
 			assert.True(t, ok)
+			require.Len(t, refs, 1)
 
 			firstRef, ok := refs[0].(map[string]interface{})
 			assert.True(t, ok)
