@@ -125,7 +125,7 @@ func (p *Processor) sliceResults(input []interface{}, groupBy *filters.Path) ([]
 		groupedMap := map[string]interface{}{
 			"groupedBy": map[string]interface{}{
 				"value": aggregatedValue,
-				"path":  groupBy.Slice(),
+				"path":  groupBy.SliceInterface(),
 			},
 		}
 		merged := mergeMaps(propertiesMap, groupedMap)

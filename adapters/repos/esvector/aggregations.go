@@ -49,7 +49,7 @@ func (r *Repo) Aggregate(ctx context.Context, params traverser.AggregateParams) 
 		return nil, fmt.Errorf("vector search: %v", err)
 	}
 
-	path := interfaceToStringSlice(params.GroupBy.Slice())
+	path := params.GroupBy.Slice()
 	return r.aggregationResponse(res, path)
 }
 

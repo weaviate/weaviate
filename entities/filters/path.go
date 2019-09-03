@@ -42,19 +42,36 @@ func (p *Path) GetInnerMost() *Path {
 }
 
 // Slice flattens the nested path into a slice of segments
-func (p *Path) Slice() []interface{} {
-	return appendNestedPath(p, true)
+func (p *Path) Slice() []string {
+	return appendNestedPath(p, true, true)
 }
 
-func appendNestedPath(p *Path, omitClass bool) []interface{} {
-	result := []interface{}{}
+func (p *Path) SliceInterface() []interface{} {
+	path := appendNestedPath(p, true, true)
+	out := make([]interface{}, len(path), len(path))
+	for i, element := range path {
+		out[i] = element
+	}
+	return out
+}
+
+func (p *Path) SliceNonTitleized() []string {
+	return appendNestedPath(p, true, false)
+}
+
+func appendNestedPath(p *Path, omitClass, titleizeProperty bool) []string {
+	result := []string{}
 	if !omitClass {
 		result = append(result, string(p.Class))
 	}
 
 	if p.Child != nil {
-		result = append(result, strings.Title(string(p.Property)))
-		result = append(result, appendNestedPath(p.Child, false)...)
+		property := string(p.Property)
+		if titleizeProperty {
+			property = strings.Title(property)
+		}
+		result = append(result, property)
+		result = append(result, appendNestedPath(p.Child, false, titleizeProperty)...)
 	} else {
 		result = append(result, string(p.Property))
 	}
