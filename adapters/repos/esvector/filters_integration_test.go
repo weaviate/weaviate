@@ -71,6 +71,10 @@ func Test_Filters(t *testing.T) {
 
 	t.Run("chained primitive props",
 		testChainedPrmitiveProps(repo, migrator))
+
+	// NOTE: This test suite only tests filtering on primitive props, since
+	// filtering on ref props requires a ref-schema and cache to be present,
+	// those tests can be found in cache_multiple_reftypes_integration_test.go
 }
 
 func prepareCarTestSchemaAndData(repo *Repo,
