@@ -1,6 +1,7 @@
 package schema
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/semi-technologies/weaviate/entities/filters"
@@ -64,7 +65,7 @@ func (r *RefFinder) findInClassList(needle libschema.ClassName, classes []*model
 		out = append(out, path...)
 	}
 
-	return out
+	return r.sortByPathLen(out)
 }
 
 func (r *RefFinder) hasRefTo(needle libschema.ClassName, class *models.Class,
@@ -82,19 +83,57 @@ func (r *RefFinder) hasRefTo(needle libschema.ClassName, class *models.Class,
 		}
 
 		for _, haystack := range dt.Classes() {
-			if haystack == needle {
-				out = append(out, filters.Path{
-					Class:    libschema.ClassName(class.Class),
-					Property: libschema.PropertyName(strings.Title(prop.Name)),
-					Child: &filters.Path{
-						Class:    needle,
-						Property: "uuid",
-					},
-				})
+			refs := r.refsPerClass(needle, class, prop.Name, haystack, schema)
+			out = append(out, refs...)
 
-			}
 		}
 	}
 
 	return out, len(out) > 0
+}
+
+func (r *RefFinder) refsPerClass(needle libschema.ClassName, class *models.Class,
+	propName string, haystack libschema.ClassName, schema libschema.Schema) []filters.Path {
+	if haystack == needle {
+		// direct match
+		return []filters.Path{
+			filters.Path{
+				Class:    libschema.ClassName(class.Class),
+				Property: libschema.PropertyName(strings.Title(propName)),
+				Child: &filters.Path{
+					Class:    needle,
+					Property: "uuid",
+				},
+			},
+		}
+	}
+
+	// could still be an indirect (recursive) match
+	innerClass := schema.FindClassByName(haystack)
+	if innerClass == nil {
+		return nil
+	}
+	paths, ok := r.hasRefTo(needle, innerClass, schema)
+	if !ok {
+		return nil
+	}
+
+	var out []filters.Path
+	for _, path := range paths {
+		out = append(out, filters.Path{
+			Class:    libschema.ClassName(class.Class),
+			Property: libschema.PropertyName(strings.Title(propName)),
+			Child:    &path,
+		})
+	}
+
+	return out
+}
+
+func (r *RefFinder) sortByPathLen(in []filters.Path) []filters.Path {
+	sort.Slice(in, func(i, j int) bool {
+		return len(in[i].Slice()) < len(in[j].Slice())
+	})
+
+	return in
 }

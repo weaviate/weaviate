@@ -72,7 +72,7 @@ func TestRefFinder(t *testing.T) {
 		assert.Len(t, res, 0)
 	})
 
-	t.Run("on an schema containing a single level ref to the target", func(t *testing.T) {
+	t.Run("on a schema containing a single level ref to the target", func(t *testing.T) {
 		s := schema.Schema{
 			Things: &models.Schema{
 				Classes: []*models.Class{
@@ -125,6 +125,109 @@ func TestRefFinder(t *testing.T) {
 				Child: &filters.Path{
 					Class:    "Car",
 					Property: "uuid",
+				},
+			},
+		}, res)
+	})
+
+	t.Run("on a schema containing a single level and a multi level ref to the target", func(t *testing.T) {
+		s := schema.Schema{
+			Things: &models.Schema{
+				Classes: []*models.Class{
+					{
+						Class: "Dog",
+						Properties: []*models.Property{
+							{
+								Name:     "name",
+								DataType: []string{string(schema.DataTypeString)},
+							},
+							{
+								Name:     "HasOwner",
+								DataType: []string{"Person"},
+							},
+						},
+					},
+					{
+						Class: "Car",
+						Properties: []*models.Property{
+							{
+								Name:     "model",
+								DataType: []string{string(schema.DataTypeString)},
+							},
+						},
+					},
+					{
+						Class: "Person",
+						Properties: []*models.Property{
+							{
+								Name:     "name",
+								DataType: []string{string(schema.DataTypeString)},
+							},
+							{
+								Name:     "travels",
+								DataType: []string{"Drive"},
+							},
+						},
+					},
+				},
+			},
+			Actions: &models.Schema{
+				Classes: []*models.Class{
+					{
+						Class: "Drive",
+						Properties: []*models.Property{
+							{
+								Name:     "destination",
+								DataType: []string{string(schema.DataTypeString)},
+							},
+							{
+								Name:     "vehicle",
+								DataType: []string{"Car"},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		getter := &fakeSchemaGetterForRefFinder{s}
+		res := NewRefFinder(getter, 3).Find("Car")
+
+		assert.Equal(t, []filters.Path{
+			{
+				Class:    "Drive",
+				Property: "Vehicle",
+				Child: &filters.Path{
+					Class:    "Car",
+					Property: "uuid",
+				},
+			},
+			{
+				Class:    "Person",
+				Property: "Travels",
+				Child: &filters.Path{
+					Class:    "Drive",
+					Property: "Vehicle",
+					Child: &filters.Path{
+						Class:    "Car",
+						Property: "uuid",
+					},
+				},
+			},
+			{
+				Class:    "Dog",
+				Property: "HasOwner",
+				Child: &filters.Path{
+					Class:    "Person",
+					Property: "Travels",
+					Child: &filters.Path{
+						Class:    "Drive",
+						Property: "Vehicle",
+						Child: &filters.Path{
+							Class:    "Car",
+							Property: "uuid",
+						},
+					},
 				},
 			},
 		}, res)
