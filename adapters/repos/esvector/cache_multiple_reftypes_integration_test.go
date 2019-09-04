@@ -28,6 +28,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -1312,6 +1313,14 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 				res, err := repo.ClassSearch(context.Background(), params)
 				require.Nil(t, err)
 				require.Len(t, res, 2)
+
+				names := extractNames(res)
+				expectedNames := []string{
+					"Car which is parked in a garage",
+					"Car which is parked in two places at the same time (magic!)",
+				}
+
+				assert.ElementsMatch(t, names, expectedNames)
 			})
 
 			t.Run("outside of geo range", func(t *testing.T) {
@@ -1324,6 +1333,65 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 						Distance: 100000,
 					})
 				params := getParamsWithFilter("MultiRefCar", filter)
+
+				res, err := repo.ClassSearch(context.Background(), params)
+				require.Nil(t, err)
+				require.Len(t, res, 0)
+			})
+
+		})
+
+		t.Run("multiple levels deep", func(t *testing.T) {
+			t.Run("ref name matches", func(t *testing.T) {
+				filter := filterDrivesCarParkedAtGarage(schema.DataTypeString,
+					"name", filters.OperatorEqual, "Luxury Parking Garage")
+				params := getParamsWithFilter("MultiRefDriver", filter)
+
+				res, err := repo.ClassSearch(context.Background(), params)
+				require.Nil(t, err)
+				require.Len(t, res, 1)
+
+				assert.Equal(t, "Johny Drivemuch", res[0].Schema.(map[string]interface{})["name"])
+			})
+
+			t.Run("ref name doesn't match", func(t *testing.T) {
+				filter := filterDrivesCarParkedAtGarage(schema.DataTypeString,
+					"name", filters.OperatorEqual, "There is no parking garage with this name")
+				params := getParamsWithFilter("MultiRefDriver", filter)
+
+				res, err := repo.ClassSearch(context.Background(), params)
+				require.Nil(t, err)
+				require.Len(t, res, 0)
+			})
+
+			t.Run("within geo range", func(t *testing.T) {
+				filter := filterDrivesCarParkedAtGarage(schema.DataTypeGeoCoordinates,
+					"location", filters.OperatorWithinGeoRange, filters.GeoRange{
+						GeoCoordinates: &models.GeoCoordinates{
+							Latitude:  48.801407,
+							Longitude: 2.130122,
+						},
+						Distance: 100000,
+					})
+				params := getParamsWithFilter("MultiRefDriver", filter)
+
+				res, err := repo.ClassSearch(context.Background(), params)
+				require.Nil(t, err)
+				require.Len(t, res, 1)
+
+				assert.Equal(t, "Johny Drivemuch", res[0].Schema.(map[string]interface{})["name"])
+			})
+
+			t.Run("outside of geo range", func(t *testing.T) {
+				filter := filterDrivesCarParkedAtGarage(schema.DataTypeGeoCoordinates,
+					"location", filters.OperatorWithinGeoRange, filters.GeoRange{
+						GeoCoordinates: &models.GeoCoordinates{
+							Latitude:  42.279594,
+							Longitude: -83.732124,
+						},
+						Distance: 100000,
+					})
+				params := getParamsWithFilter("MultiRefDriver", filter)
 
 				res, err := repo.ClassSearch(context.Background(), params)
 				require.Nil(t, err)
@@ -1451,6 +1519,24 @@ func drivesCarParkedAtGarage() traverser.SelectProperties {
 					ClassName:     "MultiRefCar",
 					RefProperties: parkedAtGarage(),
 				},
+			},
+		},
+	}
+}
+
+func filterDrivesCarParkedAtGarage(dataType schema.DataType,
+	prop string, operator filters.Operator, value interface{}) *filters.LocalFilter {
+	return &filters.LocalFilter{
+		Root: &filters.Clause{
+			Operator: operator,
+			On: &filters.Path{
+				Class:    schema.ClassName("MultiRefDriver"),
+				Property: schema.PropertyName("drives"),
+				Child:    filterCarParkedAtGarage(dataType, prop, operator, value).Root.On,
+			},
+			Value: &filters.Value{
+				Value: value,
+				Type:  dataType,
 			},
 		},
 	}
@@ -1596,4 +1682,13 @@ func getParamsWithFilter(className string, filter *filters.LocalFilter) traverse
 		ClassName: className,
 		Kind:      kind.Thing,
 	}
+}
+
+func extractNames(in []search.Result) []string {
+	out := make([]string, len(in), len(in))
+	for i, res := range in {
+		out[i] = res.Schema.(map[string]interface{})["name"].(string)
+	}
+
+	return out
 }

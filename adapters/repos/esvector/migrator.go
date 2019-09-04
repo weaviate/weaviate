@@ -165,19 +165,29 @@ func (m *Migrator) esPropsFromClassProps(props []*models.Property, depth int) (m
 				return nil, fmt.Errorf("ref prop '%s': %v", prop.Name, err)
 			}
 
-			cache[prop.Name] = refProp
+			if depth == 0 {
+				cache[prop.Name] = refProp
+			} else {
+				esProperties[prop.Name] = refProp
+			}
 		}
 	}
 
-	cache[keyCacheHot.String()] = map[string]interface{}{
-		"type": "boolean",
-	}
+	if depth == 0 {
+		// only the root level has a _cache_hot field and wraps all chaced props in
+		// cache. A depth > 0 indicates we're already in the cached part and don't
+		// need to wrap everything again
+		cache[keyCacheHot.String()] = map[string]interface{}{
+			"type": "boolean",
+		}
 
-	if len(cache) != 0 {
-		esProperties[keyCache.String()] = map[string]interface{}{
-			"properties": cache,
+		if len(cache) != 0 {
+			esProperties[keyCache.String()] = map[string]interface{}{
+				"properties": cache,
+			}
 		}
 	}
+
 	return esProperties, nil
 }
 

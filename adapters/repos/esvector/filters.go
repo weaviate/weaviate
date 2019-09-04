@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/semi-technologies/weaviate/entities/filters"
 )
 
@@ -55,8 +54,6 @@ func singleQueryFromClause(clause *filters.Clause) (map[string]interface{}, erro
 			"filter": filter,
 		},
 	}
-
-	spew.Dump(q)
 
 	return q, nil
 }
@@ -242,7 +239,9 @@ func negateFilter(f map[string]interface{}) map[string]interface{} {
 }
 
 func outerPath(p *filters.Path) string {
-	return keyCache.String() + "." + p.Property.String() + "." + p.Child.Class.String()
+	slice := p.SliceNonTitleized()
+	slice = slice[:len(slice)-1]
+	return keyCache.String() + "." + strings.Join(slice, ".")
 }
 
 func innerPath(p *filters.Path) string {
