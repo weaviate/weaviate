@@ -1339,6 +1339,49 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 				require.Len(t, res, 0)
 			})
 
+			t.Run("combining ref filter with primitive root filter", func(t *testing.T) {
+				parkedAtFilter := filterCarParkedAtGarage(schema.DataTypeGeoCoordinates,
+					"location", filters.OperatorWithinGeoRange, filters.GeoRange{
+						GeoCoordinates: &models.GeoCoordinates{
+							Latitude:  48.801407,
+							Longitude: 2.130122,
+						},
+						Distance: 100000,
+					})
+
+				filter := &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorAnd,
+						Operands: []filters.Clause{
+							*(parkedAtFilter.Root),
+							filters.Clause{
+								On: &filters.Path{
+									Class:    schema.ClassName("MultiRefCar"),
+									Property: schema.PropertyName("name"),
+								},
+								Value: &filters.Value{
+									Value: "Car which is parked in a garage",
+									Type:  schema.DataTypeString,
+								},
+								Operator: filters.OperatorEqual,
+							},
+						},
+					},
+				}
+				params := getParamsWithFilter("MultiRefCar", filter)
+
+				res, err := repo.ClassSearch(context.Background(), params)
+				require.Nil(t, err)
+				require.Len(t, res, 1)
+
+				names := extractNames(res)
+				expectedNames := []string{
+					"Car which is parked in a garage",
+				}
+
+				assert.ElementsMatch(t, names, expectedNames)
+			})
+
 		})
 
 		t.Run("multiple levels deep", func(t *testing.T) {
