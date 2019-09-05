@@ -2,7 +2,6 @@ package schema
 
 import (
 	"sort"
-	"strings"
 
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -80,6 +79,7 @@ func (r *RefFinder) hasRefTo(needle libschema.ClassName, class *models.Class,
 		dt, err := schema.FindPropertyDataType(prop.DataType)
 		if err != nil {
 			// silently ignore, maybe the property was deleted in the meantime
+			continue
 		}
 
 		if dt.IsPrimitive() {
@@ -104,7 +104,7 @@ func (r *RefFinder) refsPerClass(needle libschema.ClassName, class *models.Class
 		return []filters.Path{
 			filters.Path{
 				Class:    libschema.ClassName(class.Class),
-				Property: libschema.PropertyName(strings.Title(propName)),
+				Property: libschema.PropertyName(propName),
 				Child: &filters.Path{
 					Class:    needle,
 					Property: "uuid",
@@ -127,7 +127,7 @@ func (r *RefFinder) refsPerClass(needle libschema.ClassName, class *models.Class
 	for _, path := range paths {
 		out = append(out, filters.Path{
 			Class:    libschema.ClassName(class.Class),
-			Property: libschema.PropertyName(strings.Title(propName)),
+			Property: libschema.PropertyName(propName),
 			Child:    &path,
 		})
 	}
