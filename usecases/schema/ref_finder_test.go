@@ -121,7 +121,7 @@ func TestRefFinder(t *testing.T) {
 		assert.Equal(t, []filters.Path{
 			{
 				Class:    "Drive",
-				Property: "Vehicle",
+				Property: "vehicle",
 				Child: &filters.Path{
 					Class:    "Car",
 					Property: "uuid",
@@ -142,7 +142,7 @@ func TestRefFinder(t *testing.T) {
 								DataType: []string{string(schema.DataTypeString)},
 							},
 							{
-								Name:     "HasOwner",
+								Name:     "hasOwner",
 								DataType: []string{"Person"},
 							},
 						},
@@ -200,7 +200,7 @@ func TestRefFinder(t *testing.T) {
 		assert.Equal(t, []filters.Path{
 			{
 				Class:    "Drive",
-				Property: "Vehicle",
+				Property: "vehicle",
 				Child: &filters.Path{
 					Class:    "Car",
 					Property: "uuid",
@@ -208,10 +208,10 @@ func TestRefFinder(t *testing.T) {
 			},
 			{
 				Class:    "Person",
-				Property: "Travels",
+				Property: "travels",
 				Child: &filters.Path{
 					Class:    "Drive",
-					Property: "Vehicle",
+					Property: "vehicle",
 					Child: &filters.Path{
 						Class:    "Car",
 						Property: "uuid",
@@ -220,13 +220,13 @@ func TestRefFinder(t *testing.T) {
 			},
 			{
 				Class:    "Dog",
-				Property: "HasOwner",
+				Property: "hasOwner",
 				Child: &filters.Path{
 					Class:    "Person",
-					Property: "Travels",
+					Property: "travels",
 					Child: &filters.Path{
 						Class:    "Drive",
-						Property: "Vehicle",
+						Property: "vehicle",
 						Child: &filters.Path{
 							Class:    "Car",
 							Property: "uuid",

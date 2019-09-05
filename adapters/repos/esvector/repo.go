@@ -26,7 +26,9 @@ import (
 	"github.com/elastic/go-elasticsearch/v5"
 	"github.com/elastic/go-elasticsearch/v5/esapi"
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/sirupsen/logrus"
@@ -57,6 +59,17 @@ type Repo struct {
 	denormalizationDepthLimit int
 	requestCounter            counter
 	cacheIndexer              *cacheIndexer
+	schemaRefFinder           schemaRefFinder
+}
+
+type schemaRefFinder interface {
+	Find(className schema.ClassName) []filters.Path
+}
+
+type noopSchemaRefFinder struct{}
+
+func (s *noopSchemaRefFinder) Find(className schema.ClassName) []filters.Path {
+	return nil
 }
 
 type counter interface {
@@ -70,11 +83,23 @@ func (c *noopCounter) Inc() {}
 // NewRepo from existing es client
 func NewRepo(client *elasticsearch.Client, logger logrus.FieldLogger,
 	schemaGetter schemaUC.SchemaGetter, denormalizationLimit int) *Repo {
-	return &Repo{client, logger, schemaGetter, denormalizationLimit, &noopCounter{}, nil}
+	return &Repo{
+		client:                    client,
+		logger:                    logger,
+		schemaGetter:              schemaGetter,
+		denormalizationDepthLimit: denormalizationLimit,
+		requestCounter:            &noopCounter{},
+		cacheIndexer:              nil,
+		schemaRefFinder:           &noopSchemaRefFinder{},
+	}
 }
 
 func (r *Repo) SetSchemaGetter(sg schemaUC.SchemaGetter) {
 	r.schemaGetter = sg
+}
+
+func (r *Repo) SetSchemaRefFinder(srf schemaRefFinder) {
+	r.schemaRefFinder = srf
 }
 
 func (r *Repo) WaitForStartup(maxWaitTime time.Duration) error {
@@ -109,7 +134,7 @@ func (r *Repo) WaitForStartup(maxWaitTime time.Duration) error {
 // PutThing idempotently adds a Thing with its vector representation
 func (r *Repo) PutThing(ctx context.Context,
 	concept *models.Thing, vector []float32) error {
-	err := r.putConcept(ctx, kind.Thing, concept.ID.String(),
+	err := r.putObject(ctx, kind.Thing, concept.ID.String(),
 		concept.Class, concept.Schema, vector, concept.CreationTimeUnix,
 		concept.LastUpdateTimeUnix)
 	if err != nil {
@@ -122,7 +147,7 @@ func (r *Repo) PutThing(ctx context.Context,
 // PutAction idempotently adds a Action with its vector representation
 func (r *Repo) PutAction(ctx context.Context,
 	concept *models.Action, vector []float32) error {
-	err := r.putConcept(ctx, kind.Action, concept.ID.String(),
+	err := r.putObject(ctx, kind.Action, concept.ID.String(),
 		concept.Class, concept.Schema, vector, concept.CreationTimeUnix,
 		concept.LastUpdateTimeUnix)
 	if err != nil {
@@ -148,7 +173,7 @@ func (r *Repo) objectBucket(k kind.Kind, id, className string, props models.Prop
 	return ex
 }
 
-func (r *Repo) putConcept(ctx context.Context,
+func (r *Repo) putObject(ctx context.Context,
 	k kind.Kind, id, className string, props models.PropertySchema,
 	vector []float32, createTime, updateTime int64) error {
 
@@ -182,6 +207,8 @@ func (r *Repo) putConcept(ctx context.Context,
 
 		return fmt.Errorf("index request: %v", err)
 	}
+
+	go r.invalidateCache(className, id)
 
 	return nil
 }

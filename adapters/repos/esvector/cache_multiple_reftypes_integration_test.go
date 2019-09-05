@@ -24,22 +24,24 @@ import (
 	"github.com/elastic/go-elasticsearch/v5"
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get"
-	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+// This test suite has various scenarios for a class with multiple ref types
+// in different caching scenarios. For all tests we want to make sure that
+// all types can be retrieved and that only those are retrieved that the user
+// asked for (select properties)
+//
+// Additionally it also sets the base for various other tests than can be
+// performed on a schema with a lot of cross-refs, such as updating or
+// filtering on refs
 func TestMultipleCrossRefTypes(t *testing.T) {
-	// This test suite has various scenarios for a class with multiple ref types
-	// in different caching scenarios. For all tests we want to make sure that
-	// all types can be retrieved and that only those are retrieved that the user
-	// asked for (select properties)
 	refSchema := schema.Schema{
 		Things: &models.Schema{
 			Classes: []*models.Class{
@@ -290,724 +292,724 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 				require.Nil(t, err)
 			})
 		}
+	})
 
-		refreshAll(t, client)
+	refreshAll(t, client)
 
-		t.Run("before cache indexing", func(t *testing.T) {
-			t.Run("car with no refs", func(t *testing.T) {
-				var id strfmt.UUID = "329c306b-c912-4ec7-9b1d-55e5e0ca8dea"
-				expectedSchema := map[string]interface{}{
-					"name": "Car which is parked no where",
-					"uuid": id.String(),
-				}
+	t.Run("before cache indexing", func(t *testing.T) {
+		t.Run("car with no refs", func(t *testing.T) {
+			var id strfmt.UUID = "329c306b-c912-4ec7-9b1d-55e5e0ca8dea"
+			expectedSchema := map[string]interface{}{
+				"name": "Car which is parked no where",
+				"uuid": id.String(),
+			}
 
-				t.Run("asking for no refs", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, nil)
-					require.Nil(t, err)
+			t.Run("asking for no refs", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, nil)
+				require.Nil(t, err)
 
-					assert.Equal(t, 1, requestCounter.count)
-					assert.Equal(t, expectedSchema, res.Schema)
-				})
-
-				t.Run("asking for refs of type garage", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, parkedAtGarage())
-					require.Nil(t, err)
-
-					assert.Equal(t, 1, requestCounter.count)
-					assert.Equal(t, expectedSchema, res.Schema)
-				})
-
-				t.Run("asking for refs of type lot", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, parkedAtLot())
-					require.Nil(t, err)
-
-					assert.Equal(t, 1, requestCounter.count)
-					assert.Equal(t, expectedSchema, res.Schema)
-				})
-
-				t.Run("asking for refs of both types", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, parkedAtEither())
-					require.Nil(t, err)
-
-					assert.Equal(t, 1, requestCounter.count)
-					assert.Equal(t, expectedSchema, res.Schema)
-				})
+				assert.Equal(t, 1, requestCounter.count)
+				assert.Equal(t, expectedSchema, res.Schema)
 			})
 
-			t.Run("car with single ref to garage", func(t *testing.T) {
-				var id strfmt.UUID = "fe3ca25d-8734-4ede-9a81-bc1ed8c3ea43"
-				expectedSchemaUnresolved := map[string]interface{}{
-					"name": "Car which is parked in a garage",
-					"uuid": id.String(),
-					// ref is present, but unresolved, therefore the lowercase letter
-					"parkedAt": models.MultipleRef{
-						&models.SingleRef{
-							Beacon: "weaviate://localhost/things/a7e10b55-1ac4-464f-80df-82508eea1951",
-						},
-					},
-				}
+			t.Run("asking for refs of type garage", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, parkedAtGarage())
+				require.Nil(t, err)
 
-				expectedSchemaNoRefs := map[string]interface{}{
-					"name": "Car which is parked in a garage",
-					"uuid": id.String(),
-					// ref is not present at all
-				}
-
-				expectedSchemaWithRefs := map[string]interface{}{
-					"name": "Car which is parked in a garage",
-					"uuid": id.String(),
-					"ParkedAt": []interface{}{
-						get.LocalRef{
-							Class: "MultiRefParkingGarage",
-							Fields: map[string]interface{}{
-								"name": "Luxury Parking Garage",
-								"location": &models.GeoCoordinates{
-									Latitude:  48.864716,
-									Longitude: 2.349014,
-								},
-								"uuid": "a7e10b55-1ac4-464f-80df-82508eea1951",
-							},
-						},
-					},
-				}
-
-				t.Run("asking for no refs", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, nil)
-					require.Nil(t, err)
-
-					assert.Equal(t, 1, requestCounter.count)
-					assert.Equal(t, expectedSchemaUnresolved, res.Schema)
-				})
-
-				t.Run("asking for refs of type garage", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, parkedAtGarage())
-					require.Nil(t, err)
-
-					assert.Equal(t, 2, requestCounter.count)
-					assert.Equal(t, expectedSchemaWithRefs, res.Schema)
-				})
-
-				t.Run("asking for refs of type lot", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, parkedAtLot())
-					require.Nil(t, err)
-
-					assert.Equal(t, 2, requestCounter.count)
-					assert.Equal(t, expectedSchemaNoRefs, res.Schema)
-				})
-
-				t.Run("asking for refs of both types", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, parkedAtEither())
-					require.Nil(t, err)
-
-					assert.Equal(t, 3, requestCounter.count)
-					assert.Equal(t, expectedSchemaWithRefs, res.Schema)
-				})
+				assert.Equal(t, 1, requestCounter.count)
+				assert.Equal(t, expectedSchema, res.Schema)
 			})
 
-			t.Run("car with single ref to lot", func(t *testing.T) {
-				var id strfmt.UUID = "21ab5130-627a-4268-baef-1a516bd6cad4"
-				expectedSchemaUnresolved := map[string]interface{}{
-					"name": "Car which is parked in a lot",
-					"uuid": id.String(),
-					// ref is present, but unresolved, therefore the lowercase letter
-					"parkedAt": models.MultipleRef{
-						&models.SingleRef{
-							Beacon: "weaviate://localhost/things/1023967b-9512-475b-8ef9-673a110b695d",
-						},
-					},
-				}
+			t.Run("asking for refs of type lot", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, parkedAtLot())
+				require.Nil(t, err)
 
-				expectedSchemaNoRefs := map[string]interface{}{
-					"name": "Car which is parked in a lot",
-					"uuid": id.String(),
-					// ref is not present at all
-				}
-
-				expectedSchemaWithRefs := map[string]interface{}{
-					"name": "Car which is parked in a lot",
-					"uuid": id.String(),
-					"ParkedAt": []interface{}{
-						get.LocalRef{
-							Class: "MultiRefParkingLot",
-							Fields: map[string]interface{}{
-								"name": "Fancy Parking Lot",
-								"uuid": "1023967b-9512-475b-8ef9-673a110b695d",
-							},
-						},
-					},
-				}
-
-				t.Run("asking for no refs", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, nil)
-					require.Nil(t, err)
-
-					assert.Equal(t, 1, requestCounter.count)
-					assert.Equal(t, expectedSchemaUnresolved, res.Schema)
-				})
-
-				t.Run("asking for refs of type garage", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, parkedAtGarage())
-					require.Nil(t, err)
-
-					assert.Equal(t, 2, requestCounter.count)
-					assert.Equal(t, expectedSchemaNoRefs, res.Schema)
-				})
-
-				t.Run("asking for refs of type lot", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, parkedAtLot())
-					require.Nil(t, err)
-
-					assert.Equal(t, 2, requestCounter.count)
-					assert.Equal(t, expectedSchemaWithRefs, res.Schema)
-				})
-
-				t.Run("asking for refs of both types", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, parkedAtEither())
-					require.Nil(t, err)
-
-					assert.Equal(t, 3, requestCounter.count)
-					assert.Equal(t, expectedSchemaWithRefs, res.Schema)
-				})
+				assert.Equal(t, 1, requestCounter.count)
+				assert.Equal(t, expectedSchema, res.Schema)
 			})
 
-			t.Run("car with refs to both", func(t *testing.T) {
-				var id strfmt.UUID = "533673a7-2a5c-4e1c-b35d-a3809deabace"
-				expectedSchemaUnresolved := map[string]interface{}{
-					"name": "Car which is parked in two places at the same time (magic!)",
-					"uuid": id.String(),
-					// ref is present, but unresolved, therefore the lowercase letter
-					"parkedAt": models.MultipleRef{
-						&models.SingleRef{
-							Beacon: "weaviate://localhost/things/a7e10b55-1ac4-464f-80df-82508eea1951",
-						},
-						&models.SingleRef{
-							Beacon: "weaviate://localhost/things/1023967b-9512-475b-8ef9-673a110b695d",
-						},
-					},
-				}
+			t.Run("asking for refs of both types", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, parkedAtEither())
+				require.Nil(t, err)
 
-				expectedSchemaWithLotRef := map[string]interface{}{
-					"name": "Car which is parked in two places at the same time (magic!)",
-					"uuid": id.String(),
-					"ParkedAt": []interface{}{
-						get.LocalRef{
-							Class: "MultiRefParkingLot",
-							Fields: map[string]interface{}{
-								"name": "Fancy Parking Lot",
-								"uuid": "1023967b-9512-475b-8ef9-673a110b695d",
-							},
-						},
-					},
-				}
-				expectedSchemaWithGarageRef := map[string]interface{}{
-					"name": "Car which is parked in two places at the same time (magic!)",
-					"uuid": id.String(),
-					"ParkedAt": []interface{}{
-						get.LocalRef{
-							Class: "MultiRefParkingGarage",
-							Fields: map[string]interface{}{
-								"name": "Luxury Parking Garage",
-								"location": &models.GeoCoordinates{
-									Latitude:  48.864716,
-									Longitude: 2.349014,
-								},
-								"uuid": "a7e10b55-1ac4-464f-80df-82508eea1951",
-							},
-						},
-					},
-				}
-				expectedSchemaWithAllRefs := map[string]interface{}{
-					"name": "Car which is parked in two places at the same time (magic!)",
-					"uuid": id.String(),
-					"ParkedAt": []interface{}{
-						get.LocalRef{
-							Class: "MultiRefParkingLot",
-							Fields: map[string]interface{}{
-								"name": "Fancy Parking Lot",
-								"uuid": "1023967b-9512-475b-8ef9-673a110b695d",
-							},
-						},
-						get.LocalRef{
-							Class: "MultiRefParkingGarage",
-							Fields: map[string]interface{}{
-								"name": "Luxury Parking Garage",
-								"location": &models.GeoCoordinates{
-									Latitude:  48.864716,
-									Longitude: 2.349014,
-								},
-								"uuid": "a7e10b55-1ac4-464f-80df-82508eea1951",
-							},
-						},
-					},
-				}
-
-				t.Run("asking for no refs", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, nil)
-					require.Nil(t, err)
-
-					assert.Equal(t, 1, requestCounter.count)
-					assert.Equal(t, expectedSchemaUnresolved, res.Schema)
-				})
-
-				t.Run("asking for refs of type garage", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, parkedAtGarage())
-					require.Nil(t, err)
-
-					assert.Equal(t, 3, requestCounter.count)
-					assert.Equal(t, expectedSchemaWithGarageRef, res.Schema)
-				})
-
-				t.Run("asking for refs of type lot", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, parkedAtLot())
-					require.Nil(t, err)
-
-					assert.Equal(t, 3, requestCounter.count)
-					assert.Equal(t, expectedSchemaWithLotRef, res.Schema)
-				})
-
-				t.Run("asking for refs of both types", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, parkedAtEither())
-					require.Nil(t, err)
-
-					assert.Equal(t, 5, requestCounter.count)
-					assert.Equal(t, expectedSchemaWithAllRefs, res.Schema)
-				})
+				assert.Equal(t, 1, requestCounter.count)
+				assert.Equal(t, expectedSchema, res.Schema)
 			})
-
 		})
 
-		repo.InitCacheIndexing(50, 200*time.Millisecond, 200*time.Millisecond)
-		time.Sleep(1500 * time.Millisecond)
+		t.Run("car with single ref to garage", func(t *testing.T) {
+			var id strfmt.UUID = "fe3ca25d-8734-4ede-9a81-bc1ed8c3ea43"
+			expectedSchemaUnresolved := map[string]interface{}{
+				"name": "Car which is parked in a garage",
+				"uuid": id.String(),
+				// ref is present, but unresolved, therefore the lowercase letter
+				"parkedAt": models.MultipleRef{
+					&models.SingleRef{
+						Beacon: "weaviate://localhost/things/a7e10b55-1ac4-464f-80df-82508eea1951",
+					},
+				},
+			}
 
-		t.Run("verify that cache is hot", func(t *testing.T) {
-			// by checking if the cache of the last imported thing is hot
+			expectedSchemaNoRefs := map[string]interface{}{
+				"name": "Car which is parked in a garage",
+				"uuid": id.String(),
+				// ref is not present at all
+			}
 
-			res, err := repo.ThingByID(context.Background(), "fe3ca25d-8734-4ede-9a81-bc1ed8c3ea43", nil)
-			require.Nil(t, err)
-			require.Equal(t, true, res.CacheHot)
+			expectedSchemaWithRefs := map[string]interface{}{
+				"name": "Car which is parked in a garage",
+				"uuid": id.String(),
+				"ParkedAt": []interface{}{
+					get.LocalRef{
+						Class: "MultiRefParkingGarage",
+						Fields: map[string]interface{}{
+							"name": "Luxury Parking Garage",
+							"location": &models.GeoCoordinates{
+								Latitude:  48.864716,
+								Longitude: 2.349014,
+							},
+							"uuid": "a7e10b55-1ac4-464f-80df-82508eea1951",
+						},
+					},
+				},
+			}
+
+			t.Run("asking for no refs", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, nil)
+				require.Nil(t, err)
+
+				assert.Equal(t, 1, requestCounter.count)
+				assert.Equal(t, expectedSchemaUnresolved, res.Schema)
+			})
+
+			t.Run("asking for refs of type garage", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, parkedAtGarage())
+				require.Nil(t, err)
+
+				assert.Equal(t, 2, requestCounter.count)
+				assert.Equal(t, expectedSchemaWithRefs, res.Schema)
+			})
+
+			t.Run("asking for refs of type lot", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, parkedAtLot())
+				require.Nil(t, err)
+
+				assert.Equal(t, 2, requestCounter.count)
+				assert.Equal(t, expectedSchemaNoRefs, res.Schema)
+			})
+
+			t.Run("asking for refs of both types", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, parkedAtEither())
+				require.Nil(t, err)
+
+				assert.Equal(t, 3, requestCounter.count)
+				assert.Equal(t, expectedSchemaWithRefs, res.Schema)
+			})
 		})
 
-		t.Run("after cache indexing", func(t *testing.T) {
-			t.Run("car with no refs", func(t *testing.T) {
-				var id strfmt.UUID = "329c306b-c912-4ec7-9b1d-55e5e0ca8dea"
-				expectedSchema := map[string]interface{}{
-					"name": "Car which is parked no where",
-					"uuid": id.String(),
-				}
+		t.Run("car with single ref to lot", func(t *testing.T) {
+			var id strfmt.UUID = "21ab5130-627a-4268-baef-1a516bd6cad4"
+			expectedSchemaUnresolved := map[string]interface{}{
+				"name": "Car which is parked in a lot",
+				"uuid": id.String(),
+				// ref is present, but unresolved, therefore the lowercase letter
+				"parkedAt": models.MultipleRef{
+					&models.SingleRef{
+						Beacon: "weaviate://localhost/things/1023967b-9512-475b-8ef9-673a110b695d",
+					},
+				},
+			}
 
-				t.Run("asking for no refs", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, nil)
-					require.Nil(t, err)
+			expectedSchemaNoRefs := map[string]interface{}{
+				"name": "Car which is parked in a lot",
+				"uuid": id.String(),
+				// ref is not present at all
+			}
 
-					assert.Equal(t, 1, requestCounter.count)
-					assert.Equal(t, expectedSchema, res.Schema)
-				})
+			expectedSchemaWithRefs := map[string]interface{}{
+				"name": "Car which is parked in a lot",
+				"uuid": id.String(),
+				"ParkedAt": []interface{}{
+					get.LocalRef{
+						Class: "MultiRefParkingLot",
+						Fields: map[string]interface{}{
+							"name": "Fancy Parking Lot",
+							"uuid": "1023967b-9512-475b-8ef9-673a110b695d",
+						},
+					},
+				},
+			}
 
-				t.Run("asking for refs of type garage", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, parkedAtGarage())
-					require.Nil(t, err)
+			t.Run("asking for no refs", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, nil)
+				require.Nil(t, err)
 
-					assert.Equal(t, 1, requestCounter.count)
-					assert.Equal(t, expectedSchema, res.Schema)
-				})
-
-				t.Run("asking for refs of type lot", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, parkedAtLot())
-					require.Nil(t, err)
-
-					assert.Equal(t, 1, requestCounter.count)
-					assert.Equal(t, expectedSchema, res.Schema)
-				})
-
-				t.Run("asking for refs of both types", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, parkedAtEither())
-					require.Nil(t, err)
-
-					assert.Equal(t, 1, requestCounter.count)
-					assert.Equal(t, expectedSchema, res.Schema)
-				})
+				assert.Equal(t, 1, requestCounter.count)
+				assert.Equal(t, expectedSchemaUnresolved, res.Schema)
 			})
 
-			t.Run("car with single ref to garage", func(t *testing.T) {
-				var id strfmt.UUID = "fe3ca25d-8734-4ede-9a81-bc1ed8c3ea43"
-				expectedSchemaUnresolved := map[string]interface{}{
-					"name": "Car which is parked in a garage",
-					"uuid": id.String(),
-					// ref is present, but unresolved, therefore the lowercase letter
-					"parkedAt": models.MultipleRef{
-						&models.SingleRef{
-							Beacon: "weaviate://localhost/things/a7e10b55-1ac4-464f-80df-82508eea1951",
-						},
-					},
-				}
+			t.Run("asking for refs of type garage", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, parkedAtGarage())
+				require.Nil(t, err)
 
-				expectedSchemaNoRefs := map[string]interface{}{
-					"name": "Car which is parked in a garage",
-					"uuid": id.String(),
-					// ref is not present at all
-				}
-
-				expectedSchemaWithRefs := map[string]interface{}{
-					"name": "Car which is parked in a garage",
-					"uuid": id.String(),
-					"ParkedAt": []interface{}{
-						get.LocalRef{
-							Class: "MultiRefParkingGarage",
-							Fields: map[string]interface{}{
-								"name": "Luxury Parking Garage",
-								"location": &models.GeoCoordinates{
-									Latitude:  48.864716,
-									Longitude: 2.349014,
-								},
-								"uuid": "a7e10b55-1ac4-464f-80df-82508eea1951",
-							},
-						},
-					},
-				}
-
-				t.Run("asking for no refs", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, nil)
-					require.Nil(t, err)
-
-					assert.Equal(t, 1, requestCounter.count)
-					assert.Equal(t, expectedSchemaUnresolved, res.Schema)
-				})
-
-				t.Run("asking for refs of type garage", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, parkedAtGarage())
-					require.Nil(t, err)
-
-					assert.Equal(t, 1, requestCounter.count)
-					assert.Equal(t, expectedSchemaWithRefs, res.Schema)
-				})
-
-				t.Run("asking for refs of type lot", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, parkedAtLot())
-					require.Nil(t, err)
-
-					assert.Equal(t, 1, requestCounter.count)
-					assert.Equal(t, expectedSchemaNoRefs, res.Schema)
-				})
-
-				t.Run("asking for refs of both types", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, parkedAtEither())
-					require.Nil(t, err)
-
-					assert.Equal(t, 1, requestCounter.count)
-					assert.Equal(t, expectedSchemaWithRefs, res.Schema)
-				})
+				assert.Equal(t, 2, requestCounter.count)
+				assert.Equal(t, expectedSchemaNoRefs, res.Schema)
 			})
 
-			t.Run("car with single ref to lot", func(t *testing.T) {
-				var id strfmt.UUID = "21ab5130-627a-4268-baef-1a516bd6cad4"
-				expectedSchemaUnresolved := map[string]interface{}{
-					"name": "Car which is parked in a lot",
-					"uuid": id.String(),
-					// ref is present, but unresolved, therefore the lowercase letter
-					"parkedAt": models.MultipleRef{
-						&models.SingleRef{
-							Beacon: "weaviate://localhost/things/1023967b-9512-475b-8ef9-673a110b695d",
-						},
-					},
-				}
+			t.Run("asking for refs of type lot", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, parkedAtLot())
+				require.Nil(t, err)
 
-				expectedSchemaNoRefs := map[string]interface{}{
-					"name": "Car which is parked in a lot",
-					"uuid": id.String(),
-					// ref is not present at all
-				}
-
-				expectedSchemaWithRefs := map[string]interface{}{
-					"name": "Car which is parked in a lot",
-					"uuid": id.String(),
-					"ParkedAt": []interface{}{
-						get.LocalRef{
-							Class: "MultiRefParkingLot",
-							Fields: map[string]interface{}{
-								"name": "Fancy Parking Lot",
-								"uuid": "1023967b-9512-475b-8ef9-673a110b695d",
-							},
-						},
-					},
-				}
-
-				t.Run("asking for no refs", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, nil)
-					require.Nil(t, err)
-
-					assert.Equal(t, 1, requestCounter.count)
-					assert.Equal(t, expectedSchemaUnresolved, res.Schema)
-				})
-
-				t.Run("asking for refs of type garage", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, parkedAtGarage())
-					require.Nil(t, err)
-
-					assert.Equal(t, 1, requestCounter.count)
-					assert.Equal(t, expectedSchemaNoRefs, res.Schema)
-				})
-
-				t.Run("asking for refs of type lot", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, parkedAtLot())
-					require.Nil(t, err)
-
-					assert.Equal(t, 1, requestCounter.count)
-					assert.Equal(t, expectedSchemaWithRefs, res.Schema)
-				})
-
-				t.Run("asking for refs of both types", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, parkedAtEither())
-					require.Nil(t, err)
-
-					assert.Equal(t, 1, requestCounter.count)
-					assert.Equal(t, expectedSchemaWithRefs, res.Schema)
-				})
+				assert.Equal(t, 2, requestCounter.count)
+				assert.Equal(t, expectedSchemaWithRefs, res.Schema)
 			})
 
-			t.Run("car with refs to both (one level deep)", func(t *testing.T) {
-				var id strfmt.UUID = "533673a7-2a5c-4e1c-b35d-a3809deabace"
-				expectedSchemaUnresolved := map[string]interface{}{
-					"name": "Car which is parked in two places at the same time (magic!)",
-					"uuid": id.String(),
-					// ref is present, but unresolved, therefore the lowercase letter
-					"parkedAt": models.MultipleRef{
-						&models.SingleRef{
-							Beacon: "weaviate://localhost/things/a7e10b55-1ac4-464f-80df-82508eea1951",
-						},
-						&models.SingleRef{
-							Beacon: "weaviate://localhost/things/1023967b-9512-475b-8ef9-673a110b695d",
+			t.Run("asking for refs of both types", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, parkedAtEither())
+				require.Nil(t, err)
+
+				assert.Equal(t, 3, requestCounter.count)
+				assert.Equal(t, expectedSchemaWithRefs, res.Schema)
+			})
+		})
+
+		t.Run("car with refs to both", func(t *testing.T) {
+			var id strfmt.UUID = "533673a7-2a5c-4e1c-b35d-a3809deabace"
+			expectedSchemaUnresolved := map[string]interface{}{
+				"name": "Car which is parked in two places at the same time (magic!)",
+				"uuid": id.String(),
+				// ref is present, but unresolved, therefore the lowercase letter
+				"parkedAt": models.MultipleRef{
+					&models.SingleRef{
+						Beacon: "weaviate://localhost/things/a7e10b55-1ac4-464f-80df-82508eea1951",
+					},
+					&models.SingleRef{
+						Beacon: "weaviate://localhost/things/1023967b-9512-475b-8ef9-673a110b695d",
+					},
+				},
+			}
+
+			expectedSchemaWithLotRef := map[string]interface{}{
+				"name": "Car which is parked in two places at the same time (magic!)",
+				"uuid": id.String(),
+				"ParkedAt": []interface{}{
+					get.LocalRef{
+						Class: "MultiRefParkingLot",
+						Fields: map[string]interface{}{
+							"name": "Fancy Parking Lot",
+							"uuid": "1023967b-9512-475b-8ef9-673a110b695d",
 						},
 					},
-				}
-
-				expectedSchemaWithLotRef := map[string]interface{}{
-					"name": "Car which is parked in two places at the same time (magic!)",
-					"uuid": id.String(),
-					"ParkedAt": []interface{}{
-						get.LocalRef{
-							Class: "MultiRefParkingLot",
-							Fields: map[string]interface{}{
-								"name": "Fancy Parking Lot",
-								"uuid": "1023967b-9512-475b-8ef9-673a110b695d",
+				},
+			}
+			expectedSchemaWithGarageRef := map[string]interface{}{
+				"name": "Car which is parked in two places at the same time (magic!)",
+				"uuid": id.String(),
+				"ParkedAt": []interface{}{
+					get.LocalRef{
+						Class: "MultiRefParkingGarage",
+						Fields: map[string]interface{}{
+							"name": "Luxury Parking Garage",
+							"location": &models.GeoCoordinates{
+								Latitude:  48.864716,
+								Longitude: 2.349014,
 							},
+							"uuid": "a7e10b55-1ac4-464f-80df-82508eea1951",
 						},
 					},
-				}
-				expectedSchemaWithGarageRef := map[string]interface{}{
-					"name": "Car which is parked in two places at the same time (magic!)",
-					"uuid": id.String(),
-					"ParkedAt": []interface{}{
-						get.LocalRef{
-							Class: "MultiRefParkingGarage",
-							Fields: map[string]interface{}{
-								"name": "Luxury Parking Garage",
-								"location": &models.GeoCoordinates{
-									Latitude:  48.864716,
-									Longitude: 2.349014,
-								},
-								"uuid": "a7e10b55-1ac4-464f-80df-82508eea1951",
+				},
+			}
+			expectedSchemaWithAllRefs := map[string]interface{}{
+				"name": "Car which is parked in two places at the same time (magic!)",
+				"uuid": id.String(),
+				"ParkedAt": []interface{}{
+					get.LocalRef{
+						Class: "MultiRefParkingLot",
+						Fields: map[string]interface{}{
+							"name": "Fancy Parking Lot",
+							"uuid": "1023967b-9512-475b-8ef9-673a110b695d",
+						},
+					},
+					get.LocalRef{
+						Class: "MultiRefParkingGarage",
+						Fields: map[string]interface{}{
+							"name": "Luxury Parking Garage",
+							"location": &models.GeoCoordinates{
+								Latitude:  48.864716,
+								Longitude: 2.349014,
 							},
+							"uuid": "a7e10b55-1ac4-464f-80df-82508eea1951",
 						},
 					},
-				}
+				},
+			}
 
-				t.Run("asking for no refs", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, nil)
-					require.Nil(t, err)
+			t.Run("asking for no refs", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, nil)
+				require.Nil(t, err)
 
-					assert.Equal(t, 1, requestCounter.count)
-					assert.Equal(t, expectedSchemaUnresolved, res.Schema)
-				})
-
-				t.Run("asking for refs of type garage", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, parkedAtGarage())
-					require.Nil(t, err)
-
-					assert.Equal(t, 1, requestCounter.count)
-					assert.Equal(t, expectedSchemaWithGarageRef, res.Schema)
-				})
-
-				t.Run("asking for refs of type lot", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, parkedAtLot())
-					require.Nil(t, err)
-
-					assert.Equal(t, 1, requestCounter.count)
-					assert.Equal(t, expectedSchemaWithLotRef, res.Schema)
-				})
-
-				t.Run("asking for refs of both types", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, parkedAtEither())
-					require.Nil(t, err)
-
-					assert.Equal(t, 1, requestCounter.count)
-					parkedAt, ok := res.Schema.(map[string]interface{})["ParkedAt"]
-					require.True(t, ok)
-
-					parkedAtSlice, ok := parkedAt.([]interface{})
-					require.True(t, ok)
-
-					assert.ElementsMatch(t, refToBothGarages(), parkedAtSlice)
-				})
+				assert.Equal(t, 1, requestCounter.count)
+				assert.Equal(t, expectedSchemaUnresolved, res.Schema)
 			})
 
-			t.Run("car with refs to both (two levels deep)", func(t *testing.T) {
-				// driver -> car -> garage
-				// should be fully in cache
-				var id strfmt.UUID = "9653ab38-c16b-4561-80df-7a7e19300dd0"
+			t.Run("asking for refs of type garage", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, parkedAtGarage())
+				require.Nil(t, err)
 
-				expectedSchemaWithLotRef := map[string]interface{}{
-					"uuid": id.String(),
-					"name": "Johny Drivemuch",
-					"Drives": []interface{}{
-						get.LocalRef{
-							Class: "MultiRefCar",
-							Fields: map[string]interface{}{
-								"uuid": "533673a7-2a5c-4e1c-b35d-a3809deabace",
-								"name": "Car which is parked in two places at the same time (magic!)",
-								"ParkedAt": []interface{}{
-									get.LocalRef{
-										Class: "MultiRefParkingLot",
-										Fields: map[string]interface{}{
-											"name": "Fancy Parking Lot",
-											"uuid": "1023967b-9512-475b-8ef9-673a110b695d",
-										},
+				assert.Equal(t, 3, requestCounter.count)
+				assert.Equal(t, expectedSchemaWithGarageRef, res.Schema)
+			})
+
+			t.Run("asking for refs of type lot", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, parkedAtLot())
+				require.Nil(t, err)
+
+				assert.Equal(t, 3, requestCounter.count)
+				assert.Equal(t, expectedSchemaWithLotRef, res.Schema)
+			})
+
+			t.Run("asking for refs of both types", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, parkedAtEither())
+				require.Nil(t, err)
+
+				assert.Equal(t, 5, requestCounter.count)
+				assert.Equal(t, expectedSchemaWithAllRefs, res.Schema)
+			})
+		})
+
+	})
+
+	repo.InitCacheIndexing(50, 200*time.Millisecond, 200*time.Millisecond)
+	time.Sleep(1500 * time.Millisecond)
+
+	t.Run("verify that cache is hot", func(t *testing.T) {
+		// by checking if the cache of the last imported thing is hot
+
+		res, err := repo.ThingByID(context.Background(), "fe3ca25d-8734-4ede-9a81-bc1ed8c3ea43", nil)
+		require.Nil(t, err)
+		require.Equal(t, true, res.CacheHot)
+	})
+
+	t.Run("after cache indexing", func(t *testing.T) {
+		t.Run("car with no refs", func(t *testing.T) {
+			var id strfmt.UUID = "329c306b-c912-4ec7-9b1d-55e5e0ca8dea"
+			expectedSchema := map[string]interface{}{
+				"name": "Car which is parked no where",
+				"uuid": id.String(),
+			}
+
+			t.Run("asking for no refs", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, nil)
+				require.Nil(t, err)
+
+				assert.Equal(t, 1, requestCounter.count)
+				assert.Equal(t, expectedSchema, res.Schema)
+			})
+
+			t.Run("asking for refs of type garage", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, parkedAtGarage())
+				require.Nil(t, err)
+
+				assert.Equal(t, 1, requestCounter.count)
+				assert.Equal(t, expectedSchema, res.Schema)
+			})
+
+			t.Run("asking for refs of type lot", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, parkedAtLot())
+				require.Nil(t, err)
+
+				assert.Equal(t, 1, requestCounter.count)
+				assert.Equal(t, expectedSchema, res.Schema)
+			})
+
+			t.Run("asking for refs of both types", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, parkedAtEither())
+				require.Nil(t, err)
+
+				assert.Equal(t, 1, requestCounter.count)
+				assert.Equal(t, expectedSchema, res.Schema)
+			})
+		})
+
+		t.Run("car with single ref to garage", func(t *testing.T) {
+			var id strfmt.UUID = "fe3ca25d-8734-4ede-9a81-bc1ed8c3ea43"
+			expectedSchemaUnresolved := map[string]interface{}{
+				"name": "Car which is parked in a garage",
+				"uuid": id.String(),
+				// ref is present, but unresolved, therefore the lowercase letter
+				"parkedAt": models.MultipleRef{
+					&models.SingleRef{
+						Beacon: "weaviate://localhost/things/a7e10b55-1ac4-464f-80df-82508eea1951",
+					},
+				},
+			}
+
+			expectedSchemaNoRefs := map[string]interface{}{
+				"name": "Car which is parked in a garage",
+				"uuid": id.String(),
+				// ref is not present at all
+			}
+
+			expectedSchemaWithRefs := map[string]interface{}{
+				"name": "Car which is parked in a garage",
+				"uuid": id.String(),
+				"ParkedAt": []interface{}{
+					get.LocalRef{
+						Class: "MultiRefParkingGarage",
+						Fields: map[string]interface{}{
+							"name": "Luxury Parking Garage",
+							"location": &models.GeoCoordinates{
+								Latitude:  48.864716,
+								Longitude: 2.349014,
+							},
+							"uuid": "a7e10b55-1ac4-464f-80df-82508eea1951",
+						},
+					},
+				},
+			}
+
+			t.Run("asking for no refs", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, nil)
+				require.Nil(t, err)
+
+				assert.Equal(t, 1, requestCounter.count)
+				assert.Equal(t, expectedSchemaUnresolved, res.Schema)
+			})
+
+			t.Run("asking for refs of type garage", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, parkedAtGarage())
+				require.Nil(t, err)
+
+				assert.Equal(t, 1, requestCounter.count)
+				assert.Equal(t, expectedSchemaWithRefs, res.Schema)
+			})
+
+			t.Run("asking for refs of type lot", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, parkedAtLot())
+				require.Nil(t, err)
+
+				assert.Equal(t, 1, requestCounter.count)
+				assert.Equal(t, expectedSchemaNoRefs, res.Schema)
+			})
+
+			t.Run("asking for refs of both types", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, parkedAtEither())
+				require.Nil(t, err)
+
+				assert.Equal(t, 1, requestCounter.count)
+				assert.Equal(t, expectedSchemaWithRefs, res.Schema)
+			})
+		})
+
+		t.Run("car with single ref to lot", func(t *testing.T) {
+			var id strfmt.UUID = "21ab5130-627a-4268-baef-1a516bd6cad4"
+			expectedSchemaUnresolved := map[string]interface{}{
+				"name": "Car which is parked in a lot",
+				"uuid": id.String(),
+				// ref is present, but unresolved, therefore the lowercase letter
+				"parkedAt": models.MultipleRef{
+					&models.SingleRef{
+						Beacon: "weaviate://localhost/things/1023967b-9512-475b-8ef9-673a110b695d",
+					},
+				},
+			}
+
+			expectedSchemaNoRefs := map[string]interface{}{
+				"name": "Car which is parked in a lot",
+				"uuid": id.String(),
+				// ref is not present at all
+			}
+
+			expectedSchemaWithRefs := map[string]interface{}{
+				"name": "Car which is parked in a lot",
+				"uuid": id.String(),
+				"ParkedAt": []interface{}{
+					get.LocalRef{
+						Class: "MultiRefParkingLot",
+						Fields: map[string]interface{}{
+							"name": "Fancy Parking Lot",
+							"uuid": "1023967b-9512-475b-8ef9-673a110b695d",
+						},
+					},
+				},
+			}
+
+			t.Run("asking for no refs", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, nil)
+				require.Nil(t, err)
+
+				assert.Equal(t, 1, requestCounter.count)
+				assert.Equal(t, expectedSchemaUnresolved, res.Schema)
+			})
+
+			t.Run("asking for refs of type garage", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, parkedAtGarage())
+				require.Nil(t, err)
+
+				assert.Equal(t, 1, requestCounter.count)
+				assert.Equal(t, expectedSchemaNoRefs, res.Schema)
+			})
+
+			t.Run("asking for refs of type lot", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, parkedAtLot())
+				require.Nil(t, err)
+
+				assert.Equal(t, 1, requestCounter.count)
+				assert.Equal(t, expectedSchemaWithRefs, res.Schema)
+			})
+
+			t.Run("asking for refs of both types", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, parkedAtEither())
+				require.Nil(t, err)
+
+				assert.Equal(t, 1, requestCounter.count)
+				assert.Equal(t, expectedSchemaWithRefs, res.Schema)
+			})
+		})
+
+		t.Run("car with refs to both (one level deep)", func(t *testing.T) {
+			var id strfmt.UUID = "533673a7-2a5c-4e1c-b35d-a3809deabace"
+			expectedSchemaUnresolved := map[string]interface{}{
+				"name": "Car which is parked in two places at the same time (magic!)",
+				"uuid": id.String(),
+				// ref is present, but unresolved, therefore the lowercase letter
+				"parkedAt": models.MultipleRef{
+					&models.SingleRef{
+						Beacon: "weaviate://localhost/things/a7e10b55-1ac4-464f-80df-82508eea1951",
+					},
+					&models.SingleRef{
+						Beacon: "weaviate://localhost/things/1023967b-9512-475b-8ef9-673a110b695d",
+					},
+				},
+			}
+
+			expectedSchemaWithLotRef := map[string]interface{}{
+				"name": "Car which is parked in two places at the same time (magic!)",
+				"uuid": id.String(),
+				"ParkedAt": []interface{}{
+					get.LocalRef{
+						Class: "MultiRefParkingLot",
+						Fields: map[string]interface{}{
+							"name": "Fancy Parking Lot",
+							"uuid": "1023967b-9512-475b-8ef9-673a110b695d",
+						},
+					},
+				},
+			}
+			expectedSchemaWithGarageRef := map[string]interface{}{
+				"name": "Car which is parked in two places at the same time (magic!)",
+				"uuid": id.String(),
+				"ParkedAt": []interface{}{
+					get.LocalRef{
+						Class: "MultiRefParkingGarage",
+						Fields: map[string]interface{}{
+							"name": "Luxury Parking Garage",
+							"location": &models.GeoCoordinates{
+								Latitude:  48.864716,
+								Longitude: 2.349014,
+							},
+							"uuid": "a7e10b55-1ac4-464f-80df-82508eea1951",
+						},
+					},
+				},
+			}
+
+			t.Run("asking for no refs", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, nil)
+				require.Nil(t, err)
+
+				assert.Equal(t, 1, requestCounter.count)
+				assert.Equal(t, expectedSchemaUnresolved, res.Schema)
+			})
+
+			t.Run("asking for refs of type garage", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, parkedAtGarage())
+				require.Nil(t, err)
+
+				assert.Equal(t, 1, requestCounter.count)
+				assert.Equal(t, expectedSchemaWithGarageRef, res.Schema)
+			})
+
+			t.Run("asking for refs of type lot", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, parkedAtLot())
+				require.Nil(t, err)
+
+				assert.Equal(t, 1, requestCounter.count)
+				assert.Equal(t, expectedSchemaWithLotRef, res.Schema)
+			})
+
+			t.Run("asking for refs of both types", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, parkedAtEither())
+				require.Nil(t, err)
+
+				assert.Equal(t, 1, requestCounter.count)
+				parkedAt, ok := res.Schema.(map[string]interface{})["ParkedAt"]
+				require.True(t, ok)
+
+				parkedAtSlice, ok := parkedAt.([]interface{})
+				require.True(t, ok)
+
+				assert.ElementsMatch(t, refToBothGarages(), parkedAtSlice)
+			})
+		})
+
+		t.Run("car with refs to both (two levels deep)", func(t *testing.T) {
+			// driver -> car -> garage
+			// should be fully in cache
+			var id strfmt.UUID = "9653ab38-c16b-4561-80df-7a7e19300dd0"
+
+			expectedSchemaWithLotRef := map[string]interface{}{
+				"uuid": id.String(),
+				"name": "Johny Drivemuch",
+				"Drives": []interface{}{
+					get.LocalRef{
+						Class: "MultiRefCar",
+						Fields: map[string]interface{}{
+							"uuid": "533673a7-2a5c-4e1c-b35d-a3809deabace",
+							"name": "Car which is parked in two places at the same time (magic!)",
+							"ParkedAt": []interface{}{
+								get.LocalRef{
+									Class: "MultiRefParkingLot",
+									Fields: map[string]interface{}{
+										"name": "Fancy Parking Lot",
+										"uuid": "1023967b-9512-475b-8ef9-673a110b695d",
 									},
 								},
 							},
 						},
 					},
-				}
+				},
+			}
 
-				expectedSchemaWithGarageRef := map[string]interface{}{
-					"uuid": id.String(),
-					"name": "Johny Drivemuch",
-					"Drives": []interface{}{
-						get.LocalRef{
-							Class: "MultiRefCar",
-							Fields: map[string]interface{}{
-								"uuid": "533673a7-2a5c-4e1c-b35d-a3809deabace",
-								"name": "Car which is parked in two places at the same time (magic!)",
-								"ParkedAt": []interface{}{
-									get.LocalRef{
-										Class: "MultiRefParkingGarage",
-										Fields: map[string]interface{}{
-											"name": "Luxury Parking Garage",
-											"location": &models.GeoCoordinates{
-												Latitude:  48.864716,
-												Longitude: 2.349014,
-											},
-											"uuid": "a7e10b55-1ac4-464f-80df-82508eea1951",
+			expectedSchemaWithGarageRef := map[string]interface{}{
+				"uuid": id.String(),
+				"name": "Johny Drivemuch",
+				"Drives": []interface{}{
+					get.LocalRef{
+						Class: "MultiRefCar",
+						Fields: map[string]interface{}{
+							"uuid": "533673a7-2a5c-4e1c-b35d-a3809deabace",
+							"name": "Car which is parked in two places at the same time (magic!)",
+							"ParkedAt": []interface{}{
+								get.LocalRef{
+									Class: "MultiRefParkingGarage",
+									Fields: map[string]interface{}{
+										"name": "Luxury Parking Garage",
+										"location": &models.GeoCoordinates{
+											Latitude:  48.864716,
+											Longitude: 2.349014,
 										},
+										"uuid": "a7e10b55-1ac4-464f-80df-82508eea1951",
 									},
 								},
 							},
 						},
 					},
-				}
+				},
+			}
 
-				t.Run("asking for refs of type lot", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, drivesCarParkedAtLot())
-					require.Nil(t, err)
+			t.Run("asking for refs of type lot", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, drivesCarParkedAtLot())
+				require.Nil(t, err)
 
-					assert.Equal(t, 1, requestCounter.count)
-					assert.Equal(t, expectedSchemaWithLotRef, res.Schema)
-				})
-
-				t.Run("asking for refs of type garage", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, drivesCarParkedAtGarage())
-					require.Nil(t, err)
-
-					assert.Equal(t, 1, requestCounter.count)
-					assert.Equal(t, expectedSchemaWithGarageRef, res.Schema)
-				})
-
-				t.Run("asking for refs of both types", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, drivesCarParkedAtEither())
-					require.Nil(t, err)
-
-					assert.Equal(t, 1, requestCounter.count)
-					drives, ok := res.Schema.(map[string]interface{})["Drives"]
-					require.True(t, ok)
-
-					drivesSlice, ok := drives.([]interface{})
-					require.True(t, ok)
-					require.Len(t, drivesSlice, 1)
-
-					drivesRef, ok := drivesSlice[0].(get.LocalRef)
-					require.True(t, ok)
-
-					parkedAt, ok := drivesRef.Fields["ParkedAt"]
-					require.True(t, ok)
-
-					parkedAtSlice, ok := parkedAt.([]interface{})
-					require.True(t, ok)
-
-					assert.ElementsMatch(t, refToBothGarages(), parkedAtSlice)
-				})
+				assert.Equal(t, 1, requestCounter.count)
+				assert.Equal(t, expectedSchemaWithLotRef, res.Schema)
 			})
 
-			t.Run("car with refs to both (three levels deep)", func(t *testing.T) {
-				// person -> driver -> car -> garage
-				// should no longer be in cache
-				var id strfmt.UUID = "91ad23a3-07ba-4d4c-9836-76c57094f734"
+			t.Run("asking for refs of type garage", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, drivesCarParkedAtGarage())
+				require.Nil(t, err)
 
-				expectedSchemaWithLotRef := map[string]interface{}{
-					"uuid": id.String(),
-					"name": "Jane Doughnut",
-					"FriendsWith": []interface{}{
-						get.LocalRef{
-							Class: "MultiRefDriver",
-							Fields: map[string]interface{}{
-								"uuid": "9653ab38-c16b-4561-80df-7a7e19300dd0",
-								"name": "Johny Drivemuch",
-								"Drives": []interface{}{
-									get.LocalRef{
-										Class: "MultiRefCar",
-										Fields: map[string]interface{}{
-											"uuid": "533673a7-2a5c-4e1c-b35d-a3809deabace",
-											"name": "Car which is parked in two places at the same time (magic!)",
-											"ParkedAt": []interface{}{
-												get.LocalRef{
-													Class: "MultiRefParkingLot",
-													Fields: map[string]interface{}{
-														"name": "Fancy Parking Lot",
-														"uuid": "1023967b-9512-475b-8ef9-673a110b695d",
-													},
+				assert.Equal(t, 1, requestCounter.count)
+				assert.Equal(t, expectedSchemaWithGarageRef, res.Schema)
+			})
+
+			t.Run("asking for refs of both types", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, drivesCarParkedAtEither())
+				require.Nil(t, err)
+
+				assert.Equal(t, 1, requestCounter.count)
+				drives, ok := res.Schema.(map[string]interface{})["Drives"]
+				require.True(t, ok)
+
+				drivesSlice, ok := drives.([]interface{})
+				require.True(t, ok)
+				require.Len(t, drivesSlice, 1)
+
+				drivesRef, ok := drivesSlice[0].(get.LocalRef)
+				require.True(t, ok)
+
+				parkedAt, ok := drivesRef.Fields["ParkedAt"]
+				require.True(t, ok)
+
+				parkedAtSlice, ok := parkedAt.([]interface{})
+				require.True(t, ok)
+
+				assert.ElementsMatch(t, refToBothGarages(), parkedAtSlice)
+			})
+		})
+
+		t.Run("car with refs to both (three levels deep)", func(t *testing.T) {
+			// person -> driver -> car -> garage
+			// should no longer be in cache
+			var id strfmt.UUID = "91ad23a3-07ba-4d4c-9836-76c57094f734"
+
+			expectedSchemaWithLotRef := map[string]interface{}{
+				"uuid": id.String(),
+				"name": "Jane Doughnut",
+				"FriendsWith": []interface{}{
+					get.LocalRef{
+						Class: "MultiRefDriver",
+						Fields: map[string]interface{}{
+							"uuid": "9653ab38-c16b-4561-80df-7a7e19300dd0",
+							"name": "Johny Drivemuch",
+							"Drives": []interface{}{
+								get.LocalRef{
+									Class: "MultiRefCar",
+									Fields: map[string]interface{}{
+										"uuid": "533673a7-2a5c-4e1c-b35d-a3809deabace",
+										"name": "Car which is parked in two places at the same time (magic!)",
+										"ParkedAt": []interface{}{
+											get.LocalRef{
+												Class: "MultiRefParkingLot",
+												Fields: map[string]interface{}{
+													"name": "Fancy Parking Lot",
+													"uuid": "1023967b-9512-475b-8ef9-673a110b695d",
 												},
 											},
 										},
@@ -1016,34 +1018,34 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 							},
 						},
 					},
-				}
+				},
+			}
 
-				expectedSchemaWithGarageRef := map[string]interface{}{
-					"uuid": id.String(),
-					"name": "Jane Doughnut",
-					"FriendsWith": []interface{}{
-						get.LocalRef{
-							Class: "MultiRefDriver",
-							Fields: map[string]interface{}{
-								"uuid": "9653ab38-c16b-4561-80df-7a7e19300dd0",
-								"name": "Johny Drivemuch",
-								"Drives": []interface{}{
-									get.LocalRef{
-										Class: "MultiRefCar",
-										Fields: map[string]interface{}{
-											"uuid": "533673a7-2a5c-4e1c-b35d-a3809deabace",
-											"name": "Car which is parked in two places at the same time (magic!)",
-											"ParkedAt": []interface{}{
-												get.LocalRef{
-													Class: "MultiRefParkingGarage",
-													Fields: map[string]interface{}{
-														"name": "Luxury Parking Garage",
-														"location": &models.GeoCoordinates{
-															Latitude:  48.864716,
-															Longitude: 2.349014,
-														},
-														"uuid": "a7e10b55-1ac4-464f-80df-82508eea1951",
+			expectedSchemaWithGarageRef := map[string]interface{}{
+				"uuid": id.String(),
+				"name": "Jane Doughnut",
+				"FriendsWith": []interface{}{
+					get.LocalRef{
+						Class: "MultiRefDriver",
+						Fields: map[string]interface{}{
+							"uuid": "9653ab38-c16b-4561-80df-7a7e19300dd0",
+							"name": "Johny Drivemuch",
+							"Drives": []interface{}{
+								get.LocalRef{
+									Class: "MultiRefCar",
+									Fields: map[string]interface{}{
+										"uuid": "533673a7-2a5c-4e1c-b35d-a3809deabace",
+										"name": "Car which is parked in two places at the same time (magic!)",
+										"ParkedAt": []interface{}{
+											get.LocalRef{
+												Class: "MultiRefParkingGarage",
+												Fields: map[string]interface{}{
+													"name": "Luxury Parking Garage",
+													"location": &models.GeoCoordinates{
+														Latitude:  48.864716,
+														Longitude: 2.349014,
 													},
+													"uuid": "a7e10b55-1ac4-464f-80df-82508eea1951",
 												},
 											},
 										},
@@ -1052,102 +1054,102 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 							},
 						},
 					},
-				}
+				},
+			}
 
-				t.Run("asking for refs of type lot", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, friendsWithDrivesCarParkedAtLot())
-					require.Nil(t, err)
+			t.Run("asking for refs of type lot", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, friendsWithDrivesCarParkedAtLot())
+				require.Nil(t, err)
 
-					// 3 calls, the initial one, outside of the cache there are two
-					// possible types, so 2 additional requests
-					assert.Equal(t, 3, requestCounter.count)
-					assert.Equal(t, expectedSchemaWithLotRef, res.Schema)
-				})
-
-				t.Run("asking for refs of type garage", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, friendsWithDrivesCarParkedAtGarage())
-					require.Nil(t, err)
-
-					// 3 calls, the initial one, outside of the cache there are two
-					// possible types, so 2 additional requests
-					assert.Equal(t, 3, requestCounter.count)
-					assert.Equal(t, expectedSchemaWithGarageRef, res.Schema)
-				})
-
-				t.Run("asking for refs of both types", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, friendsWithDrivesCarParkedAtEither())
-					require.Nil(t, err)
-
-					// 5 calls: 1 initial call, at boundary 2 requested props * 2 beacons = 4, 1+4=5
-					assert.Equal(t, 5, requestCounter.count)
-
-					friendsWith, ok := res.Schema.(map[string]interface{})["FriendsWith"]
-					require.True(t, ok)
-
-					friendsSlice, ok := friendsWith.([]interface{})
-					require.True(t, ok)
-					require.Len(t, friendsSlice, 1)
-
-					friendsRef, ok := friendsSlice[0].(get.LocalRef)
-					require.True(t, ok)
-
-					drives, ok := friendsRef.Fields["Drives"]
-					require.True(t, ok)
-
-					drivesSlice, ok := drives.([]interface{})
-					require.True(t, ok)
-					require.Len(t, drivesSlice, 1)
-
-					drivesRef, ok := drivesSlice[0].(get.LocalRef)
-					require.True(t, ok)
-
-					parkedAt, ok := drivesRef.Fields["ParkedAt"]
-					require.True(t, ok)
-
-					parkedAtSlice, ok := parkedAt.([]interface{})
-					require.True(t, ok)
-
-					assert.ElementsMatch(t, refToBothGarages(), parkedAtSlice)
-				})
+				// 3 calls, the initial one, outside of the cache there are two
+				// possible types, so 2 additional requests
+				assert.Equal(t, 3, requestCounter.count)
+				assert.Equal(t, expectedSchemaWithLotRef, res.Schema)
 			})
 
-			t.Run("car with refs to both (fours levels deep)", func(t *testing.T) {
-				// society -> person -> driver -> car -> garage
-				// cache bounday is crossed at driver->car which means car->garage
-				// should be in cache again
-				var id strfmt.UUID = "5cd9afa6-f3df-4f57-a204-840d6b256dba"
+			t.Run("asking for refs of type garage", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, friendsWithDrivesCarParkedAtGarage())
+				require.Nil(t, err)
 
-				expectedSchemaWithLotRef := map[string]interface{}{
-					"uuid": id.String(),
-					"name": "Cool People",
-					"HasMembers": []interface{}{
-						get.LocalRef{
-							Class: "MultiRefPerson",
-							Fields: map[string]interface{}{
-								"uuid": "91ad23a3-07ba-4d4c-9836-76c57094f734",
-								"name": "Jane Doughnut",
-								"FriendsWith": []interface{}{
-									get.LocalRef{
-										Class: "MultiRefDriver",
-										Fields: map[string]interface{}{
-											"uuid": "9653ab38-c16b-4561-80df-7a7e19300dd0",
-											"name": "Johny Drivemuch",
-											"Drives": []interface{}{
-												get.LocalRef{
-													Class: "MultiRefCar",
-													Fields: map[string]interface{}{
-														"uuid": "533673a7-2a5c-4e1c-b35d-a3809deabace",
-														"name": "Car which is parked in two places at the same time (magic!)",
-														"ParkedAt": []interface{}{
-															get.LocalRef{
-																Class: "MultiRefParkingLot",
-																Fields: map[string]interface{}{
-																	"name": "Fancy Parking Lot",
-																	"uuid": "1023967b-9512-475b-8ef9-673a110b695d",
-																},
+				// 3 calls, the initial one, outside of the cache there are two
+				// possible types, so 2 additional requests
+				assert.Equal(t, 3, requestCounter.count)
+				assert.Equal(t, expectedSchemaWithGarageRef, res.Schema)
+			})
+
+			t.Run("asking for refs of both types", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, friendsWithDrivesCarParkedAtEither())
+				require.Nil(t, err)
+
+				// 5 calls: 1 initial call, at boundary 2 requested props * 2 beacons = 4, 1+4=5
+				assert.Equal(t, 5, requestCounter.count)
+
+				friendsWith, ok := res.Schema.(map[string]interface{})["FriendsWith"]
+				require.True(t, ok)
+
+				friendsSlice, ok := friendsWith.([]interface{})
+				require.True(t, ok)
+				require.Len(t, friendsSlice, 1)
+
+				friendsRef, ok := friendsSlice[0].(get.LocalRef)
+				require.True(t, ok)
+
+				drives, ok := friendsRef.Fields["Drives"]
+				require.True(t, ok)
+
+				drivesSlice, ok := drives.([]interface{})
+				require.True(t, ok)
+				require.Len(t, drivesSlice, 1)
+
+				drivesRef, ok := drivesSlice[0].(get.LocalRef)
+				require.True(t, ok)
+
+				parkedAt, ok := drivesRef.Fields["ParkedAt"]
+				require.True(t, ok)
+
+				parkedAtSlice, ok := parkedAt.([]interface{})
+				require.True(t, ok)
+
+				assert.ElementsMatch(t, refToBothGarages(), parkedAtSlice)
+			})
+		})
+
+		t.Run("car with refs to both (fours levels deep)", func(t *testing.T) {
+			// society -> person -> driver -> car -> garage
+			// cache bounday is crossed at driver->car which means car->garage
+			// should be in cache again
+			var id strfmt.UUID = "5cd9afa6-f3df-4f57-a204-840d6b256dba"
+
+			expectedSchemaWithLotRef := map[string]interface{}{
+				"uuid": id.String(),
+				"name": "Cool People",
+				"HasMembers": []interface{}{
+					get.LocalRef{
+						Class: "MultiRefPerson",
+						Fields: map[string]interface{}{
+							"uuid": "91ad23a3-07ba-4d4c-9836-76c57094f734",
+							"name": "Jane Doughnut",
+							"FriendsWith": []interface{}{
+								get.LocalRef{
+									Class: "MultiRefDriver",
+									Fields: map[string]interface{}{
+										"uuid": "9653ab38-c16b-4561-80df-7a7e19300dd0",
+										"name": "Johny Drivemuch",
+										"Drives": []interface{}{
+											get.LocalRef{
+												Class: "MultiRefCar",
+												Fields: map[string]interface{}{
+													"uuid": "533673a7-2a5c-4e1c-b35d-a3809deabace",
+													"name": "Car which is parked in two places at the same time (magic!)",
+													"ParkedAt": []interface{}{
+														get.LocalRef{
+															Class: "MultiRefParkingLot",
+															Fields: map[string]interface{}{
+																"name": "Fancy Parking Lot",
+																"uuid": "1023967b-9512-475b-8ef9-673a110b695d",
 															},
 														},
 													},
@@ -1159,40 +1161,40 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 							},
 						},
 					},
-				}
+				},
+			}
 
-				expectedSchemaWithGarageRef := map[string]interface{}{
-					"uuid": id.String(),
-					"name": "Cool People",
-					"HasMembers": []interface{}{
-						get.LocalRef{
-							Class: "MultiRefPerson",
-							Fields: map[string]interface{}{
-								"uuid": "91ad23a3-07ba-4d4c-9836-76c57094f734",
-								"name": "Jane Doughnut",
-								"FriendsWith": []interface{}{
-									get.LocalRef{
-										Class: "MultiRefDriver",
-										Fields: map[string]interface{}{
-											"uuid": "9653ab38-c16b-4561-80df-7a7e19300dd0",
-											"name": "Johny Drivemuch",
-											"Drives": []interface{}{
-												get.LocalRef{
-													Class: "MultiRefCar",
-													Fields: map[string]interface{}{
-														"uuid": "533673a7-2a5c-4e1c-b35d-a3809deabace",
-														"name": "Car which is parked in two places at the same time (magic!)",
-														"ParkedAt": []interface{}{
-															get.LocalRef{
-																Class: "MultiRefParkingGarage",
-																Fields: map[string]interface{}{
-																	"name": "Luxury Parking Garage",
-																	"location": &models.GeoCoordinates{
-																		Latitude:  48.864716,
-																		Longitude: 2.349014,
-																	},
-																	"uuid": "a7e10b55-1ac4-464f-80df-82508eea1951",
+			expectedSchemaWithGarageRef := map[string]interface{}{
+				"uuid": id.String(),
+				"name": "Cool People",
+				"HasMembers": []interface{}{
+					get.LocalRef{
+						Class: "MultiRefPerson",
+						Fields: map[string]interface{}{
+							"uuid": "91ad23a3-07ba-4d4c-9836-76c57094f734",
+							"name": "Jane Doughnut",
+							"FriendsWith": []interface{}{
+								get.LocalRef{
+									Class: "MultiRefDriver",
+									Fields: map[string]interface{}{
+										"uuid": "9653ab38-c16b-4561-80df-7a7e19300dd0",
+										"name": "Johny Drivemuch",
+										"Drives": []interface{}{
+											get.LocalRef{
+												Class: "MultiRefCar",
+												Fields: map[string]interface{}{
+													"uuid": "533673a7-2a5c-4e1c-b35d-a3809deabace",
+													"name": "Car which is parked in two places at the same time (magic!)",
+													"ParkedAt": []interface{}{
+														get.LocalRef{
+															Class: "MultiRefParkingGarage",
+															Fields: map[string]interface{}{
+																"name": "Luxury Parking Garage",
+																"location": &models.GeoCoordinates{
+																	Latitude:  48.864716,
+																	Longitude: 2.349014,
 																},
+																"uuid": "a7e10b55-1ac4-464f-80df-82508eea1951",
 															},
 														},
 													},
@@ -1204,245 +1206,82 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 							},
 						},
 					},
-				}
+				},
+			}
 
-				t.Run("asking for refs of type lot", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, hasMembersFriendsWithDrivesCarParkedAtLot())
-					require.Nil(t, err)
+			t.Run("asking for refs of type lot", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, hasMembersFriendsWithDrivesCarParkedAtLot())
+				require.Nil(t, err)
 
-					// initial call + cache boundary crossed at driver->car
-					assert.Equal(t, 2, requestCounter.count)
-					assert.Equal(t, expectedSchemaWithLotRef, res.Schema)
-				})
-
-				t.Run("asking for refs of type garage", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, hasMembersFriendsWithDrivesCarParkedAtGarage())
-					require.Nil(t, err)
-
-					// initial call + cache boundary crossed at driver->car
-					assert.Equal(t, 2, requestCounter.count)
-					assert.Equal(t, expectedSchemaWithGarageRef, res.Schema)
-				})
-
-				t.Run("asking for refs of both types", func(t *testing.T) {
-					requestCounter.reset()
-					res, err := repo.ThingByID(context.Background(), id, hasMembersFriendsWithDrivesCarParkedAtEither())
-					require.Nil(t, err)
-
-					// initial call + cache boundary crossed at driver->car
-					assert.Equal(t, 2, requestCounter.count)
-
-					hasMembers, ok := res.Schema.(map[string]interface{})["HasMembers"]
-					require.True(t, ok)
-
-					membersSlice, ok := hasMembers.([]interface{})
-					require.True(t, ok)
-					require.Len(t, membersSlice, 1)
-
-					membersRef, ok := membersSlice[0].(get.LocalRef)
-					require.True(t, ok)
-
-					friendsWith, ok := membersRef.Fields["FriendsWith"]
-					require.True(t, ok)
-
-					friendsSlice, ok := friendsWith.([]interface{})
-					require.True(t, ok)
-					require.Len(t, friendsSlice, 1)
-
-					friendsRef, ok := friendsSlice[0].(get.LocalRef)
-					require.True(t, ok)
-
-					drives, ok := friendsRef.Fields["Drives"]
-					require.True(t, ok)
-
-					drivesSlice, ok := drives.([]interface{})
-					require.True(t, ok)
-					require.Len(t, drivesSlice, 1)
-
-					drivesRef, ok := drivesSlice[0].(get.LocalRef)
-					require.True(t, ok)
-
-					parkedAt, ok := drivesRef.Fields["ParkedAt"]
-					require.True(t, ok)
-
-					parkedAtSlice, ok := parkedAt.([]interface{})
-					require.True(t, ok)
-
-					assert.ElementsMatch(t, refToBothGarages(), parkedAtSlice)
-				})
+				// initial call + cache boundary crossed at driver->car
+				assert.Equal(t, 2, requestCounter.count)
+				assert.Equal(t, expectedSchemaWithLotRef, res.Schema)
 			})
 
+			t.Run("asking for refs of type garage", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, hasMembersFriendsWithDrivesCarParkedAtGarage())
+				require.Nil(t, err)
+
+				// initial call + cache boundary crossed at driver->car
+				assert.Equal(t, 2, requestCounter.count)
+				assert.Equal(t, expectedSchemaWithGarageRef, res.Schema)
+			})
+
+			t.Run("asking for refs of both types", func(t *testing.T) {
+				requestCounter.reset()
+				res, err := repo.ThingByID(context.Background(), id, hasMembersFriendsWithDrivesCarParkedAtEither())
+				require.Nil(t, err)
+
+				// initial call + cache boundary crossed at driver->car
+				assert.Equal(t, 2, requestCounter.count)
+
+				hasMembers, ok := res.Schema.(map[string]interface{})["HasMembers"]
+				require.True(t, ok)
+
+				membersSlice, ok := hasMembers.([]interface{})
+				require.True(t, ok)
+				require.Len(t, membersSlice, 1)
+
+				membersRef, ok := membersSlice[0].(get.LocalRef)
+				require.True(t, ok)
+
+				friendsWith, ok := membersRef.Fields["FriendsWith"]
+				require.True(t, ok)
+
+				friendsSlice, ok := friendsWith.([]interface{})
+				require.True(t, ok)
+				require.Len(t, friendsSlice, 1)
+
+				friendsRef, ok := friendsSlice[0].(get.LocalRef)
+				require.True(t, ok)
+
+				drives, ok := friendsRef.Fields["Drives"]
+				require.True(t, ok)
+
+				drivesSlice, ok := drives.([]interface{})
+				require.True(t, ok)
+				require.Len(t, drivesSlice, 1)
+
+				drivesRef, ok := drivesSlice[0].(get.LocalRef)
+				require.True(t, ok)
+
+				parkedAt, ok := drivesRef.Fields["ParkedAt"]
+				require.True(t, ok)
+
+				parkedAtSlice, ok := parkedAt.([]interface{})
+				require.True(t, ok)
+
+				assert.ElementsMatch(t, refToBothGarages(), parkedAtSlice)
+			})
 		})
+
 	})
 
-	t.Run("filtering on refprops", func(t *testing.T) {
-		t.Run("one level deep", func(t *testing.T) {
-			t.Run("ref name matches", func(t *testing.T) {
-				filter := filterCarParkedAtGarage(schema.DataTypeString,
-					"name", filters.OperatorEqual, "Luxury Parking Garage")
-				params := getParamsWithFilter("MultiRefCar", filter)
+	t.Run("filtering on refprops", testFilteringOnRefProps(repo))
 
-				res, err := repo.ClassSearch(context.Background(), params)
-				require.Nil(t, err)
-				require.Len(t, res, 2)
-			})
-
-			t.Run("ref name doesn't match", func(t *testing.T) {
-				filter := filterCarParkedAtGarage(schema.DataTypeString,
-					"name", filters.OperatorEqual, "There is no parking garage with this name")
-				params := getParamsWithFilter("MultiRefCar", filter)
-
-				res, err := repo.ClassSearch(context.Background(), params)
-				require.Nil(t, err)
-				require.Len(t, res, 0)
-			})
-
-			t.Run("within geo range", func(t *testing.T) {
-				filter := filterCarParkedAtGarage(schema.DataTypeGeoCoordinates,
-					"location", filters.OperatorWithinGeoRange, filters.GeoRange{
-						GeoCoordinates: &models.GeoCoordinates{
-							Latitude:  48.801407,
-							Longitude: 2.130122,
-						},
-						Distance: 100000,
-					})
-				params := getParamsWithFilter("MultiRefCar", filter)
-
-				res, err := repo.ClassSearch(context.Background(), params)
-				require.Nil(t, err)
-				require.Len(t, res, 2)
-
-				names := extractNames(res)
-				expectedNames := []string{
-					"Car which is parked in a garage",
-					"Car which is parked in two places at the same time (magic!)",
-				}
-
-				assert.ElementsMatch(t, names, expectedNames)
-			})
-
-			t.Run("outside of geo range", func(t *testing.T) {
-				filter := filterCarParkedAtGarage(schema.DataTypeGeoCoordinates,
-					"location", filters.OperatorWithinGeoRange, filters.GeoRange{
-						GeoCoordinates: &models.GeoCoordinates{
-							Latitude:  42.279594,
-							Longitude: -83.732124,
-						},
-						Distance: 100000,
-					})
-				params := getParamsWithFilter("MultiRefCar", filter)
-
-				res, err := repo.ClassSearch(context.Background(), params)
-				require.Nil(t, err)
-				require.Len(t, res, 0)
-			})
-
-			t.Run("combining ref filter with primitive root filter", func(t *testing.T) {
-				parkedAtFilter := filterCarParkedAtGarage(schema.DataTypeGeoCoordinates,
-					"location", filters.OperatorWithinGeoRange, filters.GeoRange{
-						GeoCoordinates: &models.GeoCoordinates{
-							Latitude:  48.801407,
-							Longitude: 2.130122,
-						},
-						Distance: 100000,
-					})
-
-				filter := &filters.LocalFilter{
-					Root: &filters.Clause{
-						Operator: filters.OperatorAnd,
-						Operands: []filters.Clause{
-							*(parkedAtFilter.Root),
-							filters.Clause{
-								On: &filters.Path{
-									Class:    schema.ClassName("MultiRefCar"),
-									Property: schema.PropertyName("name"),
-								},
-								Value: &filters.Value{
-									Value: "Car which is parked in a garage",
-									Type:  schema.DataTypeString,
-								},
-								Operator: filters.OperatorEqual,
-							},
-						},
-					},
-				}
-				params := getParamsWithFilter("MultiRefCar", filter)
-
-				res, err := repo.ClassSearch(context.Background(), params)
-				require.Nil(t, err)
-				require.Len(t, res, 1)
-
-				names := extractNames(res)
-				expectedNames := []string{
-					"Car which is parked in a garage",
-				}
-
-				assert.ElementsMatch(t, names, expectedNames)
-			})
-
-		})
-
-		t.Run("multiple levels deep", func(t *testing.T) {
-			t.Run("ref name matches", func(t *testing.T) {
-				filter := filterDrivesCarParkedAtGarage(schema.DataTypeString,
-					"name", filters.OperatorEqual, "Luxury Parking Garage")
-				params := getParamsWithFilter("MultiRefDriver", filter)
-
-				res, err := repo.ClassSearch(context.Background(), params)
-				require.Nil(t, err)
-				require.Len(t, res, 1)
-
-				assert.Equal(t, "Johny Drivemuch", res[0].Schema.(map[string]interface{})["name"])
-			})
-
-			t.Run("ref name doesn't match", func(t *testing.T) {
-				filter := filterDrivesCarParkedAtGarage(schema.DataTypeString,
-					"name", filters.OperatorEqual, "There is no parking garage with this name")
-				params := getParamsWithFilter("MultiRefDriver", filter)
-
-				res, err := repo.ClassSearch(context.Background(), params)
-				require.Nil(t, err)
-				require.Len(t, res, 0)
-			})
-
-			t.Run("within geo range", func(t *testing.T) {
-				filter := filterDrivesCarParkedAtGarage(schema.DataTypeGeoCoordinates,
-					"location", filters.OperatorWithinGeoRange, filters.GeoRange{
-						GeoCoordinates: &models.GeoCoordinates{
-							Latitude:  48.801407,
-							Longitude: 2.130122,
-						},
-						Distance: 100000,
-					})
-				params := getParamsWithFilter("MultiRefDriver", filter)
-
-				res, err := repo.ClassSearch(context.Background(), params)
-				require.Nil(t, err)
-				require.Len(t, res, 1)
-
-				assert.Equal(t, "Johny Drivemuch", res[0].Schema.(map[string]interface{})["name"])
-			})
-
-			t.Run("outside of geo range", func(t *testing.T) {
-				filter := filterDrivesCarParkedAtGarage(schema.DataTypeGeoCoordinates,
-					"location", filters.OperatorWithinGeoRange, filters.GeoRange{
-						GeoCoordinates: &models.GeoCoordinates{
-							Latitude:  42.279594,
-							Longitude: -83.732124,
-						},
-						Distance: 100000,
-					})
-				params := getParamsWithFilter("MultiRefDriver", filter)
-
-				res, err := repo.ClassSearch(context.Background(), params)
-				require.Nil(t, err)
-				require.Len(t, res, 0)
-			})
-
-		})
-	})
+	t.Run("updating cached ref props", testUpdatingCachedRefProps(repo, refSchema))
 
 	repo.StopCacheIndexing()
 }
@@ -1462,27 +1301,6 @@ func parkedAtGarage() traverser.SelectProperties {
 						},
 					},
 				},
-			},
-		},
-	}
-}
-
-func filterCarParkedAtGarage(dataType schema.DataType,
-	prop string, operator filters.Operator, value interface{}) *filters.LocalFilter {
-	return &filters.LocalFilter{
-		Root: &filters.Clause{
-			Operator: operator,
-			On: &filters.Path{
-				Class:    schema.ClassName("MultiRefCar"),
-				Property: schema.PropertyName("parkedAt"),
-				Child: &filters.Path{
-					Class:    schema.ClassName("MultiRefParkingGarage"),
-					Property: schema.PropertyName(prop),
-				},
-			},
-			Value: &filters.Value{
-				Value: value,
-				Type:  dataType,
 			},
 		},
 	}
@@ -1562,24 +1380,6 @@ func drivesCarParkedAtGarage() traverser.SelectProperties {
 					ClassName:     "MultiRefCar",
 					RefProperties: parkedAtGarage(),
 				},
-			},
-		},
-	}
-}
-
-func filterDrivesCarParkedAtGarage(dataType schema.DataType,
-	prop string, operator filters.Operator, value interface{}) *filters.LocalFilter {
-	return &filters.LocalFilter{
-		Root: &filters.Clause{
-			Operator: operator,
-			On: &filters.Path{
-				Class:    schema.ClassName("MultiRefDriver"),
-				Property: schema.PropertyName("drives"),
-				Child:    filterCarParkedAtGarage(dataType, prop, operator, value).Root.On,
-			},
-			Value: &filters.Value{
-				Value: value,
-				Type:  dataType,
 			},
 		},
 	}
@@ -1711,27 +1511,4 @@ func refToBothGarages() []interface{} {
 			},
 		},
 	}
-}
-
-func getParamsWithFilter(className string, filter *filters.LocalFilter) traverser.GetParams {
-	return traverser.GetParams{
-		Filters: filter,
-		// we don't care about actually resolving the ref as long as filtering
-		// on it worked
-		Properties: nil,
-		Pagination: &filters.Pagination{
-			Limit: 10,
-		},
-		ClassName: className,
-		Kind:      kind.Thing,
-	}
-}
-
-func extractNames(in []search.Result) []string {
-	out := make([]string, len(in), len(in))
-	for i, res := range in {
-		out[i] = res.Schema.(map[string]interface{})["name"].(string)
-	}
-
-	return out
 }
