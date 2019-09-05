@@ -167,6 +167,10 @@ func TestRefFinder(t *testing.T) {
 								Name:     "travels",
 								DataType: []string{"Drive"},
 							},
+							{
+								Name:     "hasPets",
+								DataType: []string{"Dog"},
+							},
 						},
 					},
 				},

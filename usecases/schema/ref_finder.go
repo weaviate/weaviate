@@ -57,7 +57,7 @@ func (r *RefFinder) findInClassList(needle libschema.ClassName, classes []*model
 	var out []filters.Path
 
 	for _, class := range classes {
-		path, ok := r.hasRefTo(needle, class, schema)
+		path, ok := r.hasRefTo(needle, class, schema, 1)
 		if !ok {
 			continue
 		}
@@ -69,8 +69,12 @@ func (r *RefFinder) findInClassList(needle libschema.ClassName, classes []*model
 }
 
 func (r *RefFinder) hasRefTo(needle libschema.ClassName, class *models.Class,
-	schema libschema.Schema) ([]filters.Path, bool) {
+	schema libschema.Schema, depth int) ([]filters.Path, bool) {
 	var out []filters.Path
+
+	if depth > r.depthLimit {
+		return nil, false
+	}
 
 	for _, prop := range class.Properties {
 		dt, err := schema.FindPropertyDataType(prop.DataType)
@@ -83,7 +87,7 @@ func (r *RefFinder) hasRefTo(needle libschema.ClassName, class *models.Class,
 		}
 
 		for _, haystack := range dt.Classes() {
-			refs := r.refsPerClass(needle, class, prop.Name, haystack, schema)
+			refs := r.refsPerClass(needle, class, prop.Name, haystack, schema, depth)
 			out = append(out, refs...)
 
 		}
@@ -93,7 +97,8 @@ func (r *RefFinder) hasRefTo(needle libschema.ClassName, class *models.Class,
 }
 
 func (r *RefFinder) refsPerClass(needle libschema.ClassName, class *models.Class,
-	propName string, haystack libschema.ClassName, schema libschema.Schema) []filters.Path {
+	propName string, haystack libschema.ClassName, schema libschema.Schema,
+	depth int) []filters.Path {
 	if haystack == needle {
 		// direct match
 		return []filters.Path{
@@ -113,7 +118,7 @@ func (r *RefFinder) refsPerClass(needle libschema.ClassName, class *models.Class
 	if innerClass == nil {
 		return nil
 	}
-	paths, ok := r.hasRefTo(needle, innerClass, schema)
+	paths, ok := r.hasRefTo(needle, innerClass, schema, depth+1)
 	if !ok {
 		return nil
 	}
