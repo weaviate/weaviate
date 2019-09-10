@@ -13,106 +13,94 @@
 
 package test
 
-import (
-	"encoding/json"
-	"testing"
+// func TestCanAddSingleNetworkRef(t *testing.T) {
+// 	networkRefID := "711da979-4b0b-41e2-bcb8-fcc03554c7c8"
+// 	thingID := assertCreateThing(t, "TestThing", map[string]interface{}{
+// 		"testReference": []interface{}{
+// 			map[string]interface{}{
+// 				"beacon": "weaviate://RemoteWeaviateForAcceptanceTest/things/" + networkRefID,
+// 			},
+// 		},
+// 	})
 
-	"github.com/semi-technologies/weaviate/client/things"
-	"github.com/semi-technologies/weaviate/entities/models"
-	graphql "github.com/semi-technologies/weaviate/test/acceptance/graphql_resolvers"
-	"github.com/semi-technologies/weaviate/test/acceptance/helper"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-)
+// 	t.Run("it can query the resource again to verify the cross ref was added", func(t *testing.T) {
+// 		thing := assertGetThingEventually(t, thingID)
+// 		list := thing.Schema.(map[string]interface{})["testReference"]
+// 		require.NotNil(t, list, "cross-ref is present")
+// 		cref := list.([]interface{})[0].(map[string]interface{})
+// 		assert.Equal(t, cref["beacon"], "weaviate://RemoteWeaviateForAcceptanceTest/things/"+networkRefID)
+// 	})
 
-func TestCanAddSingleNetworkRef(t *testing.T) {
-	networkRefID := "711da979-4b0b-41e2-bcb8-fcc03554c7c8"
-	thingID := assertCreateThing(t, "TestThing", map[string]interface{}{
-		"testReference": []interface{}{
-			map[string]interface{}{
-				"beacon": "weaviate://RemoteWeaviateForAcceptanceTest/things/" + networkRefID,
-			},
-		},
-	})
+// 	t.Run("an implicit schema update has happened, we now include the network ref's class", func(t *testing.T) {
+// 		schema := assertGetSchema(t)
+// 		require.NotNil(t, schema.Things)
+// 		class := assertClassInSchema(t, schema.Things, "TestThing")
+// 		prop := assertPropertyInClass(t, class, "testReference")
+// 		expectedDataType := []string{"TestThingTwo", "RemoteWeaviateForAcceptanceTest/Instruments"}
+// 		assert.Equal(t, expectedDataType, prop.DataType, "prop should have old and newly added dataTypes")
+// 	})
 
-	t.Run("it can query the resource again to verify the cross ref was added", func(t *testing.T) {
-		thing := assertGetThingEventually(t, thingID)
-		list := thing.Schema.(map[string]interface{})["testReference"]
-		require.NotNil(t, list, "cross-ref is present")
-		cref := list.([]interface{})[0].(map[string]interface{})
-		assert.Equal(t, cref["beacon"], "weaviate://RemoteWeaviateForAcceptanceTest/things/"+networkRefID)
-	})
+// 	t.Run("it can query the reference through the graphql api", func(t *testing.T) {
+// 		result := graphql.AssertGraphQL(t, helper.RootAuth,
+// 			"{  Get { Things { TestThing { TestReference { ... on RemoteWeaviateForAcceptanceTest__Instruments { name } } } } } }")
+// 		things := result.Get("Get", "Things", "TestThing").AsSlice()
+// 		assert.Contains(t, things, parseJSONObj(`{"TestReference":[{"name": "Talkbox"}]}`))
+// 	})
+// }
 
-	t.Run("an implicit schema update has happened, we now include the network ref's class", func(t *testing.T) {
-		schema := assertGetSchema(t)
-		require.NotNil(t, schema.Things)
-		class := assertClassInSchema(t, schema.Things, "TestThing")
-		prop := assertPropertyInClass(t, class, "testReference")
-		expectedDataType := []string{"TestThingTwo", "RemoteWeaviateForAcceptanceTest/Instruments"}
-		assert.Equal(t, expectedDataType, prop.DataType, "prop should have old and newly added dataTypes")
-	})
+// func TestCanPatchNetworkRef(t *testing.T) {
+// 	t.Parallel()
 
-	t.Run("it can query the reference through the graphql api", func(t *testing.T) {
-		result := graphql.AssertGraphQL(t, helper.RootAuth,
-			"{  Get { Things { TestThing { TestReference { ... on RemoteWeaviateForAcceptanceTest__Instruments { name } } } } } }")
-		things := result.Get("Get", "Things", "TestThing").AsSlice()
-		assert.Contains(t, things, parseJSONObj(`{"TestReference":[{"name": "Talkbox"}]}`))
-	})
-}
+// 	thingID := assertCreateThing(t, "TestThing", nil)
+// 	assertGetThingEventually(t, thingID)
+// 	networkRefID := "711da979-4b0b-41e2-bcb8-fcc03554c7c8"
 
-func TestCanPatchNetworkRef(t *testing.T) {
-	t.Parallel()
+// 	op := "add"
+// 	path := "/schema/testReference"
 
-	thingID := assertCreateThing(t, "TestThing", nil)
-	assertGetThingEventually(t, thingID)
-	networkRefID := "711da979-4b0b-41e2-bcb8-fcc03554c7c8"
+// 	patch := &models.PatchDocument{
+// 		Op:   &op,
+// 		Path: &path,
+// 		Value: []interface{}{
+// 			map[string]interface{}{
+// 				"beacon": "weaviate://RemoteWeaviateForAcceptanceTest/things/" + networkRefID,
+// 			},
+// 		},
+// 	}
 
-	op := "add"
-	path := "/schema/testReference"
+// 	t.Run("it can apply the patch", func(t *testing.T) {
+// 		params := things.NewThingsPatchParams().
+// 			WithBody([]*models.PatchDocument{patch}).
+// 			WithID(thingID)
+// 		patchResp, err := helper.Client(t).Things.ThingsPatch(params, nil)
+// 		helper.AssertRequestOk(t, patchResp, err, nil)
+// 	})
 
-	patch := &models.PatchDocument{
-		Op:   &op,
-		Path: &path,
-		Value: []interface{}{
-			map[string]interface{}{
-				"beacon": "weaviate://RemoteWeaviateForAcceptanceTest/things/" + networkRefID,
-			},
-		},
-	}
+// 	t.Run("it can query the resource again to verify the cross ref was added", func(t *testing.T) {
+// 		patchedThing := assertGetThing(t, thingID)
+// 		list := patchedThing.Schema.(map[string]interface{})["testReference"]
+// 		require.NotNil(t, list, "cross-ref is present")
+// 		cref := list.([]interface{})[0].(map[string]interface{})
+// 		assert.Equal(t, cref["beacon"], "weaviate://RemoteWeaviateForAcceptanceTest/things/"+networkRefID)
+// 	})
 
-	t.Run("it can apply the patch", func(t *testing.T) {
-		params := things.NewThingsPatchParams().
-			WithBody([]*models.PatchDocument{patch}).
-			WithID(thingID)
-		patchResp, err := helper.Client(t).Things.ThingsPatch(params, nil)
-		helper.AssertRequestOk(t, patchResp, err, nil)
-	})
+// 	t.Run("an implicit schema update has happened, we now include the network ref's class", func(t *testing.T) {
+// 		schema := assertGetSchema(t)
+// 		require.NotNil(t, schema.Things)
+// 		class := assertClassInSchema(t, schema.Things, "TestThing")
+// 		prop := assertPropertyInClass(t, class, "testReference")
+// 		expectedDataType := []string{"TestThingTwo", "RemoteWeaviateForAcceptanceTest/Instruments"}
+// 		assert.Equal(t, expectedDataType, prop.DataType, "prop should have old and newly added dataTypes")
+// 	})
+// }
 
-	t.Run("it can query the resource again to verify the cross ref was added", func(t *testing.T) {
-		patchedThing := assertGetThing(t, thingID)
-		list := patchedThing.Schema.(map[string]interface{})["testReference"]
-		require.NotNil(t, list, "cross-ref is present")
-		cref := list.([]interface{})[0].(map[string]interface{})
-		assert.Equal(t, cref["beacon"], "weaviate://RemoteWeaviateForAcceptanceTest/things/"+networkRefID)
-	})
+// func parseJSONObj(text string) interface{} {
+// 	var result interface{}
+// 	err := json.Unmarshal([]byte(text), &result)
 
-	t.Run("an implicit schema update has happened, we now include the network ref's class", func(t *testing.T) {
-		schema := assertGetSchema(t)
-		require.NotNil(t, schema.Things)
-		class := assertClassInSchema(t, schema.Things, "TestThing")
-		prop := assertPropertyInClass(t, class, "testReference")
-		expectedDataType := []string{"TestThingTwo", "RemoteWeaviateForAcceptanceTest/Instruments"}
-		assert.Equal(t, expectedDataType, prop.DataType, "prop should have old and newly added dataTypes")
-	})
-}
+// 	if err != nil {
+// 		panic(err)
+// 	}
 
-func parseJSONObj(text string) interface{} {
-	var result interface{}
-	err := json.Unmarshal([]byte(text), &result)
-
-	if err != nil {
-		panic(err)
-	}
-
-	return result
-}
+// 	return result
+// }

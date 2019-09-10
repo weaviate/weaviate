@@ -43,7 +43,7 @@ func testUpdatingCachedRefProps(repo *Repo, schema libschema.Schema) func(t *tes
 		})
 
 		// wait for caching cycles to have completed
-		time.Sleep(1500 * time.Millisecond)
+		time.Sleep(2000 * time.Millisecond)
 
 		t.Run("verify direct ref (one level) has an updated cache", func(t *testing.T) {
 			res, err := repo.ThingByID(context.Background(), "fe3ca25d-8734-4ede-9a81-bc1ed8c3ea43",

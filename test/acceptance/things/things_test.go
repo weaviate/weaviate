@@ -63,6 +63,16 @@ func TestCreateThingWithUserSpecifiedID(t *testing.T) {
 		assert.Equal(t, thingTestString, schema["testString"])
 	})
 
+	// wait for the thing to be created
+	helper.AssertEventuallyEqual(t, id, func() interface{} {
+		thing, err := helper.Client(t).Things.ThingsGet(things.NewThingsGetParams().WithID(id), nil)
+		if err != nil {
+			return nil
+		}
+
+		return thing.Payload.ID
+	})
+
 	// Try to create the same thing again and make sure it fails
 	params = things.NewThingsCreateParams().WithBody(
 		&models.Thing{

@@ -40,9 +40,6 @@ func (t *Traverser) LocalAggregate(ctx context.Context, principal *models.Princi
 	}
 	defer unlock()
 
-	if !t.config.Config.EsvectorOnly {
-		return t.repo.LocalAggregate(ctx, params)
-	}
 	return t.vectorSearcher.Aggregate(ctx, *params)
 }
 

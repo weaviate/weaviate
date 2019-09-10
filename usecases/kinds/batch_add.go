@@ -54,12 +54,6 @@ func (b *BatchManager) addActions(ctx context.Context, principal *models.Princip
 	}
 
 	batchActions := b.validateActionsConcurrently(ctx, principal, classes, fields)
-	if !b.config.Config.EsvectorOnly {
-		if err := b.repo.AddActionsBatch(ctx, batchActions); err != nil {
-			return nil, NewErrInternal("could not add batch request to connector: %v", err)
-		}
-		return batchActions, nil
-	}
 
 	var (
 		res BatchActions
@@ -154,19 +148,15 @@ func (b *BatchManager) validateAction(ctx context.Context, principal *models.Pri
 }
 
 func (b *BatchManager) exists(ctx context.Context, k kind.Kind, id strfmt.UUID) (bool, error) {
-	if !b.config.Config.EsvectorOnly {
-		return b.repo.ClassExists(ctx, id)
-	} else {
-		switch k {
-		case kind.Thing:
-			res, err := b.vectorRepo.ThingByID(ctx, id, traverser.SelectProperties{})
-			return res != nil, err
-		case kind.Action:
-			res, err := b.vectorRepo.ActionByID(ctx, id, traverser.SelectProperties{})
-			return res != nil, err
-		default:
-			panic("impossible kind")
-		}
+	switch k {
+	case kind.Thing:
+		res, err := b.vectorRepo.ThingByID(ctx, id, traverser.SelectProperties{})
+		return res != nil, err
+	case kind.Action:
+		res, err := b.vectorRepo.ActionByID(ctx, id, traverser.SelectProperties{})
+		return res != nil, err
+	default:
+		panic("impossible kind")
 	}
 }
 
@@ -204,13 +194,6 @@ func (b *BatchManager) addThings(ctx context.Context, principal *models.Principa
 	}
 
 	batchThings := b.validateThingsConcurrently(ctx, principal, classes, fields)
-
-	if !b.config.Config.EsvectorOnly {
-		if err := b.repo.AddThingsBatch(ctx, batchThings); err != nil {
-			return nil, NewErrInternal("could not add batch request to connector: %v", err)
-		}
-		return batchThings, nil
-	}
 
 	var (
 		res BatchThings

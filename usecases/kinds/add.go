@@ -103,13 +103,6 @@ func (m *Manager) addActionToConnectorAndSchema(ctx context.Context, principal *
 	class.CreationTimeUnix = now
 	class.LastUpdateTimeUnix = now
 
-	if !m.config.Config.EsvectorOnly {
-		err = m.repo.AddAction(ctx, class, class.ID)
-		if err != nil {
-			return nil, NewErrInternal("could not store action: %v", err)
-		}
-	}
-
 	err = m.vectorizeAndPutAction(ctx, class)
 	if err != nil {
 		return nil, NewErrInternal("add action: %v", err)
@@ -147,19 +140,15 @@ func (m *Manager) validateAction(ctx context.Context, principal *models.Principa
 }
 
 func (m *Manager) exists(ctx context.Context, k kind.Kind, id strfmt.UUID) (bool, error) {
-	if !m.config.Config.EsvectorOnly {
-		return m.repo.ClassExists(ctx, id)
-	} else {
-		switch k {
-		case kind.Thing:
-			res, err := m.vectorRepo.ThingByID(ctx, id, traverser.SelectProperties{})
-			return res != nil, err
-		case kind.Action:
-			res, err := m.vectorRepo.ActionByID(ctx, id, traverser.SelectProperties{})
-			return res != nil, err
-		default:
-			panic("impossible kind")
-		}
+	switch k {
+	case kind.Thing:
+		res, err := m.vectorRepo.ThingByID(ctx, id, traverser.SelectProperties{})
+		return res != nil, err
+	case kind.Action:
+		res, err := m.vectorRepo.ActionByID(ctx, id, traverser.SelectProperties{})
+		return res != nil, err
+	default:
+		panic("impossible kind")
 	}
 }
 
@@ -204,13 +193,6 @@ func (m *Manager) addThingToConnectorAndSchema(ctx context.Context, principal *m
 	now := unixNow()
 	class.CreationTimeUnix = now
 	class.LastUpdateTimeUnix = now
-
-	if !m.config.Config.EsvectorOnly {
-		err = m.repo.AddThing(ctx, class, class.ID)
-		if err != nil {
-			return nil, NewErrInternal("could not store thing: %v", err)
-		}
-	}
 
 	err = m.vectorizeAndPutThing(ctx, class)
 	if err != nil {
