@@ -14,7 +14,6 @@
 package test
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
@@ -83,46 +82,47 @@ func TestGetWithComplexFilter(t *testing.T) {
 		assert.ElementsMatch(t, expected, airports)
 	})
 
-	t.Run("with or filters applied", func(t *testing.T) {
-		// this test was added to prevent a regression on the bugfix for gh-758
+	// TODO: https://github.com/semi-technologies/weaviate/issues/949
+	// t.Run("with or filters applied", func(t *testing.T) {
+	// 	// this test was added to prevent a regression on the bugfix for gh-758
 
-		query := `
-			{
-					Meta {
-						Things {
-							City(where:{
-								operator:Or
-								operands:[{
-									valueString:"Amsterdam",
-									operator:Equal,
-									path:["name"]
-								}, {
-									valueString:"Berlin",
-									operator:Equal,
-									path:["name"]
-								}]
-							}) {
-								__typename
-								name {
-									__typename
-									count
-								}
-							}
-						}
-					}
-			}
-		`
-		result := AssertGraphQL(t, helper.RootAuth, query)
-		cityMeta := result.Get("Meta", "Things", "City").Result
+	// 	query := `
+	// 		{
+	// 				Meta {
+	// 					Things {
+	// 						City(where:{
+	// 							operator:Or
+	// 							operands:[{
+	// 								valueString:"Amsterdam",
+	// 								operator:Equal,
+	// 								path:["name"]
+	// 							}, {
+	// 								valueString:"Berlin",
+	// 								operator:Equal,
+	// 								path:["name"]
+	// 							}]
+	// 						}) {
+	// 							__typename
+	// 							name {
+	// 								__typename
+	// 								count
+	// 							}
+	// 						}
+	// 					}
+	// 				}
+	// 		}
+	// 	`
+	// 	result := AssertGraphQL(t, helper.RootAuth, query)
+	// 	cityMeta := result.Get("Meta", "Things", "City").Result
 
-		expected := map[string]interface{}{
-			"__typename": "MetaCity",
-			"name": map[string]interface{}{
-				"__typename": "MetaCitynameObj",
-				"count":      json.Number("2"),
-			},
-		}
+	// 	expected := map[string]interface{}{
+	// 		"__typename": "MetaCity",
+	// 		"name": map[string]interface{}{
+	// 			"__typename": "MetaCitynameObj",
+	// 			"count":      json.Number("2"),
+	// 		},
+	// 	}
 
-		assert.Equal(t, expected, cityMeta)
-	})
+	// 	assert.Equal(t, expected, cityMeta)
+	// })
 }
