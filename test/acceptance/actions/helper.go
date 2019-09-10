@@ -79,6 +79,21 @@ func assertGetActionEventually(t *testing.T, uuid strfmt.UUID) *models.Action {
 	return action
 }
 
+func assertGetActionFailsEventually(t *testing.T, uuid strfmt.UUID) error {
+	var (
+		err error
+	)
+
+	checkThunk := func() interface{} {
+		_, err = helper.Client(t).Actions.ActionsGet(actions.NewActionsGetParams().WithID(uuid), nil)
+		return err != nil
+	}
+
+	helper.AssertEventuallyEqual(t, true, checkThunk)
+
+	return err
+}
+
 func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.Thing {
 	var (
 		resp *things.ThingsGetOK

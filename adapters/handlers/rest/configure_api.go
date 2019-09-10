@@ -15,7 +15,6 @@ package rest
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -32,11 +31,8 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/esvector"
 	"github.com/semi-technologies/weaviate/adapters/repos/etcd"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/connstate"
-	dblisting "github.com/semi-technologies/weaviate/usecases/connswitch"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
@@ -94,28 +90,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	var migrator migrate.Migrator
 	var explorer explorer
 
-	if appState.ServerConfig.Config.VectorIndex.Enabled {
-		repo := esvector.NewRepo(esClient, appState.Logger, nil,
-			appState.ServerConfig.Config.VectorIndex.DenormalizationDepth)
-		vectorMigrator = esvector.NewMigrator(repo)
-		vectorRepo = repo
-		if appState.ServerConfig.Config.EsvectorOnly {
-			migrator = vectorMigrator
-		} else {
-			migrator = migrate.New(appState.Connector, vectorMigrator)
-		}
-		vectorizer = libvectorizer.New(appState.Contextionary)
-		explorer = traverser.NewExplorer(repo, vectorizer)
-	} else {
-		vectorRepo = esvector.NewNoOpRepo()
-		vectorizer = libvectorizer.NewNoOp()
-		migrator = migrate.New(appState.Connector) //, vectorMigrator)
-		explorer = traverser.NewNoOpExplorer(fmt.Errorf("explore operations not possible: " +
-			"vector indexing is disabled, enable vector indexing first"))
-	}
+	repo := esvector.NewRepo(esClient, appState.Logger, nil,
+		appState.ServerConfig.Config.VectorIndex.DenormalizationDepth)
+	vectorMigrator = esvector.NewMigrator(repo)
+	vectorRepo = repo
+	migrator = vectorMigrator
+	vectorizer = libvectorizer.New(appState.Contextionary)
+	explorer = traverser.NewExplorer(repo, vectorizer)
 
 	schemaRepo := etcd.NewSchemaRepo(etcdClient)
-	connstateRepo := etcd.NewConnStateRepo(etcdClient)
 
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Locks, appState.Network, appState.Logger, appState.Contextionary, appState.Authorizer, appState.StopwordDetector)
@@ -141,53 +124,20 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		time.Duration(appState.ServerConfig.Config.VectorIndex.CacheCycleBusyWaitTime)*time.Millisecond,
 	)
 
-	kindsManager := kinds.NewManager(appState.Connector, appState.Locks,
+	kindsManager := kinds.NewManager(appState.Locks,
 		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, vectorizer, vectorRepo)
-	batchKindsManager := kinds.NewBatchManager(appState.Connector, vectorRepo, vectorizer, appState.Locks,
+	batchKindsManager := kinds.NewBatchManager(vectorRepo, vectorizer, appState.Locks,
 		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,
 		appState.Authorizer)
 	vectorInspector := libvectorizer.NewInspector(appState.Contextionary)
 
-	kindsTraverser := traverser.NewTraverser(appState.ServerConfig, appState.Locks, appState.Connector,
+	kindsTraverser := traverser.NewTraverser(appState.ServerConfig, appState.Locks,
 		appState.Contextionary, appState.Logger, appState.Authorizer, vectorizer,
 		vectorRepo, explorer)
-	connstateManager, err := connstate.NewManager(connstateRepo, appState.Logger)
-	if err != nil {
-		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("could not initialize connector state manager")
-		os.Exit(1)
-	}
-
-	appState.Connector.SetStateManager(connstateManager)
-	appState.Connector.SetLogger(appState.Logger)
-	appState.Connector.SetSchema(schemaManager.GetSchemaSkipAuth())
-	initialState := connstateManager.GetInitialState()
-	appState.Connector.SetState(context.Background(), initialState)
-	// allow up to 2 minutes for the connected db to be ready
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	if !appState.ServerConfig.Config.EsvectorOnly {
-		if err := appState.Connector.Connect(ctx); err != nil {
-			appState.Logger.
-				WithField("action", "startup").WithError(err).
-				Fatal("could not connect connector")
-			os.Exit(1)
-		}
-		if err := appState.Connector.Init(context.Background()); err != nil {
-			appState.Logger.
-				WithField("action", "startup").WithError(err).
-				Fatal("could not init connector")
-			os.Exit(1)
-		}
-	}
 
 	updateSchemaCallback := makeUpdateSchemaCall(appState.Logger, appState, kindsTraverser)
 	schemaManager.RegisterSchemaUpdateCallback(updateSchemaCallback)
-	schemaManager.RegisterSchemaUpdateCallback(func(updatedSchema schema.Schema) {
-		appState.Connector.SetSchema(updatedSchema)
-	})
 
 	// manually update schema once
 	schema := schemaManager.GetSchemaSkipAuth()
@@ -254,15 +204,6 @@ func startupRoutine() (*state.State, *clientv3.Client, *elasticsearch.Client) {
 	appState.Network = connectToNetwork(logger, appState.ServerConfig.Config)
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("network configured")
-
-		// Create the database connector using the config
-	dbConnector, err := dblisting.NewConnector(serverConfig.Config.Database.Name, serverConfig.Config.Database.DatabaseConfig, serverConfig.Config)
-	// Could not find, or configure connector.
-	if err != nil {
-		logger.WithField("action", "startup").WithError(err).Error("could not load config")
-		logger.Exit(1)
-	}
-	appState.Connector = dbConnector
 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("created db connector")

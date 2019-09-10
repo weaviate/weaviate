@@ -33,12 +33,5 @@ func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
 	}
 	defer unlock()
 
-	if params.Explore != nil || t.config.Config.EsvectorOnly {
-		// if Explore is set this request can no longer be served by the connector
-		// alone, instead it must be served by a (vector) explorer which can in
-		// turn make use of the connector
-		return t.explorer.GetClass(ctx, params)
-	}
-
-	return t.repo.GetClass(ctx, &params)
+	return t.explorer.GetClass(ctx, params)
 }

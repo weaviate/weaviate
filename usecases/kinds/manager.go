@@ -38,22 +38,12 @@ import (
 type Manager struct {
 	network       network
 	config        *config.WeaviateConfig
-	repo          Repo
 	locks         locks
 	schemaManager schemaManager
 	logger        logrus.FieldLogger
 	authorizer    authorizer
 	vectorizer    Vectorizer
 	vectorRepo    VectorRepo
-}
-
-// Repo describes the requirements the kinds UC has to the connected database
-type Repo interface {
-	addRepo
-	getRepo
-	updateRepo
-	deleteRepo
-	batchRepo
 }
 
 type Vectorizer interface {
@@ -89,13 +79,12 @@ type VectorRepo interface {
 }
 
 // NewManager creates a new manager
-func NewManager(repo Repo, locks locks, schemaManager schemaManager,
+func NewManager(locks locks, schemaManager schemaManager,
 	network network, config *config.WeaviateConfig, logger logrus.FieldLogger,
 	authorizer authorizer, vectorizer Vectorizer, vectorRepo VectorRepo) *Manager {
 	return &Manager{
 		network:       network,
 		config:        config,
-		repo:          repo,
 		locks:         locks,
 		schemaManager: schemaManager,
 		logger:        logger,

@@ -66,7 +66,7 @@ type explorer interface {
 }
 
 // NewTraverser to traverse the knowledge graph
-func NewTraverser(config *config.WeaviateConfig, locks locks, repo TraverserRepo, c11y c11y,
+func NewTraverser(config *config.WeaviateConfig, locks locks, c11y c11y,
 	logger logrus.FieldLogger, authorizer authorizer,
 	vectorizer CorpiVectorizer, vectorSearcher VectorSearcher,
 	explorer explorer) *Traverser {
@@ -74,7 +74,6 @@ func NewTraverser(config *config.WeaviateConfig, locks locks, repo TraverserRepo
 		config:         config,
 		locks:          locks,
 		c11y:           c11y,
-		repo:           repo,
 		logger:         logger,
 		authorizer:     authorizer,
 		vectorizer:     vectorizer,

@@ -1,10 +1,6 @@
 authentication:
   anonymous_access:
     enabled: true
-database:
-  name: janusgraph
-  database_config:
-    url: http://localhost:8182
 vector_index:
   enabled: true
   url: http://localhost:9201

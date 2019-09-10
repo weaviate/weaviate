@@ -1,13 +1,13 @@
 authentication:
   anonymous_access:
     enabled: true
-database:
-  name: janusgraph
-  database_config:
-    url: http://janus:8182
 configuration_storage:
   type: etcd
   url: http://etcd:2379
+vector_index:
+  enabled: true
+  url: http://esvector:9200
+  denormalizationDepth: 3
 contextionary:
   url: contextionary:9999
 network:

@@ -48,10 +48,18 @@ func TestCanAddAPropertyIndividually(t *testing.T) {
 	updateResp, err := helper.Client(t).Actions.ActionsReferencesCreate(params, nil)
 	helper.AssertRequestOk(t, updateResp, err, nil)
 
-	// Get the property again.
-	updatedAction = assertGetAction(t, uuid)
-	updatedSchema = updatedAction.Schema.(map[string]interface{})
-	assert.NotNil(t, updatedSchema["testReferences"])
+	checkThunk := func() interface{} {
+		resp, err := helper.Client(t).Actions.ActionsGet(actions.NewActionsGetParams().WithID(uuid), nil)
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+
+		updatedSchema = resp.Payload.Schema.(map[string]interface{})
+		return updatedSchema["testReferences"] != nil
+	}
+
+	helper.AssertEventuallyEqual(t, true, checkThunk)
 }
 
 func TestCanReplaceAllProperties(t *testing.T) {
@@ -84,10 +92,18 @@ func TestCanReplaceAllProperties(t *testing.T) {
 	updateResp, err := helper.Client(t).Actions.ActionsReferencesUpdate(params, nil)
 	helper.AssertRequestOk(t, updateResp, err, nil)
 
-	// Get the property again.
-	updatedAction = assertGetAction(t, uuid)
-	updatedSchema = updatedAction.Schema.(map[string]interface{})
-	assert.NotNil(t, updatedSchema["testReferences"])
+	checkThunk := func() interface{} {
+		resp, err := helper.Client(t).Actions.ActionsGet(actions.NewActionsGetParams().WithID(uuid), nil)
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+
+		updatedSchema = resp.Payload.Schema.(map[string]interface{})
+		return updatedSchema["testReferences"] != nil
+	}
+
+	helper.AssertEventuallyEqual(t, true, checkThunk)
 }
 
 func TestRemovePropertyIndividually(t *testing.T) {
@@ -118,8 +134,30 @@ func TestRemovePropertyIndividually(t *testing.T) {
 	updateResp, err := helper.Client(t).Actions.ActionsReferencesDelete(params, nil)
 	helper.AssertRequestOk(t, updateResp, err, nil)
 
-	// Get the property again.
-	updatedAction = assertGetAction(t, uuid)
-	updatedSchema = updatedAction.Schema.(map[string]interface{})
-	assert.Nil(t, updatedSchema["testReferences"])
+	checkThunk := func() interface{} {
+		resp, err := helper.Client(t).Actions.ActionsGet(actions.NewActionsGetParams().WithID(uuid), nil)
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+
+		refs := resp.Payload.Schema.(map[string]interface{})["testReferences"]
+
+		if refs == nil {
+			return true
+		}
+
+		refsSlice, ok := refs.([]interface{})
+		if ok {
+			return len(refsSlice) == 0
+		}
+
+		// neither nil, nor a list
+		t.Logf("prop %s was neither nil nor a list after deleting, instead we got %#v", "testReferences", refs)
+		t.Fail()
+
+		return false
+	}
+
+	helper.AssertEventuallyEqual(t, true, checkThunk)
 }

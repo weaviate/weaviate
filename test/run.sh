@@ -15,13 +15,13 @@ function main() {
   rm -rf data
   echo "Done!"
 
-  echo_green "Run all unit tests..."
-  run_unit_tests
-  echo_green "Unit tests successful"
+  # echo_green "Run all unit tests..."
+  # run_unit_tests
+  # echo_green "Unit tests successful"
 
-  echo_green "Run integration tests..."
-  run_integration_tests
-  echo_green "Integration tests successful"
+  # echo_green "Run integration tests..."
+  # run_integration_tests
+  # echo_green "Integration tests successful"
 
   echo_green "Stop any running docker-compose containers..."
   surpress_on_success docker-compose -f docker-compose-test.yml down --remove-orphans

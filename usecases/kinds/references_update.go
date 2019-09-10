@@ -52,11 +52,12 @@ func (m *Manager) updateActionReferenceToConnectorAndSchema(ctx context.Context,
 	id strfmt.UUID, propertyName string, refs models.MultipleRef) error {
 
 	// get action to see if it exists
-	action, err := m.getActionFromRepo(ctx, id)
+	actionRes, err := m.getActionFromRepo(ctx, id)
 	if err != nil {
 		return err
 	}
 
+	action := actionRes.Action()
 	err = m.validateReferences(ctx, refs)
 	if err != nil {
 		return err
@@ -80,7 +81,7 @@ func (m *Manager) updateActionReferenceToConnectorAndSchema(ctx context.Context,
 		return NewErrInternal("could not update schema for network refs: %v", err)
 	}
 
-	err = m.repo.UpdateAction(ctx, action, action.ID)
+	err = m.vectorRepo.PutAction(ctx, action, actionRes.Vector)
 	if err != nil {
 		return NewErrInternal("could not store action: %v", err)
 	}
@@ -116,11 +117,12 @@ func (m *Manager) updateThingReferenceToConnectorAndSchema(ctx context.Context, 
 	id strfmt.UUID, propertyName string, refs models.MultipleRef) error {
 
 	// get thing to see if it exists
-	thing, err := m.getThingFromRepo(ctx, id)
+	thingRes, err := m.getThingFromRepo(ctx, id)
 	if err != nil {
 		return err
 	}
 
+	thing := thingRes.Thing()
 	err = m.validateReferences(ctx, refs)
 	if err != nil {
 		return err
@@ -144,7 +146,7 @@ func (m *Manager) updateThingReferenceToConnectorAndSchema(ctx context.Context, 
 		return NewErrInternal("could not update schema for network refs: %v", err)
 	}
 
-	err = m.repo.UpdateThing(ctx, thing, thing.ID)
+	err = m.vectorRepo.PutThing(ctx, thing, thingRes.Vector)
 	if err != nil {
 		return NewErrInternal("could not store thing: %v", err)
 	}

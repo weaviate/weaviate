@@ -29,9 +29,6 @@ import (
 // include this particular network ref class.
 func (m *Manager) AddActionReference(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
-	if m.config.Config.EsvectorOnly {
-		return fmt.Errorf("kinds.AddActionReference not supported yet in esvector-only mode")
-	}
 
 	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("actions/%s", id.String()))
 	if err != nil {
@@ -51,10 +48,12 @@ func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, pr
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
 
 	// get action to see if it exists
-	action, err := m.getActionFromRepo(ctx, id)
+	actionRes, err := m.getActionFromRepo(ctx, id)
 	if err != nil {
 		return err
 	}
+
+	action := actionRes.Action()
 
 	err = m.validateReference(ctx, property)
 	if err != nil {
@@ -79,7 +78,7 @@ func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, pr
 		return NewErrInternal("could not update schema for network refs: %v", err)
 	}
 
-	err = m.repo.UpdateAction(ctx, action, action.ID)
+	err = m.vectorRepo.PutAction(ctx, action, actionRes.Vector)
 	if err != nil {
 		return NewErrInternal("could not store action: %v", err)
 	}
@@ -115,11 +114,12 @@ func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, pri
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
 
 	// get thing to see if it exists
-	thing, err := m.getThingFromRepo(ctx, id)
+	thingRes, err := m.getThingFromRepo(ctx, id)
 	if err != nil {
 		return err
 	}
 
+	thing := thingRes.Thing()
 	err = m.validateReference(ctx, property)
 	if err != nil {
 		return err
@@ -143,7 +143,7 @@ func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, pri
 		return NewErrInternal("could not update schema for network refs: %v", err)
 	}
 
-	err = m.repo.UpdateThing(ctx, thing, thing.ID)
+	err = m.vectorRepo.PutThing(ctx, thing, thingRes.Vector)
 	if err != nil {
 		return NewErrInternal("could not store thing: %v", err)
 	}
@@ -210,15 +210,15 @@ func (m *Manager) extendClassPropsWithReference(props interface{}, propertyName 
 
 	_, ok := propsMap[propertyName]
 	if !ok {
-		propsMap[propertyName] = []interface{}{}
+		propsMap[propertyName] = models.MultipleRef{}
 	}
 
 	existingRefs := propsMap[propertyName]
-	existingRefsSlice, ok := existingRefs.([]interface{})
+	existingMultipleRef, ok := existingRefs.(models.MultipleRef)
 	if !ok {
-		return nil, NewErrInternal("expected list for reference props, but got %T", existingRefs)
+		return nil, NewErrInternal("expected models.MultipleRef for reference props, but got %T", existingRefs)
 	}
 
-	propsMap[propertyName] = append(existingRefsSlice, property)
+	propsMap[propertyName] = append(existingMultipleRef, property)
 	return propsMap, nil
 }

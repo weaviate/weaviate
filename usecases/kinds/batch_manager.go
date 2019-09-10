@@ -59,12 +59,11 @@ type batchAndGetRepo interface {
 }
 
 // NewBatchManager creates a new manager
-func NewBatchManager(repo Repo, vectorRepo BatchVectorRepo, vectorizer Vectorizer, locks locks, schemaManager schemaManager, network network,
+func NewBatchManager(vectorRepo BatchVectorRepo, vectorizer Vectorizer, locks locks, schemaManager schemaManager, network network,
 	config *config.WeaviateConfig, logger logrus.FieldLogger, authorizer authorizer) *BatchManager {
 	return &BatchManager{
 		network:       network,
 		config:        config,
-		repo:          repo,
 		locks:         locks,
 		schemaManager: schemaManager,
 		logger:        logger,

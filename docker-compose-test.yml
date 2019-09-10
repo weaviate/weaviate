@@ -7,7 +7,7 @@ services:
       dockerfile: Dockerfile
       target: weaviate
     depends_on:
-      - janus
+      - esvector
       - genesis_fake
       - etcd
     restart: on-failure:0
@@ -59,50 +59,6 @@ services:
     restart: on-failure:0
     ports:
       - "8082:8082"
-  janus:
-    image: semitechnologies/janusgraph-docker:0.3.1
-    depends_on:
-      - db
-      - index
-    ports:
-     - "8182:8182"
-     - "8184:8184"
-    environment:
-     - DEV_MODE=true
-    volumes:
-      - ./adapters/connectors/janusgraph/janusgraph.properties:/janusgraph-config/janusgraph.properties
-      - ./adapters/connectors/janusgraph/gremlin-server.yaml:/janusgraph-config/gremlin-server.yaml
-  db:
-    image: scylladb/scylla:2.0.1
-    ports:
-     # http://docs.scylladb.com/kb/posix/
-     # REST API
-     - "10000:10000"
-     # CQL ports (native_transport_port)
-     - "9042:9042"
-     # Thrift (rpc_port)
-     - "9160:9160"
-     # Internode
-     - "7000:7000"
-     - "7001:7001"
-     # JMX
-     - "7199:7199"
-     # Prometheus monitoring
-     - "9180:9180"
-     - "9100:9100"
-    volumes:
-     - ./data/scylla/data:/var/lib/scylla
-  index:
-    image: docker.elastic.co/elasticsearch/elasticsearch:6.4.2
-    ports:
-     - "9200:9200"
-     - "9300:9300"
-    environment:
-      ES_JAVA_OPTS: -Xms500m -Xmx500m
-      xpack.security.enabled: "false"
-      discovery.type: single-node
-    # volumes:
-    #  - ./data/elasticsearch/data:/usr/share/elasticsearch/data
   genesis: # an actual genesis - not used in the weaviate tests, but used to test the genesis itself
     build:
       context: .
@@ -139,11 +95,12 @@ services:
       - "tkn"
       - "--initial-cluster-state"
       - "new"
-  # esvector:
-  #   image: semitechnologies/elasticsearch-vector:5.6.0-experimental
-  #   environment:
-  #     xpack.security.enabled: "false"
-  #     ES_JAVA_OPTS: -Xms500m -Xmx500m
-  #   ports: 
-  #     - "9201:9200"
-  #     - "9301:9300"
+  esvector:
+    image: semitechnologies/esvector:7.1.0
+    environment:
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms500m -Xmx500m
+      discovery.type: single-node
+    ports: 
+      - "9201:9200"
+      - "9301:9300"
