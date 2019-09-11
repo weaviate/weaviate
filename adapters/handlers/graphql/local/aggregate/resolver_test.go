@@ -84,6 +84,49 @@ func Test_Resolve(t *testing.T) {
 			}},
 		},
 		testCase{
+			name:  "with props formerly contained only in Meta",
+			query: `{ Aggregate { Things { Car { stillInProduction { count totalTrue percentageTrue totalFalse percentageFalse } } } } }`,
+			expectedProps: []traverser.AggregateProperty{
+				{
+					Name: "stillInProduction",
+					Aggregators: []traverser.Aggregator{
+						traverser.CountAggregator,
+						traverser.TotalTrueAggregator,
+						traverser.PercentageTrueAggregator,
+						traverser.TotalFalseAggregator,
+						traverser.PercentageFalseAggregator,
+					},
+				},
+			},
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"stillInProduction": map[string]interface{}{
+						"totalTrue":       23,
+						"totalFalse":      17,
+						"percentageTrue":  60,
+						"percentageFalse": 40,
+						"count":           40,
+					},
+				},
+			},
+
+			expectedGroupBy: nil,
+			expectedResults: []result{{
+				pathToField: []string{"Aggregate", "Things", "Car"},
+				expectedValue: []interface{}{
+					map[string]interface{}{
+						"stillInProduction": map[string]interface{}{
+							"totalTrue":       23,
+							"totalFalse":      17,
+							"percentageTrue":  60.0,
+							"percentageFalse": 40.0,
+							"count":           40,
+						},
+					},
+				},
+			}},
+		},
+		testCase{
 			name:  "single prop: mean",
 			query: `{ Aggregate { Things { Car(groupBy:["madeBy", "Manufacturer", "name"]) { horsepower { mean } } } } }`,
 			expectedProps: []traverser.AggregateProperty{

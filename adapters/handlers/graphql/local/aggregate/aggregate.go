@@ -228,7 +228,7 @@ func classPropertyField(dataType schema.DataType, class *models.Class, property 
 	case schema.DataTypeNumber:
 		return makePropertyField(class, property, numericPropertyFields)
 	case schema.DataTypeBoolean:
-		return makePropertyField(class, property, nonNumericPropertyFields)
+		return makePropertyField(class, property, booleanPropertyFields)
 	case schema.DataTypeDate:
 		return makePropertyField(class, property, nonNumericPropertyFields)
 	case schema.DataTypeCRef:
