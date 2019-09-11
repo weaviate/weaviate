@@ -84,8 +84,11 @@ func Test_Resolve(t *testing.T) {
 			}},
 		},
 		testCase{
-			name:  "with props formerly contained only in Meta",
-			query: `{ Aggregate { Things { Car { stillInProduction { count totalTrue percentageTrue totalFalse percentageFalse } } } } }`,
+			name: "with props formerly contained only in Meta",
+			query: `{ Aggregate { Things { Car { 
+				stillInProduction { count totalTrue percentageTrue totalFalse percentageFalse } 
+				modelName { count topOccurrences { value occurs } } 
+				} } } } `,
 			expectedProps: []traverser.AggregateProperty{
 				{
 					Name: "stillInProduction",
@@ -97,6 +100,13 @@ func Test_Resolve(t *testing.T) {
 						traverser.PercentageFalseAggregator,
 					},
 				},
+				{
+					Name: "modelName",
+					Aggregators: []traverser.Aggregator{
+						traverser.CountAggregator,
+						traverser.TopOccurrencesAggregator,
+					},
+				},
 			},
 			resolverReturn: []interface{}{
 				map[string]interface{}{
@@ -106,6 +116,19 @@ func Test_Resolve(t *testing.T) {
 						"percentageTrue":  60,
 						"percentageFalse": 40,
 						"count":           40,
+					},
+					"modelName": map[string]interface{}{
+						"count": 40,
+						"topOccurrences": []interface{}{
+							map[string]interface{}{
+								"value":  "fastcar",
+								"occurs": 39,
+							},
+							map[string]interface{}{
+								"value":  "slowcar",
+								"occurs": 1,
+							},
+						},
 					},
 				},
 			},
@@ -121,6 +144,19 @@ func Test_Resolve(t *testing.T) {
 							"percentageTrue":  60.0,
 							"percentageFalse": 40.0,
 							"count":           40,
+						},
+						"modelName": map[string]interface{}{
+							"count": 40,
+							"topOccurrences": []interface{}{
+								map[string]interface{}{
+									"value":  "fastcar",
+									"occurs": 39,
+								},
+								map[string]interface{}{
+									"value":  "slowcar",
+									"occurs": 1,
+								},
+							},
 						},
 					},
 				},

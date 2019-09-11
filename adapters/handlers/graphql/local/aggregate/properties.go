@@ -136,6 +136,64 @@ func booleanPropertyFields(class *models.Class,
 	})
 }
 
+func stringPropertyFields(class *models.Class,
+	property *models.Property, prefix string) *graphql.Object {
+	getAggregatePointingFields := graphql.Fields{
+		"count": &graphql.Field{
+			Name:        fmt.Sprintf("%s%sCount", prefix, class.Class),
+			Description: descriptions.AggregatePropertyCount,
+			Type:        graphql.Int,
+			Resolve:     common.JSONNumberResolver,
+		},
+		"topOccurrences": &graphql.Field{
+			Name:        fmt.Sprintf("%s%sTopOccurrences", prefix, class.Class),
+			Description: descriptions.AggregatePropertyTopOccurrences,
+			Type:        graphql.NewList(stringTopOccurrences(class, property, prefix)),
+			Args: graphql.FieldConfigArgument{
+				"first": &graphql.ArgumentConfig{
+					Description: descriptions.First,
+					Type:        graphql.Int,
+				},
+				"after": &graphql.ArgumentConfig{
+					Description: descriptions.After,
+					Type:        graphql.Int,
+				},
+			},
+		},
+	}
+
+	return graphql.NewObject(graphql.ObjectConfig{
+		Name:        fmt.Sprintf("%s%s%sObj", prefix, class.Class, property.Name),
+		Fields:      getAggregatePointingFields,
+		Description: descriptions.LocalAggregatePropertyObject,
+	})
+}
+
+func stringTopOccurrences(class *models.Class,
+	property *models.Property, prefix string) *graphql.Object {
+	getAggregateAggregatePointingFields := graphql.Fields{
+		"value": &graphql.Field{
+			Name:        fmt.Sprintf("%s%s%sTopOccurrencesValue", prefix, class.Class, property.Name),
+			Description: descriptions.AggregatePropertyTopOccurrencesValue,
+			Type:        graphql.String,
+		},
+		"occurs": &graphql.Field{
+			Name:        fmt.Sprintf("%s%s%sTopOccurrencesOccurs", prefix, class.Class, property.Name),
+			Description: descriptions.AggregatePropertyTopOccurrencesOccurs,
+			Type:        graphql.Int,
+			Resolve:     common.JSONNumberResolver,
+		},
+	}
+
+	getAggregateAggregatePointing := graphql.ObjectConfig{
+		Name:        fmt.Sprintf("%s%s%sTopOccurrencesObj", prefix, class.Class, property.Name),
+		Fields:      getAggregateAggregatePointingFields,
+		Description: descriptions.AggregatePropertyTopOccurrences,
+	}
+
+	return graphql.NewObject(getAggregateAggregatePointing)
+}
+
 func groupedByProperty(class *models.Class) *graphql.Object {
 	classProperties := graphql.Fields{
 		"path": &graphql.Field{
