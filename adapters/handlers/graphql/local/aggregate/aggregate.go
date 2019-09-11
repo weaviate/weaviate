@@ -220,9 +220,9 @@ func classPropertyFields(class *models.Class) (graphql.Fields, error) {
 func classPropertyField(dataType schema.DataType, class *models.Class, property *models.Property) (*graphql.Field, error) {
 	switch dataType {
 	case schema.DataTypeString:
-		return makePropertyField(class, property, nonNumericPropertyFields)
+		return makePropertyField(class, property, stringPropertyFields)
 	case schema.DataTypeText:
-		return makePropertyField(class, property, nonNumericPropertyFields)
+		return makePropertyField(class, property, stringPropertyFields)
 	case schema.DataTypeInt:
 		return makePropertyField(class, property, numericPropertyFields)
 	case schema.DataTypeNumber:

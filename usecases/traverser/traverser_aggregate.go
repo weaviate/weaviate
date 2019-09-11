@@ -82,6 +82,11 @@ const (
 	PercentageFalseAggregator Aggregator = "percentageFalse"
 )
 
+// Aggregators used in string props
+const (
+	TopOccurrencesAggregator Aggregator = "topOccurrences"
+)
+
 // AggregateProperty is any property of a class that we want to retrieve meta
 // information about
 type AggregateProperty struct {
@@ -149,6 +154,10 @@ func ParseAggregatorProp(name string) (Aggregator, error) {
 		return PercentageTrueAggregator, nil
 	case string(PercentageFalseAggregator):
 		return PercentageFalseAggregator, nil
+
+	// string/text
+	case string(TopOccurrencesAggregator):
+		return TopOccurrencesAggregator, nil
 
 	default:
 		return "", fmt.Errorf("unrecognized aggregator prop '%s'", name)
