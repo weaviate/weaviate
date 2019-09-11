@@ -19,7 +19,7 @@ type Result struct {
 
 type Group struct {
 	Properties map[string]Property
-	GroupedBy  GroupedBy
+	GroupedBy  *GroupedBy // optional to support ungrouped aggregations (formerly meta)
 	Count      int
 }
 

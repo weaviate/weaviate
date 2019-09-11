@@ -180,14 +180,14 @@ type searchResponse struct {
 	Hits struct {
 		Hits []hit `json:"hits"`
 	} `json:"hits"`
-	Aggreagtions aggregations `json:"aggregations"`
+	Aggregations aggregations `json:"aggregations"`
 }
 
-type aggregations map[string]singleAggregation
+type aggregations map[string]interface{}
 
-type singleAggregation struct {
-	Buckets []map[string]interface{} `json:"buckets"`
-}
+// type singleAggregation struct {
+// 	Buckets []map[string]interface{} `json:"buckets"`
+// }
 
 type hit struct {
 	ID     string                 `json:"_id"`

@@ -56,10 +56,46 @@ func (r *Repo) aggregationResponse(res *esapi.Response, path []string) (*aggrega
 
 func (sr searchResponse) aggregations(path []string) (*aggregation.Result, error) {
 
-	rawBuckets := sr.Aggreagtions["outer"].Buckets
+	if len(path) == 0 {
+		// no grouping
+		return sr.ungroupedAggregations(sr.Aggregations)
+	} else {
+		// grouping
+		rawBuckets := sr.Aggregations["outer"].(map[string]interface{})["buckets"].([]interface{})
+		return sr.groupedAggregations(rawBuckets, path)
+	}
+}
+
+func (sr searchResponse) ungroupedAggregations(aggs map[string]interface{}) (*aggregation.Result, error) {
+	buckets := map[string]aggregationBucket{}
+	for key, value := range aggs {
+		switch key {
+		case "key", "key_as_string", "doc_count":
+			continue
+		default:
+			property, aggregator, err := parseAggBucketPropertyKey(key)
+			if err != nil {
+				return nil, fmt.Errorf("key '%s': %v", key, err)
+			}
+
+			av, err := extractAggregatorAndValue(aggregator, value)
+			if err != nil {
+				return nil, fmt.Errorf("key '%s': %v", key, err)
+			}
+
+			bucket := getOrInitBucket(buckets, property, nil, 0)
+			bucket.aggregations = append(bucket.aggregations, av)
+			buckets[property] = bucket
+		}
+	}
+
+	return bucketMapToSlice(buckets).result(nil)
+}
+
+func (sr searchResponse) groupedAggregations(rawBuckets []interface{}, path []string) (*aggregation.Result, error) {
 	var buckets aggregationBuckets
 	for _, bucket := range rawBuckets {
-		bs, err := sr.parseAggBuckets(bucket)
+		bs, err := sr.parseAggBuckets(bucket.(map[string]interface{}))
 		if err != nil {
 			return nil, err
 		}
@@ -67,6 +103,7 @@ func (sr searchResponse) aggregations(path []string) (*aggregation.Result, error
 	}
 
 	return buckets.result(path)
+
 }
 
 type aggregationBucket struct {
@@ -250,12 +287,19 @@ func (b aggregationBuckets) groups(path []string) ([]aggregation.Group, error) {
 
 		_, ok := groups[bucket.groupedValue]
 		if !ok {
-			groups[bucket.groupedValue] = aggregation.Group{
-				Count: bucket.count,
-				GroupedBy: aggregation.GroupedBy{
+			var groupedBy *aggregation.GroupedBy
+
+			if path != nil {
+				// a nil path indicates an ungrouped aggregation
+				groupedBy = &aggregation.GroupedBy{
 					Path:  path,
 					Value: bucket.groupedValue,
-				},
+				}
+			}
+
+			groups[bucket.groupedValue] = aggregation.Group{
+				Count:     bucket.count,
+				GroupedBy: groupedBy,
 				Properties: map[string]aggregation.Property{
 					bucket.property: aggregation.Property{
 						NumericalAggregations: aggs,
