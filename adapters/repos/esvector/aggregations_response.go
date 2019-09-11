@@ -84,6 +84,9 @@ func (sr searchResponse) ungroupedAggregations(aggs map[string]interface{}) (*ag
 			}
 
 			bucket := getOrInitBucket(buckets, property, nil, 0)
+			if av.aggregator == string(traverser.CountAggregator) {
+				bucket.count = int(av.value.(float64))
+			}
 			bucket.aggregations = append(bucket.aggregations, av)
 			buckets[property] = bucket
 		}
