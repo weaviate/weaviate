@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	"github.com/graphql-go/graphql"
+	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/common"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -83,6 +84,48 @@ func nonNumericPropertyFields(class *models.Class,
 			Description: descriptions.LocalAggregateCount,
 			Type:        graphql.Int,
 			Resolve:     makeResolveFieldAggregator("count"),
+		},
+	}
+
+	return graphql.NewObject(graphql.ObjectConfig{
+		Name:        fmt.Sprintf("%s%s%sObj", prefix, class.Class, property.Name),
+		Fields:      getMetaPointingFields,
+		Description: descriptions.LocalAggregatePropertyObject,
+	})
+}
+
+func booleanPropertyFields(class *models.Class,
+	property *models.Property, prefix string) *graphql.Object {
+	getMetaPointingFields := graphql.Fields{
+		"count": &graphql.Field{
+			Name:        fmt.Sprintf("%s%s%sCount", prefix, class.Class, property.Name),
+			Description: descriptions.AggregatePropertyCount,
+			Type:        graphql.Int,
+			Resolve:     common.JSONNumberResolver,
+		},
+		"totalTrue": &graphql.Field{
+			Name:        fmt.Sprintf("%s%s%sTotalTrue", prefix, class.Class, property.Name),
+			Description: descriptions.AggregateClassPropertyTotalTrue,
+			Type:        graphql.Int,
+			Resolve:     common.JSONNumberResolver,
+		},
+		"percentageTrue": &graphql.Field{
+			Name:        fmt.Sprintf("%s%s%sPercentageTrue", prefix, class.Class, property.Name),
+			Description: descriptions.AggregateClassPropertyPercentageTrue,
+			Type:        graphql.Float,
+			Resolve:     common.JSONNumberResolver,
+		},
+		"totalFalse": &graphql.Field{
+			Name:        fmt.Sprintf("%s%s%sTotalFalse", prefix, class.Class, property.Name),
+			Description: descriptions.AggregateClassPropertyTotalFalse,
+			Type:        graphql.Int,
+			Resolve:     common.JSONNumberResolver,
+		},
+		"percentageFalse": &graphql.Field{
+			Name:        fmt.Sprintf("%s%s%sPercentageFalse", prefix, class.Class, property.Name),
+			Description: descriptions.AggregateClassPropertyPercentageFalse,
+			Type:        graphql.Float,
+			Resolve:     common.JSONNumberResolver,
 		},
 	}
 

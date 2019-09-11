@@ -59,27 +59,27 @@ type AggregateParams struct {
 // should perform on this property
 type Aggregator string
 
+// Aggreators used in every prop
 const (
-	// CountAggregator the occurence of this property
 	CountAggregator Aggregator = "count"
+)
 
-	// SumAggregator of all the values of the prop (i.e. sum of all Ints or Numbers)
-	SumAggregator Aggregator = "sum"
-
-	// MeanAggregator calculates the mean of an Int or Number
-	MeanAggregator Aggregator = "mean"
-
-	// ModeAggregator calculates the mode (most occurring value) of an Int or Number
-	ModeAggregator Aggregator = "mode"
-
-	// MedianAggregator calculates the median (most occurring value) of an Int or Number
-	MedianAggregator Aggregator = "median"
-
-	// MaximumAggregator selects the maximum value of an Int or Number
+// Aggregators used in numerical props
+const (
+	SumAggregator     Aggregator = "sum"
+	MeanAggregator    Aggregator = "mean"
+	ModeAggregator    Aggregator = "mode"
+	MedianAggregator  Aggregator = "median"
 	MaximumAggregator Aggregator = "maximum"
-
-	// MinimumAggregator selects the maximum value of an Int or Number
 	MinimumAggregator Aggregator = "minimum"
+)
+
+// Aggregators used in boolean props
+const (
+	TotalTrueAggregator       Aggregator = "totalTrue"
+	PercentageTrueAggregator  Aggregator = "percentageTrue"
+	TotalFalseAggregator      Aggregator = "totalFalse"
+	PercentageFalseAggregator Aggregator = "percentageFalse"
 )
 
 // AggregateProperty is any property of a class that we want to retrieve meta
@@ -121,6 +121,12 @@ func (p AggregateParams) md5() (string, error) {
 
 func ParseAggregatorProp(name string) (Aggregator, error) {
 	switch name {
+
+	// common
+	case string(CountAggregator):
+		return CountAggregator, nil
+
+	// numerical
 	case string(MeanAggregator):
 		return MeanAggregator, nil
 	case string(MedianAggregator):
@@ -131,10 +137,19 @@ func ParseAggregatorProp(name string) (Aggregator, error) {
 		return MaximumAggregator, nil
 	case string(MinimumAggregator):
 		return MinimumAggregator, nil
-	case string(CountAggregator):
-		return CountAggregator, nil
 	case string(SumAggregator):
 		return SumAggregator, nil
+
+	// boolean
+	case string(TotalTrueAggregator):
+		return TotalTrueAggregator, nil
+	case string(TotalFalseAggregator):
+		return TotalFalseAggregator, nil
+	case string(PercentageTrueAggregator):
+		return PercentageTrueAggregator, nil
+	case string(PercentageFalseAggregator):
+		return PercentageFalseAggregator, nil
+
 	default:
 		return "", fmt.Errorf("unrecognized aggregator prop '%s'", name)
 	}
