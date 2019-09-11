@@ -150,7 +150,7 @@ func classField(k kind.Kind, class *models.Class, description string,
 			},
 			"groupBy": &graphql.ArgumentConfig{
 				Description: descriptions.GroupBy,
-				Type:        graphql.NewNonNull(graphql.NewList(graphql.String)),
+				Type:        graphql.NewList(graphql.String),
 			},
 		},
 		Resolve: makeResolveClass(k),

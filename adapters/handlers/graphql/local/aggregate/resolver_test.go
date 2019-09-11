@@ -57,6 +57,33 @@ func Test_Resolve(t *testing.T) {
 
 	tests := testCases{
 		testCase{
+			name:  "without grouping prop",
+			query: `{ Aggregate { Things { Car { horsepower { mean } } } } }`,
+			expectedProps: []traverser.AggregateProperty{
+				{
+					Name:        "horsepower",
+					Aggregators: []traverser.Aggregator{traverser.MeanAggregator},
+				},
+			},
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"horsepower": map[string]interface{}{
+						"mean": 275.7773,
+					},
+				},
+			},
+
+			expectedGroupBy: nil,
+			expectedResults: []result{{
+				pathToField: []string{"Aggregate", "Things", "Car"},
+				expectedValue: []interface{}{
+					map[string]interface{}{
+						"horsepower": map[string]interface{}{"mean": 275.7773},
+					},
+				},
+			}},
+		},
+		testCase{
 			name:  "single prop: mean",
 			query: `{ Aggregate { Things { Car(groupBy:["madeBy", "Manufacturer", "name"]) { horsepower { mean } } } } }`,
 			expectedProps: []traverser.AggregateProperty{

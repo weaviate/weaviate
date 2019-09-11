@@ -179,7 +179,8 @@ func extractAggregators(selections *ast.SelectionSet) ([]traverser.Aggregator, e
 func extractGroupBy(args map[string]interface{}, rootClass string) (*filters.Path, error) {
 	groupBy, ok := args["groupBy"]
 	if !ok {
-		return nil, fmt.Errorf("no groupBy present in args")
+		// not set means the user is not intersted in grouping (former Meta)
+		return nil, nil
 	}
 
 	pathSegments, ok := groupBy.([]interface{})
