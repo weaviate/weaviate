@@ -25,7 +25,7 @@ import (
 )
 
 func (r *Repo) Aggregate(ctx context.Context, params traverser.AggregateParams) (*aggregation.Result, error) {
-	if len(params.GroupBy.Slice()) > 1 {
+	if params.GroupBy != nil && len(params.GroupBy.Slice()) > 1 {
 		return nil, fmt.Errorf("grouping by cross-refs not supported yet")
 	}
 
@@ -49,7 +49,10 @@ func (r *Repo) Aggregate(ctx context.Context, params traverser.AggregateParams) 
 		return nil, fmt.Errorf("vector search: %v", err)
 	}
 
-	path := params.GroupBy.Slice()
+	var path []string
+	if params.GroupBy != nil {
+		path = params.GroupBy.Slice()
+	}
 	return r.aggregationResponse(res, path)
 }
 
@@ -59,14 +62,19 @@ func aggBody(params traverser.AggregateParams) (map[string]interface{}, error) {
 		return nil, err
 	}
 
-	aggregations := map[string]interface{}{
-		"outer": map[string]interface{}{
-			"terms": map[string]interface{}{
-				"field": params.GroupBy.Property,
-				"size":  100,
+	var aggregations map[string]interface{}
+	if params.GroupBy == nil {
+		aggregations = inner
+	} else {
+		aggregations = map[string]interface{}{
+			"outer": map[string]interface{}{
+				"terms": map[string]interface{}{
+					"field": params.GroupBy.Property,
+					"size":  100,
+				},
+				"aggs": inner,
 			},
-			"aggs": inner,
-		},
+		}
 	}
 
 	return map[string]interface{}{
