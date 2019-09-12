@@ -26,15 +26,18 @@ type Group struct {
 type Property struct {
 	Type                  PropertyType
 	NumericalAggregations map[string]float64
-	TextAggregations      map[string][]TextOccurence
+	TextAggregation       Text
 	BooleanAggregation    Boolean
 }
+
+type Text []TextOccurrence
 
 type PropertyType string
 
 const (
-	Numerical PropertyType = "numerical"
-	Text      PropertyType = "text"
+	PropertyTypeNumerical PropertyType = "numerical"
+	PropertyTypeBoolean   PropertyType = "boolean"
+	PropertyTypeText      PropertyType = "text"
 )
 
 type GroupedBy struct {
@@ -42,7 +45,7 @@ type GroupedBy struct {
 	Path  []string
 }
 
-type TextOccurence struct {
+type TextOccurrence struct {
 	Value  string
 	Occurs int
 }

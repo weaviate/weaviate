@@ -92,7 +92,9 @@ type aggregationBucket struct {
 	property              string
 	numericalAggregations []aggregatorAndValue
 	booleanAggregation    aggregation.Boolean
+	textAggregation       aggregation.Text
 	count                 int
+	propertyType          aggregation.PropertyType
 }
 
 type aggregatorAndValue struct {
@@ -135,9 +137,12 @@ func parseAggBucketsPayload(input map[string]interface{}, groupedValue interface
 			}
 
 			bucket := getOrInitBucket(buckets, property, groupedValue, outsideCount)
-			if aggregator == "boolean" {
+			switch aggregator {
+			case "boolean":
 				err = addBooleanAggregationsToBucket(&bucket, value, outsideCount)
-			} else {
+			case string(traverser.TopOccurrencesAggregator):
+				err = addTextAggregationsToBucket(&bucket, value, outsideCount)
+			default:
 				// numerical
 				err = addNumericalAggregationsToBucket(&bucket, aggregator, value, outsideCount)
 			}
@@ -173,7 +178,9 @@ func getOrInitBucket(buckets map[string]aggregationBucket, property string,
 
 func addNumericalAggregationsToBucket(bucket *aggregationBucket, aggregator string,
 	value interface{}, outsideCount *int) error {
-	av, err := extractAggregatorAndValue(aggregator, value)
+	bucket.propertyType = aggregation.PropertyTypeNumerical
+
+	av, err := extractNumericalAggregatorAndValue(aggregator, value)
 	if err != nil {
 		return err
 	}
@@ -188,7 +195,7 @@ func addNumericalAggregationsToBucket(bucket *aggregationBucket, aggregator stri
 	return nil
 }
 
-func extractAggregatorAndValue(aggregator string, value interface{}) (aggregatorAndValue, error) {
+func extractNumericalAggregatorAndValue(aggregator string, value interface{}) (aggregatorAndValue, error) {
 	var (
 		parsed interface{}
 		err    error
@@ -213,6 +220,8 @@ func extractAggregatorAndValue(aggregator string, value interface{}) (aggregator
 }
 
 func addBooleanAggregationsToBucket(bucket *aggregationBucket, value interface{}, outsideCount *int) error {
+	bucket.propertyType = aggregation.PropertyTypeBoolean
+
 	// boolean is a special case, as we need to create four different
 	// aggregator keys based on a single es aggregation
 	agg, err := extractBooleanAggregation(value)
@@ -368,6 +377,58 @@ func calculatePercentages(agg aggregation.Boolean) aggregation.Boolean {
 	return agg
 }
 
+func addTextAggregationsToBucket(bucket *aggregationBucket, value interface{}, outsideCount *int) error {
+	bucket.propertyType = aggregation.PropertyTypeText
+
+	agg, err := parseAggBucketPropertyValueAsTO(value)
+	if err != nil {
+		return err
+	}
+
+	bucket.textAggregation = agg
+
+	return nil
+}
+
+func parseAggBucketPropertyValueAsTO(input interface{}) (aggregation.Text, error) {
+	asMap, ok := input.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("boolean: expected value to be a map, but was %T", input)
+	}
+
+	buckets, ok := asMap["buckets"]
+	if !ok {
+		return nil, fmt.Errorf("boolean: expected map to have key 'buckets', but got %v", asMap)
+	}
+
+	return parseTextOccurrences(buckets.([]interface{}))
+}
+
+func parseTextOccurrences(buckets []interface{}) (aggregation.Text, error) {
+	out := make(aggregation.Text, len(buckets), len(buckets))
+
+	for i, bucket := range buckets {
+		asMap, ok := bucket.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("bucket %d: expected bucket to be a map, but got %#v", i, bucket)
+		}
+
+		value, ok := asMap["key"]
+		if !ok {
+			return nil, fmt.Errorf("bucket %d: expected bucket have key 'key_as_string', but got %#v", i, bucket)
+		}
+
+		count, ok := asMap["doc_count"]
+		if !ok {
+			return nil, fmt.Errorf("bucket %d: expected bucket have key 'doc_count', but got %#v", i, bucket)
+		}
+
+		out[i] = aggregation.TextOccurrence{Value: value.(string), Occurs: int(count.(float64))}
+	}
+
+	return out, nil
+}
+
 func parseAggBucketPropertyValueAsMedian(input interface{}) (interface{}, error) {
 	asMap, ok := input.(map[string]interface{})
 	if !ok {
@@ -416,9 +477,13 @@ func (b aggregationBuckets) result(path []string) (*aggregation.Result, error) {
 func (b aggregationBuckets) groups(path []string) ([]aggregation.Group, error) {
 	groups := map[interface{}]aggregation.Group{}
 	for _, bucket := range b {
-		numerical, err := bucket.numerical()
-		if err != nil {
-			return nil, err
+		var numerical map[string]float64
+		var err error
+		if bucket.propertyType == aggregation.PropertyTypeNumerical {
+			numerical, err = bucket.numerical()
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		_, ok := groups[bucket.groupedValue]
@@ -438,15 +503,19 @@ func (b aggregationBuckets) groups(path []string) ([]aggregation.Group, error) {
 				GroupedBy: groupedBy,
 				Properties: map[string]aggregation.Property{
 					bucket.property: aggregation.Property{
+						Type:                  bucket.propertyType,
 						NumericalAggregations: numerical,
 						BooleanAggregation:    bucket.booleanAggregation,
+						TextAggregation:       bucket.textAggregation,
 					},
 				},
 			}
 		} else {
 			groups[bucket.groupedValue].Properties[bucket.property] = aggregation.Property{
+				Type:                  bucket.propertyType,
 				NumericalAggregations: numerical,
 				BooleanAggregation:    bucket.booleanAggregation,
+				TextAggregation:       bucket.textAggregation,
 			}
 		}
 	}

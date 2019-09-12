@@ -147,40 +147,44 @@ func lookupAgg(input traverser.Aggregator) (string, error) {
 }
 
 func aggValue(prop schema.PropertyName, agg traverser.Aggregator) (map[string]interface{}, error) {
-	if agg == traverser.ModeAggregator {
+	switch agg {
+
+	case traverser.ModeAggregator:
 		return aggValueMode(prop), nil
-	}
 
-	if agg == traverser.MedianAggregator {
+	case traverser.MedianAggregator:
 		return aggValueMedian(prop), nil
-	}
 
-	esAgg, err := lookupAgg(agg)
-	if err != nil {
-		return nil, err
-	}
+	case traverser.TopOccurrencesAggregator:
+		return aggValueTopOccurrences(prop, 5), nil
 
-	return map[string]interface{}{
-		esAgg: map[string]interface{}{
-			"field": prop,
-		},
-	}, nil
+	default:
+		esAgg, err := lookupAgg(agg)
+		if err != nil {
+			return nil, err
+		}
+
+		return map[string]interface{}{
+			esAgg: map[string]interface{}{
+				"field": prop,
+			},
+		}, nil
+	}
 }
 
 func aggValueMode(prop schema.PropertyName) map[string]interface{} {
-	return map[string]interface{}{
-		"terms": map[string]interface{}{
-			"field": prop,
-			"size":  1,
-		},
-	}
+	return aggValueTopOccurrences(prop, 1)
 }
 
 func aggValueBoolean(prop schema.PropertyName) map[string]interface{} {
+	return aggValueTopOccurrences(prop, 2)
+}
+
+func aggValueTopOccurrences(prop schema.PropertyName, size int) map[string]interface{} {
 	return map[string]interface{}{
 		"terms": map[string]interface{}{
 			"field": prop,
-			"size":  2,
+			"size":  size,
 		},
 	}
 }
