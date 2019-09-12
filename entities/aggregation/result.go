@@ -27,6 +27,7 @@ type Property struct {
 	Type                  PropertyType
 	NumericalAggregations map[string]float64
 	TextAggregations      map[string][]TextOccurence
+	BooleanAggregation    Boolean
 }
 
 type PropertyType string
@@ -44,4 +45,12 @@ type GroupedBy struct {
 type TextOccurence struct {
 	Value  string
 	Occurs int
+}
+
+type Boolean struct {
+	Count           int
+	TotalTrue       int
+	TotalFalse      int
+	PercentageTrue  float64
+	PercentageFalse float64
 }
