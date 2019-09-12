@@ -236,6 +236,15 @@ func testNumericalAggregationsWithGrouping(repo *Repo) func(t *testing.T) {
 							traverser.CountAggregator,
 						},
 					},
+					traverser.AggregateProperty{
+						Name: schema.PropertyName("listedInIndex"),
+						Aggregators: []traverser.Aggregator{
+							traverser.PercentageTrueAggregator,
+							traverser.PercentageFalseAggregator,
+							traverser.TotalTrueAggregator,
+							traverser.TotalFalseAggregator,
+						},
+					},
 				},
 			}
 
@@ -273,6 +282,15 @@ func testNumericalAggregationsWithGrouping(repo *Repo) func(t *testing.T) {
 									"count":   6,
 								},
 							},
+							"listedInIndex": aggregation.Property{
+								BooleanAggregation: aggregation.Boolean{
+									TotalTrue:       5,
+									TotalFalse:      1,
+									PercentageTrue:  0.83333,
+									PercentageFalse: 0.16667,
+									Count:           6,
+								},
+							},
 						},
 					},
 					aggregation.Group{
@@ -302,6 +320,15 @@ func testNumericalAggregationsWithGrouping(repo *Repo) func(t *testing.T) {
 									"mode":    47,
 									"median":  150,
 									"count":   3,
+								},
+							},
+							"listedInIndex": aggregation.Property{
+								BooleanAggregation: aggregation.Boolean{
+									TotalTrue:       3,
+									TotalFalse:      0,
+									PercentageTrue:  1,
+									PercentageFalse: 0,
+									Count:           3,
 								},
 							},
 						},

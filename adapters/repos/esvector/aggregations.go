@@ -86,6 +86,19 @@ func aggBody(params traverser.AggregateParams) (map[string]interface{}, error) {
 func innerAggs(properties []traverser.AggregateProperty) (map[string]interface{}, error) {
 	inner := map[string]interface{}{}
 	for _, property := range properties {
+
+		if containsBooleanAggregators(property.Aggregators) {
+			// this is a special case as, we only need to do a single aggregation no
+			// matter if one or all boolean aggregators are set, therefore we're not
+			// iterating over all aggregators, but merely checking for their presence
+			inner[aggName(property.Name, "boolean")] = aggValueBoolean(property.Name)
+
+			// additionally, we know that a boolean prop cannot contain any
+			// non-boolean aggregators, so it's safe to consider this property
+			// complete
+			continue
+		}
+
 		for _, aggregator := range property.Aggregators {
 			v, err := aggValue(property.Name, aggregator)
 			if err != nil {
@@ -97,6 +110,19 @@ func innerAggs(properties []traverser.AggregateProperty) (map[string]interface{}
 	}
 
 	return inner, nil
+}
+
+func containsBooleanAggregators(aggs []traverser.Aggregator) bool {
+	for _, agg := range aggs {
+		if agg == traverser.PercentageTrueAggregator ||
+			agg == traverser.PercentageFalseAggregator ||
+			agg == traverser.TotalTrueAggregator ||
+			agg == traverser.TotalFalseAggregator {
+			return true
+		}
+	}
+
+	return false
 }
 
 func aggName(prop schema.PropertyName, agg traverser.Aggregator) string {
@@ -122,11 +148,11 @@ func lookupAgg(input traverser.Aggregator) (string, error) {
 
 func aggValue(prop schema.PropertyName, agg traverser.Aggregator) (map[string]interface{}, error) {
 	if agg == traverser.ModeAggregator {
-		return aggValueMode(prop)
+		return aggValueMode(prop), nil
 	}
 
 	if agg == traverser.MedianAggregator {
-		return aggValueMedian(prop)
+		return aggValueMedian(prop), nil
 	}
 
 	esAgg, err := lookupAgg(agg)
@@ -141,20 +167,29 @@ func aggValue(prop schema.PropertyName, agg traverser.Aggregator) (map[string]in
 	}, nil
 }
 
-func aggValueMode(prop schema.PropertyName) (map[string]interface{}, error) {
+func aggValueMode(prop schema.PropertyName) map[string]interface{} {
 	return map[string]interface{}{
 		"terms": map[string]interface{}{
 			"field": prop,
 			"size":  1,
 		},
-	}, nil
+	}
 }
 
-func aggValueMedian(prop schema.PropertyName) (map[string]interface{}, error) {
+func aggValueBoolean(prop schema.PropertyName) map[string]interface{} {
+	return map[string]interface{}{
+		"terms": map[string]interface{}{
+			"field": prop,
+			"size":  2,
+		},
+	}
+}
+
+func aggValueMedian(prop schema.PropertyName) map[string]interface{} {
 	return map[string]interface{}{
 		"percentiles": map[string]interface{}{
 			"field":    prop,
 			"percents": []int{50},
 		},
-	}, nil
+	}
 }
