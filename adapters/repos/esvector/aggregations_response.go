@@ -30,7 +30,6 @@ var aggBucketKeyRegexp *regexp.Regexp
 
 func init() {
 	aggBucketKeyRegexp = regexp.MustCompile(`^agg\.[a-zA-z]+\.[a-zA-z]+$`)
-
 }
 
 func (r *Repo) aggregationResponse(res *esapi.Response, path []string) (*aggregation.Result, error) {
@@ -55,7 +54,6 @@ func (r *Repo) aggregationResponse(res *esapi.Response, path []string) (*aggrega
 }
 
 func (sr searchResponse) aggregations(path []string) (*aggregation.Result, error) {
-
 	if len(path) == 0 {
 		// no grouping
 		return sr.ungroupedAggregations(sr.Aggregations)
@@ -67,29 +65,9 @@ func (sr searchResponse) aggregations(path []string) (*aggregation.Result, error
 }
 
 func (sr searchResponse) ungroupedAggregations(aggs map[string]interface{}) (*aggregation.Result, error) {
-	buckets := map[string]aggregationBucket{}
-	for key, value := range aggs {
-		switch key {
-		case "key", "key_as_string", "doc_count":
-			continue
-		default:
-			property, aggregator, err := parseAggBucketPropertyKey(key)
-			if err != nil {
-				return nil, fmt.Errorf("key '%s': %v", key, err)
-			}
-
-			av, err := extractAggregatorAndValue(aggregator, value)
-			if err != nil {
-				return nil, fmt.Errorf("key '%s': %v", key, err)
-			}
-
-			bucket := getOrInitBucket(buckets, property, nil, 0)
-			if av.aggregator == string(traverser.CountAggregator) {
-				bucket.count = int(av.value.(float64))
-			}
-			bucket.numericalAggregations = append(bucket.numericalAggregations, av)
-			buckets[property] = bucket
-		}
+	buckets, err := parseAggBucketsPayload(aggs, nil, nil)
+	if err != nil {
+		return nil, err
 	}
 
 	return bucketMapToSlice(buckets).result(nil)
@@ -125,7 +103,6 @@ type aggregatorAndValue struct {
 type aggregationBuckets []aggregationBucket
 
 func (sr searchResponse) parseAggBuckets(input map[string]interface{}) (aggregationBuckets, error) {
-	buckets := map[string]aggregationBucket{}
 
 	groupedValue := input["key"]
 	if groupedValue == nil {
@@ -133,6 +110,20 @@ func (sr searchResponse) parseAggBuckets(input map[string]interface{}) (aggregat
 	}
 	count := int(input["doc_count"].(float64))
 
+	buckets, err := parseAggBucketsPayload(input, groupedValue, &count)
+	if err != nil {
+		return nil, err
+	}
+
+	return bucketMapToSlice(buckets), nil
+}
+
+// only the aggregators themselves, without the control fields, so it can be
+// used for both grouped and ungrouped aggregations where the control fields
+// differ
+func parseAggBucketsPayload(input map[string]interface{}, groupedValue interface{},
+	outsideCount *int) (map[string]aggregationBucket, error) {
+	buckets := map[string]aggregationBucket{}
 	for key, value := range input {
 		switch key {
 		case "key", "key_as_string", "doc_count":
@@ -143,34 +134,32 @@ func (sr searchResponse) parseAggBuckets(input map[string]interface{}) (aggregat
 				return nil, fmt.Errorf("key '%s': %v", key, err)
 			}
 
-			bucket := getOrInitBucket(buckets, property, groupedValue, count)
+			bucket := getOrInitBucket(buckets, property, groupedValue, outsideCount)
 			if aggregator == "boolean" {
-				// boolean is a special case, as we need to create four different
-				// aggregator keys based on a single es aggregation
-				agg, err := extractBooleanAggregation(value)
-				if err != nil {
-					return nil, fmt.Errorf("key '%s': %v", key, err)
-				}
-
-				bucket.booleanAggregation = agg
+				err = addBooleanAggregationsToBucket(&bucket, value, outsideCount)
 			} else {
-
-				av, err := extractAggregatorAndValue(aggregator, value)
-				if err != nil {
-					return nil, fmt.Errorf("key '%s': %v", key, err)
-				}
-				bucket.numericalAggregations = append(bucket.numericalAggregations, av)
+				// numerical
+				err = addNumericalAggregationsToBucket(&bucket, aggregator, value, outsideCount)
+			}
+			if err != nil {
+				return nil, fmt.Errorf("key '%s': %v", key, err)
 			}
 
 			buckets[property] = bucket
 		}
 	}
 
-	return bucketMapToSlice(buckets), nil
+	return buckets, nil
 }
 
 func getOrInitBucket(buckets map[string]aggregationBucket, property string,
-	groupedValue interface{}, count int) aggregationBucket {
+	groupedValue interface{}, outsideCount *int) aggregationBucket {
+
+	var count int
+	if outsideCount != nil {
+		count = *outsideCount
+	}
+
 	b, ok := buckets[property]
 	if ok {
 		return b
@@ -180,6 +169,23 @@ func getOrInitBucket(buckets map[string]aggregationBucket, property string,
 		count:        count,
 		property:     property,
 	}
+}
+
+func addNumericalAggregationsToBucket(bucket *aggregationBucket, aggregator string,
+	value interface{}, outsideCount *int) error {
+	av, err := extractAggregatorAndValue(aggregator, value)
+	if err != nil {
+		return err
+	}
+
+	if outsideCount == nil && aggregator == string(traverser.CountAggregator) {
+		// this would be the case in an ungrouped aggregation, we need to
+		// extract the count manually
+		bucket.count = int(av.value.(float64))
+	}
+	bucket.numericalAggregations = append(bucket.numericalAggregations, av)
+
+	return nil
 }
 
 func extractAggregatorAndValue(aggregator string, value interface{}) (aggregatorAndValue, error) {
@@ -204,6 +210,24 @@ func extractAggregatorAndValue(aggregator string, value interface{}) (aggregator
 		aggregator: aggregator,
 		value:      parsed,
 	}, nil
+}
+
+func addBooleanAggregationsToBucket(bucket *aggregationBucket, value interface{}, outsideCount *int) error {
+	// boolean is a special case, as we need to create four different
+	// aggregator keys based on a single es aggregation
+	agg, err := extractBooleanAggregation(value)
+	if err != nil {
+		return err
+	}
+
+	bucket.booleanAggregation = agg
+	if outsideCount == nil {
+		// this would be the case in an ungrouped aggregation, we need to
+		// extract the count manually
+		bucket.count = agg.Count
+	}
+
+	return nil
 }
 
 func extractBooleanAggregation(value interface{}) (aggregation.Boolean, error) {
@@ -390,7 +414,6 @@ func (b aggregationBuckets) result(path []string) (*aggregation.Result, error) {
 }
 
 func (b aggregationBuckets) groups(path []string) ([]aggregation.Group, error) {
-
 	groups := map[interface{}]aggregation.Group{}
 	for _, bucket := range b {
 		numerical, err := bucket.numerical()
@@ -426,7 +449,6 @@ func (b aggregationBuckets) groups(path []string) ([]aggregation.Group, error) {
 				BooleanAggregation:    bucket.booleanAggregation,
 			}
 		}
-
 	}
 
 	return groupsMapToSlice(groups), nil
