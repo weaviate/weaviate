@@ -45,7 +45,7 @@ services:
       dockerfile: Dockerfile
       target: weaviate
     depends_on:
-      - janus
+      - esvector
     restart: on-failure:0
     ports:
       - "8080:8080"

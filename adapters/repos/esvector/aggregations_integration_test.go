@@ -122,6 +122,7 @@ func testNumericalAggregationsWithGrouping(repo *Repo) func(t *testing.T) {
 						},
 						Properties: map[string]aggregation.Property{
 							"dividendYield": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
 								NumericalAggregations: map[string]float64{
 									"mean": 2.06667,
 								},
@@ -136,6 +137,7 @@ func testNumericalAggregationsWithGrouping(repo *Repo) func(t *testing.T) {
 						},
 						Properties: map[string]aggregation.Property{
 							"dividendYield": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
 								NumericalAggregations: map[string]float64{
 									"mean": 2.2,
 								},
@@ -177,6 +179,7 @@ func testNumericalAggregationsWithGrouping(repo *Repo) func(t *testing.T) {
 						},
 						Properties: map[string]aggregation.Property{
 							"dividendYield": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
 								NumericalAggregations: map[string]float64{
 									"mean": 2.375,
 								},
@@ -191,6 +194,7 @@ func testNumericalAggregationsWithGrouping(repo *Repo) func(t *testing.T) {
 						},
 						Properties: map[string]aggregation.Property{
 							"dividendYield": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
 								NumericalAggregations: map[string]float64{
 									"mean": 0.0,
 								},
@@ -245,6 +249,12 @@ func testNumericalAggregationsWithGrouping(repo *Repo) func(t *testing.T) {
 							traverser.TotalFalseAggregator,
 						},
 					},
+					traverser.AggregateProperty{
+						Name: schema.PropertyName("location"),
+						Aggregators: []traverser.Aggregator{
+							traverser.TopOccurrencesAggregator,
+						},
+					},
 				},
 			}
 
@@ -261,6 +271,7 @@ func testNumericalAggregationsWithGrouping(repo *Repo) func(t *testing.T) {
 						},
 						Properties: map[string]aggregation.Property{
 							"dividendYield": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
 								NumericalAggregations: map[string]float64{
 									"mean":    2.06667,
 									"maximum": 8.0,
@@ -272,6 +283,7 @@ func testNumericalAggregationsWithGrouping(repo *Repo) func(t *testing.T) {
 								},
 							},
 							"price": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
 								NumericalAggregations: map[string]float64{
 									"mean":    218.33333,
 									"maximum": 800,
@@ -283,12 +295,38 @@ func testNumericalAggregationsWithGrouping(repo *Repo) func(t *testing.T) {
 								},
 							},
 							"listedInIndex": aggregation.Property{
+								Type: aggregation.PropertyTypeBoolean,
 								BooleanAggregation: aggregation.Boolean{
 									TotalTrue:       5,
 									TotalFalse:      1,
 									PercentageTrue:  0.83333,
 									PercentageFalse: 0.16667,
 									Count:           6,
+								},
+							},
+							"location": aggregation.Property{
+								Type: aggregation.PropertyTypeText,
+								TextAggregation: aggregation.Text{
+									aggregation.TextOccurrence{
+										Value:  "Atlanta",
+										Occurs: 2,
+									},
+									aggregation.TextOccurrence{
+										Value:  "Detroit",
+										Occurs: 1,
+									},
+									aggregation.TextOccurrence{
+										Value:  "Los Angeles",
+										Occurs: 1,
+									},
+									aggregation.TextOccurrence{
+										Value:  "New York",
+										Occurs: 1,
+									},
+									aggregation.TextOccurrence{
+										Value:  "San Francisco",
+										Occurs: 1,
+									},
 								},
 							},
 						},
@@ -301,6 +339,7 @@ func testNumericalAggregationsWithGrouping(repo *Repo) func(t *testing.T) {
 						},
 						Properties: map[string]aggregation.Property{
 							"dividendYield": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
 								NumericalAggregations: map[string]float64{
 									"mean":    2.2,
 									"maximum": 4.0,
@@ -312,6 +351,7 @@ func testNumericalAggregationsWithGrouping(repo *Repo) func(t *testing.T) {
 								},
 							},
 							"price": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
 								NumericalAggregations: map[string]float64{
 									"mean":    265.66667,
 									"maximum": 600,
@@ -323,6 +363,7 @@ func testNumericalAggregationsWithGrouping(repo *Repo) func(t *testing.T) {
 								},
 							},
 							"listedInIndex": aggregation.Property{
+								Type: aggregation.PropertyTypeBoolean,
 								BooleanAggregation: aggregation.Boolean{
 									TotalTrue:       3,
 									TotalFalse:      0,
@@ -331,12 +372,26 @@ func testNumericalAggregationsWithGrouping(repo *Repo) func(t *testing.T) {
 									Count:           3,
 								},
 							},
+							"location": aggregation.Property{
+								Type: aggregation.PropertyTypeText,
+								TextAggregation: aggregation.Text{
+									aggregation.TextOccurrence{
+										Value:  "New York",
+										Occurs: 2,
+									},
+									aggregation.TextOccurrence{
+										Value:  "San Francisco",
+										Occurs: 1,
+									},
+								},
+							},
 						},
 					},
 				},
 			}
 
-			assert.ElementsMatch(t, expectedResult.Groups, res.Groups)
+			// assert.ElementsMatch(t, expectedResult.Groups, res.Groups)
+			assert.Equal(t, expectedResult.Groups, res.Groups)
 		})
 	}
 }
@@ -365,6 +420,7 @@ func testNumericalAggregationsWithoutGrouping(repo *Repo) func(t *testing.T) {
 						GroupedBy: nil,
 						Properties: map[string]aggregation.Property{
 							"dividendYield": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
 								NumericalAggregations: map[string]float64{
 									"mean": 2.11111,
 								},
@@ -377,7 +433,7 @@ func testNumericalAggregationsWithoutGrouping(repo *Repo) func(t *testing.T) {
 			assert.Equal(t, expectedResult.Groups, res.Groups)
 		})
 
-		t.Run("multiple fields, multiple aggregators, grouped by string", func(t *testing.T) {
+		t.Run("multiple fields, multiple aggregators", func(t *testing.T) {
 			params := traverser.AggregateParams{
 				Kind:      kind.Thing,
 				ClassName: schema.ClassName(companyClass.Class),
@@ -416,6 +472,12 @@ func testNumericalAggregationsWithoutGrouping(repo *Repo) func(t *testing.T) {
 							traverser.TotalFalseAggregator,
 						},
 					},
+					traverser.AggregateProperty{
+						Name: schema.PropertyName("location"),
+						Aggregators: []traverser.Aggregator{
+							traverser.TopOccurrencesAggregator,
+						},
+					},
 				},
 			}
 
@@ -425,9 +487,9 @@ func testNumericalAggregationsWithoutGrouping(repo *Repo) func(t *testing.T) {
 			expectedResult := &aggregation.Result{
 				Groups: []aggregation.Group{
 					aggregation.Group{
-						Count: 9,
 						Properties: map[string]aggregation.Property{
 							"dividendYield": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
 								NumericalAggregations: map[string]float64{
 									"mean":    2.11111,
 									"maximum": 8.0,
@@ -439,6 +501,7 @@ func testNumericalAggregationsWithoutGrouping(repo *Repo) func(t *testing.T) {
 								},
 							},
 							"price": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
 								NumericalAggregations: map[string]float64{
 									"mean":    234.11111,
 									"maximum": 800,
@@ -450,12 +513,38 @@ func testNumericalAggregationsWithoutGrouping(repo *Repo) func(t *testing.T) {
 								},
 							},
 							"listedInIndex": aggregation.Property{
+								Type: aggregation.PropertyTypeBoolean,
 								BooleanAggregation: aggregation.Boolean{
 									TotalTrue:       8,
 									TotalFalse:      1,
 									PercentageTrue:  0.88889,
 									PercentageFalse: 0.11111,
 									Count:           9,
+								},
+							},
+							"location": aggregation.Property{
+								Type: aggregation.PropertyTypeText,
+								TextAggregation: aggregation.Text{
+									aggregation.TextOccurrence{
+										Value:  "New York",
+										Occurs: 3,
+									},
+									aggregation.TextOccurrence{
+										Value:  "Atlanta",
+										Occurs: 2,
+									},
+									aggregation.TextOccurrence{
+										Value:  "San Francisco",
+										Occurs: 2,
+									},
+									aggregation.TextOccurrence{
+										Value:  "Detroit",
+										Occurs: 1,
+									},
+									aggregation.TextOccurrence{
+										Value:  "Los Angeles",
+										Occurs: 1,
+									},
 								},
 							},
 						},
