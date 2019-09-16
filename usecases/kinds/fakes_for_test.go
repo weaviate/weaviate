@@ -199,12 +199,14 @@ type fakeVectorRepo struct {
 
 func (f *fakeVectorRepo) ThingByID(ctx context.Context,
 	id strfmt.UUID, props traverser.SelectProperties) (*search.Result, error) {
-	return nil, nil
+	args := f.Called(id, props)
+	return args.Get(0).(*search.Result), args.Error(1)
 }
 
 func (f *fakeVectorRepo) ActionByID(ctx context.Context,
 	id strfmt.UUID, props traverser.SelectProperties) (*search.Result, error) {
-	return nil, nil
+	args := f.Called(id, props)
+	return args.Get(0).(*search.Result), args.Error(1)
 }
 
 func (f *fakeVectorRepo) ThingSearch(ctx context.Context, limit int,
@@ -219,19 +221,23 @@ func (f *fakeVectorRepo) ActionSearch(ctx context.Context, limit int,
 
 func (f *fakeVectorRepo) PutThing(ctx context.Context,
 	concept *models.Thing, vector []float32) error {
-	return nil
+	args := f.Called(concept, vector)
+	return args.Error(0)
 }
 func (f *fakeVectorRepo) PutAction(ctx context.Context,
 	concept *models.Action, vector []float32) error {
-	return nil
+	args := f.Called(concept, vector)
+	return args.Error(0)
 }
 
-func (r *fakeVectorRepo) BatchPutThings(ctx context.Context, batch BatchThings) (BatchThings, error) {
-	return nil, nil
+func (f *fakeVectorRepo) BatchPutThings(ctx context.Context, batch BatchThings) (BatchThings, error) {
+	args := f.Called(batch)
+	return batch, args.Error(0)
 }
 
-func (r *fakeVectorRepo) BatchPutActions(ctx context.Context, batch BatchActions) (BatchActions, error) {
-	return nil, nil
+func (f *fakeVectorRepo) BatchPutActions(ctx context.Context, batch BatchActions) (BatchActions, error) {
+	args := f.Called(batch)
+	return batch, args.Error(0)
 }
 
 func (f *fakeVectorRepo) DeleteAction(ctx context.Context,

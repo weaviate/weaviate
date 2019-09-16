@@ -20,6 +20,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -32,7 +33,7 @@ func Test_ReferencesAdd_CardinalityMany(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	var (
-		repo          *fakeRepo
+		vectorRepo    *fakeVectorRepo
 		schemaManager *fakeSchemaManager
 		locks         *fakeLocks
 		network       *fakeNetwork
@@ -43,66 +44,66 @@ func Test_ReferencesAdd_CardinalityMany(t *testing.T) {
 	)
 
 	reset := func() {
-		repo = &fakeRepo{}
-		repo.On("ClassExists", mock.Anything).Return(true, nil)
+		vectorRepo = &fakeVectorRepo{}
 		schemaManager = &fakeSchemaManager{}
 		locks = &fakeLocks{}
 		network = &fakeNetwork{}
 		cfg = &config.WeaviateConfig{}
 		authorizer = &fakeAuthorizer{}
 		vectorizer = &fakeVectorizer{}
-		vectorRepo := &fakeVectorRepo{}
-		manager = NewManager(repo, locks, schemaManager, network,
+		manager = NewManager(locks, schemaManager, network,
 			cfg, logger, authorizer, vectorizer, vectorRepo)
 	}
 
 	t.Run("without prior refs", func(t *testing.T) {
 		reset()
-		repo.GetThingResponse = &models.Thing{
-			Class: "Zoo",
+		vectorRepo.On("ThingByID", mock.Anything, mock.Anything).Return(&search.Result{
+			ClassName: "Zoo",
 			Schema: map[string]interface{}{
 				"name": "MyZoo",
 			},
-		}
+		}, nil)
 		schemaManager.GetSchemaResponse = zooAnimalSchemaForTest()
 		newRef := &models.SingleRef{
 			Beacon: strfmt.URI("weaviate://localhost/things/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7"),
 		}
 		expectedSchema := map[string]interface{}{
 			"name": "MyZoo",
-			"hasAnimals": []interface{}{
+			"hasAnimals": models.MultipleRef{
 				&models.SingleRef{
 					Beacon: strfmt.URI("weaviate://localhost/things/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7"),
 				},
 			},
 		}
+		vectorRepo.On("PutThing", mock.Anything, mock.Anything).Return(nil)
 
 		err := manager.AddThingReference(context.Background(), nil, strfmt.UUID("my-id"), "hasAnimals", newRef)
 
 		require.Nil(t, err)
-		assert.Equal(t, expectedSchema, repo.UpdateThingParameter.Schema)
+		vectorRepo.AssertExpectations(t)
+		assert.Equal(t, expectedSchema, vectorRepo.Mock.Calls[2].Arguments[0].(*models.Thing).Schema)
 	})
 
 	t.Run("adding a second ref when one already exists", func(t *testing.T) {
 		reset()
-		repo.GetThingResponse = &models.Thing{
-			Class: "Zoo",
+		vectorRepo.On("ThingByID", mock.Anything, mock.Anything).Return(&search.Result{
+			ClassName: "Zoo",
 			Schema: map[string]interface{}{
 				"name": "MyZoo",
-				"hasAnimals": []interface{}{
+				"hasAnimals": models.MultipleRef{
 					&models.SingleRef{
 						Beacon: strfmt.URI("weaviate://localhost/things/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7"),
 					},
 				},
 			},
-		}
+		}, nil)
 		schemaManager.GetSchemaResponse = zooAnimalSchemaForTest()
 		newRef := &models.SingleRef{
 			Beacon: strfmt.URI("weaviate://localhost/things/1dd50566-93ce-4f68-81a2-2dfff2ab7835"),
 		}
 		expectedSchema := map[string]interface{}{
 			"name": "MyZoo",
-			"hasAnimals": []interface{}{
+			"hasAnimals": models.MultipleRef{
 				&models.SingleRef{
 					Beacon: strfmt.URI("weaviate://localhost/things/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7"),
 				},
@@ -111,11 +112,12 @@ func Test_ReferencesAdd_CardinalityMany(t *testing.T) {
 				},
 			},
 		}
+		vectorRepo.On("PutThing", mock.Anything, mock.Anything).Return(nil)
 
 		err := manager.AddThingReference(context.Background(), nil, strfmt.UUID("my-id"), "hasAnimals", newRef)
-
 		require.Nil(t, err)
-		assert.Equal(t, expectedSchema, repo.UpdateThingParameter.Schema)
+		vectorRepo.AssertExpectations(t)
+		assert.Equal(t, expectedSchema, vectorRepo.Mock.Calls[2].Arguments[0].(*models.Thing).Schema)
 	})
 }
 

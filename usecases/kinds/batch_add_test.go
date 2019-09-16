@@ -29,8 +29,8 @@ import (
 
 func Test_BatchManager_AddActions(t *testing.T) {
 	var (
-		repo    *fakeRepo
-		manager *BatchManager
+		vectorRepo *fakeVectorRepo
+		manager    *BatchManager
 	)
 
 	schema := schema.Schema{
@@ -44,7 +44,7 @@ func Test_BatchManager_AddActions(t *testing.T) {
 	}
 
 	reset := func() {
-		repo = &fakeRepo{}
+		vectorRepo = &fakeVectorRepo{}
 		config := &config.WeaviateConfig{}
 		locks := &fakeLocks{}
 		schemaManager := &fakeSchemaManager{
@@ -52,9 +52,8 @@ func Test_BatchManager_AddActions(t *testing.T) {
 		}
 		logger, _ := test.NewNullLogger()
 		authorizer := &fakeAuthorizer{}
-		vectorRepo := &fakeVectorRepo{}
 		vectorizer := &fakeVectorizer{}
-		manager = NewBatchManager(repo, vectorRepo, vectorizer, locks,
+		manager = NewBatchManager(vectorRepo, vectorizer, locks,
 			schemaManager, nil, config, logger, authorizer)
 	}
 
@@ -72,7 +71,7 @@ func Test_BatchManager_AddActions(t *testing.T) {
 
 	t.Run("with actions without IDs", func(t *testing.T) {
 		reset()
-		repo.On("AddActionsBatch", mock.Anything).Return(nil).Once()
+		vectorRepo.On("BatchPutActions", mock.Anything).Return(nil).Once()
 		actions := []*models.Action{
 			&models.Action{
 				Class: "Foo",
@@ -83,7 +82,7 @@ func Test_BatchManager_AddActions(t *testing.T) {
 		}
 
 		_, err := manager.AddActions(ctx, nil, actions, []*string{})
-		repoCalledWithActions := repo.Calls[0].Arguments[0].(BatchActions)
+		repoCalledWithActions := vectorRepo.Calls[0].Arguments[0].(BatchActions)
 
 		assert.Nil(t, err)
 		require.Len(t, repoCalledWithActions, 2)
@@ -93,7 +92,7 @@ func Test_BatchManager_AddActions(t *testing.T) {
 
 	t.Run("with user-specified IDs", func(t *testing.T) {
 		reset()
-		repo.On("AddActionsBatch", mock.Anything).Return(nil).Once()
+		vectorRepo.On("BatchPutActions", mock.Anything).Return(nil).Once()
 		id1 := strfmt.UUID("2d3942c3-b412-4d80-9dfa-99a646629cd2")
 		id2 := strfmt.UUID("cf918366-3d3b-4b90-9bc6-bc5ea8762ff6")
 		actions := []*models.Action{
@@ -108,7 +107,7 @@ func Test_BatchManager_AddActions(t *testing.T) {
 		}
 
 		_, err := manager.AddActions(ctx, nil, actions, []*string{})
-		repoCalledWithActions := repo.Calls[0].Arguments[0].(BatchActions)
+		repoCalledWithActions := vectorRepo.Calls[0].Arguments[0].(BatchActions)
 
 		assert.Nil(t, err)
 		require.Len(t, repoCalledWithActions, 2)
@@ -118,7 +117,7 @@ func Test_BatchManager_AddActions(t *testing.T) {
 
 	t.Run("with an invalid user-specified IDs", func(t *testing.T) {
 		reset()
-		repo.On("AddActionsBatch", mock.Anything).Return(nil).Once()
+		vectorRepo.On("BatchPutActions", mock.Anything).Return(nil).Once()
 		id1 := strfmt.UUID("invalid")
 		id2 := strfmt.UUID("cf918366-3d3b-4b90-9bc6-bc5ea8762ff6")
 		actions := []*models.Action{
@@ -133,7 +132,7 @@ func Test_BatchManager_AddActions(t *testing.T) {
 		}
 
 		_, err := manager.AddActions(ctx, nil, actions, []*string{})
-		repoCalledWithActions := repo.Calls[0].Arguments[0].(BatchActions)
+		repoCalledWithActions := vectorRepo.Calls[0].Arguments[0].(BatchActions)
 
 		assert.Nil(t, err)
 		require.Len(t, repoCalledWithActions, 2)
@@ -144,8 +143,8 @@ func Test_BatchManager_AddActions(t *testing.T) {
 
 func Test_BatchManager_AddThings(t *testing.T) {
 	var (
-		repo    *fakeRepo
-		manager *BatchManager
+		vectorRepo *fakeVectorRepo
+		manager    *BatchManager
 	)
 
 	schema := schema.Schema{
@@ -159,7 +158,7 @@ func Test_BatchManager_AddThings(t *testing.T) {
 	}
 
 	reset := func() {
-		repo = &fakeRepo{}
+		vectorRepo = &fakeVectorRepo{}
 		config := &config.WeaviateConfig{}
 		locks := &fakeLocks{}
 		schemaManager := &fakeSchemaManager{
@@ -167,9 +166,8 @@ func Test_BatchManager_AddThings(t *testing.T) {
 		}
 		logger, _ := test.NewNullLogger()
 		authorizer := &fakeAuthorizer{}
-		vectorRepo := &fakeVectorRepo{}
 		vectorizer := &fakeVectorizer{}
-		manager = NewBatchManager(repo, vectorRepo, vectorizer,
+		manager = NewBatchManager(vectorRepo, vectorizer,
 			locks, schemaManager, nil, config, logger, authorizer)
 	}
 
@@ -187,7 +185,7 @@ func Test_BatchManager_AddThings(t *testing.T) {
 
 	t.Run("with things without IDs", func(t *testing.T) {
 		reset()
-		repo.On("AddThingsBatch", mock.Anything).Return(nil).Once()
+		vectorRepo.On("BatchPutThings", mock.Anything).Return(nil).Once()
 		things := []*models.Thing{
 			&models.Thing{
 				Class: "Foo",
@@ -198,17 +196,17 @@ func Test_BatchManager_AddThings(t *testing.T) {
 		}
 
 		_, err := manager.AddThings(ctx, nil, things, []*string{})
-		repoCalledWithThings := repo.Calls[0].Arguments[0].(BatchThings)
+		vectorRepoCalledWithThings := vectorRepo.Calls[0].Arguments[0].(BatchThings)
 
 		assert.Nil(t, err)
-		require.Len(t, repoCalledWithThings, 2)
-		assert.Len(t, repoCalledWithThings[0].UUID, 36, "a uuid was set for the first thing")
-		assert.Len(t, repoCalledWithThings[1].UUID, 36, "a uuid was set for the second thing")
+		require.Len(t, vectorRepoCalledWithThings, 2)
+		assert.Len(t, vectorRepoCalledWithThings[0].UUID, 36, "a uuid was set for the first thing")
+		assert.Len(t, vectorRepoCalledWithThings[1].UUID, 36, "a uuid was set for the second thing")
 	})
 
 	t.Run("with user-specified IDs", func(t *testing.T) {
 		reset()
-		repo.On("AddThingsBatch", mock.Anything).Return(nil).Once()
+		vectorRepo.On("BatchPutThings", mock.Anything).Return(nil).Once()
 		id1 := strfmt.UUID("2d3942c3-b412-4d80-9dfa-99a646629cd2")
 		id2 := strfmt.UUID("cf918366-3d3b-4b90-9bc6-bc5ea8762ff6")
 		things := []*models.Thing{
@@ -223,17 +221,17 @@ func Test_BatchManager_AddThings(t *testing.T) {
 		}
 
 		_, err := manager.AddThings(ctx, nil, things, []*string{})
-		repoCalledWithThings := repo.Calls[0].Arguments[0].(BatchThings)
+		vectorRepoCalledWithThings := vectorRepo.Calls[0].Arguments[0].(BatchThings)
 
 		assert.Nil(t, err)
-		require.Len(t, repoCalledWithThings, 2)
-		assert.Equal(t, id1, repoCalledWithThings[0].UUID, "the user-specified uuid was used")
-		assert.Equal(t, id2, repoCalledWithThings[1].UUID, "the user-specified uuid was used")
+		require.Len(t, vectorRepoCalledWithThings, 2)
+		assert.Equal(t, id1, vectorRepoCalledWithThings[0].UUID, "the user-specified uuid was used")
+		assert.Equal(t, id2, vectorRepoCalledWithThings[1].UUID, "the user-specified uuid was used")
 	})
 
 	t.Run("with an invalid user-specified IDs", func(t *testing.T) {
 		reset()
-		repo.On("AddThingsBatch", mock.Anything).Return(nil).Once()
+		vectorRepo.On("BatchPutThings", mock.Anything).Return(nil).Once()
 		id1 := strfmt.UUID("invalid")
 		id2 := strfmt.UUID("cf918366-3d3b-4b90-9bc6-bc5ea8762ff6")
 		things := []*models.Thing{
@@ -248,11 +246,11 @@ func Test_BatchManager_AddThings(t *testing.T) {
 		}
 
 		_, err := manager.AddThings(ctx, nil, things, []*string{})
-		repoCalledWithThings := repo.Calls[0].Arguments[0].(BatchThings)
+		vectorRepoCalledWithThings := vectorRepo.Calls[0].Arguments[0].(BatchThings)
 
 		assert.Nil(t, err)
-		require.Len(t, repoCalledWithThings, 2)
-		assert.Equal(t, repoCalledWithThings[0].Err.Error(), "uuid: incorrect UUID length: invalid")
-		assert.Equal(t, id2, repoCalledWithThings[1].UUID, "the user-specified uuid was used")
+		require.Len(t, vectorRepoCalledWithThings, 2)
+		assert.Equal(t, vectorRepoCalledWithThings[0].Err.Error(), "uuid: incorrect UUID length: invalid")
+		assert.Equal(t, id2, vectorRepoCalledWithThings[1].UUID, "the user-specified uuid was used")
 	})
 }
