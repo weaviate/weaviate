@@ -22,6 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/sirupsen/logrus"
 )
 
@@ -38,13 +39,12 @@ type authorizer interface {
 type Traverser struct {
 	config         *config.WeaviateConfig
 	locks          locks
-	repo           TraverserRepo
-	c11y           c11y
 	logger         logrus.FieldLogger
 	authorizer     authorizer
 	vectorizer     CorpiVectorizer
 	vectorSearcher VectorSearcher
 	explorer       explorer
+	schemaGetter   schema.SchemaGetter
 }
 
 type CorpiVectorizer interface {
@@ -66,19 +66,19 @@ type explorer interface {
 }
 
 // NewTraverser to traverse the knowledge graph
-func NewTraverser(config *config.WeaviateConfig, locks locks, c11y c11y,
+func NewTraverser(config *config.WeaviateConfig, locks locks,
 	logger logrus.FieldLogger, authorizer authorizer,
 	vectorizer CorpiVectorizer, vectorSearcher VectorSearcher,
-	explorer explorer) *Traverser {
+	explorer explorer, schemaGetter schema.SchemaGetter) *Traverser {
 	return &Traverser{
 		config:         config,
 		locks:          locks,
-		c11y:           c11y,
 		logger:         logger,
 		authorizer:     authorizer,
 		vectorizer:     vectorizer,
 		vectorSearcher: vectorSearcher,
 		explorer:       explorer,
+		schemaGetter:   schemaGetter,
 	}
 }
 
@@ -86,7 +86,6 @@ func NewTraverser(config *config.WeaviateConfig, locks locks, c11y c11y,
 // connected database
 type TraverserRepo interface {
 	GetClass(context.Context, *GetParams) (interface{}, error)
-	LocalMeta(context.Context, *MetaParams) (interface{}, error)
 	LocalAggregate(context.Context, *AggregateParams) (interface{}, error)
 }
 

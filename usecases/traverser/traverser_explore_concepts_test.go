@@ -31,13 +31,13 @@ func Test_ExploreConcepts(t *testing.T) {
 
 		authorizer := &fakeAuthorizer{}
 		locks := &fakeLocks{}
-		c11y := &fakeC11y{}
 		logger, _ := test.NewNullLogger()
 		vectorizer := &fakeVectorizer{}
 		vectorSearcher := &fakeVectorSearcher{}
 		explorer := NewExplorer(vectorSearcher, vectorizer)
-		traverser := NewTraverser(&config.WeaviateConfig{}, locks, c11y, logger, authorizer,
-			vectorizer, vectorSearcher, explorer)
+		schemaGetter := &fakeSchemaGetter{}
+		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
+			vectorizer, vectorSearcher, explorer, schemaGetter)
 		params := ExploreParams{
 			Values:  []string{"a search term", "another"},
 			Network: true,
@@ -51,13 +51,13 @@ func Test_ExploreConcepts(t *testing.T) {
 
 		authorizer := &fakeAuthorizer{}
 		locks := &fakeLocks{}
-		c11y := &fakeC11y{}
 		logger, _ := test.NewNullLogger()
 		vectorizer := &fakeVectorizer{}
 		vectorSearcher := &fakeVectorSearcher{}
 		explorer := NewExplorer(vectorSearcher, vectorizer)
-		traverser := NewTraverser(&config.WeaviateConfig{}, locks, c11y, logger, authorizer,
-			vectorizer, vectorSearcher, explorer)
+		schemaGetter := &fakeSchemaGetter{}
+		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
+			vectorizer, vectorSearcher, explorer, schemaGetter)
 		params := ExploreParams{
 			Values: []string{"a search term", "another"},
 		}
@@ -102,13 +102,13 @@ func Test_ExploreConcepts(t *testing.T) {
 
 		authorizer := &fakeAuthorizer{}
 		locks := &fakeLocks{}
-		c11y := &fakeC11y{}
 		logger, _ := test.NewNullLogger()
 		vectorizer := &fakeVectorizer{}
 		vectorSearcher := &fakeVectorSearcher{}
 		explorer := NewExplorer(vectorSearcher, vectorizer)
-		traverser := NewTraverser(&config.WeaviateConfig{}, locks, c11y, logger, authorizer,
-			vectorizer, vectorSearcher, explorer)
+		schemaGetter := &fakeSchemaGetter{}
+		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
+			vectorizer, vectorSearcher, explorer, schemaGetter)
 		params := ExploreParams{
 			Values:    []string{"a search term", "another"},
 			Certainty: 0.6,
@@ -138,13 +138,13 @@ func Test_ExploreConcepts(t *testing.T) {
 
 		authorizer := &fakeAuthorizer{}
 		locks := &fakeLocks{}
-		c11y := &fakeC11y{}
 		logger, _ := test.NewNullLogger()
 		vectorizer := &fakeVectorizer{}
 		vectorSearcher := &fakeVectorSearcher{}
 		explorer := NewExplorer(vectorSearcher, vectorizer)
-		traverser := NewTraverser(&config.WeaviateConfig{}, locks, c11y, logger, authorizer,
-			vectorizer, vectorSearcher, explorer)
+		schemaGetter := &fakeSchemaGetter{}
+		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
+			vectorizer, vectorSearcher, explorer, schemaGetter)
 		params := ExploreParams{
 			Limit:  100,
 			Values: []string{"a search term", "another"},

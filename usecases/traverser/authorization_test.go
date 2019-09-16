@@ -48,13 +48,6 @@ func Test_Traverser_Authorization(t *testing.T) {
 		},
 
 		testCase{
-			methodName:       "LocalMeta",
-			additionalArgs:   []interface{}{&MetaParams{}},
-			expectedVerb:     "get",
-			expectedResource: "traversal/*",
-		},
-
-		testCase{
 			methodName:       "LocalAggregate",
 			additionalArgs:   []interface{}{&AggregateParams{}},
 			expectedVerb:     "get",
@@ -86,12 +79,13 @@ func Test_Traverser_Authorization(t *testing.T) {
 		for _, test := range tests {
 			locks := &fakeLocks{}
 			authorizer := &authDenier{}
-			c11y := &fakeC11y{}
 			vectorizer := &fakeVectorizer{}
 			vectorRepo := &fakeVectorRepo{}
 			explorer := &fakeExplorer{}
-			manager := NewTraverser(&config.WeaviateConfig{}, locks, c11y, logger, authorizer,
-				vectorizer, vectorRepo, explorer)
+			schemaGetter := &fakeSchemaGetter{}
+
+			manager := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
+				vectorizer, vectorRepo, explorer, schemaGetter)
 
 			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 			out, _ := callFuncByName(manager, test.methodName, args...)
