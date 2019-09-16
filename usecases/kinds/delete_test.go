@@ -18,25 +18,24 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 )
 
 func Test_Delete_Action(t *testing.T) {
 	var (
-		repo       *fakeRepo
 		manager    *Manager
 		vectorRepo *fakeVectorRepo
 	)
 
 	reset := func() {
-		repo = &fakeRepo{
-			GetActionResponse: &models.Action{
-				Class: "MyAction",
-			},
-		}
+		vectorRepo = &fakeVectorRepo{}
+		vectorRepo.On("ActionByID", mock.Anything, mock.Anything).Return(&search.Result{
+			ClassName: "MyAction",
+		}, nil).Once()
 		schemaManager := &fakeSchemaManager{}
 		locks := &fakeLocks{}
 		network := &fakeNetwork{}
@@ -44,15 +43,13 @@ func Test_Delete_Action(t *testing.T) {
 		authorizer := &fakeAuthorizer{}
 		logger, _ := test.NewNullLogger()
 		vectorizer := &fakeVectorizer{}
-		vectorRepo = &fakeVectorRepo{}
-		manager = NewManager(repo, locks, schemaManager, network, cfg, logger, authorizer, vectorizer, vectorRepo)
+		manager = NewManager(locks, schemaManager, network, cfg, logger, authorizer, vectorizer, vectorRepo)
 	}
 
 	reset()
 
 	id := strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
 
-	repo.On("DeleteAction", (*models.Action)(nil), id).Return(nil).Once()
 	vectorRepo.On("DeleteAction", "MyAction", id).Return(nil).Once()
 
 	ctx := context.Background()
@@ -60,23 +57,20 @@ func Test_Delete_Action(t *testing.T) {
 
 	assert.Nil(t, err)
 
-	repo.AssertExpectations(t)
 	vectorRepo.AssertExpectations(t)
 }
 
 func Test_Delete_Thing(t *testing.T) {
 	var (
-		repo       *fakeRepo
 		manager    *Manager
 		vectorRepo *fakeVectorRepo
 	)
 
 	reset := func() {
-		repo = &fakeRepo{
-			GetThingResponse: &models.Thing{
-				Class: "MyThing",
-			},
-		}
+		vectorRepo = &fakeVectorRepo{}
+		vectorRepo.On("ThingByID", mock.Anything, mock.Anything).Return(&search.Result{
+			ClassName: "MyThing",
+		}, nil).Once()
 		schemaManager := &fakeSchemaManager{}
 		locks := &fakeLocks{}
 		network := &fakeNetwork{}
@@ -84,15 +78,13 @@ func Test_Delete_Thing(t *testing.T) {
 		authorizer := &fakeAuthorizer{}
 		logger, _ := test.NewNullLogger()
 		vectorizer := &fakeVectorizer{}
-		vectorRepo = &fakeVectorRepo{}
-		manager = NewManager(repo, locks, schemaManager, network, cfg, logger, authorizer, vectorizer, vectorRepo)
+		manager = NewManager(locks, schemaManager, network, cfg, logger, authorizer, vectorizer, vectorRepo)
 	}
 
 	reset()
 
 	id := strfmt.UUID("5a1cd361-1e0d-42ae-bd52-ee09cb5f31cc")
 
-	repo.On("DeleteThing", (*models.Thing)(nil), id).Return(nil).Once()
 	vectorRepo.On("DeleteThing", "MyThing", id).Return(nil).Once()
 
 	ctx := context.Background()
@@ -100,6 +92,5 @@ func Test_Delete_Thing(t *testing.T) {
 
 	assert.Nil(t, err)
 
-	repo.AssertExpectations(t)
 	vectorRepo.AssertExpectations(t)
 }
