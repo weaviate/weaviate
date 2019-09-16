@@ -84,14 +84,13 @@ func Test_Traverser_Authorization(t *testing.T) {
 		principal := &models.Principal{}
 		logger, _ := test.NewNullLogger()
 		for _, test := range tests {
-			repo := &fakeRepo{}
 			locks := &fakeLocks{}
 			authorizer := &authDenier{}
 			c11y := &fakeC11y{}
 			vectorizer := &fakeVectorizer{}
 			vectorRepo := &fakeVectorRepo{}
 			explorer := &fakeExplorer{}
-			manager := NewTraverser(&config.WeaviateConfig{}, locks, repo, c11y, logger, authorizer,
+			manager := NewTraverser(&config.WeaviateConfig{}, locks, c11y, logger, authorizer,
 				vectorizer, vectorRepo, explorer)
 
 			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)

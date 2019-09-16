@@ -388,6 +388,11 @@ func testAddPropertyWithInvalidKeywordWeightsDuringCreation(t *testing.T, lsm *M
 }
 
 func testDropProperty(t *testing.T, lsm *Manager) {
+	// TODO: https://github.com/semi-technologies/weaviate/issues/973
+	// Remove skip
+
+	t.Skip()
+
 	t.Parallel()
 
 	var properties []*models.Property = []*models.Property{

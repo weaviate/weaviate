@@ -13,123 +13,117 @@
 
 package test
 
-import (
-	"encoding/json"
-	"testing"
+// TODO: gh-949
+// func Test_Aggregates_WithoutGroupingOrFilters(t *testing.T) {
 
-	"github.com/semi-technologies/weaviate/test/acceptance/helper"
-	"github.com/stretchr/testify/assert"
-)
+// 	result := AssertGraphQL(t, helper.RootAuth, `
+// 		{
+// 			Aggregate{
+// 				Things {
+// 					City {
+// 						meta {
+// 							count
+// 						}
+// 						isCapital {
+// 							count
+// 							percentageFalse
+// 							percentageTrue
+// 							totalFalse
+// 							totalTrue
+// 							type
+// 						}
+// 						population {
+// 							mean
+// 							count
+// 							maximum
+// 							minimum
+// 							sum
+// 							type
+// 						}
+// 						InCountry {
+// 							pointingTo
+// 							type
+// 						}
+// 						name {
+// 							topOccurrences {
+// 								occurs
+// 								value
+// 							}
+// 							type
+// 							count
+// 						}
+// 					}
+// 				}
+// 			}
+// 		}
+// 	`)
 
-func Test_Aggregates_WithoutGroupingOrFilters(t *testing.T) {
-	result := AssertGraphQL(t, helper.RootAuth, `
-		{
-			Aggregate{
-				Things {
-					City {
-						meta {
-							count
-						}
-						isCapital {
-							count
-							percentageFalse
-							percentageTrue
-							totalFalse
-							totalTrue
-							type
-						}
-						population {
-							mean
-							count
-							maximum
-							minimum
-							sum
-							type
-						}
-						InCountry {
-							pointingTo
-							type
-						}
-						name {
-							topOccurrences {
-								occurs
-								value
-							}
-							type
-							count
-						}
-					}
-				}
-			}
-		}
-	`)
+// 	t.Run("meta count", func(t *testing.T) {
+// 		count := result.Get("Meta", "Things", "City", "meta", "count").Result
+// 		expected := json.Number("4")
+// 		assert.Equal(t, expected, count)
+// 	})
 
-	t.Run("meta count", func(t *testing.T) {
-		count := result.Get("Meta", "Things", "City", "meta", "count").Result
-		expected := json.Number("4")
-		assert.Equal(t, expected, count)
-	})
+// 	t.Run("boolean props", func(t *testing.T) {
+// 		isCapital := result.Get("Meta", "Things", "City", "isCapital").Result
+// 		expected := map[string]interface{}{
+// 			"count":           json.Number("4"),
+// 			"percentageTrue":  json.Number("0.5"),
+// 			"percentageFalse": json.Number("0.5"),
+// 			"totalTrue":       json.Number("2"),
+// 			"totalFalse":      json.Number("2"),
+// 			"type":            "boolean",
+// 		}
+// 		assert.Equal(t, expected, isCapital)
+// 	})
 
-	t.Run("boolean props", func(t *testing.T) {
-		isCapital := result.Get("Meta", "Things", "City", "isCapital").Result
-		expected := map[string]interface{}{
-			"count":           json.Number("4"),
-			"percentageTrue":  json.Number("0.5"),
-			"percentageFalse": json.Number("0.5"),
-			"totalTrue":       json.Number("2"),
-			"totalFalse":      json.Number("2"),
-			"type":            "boolean",
-		}
-		assert.Equal(t, expected, isCapital)
-	})
+// 	t.Run("int/number props", func(t *testing.T) {
+// 		isCapital := result.Get("Meta", "Things", "City", "population").Result
+// 		expected := map[string]interface{}{
+// 			"mean":    json.Number("1917500"),
+// 			"count":   json.Number("4"),
+// 			"maximum": json.Number("3470000"),
+// 			"minimum": json.Number("600000"),
+// 			"sum":     json.Number("7670000"),
+// 			"type":    "int",
+// 		}
+// 		assert.Equal(t, expected, isCapital)
+// 	})
 
-	t.Run("int/number props", func(t *testing.T) {
-		isCapital := result.Get("Meta", "Things", "City", "population").Result
-		expected := map[string]interface{}{
-			"mean":    json.Number("1917500"),
-			"count":   json.Number("4"),
-			"maximum": json.Number("3470000"),
-			"minimum": json.Number("600000"),
-			"sum":     json.Number("7670000"),
-			"type":    "int",
-		}
-		assert.Equal(t, expected, isCapital)
-	})
+// 	t.Run("ref prop", func(t *testing.T) {
+// 		inCountry := result.Get("Meta", "Things", "City", "InCountry").Result
+// 		expected := map[string]interface{}{
+// 			"pointingTo": []interface{}{"Country"},
+// 			"type":       "cref",
+// 		}
+// 		assert.Equal(t, expected, inCountry)
+// 	})
 
-	t.Run("ref prop", func(t *testing.T) {
-		inCountry := result.Get("Meta", "Things", "City", "InCountry").Result
-		expected := map[string]interface{}{
-			"pointingTo": []interface{}{"Country"},
-			"type":       "cref",
-		}
-		assert.Equal(t, expected, inCountry)
-	})
+// 	t.Run("string prop", func(t *testing.T) {
+// 		typeField := result.Get("Meta", "Things", "City", "name", "type").Result
+// 		count := result.Get("Meta", "Things", "City", "name", "count").Result
+// 		topOccurrences := result.Get("Meta", "Things", "City", "name", "topOccurrences").Result
 
-	t.Run("string prop", func(t *testing.T) {
-		typeField := result.Get("Meta", "Things", "City", "name", "type").Result
-		count := result.Get("Meta", "Things", "City", "name", "count").Result
-		topOccurrences := result.Get("Meta", "Things", "City", "name", "topOccurrences").Result
+// 		assert.Equal(t, json.Number("4"), count)
+// 		assert.Equal(t, "string", typeField)
 
-		assert.Equal(t, json.Number("4"), count)
-		assert.Equal(t, "string", typeField)
-
-		expectedTopOccurrences := []interface{}{
-			map[string]interface{}{
-				"value":  "Amsterdam",
-				"occurs": json.Number("1"),
-			},
-			map[string]interface{}{
-				"value":  "Dusseldorf",
-				"occurs": json.Number("1"),
-			},
-			map[string]interface{}{
-				"value":  "Rotterdam",
-				"occurs": json.Number("1"),
-			},
-		}
-		assert.ElementsMatch(t, expectedTopOccurrences, topOccurrences)
-	})
-}
+// 		expectedTopOccurrences := []interface{}{
+// 			map[string]interface{}{
+// 				"value":  "Amsterdam",
+// 				"occurs": json.Number("1"),
+// 			},
+// 			map[string]interface{}{
+// 				"value":  "Dusseldorf",
+// 				"occurs": json.Number("1"),
+// 			},
+// 			map[string]interface{}{
+// 				"value":  "Rotterdam",
+// 				"occurs": json.Number("1"),
+// 			},
+// 		}
+// 		assert.ElementsMatch(t, expectedTopOccurrences, topOccurrences)
+// 	})
+// }
 
 // func TestLocalMetaWithFilters(t *testing.T) {
 // 	result := AssertGraphQL(t, helper.RootAuth, `
