@@ -62,6 +62,7 @@ type Aggregator string
 // Aggreators used in every prop
 const (
 	CountAggregator Aggregator = "count"
+	TypeAggregator  Aggregator = "type"
 )
 
 // Aggregators used in numerical props
