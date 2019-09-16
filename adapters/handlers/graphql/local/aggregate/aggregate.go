@@ -258,9 +258,17 @@ func makePropertyField(class *models.Class, property *models.Property,
 					return nil, fmt.Errorf("missing property '%s'", property.Name)
 				}
 
-				return res, nil
-			case map[string]interface{}:
-				return typed[property.Name], nil
+				switch res.Type {
+				case aggregation.PropertyTypeNumerical:
+					return res.NumericalAggregations, nil
+				case aggregation.PropertyTypeText:
+					return res.TextAggregation, nil
+				case aggregation.PropertyTypeBoolean:
+					return res.BooleanAggregation, nil
+				default:
+					return nil, fmt.Errorf("unsupported aggregation property type: %v", res.Type)
+				}
+
 			default:
 				return nil, fmt.Errorf("property %s, unsupported type %T", property.Name, p.Source)
 			}
