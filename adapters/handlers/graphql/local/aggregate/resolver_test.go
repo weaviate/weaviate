@@ -16,6 +16,7 @@ package aggregate
 import (
 	"testing"
 
+	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
@@ -65,10 +66,15 @@ func Test_Resolve(t *testing.T) {
 					Aggregators: []traverser.Aggregator{traverser.MeanAggregator},
 				},
 			},
-			resolverReturn: []interface{}{
-				map[string]interface{}{
-					"horsepower": map[string]interface{}{
-						"mean": 275.7773,
+			resolverReturn: []aggregation.Group{
+				aggregation.Group{
+					Properties: map[string]aggregation.Property{
+						"horsepower": aggregation.Property{
+							Type: aggregation.PropertyTypeNumerical,
+							NumericalAggregations: map[string]float64{
+								"mean": 275.7773,
+							},
+						},
 					},
 				},
 			},
@@ -108,25 +114,30 @@ func Test_Resolve(t *testing.T) {
 					},
 				},
 			},
-			resolverReturn: []interface{}{
-				map[string]interface{}{
-					"stillInProduction": map[string]interface{}{
-						"totalTrue":       23,
-						"totalFalse":      17,
-						"percentageTrue":  60,
-						"percentageFalse": 40,
-						"count":           40,
-					},
-					"modelName": map[string]interface{}{
-						"count": 40,
-						"topOccurrences": []interface{}{
-							map[string]interface{}{
-								"value":  "fastcar",
-								"occurs": 39,
+			resolverReturn: []aggregation.Group{
+				aggregation.Group{
+					Properties: map[string]aggregation.Property{
+						"stillInProduction": aggregation.Property{
+							Type: aggregation.PropertyTypeBoolean,
+							BooleanAggregation: aggregation.Boolean{
+								TotalTrue:       23,
+								TotalFalse:      17,
+								PercentageTrue:  60,
+								PercentageFalse: 40,
+								Count:           40,
 							},
-							map[string]interface{}{
-								"value":  "slowcar",
-								"occurs": 1,
+						},
+						"modelName": aggregation.Property{
+							Type: aggregation.PropertyTypeText,
+							TextAggregation: aggregation.Text{
+								aggregation.TextOccurrence{
+									Value:  "fastcar",
+									Occurs: 39,
+								},
+								aggregation.TextOccurrence{
+									Value:  "slowcar",
+									Occurs: 1,
+								},
 							},
 						},
 					},
@@ -146,7 +157,7 @@ func Test_Resolve(t *testing.T) {
 							"count":           40,
 						},
 						"modelName": map[string]interface{}{
-							"count": 40,
+							"count": nil, // gh-949 TODO: support count in topOccurrences
 							"topOccurrences": []interface{}{
 								map[string]interface{}{
 									"value":  "fastcar",
@@ -171,10 +182,15 @@ func Test_Resolve(t *testing.T) {
 					Aggregators: []traverser.Aggregator{traverser.MeanAggregator},
 				},
 			},
-			resolverReturn: []interface{}{
-				map[string]interface{}{
-					"horsepower": map[string]interface{}{
-						"mean": 275.7773,
+			resolverReturn: []aggregation.Group{
+				aggregation.Group{
+					Properties: map[string]aggregation.Property{
+						"horsepower": aggregation.Property{
+							Type: aggregation.PropertyTypeNumerical,
+							NumericalAggregations: map[string]float64{
+								"mean": 275.7773,
+							},
+						},
 					},
 				},
 			},
@@ -199,18 +215,22 @@ func Test_Resolve(t *testing.T) {
 					Aggregators: []traverser.Aggregator{traverser.MeanAggregator},
 				},
 			},
-			resolverReturn: []interface{}{
-				map[string]interface{}{
-					"horsepower": map[string]interface{}{
-						"mean": 275.7773,
+			resolverReturn: []aggregation.Group{
+				aggregation.Group{
+					GroupedBy: &aggregation.GroupedBy{
+						Path:  []string{"madeBy", "Manufacturer", "name"},
+						Value: "best-manufacturer",
 					},
-					"groupedBy": map[string]interface{}{
-						"path":  []interface{}{"madeBy", "Manufacturer", "name"},
-						"value": "best-manufacturer",
+					Properties: map[string]aggregation.Property{
+						"horsepower": aggregation.Property{
+							Type: aggregation.PropertyTypeNumerical,
+							NumericalAggregations: map[string]float64{
+								"mean": 275.7773,
+							},
+						},
 					},
 				},
 			},
-
 			expectedGroupBy: groupCarByMadeByManufacturerName(),
 			expectedResults: []result{{
 				pathToField: []string{"Aggregate", "Things", "Car"},
@@ -252,10 +272,19 @@ func Test_Resolve(t *testing.T) {
 					Aggregators: []traverser.Aggregator{traverser.MeanAggregator},
 				},
 			},
-			resolverReturn: []interface{}{
-				map[string]interface{}{
-					"horsepower": map[string]interface{}{
-						"mean": 275.7773,
+			resolverReturn: []aggregation.Group{
+				aggregation.Group{
+					GroupedBy: &aggregation.GroupedBy{
+						Path:  []string{"madeBy", "Manufacturer", "name"},
+						Value: "best-manufacturer",
+					},
+					Properties: map[string]aggregation.Property{
+						"horsepower": aggregation.Property{
+							Type: aggregation.PropertyTypeNumerical,
+							NumericalAggregations: map[string]float64{
+								"mean": 275.7773,
+							},
+						},
 					},
 				},
 			},
@@ -294,16 +323,25 @@ func Test_Resolve(t *testing.T) {
 					Aggregators: []traverser.Aggregator{traverser.MeanAggregator, traverser.MedianAggregator, traverser.ModeAggregator, traverser.MaximumAggregator, traverser.MinimumAggregator, traverser.CountAggregator, traverser.SumAggregator},
 				},
 			},
-			resolverReturn: []interface{}{
-				map[string]interface{}{
-					"horsepower": map[string]interface{}{
-						"maximum": 610.0,
-						"minimum": 89.0,
-						"mean":    275.7,
-						"median":  289.0,
-						"mode":    115.0,
-						"count":   23,
-						"sum":     6343.0,
+			resolverReturn: []aggregation.Group{
+				aggregation.Group{
+					GroupedBy: &aggregation.GroupedBy{
+						Path:  []string{"madeBy", "Manufacturer", "name"},
+						Value: "best-manufacturer",
+					},
+					Properties: map[string]aggregation.Property{
+						"horsepower": aggregation.Property{
+							Type: aggregation.PropertyTypeNumerical,
+							NumericalAggregations: map[string]float64{
+								"maximum": 610.0,
+								"minimum": 89.0,
+								"mean":    275.7,
+								"median":  289.0,
+								"mode":    115.0,
+								"count":   23,
+								"sum":     6343.0,
+							},
+						},
 					},
 				},
 			},
@@ -336,10 +374,19 @@ func Test_Resolve(t *testing.T) {
 					Aggregators: []traverser.Aggregator{traverser.CountAggregator},
 				},
 			},
-			resolverReturn: []interface{}{
-				map[string]interface{}{
-					"modelName": map[string]interface{}{
-						"count": 7,
+			resolverReturn: []aggregation.Group{
+				aggregation.Group{
+					GroupedBy: &aggregation.GroupedBy{
+						Path:  []string{"madeBy", "Manufacturer", "name"},
+						Value: "best-manufacturer",
+					},
+					Properties: map[string]aggregation.Property{
+						"modelName": aggregation.Property{
+							Type: aggregation.PropertyTypeNumerical,
+							NumericalAggregations: map[string]float64{
+								"count": 7,
+							},
+						},
 					},
 				},
 			},

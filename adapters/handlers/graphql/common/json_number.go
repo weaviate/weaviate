@@ -18,30 +18,46 @@ import (
 	"fmt"
 
 	"github.com/graphql-go/graphql"
+	"github.com/semi-technologies/weaviate/entities/aggregation"
 )
 
 // JSONNumberResolver turns json.Number types into number types usable by graphQL
 func JSONNumberResolver(p graphql.ResolveParams) (interface{}, error) {
-	sourceMap, ok := p.Source.(map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("source is not a map, but %t", p.Source)
-	}
+	switch v := p.Source.(type) {
+	case map[string]interface{}:
+		field, ok := v[p.Info.FieldName]
+		if !ok {
+			return nil, nil
+		}
 
-	field, ok := sourceMap[p.Info.FieldName]
-	if !ok {
-		return nil, nil
-	}
+		switch n := field.(type) {
+		case json.Number:
+			return n.Float64()
+		case int64:
+			return float64(n), nil
+		case int:
+			return float64(n), nil
+		case float64:
+			return n, nil
+		}
 
-	switch n := field.(type) {
-	case json.Number:
-		return n.Float64()
-	case int64:
-		return float64(n), nil
-	case int:
-		return float64(n), nil
-	case float64:
-		return n, nil
-	}
+		return nil, fmt.Errorf("unknown number type for %t", field)
 
-	return nil, fmt.Errorf("unknown number type for %t", field)
+	case map[string]float64:
+		return v[p.Info.FieldName], nil
+
+	case aggregation.Text:
+		switch p.Info.FieldName {
+		case "count":
+			// TODO gh-949: Support Count in text aggregations
+			return nil, nil
+
+		default:
+			return nil, fmt.Errorf("fieldName '%s' does not match text aggregation", p.Info.FieldName)
+
+		}
+
+	default:
+		return nil, fmt.Errorf("json number resolver: unusuable type %T", p.Source)
+	}
 }

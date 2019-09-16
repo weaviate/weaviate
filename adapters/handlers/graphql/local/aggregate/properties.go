@@ -101,31 +101,31 @@ func booleanPropertyFields(class *models.Class,
 			Name:        fmt.Sprintf("%s%s%sCount", prefix, class.Class, property.Name),
 			Description: descriptions.AggregatePropertyCount,
 			Type:        graphql.Int,
-			Resolve:     common.JSONNumberResolver,
+			Resolve:     booleanResolver(func(b aggregation.Boolean) interface{} { return b.Count }),
 		},
 		"totalTrue": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sTotalTrue", prefix, class.Class, property.Name),
 			Description: descriptions.AggregateClassPropertyTotalTrue,
 			Type:        graphql.Int,
-			Resolve:     common.JSONNumberResolver,
+			Resolve:     booleanResolver(func(b aggregation.Boolean) interface{} { return b.TotalTrue }),
 		},
 		"percentageTrue": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sPercentageTrue", prefix, class.Class, property.Name),
 			Description: descriptions.AggregateClassPropertyPercentageTrue,
 			Type:        graphql.Float,
-			Resolve:     common.JSONNumberResolver,
+			Resolve:     booleanResolver(func(b aggregation.Boolean) interface{} { return b.PercentageTrue }),
 		},
 		"totalFalse": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sTotalFalse", prefix, class.Class, property.Name),
 			Description: descriptions.AggregateClassPropertyTotalFalse,
 			Type:        graphql.Int,
-			Resolve:     common.JSONNumberResolver,
+			Resolve:     booleanResolver(func(b aggregation.Boolean) interface{} { return b.TotalFalse }),
 		},
 		"percentageFalse": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sPercentageFalse", prefix, class.Class, property.Name),
 			Description: descriptions.AggregateClassPropertyPercentageFalse,
 			Type:        graphql.Float,
-			Resolve:     common.JSONNumberResolver,
+			Resolve:     booleanResolver(func(b aggregation.Boolean) interface{} { return b.PercentageFalse }),
 		},
 	}
 
@@ -134,6 +134,21 @@ func booleanPropertyFields(class *models.Class,
 		Fields:      getMetaPointingFields,
 		Description: descriptions.LocalAggregatePropertyObject,
 	})
+}
+
+type booleanExtractorFunc func(aggregation.Boolean) interface{}
+
+func booleanResolver(extractor booleanExtractorFunc) func(p graphql.ResolveParams) (interface{}, error) {
+
+	return func(p graphql.ResolveParams) (interface{}, error) {
+		boolean, ok := p.Source.(aggregation.Boolean)
+		if !ok {
+			return nil, fmt.Errorf("boolean: %s: expected aggregation.Boolean, but got %T",
+				p.Info.FieldName, p.Source)
+		}
+
+		return extractor(boolean), nil
+	}
 }
 
 func stringPropertyFields(class *models.Class,
@@ -149,6 +164,19 @@ func stringPropertyFields(class *models.Class,
 			Name:        fmt.Sprintf("%s%sTopOccurrences", prefix, class.Class),
 			Description: descriptions.AggregatePropertyTopOccurrences,
 			Type:        graphql.NewList(stringTopOccurrences(class, property, prefix)),
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				text, ok := p.Source.(aggregation.Text)
+				if !ok {
+					return nil, fmt.Errorf("topOccurrences: expected aggregation.TextOccurence, but got %T", p.Source)
+				}
+
+				list := make([]interface{}, len(text), len(text))
+				for i, to := range text {
+					list[i] = to
+				}
+
+				return list, nil
+			},
 			Args: graphql.FieldConfigArgument{
 				"first": &graphql.ArgumentConfig{
 					Description: descriptions.First,
@@ -176,12 +204,13 @@ func stringTopOccurrences(class *models.Class,
 			Name:        fmt.Sprintf("%s%s%sTopOccurrencesValue", prefix, class.Class, property.Name),
 			Description: descriptions.AggregatePropertyTopOccurrencesValue,
 			Type:        graphql.String,
+			Resolve:     textOccurrenceResolver(func(t aggregation.TextOccurrence) interface{} { return t.Value }),
 		},
 		"occurs": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sTopOccurrencesOccurs", prefix, class.Class, property.Name),
 			Description: descriptions.AggregatePropertyTopOccurrencesOccurs,
 			Type:        graphql.Int,
-			Resolve:     common.JSONNumberResolver,
+			Resolve:     textOccurrenceResolver(func(t aggregation.TextOccurrence) interface{} { return t.Occurs }),
 		},
 	}
 
@@ -194,35 +223,32 @@ func stringTopOccurrences(class *models.Class,
 	return graphql.NewObject(getAggregateAggregatePointing)
 }
 
+type textOccurrenceExtractorFunc func(aggregation.TextOccurrence) interface{}
+
+func textOccurrenceResolver(extractor textOccurrenceExtractorFunc) func(p graphql.ResolveParams) (interface{}, error) {
+
+	return func(p graphql.ResolveParams) (interface{}, error) {
+		textOccurrence, ok := p.Source.(aggregation.TextOccurrence)
+		if !ok {
+			return nil, fmt.Errorf("textOccurrence: %s: expected aggregation.TextOccurrence, but got %T",
+				p.Info.FieldName, p.Source)
+		}
+
+		return extractor(textOccurrence), nil
+	}
+}
+
 func groupedByProperty(class *models.Class) *graphql.Object {
 	classProperties := graphql.Fields{
 		"path": &graphql.Field{
 			Description: descriptions.LocalAggregateGroupedByGroupedByPath,
 			Type:        graphql.NewList(graphql.String),
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				switch typed := p.Source.(type) {
-				case aggregation.GroupedBy:
-					return typed.Path, nil
-				case map[string]interface{}:
-					return typed["path"], nil
-				default:
-					return nil, fmt.Errorf("groupedBy field %s: unsupported type %T", "path", p.Source)
-				}
-			},
+			Resolve:     groupedByResolver(func(g *aggregation.GroupedBy) interface{} { return g.Path }),
 		},
 		"value": &graphql.Field{
 			Description: descriptions.LocalAggregateGroupedByGroupedByValue,
 			Type:        graphql.String,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				switch typed := p.Source.(type) {
-				case aggregation.GroupedBy:
-					return typed.Value, nil
-				case map[string]interface{}:
-					return typed["value"], nil
-				default:
-					return nil, fmt.Errorf("groupedBy field %s: unsupported type %T", "value", p.Source)
-				}
-			},
+			Resolve:     groupedByResolver(func(g *aggregation.GroupedBy) interface{} { return g.Value }),
 		},
 	}
 
@@ -235,12 +261,25 @@ func groupedByProperty(class *models.Class) *graphql.Object {
 	return classPropertiesObj
 }
 
+type groupedByExtractorFunc func(*aggregation.GroupedBy) interface{}
+
+func groupedByResolver(extractor groupedByExtractorFunc) func(p graphql.ResolveParams) (interface{}, error) {
+
+	return func(p graphql.ResolveParams) (interface{}, error) {
+		groupedBy, ok := p.Source.(*aggregation.GroupedBy)
+		if !ok {
+			return nil, fmt.Errorf("groupedBy: %s: expected aggregation.GroupedBy, but got %T",
+				p.Info.FieldName, p.Source)
+		}
+
+		return extractor(groupedBy), nil
+	}
+}
+
 func makeResolveFieldAggregator(aggregator string) func(p graphql.ResolveParams) (interface{}, error) {
 	return func(p graphql.ResolveParams) (interface{}, error) {
 		switch typed := p.Source.(type) {
-		case aggregation.Property:
-			return typed.NumericalAggregations[aggregator], nil
-		case map[string]interface{}:
+		case map[string]float64:
 			return typed[aggregator], nil
 		default:
 			return nil, fmt.Errorf("aggregator %s, unsupported type %T", aggregator, p.Source)
