@@ -40,7 +40,14 @@ func (t *Traverser) LocalAggregate(ctx context.Context, principal *models.Princi
 	}
 	defer unlock()
 
-	return t.vectorSearcher.Aggregate(ctx, *params)
+	inspector := newTypeInspector(t.schemaGetter)
+
+	res, err := t.vectorSearcher.Aggregate(ctx, *params)
+	if err != nil {
+		return nil, err
+	}
+
+	return inspector.WithTypes(res, *params)
 }
 
 // AggregateParams to describe the Local->Meta->Kind->Class query. Will be passed to

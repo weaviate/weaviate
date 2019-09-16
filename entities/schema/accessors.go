@@ -48,6 +48,7 @@ func (s *Schema) FindClassByName(className ClassName) *models.Class {
 	return nil
 }
 
+// TODO: fix order of error and property
 func (s *Schema) GetProperty(kind kind.Kind, className ClassName, propName PropertyName) (error, *models.Property) {
 	semSchemaClass, err := GetClassByName(s.SemanticSchemaFor(kind), string(className))
 	if err != nil {

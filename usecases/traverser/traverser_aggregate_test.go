@@ -15,139 +15,217 @@ import (
 )
 
 func Test_Traverser_Aggregate(t *testing.T) {
+	t.Run("with aggregation only", func(t *testing.T) {
+		principal := &models.Principal{}
+		logger, _ := test.NewNullLogger()
+		locks := &fakeLocks{}
+		authorizer := &fakeAuthorizer{}
+		vectorizer := &fakeVectorizer{}
+		vectorRepo := &fakeVectorRepo{}
+		explorer := &fakeExplorer{}
+		schemaGetter := &fakeSchemaGetter{aggregateTestSchema}
 
-	// TODO: gh-949 implement, remove skip
-	t.Skip()
+		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
+			vectorizer, vectorRepo, explorer, schemaGetter)
 
-	principal := &models.Principal{}
-	logger, _ := test.NewNullLogger()
-	locks := &fakeLocks{}
-	authorizer := &fakeAuthorizer{}
-	vectorizer := &fakeVectorizer{}
-	vectorRepo := &fakeVectorRepo{}
-	explorer := &fakeExplorer{}
-	schemaGetter := &fakeSchemaGetter{aggregateTestSchema}
+		params := AggregateParams{
+			ClassName: "MyClass",
+			Kind:      kind.Thing,
+			Properties: []AggregateProperty{
+				AggregateProperty{
+					Name:        "label",
+					Aggregators: []Aggregator{TopOccurrencesAggregator},
+				},
+				AggregateProperty{
+					Name:        "number",
+					Aggregators: []Aggregator{SumAggregator},
+				},
+				AggregateProperty{
+					Name:        "int",
+					Aggregators: []Aggregator{SumAggregator},
+				},
+				AggregateProperty{
+					Name:        "date",
+					Aggregators: []Aggregator{TopOccurrencesAggregator},
+				},
+			},
+		}
 
-	traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
-		vectorizer, vectorRepo, explorer, schemaGetter)
-
-	params := AggregateParams{
-		ClassName: "MyClass",
-		Kind:      kind.Thing,
-		Properties: []AggregateProperty{
-			AggregateProperty{
-				Name:        "label",
-				Aggregators: []Aggregator{TypeAggregator, TopOccurrencesAggregator},
-			},
-			AggregateProperty{
-				Name:        "number",
-				Aggregators: []Aggregator{TypeAggregator, SumAggregator},
-			},
-			AggregateProperty{
-				Name:        "int",
-				Aggregators: []Aggregator{TypeAggregator, SumAggregator},
-			},
-			AggregateProperty{
-				Name:        "date",
-				Aggregators: []Aggregator{TypeAggregator, TopOccurrencesAggregator},
-			},
-			AggregateProperty{
-				Name:        "a ref",
-				Aggregators: []Aggregator{TypeAggregator},
-			},
-		},
-	}
-
-	agg := aggregation.Result{
-		Groups: []aggregation.Group{
-			aggregation.Group{
-				Properties: map[string]aggregation.Property{
-					"label": aggregation.Property{
-						TextAggregation: []aggregation.TextOccurrence{
-							aggregation.TextOccurrence{
-								Value:  "Foo",
-								Occurs: 200,
+		agg := aggregation.Result{
+			Groups: []aggregation.Group{
+				aggregation.Group{
+					Properties: map[string]aggregation.Property{
+						"label": aggregation.Property{
+							TextAggregation: []aggregation.TextOccurrence{
+								aggregation.TextOccurrence{
+									Value:  "Foo",
+									Occurs: 200,
+								},
+							},
+							Type: aggregation.PropertyTypeText,
+						},
+						"date": aggregation.Property{
+							TextAggregation: []aggregation.TextOccurrence{
+								aggregation.TextOccurrence{
+									Value:  "Bar",
+									Occurs: 100,
+								},
+							},
+							Type: aggregation.PropertyTypeText,
+						},
+						"number": aggregation.Property{
+							Type: aggregation.PropertyTypeNumerical,
+							NumericalAggregations: map[string]float64{
+								"sum": 200,
 							},
 						},
-						Type: aggregation.PropertyTypeText,
-					},
-					"date": aggregation.Property{
-						TextAggregation: []aggregation.TextOccurrence{
-							aggregation.TextOccurrence{
-								Value:  "Bar",
-								Occurs: 100,
+						"int": aggregation.Property{
+							Type: aggregation.PropertyTypeNumerical,
+							NumericalAggregations: map[string]float64{
+								"sum": 100,
 							},
-						},
-						Type: aggregation.PropertyTypeText,
-					},
-					"number": aggregation.Property{
-						Type: aggregation.PropertyTypeNumerical,
-						NumericalAggregations: map[string]float64{
-							"sum": 200,
-						},
-					},
-					"int": aggregation.Property{
-						Type: aggregation.PropertyTypeNumerical,
-						NumericalAggregations: map[string]float64{
-							"sum": 100,
 						},
 					},
 				},
 			},
-		},
-	}
+		}
 
-	expectedResult := aggregation.Result{
-		Groups: []aggregation.Group{
-			aggregation.Group{
-				Properties: map[string]aggregation.Property{
-					"label": aggregation.Property{
-						TextAggregation: []aggregation.TextOccurrence{
-							aggregation.TextOccurrence{
-								Value:  "Foo",
-								Occurs: 200,
+		vectorRepo.On("Aggregate", params).Return(&agg, nil)
+		res, err := traverser.LocalAggregate(context.Background(), principal, &params)
+		require.Nil(t, err)
+		assert.Equal(t, &agg, res)
+	})
+
+	t.Run("with a mix of aggregation and type inspection", func(t *testing.T) {
+		principal := &models.Principal{}
+		logger, _ := test.NewNullLogger()
+		locks := &fakeLocks{}
+		authorizer := &fakeAuthorizer{}
+		vectorizer := &fakeVectorizer{}
+		vectorRepo := &fakeVectorRepo{}
+		explorer := &fakeExplorer{}
+		schemaGetter := &fakeSchemaGetter{aggregateTestSchema}
+
+		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
+			vectorizer, vectorRepo, explorer, schemaGetter)
+
+		params := AggregateParams{
+			ClassName: "MyClass",
+			Kind:      kind.Thing,
+			Properties: []AggregateProperty{
+				AggregateProperty{
+					Name:        "label",
+					Aggregators: []Aggregator{TypeAggregator, TopOccurrencesAggregator},
+				},
+				AggregateProperty{
+					Name:        "number",
+					Aggregators: []Aggregator{TypeAggregator, SumAggregator},
+				},
+				AggregateProperty{
+					Name:        "int",
+					Aggregators: []Aggregator{TypeAggregator, SumAggregator},
+				},
+				AggregateProperty{
+					Name:        "date",
+					Aggregators: []Aggregator{TypeAggregator, TopOccurrencesAggregator},
+				},
+				AggregateProperty{
+					Name:        "a ref",
+					Aggregators: []Aggregator{TypeAggregator},
+				},
+			},
+		}
+
+		agg := aggregation.Result{
+			Groups: []aggregation.Group{
+				aggregation.Group{
+					Properties: map[string]aggregation.Property{
+						"label": aggregation.Property{
+							TextAggregation: []aggregation.TextOccurrence{
+								aggregation.TextOccurrence{
+									Value:  "Foo",
+									Occurs: 200,
+								},
+							},
+							Type: aggregation.PropertyTypeText,
+						},
+						"date": aggregation.Property{
+							TextAggregation: []aggregation.TextOccurrence{
+								aggregation.TextOccurrence{
+									Value:  "Bar",
+									Occurs: 100,
+								},
+							},
+							Type: aggregation.PropertyTypeText,
+						},
+						"number": aggregation.Property{
+							Type: aggregation.PropertyTypeNumerical,
+							NumericalAggregations: map[string]float64{
+								"sum": 200,
 							},
 						},
-						Type:       aggregation.PropertyTypeText,
-						SchemaType: []string{string(schema.DataTypeString)},
-					},
-					"date": aggregation.Property{
-						TextAggregation: []aggregation.TextOccurrence{
-							aggregation.TextOccurrence{
-								Value:  "Bar",
-								Occurs: 100,
+						"int": aggregation.Property{
+							Type: aggregation.PropertyTypeNumerical,
+							NumericalAggregations: map[string]float64{
+								"sum": 100,
 							},
 						},
-						SchemaType: []string{string(schema.DataTypeDate)},
-						Type:       aggregation.PropertyTypeText,
-					},
-					"number": aggregation.Property{
-						Type:       aggregation.PropertyTypeNumerical,
-						SchemaType: []string{string(schema.DataTypeNumber)},
-						NumericalAggregations: map[string]float64{
-							"sum": 200,
-						},
-					},
-					"int": aggregation.Property{
-						Type:       aggregation.PropertyTypeNumerical,
-						SchemaType: []string{string(schema.DataTypeInt)},
-						NumericalAggregations: map[string]float64{
-							"sum": 100,
-						},
-					},
-					"a ref": aggregation.Property{
-						SchemaType: []string{"Another Class"},
 					},
 				},
 			},
-		},
-	}
+		}
 
-	vectorRepo.On("Aggregate", params).Return(&agg, nil)
-	res, err := traverser.LocalAggregate(context.Background(), principal, &params)
-	require.Nil(t, err)
-	assert.Equal(t, expectedResult, res)
+		expectedResult := aggregation.Result{
+			Groups: []aggregation.Group{
+				aggregation.Group{
+					Properties: map[string]aggregation.Property{
+						"label": aggregation.Property{
+							TextAggregation: []aggregation.TextOccurrence{
+								aggregation.TextOccurrence{
+									Value:  "Foo",
+									Occurs: 200,
+								},
+							},
+							Type:       aggregation.PropertyTypeText,
+							SchemaType: []string{string(schema.DataTypeString)},
+						},
+						"date": aggregation.Property{
+							TextAggregation: []aggregation.TextOccurrence{
+								aggregation.TextOccurrence{
+									Value:  "Bar",
+									Occurs: 100,
+								},
+							},
+							SchemaType: []string{string(schema.DataTypeDate)},
+							Type:       aggregation.PropertyTypeText,
+						},
+						"number": aggregation.Property{
+							Type:       aggregation.PropertyTypeNumerical,
+							SchemaType: []string{string(schema.DataTypeNumber)},
+							NumericalAggregations: map[string]float64{
+								"sum": 200,
+							},
+						},
+						"int": aggregation.Property{
+							Type:       aggregation.PropertyTypeNumerical,
+							SchemaType: []string{string(schema.DataTypeInt)},
+							NumericalAggregations: map[string]float64{
+								"sum": 100,
+							},
+						},
+						"a ref": aggregation.Property{
+							SchemaType: []string{"Another Class"},
+						},
+					},
+				},
+			},
+		}
 
+		vectorRepo.On("Aggregate", params).Return(&agg, nil)
+		res, err := traverser.LocalAggregate(context.Background(), principal, &params)
+		require.Nil(t, err)
+		assert.Equal(t, &expectedResult, res)
+	})
 }
 
 var aggregateTestSchema = schema.Schema{
