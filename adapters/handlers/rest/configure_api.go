@@ -133,8 +133,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	vectorInspector := libvectorizer.NewInspector(appState.Contextionary)
 
 	kindsTraverser := traverser.NewTraverser(appState.ServerConfig, appState.Locks,
-		appState.Contextionary, appState.Logger, appState.Authorizer, vectorizer,
-		vectorRepo, explorer)
+		appState.Logger, appState.Authorizer, vectorizer,
+		vectorRepo, explorer, schemaManager)
 
 	updateSchemaCallback := makeUpdateSchemaCall(appState.Logger, appState, kindsTraverser)
 	schemaManager.RegisterSchemaUpdateCallback(updateSchemaCallback)
