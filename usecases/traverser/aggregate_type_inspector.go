@@ -71,7 +71,9 @@ func (i *typeInspector) extendResWithType(res *aggregation.Result, propName stri
 		if propType.IsPrimitive() {
 			prop.SchemaType = string(propType.AsPrimitive())
 		} else {
+			prop.Type = aggregation.PropertyTypeReference
 			prop.SchemaType = string(schema.DataTypeCRef)
+			prop.ReferenceAggregation.PointingTo = dataType
 		}
 
 		res.Groups[groupIndex].Properties[propName] = prop

@@ -29,6 +29,7 @@ type Property struct {
 	TextAggregation       Text
 	BooleanAggregation    Boolean
 	SchemaType            string
+	ReferenceAggregation  Reference
 }
 
 type Text []TextOccurrence
@@ -39,6 +40,7 @@ const (
 	PropertyTypeNumerical PropertyType = "numerical"
 	PropertyTypeBoolean   PropertyType = "boolean"
 	PropertyTypeText      PropertyType = "text"
+	PropertyTypeReference PropertyType = "cref"
 )
 
 type GroupedBy struct {
@@ -57,4 +59,8 @@ type Boolean struct {
 	TotalFalse      int
 	PercentageTrue  float64
 	PercentageFalse float64
+}
+
+type Reference struct {
+	PointingTo []string
 }

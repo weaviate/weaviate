@@ -232,7 +232,7 @@ func classPropertyField(dataType schema.DataType, class *models.Class, property 
 	case schema.DataTypeDate:
 		return makePropertyField(class, property, nonNumericPropertyFields)
 	case schema.DataTypeCRef:
-		return makePropertyField(class, property, nonNumericPropertyFields)
+		return makePropertyField(class, property, referencePropertyFields)
 	case schema.DataTypeGeoCoordinates:
 		// simply skip for now, see gh-729
 		return nil, nil

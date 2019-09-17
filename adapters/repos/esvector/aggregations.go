@@ -155,7 +155,7 @@ func lookupAgg(input traverser.Aggregator) (string, error) {
 func aggValue(prop schema.PropertyName, agg traverser.Aggregator) (map[string]interface{}, error) {
 	switch agg {
 
-	case traverser.TypeAggregator:
+	case traverser.TypeAggregator, traverser.PointingToAggregator:
 		// handled outside of the repo
 		return nil, nil
 
