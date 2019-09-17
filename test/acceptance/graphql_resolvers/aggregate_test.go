@@ -75,6 +75,7 @@ func Test_Aggregates_WithoutGroupingOrFilters(t *testing.T) {
 							percentageTrue
 							totalFalse
 							totalTrue
+							type
 						}
 						population {
 							mean
@@ -82,12 +83,14 @@ func Test_Aggregates_WithoutGroupingOrFilters(t *testing.T) {
 							maximum
 							minimum
 							sum
+							type
 						}
 						name {
 							topOccurrences {
 								occurs
 								value
 							}
+							type
 					}
 				}
 			}
@@ -109,7 +112,7 @@ func Test_Aggregates_WithoutGroupingOrFilters(t *testing.T) {
 			"percentageFalse": json.Number("0.5"),
 			"totalTrue":       json.Number("2"),
 			"totalFalse":      json.Number("2"),
-			// "type":            "boolean",
+			"type":            "boolean",
 		}
 		assert.Equal(t, expected, isCapital)
 	})
@@ -122,7 +125,7 @@ func Test_Aggregates_WithoutGroupingOrFilters(t *testing.T) {
 			"maximum": json.Number("3470000"),
 			"minimum": json.Number("600000"),
 			"sum":     json.Number("7670000"),
-			// "type":    "int",
+			"type":    "int",
 		}
 		assert.Equal(t, expected, isCapital)
 	})

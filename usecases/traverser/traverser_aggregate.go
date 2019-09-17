@@ -138,6 +138,8 @@ func ParseAggregatorProp(name string) (Aggregator, error) {
 	// common
 	case string(CountAggregator):
 		return CountAggregator, nil
+	case string(TypeAggregator):
+		return TypeAggregator, nil
 
 	// numerical
 	case string(MeanAggregator):

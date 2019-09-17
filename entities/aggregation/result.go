@@ -28,7 +28,7 @@ type Property struct {
 	NumericalAggregations map[string]float64
 	TextAggregation       Text
 	BooleanAggregation    Boolean
-	SchemaType            []string
+	SchemaType            string
 }
 
 type Text []TextOccurrence

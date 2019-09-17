@@ -226,11 +226,13 @@ func testNumericalAggregationsWithGrouping(repo *Repo) func(t *testing.T) {
 							traverser.ModeAggregator,
 							traverser.MedianAggregator,
 							traverser.CountAggregator,
+							traverser.TypeAggregator,
 						},
 					},
 					traverser.AggregateProperty{
 						Name: schema.PropertyName("price"),
 						Aggregators: []traverser.Aggregator{
+							traverser.TypeAggregator,
 							traverser.MeanAggregator,
 							traverser.MaximumAggregator,
 							traverser.MinimumAggregator,
@@ -243,6 +245,7 @@ func testNumericalAggregationsWithGrouping(repo *Repo) func(t *testing.T) {
 					traverser.AggregateProperty{
 						Name: schema.PropertyName("listedInIndex"),
 						Aggregators: []traverser.Aggregator{
+							traverser.TypeAggregator,
 							traverser.PercentageTrueAggregator,
 							traverser.PercentageFalseAggregator,
 							traverser.TotalTrueAggregator,
@@ -252,6 +255,7 @@ func testNumericalAggregationsWithGrouping(repo *Repo) func(t *testing.T) {
 					traverser.AggregateProperty{
 						Name: schema.PropertyName("location"),
 						Aggregators: []traverser.Aggregator{
+							traverser.TypeAggregator,
 							traverser.TopOccurrencesAggregator,
 						},
 					},
