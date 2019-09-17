@@ -174,7 +174,7 @@ func (m *Manager) validateCanModifyReference(principal *models.Principal, k kind
 		return err
 	}
 
-	err, prop := schema.GetProperty(k, class, propName)
+	prop, err := schema.GetProperty(k, class, propName)
 	if err != nil {
 		return NewErrInvalidUserInput("Could not find property '%s': %v", propertyName, err)
 	}

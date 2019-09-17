@@ -49,7 +49,7 @@ func JSONNumberResolver(p graphql.ResolveParams) (interface{}, error) {
 	case aggregation.Text:
 		switch p.Info.FieldName {
 		case "count":
-			// TODO gh-949: Support Count in text aggregations
+			// TODO gh-974: Support Count in text aggregations
 			return nil, nil
 
 		default:

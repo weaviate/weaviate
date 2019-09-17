@@ -59,6 +59,93 @@ func Test_Resolve(t *testing.T) {
 
 	tests := testCases{
 		testCase{
+			name: "for gh-758",
+			query: `
+			{
+					Aggregate {
+						Things {
+							Car(where:{
+								operator:Or
+								operands:[{
+									valueString:"Fast",
+									operator:Equal,
+									path:["modelName"]
+								}, {
+									valueString:"Slow",
+									operator:Equal,
+									path:["modelName"]
+								}]
+							}) {
+								__typename
+								modelName {
+									__typename
+									count
+								}
+							}
+						}
+					}
+			}`,
+			expectedProps: []traverser.AggregateProperty{
+				{
+					Name:        "modelName",
+					Aggregators: []traverser.Aggregator{traverser.CountAggregator},
+				},
+			},
+			resolverReturn: []aggregation.Group{
+				aggregation.Group{
+					Properties: map[string]aggregation.Property{
+						"modelName": aggregation.Property{
+							Type:            aggregation.PropertyTypeText,
+							TextAggregation: nil,
+						},
+					},
+				},
+			},
+			expectedWhereFilter: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorOr,
+					Operands: []filters.Clause{
+						filters.Clause{
+							Operator: filters.OperatorEqual,
+							On: &filters.Path{
+								Class:    schema.ClassName("Car"),
+								Property: schema.PropertyName("modelName"),
+							},
+							Value: &filters.Value{
+								Value: "Fast",
+								Type:  schema.DataType("string"),
+							},
+						},
+						filters.Clause{
+							Operator: filters.OperatorEqual,
+							On: &filters.Path{
+								Class:    schema.ClassName("Car"),
+								Property: schema.PropertyName("modelName"),
+							},
+							Value: &filters.Value{
+								Value: "Slow",
+								Type:  schema.DataType("string"),
+							},
+						},
+					},
+				},
+			},
+
+			expectedGroupBy: nil,
+			expectedResults: []result{{
+				pathToField: []string{"Aggregate", "Things", "Car"},
+				expectedValue: []interface{}{
+					map[string]interface{}{
+						"__typename": "AggregateCar",
+						"modelName": map[string]interface{}{
+							"count":      nil,
+							"__typename": "AggregateCarmodelNameObj",
+						},
+					},
+				},
+			}},
+		},
+		testCase{
 			name:  "without grouping prop",
 			query: `{ Aggregate { Things { Car { horsepower { mean } } } } }`,
 			expectedProps: []traverser.AggregateProperty{
@@ -181,7 +268,7 @@ func Test_Resolve(t *testing.T) {
 							"count":           40,
 						},
 						"modelName": map[string]interface{}{
-							"count": nil, // gh-949 TODO: support count in topOccurrences
+							"count": nil, // gh-974 TODO: support count in topOccurrences
 							"type":  "string",
 							"topOccurrences": []interface{}{
 								map[string]interface{}{
@@ -401,7 +488,7 @@ func Test_Resolve(t *testing.T) {
 			},
 		},
 
-		// TODO: gh-949 support text count
+		// TODO: gh-974 support text count
 		// testCase{
 		// 	name:  "single prop: string",
 		// 	query: `{ Aggregate { Things { Car(groupBy:["madeBy", "Manufacturer", "name"]) { modelName { count } } } } }`,
@@ -456,7 +543,7 @@ func (tests testCases) AssertExtraction(t *testing.T, k kind.Kind, className str
 				IncludeMetaCount: testCase.expectedIncludeMetaCount,
 			}
 
-			resolver.On("LocalAggregate", expectedParams).
+			resolver.On("Aggregate", expectedParams).
 				Return(testCase.resolverReturn, nil).Once()
 
 			result := resolver.AssertResolve(t, testCase.query)

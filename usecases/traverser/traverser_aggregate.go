@@ -25,8 +25,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
-// LocalAggregate resolves meta queries
-func (t *Traverser) LocalAggregate(ctx context.Context, principal *models.Principal,
+// Aggregate resolves meta queries
+func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 	params *AggregateParams) (interface{}, error) {
 
 	err := t.authorizer.Authorize(principal, "get", "traversal/*")

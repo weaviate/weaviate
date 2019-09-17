@@ -44,7 +44,6 @@ const AggregatePropertyMinimum = "The minimum value for this property"
 const AggregatePropertyMaximum = "The maximum value for this property"
 const AggregatePropertyMean = "The mean of all values for this property"
 const AggregatePropertySum = "The sum of all values for this property"
-const AggregatePropertyObject = "An object containing aggregate information about this property"
 
 // Network
 const NetworkMeta = "Get meta information about Things or Actions from a Weaviate in a network"

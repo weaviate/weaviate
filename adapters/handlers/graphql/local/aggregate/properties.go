@@ -26,49 +26,49 @@ func numericPropertyFields(class *models.Class, property *models.Property, prefi
 	getMetaIntFields := graphql.Fields{
 		"sum": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sSum", prefix, class.Class, property.Name),
-			Description: descriptions.LocalAggregateSum,
+			Description: descriptions.AggregateSum,
 			Type:        graphql.Float,
 			Resolve:     makeResolveNumericFieldAggregator("sum"),
 		},
 		"minimum": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sMinimum", prefix, class.Class, property.Name),
-			Description: descriptions.LocalAggregateMin,
+			Description: descriptions.AggregateMin,
 			Type:        graphql.Float,
 			Resolve:     makeResolveNumericFieldAggregator("minimum"),
 		},
 		"maximum": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sMaximum", prefix, class.Class, property.Name),
-			Description: descriptions.LocalAggregateMax,
+			Description: descriptions.AggregateMax,
 			Type:        graphql.Float,
 			Resolve:     makeResolveNumericFieldAggregator("maximum"),
 		},
 		"mean": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sMean", prefix, class.Class, property.Name),
-			Description: descriptions.LocalAggregateMean,
+			Description: descriptions.AggregateMean,
 			Type:        graphql.Float,
 			Resolve:     makeResolveNumericFieldAggregator("mean"),
 		},
 		"mode": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sMode", prefix, class.Class, property.Name),
-			Description: descriptions.LocalAggregateMode,
+			Description: descriptions.AggregateMode,
 			Type:        graphql.Float,
 			Resolve:     makeResolveNumericFieldAggregator("mode"),
 		},
 		"median": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sMedian", prefix, class.Class, property.Name),
-			Description: descriptions.LocalAggregateMedian,
+			Description: descriptions.AggregateMedian,
 			Type:        graphql.Float,
 			Resolve:     makeResolveNumericFieldAggregator("median"),
 		},
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sCount", prefix, class.Class, property.Name),
-			Description: descriptions.LocalAggregateCount,
+			Description: descriptions.AggregateCount,
 			Type:        graphql.Int,
 			Resolve:     makeResolveNumericFieldAggregator("count"),
 		},
 		"type": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sType", prefix, class.Class, property.Name),
-			Description: descriptions.LocalAggregateCount,
+			Description: descriptions.AggregateCount,
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				prop, ok := p.Source.(aggregation.Property)
@@ -84,7 +84,7 @@ func numericPropertyFields(class *models.Class, property *models.Property, prefi
 	return graphql.NewObject(graphql.ObjectConfig{
 		Name:        fmt.Sprintf("%s%s%sObj", prefix, class.Class, property.Name),
 		Fields:      getMetaIntFields,
-		Description: descriptions.LocalAggregatePropertyObject,
+		Description: descriptions.AggregatePropertyObject,
 	})
 }
 
@@ -93,7 +93,7 @@ func nonNumericPropertyFields(class *models.Class,
 	getMetaPointingFields := graphql.Fields{
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%sCount", prefix, class.Class),
-			Description: descriptions.LocalAggregateCount,
+			Description: descriptions.AggregateCount,
 			Type:        graphql.Int,
 			Resolve:     makeResolveNumericFieldAggregator("count"),
 		},
@@ -102,7 +102,7 @@ func nonNumericPropertyFields(class *models.Class,
 	return graphql.NewObject(graphql.ObjectConfig{
 		Name:        fmt.Sprintf("%s%s%sObj", prefix, class.Class, property.Name),
 		Fields:      getMetaPointingFields,
-		Description: descriptions.LocalAggregatePropertyObject,
+		Description: descriptions.AggregatePropertyObject,
 	})
 }
 
@@ -141,7 +141,7 @@ func referencePropertyFields(class *models.Class,
 	return graphql.NewObject(graphql.ObjectConfig{
 		Name:        fmt.Sprintf("%s%s%sObj", prefix, class.Class, property.Name),
 		Fields:      getMetaPointingFields,
-		Description: descriptions.LocalAggregatePropertyObject,
+		Description: descriptions.AggregatePropertyObject,
 	})
 }
 
@@ -193,7 +193,7 @@ func booleanPropertyFields(class *models.Class,
 		},
 		"type": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sType", prefix, class.Class, property.Name),
-			Description: descriptions.LocalAggregateCount,
+			Description: descriptions.AggregateCount,
 			Type:        graphql.String,
 			// Resolve:     makeResolveNumericFieldAggregator("count"),
 		},
@@ -202,7 +202,7 @@ func booleanPropertyFields(class *models.Class,
 	return graphql.NewObject(graphql.ObjectConfig{
 		Name:        fmt.Sprintf("%s%s%sObj", prefix, class.Class, property.Name),
 		Fields:      getMetaPointingFields,
-		Description: descriptions.LocalAggregatePropertyObject,
+		Description: descriptions.AggregatePropertyObject,
 	})
 }
 
@@ -240,14 +240,14 @@ func stringPropertyFields(class *models.Class,
 			Name:        fmt.Sprintf("%s%sCount", prefix, class.Class),
 			Description: descriptions.AggregatePropertyCount,
 			Type:        graphql.Int,
-			Resolve: textResolver(func(text aggregation.Text) (interface{}, error) {
-				// TODO: support count for text props
-				return nil, nil
-			}),
+			// Resolve: textResolver(func(text aggregation.Text) (interface{}, error) {
+			// 	// TODO: support count for text props
+			// 	return nil, nil
+			// }),
 		},
 		"type": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sType", prefix, class.Class, property.Name),
-			Description: descriptions.LocalAggregateCount,
+			Description: descriptions.AggregateCount,
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				prop, ok := p.Source.(aggregation.Property)
@@ -286,7 +286,7 @@ func stringPropertyFields(class *models.Class,
 	return graphql.NewObject(graphql.ObjectConfig{
 		Name:        fmt.Sprintf("%s%s%sObj", prefix, class.Class, property.Name),
 		Fields:      getAggregatePointingFields,
-		Description: descriptions.LocalAggregatePropertyObject,
+		Description: descriptions.AggregatePropertyObject,
 	})
 }
 
@@ -361,21 +361,21 @@ func extractTextAggregation(source interface{}) (aggregation.Text, error) {
 func groupedByProperty(class *models.Class) *graphql.Object {
 	classProperties := graphql.Fields{
 		"path": &graphql.Field{
-			Description: descriptions.LocalAggregateGroupedByGroupedByPath,
+			Description: descriptions.AggregateGroupedByGroupedByPath,
 			Type:        graphql.NewList(graphql.String),
 			Resolve:     groupedByResolver(func(g *aggregation.GroupedBy) interface{} { return g.Path }),
 		},
 		"value": &graphql.Field{
-			Description: descriptions.LocalAggregateGroupedByGroupedByValue,
+			Description: descriptions.AggregateGroupedByGroupedByValue,
 			Type:        graphql.String,
 			Resolve:     groupedByResolver(func(g *aggregation.GroupedBy) interface{} { return g.Value }),
 		},
 	}
 
 	classPropertiesObj := graphql.NewObject(graphql.ObjectConfig{
-		Name:        fmt.Sprintf("LocalAggregate%sGroupedByObj", class.Class),
+		Name:        fmt.Sprintf("Aggregate%sGroupedByObj", class.Class),
 		Fields:      classProperties,
-		Description: descriptions.LocalAggregateGroupedByObj,
+		Description: descriptions.AggregateGroupedByObj,
 	})
 
 	return classPropertiesObj
