@@ -29,7 +29,12 @@ func (r *Repo) Aggregate(ctx context.Context, params traverser.AggregateParams) 
 		return nil, fmt.Errorf("grouping by cross-refs not supported yet")
 	}
 
-	body, err := aggBody(params)
+	query, err := queryFromFilter(params.Filters)
+	if err != nil {
+		return nil, err
+	}
+
+	body, err := aggBody(query, params)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +61,7 @@ func (r *Repo) Aggregate(ctx context.Context, params traverser.AggregateParams) 
 	return r.aggregationResponse(res, path)
 }
 
-func aggBody(params traverser.AggregateParams) (map[string]interface{}, error) {
+func aggBody(query map[string]interface{}, params traverser.AggregateParams) (map[string]interface{}, error) {
 	var includeCount bool
 	if params.GroupBy == nil && params.IncludeMetaCount == true {
 		includeCount = true
@@ -83,8 +88,9 @@ func aggBody(params traverser.AggregateParams) (map[string]interface{}, error) {
 	}
 
 	return map[string]interface{}{
-		"aggs": aggregations,
-		"size": 0,
+		"query": query,
+		"aggs":  aggregations,
+		"size":  0,
 	}, nil
 }
 
