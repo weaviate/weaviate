@@ -95,6 +95,11 @@ const (
 	TopOccurrencesAggregator Aggregator = "topOccurrences"
 )
 
+// Aggregators used in ref props
+const (
+	PointingToAggregator Aggregator = "pointingTo"
+)
+
 // AggregateProperty is any property of a class that we want to retrieve meta
 // information about
 type AggregateProperty struct {
@@ -168,6 +173,10 @@ func ParseAggregatorProp(name string) (Aggregator, error) {
 	// string/text
 	case string(TopOccurrencesAggregator):
 		return TopOccurrencesAggregator, nil
+
+	// ref
+	case string(PointingToAggregator):
+		return PointingToAggregator, nil
 
 	default:
 		return "", fmt.Errorf("unrecognized aggregator prop '%s'", name)

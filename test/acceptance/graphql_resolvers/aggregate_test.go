@@ -92,6 +92,10 @@ func Test_Aggregates_WithoutGroupingOrFilters(t *testing.T) {
 							}
 							type
 					}
+					InCountry {
+						pointingTo
+						type
+					}
 				}
 			}
 		}
@@ -130,14 +134,14 @@ func Test_Aggregates_WithoutGroupingOrFilters(t *testing.T) {
 		assert.Equal(t, expected, isCapital)
 	})
 
-	// t.Run("ref prop", func(t *testing.T) {
-	// 	inCountry := result.Get("Aggregate", "Things", "City", "InCountry").Result
-	// 	expected := map[string]interface{}{
-	// 		"pointingTo": []interface{}{"Country"},
-	// 		"type":       "cref",
-	// 	}
-	// 	assert.Equal(t, expected, inCountry)
-	// })
+	t.Run("ref prop", func(t *testing.T) {
+		inCountry := result.Get("Aggregate", "Things", "City").AsSlice()[0].(map[string]interface{})["InCountry"]
+		expected := map[string]interface{}{
+			"pointingTo": []interface{}{"Country"},
+			"type":       "cref",
+		}
+		assert.Equal(t, expected, inCountry)
+	})
 
 	t.Run("string prop", func(t *testing.T) {
 		// typeField := result.Get("Aggregate", "Things", "City", "name", "type").Result
@@ -280,34 +284,33 @@ func Test_Aggregates_WithoutGroupingOrFilters(t *testing.T) {
 // 	})
 // }
 
-// // This test prevents a regression on the fix for
-// // https://github.com/semi-technologies/weaviate/issues/824
-// func TestLocalMeta_StringPropsNotSetEverywhere(t *testing.T) {
-// 	AssertGraphQL(t, helper.RootAuth, `
-// 		{
-// 				Meta{
-// 					Actions {
-// 						Event {
-// 							name {
-// 								topOccurrences {
-// 									occurs
-// 									value
-// 								}
-// 							}
-// 						}
-// 					}
-// 				}
-// 		}
-// 	`)
-
-// }
+// This test prevents a regression on the fix for
+// https://github.com/semi-technologies/weaviate/issues/824
+func TestLocalMeta_StringPropsNotSetEverywhere(t *testing.T) {
+	AssertGraphQL(t, helper.RootAuth, `
+		{
+				Aggregate {
+					Actions {
+						Event {
+							name {
+								topOccurrences {
+									occurs
+									value
+								}
+							}
+						}
+					}
+				}
+		}
+	`)
+}
 
 // // This test prevents a regression on the fix for
 // // https://github.com/semi-technologies/weaviate/issues/824
 // func TestLocalMeta_TextPropsNotSetEverywhere(t *testing.T) {
 // 	AssertGraphQL(t, helper.RootAuth, `
 // 		{
-// 				Meta{
+// 				Aggregate {
 // 					Actions {
 // 						Event {
 // 							description {
@@ -321,5 +324,4 @@ func Test_Aggregates_WithoutGroupingOrFilters(t *testing.T) {
 // 				}
 // 		}
 // 	`)
-
 // }

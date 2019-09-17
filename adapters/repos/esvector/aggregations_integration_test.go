@@ -41,7 +41,13 @@ func Test_Aggregations(t *testing.T) {
 	require.Nil(t, err)
 
 	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{}
+	schemaGetter := &fakeSchemaGetter{
+		schema: schema.Schema{
+			Things: &models.Schema{
+				Classes: []*models.Class{productClass},
+			},
+		},
+	}
 	repo := NewRepo(client, logger, schemaGetter, 3)
 	waitForEsToBeReady(t, repo)
 	migrator := NewMigrator(repo)
@@ -64,6 +70,8 @@ func prepareCompanyTestSchemaAndData(repo *Repo,
 	migrator *Migrator) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Run("creating the class", func(t *testing.T) {
+			require.Nil(t,
+				migrator.AddClass(context.Background(), kind.Thing, productClass))
 			require.Nil(t,
 				migrator.AddClass(context.Background(), kind.Thing, companyClass))
 		})
@@ -480,6 +488,13 @@ func testNumericalAggregationsWithoutGrouping(repo *Repo) func(t *testing.T) {
 						Name: schema.PropertyName("location"),
 						Aggregators: []traverser.Aggregator{
 							traverser.TopOccurrencesAggregator,
+						},
+					},
+					traverser.AggregateProperty{
+						Name: schema.PropertyName("makesProduct"),
+						Aggregators: []traverser.Aggregator{
+							traverser.PointingToAggregator,
+							traverser.TypeAggregator,
 						},
 					},
 				},

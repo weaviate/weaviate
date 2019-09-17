@@ -214,6 +214,10 @@ func Test_Traverser_Aggregate(t *testing.T) {
 							},
 						},
 						"a ref": aggregation.Property{
+							Type: aggregation.PropertyTypeReference,
+							ReferenceAggregation: aggregation.Reference{
+								PointingTo: []string{"AnotherClass"},
+							},
 							SchemaType: string(schema.DataTypeCRef),
 						},
 					},

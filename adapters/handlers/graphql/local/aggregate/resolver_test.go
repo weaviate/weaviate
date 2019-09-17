@@ -94,6 +94,7 @@ func Test_Resolve(t *testing.T) {
 			query: `{ Aggregate { Things { Car { 
 				stillInProduction { type count totalTrue percentageTrue totalFalse percentageFalse } 
 				modelName { type count topOccurrences { value occurs } } 
+				MadeBy { type pointingTo }
 				} } } } `,
 			expectedProps: []traverser.AggregateProperty{
 				{
@@ -113,6 +114,13 @@ func Test_Resolve(t *testing.T) {
 						traverser.TypeAggregator,
 						traverser.CountAggregator,
 						traverser.TopOccurrencesAggregator,
+					},
+				},
+				{
+					Name: "madeBy",
+					Aggregators: []traverser.Aggregator{
+						traverser.TypeAggregator,
+						traverser.PointingToAggregator,
 					},
 				},
 			},
@@ -142,6 +150,13 @@ func Test_Resolve(t *testing.T) {
 									Value:  "slowcar",
 									Occurs: 1,
 								},
+							},
+						},
+						"madeBy": aggregation.Property{
+							SchemaType: "cref",
+							Type:       aggregation.PropertyTypeReference,
+							ReferenceAggregation: aggregation.Reference{
+								PointingTo: []string{"Manufacturer"},
 							},
 						},
 					},
@@ -174,6 +189,10 @@ func Test_Resolve(t *testing.T) {
 									"occurs": 1,
 								},
 							},
+						},
+						"MadeBy": map[string]interface{}{
+							"type":       "cref",
+							"pointingTo": []interface{}{"Manufacturer"},
 						},
 					},
 				},

@@ -106,6 +106,58 @@ func nonNumericPropertyFields(class *models.Class,
 	})
 }
 
+func referencePropertyFields(class *models.Class,
+	property *models.Property, prefix string) *graphql.Object {
+	getMetaPointingFields := graphql.Fields{
+		"type": &graphql.Field{
+			Name:        fmt.Sprintf("%s%sType", prefix, class.Class),
+			Description: descriptions.AggregatePropertyType,
+			Type:        graphql.String,
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				prop, ok := p.Source.(aggregation.Property)
+				if !ok {
+					return nil, fmt.Errorf("ref property type: expected aggregation.Property, got %T",
+						p.Source)
+				}
+
+				return prop.SchemaType, nil
+			},
+		},
+		"pointingTo": &graphql.Field{
+			Name:        fmt.Sprintf("%s%sPointingTo", prefix, class.Class),
+			Description: descriptions.AggregateClassPropertyPointingTo,
+			Type:        graphql.NewList(graphql.String),
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				ref, err := extractReferenceAggregation(p.Source)
+				if err != nil {
+					return nil, fmt.Errorf("ref property pointingTo: %v", err)
+				}
+
+				return ref.PointingTo, nil
+			},
+		},
+	}
+
+	return graphql.NewObject(graphql.ObjectConfig{
+		Name:        fmt.Sprintf("%s%s%sObj", prefix, class.Class, property.Name),
+		Fields:      getMetaPointingFields,
+		Description: descriptions.LocalAggregatePropertyObject,
+	})
+}
+
+func extractReferenceAggregation(source interface{}) (*aggregation.Reference, error) {
+	property, ok := source.(aggregation.Property)
+	if !ok {
+		return nil, fmt.Errorf("expected aggregation.Property, got %T", source)
+	}
+
+	if property.Type != aggregation.PropertyTypeReference {
+		return nil, fmt.Errorf("expected property to be of type reference, got %s", property.Type)
+	}
+
+	return &property.ReferenceAggregation, nil
+}
+
 func booleanPropertyFields(class *models.Class,
 	property *models.Property, prefix string) *graphql.Object {
 	getMetaPointingFields := graphql.Fields{

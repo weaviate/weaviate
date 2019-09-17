@@ -17,6 +17,7 @@ package aggregate
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -147,6 +148,7 @@ func extractProperties(selections *ast.SelectionSet) ([]traverser.AggregatePrope
 			continue
 		}
 
+		name = strings.ToLower(string(name[0:1])) + string(name[1:])
 		property := traverser.AggregateProperty{Name: schema.PropertyName(name)}
 		aggregators, err := extractAggregators(field.SelectionSet)
 		if err != nil {
