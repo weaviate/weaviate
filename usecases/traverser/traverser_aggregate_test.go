@@ -187,7 +187,7 @@ func Test_Traverser_Aggregate(t *testing.T) {
 								},
 							},
 							Type:       aggregation.PropertyTypeText,
-							SchemaType: []string{string(schema.DataTypeString)},
+							SchemaType: string(schema.DataTypeString),
 						},
 						"date": aggregation.Property{
 							TextAggregation: []aggregation.TextOccurrence{
@@ -196,25 +196,25 @@ func Test_Traverser_Aggregate(t *testing.T) {
 									Occurs: 100,
 								},
 							},
-							SchemaType: []string{string(schema.DataTypeDate)},
+							SchemaType: string(schema.DataTypeDate),
 							Type:       aggregation.PropertyTypeText,
 						},
 						"number": aggregation.Property{
 							Type:       aggregation.PropertyTypeNumerical,
-							SchemaType: []string{string(schema.DataTypeNumber)},
+							SchemaType: string(schema.DataTypeNumber),
 							NumericalAggregations: map[string]float64{
 								"sum": 200,
 							},
 						},
 						"int": aggregation.Property{
 							Type:       aggregation.PropertyTypeNumerical,
-							SchemaType: []string{string(schema.DataTypeInt)},
+							SchemaType: string(schema.DataTypeInt),
 							NumericalAggregations: map[string]float64{
 								"sum": 100,
 							},
 						},
 						"a ref": aggregation.Property{
-							SchemaType: []string{"Another Class"},
+							SchemaType: string(schema.DataTypeCRef),
 						},
 					},
 				},
@@ -231,6 +231,9 @@ func Test_Traverser_Aggregate(t *testing.T) {
 var aggregateTestSchema = schema.Schema{
 	Things: &models.Schema{
 		Classes: []*models.Class{
+			&models.Class{
+				Class: "AnotherClass",
+			},
 			&models.Class{
 				Class: "MyClass",
 				Properties: []*models.Property{
@@ -252,7 +255,7 @@ var aggregateTestSchema = schema.Schema{
 					},
 					&models.Property{
 						Name:     "a ref",
-						DataType: []string{"Another Class"},
+						DataType: []string{"AnotherClass"},
 					},
 				},
 			},

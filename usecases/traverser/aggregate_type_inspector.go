@@ -37,7 +37,10 @@ func (i *typeInspector) WithTypes(res *aggregation.Result, params AggregateParam
 			return nil, fmt.Errorf("with types: prop %s: %v", prop.Name, err)
 		}
 
-		i.extendResWithType(res, prop.Name.String(), schemaProp.DataType)
+		err = i.extendResWithType(res, prop.Name.String(), schemaProp.DataType)
+		if err != nil {
+			return nil, fmt.Errorf("with types: prop %s: %v", prop.Name, err)
+		}
 	}
 
 	return res, nil
@@ -53,14 +56,26 @@ func (i *typeInspector) hasTypeAggregator(aggs []Aggregator) bool {
 	return false
 }
 
-func (i *typeInspector) extendResWithType(res *aggregation.Result, propName string, dataType []string) {
+func (i *typeInspector) extendResWithType(res *aggregation.Result, propName string, dataType []string) error {
 	for groupIndex, group := range res.Groups {
 		prop, ok := group.Properties[propName]
 		if !ok {
 			prop = aggregation.Property{}
 		}
 
-		prop.SchemaType = dataType
+		propType, err := i.schema.FindPropertyDataType(dataType)
+		if err != nil {
+			return err
+		}
+
+		if propType.IsPrimitive() {
+			prop.SchemaType = string(propType.AsPrimitive())
+		} else {
+			prop.SchemaType = string(schema.DataTypeCRef)
+		}
+
 		res.Groups[groupIndex].Properties[propName] = prop
 	}
+
+	return nil
 }

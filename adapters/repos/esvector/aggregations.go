@@ -105,6 +105,12 @@ func innerAggs(properties []traverser.AggregateProperty) (map[string]interface{}
 				return nil, fmt.Errorf("prop '%s': %v", property.Name, err)
 			}
 
+			if v == nil {
+				// can be the case if the aggregator was 'type' which can't be handled
+				// by the repo
+				continue
+			}
+
 			inner[aggName(property.Name, aggregator)] = v
 		}
 	}
@@ -148,6 +154,10 @@ func lookupAgg(input traverser.Aggregator) (string, error) {
 
 func aggValue(prop schema.PropertyName, agg traverser.Aggregator) (map[string]interface{}, error) {
 	switch agg {
+
+	case traverser.TypeAggregator:
+		// handled outside of the repo
+		return nil, nil
 
 	case traverser.ModeAggregator:
 		return aggValueMode(prop), nil
