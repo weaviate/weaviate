@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/elastic/go-elasticsearch/v5/esapi"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -132,8 +131,6 @@ func (inv *invalidator) buildFindIDQuery() (map[string]interface{}, error) {
 }
 
 func (inv *invalidator) bulk(targets []bulkIndex) error {
-	spew.Dump(targets)
-
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 

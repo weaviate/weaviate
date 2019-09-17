@@ -57,7 +57,12 @@ func (r *Repo) Aggregate(ctx context.Context, params traverser.AggregateParams) 
 }
 
 func aggBody(params traverser.AggregateParams) (map[string]interface{}, error) {
-	inner, err := innerAggs(params.Properties)
+	var includeCount bool
+	if params.GroupBy == nil && params.IncludeMetaCount == true {
+		includeCount = true
+	}
+
+	inner, err := innerAggs(params.Properties, includeCount)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +88,9 @@ func aggBody(params traverser.AggregateParams) (map[string]interface{}, error) {
 	}, nil
 }
 
-func innerAggs(properties []traverser.AggregateProperty) (map[string]interface{}, error) {
+const metaCountField = "_metaCountField"
+
+func innerAggs(properties []traverser.AggregateProperty, includeCount bool) (map[string]interface{}, error) {
 	inner := map[string]interface{}{}
 	for _, property := range properties {
 
@@ -112,6 +119,14 @@ func innerAggs(properties []traverser.AggregateProperty) (map[string]interface{}
 			}
 
 			inner[aggName(property.Name, aggregator)] = v
+		}
+	}
+
+	if includeCount == true {
+		inner[metaCountField] = map[string]interface{}{
+			"value_count": map[string]interface{}{
+				"field": "_id",
+			},
 		}
 	}
 
