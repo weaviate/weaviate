@@ -54,12 +54,13 @@ func (t *Traverser) LocalAggregate(ctx context.Context, principal *models.Princi
 // the individual connector methods responsible for resolving the Meta
 // query.
 type AggregateParams struct {
-	Kind       kind.Kind
-	Filters    *filters.LocalFilter
-	Analytics  filters.AnalyticsProps
-	ClassName  schema.ClassName
-	Properties []AggregateProperty
-	GroupBy    *filters.Path
+	Kind             kind.Kind
+	Filters          *filters.LocalFilter
+	Analytics        filters.AnalyticsProps
+	ClassName        schema.ClassName
+	Properties       []AggregateProperty
+	GroupBy          *filters.Path
+	IncludeMetaCount bool
 }
 
 // Aggregator is the desired computation that the database connector

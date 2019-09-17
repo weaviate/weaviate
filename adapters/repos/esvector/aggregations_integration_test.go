@@ -447,9 +447,10 @@ func testNumericalAggregationsWithoutGrouping(repo *Repo) func(t *testing.T) {
 
 		t.Run("multiple fields, multiple aggregators", func(t *testing.T) {
 			params := traverser.AggregateParams{
-				Kind:      kind.Thing,
-				ClassName: schema.ClassName(companyClass.Class),
-				GroupBy:   nil, // explicitly set to nil,
+				Kind:             kind.Thing,
+				ClassName:        schema.ClassName(companyClass.Class),
+				GroupBy:          nil, // explicitly set to nil,
+				IncludeMetaCount: true,
 				Properties: []traverser.AggregateProperty{
 					traverser.AggregateProperty{
 						Name: schema.PropertyName("dividendYield"),
@@ -506,6 +507,7 @@ func testNumericalAggregationsWithoutGrouping(repo *Repo) func(t *testing.T) {
 			expectedResult := &aggregation.Result{
 				Groups: []aggregation.Group{
 					aggregation.Group{
+						Count: 9, // because includeMetaCount was set
 						Properties: map[string]aggregation.Property{
 							"dividendYield": aggregation.Property{
 								Type: aggregation.PropertyTypeNumerical,

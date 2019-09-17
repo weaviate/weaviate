@@ -26,13 +26,14 @@ import (
 )
 
 type testCase struct {
-	name                string
-	query               string
-	expectedProps       []traverser.AggregateProperty
-	resolverReturn      interface{}
-	expectedResults     []result
-	expectedGroupBy     *filters.Path
-	expectedWhereFilter *filters.LocalFilter
+	name                     string
+	query                    string
+	expectedProps            []traverser.AggregateProperty
+	resolverReturn           interface{}
+	expectedResults          []result
+	expectedGroupBy          *filters.Path
+	expectedWhereFilter      *filters.LocalFilter
+	expectedIncludeMetaCount bool
 }
 
 type testCases []testCase
@@ -95,7 +96,9 @@ func Test_Resolve(t *testing.T) {
 				stillInProduction { type count totalTrue percentageTrue totalFalse percentageFalse } 
 				modelName { type count topOccurrences { value occurs } } 
 				MadeBy { type pointingTo }
+				meta { count }
 				} } } } `,
+			expectedIncludeMetaCount: true,
 			expectedProps: []traverser.AggregateProperty{
 				{
 					Name: "stillInProduction",
@@ -126,6 +129,7 @@ func Test_Resolve(t *testing.T) {
 			},
 			resolverReturn: []aggregation.Group{
 				aggregation.Group{
+					Count: 10,
 					Properties: map[string]aggregation.Property{
 						"stillInProduction": aggregation.Property{
 							SchemaType: "boolean",
@@ -193,6 +197,9 @@ func Test_Resolve(t *testing.T) {
 						"MadeBy": map[string]interface{}{
 							"type":       "cref",
 							"pointingTo": []interface{}{"Manufacturer"},
+						},
+						"meta": map[string]interface{}{
+							"count": 10,
 						},
 					},
 				},
@@ -441,11 +448,12 @@ func (tests testCases) AssertExtraction(t *testing.T, k kind.Kind, className str
 			resolver := newMockResolver(config.Config{})
 
 			expectedParams := &traverser.AggregateParams{
-				Kind:       k,
-				ClassName:  schema.ClassName(className),
-				Properties: testCase.expectedProps,
-				GroupBy:    testCase.expectedGroupBy,
-				Filters:    testCase.expectedWhereFilter,
+				Kind:             k,
+				ClassName:        schema.ClassName(className),
+				Properties:       testCase.expectedProps,
+				GroupBy:          testCase.expectedGroupBy,
+				Filters:          testCase.expectedWhereFilter,
+				IncludeMetaCount: testCase.expectedIncludeMetaCount,
 			}
 
 			resolver.On("LocalAggregate", expectedParams).

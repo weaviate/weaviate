@@ -198,6 +198,16 @@ func classPropertyFields(class *models.Class) (graphql.Fields, error) {
 		}
 	}
 
+	// Special case: meta { count } appended to all regular props
+	fields["meta"] = &graphql.Field{
+		Description: descriptions.LocalMetaObj,
+		Type:        metaObject(fmt.Sprintf("LocalAggregate%s", class.Class)),
+		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+			// pass-through
+			return p.Source, nil
+		},
+	}
+
 	// Always append Grouped By field
 	fields["groupedBy"] = &graphql.Field{
 		Description: descriptions.LocalAggregateGroupedBy,
@@ -215,6 +225,25 @@ func classPropertyFields(class *models.Class) (graphql.Fields, error) {
 	}
 
 	return fields, nil
+}
+
+func metaObject(prefix string) *graphql.Object {
+	return graphql.NewObject(graphql.ObjectConfig{
+		Name: fmt.Sprintf("%sMetaObject", prefix),
+		Fields: graphql.Fields{
+			"count": &graphql.Field{
+				Type: graphql.Int,
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					group, ok := p.Source.(aggregation.Group)
+					if !ok {
+						return nil, fmt.Errorf("meta count: expected aggregation.Group, got %T", p.Source)
+					}
+
+					return group.Count, nil
+				},
+			},
+		},
+	})
 }
 
 func classPropertyField(dataType schema.DataType, class *models.Class, property *models.Property) (*graphql.Field, error) {

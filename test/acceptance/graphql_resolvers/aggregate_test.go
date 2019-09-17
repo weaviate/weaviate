@@ -70,6 +70,9 @@ func Test_Aggregates_WithoutGroupingOrFilters(t *testing.T) {
 			Aggregate{
 				Things {
 					City {
+					  meta {
+						  count 
+						}
 						isCapital {
 							percentageFalse
 							percentageTrue
@@ -102,11 +105,12 @@ func Test_Aggregates_WithoutGroupingOrFilters(t *testing.T) {
 	}
 	`)
 
-	// t.Run("meta count", func(t *testing.T) {
-	// 	count := result.Get("Aggregate", "Things", "City", "meta", "count").Result
-	// 	expected := json.Number("4")
-	// 	assert.Equal(t, expected, count)
-	// })
+	t.Run("meta count", func(t *testing.T) {
+		meta := result.Get("Aggregate", "Things", "City").AsSlice()[0].(map[string]interface{})["meta"]
+		count := meta.(map[string]interface{})["count"]
+		expected := json.Number("4")
+		assert.Equal(t, expected, count)
+	})
 
 	t.Run("boolean props", func(t *testing.T) {
 		isCapital := result.Get("Aggregate", "Things", "City").AsSlice()[0].(map[string]interface{})["isCapital"]

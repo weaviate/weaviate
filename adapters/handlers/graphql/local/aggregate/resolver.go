@@ -75,7 +75,7 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 		}
 
 		selections := p.Info.FieldASTs[0].SelectionSet
-		properties, err := extractProperties(selections)
+		properties, includeMeta, err := extractProperties(selections)
 		if err != nil {
 			return nil, fmt.Errorf("could not extract properties for class '%s': %s", className, err)
 		}
@@ -109,12 +109,13 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 		}
 
 		params := &traverser.AggregateParams{
-			Kind:       kind,
-			Filters:    filters,
-			ClassName:  className,
-			Properties: properties,
-			GroupBy:    groupBy,
-			Analytics:  analytics,
+			Kind:             kind,
+			Filters:          filters,
+			ClassName:        className,
+			Properties:       properties,
+			GroupBy:          groupBy,
+			Analytics:        analytics,
+			IncludeMetaCount: includeMeta,
 		}
 
 		res, err := resolver.LocalAggregate(p.Context, principalFromContext(p.Context), params)
@@ -131,8 +132,9 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 	}
 }
 
-func extractProperties(selections *ast.SelectionSet) ([]traverser.AggregateProperty, error) {
+func extractProperties(selections *ast.SelectionSet) ([]traverser.AggregateProperty, bool, error) {
 	properties := []traverser.AggregateProperty{}
+	var includeMeta bool
 
 	for _, selection := range selections.Selections {
 		field := selection.(*ast.Field)
@@ -148,18 +150,23 @@ func extractProperties(selections *ast.SelectionSet) ([]traverser.AggregatePrope
 			continue
 		}
 
+		if name == "meta" {
+			includeMeta = true
+			continue
+		}
+
 		name = strings.ToLower(string(name[0:1])) + string(name[1:])
 		property := traverser.AggregateProperty{Name: schema.PropertyName(name)}
 		aggregators, err := extractAggregators(field.SelectionSet)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 
 		property.Aggregators = aggregators
 		properties = append(properties, property)
 	}
 
-	return properties, nil
+	return properties, includeMeta, nil
 }
 
 func extractAggregators(selections *ast.SelectionSet) ([]traverser.Aggregator, error) {

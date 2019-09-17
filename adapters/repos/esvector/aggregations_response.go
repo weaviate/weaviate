@@ -65,12 +65,22 @@ func (sr searchResponse) aggregations(path []string) (*aggregation.Result, error
 }
 
 func (sr searchResponse) ungroupedAggregations(aggs map[string]interface{}) (*aggregation.Result, error) {
-	buckets, err := parseAggBucketsPayload(aggs, nil, nil)
+	buckets, count, err := parseAggBucketsPayload(aggs, nil, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	return bucketMapToSlice(buckets).result(nil)
+	res, err := bucketMapToSlice(buckets).result(nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if count != nil {
+		// there is only a single group as this is an ungrouped agg
+		res.Groups[0].Count = *count
+	}
+
+	return res, nil
 }
 
 func (sr searchResponse) groupedAggregations(rawBuckets []interface{}, path []string) (*aggregation.Result, error) {
@@ -112,7 +122,7 @@ func (sr searchResponse) parseAggBuckets(input map[string]interface{}) (aggregat
 	}
 	count := int(input["doc_count"].(float64))
 
-	buckets, err := parseAggBucketsPayload(input, groupedValue, &count)
+	buckets, _, err := parseAggBucketsPayload(input, groupedValue, &count)
 	if err != nil {
 		return nil, err
 	}
@@ -124,16 +134,27 @@ func (sr searchResponse) parseAggBuckets(input map[string]interface{}) (aggregat
 // used for both grouped and ungrouped aggregations where the control fields
 // differ
 func parseAggBucketsPayload(input map[string]interface{}, groupedValue interface{},
-	outsideCount *int) (map[string]aggregationBucket, error) {
+	outsideCount *int) (map[string]aggregationBucket, *int, error) {
 	buckets := map[string]aggregationBucket{}
+
+	// optional, ignore if not set
+	var countAgg *int
+
 	for key, value := range input {
 		switch key {
 		case "key", "key_as_string", "doc_count":
 			continue
 		default:
+			if key == metaCountField {
+				asMap := value.(map[string]interface{})
+				count := int(asMap["value"].(float64))
+				countAgg = &count
+				continue
+			}
+
 			property, aggregator, err := parseAggBucketPropertyKey(key)
 			if err != nil {
-				return nil, fmt.Errorf("key '%s': %v", key, err)
+				return nil, countAgg, fmt.Errorf("key '%s': %v", key, err)
 			}
 
 			bucket := getOrInitBucket(buckets, property, groupedValue, outsideCount)
@@ -147,14 +168,14 @@ func parseAggBucketsPayload(input map[string]interface{}, groupedValue interface
 				err = addNumericalAggregationsToBucket(&bucket, aggregator, value, outsideCount)
 			}
 			if err != nil {
-				return nil, fmt.Errorf("key '%s': %v", key, err)
+				return nil, countAgg, fmt.Errorf("key '%s': %v", key, err)
 			}
 
 			buckets[property] = bucket
 		}
 	}
 
-	return buckets, nil
+	return buckets, countAgg, nil
 }
 
 func getOrInitBucket(buckets map[string]aggregationBucket, property string,
