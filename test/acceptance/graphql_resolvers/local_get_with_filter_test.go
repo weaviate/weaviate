@@ -16,6 +16,7 @@ package test
 import (
 	"testing"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 	"github.com/stretchr/testify/assert"
 )
@@ -82,47 +83,47 @@ func TestGetWithComplexFilter(t *testing.T) {
 		assert.ElementsMatch(t, expected, airports)
 	})
 
-	// TODO: https://github.com/semi-technologies/weaviate/issues/949
-	// t.Run("with or filters applied", func(t *testing.T) {
-	// 	// this test was added to prevent a regression on the bugfix for gh-758
+	t.Run("with or filters applied", func(t *testing.T) {
+		// this test was added to prevent a regression on the bugfix for gh-758
 
-	// 	query := `
-	// 		{
-	// 				Meta {
-	// 					Things {
-	// 						City(where:{
-	// 							operator:Or
-	// 							operands:[{
-	// 								valueString:"Amsterdam",
-	// 								operator:Equal,
-	// 								path:["name"]
-	// 							}, {
-	// 								valueString:"Berlin",
-	// 								operator:Equal,
-	// 								path:["name"]
-	// 							}]
-	// 						}) {
-	// 							__typename
-	// 							name {
-	// 								__typename
-	// 								count
-	// 							}
-	// 						}
-	// 					}
-	// 				}
-	// 		}
-	// 	`
-	// 	result := AssertGraphQL(t, helper.RootAuth, query)
-	// 	cityMeta := result.Get("Meta", "Things", "City").Result
+		query := `
+			{
+					Aggregate {
+						Things {
+							City(where:{
+								operator:Or
+								operands:[{
+									valueString:"Amsterdam",
+									operator:Equal,
+									path:["name"]
+								}, {
+									valueString:"Berlin",
+									operator:Equal,
+									path:["name"]
+								}]
+							}) {
+								__typename
+								name {
+									__typename
+									count
+								}
+							}
+						}
+					}
+			}
+		`
+		result := AssertGraphQL(t, helper.RootAuth, query)
+		spew.Dump(result)
+		cityMeta := result.Get("Aggregate", "Things", "City").AsSlice()[0]
 
-	// 	expected := map[string]interface{}{
-	// 		"__typename": "MetaCity",
-	// 		"name": map[string]interface{}{
-	// 			"__typename": "MetaCitynameObj",
-	// 			"count":      json.Number("2"),
-	// 		},
-	// 	}
+		expected := map[string]interface{}{
+			"__typename": "AggregateCity",
+			"name": map[string]interface{}{
+				"__typename": "AggregateCitynameObj",
+				"count":      nil, // TODO: fix in gh-974
+			},
+		}
 
-	// 	assert.Equal(t, expected, cityMeta)
-	// })
+		assert.Equal(t, expected, cityMeta)
+	})
 }

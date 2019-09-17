@@ -86,7 +86,7 @@ func NewTraverser(config *config.WeaviateConfig, locks locks,
 // connected database
 type TraverserRepo interface {
 	GetClass(context.Context, *GetParams) (interface{}, error)
-	LocalAggregate(context.Context, *AggregateParams) (interface{}, error)
+	Aggregate(context.Context, *AggregateParams) (interface{}, error)
 }
 
 // c11y is a local abstraction on the contextionary that needs to be

@@ -21,7 +21,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TODO: gh-949 add types and ref pointing to
 func Test_Aggregates_WithoutGroupingOrFilters(t *testing.T) {
 
 	result := AssertGraphQL(t, helper.RootAuth, `

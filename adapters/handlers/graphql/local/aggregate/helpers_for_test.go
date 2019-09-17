@@ -51,7 +51,7 @@ func newMockResolver(cfg config.Config) *mockResolver {
 	return mocker
 }
 
-func (m *mockResolver) LocalAggregate(ctx context.Context, principal *models.Principal,
+func (m *mockResolver) Aggregate(ctx context.Context, principal *models.Principal,
 	params *traverser.AggregateParams) (interface{}, error) {
 	args := m.Called(params)
 	return args.Get(0), args.Error(1)

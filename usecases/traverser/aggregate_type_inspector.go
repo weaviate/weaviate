@@ -31,8 +31,7 @@ func (i *typeInspector) WithTypes(res *aggregation.Result, params AggregateParam
 			continue
 		}
 
-		// TODO: gh-949 fix order
-		err, schemaProp := i.schema.GetProperty(params.Kind, params.ClassName, prop.Name)
+		schemaProp, err := i.schema.GetProperty(params.Kind, params.ClassName, prop.Name)
 		if err != nil {
 			return nil, fmt.Errorf("with types: prop %s: %v", prop.Name, err)
 		}

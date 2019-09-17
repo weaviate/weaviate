@@ -32,7 +32,7 @@ type fakeRepo struct {
 	UpdateThingParameter *models.Thing
 }
 
-func (f *fakeRepo) LocalAggregate(ctx context.Context, params *AggregateParams) (interface{}, error) {
+func (f *fakeRepo) Aggregate(ctx context.Context, params *AggregateParams) (interface{}, error) {
 	panic("not implemented")
 }
 

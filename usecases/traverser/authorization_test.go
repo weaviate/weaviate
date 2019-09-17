@@ -48,7 +48,7 @@ func Test_Traverser_Authorization(t *testing.T) {
 		},
 
 		testCase{
-			methodName:       "LocalAggregate",
+			methodName:       "Aggregate",
 			additionalArgs:   []interface{}{&AggregateParams{}},
 			expectedVerb:     "get",
 			expectedResource: "traversal/*",
