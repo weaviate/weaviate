@@ -25,7 +25,7 @@ services:
     volumes:
      - ./config.yaml:/config.yaml
   contextionary:
-    image: semitechnologies/contextionary:en0.8.0-v0.3.2
+    image: semitechnologies/contextionary:en0.8.0-v0.3.3
     ports:
       - "9999:9999"
     environment:
