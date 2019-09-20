@@ -2699,6 +2699,81 @@ func init() {
         }
       }
     },
+    "Classification": {
+      "description": "Manage classifications, trigger them and view status of past classifications.",
+      "type": "object",
+      "properties": {
+        "basedOnProperties": {
+          "description": "base the text-based classification on these fields (of type text)",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "example": [
+            "description"
+          ]
+        },
+        "class": {
+          "description": "class (name) which is used in this classification",
+          "type": "string",
+          "example": "City"
+        },
+        "classifyProperties": {
+          "description": "which ref-property to set as part of the classification",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "example": [
+            "inCountry"
+          ]
+        },
+        "completed": {
+          "description": "time when this classification finished",
+          "type": "string",
+          "format": "date-time",
+          "example": "2017-07-21T17:32:28Z"
+        },
+        "id": {
+          "description": "ID to uniquely identify this classification run",
+          "type": "string",
+          "format": "uuid",
+          "example": "ee722219-b8ec-4db1-8f8d-5150bb1a9e0c"
+        },
+        "k": {
+          "description": "k-value when using k-Neareast-Neighbor",
+          "type": "integer",
+          "format": "int32",
+          "default": 3,
+          "example": 3
+        },
+        "started": {
+          "description": "time when this classification was started",
+          "type": "string",
+          "format": "date-time",
+          "example": "2017-07-21T17:32:28Z"
+        },
+        "status": {
+          "description": "status of this classification",
+          "type": "string",
+          "enum": [
+            "running",
+            "completed",
+            "failed"
+          ],
+          "example": "running"
+        },
+        "type": {
+          "description": "which algorythim to use for classifications",
+          "type": "string",
+          "default": "knn",
+          "enum": [
+            "knn"
+          ],
+          "example": "knn"
+        }
+      }
+    },
     "ErrorResponse": {
       "description": "An error response given by Weaviate end-points.",
       "type": "object",
@@ -5835,6 +5910,81 @@ func init() {
           "items": {
             "$ref": "#/definitions/Property"
           }
+        }
+      }
+    },
+    "Classification": {
+      "description": "Manage classifications, trigger them and view status of past classifications.",
+      "type": "object",
+      "properties": {
+        "basedOnProperties": {
+          "description": "base the text-based classification on these fields (of type text)",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "example": [
+            "description"
+          ]
+        },
+        "class": {
+          "description": "class (name) which is used in this classification",
+          "type": "string",
+          "example": "City"
+        },
+        "classifyProperties": {
+          "description": "which ref-property to set as part of the classification",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "example": [
+            "inCountry"
+          ]
+        },
+        "completed": {
+          "description": "time when this classification finished",
+          "type": "string",
+          "format": "date-time",
+          "example": "2017-07-21T17:32:28Z"
+        },
+        "id": {
+          "description": "ID to uniquely identify this classification run",
+          "type": "string",
+          "format": "uuid",
+          "example": "ee722219-b8ec-4db1-8f8d-5150bb1a9e0c"
+        },
+        "k": {
+          "description": "k-value when using k-Neareast-Neighbor",
+          "type": "integer",
+          "format": "int32",
+          "default": 3,
+          "example": 3
+        },
+        "started": {
+          "description": "time when this classification was started",
+          "type": "string",
+          "format": "date-time",
+          "example": "2017-07-21T17:32:28Z"
+        },
+        "status": {
+          "description": "status of this classification",
+          "type": "string",
+          "enum": [
+            "running",
+            "completed",
+            "failed"
+          ],
+          "example": "running"
+        },
+        "type": {
+          "description": "which algorythim to use for classifications",
+          "type": "string",
+          "default": "knn",
+          "enum": [
+            "knn"
+          ],
+          "example": "knn"
         }
       }
     },

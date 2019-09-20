@@ -642,6 +642,72 @@
         }
       },
       "type": "object"
+    },
+    "Classification": {
+      "description": "Manage classifications, trigger them and view status of past classifications.",
+      "properties": {
+        "id": {
+          "description": "ID to uniquely identify this classification run",
+          "format": "uuid",
+          "type": "string",
+          "example": "ee722219-b8ec-4db1-8f8d-5150bb1a9e0c"
+        },
+        "class": {
+          "description": "class (name) which is used in this classification",
+          "type": "string",
+          "example": "City"
+        },
+        "classifyProperties": {
+          "description": "which ref-property to set as part of the classification",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "example": ["inCountry"]
+        },
+        "basedOnProperties": {
+          "description": "base the text-based classification on these fields (of type text)",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "example": ["description"]
+        },
+        "status": {
+          "description": "status of this classification",
+          "type": "string",
+          "enum": ["running", "completed", "failed"],
+          "example": "running"
+        },
+        "started": {
+          "description": "time when this classification was started",
+          "type": "string",
+          "format": "date-time",
+          "example": "2017-07-21T17:32:28Z"
+        },
+        "completed": {
+          "description": "time when this classification finished",
+          "type": "string",
+          "format": "date-time",
+          "example": "2017-07-21T17:32:28Z"
+        },
+        "type": {
+          "description": "which algorythim to use for classifications",
+          "type": "string",
+          "enum": ["knn"],
+          "default": "knn",
+          "example": "knn"
+        },
+        "k": {
+          "description": "k-value when using k-Neareast-Neighbor",
+          "format": "int32",
+          "type": "integer",
+          "default": 3,
+          "example": 3
+        }
+      },
+      "type": "object"
+
     }
   },
   "externalDocs": {
