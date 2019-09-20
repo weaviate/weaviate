@@ -171,7 +171,7 @@ func (v *Validator) cRef(ctx context.Context, propertyName string, pv interface{
 
 		return crefs, nil
 	default:
-		return nil, fmt.Errorf("invalid ref type. Needs to be []map")
+		return nil, fmt.Errorf("invalid ref type. Needs to be []map, got %T", pv)
 	}
 }
 

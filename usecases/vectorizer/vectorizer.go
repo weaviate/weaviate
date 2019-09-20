@@ -61,14 +61,14 @@ func (v *Vectorizer) concept(ctx context.Context, className string,
 				corpi = append(corpi, strings.ToLower(
 					fmt.Sprintf("%s %s", camelCaseToLower(prop), valueString)))
 			} else {
-				// use only prop name
-				corpi = append(corpi, strings.ToLower(
-					fmt.Sprintf("%s", camelCaseToLower(prop))))
+				// // use only prop name
+				// corpi = append(corpi, strings.ToLower(
+				// 	fmt.Sprintf("%s", camelCaseToLower(prop))))
 			}
 		}
 	}
 
-	vector, err := v.client.VectorForCorpi(ctx, corpi)
+	vector, err := v.client.VectorForCorpi(ctx, []string{strings.Join(corpi, " ")})
 	if err != nil {
 		return nil, fmt.Errorf("vectorizing thing with corpus '%+v': %v", corpi, err)
 	}
