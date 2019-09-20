@@ -156,6 +156,21 @@ func (m *Migrator) esPropsFromClassProps(props []*models.Property, depth int) (m
 		case string(schema.DataTypeGeoCoordinates):
 			esProperties[prop.Name] = typeMap(GeoPoint)
 		default:
+			// must be a ref
+
+			// mapping for the actual field containing the beacon
+			if depth == 0 {
+				esProperties[prop.Name] = map[string]interface{}{
+					"properties": map[string]interface{}{
+						"beacon": map[string]interface{}{
+							"type": Keyword,
+						},
+					},
+				}
+
+			}
+
+			// mapping for the cache
 			if depth+1 > m.repo.denormalizationDepthLimit {
 				continue
 			}
