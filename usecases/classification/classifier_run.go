@@ -9,23 +9,23 @@ import (
 	"github.com/semi-technologies/weaviate/entities/search"
 )
 
-func (c *Classifier) run(params models.Classification) {
+func (c *Classifier) run(params models.Classification, kind kind.Kind) {
 	unclassifiedItems, err := c.vectorRepo.GetUnclassified(context.Background(),
-		params.Class, params.ClassifyProperties)
+		kind, params.Class, params.ClassifyProperties)
 	if err != nil {
 		c.failRunWithError(params, err)
 		return
 	}
 
-	if unclassifiedItems == nil || len(*unclassifiedItems) == 0 {
+	if unclassifiedItems == nil || len(unclassifiedItems) == 0 {
 		c.failRunWithError(params,
 			fmt.Errorf("no classes to be classified - did you run a previous classification already?"))
 		return
 	}
 
 	errors := &errorCompounder{}
-	for _, item := range *unclassifiedItems {
-		err := c.classifyItem(item, params)
+	for _, item := range unclassifiedItems {
+		err := c.classifyItem(item, kind, params)
 		if err != nil {
 			errors.add(err)
 		}
@@ -43,7 +43,7 @@ func (c *Classifier) run(params models.Classification) {
 
 func (c *Classifier) succeedRun(params models.Classification) {
 	params.Status = models.ClassificationStatusCompleted
-	err := c.repo.Put(params)
+	err := c.repo.Put(context.Background(), params)
 	if err != nil {
 		// TODO: log
 
@@ -53,16 +53,17 @@ func (c *Classifier) succeedRun(params models.Classification) {
 func (c *Classifier) failRunWithError(params models.Classification, err error) {
 	params.Status = models.ClassificationStatusFailed
 	params.Error = fmt.Sprintf("classification failed: %v", err)
-	err = c.repo.Put(params)
+	err = c.repo.Put(context.Background(), params)
 	if err != nil {
 		// TODO: log
 
 	}
 }
 
-func (c *Classifier) classifyItem(item search.Result, params models.Classification) error {
+func (c *Classifier) classifyItem(item search.Result, kind kind.Kind, params models.Classification) error {
 	// K is guaranteed to be set by now, no danger in dereferencing the pointer
-	res, err := c.vectorRepo.AggregateNeighbors(context.Background(), item.Vector, item.ClassName,
+	res, err := c.vectorRepo.AggregateNeighbors(context.Background(), item.Vector,
+		kind, item.ClassName,
 		params.ClassifyProperties, int(*params.K))
 
 	if err != nil {

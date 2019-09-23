@@ -32,6 +32,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/etcd"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/classification"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
@@ -54,6 +55,7 @@ func makeConfigureServer(appState *state.State) func(*http.Server, string, strin
 type vectorRepo interface {
 	kinds.BatchVectorRepo
 	traverser.VectorSearcher
+	classification.VectorRepo
 	SetSchemaGetter(schemaUC.SchemaGetter)
 	InitCacheIndexing(int, time.Duration, time.Duration)
 	WaitForStartup(time.Duration) error
@@ -99,6 +101,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	explorer = traverser.NewExplorer(repo, vectorizer)
 
 	schemaRepo := etcd.NewSchemaRepo(etcdClient)
+	classifierRepo := etcd.NewClassificationRepo(etcdClient)
 
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Locks, appState.Network, appState.Logger, appState.Contextionary, appState.Authorizer, appState.StopwordDetector)
@@ -135,6 +138,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	kindsTraverser := traverser.NewTraverser(appState.ServerConfig, appState.Locks,
 		appState.Logger, appState.Authorizer, vectorizer,
 		vectorRepo, explorer, schemaManager)
+
+	classifier := classification.New(schemaManager, classifierRepo, vectorRepo)
+	_ = classifier // TODO: pass to api
 
 	updateSchemaCallback := makeUpdateSchemaCall(appState.Logger, appState, kindsTraverser)
 	schemaManager.RegisterSchemaUpdateCallback(updateSchemaCallback)

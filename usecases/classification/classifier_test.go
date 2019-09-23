@@ -1,6 +1,7 @@
 package classification
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -15,7 +16,7 @@ import (
 func Test_Classifier(t *testing.T) {
 	t.Run("with invalid data", func(t *testing.T) {
 		sg := &fakeSchemaGetter{testSchema()}
-		_, err := New(sg, nil, nil).Schedule(models.Classification{})
+		_, err := New(sg, nil, nil).Schedule(context.Background(), models.Classification{})
 		assert.NotNil(t, err, "should error with invalid user input")
 	})
 
@@ -37,7 +38,7 @@ func Test_Classifier(t *testing.T) {
 		}
 
 		t.Run("scheduling a classification", func(t *testing.T) {
-			class, err := classifier.Schedule(params)
+			class, err := classifier.Schedule(context.Background(), params)
 			require.Nil(t, err, "should not error")
 			require.NotNil(t, class)
 
@@ -47,7 +48,7 @@ func Test_Classifier(t *testing.T) {
 		})
 
 		t.Run("retrieving the same classificiation by id", func(t *testing.T) {
-			class, err := classifier.Get(id)
+			class, err := classifier.Get(context.Background(), id)
 			require.Nil(t, err)
 			require.NotNil(t, class)
 			assert.Equal(t, id, class.ID)
@@ -58,7 +59,7 @@ func Test_Classifier(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 
 		t.Run("status is now completed", func(t *testing.T) {
-			class, err := classifier.Get(id)
+			class, err := classifier.Get(context.Background(), id)
 			require.Nil(t, err)
 			require.NotNil(t, class)
 			assert.Equal(t, models.ClassificationStatusCompleted, class.Status)
@@ -109,7 +110,7 @@ func Test_Classifier(t *testing.T) {
 		}
 
 		t.Run("scheduling a classification", func(t *testing.T) {
-			class, err := classifier.Schedule(params)
+			class, err := classifier.Schedule(context.Background(), params)
 			require.Nil(t, err, "should not error")
 			require.NotNil(t, class)
 
@@ -122,7 +123,7 @@ func Test_Classifier(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 
 		t.Run("status is now failed", func(t *testing.T) {
-			class, err := classifier.Get(id)
+			class, err := classifier.Get(context.Background(), id)
 			require.Nil(t, err)
 			require.NotNil(t, class)
 			assert.Equal(t, models.ClassificationStatusFailed, class.Status)
@@ -152,7 +153,7 @@ func Test_Classifier(t *testing.T) {
 		}
 
 		t.Run("scheduling a classification", func(t *testing.T) {
-			class, err := classifier.Schedule(params)
+			class, err := classifier.Schedule(context.Background(), params)
 			require.Nil(t, err, "should not error")
 			require.NotNil(t, class)
 
@@ -165,7 +166,7 @@ func Test_Classifier(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 
 		t.Run("status is now failed", func(t *testing.T) {
-			class, err := classifier.Get(id)
+			class, err := classifier.Get(context.Background(), id)
 			require.Nil(t, err)
 			require.NotNil(t, class)
 			assert.Equal(t, models.ClassificationStatusFailed, class.Status)
