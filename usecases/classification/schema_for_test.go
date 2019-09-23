@@ -24,6 +24,7 @@ import (
 )
 
 func testSchema() schema.Schema {
+	many := "many"
 	return schema.Schema{
 		Things: &models.Schema{
 			Classes: []*models.Class{
@@ -51,6 +52,11 @@ func testSchema() schema.Schema {
 						&models.Property{
 							Name:     "mainCategory",
 							DataType: []string{"MainCategory"},
+						},
+						&models.Property{
+							Cardinality: &many,
+							Name:        "categories",
+							DataType:    []string{"ExactCategory"},
 						},
 					},
 				},
