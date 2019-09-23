@@ -25,6 +25,7 @@ import (
 	strfmt "github.com/go-openapi/strfmt"
 
 	"github.com/semi-technologies/weaviate/client/actions"
+	"github.com/semi-technologies/weaviate/client/classifications"
 	"github.com/semi-technologies/weaviate/client/contextionary_api"
 	"github.com/semi-technologies/weaviate/client/graphql"
 	"github.com/semi-technologies/weaviate/client/meta"
@@ -78,6 +79,8 @@ func New(transport runtime.ClientTransport, formats strfmt.Registry) *WeaviateDe
 	cli.Transport = transport
 
 	cli.Actions = actions.New(transport, formats)
+
+	cli.Classifications = classifications.New(transport, formats)
 
 	cli.ContextionaryAPI = contextionary_api.New(transport, formats)
 
@@ -139,6 +142,8 @@ func (cfg *TransportConfig) WithSchemes(schemes []string) *TransportConfig {
 type WeaviateDecentralisedKnowledgeGraph struct {
 	Actions *actions.Client
 
+	Classifications *classifications.Client
+
 	ContextionaryAPI *contextionary_api.Client
 
 	Graphql *graphql.Client
@@ -161,6 +166,8 @@ func (c *WeaviateDecentralisedKnowledgeGraph) SetTransport(transport runtime.Cli
 	c.Transport = transport
 
 	c.Actions.SetTransport(transport)
+
+	c.Classifications.SetTransport(transport)
 
 	c.ContextionaryAPI.SetTransport(transport)
 
