@@ -1,3 +1,16 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 SeMI Holding B.V. (registered @ Dutch Chamber of Commerce no 75221632). All rights reserved.
+//  LICENSE WEAVIATE OPEN SOURCE: https://www.semi.technology/playbook/playbook/contract-weaviate-OSS.html
+//  LICENSE WEAVIATE ENTERPRISE: https://www.semi.technology/playbook/contract-weaviate-enterprise.html
+//  CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
 package classification
 
 import (
@@ -6,6 +19,7 @@ import (
 	"math"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -41,6 +55,9 @@ func (f *fakeClassificationRepo) Put(class models.Classification) error {
 }
 
 func (f *fakeClassificationRepo) Get(id strfmt.UUID) (*models.Classification, error) {
+	f.Lock()
+	defer f.Unlock()
+
 	class, ok := f.db[id]
 	if !ok {
 		return nil, nil
@@ -60,9 +77,11 @@ func newFakeVectorRepo(unclassified, classified search.Results) *fakeVectorRepo 
 // read requests are specified throuh unclassified and classified,
 // write requests (Put[Kind]) are stored in the db map
 type fakeVectorRepo struct {
-	unclassified search.Results
-	classified   search.Results
-	db           map[strfmt.UUID]*models.Thing
+	sync.Mutex
+	unclassified     search.Results
+	classified       search.Results
+	db               map[strfmt.UUID]*models.Thing
+	errorOnAggregate error
 }
 
 func (f *fakeVectorRepo) GetUnclassified(ctx context.Context, class string,
@@ -72,6 +91,10 @@ func (f *fakeVectorRepo) GetUnclassified(ctx context.Context, class string,
 
 func (f *fakeVectorRepo) AggregateNeighbors(ctx context.Context, vector []float32,
 	class string, properties []string, k int) ([]NeighborRef, error) {
+
+	// simulate that this takes some time
+	time.Sleep(5 * time.Millisecond)
+
 	if k != 1 {
 		return nil, fmt.Errorf("fake vector repo only supports k=1")
 	}
@@ -110,10 +133,12 @@ func (f *fakeVectorRepo) AggregateNeighbors(ctx context.Context, vector []float3
 		})
 	}
 
-	return out, nil
+	return out, f.errorOnAggregate
 }
 
 func (f *fakeVectorRepo) PutThing(ctx context.Context, thing *models.Thing, vector []float32) error {
+	f.Lock()
+	defer f.Unlock()
 	f.db[thing.ID] = thing
 	return nil
 }

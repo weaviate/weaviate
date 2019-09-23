@@ -2734,6 +2734,12 @@ func init() {
           "format": "date-time",
           "example": "2017-07-21T17:32:28Z"
         },
+        "error": {
+          "description": "error message if status == failed",
+          "type": "string",
+          "default": "",
+          "example": "classify xzy: something went wrong"
+        },
         "id": {
           "description": "ID to uniquely identify this classification run",
           "type": "string",
@@ -5947,6 +5953,12 @@ func init() {
           "type": "string",
           "format": "date-time",
           "example": "2017-07-21T17:32:28Z"
+        },
+        "error": {
+          "description": "error message if status == failed",
+          "type": "string",
+          "default": "",
+          "example": "classify xzy: something went wrong"
         },
         "id": {
           "description": "ID to uniquely identify this classification run",

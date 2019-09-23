@@ -704,6 +704,12 @@
           "type": "integer",
           "default": 3,
           "example": 3
+        },
+        "error": {
+          "description": "error message if status == failed",
+          "type": "string",
+          "default": "",
+          "example": "classify xzy: something went wrong"
         }
       },
       "type": "object"
