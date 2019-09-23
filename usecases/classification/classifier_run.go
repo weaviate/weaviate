@@ -13,22 +13,50 @@ func (c *Classifier) run(params models.Classification) {
 	unclassifiedItems, err := c.vectorRepo.GetUnclassified(context.Background(),
 		params.Class, params.ClassifyProperties)
 	if err != nil {
-		// TODO: mark run as failed
-	}
-
-	if unclassifiedItems == nil {
-		// no work to do
+		c.failRunWithError(params, err)
 		return
 	}
 
+	if unclassifiedItems == nil {
+		c.succeedRun(params)
+		return
+	}
+
+	errors := &errorCompounder{}
 	for _, item := range *unclassifiedItems {
 		err := c.classifyItem(item, params)
 		if err != nil {
-			// TODO: mark run as failed
+			errors.add(err)
 		}
 
 	}
 
+	err = errors.toError()
+	if err != nil {
+		c.failRunWithError(params, err)
+		return
+	}
+
+	c.succeedRun(params)
+}
+
+func (c *Classifier) succeedRun(params models.Classification) {
+	params.Status = models.ClassificationStatusCompleted
+	err := c.repo.Put(params)
+	if err != nil {
+		// TODO: log
+
+	}
+}
+
+func (c *Classifier) failRunWithError(params models.Classification, err error) {
+	params.Status = models.ClassificationStatusFailed
+	params.Error = fmt.Sprintf("classification failed: %v", err)
+	err = c.repo.Put(params)
+	if err != nil {
+		// TODO: log
+
+	}
 }
 
 func (c *Classifier) classifyItem(item search.Result, params models.Classification) error {

@@ -45,6 +45,9 @@ type Classification struct {
 	// Format: date-time
 	Completed strfmt.DateTime `json:"completed,omitempty"`
 
+	// error message if status == failed
+	Error string `json:"error,omitempty"`
+
 	// ID to uniquely identify this classification run
 	// Format: uuid
 	ID strfmt.UUID `json:"id,omitempty"`
