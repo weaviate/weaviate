@@ -2903,6 +2903,99 @@
         "x-available-in-websocket": false
       }
     },
+    "/classifications/": {
+      "post": {
+        "description": "Trigger a classification based on the specified params. Classifications will run in the background, use GET /classifications/<id> to retrieve the status of your classificaiton.",
+        "operationId": "classifications.post",
+        "x-serviceIds": ["weaviate.classifications.post"],
+        "parameters": [
+          {
+            "description": "parameters to start a classification",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/Classification"
+            },
+            "name": "params",
+            "required": true
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successfully started classification.",
+            "schema": {
+              "$ref": "#/definitions/Classification"
+            }
+          },
+          "400": {
+            "description": "Incorrect request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "summary": "Starts a classification.",
+        "tags": ["classifications"]
+      }
+    },
+    "/classifications/{id}": {
+      "get": {
+        "description": "Get status, results and metadata of a previously created classification",
+        "operationId": "classifications.get",
+        "x-serviceIds": ["weaviate.classifications.get"],
+        "parameters": [
+          {
+            "description": "classification id",
+            "in": "path",
+            "type": "string",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Found the classification, returned as body",
+            "schema": {
+              "$ref": "#/definitions/Classification"
+            }
+          },
+          "404": {
+            "description": "Not Found - Classification does not exist"
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "summary": "View previously created classification",
+        "tags": ["classifications"]
+      }
+    },
     "/.well-known/openid-configuration": {
       "get": {
         "description": "OIDC Discovery page, redirects to the token issuer if one is configured",

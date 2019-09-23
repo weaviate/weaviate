@@ -979,6 +979,107 @@ func init() {
         ]
       }
     },
+    "/classifications/": {
+      "post": {
+        "description": "Trigger a classification based on the specified params. Classifications will run in the background, use GET /classifications/\u003cid\u003e to retrieve the status of your classificaiton.",
+        "tags": [
+          "classifications"
+        ],
+        "summary": "Starts a classification.",
+        "operationId": "classifications.post",
+        "parameters": [
+          {
+            "description": "parameters to start a classification",
+            "name": "params",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Classification"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successfully started classification.",
+            "schema": {
+              "$ref": "#/definitions/Classification"
+            }
+          },
+          "400": {
+            "description": "Incorrect request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.classifications.post"
+        ]
+      }
+    },
+    "/classifications/{id}": {
+      "get": {
+        "description": "Get status, results and metadata of a previously created classification",
+        "tags": [
+          "classifications"
+        ],
+        "summary": "View previously created classification",
+        "operationId": "classifications.get",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "classification id",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Found the classification, returned as body",
+            "schema": {
+              "$ref": "#/definitions/Classification"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Classification does not exist"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.classifications.get"
+        ]
+      }
+    },
     "/graphql": {
       "post": {
         "description": "Get an object based on GraphQL",
@@ -4192,6 +4293,107 @@ func init() {
         "x-available-in-websocket": false,
         "x-serviceIds": [
           "weaviate.c11y.words.get"
+        ]
+      }
+    },
+    "/classifications/": {
+      "post": {
+        "description": "Trigger a classification based on the specified params. Classifications will run in the background, use GET /classifications/\u003cid\u003e to retrieve the status of your classificaiton.",
+        "tags": [
+          "classifications"
+        ],
+        "summary": "Starts a classification.",
+        "operationId": "classifications.post",
+        "parameters": [
+          {
+            "description": "parameters to start a classification",
+            "name": "params",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Classification"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successfully started classification.",
+            "schema": {
+              "$ref": "#/definitions/Classification"
+            }
+          },
+          "400": {
+            "description": "Incorrect request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.classifications.post"
+        ]
+      }
+    },
+    "/classifications/{id}": {
+      "get": {
+        "description": "Get status, results and metadata of a previously created classification",
+        "tags": [
+          "classifications"
+        ],
+        "summary": "View previously created classification",
+        "operationId": "classifications.get",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "classification id",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Found the classification, returned as body",
+            "schema": {
+              "$ref": "#/definitions/Classification"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Classification does not exist"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.classifications.get"
         ]
       }
     },
