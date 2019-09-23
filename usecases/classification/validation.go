@@ -135,6 +135,12 @@ func (v *Validator) classifyProperty(class *models.Class, propName string) {
 		v.errors.addf("classifyProperties: property '%s' must be of reference type (cref)", propName)
 		return
 	}
+
+	if c := schema.CardinalityOfProperty(prop); c == schema.CardinalityMany {
+		v.errors.addf("classifyProperties: property '%s'"+
+			" is of cardinality 'many', can only classifiy references of cardinality 'atMostOne'", propName)
+		return
+	}
 }
 
 func (v *Validator) propertyByName(class *models.Class, propName string) (*models.Property, bool) {

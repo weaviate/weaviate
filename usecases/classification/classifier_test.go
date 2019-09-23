@@ -136,6 +136,44 @@ func Test_Classifier(t *testing.T) {
 			assert.Equal(t, expectedErr, class.Error)
 		})
 	})
+
+	t.Run("when there is nothing to be classified", func(t *testing.T) {
+		sg := &fakeSchemaGetter{testSchema()}
+		repo := newFakeClassificationRepo()
+		vectorRepo := newFakeVectorRepo(nil, testDataAlreadyClassified())
+		classifier := New(sg, repo, vectorRepo)
+
+		k := int32(1)
+		params := models.Classification{
+			Class:              "Article",
+			BasedOnProperties:  []string{"description"},
+			ClassifyProperties: []string{"exactCategory", "mainCategory"},
+			K:                  &k,
+		}
+
+		t.Run("scheduling a classification", func(t *testing.T) {
+			class, err := classifier.Schedule(params)
+			require.Nil(t, err, "should not error")
+			require.NotNil(t, class)
+
+			assert.Len(t, class.ID, 36, "an id was assigned")
+			id = class.ID
+
+		})
+
+		// TODO: improve by polling instead
+		time.Sleep(100 * time.Millisecond)
+
+		t.Run("status is now failed", func(t *testing.T) {
+			class, err := classifier.Get(id)
+			require.Nil(t, err)
+			require.NotNil(t, class)
+			assert.Equal(t, models.ClassificationStatusFailed, class.Status)
+			expectedErr := "classification failed: " +
+				"no classes to be classified - did you run a previous classification already?"
+			assert.Equal(t, expectedErr, class.Error)
+		})
+	})
 }
 
 func checkRef(t *testing.T, repo *fakeVectorRepo, source, propName, target string) {

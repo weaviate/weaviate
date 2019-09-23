@@ -17,8 +17,9 @@ func (c *Classifier) run(params models.Classification) {
 		return
 	}
 
-	if unclassifiedItems == nil {
-		c.succeedRun(params)
+	if unclassifiedItems == nil || len(*unclassifiedItems) == 0 {
+		c.failRunWithError(params,
+			fmt.Errorf("no classes to be classified - did you run a previous classification already?"))
 		return
 	}
 
