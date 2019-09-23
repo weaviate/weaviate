@@ -11,6 +11,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/classification"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func (r *Repo) GetUnclassified(ctx context.Context, kind kind.Kind,
@@ -33,6 +34,13 @@ func (r *Repo) GetUnclassified(ctx context.Context, kind kind.Kind,
 			},
 		},
 		"size": 9999,
+		"aggregations": map[string]interface{}{
+			"count": map[string]interface{}{
+				"value_count": map[string]interface{}{
+					"field": "_id",
+				},
+			},
+		},
 	}
 
 	var buf bytes.Buffer
@@ -49,7 +57,51 @@ func (r *Repo) GetUnclassified(ctx context.Context, kind kind.Kind,
 		return nil, fmt.Errorf("vector search: %v", err)
 	}
 
-	return r.searchResponse(res, nil)
+	return r.unclassifiedSearchResponse(res, nil)
+}
+
+func (r *Repo) unclassifiedSearchResponse(res *esapi.Response, properties traverser.SelectProperties) ([]search.Result,
+	error) {
+	if err := errorResToErr(res, r.logger); err != nil {
+		return nil, fmt.Errorf("vector search: %v", err)
+	}
+
+	var sr searchResponse
+	defer res.Body.Close()
+	err := json.NewDecoder(res.Body).Decode(&sr)
+	if err != nil {
+		return nil, fmt.Errorf("vector search: decode json: %v", err)
+	}
+
+	if err := checkClassificationCount(sr.Aggregations); err != nil {
+		return nil, err
+	}
+
+	return sr.toResults(r, properties)
+}
+
+func checkClassificationCount(res map[string]interface{}) error {
+
+	count, ok := res["count"]
+	if !ok {
+		return fmt.Errorf("get unclassified: expected 'count' aggregation, but got %v", res)
+	}
+
+	asMap, ok := count.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("get unclassified: expected 'count' to be map, got %T", count)
+	}
+
+	value, ok := asMap["value"]
+	if !ok {
+		return fmt.Errorf("get unclassified: expected 'count' to have key 'value', but got %v", count)
+	}
+
+	if int(value.(float64)) > 9999 {
+		return fmt.Errorf("found more than 9999 unclassified items (%d), current supported maximum is 9999", int(value.(float64)))
+	}
+
+	return nil
 }
 
 func (r *Repo) AggregateNeighbors(ctx context.Context, vector []float32, kind kind.Kind, class string,
