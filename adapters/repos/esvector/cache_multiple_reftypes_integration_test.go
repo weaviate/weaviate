@@ -119,6 +119,26 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 						},
 					},
 				},
+
+				// for classifications test
+				&models.Class{
+					Class: "ExactCategory",
+					Properties: []*models.Property{
+						&models.Property{
+							Name:     "name",
+							DataType: []string{string(schema.DataTypeString)},
+						},
+					},
+				},
+				&models.Class{
+					Class: "MainCategory",
+					Properties: []*models.Property{
+						&models.Property{
+							Name:     "name",
+							DataType: []string{string(schema.DataTypeString)},
+						},
+					},
+				},
 			},
 		},
 	}
@@ -1282,6 +1302,8 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 	t.Run("filtering on refprops", testFilteringOnRefProps(repo))
 
 	t.Run("updating cached ref props", testUpdatingCachedRefProps(repo, refSchema))
+
+	t.Run("classifications", testClassifications(repo, migrator))
 
 	repo.StopCacheIndexing()
 }
