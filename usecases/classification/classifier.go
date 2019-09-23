@@ -14,12 +14,14 @@ import (
 type Classifier struct {
 	schemaGetter schemaUC.SchemaGetter
 	repo         Repo
+	vectorRepo   VectorRepo
 }
 
-func New(sg schemaUC.SchemaGetter, cr Repo) *Classifier {
+func New(sg schemaUC.SchemaGetter, cr Repo, vr VectorRepo) *Classifier {
 	return &Classifier{
 		schemaGetter: sg,
 		repo:         cr,
+		vectorRepo:   vr,
 	}
 }
 
@@ -31,8 +33,9 @@ type Repo interface {
 }
 
 type VectorRepo interface {
-	GetUnclassified(ctx context.Context, class string, properites []string) (*search.Result, error)
-	AggregateNeighbors(ctx context.Context, vector []float32, properties []string, k int) ([]NeighborRef, error)
+	GetUnclassified(ctx context.Context, class string, properites []string) (*search.Results, error)
+	AggregateNeighbors(ctx context.Context, vector []float32, class string,
+		properties []string, k int) ([]NeighborRef, error)
 	PutThing(ctx context.Context, thing *models.Thing, vector []float32) error
 	PutAction(ctx context.Context, action *models.Action, vector []float32) error
 }
@@ -53,6 +56,11 @@ func (c *Classifier) Schedule(params models.Classification) (*models.Classificat
 	err := NewValidator(c.schemaGetter, params).Do()
 	if err != nil {
 		return nil, err
+	}
+
+	if params.K == nil {
+		defaultK := int32(3)
+		params.K = &defaultK
 	}
 
 	if err := c.assignNewID(&params); err != nil {

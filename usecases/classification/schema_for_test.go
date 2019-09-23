@@ -6,6 +6,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 )
 
@@ -49,6 +50,7 @@ func testSchema() schema.Schema {
 func testDataToBeClassified() search.Results {
 	return search.Results{
 		search.Result{
+			Kind:      kind.Thing,
 			ID:        "75ba35af-6a08-40ae-b442-3bec69b355f9",
 			ClassName: "Article",
 			Vector:    []float32{0.78, 0, 0},
@@ -57,6 +59,7 @@ func testDataToBeClassified() search.Results {
 			},
 		},
 		search.Result{
+			Kind:      kind.Thing,
 			ID:        "f850439a-d3cd-4f17-8fbf-5a64405645cd",
 			ClassName: "Article",
 			Vector:    []float32{0.90, 0, 0},
@@ -65,6 +68,7 @@ func testDataToBeClassified() search.Results {
 			},
 		},
 		search.Result{
+			Kind:      kind.Thing,
 			ID:        "a2bbcbdc-76e1-477d-9e72-a6d2cfb50109",
 			ClassName: "Article",
 			Vector:    []float32{0, 0.78, 0},
@@ -73,6 +77,7 @@ func testDataToBeClassified() search.Results {
 			},
 		},
 		search.Result{
+			Kind:      kind.Thing,
 			ID:        "069410c3-4b9e-4f68-8034-32a066cb7997",
 			ClassName: "Article",
 			Vector:    []float32{0, 0.90, 0},
@@ -81,6 +86,7 @@ func testDataToBeClassified() search.Results {
 			},
 		},
 		search.Result{
+			Kind:      kind.Thing,
 			ID:        "06a1e824-889c-4649-97f9-1ed3fa401d8e",
 			ClassName: "Article",
 			Vector:    []float32{0, 0, 0.78},
@@ -89,6 +95,7 @@ func testDataToBeClassified() search.Results {
 			},
 		},
 		search.Result{
+			Kind:      kind.Thing,
 			ID:        "6402e649-b1e0-40ea-b192-a64eab0d5e56",
 			ClassName: "Article",
 			Vector:    []float32{0, 0, 0.90},

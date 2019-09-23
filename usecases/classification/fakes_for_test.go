@@ -3,6 +3,8 @@ package classification
 import (
 	"context"
 	"fmt"
+	"math"
+	"sort"
 	"sync"
 
 	"github.com/go-openapi/strfmt"
@@ -47,24 +49,95 @@ func (f *fakeClassificationRepo) Get(id strfmt.UUID) (*models.Classification, er
 	return &class, nil
 }
 
+func newFakeVectorRepo(unclassified, classified search.Results) *fakeVectorRepo {
+	return &fakeVectorRepo{
+		unclassified: unclassified,
+		classified:   classified,
+		db:           map[strfmt.UUID]*models.Thing{},
+	}
+}
+
 // read requests are specified throuh unclassified and classified,
 // write requests (Put[Kind]) are stored in the db map
 type fakeVectorRepo struct {
-	unclassified search.Result
-	classified   search.Result
-	dp           map[strfmt.UUID]*models.Thing
+	unclassified search.Results
+	classified   search.Results
+	db           map[strfmt.UUID]*models.Thing
 }
 
 func (f *fakeVectorRepo) GetUnclassified(ctx context.Context, class string,
-	properties []string) (*search.Result, error) {
+	properties []string) (*search.Results, error) {
 	return &f.unclassified, nil
 }
 
 func (f *fakeVectorRepo) AggregateNeighbors(ctx context.Context, vector []float32,
-	properties []string, k int) ([]NeighborRef, error) {
+	class string, properties []string, k int) ([]NeighborRef, error) {
 	if k != 1 {
 		return nil, fmt.Errorf("fake vector repo only supports k=1")
 	}
 
-	return nil, nil
+	results := f.classified
+	sort.SliceStable(results, func(i, j int) bool {
+		simI, err := cosineSim(results[i].Vector, vector)
+		if err != nil {
+			panic(err.Error())
+		}
+
+		simJ, err := cosineSim(results[j].Vector, vector)
+		if err != nil {
+			panic(err.Error())
+		}
+		return simI > simJ
+	})
+
+	var out []NeighborRef
+	schema := results[0].Schema.(map[string]interface{})
+	for _, propName := range properties {
+		prop, ok := schema[propName]
+		if !ok {
+			return nil, fmt.Errorf("missing prop %s", propName)
+		}
+
+		refs := prop.(models.MultipleRef)
+		if len(refs) != 1 {
+			return nil, fmt.Errorf("wrong length %d", len(refs))
+		}
+
+		out = append(out, NeighborRef{
+			Beacon:   refs[0].Beacon,
+			Count:    1,
+			Property: propName,
+		})
+	}
+
+	return out, nil
+}
+
+func (f *fakeVectorRepo) PutThing(ctx context.Context, thing *models.Thing, vector []float32) error {
+	f.db[thing.ID] = thing
+	return nil
+}
+
+func (f *fakeVectorRepo) PutAction(ctx context.Context, thing *models.Action, vector []float32) error {
+	return fmt.Errorf("put action not implemented in fake")
+}
+
+func cosineSim(a, b []float32) (float32, error) {
+	if len(a) != len(b) {
+		return 0, fmt.Errorf("vectors have different dimensions")
+	}
+
+	var (
+		sumProduct float64
+		sumASquare float64
+		sumBSquare float64
+	)
+
+	for i := range a {
+		sumProduct += float64(a[i] * b[i])
+		sumASquare += float64(a[i] * a[i])
+		sumBSquare += float64(b[i] * b[i])
+	}
+
+	return float32(sumProduct / (math.Sqrt(sumASquare) * math.Sqrt(sumBSquare))), nil
 }
