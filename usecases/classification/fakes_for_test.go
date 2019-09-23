@@ -24,6 +24,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 )
 
@@ -46,7 +47,7 @@ func newFakeClassificationRepo() *fakeClassificationRepo {
 	}
 }
 
-func (f *fakeClassificationRepo) Put(class models.Classification) error {
+func (f *fakeClassificationRepo) Put(ctx context.Context, class models.Classification) error {
 	f.Lock()
 	defer f.Unlock()
 
@@ -54,7 +55,7 @@ func (f *fakeClassificationRepo) Put(class models.Classification) error {
 	return nil
 }
 
-func (f *fakeClassificationRepo) Get(id strfmt.UUID) (*models.Classification, error) {
+func (f *fakeClassificationRepo) Get(ctx context.Context, id strfmt.UUID) (*models.Classification, error) {
 	f.Lock()
 	defer f.Unlock()
 
@@ -78,22 +79,31 @@ func newFakeVectorRepo(unclassified, classified search.Results) *fakeVectorRepo 
 // write requests (Put[Kind]) are stored in the db map
 type fakeVectorRepo struct {
 	sync.Mutex
-	unclassified     search.Results
-	classified       search.Results
+	unclassified     []search.Result
+	classified       []search.Result
 	db               map[strfmt.UUID]*models.Thing
 	errorOnAggregate error
 }
 
-func (f *fakeVectorRepo) GetUnclassified(ctx context.Context, class string,
-	properties []string) (*search.Results, error) {
-	return &f.unclassified, nil
+func (f *fakeVectorRepo) GetUnclassified(ctx context.Context,
+	k kind.Kind, class string,
+	properties []string) ([]search.Result, error) {
+	if k != kind.Thing {
+		return nil, fmt.Errorf("unsupported kind in test fake: %v", k)
+	}
+
+	return f.unclassified, nil
 }
 
 func (f *fakeVectorRepo) AggregateNeighbors(ctx context.Context, vector []float32,
-	class string, properties []string, k int) ([]NeighborRef, error) {
+	ki kind.Kind, class string, properties []string, k int) ([]NeighborRef, error) {
 
 	// simulate that this takes some time
 	time.Sleep(5 * time.Millisecond)
+
+	if ki != kind.Thing {
+		return nil, fmt.Errorf("unsupported kind in test fake: %v", k)
+	}
 
 	if k != 1 {
 		return nil, fmt.Errorf("fake vector repo only supports k=1")

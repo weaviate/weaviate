@@ -20,6 +20,8 @@ import (
 	"github.com/go-openapi/strfmt"
 	uuid "github.com/satori/go.uuid"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 )
@@ -27,10 +29,10 @@ import (
 type Classifier struct {
 	schemaGetter schemaUC.SchemaGetter
 	repo         Repo
-	vectorRepo   VectorRepo
+	vectorRepo   vectorRepo
 }
 
-func New(sg schemaUC.SchemaGetter, cr Repo, vr VectorRepo) *Classifier {
+func New(sg schemaUC.SchemaGetter, cr Repo, vr vectorRepo) *Classifier {
 	return &Classifier{
 		schemaGetter: sg,
 		repo:         cr,
@@ -41,14 +43,18 @@ func New(sg schemaUC.SchemaGetter, cr Repo, vr VectorRepo) *Classifier {
 // Repo to manage classification state, should be consistent, not used to store
 // acutal data object vectors, see VectorRepo
 type Repo interface {
-	Put(models.Classification) error
-	Get(id strfmt.UUID) (*models.Classification, error)
+	Put(ctx context.Context, classification models.Classification) error
+	Get(ctx context.Context, id strfmt.UUID) (*models.Classification, error)
 }
 
 type VectorRepo interface {
-	GetUnclassified(ctx context.Context, class string, properites []string) (*search.Results, error)
-	AggregateNeighbors(ctx context.Context, vector []float32, class string,
-		properties []string, k int) ([]NeighborRef, error)
+	GetUnclassified(ctx context.Context, kind kind.Kind, class string, properites []string) ([]search.Result, error)
+	AggregateNeighbors(ctx context.Context, vector []float32,
+		kind kind.Kind, class string, properties []string, k int) ([]NeighborRef, error)
+}
+
+type vectorRepo interface {
+	VectorRepo
 	PutThing(ctx context.Context, thing *models.Thing, vector []float32) error
 	PutAction(ctx context.Context, action *models.Action, vector []float32) error
 }
@@ -65,7 +71,7 @@ type NeighborRef struct {
 	Count int
 }
 
-func (c *Classifier) Schedule(params models.Classification) (*models.Classification, error) {
+func (c *Classifier) Schedule(ctx context.Context, params models.Classification) (*models.Classification, error) {
 	err := NewValidator(c.schemaGetter, params).Do()
 	if err != nil {
 		return nil, err
@@ -82,14 +88,22 @@ func (c *Classifier) Schedule(params models.Classification) (*models.Classificat
 
 	params.Status = models.ClassificationStatusRunning
 
-	if err := c.repo.Put(params); err != nil {
+	if err := c.repo.Put(ctx, params); err != nil {
 		return nil, fmt.Errorf("classification: put: %v", err)
 	}
 
 	// asynchronously trigger the classification
-	go c.run(params)
+	kind := c.getKind(params)
+	go c.run(params, kind)
 
 	return &params, nil
+}
+
+func (c *Classifier) getKind(params models.Classification) kind.Kind {
+	s := c.schemaGetter.GetSchemaSkipAuth()
+	kind, _ := s.GetKindOfClass(schema.ClassName(params.Class))
+	// skip nil-check as we have made it past validation
+	return kind
 }
 
 func (c *Classifier) assignNewID(params *models.Classification) error {
@@ -102,6 +116,6 @@ func (c *Classifier) assignNewID(params *models.Classification) error {
 	return nil
 }
 
-func (c *Classifier) Get(id strfmt.UUID) (*models.Classification, error) {
-	return c.repo.Get(id)
+func (c *Classifier) Get(ctx context.Context, id strfmt.UUID) (*models.Classification, error) {
+	return c.repo.Get(ctx, id)
 }
