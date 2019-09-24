@@ -31,13 +31,19 @@ type Classifier struct {
 	schemaGetter schemaUC.SchemaGetter
 	repo         Repo
 	vectorRepo   vectorRepo
+	authorizer   authorizer
 }
 
-func New(sg schemaUC.SchemaGetter, cr Repo, vr vectorRepo) *Classifier {
+type authorizer interface {
+	Authorize(principal *models.Principal, verb, resource string) error
+}
+
+func New(sg schemaUC.SchemaGetter, cr Repo, vr vectorRepo, authorizer authorizer) *Classifier {
 	return &Classifier{
 		schemaGetter: sg,
 		repo:         cr,
 		vectorRepo:   vr,
+		authorizer:   authorizer,
 	}
 }
 
@@ -72,8 +78,13 @@ type NeighborRef struct {
 	Count int
 }
 
-func (c *Classifier) Schedule(ctx context.Context, params models.Classification) (*models.Classification, error) {
-	err := NewValidator(c.schemaGetter, params).Do()
+func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, params models.Classification) (*models.Classification, error) {
+	err := c.authorizer.Authorize(principal, "create", "classifications/*")
+	if err != nil {
+		return nil, err
+	}
+
+	err = NewValidator(c.schemaGetter, params).Do()
 	if err != nil {
 		return nil, err
 	}
@@ -120,6 +131,11 @@ func (c *Classifier) assignNewID(params *models.Classification) error {
 	return nil
 }
 
-func (c *Classifier) Get(ctx context.Context, id strfmt.UUID) (*models.Classification, error) {
+func (c *Classifier) Get(ctx context.Context, principal *models.Principal, id strfmt.UUID) (*models.Classification, error) {
+	err := c.authorizer.Authorize(principal, "get", "classifications/*")
+	if err != nil {
+		return nil, err
+	}
+
 	return c.repo.Get(ctx, id)
 }
