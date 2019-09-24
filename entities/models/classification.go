@@ -41,10 +41,6 @@ type Classification struct {
 	// which ref-property to set as part of the classification
 	ClassifyProperties []string `json:"classifyProperties"`
 
-	// time when this classification finished
-	// Format: date-time
-	Completed strfmt.DateTime `json:"completed,omitempty"`
-
 	// error message if status == failed
 	Error string `json:"error,omitempty"`
 
@@ -55,9 +51,8 @@ type Classification struct {
 	// k-value when using k-Neareast-Neighbor
 	K *int32 `json:"k,omitempty"`
 
-	// time when this classification was started
-	// Format: date-time
-	Started strfmt.DateTime `json:"started,omitempty"`
+	// additional meta information about the classification
+	Meta *ClassificationMeta `json:"meta,omitempty"`
 
 	// status of this classification
 	// Enum: [running completed failed]
@@ -72,15 +67,11 @@ type Classification struct {
 func (m *Classification) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateCompleted(formats); err != nil {
-		res = append(res, err)
-	}
-
 	if err := m.validateID(formats); err != nil {
 		res = append(res, err)
 	}
 
-	if err := m.validateStarted(formats); err != nil {
+	if err := m.validateMeta(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -98,19 +89,6 @@ func (m *Classification) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *Classification) validateCompleted(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.Completed) { // not required
-		return nil
-	}
-
-	if err := validate.FormatOf("completed", "body", "date-time", m.Completed.String(), formats); err != nil {
-		return err
-	}
-
-	return nil
-}
-
 func (m *Classification) validateID(formats strfmt.Registry) error {
 
 	if swag.IsZero(m.ID) { // not required
@@ -124,14 +102,19 @@ func (m *Classification) validateID(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *Classification) validateStarted(formats strfmt.Registry) error {
+func (m *Classification) validateMeta(formats strfmt.Registry) error {
 
-	if swag.IsZero(m.Started) { // not required
+	if swag.IsZero(m.Meta) { // not required
 		return nil
 	}
 
-	if err := validate.FormatOf("started", "body", "date-time", m.Started.String(), formats); err != nil {
-		return err
+	if m.Meta != nil {
+		if err := m.Meta.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("meta")
+			}
+			return err
+		}
 	}
 
 	return nil

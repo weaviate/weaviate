@@ -679,17 +679,10 @@
           "enum": ["running", "completed", "failed"],
           "example": "running"
         },
-        "started": {
-          "description": "time when this classification was started",
-          "type": "string",
-          "format": "date-time",
-          "example": "2017-07-21T17:32:28Z"
-        },
-        "completed": {
-          "description": "time when this classification finished",
-          "type": "string",
-          "format": "date-time",
-          "example": "2017-07-21T17:32:28Z"
+        "meta": {
+          "description": "additional meta information about the classification",
+          "type": "object",
+          "$ref": "#/definitions/ClassificationMeta"
         },
         "type": {
           "description": "which algorythim to use for classifications",
@@ -713,7 +706,39 @@
         }
       },
       "type": "object"
-
+    },
+    "ClassificationMeta": {
+      "description": "Additional information to a specific classification",
+      "properties": {
+        "started": {
+          "description": "time when this classification was started",
+          "type": "string",
+          "format": "date-time",
+          "example": "2017-07-21T17:32:28Z"
+        },
+        "completed": {
+          "description": "time when this classification finished",
+          "type": "string",
+          "format": "date-time",
+          "example": "2017-07-21T17:32:28Z"
+        },
+        "count": {
+          "description": "number of objects which were taken into consideration for classification",
+          "type": "integer",
+          "example": 147
+        },
+        "countSucceeded": {
+          "description": "number of objects successfully classified",
+          "type": "integer",
+          "example": 140
+        },
+        "countFailed": {
+          "description": "number of objects which could not be classified - see error message for details",
+          "type": "integer",
+          "example": 7
+        }
+      },
+      "type": "object"
     }
   },
   "externalDocs": {

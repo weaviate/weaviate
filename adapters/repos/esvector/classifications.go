@@ -121,6 +121,7 @@ func (r *Repo) AggregateNeighbors(ctx context.Context, vector []float32, kind ki
 	properties []string, k int) ([]classification.NeighborRef, error) {
 
 	propertyAggregations := map[string]interface{}{}
+	mustExist := []map[string]interface{}{}
 	for _, prop := range properties {
 		propertyAggregations[prop] = map[string]interface{}{
 			"terms": map[string]interface{}{
@@ -128,6 +129,11 @@ func (r *Repo) AggregateNeighbors(ctx context.Context, vector []float32, kind ki
 				"field": fmt.Sprintf("%s.beacon", prop),
 			},
 		}
+		mustExist = append(mustExist, map[string]interface{}{
+			"exists": map[string]interface{}{
+				"field": prop,
+			},
+		})
 	}
 
 	aggregations := map[string]interface{}{
@@ -142,6 +148,11 @@ func (r *Repo) AggregateNeighbors(ctx context.Context, vector []float32, kind ki
 	query := map[string]interface{}{
 		"function_score": map[string]interface{}{
 			"boost_mode": "replace",
+			"query": map[string]interface{}{
+				"bool": map[string]interface{}{
+					"must": mustExist,
+				},
+			},
 			"functions": []interface{}{
 				map[string]interface{}{
 					"script_score": map[string]interface{}{

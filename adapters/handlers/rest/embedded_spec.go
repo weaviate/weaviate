@@ -2829,12 +2829,6 @@ func init() {
             "inCountry"
           ]
         },
-        "completed": {
-          "description": "time when this classification finished",
-          "type": "string",
-          "format": "date-time",
-          "example": "2017-07-21T17:32:28Z"
-        },
         "error": {
           "description": "error message if status == failed",
           "type": "string",
@@ -2854,11 +2848,10 @@ func init() {
           "default": 3,
           "example": 3
         },
-        "started": {
-          "description": "time when this classification was started",
-          "type": "string",
-          "format": "date-time",
-          "example": "2017-07-21T17:32:28Z"
+        "meta": {
+          "description": "additional meta information about the classification",
+          "type": "object",
+          "$ref": "#/definitions/ClassificationMeta"
         },
         "status": {
           "description": "status of this classification",
@@ -2878,6 +2871,39 @@ func init() {
             "knn"
           ],
           "example": "knn"
+        }
+      }
+    },
+    "ClassificationMeta": {
+      "description": "Additional information to a specific classification",
+      "type": "object",
+      "properties": {
+        "completed": {
+          "description": "time when this classification finished",
+          "type": "string",
+          "format": "date-time",
+          "example": "2017-07-21T17:32:28Z"
+        },
+        "count": {
+          "description": "number of objects which were taken into consideration for classification",
+          "type": "integer",
+          "example": 147
+        },
+        "countFailed": {
+          "description": "number of objects which could not be classified - see error message for details",
+          "type": "integer",
+          "example": 7
+        },
+        "countSucceeded": {
+          "description": "number of objects successfully classified",
+          "type": "integer",
+          "example": 140
+        },
+        "started": {
+          "description": "time when this classification was started",
+          "type": "string",
+          "format": "date-time",
+          "example": "2017-07-21T17:32:28Z"
         }
       }
     },
@@ -6150,12 +6176,6 @@ func init() {
             "inCountry"
           ]
         },
-        "completed": {
-          "description": "time when this classification finished",
-          "type": "string",
-          "format": "date-time",
-          "example": "2017-07-21T17:32:28Z"
-        },
         "error": {
           "description": "error message if status == failed",
           "type": "string",
@@ -6175,11 +6195,10 @@ func init() {
           "default": 3,
           "example": 3
         },
-        "started": {
-          "description": "time when this classification was started",
-          "type": "string",
-          "format": "date-time",
-          "example": "2017-07-21T17:32:28Z"
+        "meta": {
+          "description": "additional meta information about the classification",
+          "type": "object",
+          "$ref": "#/definitions/ClassificationMeta"
         },
         "status": {
           "description": "status of this classification",
@@ -6199,6 +6218,39 @@ func init() {
             "knn"
           ],
           "example": "knn"
+        }
+      }
+    },
+    "ClassificationMeta": {
+      "description": "Additional information to a specific classification",
+      "type": "object",
+      "properties": {
+        "completed": {
+          "description": "time when this classification finished",
+          "type": "string",
+          "format": "date-time",
+          "example": "2017-07-21T17:32:28Z"
+        },
+        "count": {
+          "description": "number of objects which were taken into consideration for classification",
+          "type": "integer",
+          "example": 147
+        },
+        "countFailed": {
+          "description": "number of objects which could not be classified - see error message for details",
+          "type": "integer",
+          "example": 7
+        },
+        "countSucceeded": {
+          "description": "number of objects successfully classified",
+          "type": "integer",
+          "example": 140
+        },
+        "started": {
+          "description": "time when this classification was started",
+          "type": "string",
+          "format": "date-time",
+          "example": "2017-07-21T17:32:28Z"
         }
       }
     },
