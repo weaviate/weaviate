@@ -140,7 +140,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		vectorRepo, explorer, schemaManager)
 
 	classifier := classification.New(schemaManager, classifierRepo, vectorRepo)
-	_ = classifier // TODO: pass to api
 
 	updateSchemaCallback := makeUpdateSchemaCall(appState.Logger, appState, kindsTraverser)
 	schemaManager.RegisterSchemaUpdateCallback(updateSchemaCallback)
@@ -160,6 +159,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupC11yHandlers(api, appState.TelemetryLogger, vectorInspector)
 	setupGraphQLHandlers(api, appState.TelemetryLogger, appState)
 	setupMiscHandlers(api, appState.TelemetryLogger, appState.ServerConfig, appState.Network, schemaManager, appState.Contextionary)
+	setupClassificationHandlers(api, appState.TelemetryLogger, classifier)
 
 	api.ServerShutdown = func() {}
 	configureServer = makeConfigureServer(appState)

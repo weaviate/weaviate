@@ -27,9 +27,9 @@ logging:
   interval: 1
   enabled: false
   url: http://telemetry_mock_api:8087/mock/new
-network:
-  genesis_url: http://localhost:8090
-  public_url: http://localhost:8080
-  peer_name: bestWeaviate
+# network:
+#   genesis_url: http://localhost:8090
+#   public_url: http://localhost:8080
+#   peer_name: bestWeaviate
 telemetry:
   disabled: true
