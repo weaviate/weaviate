@@ -16,6 +16,7 @@ package classification
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
@@ -42,6 +43,8 @@ func (c *Classifier) run(params models.Classification, kind kind.Kind) {
 		if err != nil {
 			errors.add(err)
 		}
+
+		time.Sleep(10 * time.Millisecond)
 
 	}
 
