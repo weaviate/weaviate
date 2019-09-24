@@ -16,6 +16,7 @@ package classification
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	uuid "github.com/satori/go.uuid"
@@ -87,6 +88,9 @@ func (c *Classifier) Schedule(ctx context.Context, params models.Classification)
 	}
 
 	params.Status = models.ClassificationStatusRunning
+	params.Meta = &models.ClassificationMeta{
+		Started: strfmt.DateTime(time.Now()),
+	}
 
 	if err := c.repo.Put(ctx, params); err != nil {
 		return nil, fmt.Errorf("classification: put: %v", err)

@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -37,16 +38,29 @@ func (c *Classifier) run(params models.Classification, kind kind.Kind) {
 		return
 	}
 
+	var (
+		successCount int64
+		errorCount   int64
+	)
+
 	errors := &errorCompounder{}
 	for _, item := range unclassifiedItems {
 		err := c.classifyItem(item, kind, params)
 		if err != nil {
 			errors.add(err)
+			errorCount++
+		} else {
+			successCount++
 		}
 
 		time.Sleep(10 * time.Millisecond)
 
 	}
+
+	params.Meta.Completed = strfmt.DateTime(time.Now())
+	params.Meta.CountSucceeded = successCount
+	params.Meta.CountFailed = errorCount
+	params.Meta.Count = successCount + errorCount
 
 	err = errors.toError()
 	if err != nil {
