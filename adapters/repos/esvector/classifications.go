@@ -149,7 +149,7 @@ func (r *Repo) AggregateNeighbors(ctx context.Context, vector []float32, kind ki
 							"inline": "binary_vector_score",
 							"lang":   "knn",
 							"params": map[string]interface{}{
-								"cosine": false,
+								"cosine": true,
 								"field":  keyVector,
 								"vector": vector,
 							},
