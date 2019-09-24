@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -69,7 +70,7 @@ func Test_Classifier(t *testing.T) {
 		})
 
 		// TODO: improve by polling instead
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(500 * time.Millisecond)
 
 		t.Run("status is now completed", func(t *testing.T) {
 			class, err := classifier.Get(context.Background(), id)
@@ -132,8 +133,7 @@ func Test_Classifier(t *testing.T) {
 
 		})
 
-		// TODO: improve by polling instead
-		time.Sleep(100 * time.Millisecond)
+		waitForStatusToNoLongerBeRunning(t, classifier, id)
 
 		t.Run("status is now failed", func(t *testing.T) {
 			class, err := classifier.Get(context.Background(), id)
@@ -175,8 +175,7 @@ func Test_Classifier(t *testing.T) {
 
 		})
 
-		// TODO: improve by polling instead
-		time.Sleep(100 * time.Millisecond)
+		waitForStatusToNoLongerBeRunning(t, classifier, id)
 
 		t.Run("status is now failed", func(t *testing.T) {
 			class, err := classifier.Get(context.Background(), id)
@@ -208,4 +207,14 @@ func checkRef(t *testing.T, repo *fakeVectorRepo, source, propName, target strin
 	require.Len(t, refs, 1, "refs must have len 1")
 
 	assert.Equal(t, fmt.Sprintf("weaviate://localhost/things/%s", target), refs[0].Beacon.String(), "beacon must match")
+}
+
+func waitForStatusToNoLongerBeRunning(t *testing.T, classifier *Classifier, id strfmt.UUID) {
+	helper.AssertEventuallyEqual(t, true, func() interface{} {
+		class, err := classifier.Get(context.Background(), id)
+		require.Nil(t, err)
+		require.NotNil(t, class)
+
+		return class.Status != models.ClassificationStatusRunning
+	}, "wait until status in no longer running")
 }
