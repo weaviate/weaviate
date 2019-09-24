@@ -30,7 +30,7 @@ import (
 func Test_Classifier(t *testing.T) {
 	t.Run("with invalid data", func(t *testing.T) {
 		sg := &fakeSchemaGetter{testSchema()}
-		_, err := New(sg, nil, nil).Schedule(context.Background(), models.Classification{})
+		_, err := New(sg, nil, nil, &fakeAuthorizer{}).Schedule(context.Background(), nil, models.Classification{})
 		assert.NotNil(t, err, "should error with invalid user input")
 	})
 
@@ -40,8 +40,9 @@ func Test_Classifier(t *testing.T) {
 	t.Run("with valid data", func(t *testing.T) {
 		sg := &fakeSchemaGetter{testSchema()}
 		repo := newFakeClassificationRepo()
+		authorizer := &fakeAuthorizer{}
 		vectorRepo := newFakeVectorRepo(testDataToBeClassified(), testDataAlreadyClassified())
-		classifier := New(sg, repo, vectorRepo)
+		classifier := New(sg, repo, vectorRepo, authorizer)
 
 		k := int32(1)
 		params := models.Classification{
@@ -52,7 +53,7 @@ func Test_Classifier(t *testing.T) {
 		}
 
 		t.Run("scheduling a classification", func(t *testing.T) {
-			class, err := classifier.Schedule(context.Background(), params)
+			class, err := classifier.Schedule(context.Background(), nil, params)
 			require.Nil(t, err, "should not error")
 			require.NotNil(t, class)
 
@@ -62,7 +63,7 @@ func Test_Classifier(t *testing.T) {
 		})
 
 		t.Run("retrieving the same classificiation by id", func(t *testing.T) {
-			class, err := classifier.Get(context.Background(), id)
+			class, err := classifier.Get(context.Background(), nil, id)
 			require.Nil(t, err)
 			require.NotNil(t, class)
 			assert.Equal(t, id, class.ID)
@@ -73,7 +74,7 @@ func Test_Classifier(t *testing.T) {
 		time.Sleep(500 * time.Millisecond)
 
 		t.Run("status is now completed", func(t *testing.T) {
-			class, err := classifier.Get(context.Background(), id)
+			class, err := classifier.Get(context.Background(), nil, id)
 			require.Nil(t, err)
 			require.NotNil(t, class)
 			assert.Equal(t, models.ClassificationStatusCompleted, class.Status)
@@ -111,9 +112,10 @@ func Test_Classifier(t *testing.T) {
 	t.Run("when errors occur during classification", func(t *testing.T) {
 		sg := &fakeSchemaGetter{testSchema()}
 		repo := newFakeClassificationRepo()
+		authorizer := &fakeAuthorizer{}
 		vectorRepo := newFakeVectorRepo(testDataToBeClassified(), testDataAlreadyClassified())
 		vectorRepo.errorOnAggregate = errors.New("something went wrong")
-		classifier := New(sg, repo, vectorRepo)
+		classifier := New(sg, repo, vectorRepo, authorizer)
 
 		k := int32(1)
 		params := models.Classification{
@@ -124,7 +126,7 @@ func Test_Classifier(t *testing.T) {
 		}
 
 		t.Run("scheduling a classification", func(t *testing.T) {
-			class, err := classifier.Schedule(context.Background(), params)
+			class, err := classifier.Schedule(context.Background(), nil, params)
 			require.Nil(t, err, "should not error")
 			require.NotNil(t, class)
 
@@ -136,7 +138,7 @@ func Test_Classifier(t *testing.T) {
 		waitForStatusToNoLongerBeRunning(t, classifier, id)
 
 		t.Run("status is now failed", func(t *testing.T) {
-			class, err := classifier.Get(context.Background(), id)
+			class, err := classifier.Get(context.Background(), nil, id)
 			require.Nil(t, err)
 			require.NotNil(t, class)
 			assert.Equal(t, models.ClassificationStatusFailed, class.Status)
@@ -154,8 +156,9 @@ func Test_Classifier(t *testing.T) {
 	t.Run("when there is nothing to be classified", func(t *testing.T) {
 		sg := &fakeSchemaGetter{testSchema()}
 		repo := newFakeClassificationRepo()
+		authorizer := &fakeAuthorizer{}
 		vectorRepo := newFakeVectorRepo(nil, testDataAlreadyClassified())
-		classifier := New(sg, repo, vectorRepo)
+		classifier := New(sg, repo, vectorRepo, authorizer)
 
 		k := int32(1)
 		params := models.Classification{
@@ -166,7 +169,7 @@ func Test_Classifier(t *testing.T) {
 		}
 
 		t.Run("scheduling a classification", func(t *testing.T) {
-			class, err := classifier.Schedule(context.Background(), params)
+			class, err := classifier.Schedule(context.Background(), nil, params)
 			require.Nil(t, err, "should not error")
 			require.NotNil(t, class)
 
@@ -178,7 +181,7 @@ func Test_Classifier(t *testing.T) {
 		waitForStatusToNoLongerBeRunning(t, classifier, id)
 
 		t.Run("status is now failed", func(t *testing.T) {
-			class, err := classifier.Get(context.Background(), id)
+			class, err := classifier.Get(context.Background(), nil, id)
 			require.Nil(t, err)
 			require.NotNil(t, class)
 			assert.Equal(t, models.ClassificationStatusFailed, class.Status)
@@ -211,7 +214,7 @@ func checkRef(t *testing.T, repo *fakeVectorRepo, source, propName, target strin
 
 func waitForStatusToNoLongerBeRunning(t *testing.T, classifier *Classifier, id strfmt.UUID) {
 	helper.AssertEventuallyEqual(t, true, func() interface{} {
-		class, err := classifier.Get(context.Background(), id)
+		class, err := classifier.Get(context.Background(), nil, id)
 		require.Nil(t, err)
 		require.NotNil(t, class)
 

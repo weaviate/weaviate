@@ -29,7 +29,7 @@ func setupClassificationHandlers(api *operations.WeaviateAPI,
 	api.ClassificationsClassificationsGetHandler = classifications.ClassificationsGetHandlerFunc(
 		func(params classifications.ClassificationsGetParams, principal *models.Principal) middleware.Responder {
 
-			res, err := classifier.Get(params.HTTPRequest.Context(), strfmt.UUID(params.ID))
+			res, err := classifier.Get(params.HTTPRequest.Context(), principal, strfmt.UUID(params.ID))
 			if err != nil {
 				return classifications.NewClassificationsGetInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 			}
@@ -45,7 +45,7 @@ func setupClassificationHandlers(api *operations.WeaviateAPI,
 	api.ClassificationsClassificationsPostHandler = classifications.ClassificationsPostHandlerFunc(
 		func(params classifications.ClassificationsPostParams, principal *models.Principal) middleware.Responder {
 
-			res, err := classifier.Schedule(params.HTTPRequest.Context(), *params.Params)
+			res, err := classifier.Schedule(params.HTTPRequest.Context(), principal, *params.Params)
 			if err != nil {
 				return classifications.NewClassificationsPostBadRequest().WithPayload(errPayloadFromSingleErr(err))
 			}
