@@ -34,7 +34,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestEsVectorCache(t *testing.T) {
+func testEsVectorCache(t *testing.T) {
 	client, err := elasticsearch.NewClient(elasticsearch.Config{
 		Addresses: []string{"http://localhost:9201"},
 	})
