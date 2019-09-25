@@ -94,7 +94,7 @@ func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Pri
 		}
 
 		if foundNames[property.Name] == true {
-			return fmt.Errorf("Name '%s' already in use as a property name for class '%s'", property.Name, class.Class)
+			return fmt.Errorf("name '%s' already in use as a property name for class '%s'", property.Name, class.Class)
 		}
 
 		foundNames[property.Name] = true
@@ -107,7 +107,7 @@ func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Pri
 
 		_, err = (&schema).FindPropertyDataType(property.DataType)
 		if err != nil {
-			return fmt.Errorf("Data type fo property '%s' is invalid; %v", property.Name, err)
+			return fmt.Errorf("property '%s': invalid dataType: %v", property.Name, err)
 		}
 	}
 

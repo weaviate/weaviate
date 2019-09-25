@@ -18,12 +18,48 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/semi-technologies/weaviate/client/schema"
 	"github.com/semi-technologies/weaviate/client/things"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 )
+
+// this test prevents a regression on
+// https://github.com/semi-technologies/weaviate/issues/981
+func TestInvalidDataTypeInProperty(t *testing.T) {
+	t.Parallel()
+	className := "WrongPropertyClass"
+
+	t.Run("asserting that this class does not exist yet", func(t *testing.T) {
+		assert.NotContains(t, GetThingClassNames(t), className)
+	})
+
+	t.Run("trying to import empty string as data type", func(t *testing.T) {
+
+		c := &models.Class{
+			Class: className,
+			Properties: []*models.Property{
+				&models.Property{
+					Name:     "someProperty",
+					DataType: []string{""},
+				},
+			},
+		}
+
+		params := schema.NewSchemaThingsCreateParams().WithThingClass(c)
+		resp, err := helper.Client(t).Schema.SchemaThingsCreate(params, nil)
+		helper.AssertRequestFail(t, resp, err, func() {
+			parsed, ok := err.(*schema.SchemaThingsCreateUnprocessableEntity)
+			require.True(t, ok, "error should be unprocessable entity")
+			assert.Equal(t, "property 'someProperty': invalid dataType: dataType cannot be an empty string",
+				parsed.Payload.Error[0].Message)
+		})
+
+	})
+
+}
 
 func TestAddAndRemoveThingClass(t *testing.T) {
 	t.Parallel()
