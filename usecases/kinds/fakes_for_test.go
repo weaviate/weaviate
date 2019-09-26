@@ -197,6 +197,12 @@ type fakeVectorRepo struct {
 	mock.Mock
 }
 
+func (f *fakeVectorRepo) Exists(ctx context.Context,
+	id strfmt.UUID) (bool, error) {
+	args := f.Called(id)
+	return args.Bool(0), args.Error(1)
+}
+
 func (f *fakeVectorRepo) ThingByID(ctx context.Context,
 	id strfmt.UUID, props traverser.SelectProperties) (*search.Result, error) {
 	args := f.Called(id, props)
