@@ -352,7 +352,7 @@ func extractTextAggregation(source interface{}) (aggregation.Text, error) {
 	}
 
 	if property.Type != aggregation.PropertyTypeText {
-		return nil, fmt.Errorf("expected property to be of type text, got %s", property.Type)
+		return nil, fmt.Errorf("expected property to be of type text, got %s (%#v)", property.Type, property)
 	}
 
 	return property.TextAggregation, nil
