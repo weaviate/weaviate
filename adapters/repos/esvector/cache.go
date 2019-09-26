@@ -62,7 +62,8 @@ func (c *cacheManager) populate(ctx context.Context, kind kind.Kind, id strfmt.U
 	}
 
 	if obj.CacheHot {
-		return prepareForStoringAsCache(obj, depth, c.repo.denormalizationDepthLimit), nil
+		res := prepareForStoringAsCache(obj, depth, c.repo.denormalizationDepthLimit)
+		return res, nil
 	}
 
 	resolvedSchema := map[string]interface{}{}
