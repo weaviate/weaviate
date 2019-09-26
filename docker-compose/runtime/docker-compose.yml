@@ -7,7 +7,7 @@ services:
     ports:
      - "80:80"
   weaviate:
-    image: semitechnologies/weaviate:0.19.4
+    image: semitechnologies/weaviate:0.20.0-rc0
     command: 
       - "--host"
       - "0.0.0.0"
@@ -18,7 +18,7 @@ services:
       - "--config-file"
       - "config.yaml"
     depends_on:
-      - janus
+      - esvector
     restart: on-failure:0
     ports:
      - "8080:8080"
@@ -31,45 +31,6 @@ services:
     environment:
       SCHEMA_PROVIDER_URL: etcd:2379
       OCCURRENCE_WEIGHT_LINEAR_FACTOR: 0.75
-  janus:
-    image: semitechnologies/janusgraph-docker:0.3.1
-    depends_on:
-      - db
-      - index
-    ports:
-     - "8182:8182"
-     - "8184:8184"
-    restart: on-failure:0
-    environment:
-     - DEV_MODE=true
-    volumes:
-      - ./janusgraph.properties:/janusgraph-config/janusgraph.properties
-      - ./gremlin-server.yaml:/janusgraph-config/gremlin-server.yaml
-  db:
-    image: scylladb/scylla:2.0.1
-    ports:
-     # http://docs.scylladb.com/kb/posix/
-     # REST API
-     - "10000:10000"
-     # CQL ports (native_transport_port)
-     - "9042:9042"
-     # Thrift (rpc_port)
-     - "9160:9160"
-     # Internode
-     - "7000:7000"
-     - "7001:7001"
-     # JMX
-     - "7199:7199"
-     # Prometheus monitoring
-     - "9180:9180"
-     - "9100:9100"
-  index:
-    image: elasticsearch:5
-    ports:
-     - "9200:9200"
-     - "9300:9300"
-    environment:
-     - ES_JAVA_OPTS=-Xms300m -Xmx300m
   etcd:
     image: gcr.io/etcd-development/etcd:v3.3.8
     ports:

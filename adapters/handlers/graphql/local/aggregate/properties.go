@@ -26,52 +26,65 @@ func numericPropertyFields(class *models.Class, property *models.Property, prefi
 	getMetaIntFields := graphql.Fields{
 		"sum": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sSum", prefix, class.Class, property.Name),
-			Description: descriptions.LocalAggregateSum,
+			Description: descriptions.AggregateSum,
 			Type:        graphql.Float,
-			Resolve:     makeResolveFieldAggregator("sum"),
+			Resolve:     makeResolveNumericFieldAggregator("sum"),
 		},
 		"minimum": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sMinimum", prefix, class.Class, property.Name),
-			Description: descriptions.LocalAggregateMin,
+			Description: descriptions.AggregateMin,
 			Type:        graphql.Float,
-			Resolve:     makeResolveFieldAggregator("minimum"),
+			Resolve:     makeResolveNumericFieldAggregator("minimum"),
 		},
 		"maximum": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sMaximum", prefix, class.Class, property.Name),
-			Description: descriptions.LocalAggregateMax,
+			Description: descriptions.AggregateMax,
 			Type:        graphql.Float,
-			Resolve:     makeResolveFieldAggregator("maximum"),
+			Resolve:     makeResolveNumericFieldAggregator("maximum"),
 		},
 		"mean": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sMean", prefix, class.Class, property.Name),
-			Description: descriptions.LocalAggregateMean,
+			Description: descriptions.AggregateMean,
 			Type:        graphql.Float,
-			Resolve:     makeResolveFieldAggregator("mean"),
+			Resolve:     makeResolveNumericFieldAggregator("mean"),
 		},
 		"mode": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sMode", prefix, class.Class, property.Name),
-			Description: descriptions.LocalAggregateMode,
+			Description: descriptions.AggregateMode,
 			Type:        graphql.Float,
-			Resolve:     makeResolveFieldAggregator("mode"),
+			Resolve:     makeResolveNumericFieldAggregator("mode"),
 		},
 		"median": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sMedian", prefix, class.Class, property.Name),
-			Description: descriptions.LocalAggregateMedian,
+			Description: descriptions.AggregateMedian,
 			Type:        graphql.Float,
-			Resolve:     makeResolveFieldAggregator("median"),
+			Resolve:     makeResolveNumericFieldAggregator("median"),
 		},
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sCount", prefix, class.Class, property.Name),
-			Description: descriptions.LocalAggregateCount,
+			Description: descriptions.AggregateCount,
 			Type:        graphql.Int,
-			Resolve:     makeResolveFieldAggregator("count"),
+			Resolve:     makeResolveNumericFieldAggregator("count"),
+		},
+		"type": &graphql.Field{
+			Name:        fmt.Sprintf("%s%s%sType", prefix, class.Class, property.Name),
+			Description: descriptions.AggregateCount,
+			Type:        graphql.String,
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				prop, ok := p.Source.(aggregation.Property)
+				if !ok {
+					return nil, fmt.Errorf("numerical: type: expected aggregation.Property, got %T", p.Source)
+				}
+
+				return prop.SchemaType, nil
+			},
 		},
 	}
 
 	return graphql.NewObject(graphql.ObjectConfig{
 		Name:        fmt.Sprintf("%s%s%sObj", prefix, class.Class, property.Name),
 		Fields:      getMetaIntFields,
-		Description: descriptions.LocalAggregatePropertyObject,
+		Description: descriptions.AggregatePropertyObject,
 	})
 }
 
@@ -80,69 +93,329 @@ func nonNumericPropertyFields(class *models.Class,
 	getMetaPointingFields := graphql.Fields{
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%sCount", prefix, class.Class),
-			Description: descriptions.LocalAggregateCount,
+			Description: descriptions.AggregateCount,
 			Type:        graphql.Int,
-			Resolve:     makeResolveFieldAggregator("count"),
+			Resolve:     makeResolveNumericFieldAggregator("count"),
 		},
 	}
 
 	return graphql.NewObject(graphql.ObjectConfig{
 		Name:        fmt.Sprintf("%s%s%sObj", prefix, class.Class, property.Name),
 		Fields:      getMetaPointingFields,
-		Description: descriptions.LocalAggregatePropertyObject,
+		Description: descriptions.AggregatePropertyObject,
 	})
+}
+
+func referencePropertyFields(class *models.Class,
+	property *models.Property, prefix string) *graphql.Object {
+	getMetaPointingFields := graphql.Fields{
+		"type": &graphql.Field{
+			Name:        fmt.Sprintf("%s%sType", prefix, class.Class),
+			Description: descriptions.AggregatePropertyType,
+			Type:        graphql.String,
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				prop, ok := p.Source.(aggregation.Property)
+				if !ok {
+					return nil, fmt.Errorf("ref property type: expected aggregation.Property, got %T",
+						p.Source)
+				}
+
+				return prop.SchemaType, nil
+			},
+		},
+		"pointingTo": &graphql.Field{
+			Name:        fmt.Sprintf("%s%sPointingTo", prefix, class.Class),
+			Description: descriptions.AggregateClassPropertyPointingTo,
+			Type:        graphql.NewList(graphql.String),
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				ref, err := extractReferenceAggregation(p.Source)
+				if err != nil {
+					return nil, fmt.Errorf("ref property pointingTo: %v", err)
+				}
+
+				return ref.PointingTo, nil
+			},
+		},
+	}
+
+	return graphql.NewObject(graphql.ObjectConfig{
+		Name:        fmt.Sprintf("%s%s%sObj", prefix, class.Class, property.Name),
+		Fields:      getMetaPointingFields,
+		Description: descriptions.AggregatePropertyObject,
+	})
+}
+
+func extractReferenceAggregation(source interface{}) (*aggregation.Reference, error) {
+	property, ok := source.(aggregation.Property)
+	if !ok {
+		return nil, fmt.Errorf("expected aggregation.Property, got %T", source)
+	}
+
+	if property.Type != aggregation.PropertyTypeReference {
+		return nil, fmt.Errorf("expected property to be of type reference, got %s", property.Type)
+	}
+
+	return &property.ReferenceAggregation, nil
+}
+
+func booleanPropertyFields(class *models.Class,
+	property *models.Property, prefix string) *graphql.Object {
+	getMetaPointingFields := graphql.Fields{
+		"count": &graphql.Field{
+			Name:        fmt.Sprintf("%s%s%sCount", prefix, class.Class, property.Name),
+			Description: descriptions.AggregatePropertyCount,
+			Type:        graphql.Int,
+			Resolve:     booleanResolver(func(b aggregation.Boolean) interface{} { return b.Count }),
+		},
+		"totalTrue": &graphql.Field{
+			Name:        fmt.Sprintf("%s%s%sTotalTrue", prefix, class.Class, property.Name),
+			Description: descriptions.AggregateClassPropertyTotalTrue,
+			Type:        graphql.Int,
+			Resolve:     booleanResolver(func(b aggregation.Boolean) interface{} { return b.TotalTrue }),
+		},
+		"percentageTrue": &graphql.Field{
+			Name:        fmt.Sprintf("%s%s%sPercentageTrue", prefix, class.Class, property.Name),
+			Description: descriptions.AggregateClassPropertyPercentageTrue,
+			Type:        graphql.Float,
+			Resolve:     booleanResolver(func(b aggregation.Boolean) interface{} { return b.PercentageTrue }),
+		},
+		"totalFalse": &graphql.Field{
+			Name:        fmt.Sprintf("%s%s%sTotalFalse", prefix, class.Class, property.Name),
+			Description: descriptions.AggregateClassPropertyTotalFalse,
+			Type:        graphql.Int,
+			Resolve:     booleanResolver(func(b aggregation.Boolean) interface{} { return b.TotalFalse }),
+		},
+		"percentageFalse": &graphql.Field{
+			Name:        fmt.Sprintf("%s%s%sPercentageFalse", prefix, class.Class, property.Name),
+			Description: descriptions.AggregateClassPropertyPercentageFalse,
+			Type:        graphql.Float,
+			Resolve:     booleanResolver(func(b aggregation.Boolean) interface{} { return b.PercentageFalse }),
+		},
+		"type": &graphql.Field{
+			Name:        fmt.Sprintf("%s%s%sType", prefix, class.Class, property.Name),
+			Description: descriptions.AggregateCount,
+			Type:        graphql.String,
+			// Resolve:     makeResolveNumericFieldAggregator("count"),
+		},
+	}
+
+	return graphql.NewObject(graphql.ObjectConfig{
+		Name:        fmt.Sprintf("%s%s%sObj", prefix, class.Class, property.Name),
+		Fields:      getMetaPointingFields,
+		Description: descriptions.AggregatePropertyObject,
+	})
+}
+
+type booleanExtractorFunc func(aggregation.Boolean) interface{}
+
+func booleanResolver(extractor booleanExtractorFunc) func(p graphql.ResolveParams) (interface{}, error) {
+
+	return func(p graphql.ResolveParams) (interface{}, error) {
+		boolean, err := extractBooleanAggregation(p.Source)
+		if err != nil {
+			return nil, fmt.Errorf("boolean: %v", err)
+		}
+
+		return extractor(*boolean), nil
+	}
+}
+
+func extractBooleanAggregation(source interface{}) (*aggregation.Boolean, error) {
+	property, ok := source.(aggregation.Property)
+	if !ok {
+		return nil, fmt.Errorf("expected aggregation.Property, got %T", source)
+	}
+
+	if property.Type != aggregation.PropertyTypeBoolean {
+		return nil, fmt.Errorf("expected property to be of type boolean, got %s", property.Type)
+	}
+
+	return &property.BooleanAggregation, nil
+}
+
+func stringPropertyFields(class *models.Class,
+	property *models.Property, prefix string) *graphql.Object {
+	getAggregatePointingFields := graphql.Fields{
+		"count": &graphql.Field{
+			Name:        fmt.Sprintf("%s%sCount", prefix, class.Class),
+			Description: descriptions.AggregatePropertyCount,
+			Type:        graphql.Int,
+			// Resolve: textResolver(func(text aggregation.Text) (interface{}, error) {
+			// 	// TODO: support count for text props
+			// 	return nil, nil
+			// }),
+		},
+		"type": &graphql.Field{
+			Name:        fmt.Sprintf("%s%s%sType", prefix, class.Class, property.Name),
+			Description: descriptions.AggregateCount,
+			Type:        graphql.String,
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				prop, ok := p.Source.(aggregation.Property)
+				if !ok {
+					return nil, fmt.Errorf("text type: expected aggregation.Property, got %T", p.Source)
+				}
+
+				return prop.SchemaType, nil
+			},
+		},
+		"topOccurrences": &graphql.Field{
+			Name:        fmt.Sprintf("%s%sTopOccurrences", prefix, class.Class),
+			Description: descriptions.AggregatePropertyTopOccurrences,
+			Type:        graphql.NewList(stringTopOccurrences(class, property, prefix)),
+			Resolve: textResolver(func(text aggregation.Text) (interface{}, error) {
+				list := make([]interface{}, len(text), len(text))
+				for i, to := range text {
+					list[i] = to
+				}
+
+				return list, nil
+			}),
+			Args: graphql.FieldConfigArgument{
+				"first": &graphql.ArgumentConfig{
+					Description: descriptions.First,
+					Type:        graphql.Int,
+				},
+				"after": &graphql.ArgumentConfig{
+					Description: descriptions.After,
+					Type:        graphql.Int,
+				},
+			},
+		},
+	}
+
+	return graphql.NewObject(graphql.ObjectConfig{
+		Name:        fmt.Sprintf("%s%s%sObj", prefix, class.Class, property.Name),
+		Fields:      getAggregatePointingFields,
+		Description: descriptions.AggregatePropertyObject,
+	})
+}
+
+type textExtractorFunc func(aggregation.Text) (interface{}, error)
+
+func textResolver(extractor textExtractorFunc) func(p graphql.ResolveParams) (interface{}, error) {
+
+	return func(p graphql.ResolveParams) (interface{}, error) {
+		text, err := extractTextAggregation(p.Source)
+		if err != nil {
+			return nil, fmt.Errorf("text: %v", err)
+		}
+
+		return extractor(text)
+	}
+}
+
+func stringTopOccurrences(class *models.Class,
+	property *models.Property, prefix string) *graphql.Object {
+	getAggregateAggregatePointingFields := graphql.Fields{
+		"value": &graphql.Field{
+			Name:        fmt.Sprintf("%s%s%sTopOccurrencesValue", prefix, class.Class, property.Name),
+			Description: descriptions.AggregatePropertyTopOccurrencesValue,
+			Type:        graphql.String,
+			Resolve:     textOccurrenceResolver(func(t aggregation.TextOccurrence) interface{} { return t.Value }),
+		},
+		"occurs": &graphql.Field{
+			Name:        fmt.Sprintf("%s%s%sTopOccurrencesOccurs", prefix, class.Class, property.Name),
+			Description: descriptions.AggregatePropertyTopOccurrencesOccurs,
+			Type:        graphql.Int,
+			Resolve:     textOccurrenceResolver(func(t aggregation.TextOccurrence) interface{} { return t.Occurs }),
+		},
+	}
+
+	getAggregateAggregatePointing := graphql.ObjectConfig{
+		Name:        fmt.Sprintf("%s%s%sTopOccurrencesObj", prefix, class.Class, property.Name),
+		Fields:      getAggregateAggregatePointingFields,
+		Description: descriptions.AggregatePropertyTopOccurrences,
+	}
+
+	return graphql.NewObject(getAggregateAggregatePointing)
+}
+
+type textOccurrenceExtractorFunc func(aggregation.TextOccurrence) interface{}
+
+func textOccurrenceResolver(extractor textOccurrenceExtractorFunc) func(p graphql.ResolveParams) (interface{}, error) {
+
+	return func(p graphql.ResolveParams) (interface{}, error) {
+		textOccurrence, ok := p.Source.(aggregation.TextOccurrence)
+		if !ok {
+			return nil, fmt.Errorf("textOccurrence: %s: expected aggregation.TextOccurrence, but got %T",
+				p.Info.FieldName, p.Source)
+		}
+
+		return extractor(textOccurrence), nil
+	}
+}
+
+func extractTextAggregation(source interface{}) (aggregation.Text, error) {
+	property, ok := source.(aggregation.Property)
+	if !ok {
+		return nil, fmt.Errorf("expected aggregation.Property, got %T", source)
+	}
+
+	if property.Type != aggregation.PropertyTypeText {
+		return nil, fmt.Errorf("expected property to be of type text, got %s (%#v)", property.Type, property)
+	}
+
+	return property.TextAggregation, nil
 }
 
 func groupedByProperty(class *models.Class) *graphql.Object {
 	classProperties := graphql.Fields{
 		"path": &graphql.Field{
-			Description: descriptions.LocalAggregateGroupedByGroupedByPath,
+			Description: descriptions.AggregateGroupedByGroupedByPath,
 			Type:        graphql.NewList(graphql.String),
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				switch typed := p.Source.(type) {
-				case aggregation.GroupedBy:
-					return typed.Path, nil
-				case map[string]interface{}:
-					return typed["path"], nil
-				default:
-					return nil, fmt.Errorf("groupedBy field %s: unsupported type %T", "path", p.Source)
-				}
-			},
+			Resolve:     groupedByResolver(func(g *aggregation.GroupedBy) interface{} { return g.Path }),
 		},
 		"value": &graphql.Field{
-			Description: descriptions.LocalAggregateGroupedByGroupedByValue,
+			Description: descriptions.AggregateGroupedByGroupedByValue,
 			Type:        graphql.String,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				switch typed := p.Source.(type) {
-				case aggregation.GroupedBy:
-					return typed.Value, nil
-				case map[string]interface{}:
-					return typed["value"], nil
-				default:
-					return nil, fmt.Errorf("groupedBy field %s: unsupported type %T", "value", p.Source)
-				}
-			},
+			Resolve:     groupedByResolver(func(g *aggregation.GroupedBy) interface{} { return g.Value }),
 		},
 	}
 
 	classPropertiesObj := graphql.NewObject(graphql.ObjectConfig{
-		Name:        fmt.Sprintf("LocalAggregate%sGroupedByObj", class.Class),
+		Name:        fmt.Sprintf("Aggregate%sGroupedByObj", class.Class),
 		Fields:      classProperties,
-		Description: descriptions.LocalAggregateGroupedByObj,
+		Description: descriptions.AggregateGroupedByObj,
 	})
 
 	return classPropertiesObj
 }
 
-func makeResolveFieldAggregator(aggregator string) func(p graphql.ResolveParams) (interface{}, error) {
+type groupedByExtractorFunc func(*aggregation.GroupedBy) interface{}
+
+func groupedByResolver(extractor groupedByExtractorFunc) func(p graphql.ResolveParams) (interface{}, error) {
+
 	return func(p graphql.ResolveParams) (interface{}, error) {
-		switch typed := p.Source.(type) {
-		case aggregation.Property:
-			return typed.NumericalAggregations[aggregator], nil
-		case map[string]interface{}:
-			return typed[aggregator], nil
-		default:
-			return nil, fmt.Errorf("aggregator %s, unsupported type %T", aggregator, p.Source)
+		groupedBy, ok := p.Source.(*aggregation.GroupedBy)
+		if !ok {
+			return nil, fmt.Errorf("groupedBy: %s: expected aggregation.GroupedBy, but got %T",
+				p.Info.FieldName, p.Source)
 		}
+
+		return extractor(groupedBy), nil
 	}
+}
+
+func makeResolveNumericFieldAggregator(aggregator string) func(p graphql.ResolveParams) (interface{}, error) {
+	return func(p graphql.ResolveParams) (interface{}, error) {
+		num, err := extractNumericAggregation(p.Source)
+		if err != nil {
+			return nil, fmt.Errorf("numerical aggregator %s: %v", aggregator, err)
+		}
+
+		return num[aggregator], nil
+	}
+}
+
+func extractNumericAggregation(source interface{}) (map[string]float64, error) {
+	property, ok := source.(aggregation.Property)
+	if !ok {
+		return nil, fmt.Errorf("expected aggregation.Property, got %T", source)
+	}
+
+	if property.Type != aggregation.PropertyTypeNumerical {
+		return nil, fmt.Errorf("expected property to be of type numerical, got %s", property.Type)
+	}
+
+	return property.NumericalAggregations, nil
 }

@@ -35,6 +35,16 @@ const MetaPropertyMean = "The mean of all values for this property"
 const MetaPropertySum = "The sum of all values for this property"
 const MetaPropertyObject = "An object containing meta information about this property"
 
+const AggregatePropertyType = "The datatype of this property"
+const AggregatePropertyCount = "The total amount of found instances for this property" // TODO check this with @lauraham
+const AggregatePropertyTopOccurrences = "An object containing data about the most frequently occuring values for this property"
+const AggregatePropertyTopOccurrencesValue = "The most frequently occurring value for this property"
+const AggregatePropertyTopOccurrencesOccurs = "How often the most frequently occuring value for this property occurs" // TODO check this with @lauraham
+const AggregatePropertyMinimum = "The minimum value for this property"
+const AggregatePropertyMaximum = "The maximum value for this property"
+const AggregatePropertyMean = "The mean of all values for this property"
+const AggregatePropertySum = "The sum of all values for this property"
+
 // Network
 const NetworkMeta = "Get meta information about Things or Actions from a Weaviate in a network"
 const NetworkMetaObj = "An object used to Get meta information about Things or Actions from a Weaviate in a network"
@@ -58,3 +68,13 @@ const MetaClassPropertyPercentageFalse = "The percentage of false values for thi
 const MetaClassPropertyPointingTo = "The classes that this object contains a reference to"
 const MetaClassMetaCount = "The total amount of found instances for a class"
 const MetaClassMetaObj = "An object containing Meta information about a class"
+
+const AggregateClassPropertyTotalTrue = "How often this boolean property's value is true in the dataset"
+const AggregateClassPropertyPercentageTrue = "The percentage of true values for this boolean property in the dataset"
+
+const AggregateClassPropertyTotalFalse = "How often this boolean property's value is false in the dataset"
+const AggregateClassPropertyPercentageFalse = "The percentage of false values for this boolean property in the dataset"
+
+const AggregateClassPropertyPointingTo = "The classes that this object contains a reference to"
+const AggregateClassAggregateCount = "The total amount of found instances for a class"
+const AggregateClassAggregateObj = "An object containing Aggregate information about a class"

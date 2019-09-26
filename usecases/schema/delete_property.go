@@ -18,8 +18,6 @@ import (
 	"fmt"
 
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 // DeleteActionProperty to an existing Action
@@ -31,7 +29,9 @@ func (m *Manager) DeleteActionProperty(ctx context.Context, principal *models.Pr
 		return err
 	}
 
-	return m.deleteClassProperty(ctx, class, property, kind.Action)
+	return fmt.Errorf("deleting a property is currently not supported, see " +
+		"https://github.com/semi-technologies/weaviate/issues/973 for details.")
+	// return m.deleteClassProperty(ctx, class, property, kind.Action)
 }
 
 // DeleteThingProperty to an existing Thing
@@ -43,47 +43,50 @@ func (m *Manager) DeleteThingProperty(ctx context.Context, principal *models.Pri
 		return err
 	}
 
-	return m.deleteClassProperty(ctx, class, property, kind.Thing)
+	return fmt.Errorf("deleting a property is currently not supported, see " +
+		"https://github.com/semi-technologies/weaviate/issues/973 for details.")
+	// return m.deleteClassProperty(ctx, class, property, kind.Thing)
 }
 
-func (m *Manager) deleteClassProperty(ctx context.Context, className string, propName string, k kind.Kind) error {
-	unlock, err := m.locks.LockSchema()
-	if err != nil {
-		return err
-	}
-	defer unlock()
+// TODO: https://github.com/semi-technologies/weaviate/issues/973
+// func (m *Manager) deleteClassProperty(ctx context.Context, className string, propName string, k kind.Kind) error {
+// 	unlock, err := m.locks.LockSchema()
+// 	if err != nil {
+// 		return err
+// 	}
+// 	defer unlock()
 
-	err = m.migrator.DropProperty(ctx, k, className, propName)
-	if err != nil {
-		return fmt.Errorf("could not migrate database schema: %v", err)
-	}
+// 	err = m.migrator.DropProperty(ctx, k, className, propName)
+// 	if err != nil {
+// 		return fmt.Errorf("could not migrate database schema: %v", err)
+// 	}
 
-	semanticSchema := m.state.SchemaFor(k)
-	class, err := schema.GetClassByName(semanticSchema, className)
-	if err != nil {
-		return err
-	}
+// 	semanticSchema := m.state.SchemaFor(k)
+// 	class, err := schema.GetClassByName(semanticSchema, className)
+// 	if err != nil {
+// 		return err
+// 	}
 
-	var propIdx = -1
-	for idx, prop := range class.Properties {
-		if prop.Name == propName {
-			propIdx = idx
-			break
-		}
-	}
+// 	var propIdx = -1
+// 	for idx, prop := range class.Properties {
+// 		if prop.Name == propName {
+// 			propIdx = idx
+// 			break
+// 		}
+// 	}
 
-	if propIdx == -1 {
-		return fmt.Errorf("could not find property '%s' - it might have already been deleted?", propName)
-	}
+// 	if propIdx == -1 {
+// 		return fmt.Errorf("could not find property '%s' - it might have already been deleted?", propName)
+// 	}
 
-	class.Properties[propIdx] = class.Properties[len(class.Properties)-1]
-	class.Properties[len(class.Properties)-1] = nil // to prevent leaking this pointer.
-	class.Properties = class.Properties[:len(class.Properties)-1]
+// 	class.Properties[propIdx] = class.Properties[len(class.Properties)-1]
+// 	class.Properties[len(class.Properties)-1] = nil // to prevent leaking this pointer.
+// 	class.Properties = class.Properties[:len(class.Properties)-1]
 
-	err = m.saveSchema(ctx)
-	if err != nil {
-		return fmt.Errorf("could not persists schema change in configuration: %v", err)
-	}
+// 	err = m.saveSchema(ctx)
+// 	if err != nil {
+// 		return fmt.Errorf("could not persists schema change in configuration: %v", err)
+// 	}
 
-	return nil
-}
+// 	return nil
+// }

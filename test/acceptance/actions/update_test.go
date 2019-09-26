@@ -141,10 +141,30 @@ func TestCanPatchActionsSetCref(t *testing.T) {
 	actualThunk := func() interface{} {
 		patchedAction := assertGetAction(t, actionID)
 
-		rawCref := patchedAction.Schema.(map[string]interface{})["testReference"]
-		cref := rawCref.([]interface{})[0].(map[string]interface{})
+		rawRef, ok := patchedAction.Schema.(map[string]interface{})["testReference"]
+		if !ok {
+			return nil
+		}
 
-		return cref["beacon"]
+		refsSlice, ok := rawRef.([]interface{})
+		if !ok {
+			t.Logf("found the ref prop, but it was not a slice, but %T", refsSlice)
+			t.Fail()
+		}
+
+		if len(refsSlice) != 1 {
+			t.Logf("expected ref slice to have one element, but got: %d", len(refsSlice))
+			t.Fail()
+		}
+
+		refMap, ok := refsSlice[0].(map[string]interface{})
+		if !ok {
+			t.Logf("found the ref element, but it was not a map, but %T", refsSlice[0])
+			t.Fail()
+		}
+
+		return refMap["beacon"]
 	}
+
 	helper.AssertEventuallyEqual(t, fmt.Sprintf("weaviate://localhost/things/%s", thingToRefID), actualThunk)
 }

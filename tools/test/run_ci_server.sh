@@ -7,12 +7,12 @@ function main() {
   echo "Pull images..."
   surpress_on_success docker pull golang:1.11-alpine
   echo "Build containers (this will take the longest)..."
-  docker-compose -f docker-compose-test.yml build weaviate janus index db telemetry_mock_api \
-    genesis_fake remote_weaviate_fake remote_weaviate_fakes_with_test_schema genesis
+  docker-compose -f docker-compose-test.yml build weaviate telemetry_mock_api \
+    genesis_fake remote_weaviate_fake remote_weaviate_fakes_with_test_schema genesis esvector
   echo "Start up docker-compose setup..."
   surpress_on_success docker-compose -f docker-compose-test.yml up --force-recreate -d weaviate \
-    janus index db genesis_fake remote_weaviate_fake remote_weaviate_fakes_with_test_schema genesis telemetry_mock_api \
-    contextionary #esvector
+    esvector genesis_fake remote_weaviate_fake remote_weaviate_fakes_with_test_schema genesis telemetry_mock_api \
+    contextionary 
 
   MAX_WAIT_SECONDS=60
   ALREADY_WAITING=0
@@ -25,10 +25,6 @@ function main() {
         echo "Weaviate is not up yet. (waited for ${ALREADY_WAITING}s)"
         echo "Weaviate:"
         docker-compose -f docker-compose-test.yml logs weaviate
-        echo "Index:"
-        docker-compose -f docker-compose-test.yml logs index
-        echo "Janus:"
-        docker-compose -f docker-compose-test.yml logs janus
         if [ $ALREADY_WAITING -gt $MAX_WAIT_SECONDS ]; then
           echo "Weaviate did not start up in $MAX_WAIT_SECONDS."
           docker-compose -f docker-compose-test.yml logs

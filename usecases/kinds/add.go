@@ -23,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/kinds/validation"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type addAndGetRepo interface {
@@ -61,7 +62,8 @@ func (m *Manager) AddAction(ctx context.Context, principal *models.Principal,
 	return m.addActionToConnectorAndSchema(ctx, principal, class)
 }
 
-func (m *Manager) checkIDOrAssignNew(ctx context.Context, id strfmt.UUID) (strfmt.UUID, error) {
+func (m *Manager) checkIDOrAssignNew(ctx context.Context, kind kind.Kind,
+	id strfmt.UUID) (strfmt.UUID, error) {
 	if id == "" {
 		newID, err := generateUUID()
 		if err != nil {
@@ -71,7 +73,7 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, id strfmt.UUID) (strfm
 	}
 
 	// only validate ID uniqueness if explicitly set
-	if ok, err := m.repo.ClassExists(ctx, id); ok {
+	if ok, err := m.exists(ctx, kind, id); ok {
 		return "", NewErrInvalidUserInput("id '%s' already exists", id)
 	} else if err != nil {
 		return "", NewErrInternal(err.Error())
@@ -81,7 +83,7 @@ func (m *Manager) checkIDOrAssignNew(ctx context.Context, id strfmt.UUID) (strfm
 
 func (m *Manager) addActionToConnectorAndSchema(ctx context.Context, principal *models.Principal,
 	class *models.Action) (*models.Action, error) {
-	id, err := m.checkIDOrAssignNew(ctx, class.ID)
+	id, err := m.checkIDOrAssignNew(ctx, kind.Action, class.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -100,13 +102,6 @@ func (m *Manager) addActionToConnectorAndSchema(ctx context.Context, principal *
 	now := unixNow()
 	class.CreationTimeUnix = now
 	class.LastUpdateTimeUnix = now
-
-	if !m.config.Config.EsvectorOnly {
-		err = m.repo.AddAction(ctx, class, class.ID)
-		if err != nil {
-			return nil, NewErrInternal("could not store action: %v", err)
-		}
-	}
 
 	err = m.vectorizeAndPutAction(ctx, class)
 	if err != nil {
@@ -145,19 +140,15 @@ func (m *Manager) validateAction(ctx context.Context, principal *models.Principa
 }
 
 func (m *Manager) exists(ctx context.Context, k kind.Kind, id strfmt.UUID) (bool, error) {
-	if !m.config.Config.EsvectorOnly {
-		return m.repo.ClassExists(ctx, id)
-	} else {
-		switch k {
-		case kind.Thing:
-			res, err := m.vectorRepo.ThingByID(ctx, id)
-			return res != nil, err
-		case kind.Action:
-			res, err := m.vectorRepo.ActionByID(ctx, id)
-			return res != nil, err
-		default:
-			panic("impossible kind")
-		}
+	switch k {
+	case kind.Thing:
+		res, err := m.vectorRepo.ThingByID(ctx, id, traverser.SelectProperties{})
+		return res != nil, err
+	case kind.Action:
+		res, err := m.vectorRepo.ActionByID(ctx, id, traverser.SelectProperties{})
+		return res != nil, err
+	default:
+		panic("impossible kind")
 	}
 }
 
@@ -183,7 +174,7 @@ func (m *Manager) AddThing(ctx context.Context, principal *models.Principal,
 
 func (m *Manager) addThingToConnectorAndSchema(ctx context.Context, principal *models.Principal,
 	class *models.Thing) (*models.Thing, error) {
-	id, err := m.checkIDOrAssignNew(ctx, class.ID)
+	id, err := m.checkIDOrAssignNew(ctx, kind.Thing, class.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -202,13 +193,6 @@ func (m *Manager) addThingToConnectorAndSchema(ctx context.Context, principal *m
 	now := unixNow()
 	class.CreationTimeUnix = now
 	class.LastUpdateTimeUnix = now
-
-	if !m.config.Config.EsvectorOnly {
-		err = m.repo.AddThing(ctx, class, class.ID)
-		if err != nil {
-			return nil, NewErrInternal("could not store thing: %v", err)
-		}
-	}
 
 	err = m.vectorizeAndPutThing(ctx, class)
 	if err != nil {
