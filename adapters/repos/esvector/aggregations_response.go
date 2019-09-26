@@ -203,7 +203,12 @@ func getOrInitBucket(buckets map[string]aggregationBucket, property string,
 
 func addNumericalAggregationsToBucket(bucket *aggregationBucket, aggregator string,
 	value interface{}, outsideCount *int) error {
-	bucket.propertyType = aggregation.PropertyTypeNumerical
+	if bucket.propertyType == "" {
+		// only set bucket property type if it wasn't set already, otherwise a
+		// count (of type numerical) might overwrite existing properties of other
+		// types which also include count
+		bucket.propertyType = aggregation.PropertyTypeNumerical
+	}
 
 	av, err := extractNumericalAggregatorAndValue(aggregator, value)
 	if err != nil {
