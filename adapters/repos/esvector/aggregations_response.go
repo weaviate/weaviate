@@ -76,7 +76,11 @@ func (sr searchResponse) ungroupedAggregations(aggs map[string]interface{}) (*ag
 	}
 
 	if count != nil {
-		// there is only a single group as this is an ungrouped agg
+		if len(res.Groups) == 0 {
+			// if we're only doing a count, not aggregating anything else there is no
+			// group yet
+			res.Groups = append(res.Groups, aggregation.Group{})
+		}
 		res.Groups[0].Count = *count
 	}
 
