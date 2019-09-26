@@ -34,9 +34,16 @@ const fakeThingId strfmt.UUID = "11111111-1111-1111-1111-111111111111"
 
 func TestCreateThingWithUserSpecifiedID(t *testing.T) {
 	t.Parallel()
+
+	id := strfmt.UUID("d47ea61b-0ed7-4e5f-9c05-6d2c0786660f")
+	// clean up to make sure we can run this test multiple times in a row
+	defer func() {
+		params := things.NewThingsDeleteParams().WithID(id)
+		helper.Client(t).Things.ThingsDelete(params, nil)
+	}()
+
 	// Set all thing values to compare
 	thingTestString := "Test string"
-	id := strfmt.UUID("d47ea61b-0ed7-4e5f-9c05-6d2c0786660f")
 
 	params := things.NewThingsCreateParams().WithBody(
 		&models.Thing{
