@@ -140,16 +140,6 @@ func (m *Manager) validateAction(ctx context.Context, principal *models.Principa
 
 func (m *Manager) exists(ctx context.Context, k kind.Kind, id strfmt.UUID) (bool, error) {
 	return m.vectorRepo.Exists(ctx, id)
-	// switch k {
-	// case kind.Thing:
-	// 	res, err := m.vectorRepo.ThingByID(ctx, id, traverser.SelectProperties{})
-	// 	return res != nil, err
-	// case kind.Action:
-	// 	res, err := m.vectorRepo.ActionByID(ctx, id, traverser.SelectProperties{})
-	// 	return res != nil, err
-	// default:
-	// 	panic("impossible kind")
-	// }
 }
 
 // AddThing Class Instance to the connected DB. If the class contains a network
