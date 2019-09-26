@@ -70,7 +70,7 @@ func Test_SlicePath(t *testing.T) {
 		}
 		expectedSegments := []interface{}{"population"}
 
-		segments := path.Slice()
+		segments := path.SliceInterface()
 
 		assert.Equal(t, expectedSegments, segments, "should slice the path correctly")
 	})
@@ -94,7 +94,7 @@ func Test_SlicePath(t *testing.T) {
 		}
 		expectedSegments := []interface{}{"InCountry", "Country", "InContinent", "Continent", "OnPlanet", "Planet", "name"}
 
-		segments := path.Slice()
+		segments := path.SliceInterface()
 
 		assert.Equal(t, expectedSegments, segments, "should slice the path correctly")
 	})

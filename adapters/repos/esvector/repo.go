@@ -21,12 +21,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/elastic/go-elasticsearch/v5"
 	"github.com/elastic/go-elasticsearch/v5/esapi"
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/sirupsen/logrus"
 )
 
@@ -43,23 +47,94 @@ const (
 	keyClassName internalKey = "_class_name"
 	keyCreated   internalKey = "_created"
 	keyUpdated   internalKey = "_updated"
+	keyCache     internalKey = "_cache"
+	keyCacheHot  internalKey = "_hot"
 )
 
 // Repo stores and retrieves vector info in elasticsearch
 type Repo struct {
-	client *elasticsearch.Client
-	logger logrus.FieldLogger
+	client                    *elasticsearch.Client
+	logger                    logrus.FieldLogger
+	schemaGetter              schemaUC.SchemaGetter
+	denormalizationDepthLimit int
+	requestCounter            counter
+	cacheIndexer              *cacheIndexer
+	schemaRefFinder           schemaRefFinder
 }
 
+type schemaRefFinder interface {
+	Find(className schema.ClassName) []filters.Path
+}
+
+type noopSchemaRefFinder struct{}
+
+func (s *noopSchemaRefFinder) Find(className schema.ClassName) []filters.Path {
+	return nil
+}
+
+type counter interface {
+	Inc()
+}
+
+type noopCounter struct{}
+
+func (c *noopCounter) Inc() {}
+
 // NewRepo from existing es client
-func NewRepo(client *elasticsearch.Client, logger logrus.FieldLogger) *Repo {
-	return &Repo{client, logger}
+func NewRepo(client *elasticsearch.Client, logger logrus.FieldLogger,
+	schemaGetter schemaUC.SchemaGetter, denormalizationLimit int) *Repo {
+	return &Repo{
+		client:                    client,
+		logger:                    logger,
+		schemaGetter:              schemaGetter,
+		denormalizationDepthLimit: denormalizationLimit,
+		requestCounter:            &noopCounter{},
+		cacheIndexer:              nil,
+		schemaRefFinder:           &noopSchemaRefFinder{},
+	}
+}
+
+func (r *Repo) SetSchemaGetter(sg schemaUC.SchemaGetter) {
+	r.schemaGetter = sg
+}
+
+func (r *Repo) SetSchemaRefFinder(srf schemaRefFinder) {
+	r.schemaRefFinder = srf
+}
+
+func (r *Repo) WaitForStartup(maxWaitTime time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), maxWaitTime)
+	defer cancel()
+
+	r.logger.
+		WithField("action", "esvector_startup").
+		WithField("maxWaitTime", maxWaitTime).
+		Infof("waiting for es vector to start up (maximum %s)", maxWaitTime)
+
+	var lastErr error
+
+	for {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("esvector didn't start up in time: %v, last error: %v", err, lastErr)
+		}
+
+		_, err := r.client.Info()
+		if err != nil {
+			lastErr = err
+			r.logger.WithError(err).WithField("action", "esvector_startup_cycle").
+				Debug("esvector not ready yet, trying again in 1s")
+		} else {
+			return nil
+		}
+
+		time.Sleep(1 * time.Second)
+	}
 }
 
 // PutThing idempotently adds a Thing with its vector representation
 func (r *Repo) PutThing(ctx context.Context,
 	concept *models.Thing, vector []float32) error {
-	err := r.putConcept(ctx, kind.Thing, concept.ID.String(),
+	err := r.putObject(ctx, kind.Thing, concept.ID.String(),
 		concept.Class, concept.Schema, vector, concept.CreationTimeUnix,
 		concept.LastUpdateTimeUnix)
 	if err != nil {
@@ -72,7 +147,7 @@ func (r *Repo) PutThing(ctx context.Context,
 // PutAction idempotently adds a Action with its vector representation
 func (r *Repo) PutAction(ctx context.Context,
 	concept *models.Action, vector []float32) error {
-	err := r.putConcept(ctx, kind.Action, concept.ID.String(),
+	err := r.putObject(ctx, kind.Action, concept.ID.String(),
 		concept.Class, concept.Schema, vector, concept.CreationTimeUnix,
 		concept.LastUpdateTimeUnix)
 	if err != nil {
@@ -94,10 +169,11 @@ func (r *Repo) objectBucket(k kind.Kind, id, className string, props models.Prop
 		keyUpdated.String():   updateTime,
 	}
 
-	return extendBucketWithProps(bucket, props)
+	ex := extendBucketWithProps(bucket, props)
+	return ex
 }
 
-func (r *Repo) putConcept(ctx context.Context,
+func (r *Repo) putObject(ctx context.Context,
 	k kind.Kind, id, className string, props models.PropertySchema,
 	vector []float32, createTime, updateTime int64) error {
 
@@ -131,6 +207,8 @@ func (r *Repo) putConcept(ctx context.Context,
 
 		return fmt.Errorf("index request: %v", err)
 	}
+
+	go r.invalidateCache(className, id)
 
 	return nil
 }
@@ -176,6 +254,8 @@ func extendBucketWithProps(bucket map[string]interface{}, props models.PropertyS
 		return bucket
 	}
 
+	hasRefs := false
+
 	propsMap := props.(map[string]interface{})
 	for key, value := range propsMap {
 		if gc, ok := value.(*models.GeoCoordinates); ok {
@@ -185,9 +265,19 @@ func extendBucketWithProps(bucket map[string]interface{}, props models.PropertyS
 			}
 		}
 
+		if _, ok := value.(models.MultipleRef); ok {
+			hasRefs = true
+		}
+
 		bucket[key] = value
 	}
 
+	bucket[keyCache.String()] = map[string]interface{}{
+		// if a prop has Refs, it requires caching, therefore the intial state of
+		// the cache is cold. However, if there are no ref props set,no caching is
+		// required making the cache state hot
+		keyCacheHot.String(): !hasRefs,
+	}
 	return bucket
 }
 

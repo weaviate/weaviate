@@ -49,18 +49,12 @@ func (m *Manager) DeleteAction(ctx context.Context, principal *models.Principal,
 }
 
 func (m *Manager) deleteActionFromRepo(ctx context.Context, id strfmt.UUID) error {
-	action, err := m.getActionFromRepo(ctx, id)
+	actionRes, err := m.getActionFromRepo(ctx, id)
 	if err != nil {
 		return err
 	}
 
-	if !m.config.Config.EsvectorOnly {
-		err = m.repo.DeleteAction(ctx, nil, id)
-		if err != nil {
-			return NewErrInternal("could not delete action: %v", err)
-		}
-	}
-
+	action := actionRes.Action()
 	err = m.vectorRepo.DeleteAction(ctx, action.Class, id)
 	if err != nil {
 		return NewErrInternal("could not delete action from vector repo: %v", err)
@@ -87,18 +81,12 @@ func (m *Manager) DeleteThing(ctx context.Context, principal *models.Principal, 
 
 func (m *Manager) deleteThingFromRepo(ctx context.Context, id strfmt.UUID) error {
 
-	thing, err := m.getThingFromRepo(ctx, id)
+	thingRes, err := m.getThingFromRepo(ctx, id)
 	if err != nil {
 		return err
 	}
 
-	if !m.config.Config.EsvectorOnly {
-		err = m.repo.DeleteThing(ctx, nil, id)
-		if err != nil {
-			return NewErrInternal("could not delete thing: %v", err)
-		}
-	}
-
+	thing := thingRes.Thing()
 	err = m.vectorRepo.DeleteThing(ctx, thing.Class, id)
 	if err != nil {
 		return NewErrInternal("could not delete thing from vector repo: %v", err)

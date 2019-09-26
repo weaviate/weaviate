@@ -49,7 +49,7 @@ func TestGetWithNetworkRef(t *testing.T) {
 	}
 	resolver := newMockResolver(peers)
 
-	expectedParams := &traverser.GetParams{
+	expectedParams := traverser.GetParams{
 		Kind:      kind.Thing,
 		ClassName: "SomeThing",
 		Properties: []traverser.SelectProperty{

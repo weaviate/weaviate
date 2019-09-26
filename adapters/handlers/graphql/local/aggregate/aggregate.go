@@ -43,7 +43,7 @@ func Build(dbSchema *schema.Schema, config config.Config) (*graphql.Field, error
 
 		getKinds["Actions"] = &graphql.Field{
 			Name:        "AggregateActions",
-			Description: descriptions.LocalAggregateActions,
+			Description: descriptions.AggregateActions,
 			Type:        localAggregateActions,
 			Resolve:     passThroughResolver,
 		}
@@ -57,7 +57,7 @@ func Build(dbSchema *schema.Schema, config config.Config) (*graphql.Field, error
 
 		getKinds["Things"] = &graphql.Field{
 			Name:        "AggregateThings",
-			Description: descriptions.LocalAggregateThings,
+			Description: descriptions.AggregateThings,
 			Type:        localAggregateThings,
 			Resolve:     passThroughResolver,
 		}
@@ -65,11 +65,11 @@ func Build(dbSchema *schema.Schema, config config.Config) (*graphql.Field, error
 
 	field := graphql.Field{
 		Name:        "Aggregate",
-		Description: descriptions.LocalAggregateWhere,
+		Description: descriptions.AggregateWhere,
 		Type: graphql.NewObject(graphql.ObjectConfig{
 			Name:        "AggregateObj",
 			Fields:      getKinds,
-			Description: descriptions.LocalAggregateObj,
+			Description: descriptions.AggregateObj,
 		}),
 		Resolve: passThroughResolver,
 	}
@@ -93,7 +93,7 @@ func classFields(databaseSchema []*models.Class, k kind.Kind,
 	return graphql.NewObject(graphql.ObjectConfig{
 		Name:        fmt.Sprintf("Aggregate%ssObj", k.TitleizedName()),
 		Fields:      fields,
-		Description: descriptions.LocalAggregateThingsActionsObj,
+		Description: descriptions.AggregateThingsActionsObj,
 	}), nil
 }
 
@@ -107,7 +107,7 @@ func classField(k kind.Kind, class *models.Class, description string,
 		return nil, nil
 	}
 
-	metaClassName := fmt.Sprintf("LocalAggregate%s", class.Class)
+	metaClassName := fmt.Sprintf("Aggregate%s", class.Class)
 
 	fields := graphql.ObjectConfig{
 		Name: metaClassName,
@@ -150,7 +150,7 @@ func classField(k kind.Kind, class *models.Class, description string,
 			},
 			"groupBy": &graphql.ArgumentConfig{
 				Description: descriptions.GroupBy,
-				Type:        graphql.NewNonNull(graphql.NewList(graphql.String)),
+				Type:        graphql.NewList(graphql.String),
 			},
 		},
 		Resolve: makeResolveClass(k),
@@ -198,9 +198,19 @@ func classPropertyFields(class *models.Class) (graphql.Fields, error) {
 		}
 	}
 
+	// Special case: meta { count } appended to all regular props
+	fields["meta"] = &graphql.Field{
+		Description: descriptions.LocalMetaObj,
+		Type:        metaObject(fmt.Sprintf("Aggregate%s", class.Class)),
+		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+			// pass-through
+			return p.Source, nil
+		},
+	}
+
 	// Always append Grouped By field
 	fields["groupedBy"] = &graphql.Field{
-		Description: descriptions.LocalAggregateGroupedBy,
+		Description: descriptions.AggregateGroupedBy,
 		Type:        groupedByProperty(class),
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			switch typed := p.Source.(type) {
@@ -217,22 +227,41 @@ func classPropertyFields(class *models.Class) (graphql.Fields, error) {
 	return fields, nil
 }
 
+func metaObject(prefix string) *graphql.Object {
+	return graphql.NewObject(graphql.ObjectConfig{
+		Name: fmt.Sprintf("%sMetaObject", prefix),
+		Fields: graphql.Fields{
+			"count": &graphql.Field{
+				Type: graphql.Int,
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					group, ok := p.Source.(aggregation.Group)
+					if !ok {
+						return nil, fmt.Errorf("meta count: expected aggregation.Group, got %T", p.Source)
+					}
+
+					return group.Count, nil
+				},
+			},
+		},
+	})
+}
+
 func classPropertyField(dataType schema.DataType, class *models.Class, property *models.Property) (*graphql.Field, error) {
 	switch dataType {
 	case schema.DataTypeString:
-		return makePropertyField(class, property, nonNumericPropertyFields)
+		return makePropertyField(class, property, stringPropertyFields)
 	case schema.DataTypeText:
-		return makePropertyField(class, property, nonNumericPropertyFields)
+		return makePropertyField(class, property, stringPropertyFields)
 	case schema.DataTypeInt:
 		return makePropertyField(class, property, numericPropertyFields)
 	case schema.DataTypeNumber:
 		return makePropertyField(class, property, numericPropertyFields)
 	case schema.DataTypeBoolean:
-		return makePropertyField(class, property, nonNumericPropertyFields)
+		return makePropertyField(class, property, booleanPropertyFields)
 	case schema.DataTypeDate:
 		return makePropertyField(class, property, nonNumericPropertyFields)
 	case schema.DataTypeCRef:
-		return makePropertyField(class, property, nonNumericPropertyFields)
+		return makePropertyField(class, property, referencePropertyFields)
 	case schema.DataTypeGeoCoordinates:
 		// simply skip for now, see gh-729
 		return nil, nil
@@ -246,7 +275,7 @@ type propertyFieldMaker func(class *models.Class,
 
 func makePropertyField(class *models.Class, property *models.Property,
 	fieldMaker propertyFieldMaker) (*graphql.Field, error) {
-	prefix := "LocalAggregate"
+	prefix := "Aggregate"
 	return &graphql.Field{
 		Description: fmt.Sprintf(`%s"%s"`, descriptions.AggregateProperty, property.Name),
 		Type:        fieldMaker(class, property, prefix),
@@ -259,8 +288,7 @@ func makePropertyField(class *models.Class, property *models.Property,
 				}
 
 				return res, nil
-			case map[string]interface{}:
-				return typed[property.Name], nil
+
 			default:
 				return nil, fmt.Errorf("property %s, unsupported type %T", property.Name, p.Source)
 			}

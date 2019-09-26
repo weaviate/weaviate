@@ -48,11 +48,12 @@ func (m *Manager) deleteActionReferenceFromConnector(ctx context.Context, princi
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
 
 	// get action to see if it exists
-	action, err := m.getActionFromRepo(ctx, id)
+	actionRes, err := m.getActionFromRepo(ctx, id)
 	if err != nil {
 		return err
 	}
 
+	action := actionRes.Action()
 	// NOTE: The reference itself is not being validated, to allow for deletion
 	// of broken references
 	err = m.validateCanModifyReference(principal, kind.Action, action.Class, propertyName)
@@ -67,7 +68,7 @@ func (m *Manager) deleteActionReferenceFromConnector(ctx context.Context, princi
 	action.Schema = extended
 	action.LastUpdateTimeUnix = unixNow()
 
-	err = m.repo.UpdateAction(ctx, action, action.ID)
+	err = m.vectorRepo.PutAction(ctx, action, actionRes.Vector)
 	if err != nil {
 		return NewErrInternal("could not store action: %v", err)
 	}
@@ -78,10 +79,6 @@ func (m *Manager) deleteActionReferenceFromConnector(ctx context.Context, princi
 // DeleteThingReference from connected DB
 func (m *Manager) DeleteThingReference(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
-
-	if m.config.Config.EsvectorOnly {
-		return fmt.Errorf("kinds.DeleteThingReference not supported yet in esvector-only mode")
-	}
 
 	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("things/%s", id.String()))
 	if err != nil {
@@ -101,11 +98,12 @@ func (m *Manager) deleteThingReferenceFromConnector(ctx context.Context, princip
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
 
 	// get thing to see if it exists
-	thing, err := m.getThingFromRepo(ctx, id)
+	thingRes, err := m.getThingFromRepo(ctx, id)
 	if err != nil {
 		return err
 	}
 
+	thing := thingRes.Thing()
 	// NOTE: The reference itself is not being validated, to allow for deletion
 	// of broken references
 	err = m.validateCanModifyReference(principal, kind.Thing, thing.Class, propertyName)
@@ -120,7 +118,7 @@ func (m *Manager) deleteThingReferenceFromConnector(ctx context.Context, princip
 	thing.Schema = extended
 	thing.LastUpdateTimeUnix = unixNow()
 
-	err = m.repo.UpdateThing(ctx, thing, thing.ID)
+	err = m.vectorRepo.PutThing(ctx, thing, thingRes.Vector)
 	if err != nil {
 		return NewErrInternal("could not store thing: %v", err)
 	}
@@ -139,23 +137,22 @@ func (m *Manager) removeReferenceFromClassProps(props interface{}, propertyName 
 
 	_, ok := propsMap[propertyName]
 	if !ok {
-		propsMap[propertyName] = []interface{}{}
+		propsMap[propertyName] = models.MultipleRef{}
 	}
 
 	existingRefs := propsMap[propertyName]
-	existingRefsSlice, ok := existingRefs.([]interface{})
+	existingMultipleRef, ok := existingRefs.(models.MultipleRef)
 	if !ok {
 		return nil, NewErrInternal("expected list for reference props, but got %T", existingRefs)
 	}
 
-	propsMap[propertyName] = removeRef(existingRefsSlice, property)
+	propsMap[propertyName] = removeRef(existingMultipleRef, property)
 	return propsMap, nil
 }
 
-func removeRef(refs []interface{}, property *models.SingleRef) []interface{} {
+func removeRef(refs models.MultipleRef, property *models.SingleRef) models.MultipleRef {
 	// Remove if this reference is found.
-	for i, current := range refs {
-		currentRef := current.(*models.SingleRef)
+	for i, currentRef := range refs {
 		if currentRef.Beacon != property.Beacon {
 			continue
 		}

@@ -17,6 +17,7 @@ package aggregate
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -41,7 +42,7 @@ const GroupedByFieldName = "groupedBy"
 // form the overall GraphQL API main interface. All data-base connectors that
 // want to support the Meta feature must implement this interface.
 type Resolver interface {
-	LocalAggregate(ctx context.Context, principal *models.Principal, info *traverser.AggregateParams) (interface{}, error)
+	Aggregate(ctx context.Context, principal *models.Principal, info *traverser.AggregateParams) (interface{}, error)
 }
 
 // RequestsLog is a local abstraction on the RequestsLog that needs to be
@@ -74,7 +75,7 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 		}
 
 		selections := p.Info.FieldASTs[0].SelectionSet
-		properties, err := extractProperties(selections)
+		properties, includeMeta, err := extractProperties(selections)
 		if err != nil {
 			return nil, fmt.Errorf("could not extract properties for class '%s': %s", className, err)
 		}
@@ -108,15 +109,16 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 		}
 
 		params := &traverser.AggregateParams{
-			Kind:       kind,
-			Filters:    filters,
-			ClassName:  className,
-			Properties: properties,
-			GroupBy:    groupBy,
-			Analytics:  analytics,
+			Kind:             kind,
+			Filters:          filters,
+			ClassName:        className,
+			Properties:       properties,
+			GroupBy:          groupBy,
+			Analytics:        analytics,
+			IncludeMetaCount: includeMeta,
 		}
 
-		res, err := resolver.LocalAggregate(p.Context, principalFromContext(p.Context), params)
+		res, err := resolver.Aggregate(p.Context, principalFromContext(p.Context), params)
 		if err != nil {
 			return nil, err
 		}
@@ -130,8 +132,9 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 	}
 }
 
-func extractProperties(selections *ast.SelectionSet) ([]traverser.AggregateProperty, error) {
+func extractProperties(selections *ast.SelectionSet) ([]traverser.AggregateProperty, bool, error) {
 	properties := []traverser.AggregateProperty{}
+	var includeMeta bool
 
 	for _, selection := range selections.Selections {
 		field := selection.(*ast.Field)
@@ -147,24 +150,40 @@ func extractProperties(selections *ast.SelectionSet) ([]traverser.AggregatePrope
 			continue
 		}
 
+		if name == "meta" {
+			includeMeta = true
+			continue
+		}
+
+		if name == "__typename" {
+			continue
+		}
+
+		name = strings.ToLower(string(name[0:1])) + string(name[1:])
 		property := traverser.AggregateProperty{Name: schema.PropertyName(name)}
 		aggregators, err := extractAggregators(field.SelectionSet)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 
 		property.Aggregators = aggregators
 		properties = append(properties, property)
 	}
 
-	return properties, nil
+	return properties, includeMeta, nil
 }
 
 func extractAggregators(selections *ast.SelectionSet) ([]traverser.Aggregator, error) {
+	if selections == nil {
+		return nil, nil
+	}
 	analyses := []traverser.Aggregator{}
 	for _, selection := range selections.Selections {
 		field := selection.(*ast.Field)
 		name := field.Name.Value
+		if name == "__typename" {
+			continue
+		}
 		property, err := traverser.ParseAggregatorProp(name)
 		if err != nil {
 			return nil, err
@@ -179,7 +198,8 @@ func extractAggregators(selections *ast.SelectionSet) ([]traverser.Aggregator, e
 func extractGroupBy(args map[string]interface{}, rootClass string) (*filters.Path, error) {
 	groupBy, ok := args["groupBy"]
 	if !ok {
-		return nil, fmt.Errorf("no groupBy present in args")
+		// not set means the user is not intersted in grouping (former Meta)
+		return nil, nil
 	}
 
 	pathSegments, ok := groupBy.([]interface{})

@@ -15,6 +15,7 @@ package esvector
 
 import (
 	"context"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
@@ -23,6 +24,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
@@ -41,11 +43,11 @@ func (r *NoOpRepo) VectorSearch(ctx context.Context, vector []float32, limit int
 	filters *filters.LocalFilter) ([]search.Result, error) {
 	panic("no op repo: not implemented")
 }
-func (r *NoOpRepo) ThingByID(ctx context.Context, id strfmt.UUID) (*search.Result, error) {
+func (r *NoOpRepo) ThingByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties) (*search.Result, error) {
 	panic("no op repo: not implemented")
 }
 
-func (r *NoOpRepo) ActionByID(ctx context.Context, id strfmt.UUID) (*search.Result, error) {
+func (r *NoOpRepo) ActionByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties) (*search.Result, error) {
 	panic("no op repo: not implemented")
 }
 
@@ -88,6 +90,18 @@ func (r *NoOpRepo) BatchPutActions(ctx context.Context, batch kinds.BatchActions
 
 //DeleteAction does nothing, but doesn't error either
 func (r *NoOpRepo) DeleteAction(ctx context.Context, className string, id strfmt.UUID) error {
+	return nil
+}
+
+func (r *NoOpRepo) SetSchemaGetter(sg schema.SchemaGetter) {
+	return
+}
+
+func (r *NoOpRepo) InitCacheIndexing(size int, waitOnIdle, waitOnBusy time.Duration) {
+	return
+}
+
+func (r *NoOpRepo) WaitForStartup(time.Duration) error {
 	return nil
 }
 

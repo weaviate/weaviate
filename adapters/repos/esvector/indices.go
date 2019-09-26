@@ -104,7 +104,8 @@ func (r *Repo) indexExists(ctx context.Context, index string) (bool, error) {
 }
 
 // SetMappings for overall concept of weaviate index
-func (r *Repo) SetMappings(ctx context.Context, index string, props map[string]interface{}) error {
+func (r *Repo) SetMappings(ctx context.Context, index string,
+	props map[string]interface{}) error {
 	var buf bytes.Buffer
 
 	// extend existing props with vectorProp

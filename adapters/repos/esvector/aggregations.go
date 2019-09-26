@@ -25,11 +25,16 @@ import (
 )
 
 func (r *Repo) Aggregate(ctx context.Context, params traverser.AggregateParams) (*aggregation.Result, error) {
-	if len(params.GroupBy.Slice()) > 1 {
+	if params.GroupBy != nil && len(params.GroupBy.Slice()) > 1 {
 		return nil, fmt.Errorf("grouping by cross-refs not supported yet")
 	}
 
-	body, err := aggBody(params)
+	query, err := queryFromFilter(params.Filters)
+	if err != nil {
+		return nil, err
+	}
+
+	body, err := aggBody(query, params)
 	if err != nil {
 		return nil, err
 	}
@@ -49,46 +54,102 @@ func (r *Repo) Aggregate(ctx context.Context, params traverser.AggregateParams) 
 		return nil, fmt.Errorf("vector search: %v", err)
 	}
 
-	path := interfaceToStringSlice(params.GroupBy.Slice())
+	var path []string
+	if params.GroupBy != nil {
+		path = params.GroupBy.Slice()
+	}
 	return r.aggregationResponse(res, path)
 }
 
-func aggBody(params traverser.AggregateParams) (map[string]interface{}, error) {
-	inner, err := innerAggs(params.Properties)
+func aggBody(query map[string]interface{}, params traverser.AggregateParams) (map[string]interface{}, error) {
+	var includeCount bool
+	if params.GroupBy == nil && params.IncludeMetaCount == true {
+		includeCount = true
+	}
+
+	inner, err := innerAggs(params.Properties, includeCount)
 	if err != nil {
 		return nil, err
 	}
 
-	aggregations := map[string]interface{}{
-		"outer": map[string]interface{}{
-			"terms": map[string]interface{}{
-				"field": params.GroupBy.Property,
-				"size":  100,
+	var aggregations map[string]interface{}
+	if params.GroupBy == nil {
+		aggregations = inner
+	} else {
+		aggregations = map[string]interface{}{
+			"outer": map[string]interface{}{
+				"terms": map[string]interface{}{
+					"field": params.GroupBy.Property,
+					"size":  100,
+				},
+				"aggs": inner,
 			},
-			"aggs": inner,
-		},
+		}
 	}
 
 	return map[string]interface{}{
-		"aggs": aggregations,
-		"size": 0,
+		"query": query,
+		"aggs":  aggregations,
+		"size":  0,
 	}, nil
 }
 
-func innerAggs(properties []traverser.AggregateProperty) (map[string]interface{}, error) {
+const metaCountField = "_metaCountField"
+
+func innerAggs(properties []traverser.AggregateProperty, includeCount bool) (map[string]interface{}, error) {
 	inner := map[string]interface{}{}
 	for _, property := range properties {
+
+		if containsBooleanAggregators(property.Aggregators) {
+			// this is a special case as, we only need to do a single aggregation no
+			// matter if one or all boolean aggregators are set, therefore we're not
+			// iterating over all aggregators, but merely checking for their presence
+			inner[aggName(property.Name, "boolean")] = aggValueBoolean(property.Name)
+
+			// additionally, we know that a boolean prop cannot contain any
+			// non-boolean aggregators, so it's safe to consider this property
+			// complete
+			continue
+		}
+
 		for _, aggregator := range property.Aggregators {
 			v, err := aggValue(property.Name, aggregator)
 			if err != nil {
 				return nil, fmt.Errorf("prop '%s': %v", property.Name, err)
 			}
 
+			if v == nil {
+				// can be the case if the aggregator was 'type' which can't be handled
+				// by the repo
+				continue
+			}
+
 			inner[aggName(property.Name, aggregator)] = v
 		}
 	}
 
+	if includeCount == true {
+		inner[metaCountField] = map[string]interface{}{
+			"value_count": map[string]interface{}{
+				"field": "_id",
+			},
+		}
+	}
+
 	return inner, nil
+}
+
+func containsBooleanAggregators(aggs []traverser.Aggregator) bool {
+	for _, agg := range aggs {
+		if agg == traverser.PercentageTrueAggregator ||
+			agg == traverser.PercentageFalseAggregator ||
+			agg == traverser.TotalTrueAggregator ||
+			agg == traverser.TotalFalseAggregator {
+			return true
+		}
+	}
+
+	return false
 }
 
 func aggName(prop schema.PropertyName, agg traverser.Aggregator) string {
@@ -113,40 +174,57 @@ func lookupAgg(input traverser.Aggregator) (string, error) {
 }
 
 func aggValue(prop schema.PropertyName, agg traverser.Aggregator) (map[string]interface{}, error) {
-	if agg == traverser.ModeAggregator {
-		return aggValueMode(prop)
-	}
+	switch agg {
 
-	if agg == traverser.MedianAggregator {
-		return aggValueMedian(prop)
-	}
+	case traverser.TypeAggregator, traverser.PointingToAggregator:
+		// handled outside of the repo
+		return nil, nil
 
-	esAgg, err := lookupAgg(agg)
-	if err != nil {
-		return nil, err
-	}
+	case traverser.ModeAggregator:
+		return aggValueMode(prop), nil
 
-	return map[string]interface{}{
-		esAgg: map[string]interface{}{
-			"field": prop,
-		},
-	}, nil
+	case traverser.MedianAggregator:
+		return aggValueMedian(prop), nil
+
+	case traverser.TopOccurrencesAggregator:
+		return aggValueTopOccurrences(prop, 5), nil
+
+	default:
+		esAgg, err := lookupAgg(agg)
+		if err != nil {
+			return nil, err
+		}
+
+		return map[string]interface{}{
+			esAgg: map[string]interface{}{
+				"field": prop,
+			},
+		}, nil
+	}
 }
 
-func aggValueMode(prop schema.PropertyName) (map[string]interface{}, error) {
+func aggValueMode(prop schema.PropertyName) map[string]interface{} {
+	return aggValueTopOccurrences(prop, 1)
+}
+
+func aggValueBoolean(prop schema.PropertyName) map[string]interface{} {
+	return aggValueTopOccurrences(prop, 2)
+}
+
+func aggValueTopOccurrences(prop schema.PropertyName, size int) map[string]interface{} {
 	return map[string]interface{}{
 		"terms": map[string]interface{}{
 			"field": prop,
-			"size":  1,
+			"size":  size,
 		},
-	}, nil
+	}
 }
 
-func aggValueMedian(prop schema.PropertyName) (map[string]interface{}, error) {
+func aggValueMedian(prop schema.PropertyName) map[string]interface{} {
 	return map[string]interface{}{
 		"percentiles": map[string]interface{}{
 			"field":    prop,
 			"percents": []int{50},
 		},
-	}, nil
+	}
 }

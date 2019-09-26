@@ -29,7 +29,7 @@ import (
 func TestSimpleFieldParamsOK(t *testing.T) {
 	t.Parallel()
 	resolver := newMockResolver(emptyPeers())
-	expectedParams := &traverser.GetParams{
+	expectedParams := traverser.GetParams{
 		Kind:       kind.Action,
 		ClassName:  "SomeAction",
 		Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
@@ -46,7 +46,7 @@ func TestExtractIntField(t *testing.T) {
 
 	resolver := newMockResolver(emptyPeers())
 
-	expectedParams := &traverser.GetParams{
+	expectedParams := traverser.GetParams{
 		Kind:       kind.Action,
 		ClassName:  "SomeAction",
 		Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
@@ -64,7 +64,7 @@ func TestExtractGeoCoordinatesField(t *testing.T) {
 
 	resolver := newMockResolver(emptyPeers())
 
-	expectedParams := &traverser.GetParams{
+	expectedParams := traverser.GetParams{
 		Kind:       kind.Action,
 		ClassName:  "SomeAction",
 		Properties: []traverser.SelectProperty{{Name: "location", IsPrimitive: true}},
@@ -110,7 +110,7 @@ func TestExploreRanker(t *testing.T) {
 								}
         			}) { intField } } } }`
 
-		expectedParams := &traverser.GetParams{
+		expectedParams := traverser.GetParams{
 			Kind:       kind.Action,
 			ClassName:  "SomeAction",
 			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
@@ -147,7 +147,7 @@ func TestExploreRanker(t *testing.T) {
 								}
         			}) { intField } } } }`
 
-		expectedParams := &traverser.GetParams{
+		expectedParams := traverser.GetParams{
 			Kind:       kind.Thing,
 			ClassName:  "SomeThing",
 			Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
@@ -177,7 +177,7 @@ func TestExtractPagination(t *testing.T) {
 
 	resolver := newMockResolver(emptyPeers())
 
-	expectedParams := &traverser.GetParams{
+	expectedParams := traverser.GetParams{
 		Kind:       kind.Action,
 		ClassName:  "SomeAction",
 		Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
@@ -199,7 +199,7 @@ func TestGetRelation(t *testing.T) {
 	t.Run("without using custom fragments", func(t *testing.T) {
 		resolver := newMockResolver(emptyPeers())
 
-		expectedParams := &traverser.GetParams{
+		expectedParams := traverser.GetParams{
 			Kind:      kind.Action,
 			ClassName: "SomeAction",
 			Properties: []traverser.SelectProperty{
@@ -246,7 +246,7 @@ func TestGetRelation(t *testing.T) {
 	t.Run("with a custom fragment one level deep", func(t *testing.T) {
 		resolver := newMockResolver(emptyPeers())
 
-		expectedParams := &traverser.GetParams{
+		expectedParams := traverser.GetParams{
 			Kind:      kind.Action,
 			ClassName: "SomeAction",
 			Properties: []traverser.SelectProperty{
@@ -278,7 +278,7 @@ func TestGetRelation(t *testing.T) {
 	t.Run("with a custom fragment multiple levels deep", func(t *testing.T) {
 		resolver := newMockResolver(emptyPeers())
 
-		expectedParams := &traverser.GetParams{
+		expectedParams := traverser.GetParams{
 			Kind:      kind.Action,
 			ClassName: "SomeAction",
 			Properties: []traverser.SelectProperty{

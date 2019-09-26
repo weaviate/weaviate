@@ -52,6 +52,14 @@ func (r *Repo) BatchPutActions(ctx context.Context, batch kinds.BatchActions) (k
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	r.encodeBatchActions(enc, batch)
+
+	if buf.Len() == 0 {
+		// we cannot send an empty request to ES, as it will error. However, if the
+		// user had a validation error in every single batch item, we'd end up with
+		// an empty body. In this case, simply return the original results
+		return batch, nil
+	}
+
 	req := esapi.BulkRequest{
 		Body: &buf,
 	}
@@ -130,10 +138,17 @@ func (r *Repo) BatchPutThings(ctx context.Context, batch kinds.BatchThings) (kin
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	r.encodeBatchThings(enc, batch)
+
+	if buf.Len() == 0 {
+		// we cannot send an empty request to ES, as it will error. However, if the
+		// user had a validation error in every single batch item, we'd end up with
+		// an empty body. In this case, simply return the original results
+		return batch, nil
+	}
+
 	req := esapi.BulkRequest{
 		Body: &buf,
 	}
-
 	res, err := req.Do(ctx, r.client)
 	if err != nil {
 		return nil, fmt.Errorf("batch put thing request: %v", err)

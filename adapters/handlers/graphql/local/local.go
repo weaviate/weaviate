@@ -18,7 +18,6 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/aggregate"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/explore"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get"
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/getmeta"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
@@ -33,11 +32,6 @@ func Build(dbSchema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger
 		return nil, err
 	}
 
-	getMetaField, err := getmeta.Build(dbSchema, config)
-	if err != nil {
-		return nil, err
-	}
-
 	aggregateField, err := aggregate.Build(dbSchema, config)
 	if err != nil {
 		return nil, err
@@ -47,7 +41,6 @@ func Build(dbSchema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger
 
 	localFields := graphql.Fields{
 		"Get":       getField,
-		"Meta":      getMetaField,
 		"Aggregate": aggregateField,
 		"Explore":   exploreField,
 	}
