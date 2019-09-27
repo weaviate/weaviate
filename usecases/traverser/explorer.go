@@ -20,7 +20,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 )
 
@@ -33,11 +32,8 @@ type Explorer struct {
 }
 
 type vectorClassSearch interface {
-	ClassSearch(ctx context.Context, kind kind.Kind,
-		className string, limit int, filters *filters.LocalFilter) ([]search.Result, error)
-	VectorClassSearch(ctx context.Context, kind kind.Kind,
-		className string, vector []float32, limit int,
-		filters *filters.LocalFilter) ([]search.Result, error)
+	ClassSearch(ctx context.Context, params GetParams) ([]search.Result, error)
+	VectorClassSearch(ctx context.Context, params GetParams) ([]search.Result, error)
 	VectorSearch(ctx context.Context, vector []float32, limit int,
 		filters *filters.LocalFilter) ([]search.Result, error)
 }
@@ -54,28 +50,31 @@ func NewExplorer(search vectorClassSearch, vectorizer CorpiVectorizer) *Explorer
 
 // GetClass from search and connector repo
 func (e *Explorer) GetClass(ctx context.Context,
-	params *GetParams) ([]interface{}, error) {
+	params GetParams) ([]interface{}, error) {
 
-	// TODO: gh-881 default to config limit
-	limit := 100
-	if params.Pagination != nil {
-		limit = params.Pagination.Limit
+	if params.Pagination == nil {
+		params.Pagination = &filters.Pagination{
+			Limit: 100,
+		}
 	}
 
 	if params.Explore != nil {
-		return e.getClassExploration(ctx, params, limit)
+		return e.getClassExploration(ctx, params)
 	}
-	return e.getClassList(ctx, params, limit)
+
+	return e.getClassList(ctx, params)
 }
 
 func (e *Explorer) getClassExploration(ctx context.Context,
-	params *GetParams, limit int) ([]interface{}, error) {
+	params GetParams) ([]interface{}, error) {
 	searchVector, err := e.vectorFromExploreParams(ctx, params.Explore)
 	if err != nil {
 		return nil, fmt.Errorf("explorer: get class: vectorize params: %v", err)
 	}
-	res, err := e.search.VectorClassSearch(ctx, params.Kind, params.ClassName,
-		searchVector, limit, params.Filters)
+
+	params.SearchVector = searchVector
+
+	res, err := e.search.VectorClassSearch(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("explorer: get class: vector search: %v", err)
 	}
@@ -84,10 +83,9 @@ func (e *Explorer) getClassExploration(ctx context.Context,
 }
 
 func (e *Explorer) getClassList(ctx context.Context,
-	params *GetParams, limit int) ([]interface{}, error) {
+	params GetParams) ([]interface{}, error) {
 
-	res, err := e.search.ClassSearch(ctx, params.Kind, params.ClassName,
-		limit, params.Filters)
+	res, err := e.search.ClassSearch(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("explorer: get class: search: %v", err)
 	}

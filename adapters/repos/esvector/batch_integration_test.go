@@ -19,13 +19,14 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/elastic/go-elasticsearch/v5"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,10 +37,11 @@ func TestEsVectorRepoBatch(t *testing.T) {
 		Addresses: []string{"http://localhost:9201"},
 	})
 	require.Nil(t, err)
-	waitForEsToBeReady(t, client)
 
 	logger, _ := test.NewNullLogger()
-	repo := NewRepo(client, logger)
+	schemaGetter := &fakeSchemaGetter{}
+	repo := NewRepo(client, logger, schemaGetter, 3)
+	waitForEsToBeReady(t, repo)
 	migrator := NewMigrator(repo)
 
 	t.Run("creating the thing class", testAddBatchThingClass(repo, migrator))
@@ -129,10 +131,15 @@ func testBatchImportThings(repo *Repo) func(t *testing.T) {
 				require.Nil(t, err)
 			})
 
-			// sleep for index to become available
-			time.Sleep(2 * time.Second)
+			refreshAll(t, repo.client)
 
-			res, err := repo.ClassSearch(context.Background(), kind.Thing, "ThingForBatching", 10, nil)
+			params := traverser.GetParams{
+				Kind:       kind.Thing,
+				ClassName:  "ThingForBatching",
+				Pagination: &filters.Pagination{Limit: 10},
+				Filters:    nil,
+			}
+			res, err := repo.ClassSearch(context.Background(), params)
 			require.Nil(t, err)
 
 			t.Run("contains first element", func(t *testing.T) {
@@ -200,10 +207,15 @@ func testBatchImportThings(repo *Repo) func(t *testing.T) {
 				})
 			})
 
-			// sleep for index to become available
-			time.Sleep(2 * time.Second)
+			refreshAll(t, repo.client)
 
-			res, err := repo.ClassSearch(context.Background(), kind.Thing, "ThingForBatching", 10, nil)
+			params := traverser.GetParams{
+				Kind:       kind.Thing,
+				ClassName:  "ThingForBatching",
+				Pagination: &filters.Pagination{Limit: 10},
+				Filters:    nil,
+			}
+			res, err := repo.ClassSearch(context.Background(), params)
 			require.Nil(t, err)
 
 			t.Run("contains first element", func(t *testing.T) {
@@ -271,10 +283,15 @@ func testBatchImportActions(repo *Repo) func(t *testing.T) {
 			require.Nil(t, err)
 		})
 
-		// sleep for index to become available
-		time.Sleep(2 * time.Second)
+		refreshAll(t, repo.client)
 
-		res, err := repo.ClassSearch(context.Background(), kind.Action, "ActionForBatching", 10, nil)
+		params := traverser.GetParams{
+			Kind:       kind.Action,
+			ClassName:  "ActionForBatching",
+			Pagination: &filters.Pagination{Limit: 10},
+			Filters:    nil,
+		}
+		res, err := repo.ClassSearch(context.Background(), params)
 		require.Nil(t, err)
 		require.Len(t, res, 2)
 

@@ -123,17 +123,23 @@ func classIndexFromClassName(kind kind.Kind, className string) string {
 
 const allThingIndices = indexPrefix + "thing_*"
 const allActionIndices = indexPrefix + "action_*"
+const allClassIndices = indexPrefix + "*"
 
 func (m *Migrator) setMappings(ctx context.Context, index string,
 	props []*models.Property) error {
+	esProperties, err := m.esPropsFromClassProps(props, 0)
+	if err != nil {
+		return err
+	}
+
+	return m.repo.SetMappings(ctx, index, esProperties)
+}
+
+func (m *Migrator) esPropsFromClassProps(props []*models.Property, depth int) (map[string]interface{}, error) {
 	esProperties := map[string]interface{}{}
+	cache := map[string]interface{}{}
 
 	for _, prop := range props {
-		if len(prop.DataType) > 1 {
-			// this must be a ref-type prop, so we can safely skip it
-			continue
-		}
-
 		switch prop.DataType[0] {
 		case string(schema.DataTypeString):
 			esProperties[prop.Name] = typeMap(Keyword)
@@ -150,16 +156,71 @@ func (m *Migrator) setMappings(ctx context.Context, index string,
 		case string(schema.DataTypeGeoCoordinates):
 			esProperties[prop.Name] = typeMap(GeoPoint)
 		default:
-			// assume everythings else must be a ref prop, simply ignore
-			continue
+			if depth+1 > m.repo.denormalizationDepthLimit {
+				continue
+			}
+
+			refProp, err := m.mapRefProp(prop.DataType, depth+1)
+			if err != nil {
+				return nil, fmt.Errorf("ref prop '%s': %v", prop.Name, err)
+			}
+
+			if depth == 0 {
+				cache[prop.Name] = refProp
+			} else {
+				esProperties[prop.Name] = refProp
+			}
 		}
 	}
 
-	return m.repo.SetMappings(ctx, index, esProperties)
+	if depth == 0 {
+		// only the root level has a _cache_hot field and wraps all chaced props in
+		// cache. A depth > 0 indicates we're already in the cached part and don't
+		// need to wrap everything again
+		cache[keyCacheHot.String()] = map[string]interface{}{
+			"type": "boolean",
+		}
+
+		if len(cache) != 0 {
+			esProperties[keyCache.String()] = map[string]interface{}{
+				"properties": cache,
+			}
+		}
+	}
+
+	return esProperties, nil
 }
 
 func typeMap(ft FieldType) map[string]interface{} {
 	return map[string]interface{}{
 		"type": ft,
 	}
+}
+
+func (m *Migrator) mapRefProp(classNames []string, depth int) (map[string]interface{}, error) {
+	s := m.repo.schemaGetter.GetSchemaSkipAuth()
+
+	properties := map[string]interface{}{}
+
+	for _, className := range classNames {
+		class := s.FindClassByName(schema.ClassName(className))
+		if class == nil {
+			return nil, fmt.Errorf("class '%s' not found", className)
+		}
+
+		esProperties, err := m.esPropsFromClassProps(class.Properties, depth)
+		if err != nil {
+			return nil, fmt.Errorf("target class '%s': %#v", className, err)
+		}
+
+		properties[className] = map[string]interface{}{
+			"properties": esProperties,
+			"type":       "nested",
+		}
+	}
+
+	return map[string]interface{}{
+		"properties": properties,
+	}, nil
+
 }

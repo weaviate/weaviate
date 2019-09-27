@@ -15,6 +15,7 @@ package esvector
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/semi-technologies/weaviate/entities/filters"
 )
@@ -58,13 +59,15 @@ func singleQueryFromClause(clause *filters.Clause) (map[string]interface{}, erro
 }
 
 func filterFromClause(clause *filters.Clause) (map[string]interface{}, error) {
+	if clause.On.Child != nil {
+		return refFilterFromClause(clause)
+	}
+
 	if clause.Operator == filters.OperatorWithinGeoRange {
 		return geoFilterFromClause(clause)
 	}
 
 	return primitiveFilterFromClause(clause)
-
-	// TODO: check for cross-refs
 }
 
 func geoFilterFromClause(clause *filters.Clause) (map[string]interface{}, error) {
@@ -98,6 +101,66 @@ func primitiveFilterFromClause(clause *filters.Clause) (map[string]interface{}, 
 		},
 	}, nil
 
+}
+
+func refFilterFromClause(clause *filters.Clause) (map[string]interface{}, error) {
+
+	// we only need to reference type nested once for the outermost nesting, es
+	// will automatically discover further nested queries
+	outerPath := outerPath(clause.On)
+
+	// no matter how deep, by using the inner path as field name we can match any
+	// nested object
+	innerPath := innerPath(clause.On)
+
+	innerQuery := map[string]interface{}{}
+	if clause.Operator == filters.OperatorWithinGeoRange {
+		q, err := refGeoFilterFromClause(clause)
+		if err != nil {
+			return nil, err
+		}
+
+		innerQuery = q
+	} else {
+		m, err := matcherFromOperator(clause.Operator)
+		if err != nil {
+			return nil, err
+		}
+
+		innerQuery = map[string]interface{}{
+			m.queryType: map[string]interface{}{
+				innerPath: map[string]interface{}{
+					m.operator: clause.Value.Value,
+				},
+			},
+		}
+	}
+
+	return map[string]interface{}{
+		"nested": map[string]interface{}{
+			"path":            outerPath,
+			"ignore_unmapped": true,
+			"query":           innerQuery,
+		},
+	}, nil
+
+}
+
+func refGeoFilterFromClause(clause *filters.Clause) (map[string]interface{}, error) {
+	geoRange, ok := clause.Value.Value.(filters.GeoRange)
+	if !ok {
+		return nil, fmt.Errorf("got WithinGeoRange operator, but value was not a GeoRange")
+	}
+
+	return map[string]interface{}{
+		"geo_distance": map[string]interface{}{
+			"distance": geoRange.Distance,
+			innerPath(clause.On): map[string]interface{}{
+				"lat": geoRange.Latitude,
+				"lon": geoRange.Longitude,
+			},
+		},
+	}, nil
 }
 
 func compoundQueryFromClause(clause *filters.Clause) (map[string]interface{}, error) {
@@ -173,4 +236,14 @@ func negateFilter(f map[string]interface{}) map[string]interface{} {
 			"must_not": f,
 		},
 	}
+}
+
+func outerPath(p *filters.Path) string {
+	slice := p.SliceNonTitleized()
+	slice = slice[:len(slice)-1]
+	return keyCache.String() + "." + strings.Join(slice, ".")
+}
+
+func innerPath(p *filters.Path) string {
+	return keyCache.String() + "." + strings.Join(p.SliceNonTitleized(), ".")
 }

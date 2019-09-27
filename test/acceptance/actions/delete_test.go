@@ -17,7 +17,6 @@ package test
 
 import (
 	"testing"
-	"time"
 
 	"github.com/semi-technologies/weaviate/client/actions"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
@@ -33,11 +32,7 @@ func TestCanAddAndRemoveAction(t *testing.T) {
 	delResp, err := helper.Client(t).Actions.ActionsDelete(actions.NewActionsDeleteParams().WithID(actionId), nil)
 	helper.AssertRequestOk(t, delResp, err, nil)
 
-	// This should be improved by polling rather then sleeping, but since it's a
-	// very low sleep period, this should do it for now as long as we don't
-	// repeat that too often and don't find this to be flaky. If we do see
-	// flakyness around this test, a polling mechanism is in order.
-	time.Sleep(50 * time.Millisecond)
+	_ = assertGetActionFailsEventually(t, actionId)
 
 	// And verify that the action is gone
 	getResp, err := helper.Client(t).Actions.ActionsGet(actions.NewActionsGetParams().WithID(actionId), nil)

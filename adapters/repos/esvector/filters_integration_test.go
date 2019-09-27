@@ -19,7 +19,6 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/elastic/go-elasticsearch/v5"
 	"github.com/go-openapi/strfmt"
@@ -27,6 +26,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -56,10 +56,11 @@ func Test_Filters(t *testing.T) {
 		Addresses: []string{"http://localhost:9201"},
 	})
 	require.Nil(t, err)
-	waitForEsToBeReady(t, client)
 
 	logger := logrus.New()
-	repo := NewRepo(client, logger)
+	schemaGetter := &fakeSchemaGetter{}
+	repo := NewRepo(client, logger, schemaGetter, 3)
+	waitForEsToBeReady(t, repo)
 	migrator := NewMigrator(repo)
 
 	t.Run("prepare test schema and data ",
@@ -70,6 +71,10 @@ func Test_Filters(t *testing.T) {
 
 	t.Run("chained primitive props",
 		testChainedPrmitiveProps(repo, migrator))
+
+	// NOTE: This test suite only tests filtering on primitive props, since
+	// filtering on ref props requires a ref-schema and cache to be present,
+	// those tests can be found in cache_multiple_reftypes_integration_test.go
 }
 
 func prepareCarTestSchemaAndData(repo *Repo,
@@ -87,8 +92,7 @@ func prepareCarTestSchemaAndData(repo *Repo,
 			})
 		}
 
-		// sleep for index to become available
-		time.Sleep(2 * time.Second)
+		refreshAll(t, repo.client)
 	}
 }
 
@@ -207,8 +211,14 @@ func testPrmitiveProps(repo *Repo,
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				res, err := repo.VectorClassSearch(context.Background(), kind.Thing,
-					carClass.Class, []float32{0.1, 0.1, 0.1, 1.1, 0.1}, 100, test.filter)
+				params := traverser.GetParams{
+					SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
+					Kind:         kind.Thing,
+					ClassName:    carClass.Class,
+					Pagination:   &filters.Pagination{Limit: 100},
+					Filters:      test.filter,
+				}
+				res, err := repo.VectorClassSearch(context.Background(), params)
 				require.Nil(t, err)
 				require.Len(t, res, len(test.expectedIDs))
 
@@ -279,8 +289,14 @@ func testChainedPrmitiveProps(repo *Repo,
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				res, err := repo.VectorClassSearch(context.Background(), kind.Thing,
-					carClass.Class, []float32{0.1, 0.1, 0.1, 1.1, 0.1}, 100, test.filter)
+				params := traverser.GetParams{
+					SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
+					Kind:         kind.Thing,
+					ClassName:    carClass.Class,
+					Pagination:   &filters.Pagination{Limit: 100},
+					Filters:      test.filter,
+				}
+				res, err := repo.VectorClassSearch(context.Background(), params)
 				require.Nil(t, err)
 				require.Len(t, res, len(test.expectedIDs))
 

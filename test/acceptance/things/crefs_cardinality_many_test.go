@@ -22,7 +22,6 @@ import (
 	"github.com/semi-technologies/weaviate/client/things"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
-	"github.com/stretchr/testify/assert"
 )
 
 // This test suite is meant to prevent a regression on
@@ -109,18 +108,21 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 	patchResp, err := helper.Client(t).Things.ThingsPatch(patchParams, nil)
 	helper.AssertRequestOk(t, patchResp, err, nil)
 
-	t.Log("5. get city again")
-	cityAfterFirstPatch := assertGetThing(t, cityID)
-
 	t.Log("6. verify first cross ref was added")
-	assert.Equal(t, map[string]interface{}{
+
+	actualThunk := func() interface{} {
+		cityAfterFirstPatch := assertGetThing(t, cityID)
+		return cityAfterFirstPatch.Schema
+	}
+
+	helper.AssertEventuallyEqual(t, map[string]interface{}{
 		"name": "My City",
 		"hasPlaces": []interface{}{
 			map[string]interface{}{
 				"beacon": fmt.Sprintf("weaviate://localhost/things/%s", place1ID.String()),
 			},
 		},
-	}, cityAfterFirstPatch.Schema)
+	}, actualThunk)
 
 	t.Log("7. patch city to point to the second place")
 	add = "add"
@@ -139,11 +141,12 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 	patchResp, err = helper.Client(t).Things.ThingsPatch(patchParams, nil)
 	helper.AssertRequestOk(t, patchResp, err, nil)
 
-	t.Log("8. get city again")
-	cityAfterSecondPatch := assertGetThing(t, cityID)
+	actualThunk = func() interface{} {
+		city := assertGetThing(t, cityID)
+		return city.Schema.(map[string]interface{})["hasPlaces"].([]interface{})
+	}
 
 	t.Log("9. verify both cross refs are present")
-	refs := cityAfterSecondPatch.Schema.(map[string]interface{})["hasPlaces"].([]interface{})
 	expectedRefs := []interface{}{
 		map[string]interface{}{
 			"beacon": fmt.Sprintf("weaviate://localhost/things/%s", place1ID.String()),
@@ -153,7 +156,7 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 		},
 	}
 
-	assert.ElementsMatch(t, expectedRefs, refs)
+	helper.AssertEventuallyEqual(t, expectedRefs, actualThunk)
 }
 
 // This test suite is meant to prevent a regression on
@@ -233,18 +236,19 @@ func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 	postRefResponse, err := helper.Client(t).Things.ThingsReferencesCreate(postRefParams, nil)
 	helper.AssertRequestOk(t, postRefResponse, err, nil)
 
-	t.Log("6. get city again")
-	cityAfterFirstPatch := assertGetThing(t, cityID)
-
+	actualThunk := func() interface{} {
+		city := assertGetThing(t, cityID)
+		return city.Schema
+	}
 	t.Log("7. verify first cross ref was added")
-	assert.Equal(t, map[string]interface{}{
+	helper.AssertEventuallyEqual(t, map[string]interface{}{
 		"name": "My City",
 		"hasPlaces": []interface{}{
 			map[string]interface{}{
 				"beacon": fmt.Sprintf("weaviate://localhost/things/%s", place1ID.String()),
 			},
 		},
-	}, cityAfterFirstPatch.Schema)
+	}, actualThunk)
 
 	t.Log("8. POST /references/ for place 2")
 	postRefParams = things.NewThingsReferencesCreateParams().
@@ -256,11 +260,12 @@ func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 	postRefResponse, err = helper.Client(t).Things.ThingsReferencesCreate(postRefParams, nil)
 	helper.AssertRequestOk(t, postRefResponse, err, nil)
 
-	t.Log("8. get city again")
-	cityAfterSecondPatch := assertGetThing(t, cityID)
-
 	t.Log("9. verify both cross refs are present")
-	refs := cityAfterSecondPatch.Schema.(map[string]interface{})["hasPlaces"].([]interface{})
+	actualThunk = func() interface{} {
+		city := assertGetThing(t, cityID)
+		return city.Schema.(map[string]interface{})["hasPlaces"].([]interface{})
+	}
+
 	expectedRefs := []interface{}{
 		map[string]interface{}{
 			"beacon": fmt.Sprintf("weaviate://localhost/things/%s", place1ID.String()),
@@ -270,5 +275,5 @@ func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 		},
 	}
 
-	assert.ElementsMatch(t, expectedRefs, refs)
+	helper.AssertEventuallyEqual(t, expectedRefs, actualThunk)
 }

@@ -71,6 +71,7 @@ var schemaTests = []struct {
 	{name: "UpdateClassKeywords", fn: testUpdateClassKeywords},
 	{name: "AddPropertyDuringCreation", fn: testAddPropertyDuringCreation},
 	{name: "AddInvalidPropertyDuringCreation", fn: testAddInvalidPropertyDuringCreation},
+	{name: "AddInvalidPropertyWithEmptyDataTypeDuringCreation", fn: testAddInvalidPropertyWithEmptyDataTypeDuringCreation},
 	{name: "AddPropertyDWithInvalidKeywordWeightsDuringCreation", fn: testAddPropertyWithInvalidKeywordWeightsDuringCreation},
 	{name: "DropProperty", fn: testDropProperty},
 	{name: "UpdatePropertyName", fn: testUpdatePropertyName},
@@ -329,6 +330,20 @@ func testAddInvalidPropertyDuringCreation(t *testing.T, lsm *Manager) {
 	assert.NotNil(t, err)
 }
 
+func testAddInvalidPropertyWithEmptyDataTypeDuringCreation(t *testing.T, lsm *Manager) {
+	t.Parallel()
+
+	var properties []*models.Property = []*models.Property{
+		{Name: "color", DataType: []string{""}},
+	}
+
+	err := lsm.AddThing(context.Background(), nil, &models.Class{
+		Class:      "Car",
+		Properties: properties,
+	})
+	assert.NotNil(t, err)
+}
+
 func testAddPropertyWithInvalidKeywordWeightsDuringCreation(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
@@ -388,6 +403,11 @@ func testAddPropertyWithInvalidKeywordWeightsDuringCreation(t *testing.T, lsm *M
 }
 
 func testDropProperty(t *testing.T, lsm *Manager) {
+	// TODO: https://github.com/semi-technologies/weaviate/issues/973
+	// Remove skip
+
+	t.Skip()
+
 	t.Parallel()
 
 	var properties []*models.Property = []*models.Property{

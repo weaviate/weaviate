@@ -87,11 +87,7 @@ func (m *Manager) updateActionToConnectorAndSchema(ctx context.Context, principa
 
 	class.LastUpdateTimeUnix = unixNow()
 
-	if !m.config.Config.EsvectorOnly {
-		err = m.repo.UpdateAction(ctx, class, class.ID)
-	} else {
-		err = m.vectorizeAndPutAction(ctx, class)
-	}
+	err = m.vectorizeAndPutAction(ctx, class)
 	if err != nil {
 		return nil, NewErrInternal("update action: %v", err)
 	}
@@ -150,11 +146,7 @@ func (m *Manager) updateThingToConnectorAndSchema(ctx context.Context, principal
 
 	class.LastUpdateTimeUnix = unixNow()
 
-	if !m.config.Config.EsvectorOnly {
-		err = m.repo.UpdateThing(ctx, class, class.ID)
-	} else {
-		err = m.vectorizeAndPutThing(ctx, class)
-	}
+	err = m.vectorizeAndPutThing(ctx, class)
 	if err != nil {
 		return nil, NewErrInternal("update thing: %v", err)
 	}

@@ -16,12 +16,10 @@ package local
 import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/aggregate"
 	get "github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get"
-	getmeta "github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/getmeta"
 )
 
 // Resolver for local GraphQL queries
 type Resolver interface {
 	get.Resolver
-	getmeta.Resolver
 	aggregate.Resolver
 }

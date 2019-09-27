@@ -68,7 +68,7 @@ const (
 	// ErrorInvalidCRefType message
 	ErrorInvalidCRefType string = "'cref' type '%s' does not exists"
 	// ErrorNotFoundInDatabase message
-	ErrorNotFoundInDatabase string = "error finding the '%s' in the database: '%s' at %s"
+	ErrorNotFoundInDatabase string = "%s: no %s with id %s found"
 )
 
 type Validator struct {
@@ -145,7 +145,7 @@ func (v *Validator) validateLocalRef(ctx context.Context, ref *crossref.Ref, err
 	}
 
 	if !ok {
-		return fmt.Errorf(ErrorNotFoundInDatabase, ref.Kind.Name(), err, errorVal)
+		return fmt.Errorf(ErrorNotFoundInDatabase, errorVal, ref.Kind.Name(), ref.TargetID)
 	}
 
 	return nil
@@ -166,13 +166,13 @@ func (v *Validator) validateNetworkRef(ref *crossref.Ref) error {
 	return nil
 }
 
-func (v *Validator) ValidateMultipleRef(ctx context.Context, refs *models.MultipleRef,
+func (v *Validator) ValidateMultipleRef(ctx context.Context, refs models.MultipleRef,
 	errorVal string) error {
 	if refs == nil {
 		return nil
 	}
 
-	for _, ref := range *refs {
+	for _, ref := range refs {
 		err := v.ValidateSingleRef(ctx, ref, errorVal)
 		if err != nil {
 			return err
