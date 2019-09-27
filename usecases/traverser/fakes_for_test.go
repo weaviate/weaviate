@@ -32,15 +32,11 @@ type fakeRepo struct {
 	UpdateThingParameter *models.Thing
 }
 
-func (f *fakeRepo) LocalAggregate(ctx context.Context, params *AggregateParams) (interface{}, error) {
+func (f *fakeRepo) Aggregate(ctx context.Context, params *AggregateParams) (interface{}, error) {
 	panic("not implemented")
 }
 
 func (f *fakeRepo) GetClass(ctx context.Context, params *GetParams) (interface{}, error) {
-	panic("not implemented")
-}
-
-func (f *fakeRepo) LocalMeta(ctx context.Context, params *MetaParams) (interface{}, error) {
 	panic("not implemented")
 }
 
@@ -138,17 +134,15 @@ func (f *fakeVectorSearcher) Aggregate(ctx context.Context,
 	return args.Get(0).(*aggregation.Result), args.Error(1)
 }
 
-func (f *fakeVectorSearcher) ClassSearch(ctx context.Context,
-	kind kind.Kind, className string, limit int,
-	filters *filters.LocalFilter) ([]search.Result, error) {
-	args := f.Called(kind, className, limit, filters)
+func (f *fakeVectorSearcher) VectorClassSearch(ctx context.Context,
+	params GetParams) ([]search.Result, error) {
+	args := f.Called(params)
 	return args.Get(0).([]search.Result), args.Error(1)
 }
 
-func (f *fakeVectorSearcher) VectorClassSearch(ctx context.Context,
-	kind kind.Kind, className string, vector []float32, limit int,
-	filters *filters.LocalFilter) ([]search.Result, error) {
-	args := f.Called(kind, className, vector, limit, filters)
+func (f *fakeVectorSearcher) ClassSearch(ctx context.Context,
+	params GetParams) ([]search.Result, error) {
+	args := f.Called(params)
 	return args.Get(0).([]search.Result), args.Error(1)
 }
 
@@ -213,7 +207,8 @@ func (f *fakeVectorRepo) VectorSearch(ctx context.Context,
 
 func (f *fakeVectorRepo) Aggregate(ctx context.Context,
 	params AggregateParams) (*aggregation.Result, error) {
-	return nil, nil
+	args := f.Called(params)
+	return args.Get(0).(*aggregation.Result), args.Error(1)
 }
 
 func (f *fakeVectorRepo) GetThing(ctx context.Context, uuid strfmt.UUID,
@@ -232,10 +227,18 @@ func (f *fakeVectorRepo) GetAction(ctx context.Context, uuid strfmt.UUID,
 
 type fakeExplorer struct{}
 
-func (f *fakeExplorer) GetClass(ctx context.Context, p *GetParams) ([]interface{}, error) {
+func (f *fakeExplorer) GetClass(ctx context.Context, p GetParams) ([]interface{}, error) {
 	return nil, nil
 }
 
 func (f *fakeExplorer) Concepts(ctx context.Context, p ExploreParams) ([]search.Result, error) {
 	return nil, nil
+}
+
+type fakeSchemaGetter struct {
+	schema schema.Schema
+}
+
+func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
+	return f.schema
 }

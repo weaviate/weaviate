@@ -17,6 +17,10 @@ package esvector
 
 import "github.com/semi-technologies/weaviate/entities/models"
 
+var productClass = &models.Class{
+	Class: "AggregationsTestProduct",
+}
+
 var companyClass = &models.Class{
 	Class: "AggregationsTestCompany",
 	Properties: []*models.Property{
@@ -40,6 +44,10 @@ var companyClass = &models.Class{
 		&models.Property{
 			Name:     "listedInIndex",
 			DataType: []string{"boolean"},
+		},
+		&models.Property{
+			Name:     "makesProduct",
+			DataType: []string{"AggregationsTestProduct"},
 		},
 	},
 }

@@ -23,16 +23,18 @@ import (
 // additional info the ID can be used to retrieve the full concept from the
 // connector storage
 type Result struct {
-	ID        strfmt.UUID
-	Kind      kind.Kind
-	ClassName string
-	Score     float32
-	Vector    []float32
-	Beacon    string
-	Certainty float32
-	Schema    models.PropertySchema
-	Created   int64
-	Updated   int64
+	ID          strfmt.UUID
+	Kind        kind.Kind
+	ClassName   string
+	Score       float32
+	Vector      []float32
+	Beacon      string
+	Certainty   float32
+	Schema      models.PropertySchema
+	Created     int64
+	Updated     int64
+	CacheHot    bool
+	CacheSchema map[string]interface{}
 }
 
 type Results []Result

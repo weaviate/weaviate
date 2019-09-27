@@ -21,11 +21,14 @@ import (
 	"time"
 
 	"github.com/elastic/go-elasticsearch/v5"
+	"github.com/elastic/go-elasticsearch/v5/esapi"
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,10 +39,11 @@ func TestEsVectorRepo(t *testing.T) {
 		Addresses: []string{"http://localhost:9201"},
 	})
 	require.Nil(t, err)
-	waitForEsToBeReady(t, client)
 
 	logger, _ := test.NewNullLogger()
-	repo := NewRepo(client, logger)
+	schemaGetter := &fakeSchemaGetter{}
+	repo := NewRepo(client, logger, schemaGetter, 3)
+	waitForEsToBeReady(t, repo)
 	migrator := NewMigrator(repo)
 
 	t.Run("creating the thing class", func(t *testing.T) {
@@ -116,8 +120,7 @@ func TestEsVectorRepo(t *testing.T) {
 		assert.Nil(t, err)
 	})
 
-	// sleep 2s to wait for index to become available
-	time.Sleep(2 * time.Second)
+	refreshAll(t, client)
 
 	t.Run("searching by vector", func(t *testing.T) {
 		// the search vector is designed to be very close to the action, but
@@ -146,8 +149,14 @@ func TestEsVectorRepo(t *testing.T) {
 		// somewhat far from the thing. So it should match the action closer
 		searchVector := []float32{2.9, 1.1, 0.5, 8.01}
 
-		res, err := repo.VectorClassSearch(context.Background(), kind.Thing,
-			"TheBestThingClass", searchVector, 10, nil)
+		params := traverser.GetParams{
+			SearchVector: searchVector,
+			Kind:         kind.Thing,
+			ClassName:    "TheBestThingClass",
+			Pagination:   &filters.Pagination{Limit: 10},
+			Filters:      nil,
+		}
+		res, err := repo.VectorClassSearch(context.Background(), params)
 
 		require.Nil(t, err)
 		require.Len(t, res, 1, "got exactly one result")
@@ -161,8 +170,14 @@ func TestEsVectorRepo(t *testing.T) {
 	})
 
 	t.Run("searching by class type", func(t *testing.T) {
-		res, err := repo.ClassSearch(context.Background(), kind.Thing,
-			"TheBestThingClass", 10, nil)
+		params := traverser.GetParams{
+			SearchVector: nil,
+			Kind:         kind.Thing,
+			ClassName:    "TheBestThingClass",
+			Pagination:   &filters.Pagination{Limit: 10},
+			Filters:      nil,
+		}
+		res, err := repo.ClassSearch(context.Background(), params)
 
 		require.Nil(t, err)
 		require.Len(t, res, 1, "got exactly one result")
@@ -193,7 +208,7 @@ func TestEsVectorRepo(t *testing.T) {
 	})
 
 	t.Run("searching a thing by ID", func(t *testing.T) {
-		item, err := repo.ThingByID(context.Background(), thingID)
+		item, err := repo.ThingByID(context.Background(), thingID, traverser.SelectProperties{})
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
@@ -207,7 +222,7 @@ func TestEsVectorRepo(t *testing.T) {
 	})
 
 	t.Run("searching an action by ID", func(t *testing.T) {
-		item, err := repo.ActionByID(context.Background(), actionID)
+		item, err := repo.ActionByID(context.Background(), actionID, traverser.SelectProperties{})
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
@@ -246,14 +261,19 @@ func TestEsVectorRepo(t *testing.T) {
 		assert.Nil(t, err)
 	})
 
-	// sleep for index changes to take effect
-	time.Sleep(2 * time.Second)
+	refreshAll(t, client)
 
 	t.Run("searching by vector for a single thing class again after deletion", func(t *testing.T) {
 		searchVector := []float32{2.9, 1.1, 0.5, 8.01}
+		params := traverser.GetParams{
+			SearchVector: searchVector,
+			Kind:         kind.Thing,
+			ClassName:    "TheBestThingClass",
+			Pagination:   &filters.Pagination{Limit: 10},
+			Filters:      nil,
+		}
 
-		res, err := repo.VectorClassSearch(context.Background(), kind.Thing,
-			"TheBestThingClass", searchVector, 10, nil)
+		res, err := repo.VectorClassSearch(context.Background(), params)
 
 		require.Nil(t, err)
 		assert.Len(t, res, 0)
@@ -261,36 +281,19 @@ func TestEsVectorRepo(t *testing.T) {
 
 	t.Run("searching by vector for a single action class again after deletion", func(t *testing.T) {
 		searchVector := []float32{2.9, 1.1, 0.5, 8.01}
+		params := traverser.GetParams{
+			SearchVector: searchVector,
+			Kind:         kind.Action,
+			ClassName:    "TheBestActionClass",
+			Pagination:   &filters.Pagination{Limit: 10},
+			Filters:      nil,
+		}
 
-		res, err := repo.VectorClassSearch(context.Background(), kind.Action,
-			"TheBestActionClass", searchVector, 10, nil)
+		res, err := repo.VectorClassSearch(context.Background(), params)
 
 		require.Nil(t, err)
 		assert.Len(t, res, 0)
 	})
-}
-
-func waitForEsToBeReady(t *testing.T, client *elasticsearch.Client) {
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
-	t.Log("waiting for ES to start up")
-	defer cancel()
-
-	var lastErr error
-
-	for {
-		if err := ctx.Err(); err != nil {
-			t.Fatalf("es didn't start up in time: %v, last error: %v", err, lastErr)
-		}
-
-		_, err := client.Info()
-		if err != nil {
-			lastErr = err
-		} else {
-			return
-		}
-
-		time.Sleep(2 * time.Second)
-	}
 }
 
 func findID(list []search.Result, id strfmt.UUID) (search.Result, bool) {
@@ -301,4 +304,33 @@ func findID(list []search.Result, id strfmt.UUID) (search.Result, bool) {
 	}
 
 	return search.Result{}, false
+}
+
+// not the most effecient way, but reduces the wait time in tests
+func refreshAll(t *testing.T, c *elasticsearch.Client) {
+	req := esapi.IndicesRefreshRequest{
+		Index: []string{allClassIndices},
+	}
+
+	ctx, cancel := ctx()
+	defer cancel()
+
+	res, err := req.Do(ctx, c)
+	if err != nil {
+		t.Errorf("index refresh request: %v", err)
+		return
+	}
+
+	log, _ := test.NewNullLogger()
+	if err := errorResToErr(res, log); err != nil {
+		t.Errorf("index refresh request: %v", err)
+		return
+	}
+}
+
+func waitForEsToBeReady(t *testing.T, repo *Repo) {
+	err := repo.WaitForStartup(1 * time.Minute)
+	if err != nil {
+		t.Errorf("didn't start up: %v", err)
+	}
 }

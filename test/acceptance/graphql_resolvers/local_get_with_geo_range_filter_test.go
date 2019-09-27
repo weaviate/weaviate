@@ -30,7 +30,7 @@ func TestGetWithWithinGeoRangeFilter(t *testing.T) {
 					City(where:{
 						operator: WithinGeoRange
 						path: ["location"]
-						valueGeoRange: { geoCoordinates: {latitude: 51.225556, longitude: 6.782778} distance: { max: 100 } }
+						valueGeoRange: { geoCoordinates: {latitude: 51.225556, longitude: 6.782778} distance: { max: 100000 } }
 					}){
 						name
 						location {
@@ -66,7 +66,7 @@ func TestGetWithWithinGeoRangeFilter(t *testing.T) {
 					City(where:{
 						operator: WithinGeoRange
 						path: ["location"]
-						valueGeoRange: { geoCoordinates: {latitude: 51.225556, longitude: 6.782778} distance: { max: 200 } }
+						valueGeoRange: { geoCoordinates: {latitude: 51.225556, longitude: 6.782778} distance: { max: 200000 } }
 					}){
 						name
 						location {

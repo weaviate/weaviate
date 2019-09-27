@@ -16,7 +16,6 @@ package state
 import (
 	"context"
 
-	"github.com/semi-technologies/weaviate/adapters/connectors"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql"
 	"github.com/semi-technologies/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/semi-technologies/weaviate/usecases/auth/authentication/oidc"
@@ -38,7 +37,6 @@ type State struct {
 	AnonymousAccess  *anonymous.Client
 	Authorizer       authorization.Authorizer
 	ServerConfig     *config.WeaviateConfig
-	Connector        connectors.DatabaseConnector
 	Locks            locks.ConnectorSchemaLock
 	Logger           *logrus.Logger
 	GraphQL          graphql.GraphQL

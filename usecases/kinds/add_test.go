@@ -28,8 +28,8 @@ import (
 
 func Test_Add_Action(t *testing.T) {
 	var (
-		repo    *fakeRepo
-		manager *Manager
+		vectorRepo *fakeVectorRepo
+		manager    *Manager
 	)
 
 	schema := schema.Schema{
@@ -43,8 +43,8 @@ func Test_Add_Action(t *testing.T) {
 	}
 
 	reset := func() {
-		repo = &fakeRepo{}
-		repo.On("AddAction", mock.Anything, mock.Anything).Return(nil).Once()
+		vectorRepo = &fakeVectorRepo{}
+		vectorRepo.On("PutAction", mock.Anything, mock.Anything).Return(nil).Once()
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,
 		}
@@ -54,8 +54,7 @@ func Test_Add_Action(t *testing.T) {
 		authorizer := &fakeAuthorizer{}
 		logger, _ := test.NewNullLogger()
 		vectorizer := &fakeVectorizer{}
-		vectorRepo := &fakeVectorRepo{}
-		manager = NewManager(repo, locks, schemaManager, network, cfg, logger, authorizer, vectorizer, vectorRepo)
+		manager = NewManager(locks, schemaManager, network, cfg, logger, authorizer, vectorizer, vectorRepo)
 	}
 
 	t.Run("without an id set", func(t *testing.T) {
@@ -67,7 +66,7 @@ func Test_Add_Action(t *testing.T) {
 		}
 
 		res, err := manager.AddAction(ctx, nil, class)
-		uuidDuringCreation := repo.Mock.Calls[0].Arguments.Get(1).(strfmt.UUID)
+		uuidDuringCreation := vectorRepo.Mock.Calls[0].Arguments.Get(0).(*models.Action).ID
 
 		assert.Nil(t, err)
 		assert.Len(t, uuidDuringCreation, 36, "check that a uuid was assigned")
@@ -83,10 +82,10 @@ func Test_Add_Action(t *testing.T) {
 			ID:    id,
 			Class: "Foo",
 		}
-		repo.On("ClassExists", id).Return(false, nil).Once()
+		vectorRepo.On("Exists", id).Return(false, nil).Once()
 
 		res, err := manager.AddAction(ctx, nil, class)
-		uuidDuringCreation := repo.Mock.Calls[1].Arguments.Get(1).(strfmt.UUID)
+		uuidDuringCreation := vectorRepo.Mock.Calls[1].Arguments.Get(0).(*models.Action).ID
 
 		assert.Nil(t, err)
 		assert.Equal(t, id, uuidDuringCreation, "check that a uuid is the user specified one")
@@ -103,7 +102,7 @@ func Test_Add_Action(t *testing.T) {
 			Class: "Foo",
 		}
 
-		repo.On("ClassExists", id).Return(true, nil).Once()
+		vectorRepo.On("Exists", id).Return(true, nil).Once()
 
 		_, err := manager.AddAction(ctx, nil, class)
 		assert.Equal(t, NewErrInvalidUserInput("id '%s' already exists", id), err)
@@ -119,7 +118,7 @@ func Test_Add_Action(t *testing.T) {
 			Class: "Foo",
 		}
 
-		repo.On("ClassExists", id).Return(false, nil).Once()
+		vectorRepo.On("Exists", id).Return(false, nil).Once()
 
 		_, err := manager.AddAction(ctx, nil, class)
 		assert.Equal(t, NewErrInvalidUserInput("invalid action: uuid: incorrect UUID length: %s", id), err)
@@ -128,8 +127,8 @@ func Test_Add_Action(t *testing.T) {
 
 func Test_Add_Thing(t *testing.T) {
 	var (
-		repo    *fakeRepo
-		manager *Manager
+		vectorRepo *fakeVectorRepo
+		manager    *Manager
 	)
 
 	schema := schema.Schema{
@@ -143,8 +142,8 @@ func Test_Add_Thing(t *testing.T) {
 	}
 
 	reset := func() {
-		repo = &fakeRepo{}
-		repo.On("AddThing", mock.Anything, mock.Anything).Return(nil).Once()
+		vectorRepo = &fakeVectorRepo{}
+		vectorRepo.On("PutThing", mock.Anything, mock.Anything).Return(nil).Once()
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,
 		}
@@ -154,8 +153,7 @@ func Test_Add_Thing(t *testing.T) {
 		authorizer := &fakeAuthorizer{}
 		logger, _ := test.NewNullLogger()
 		vectorizer := &fakeVectorizer{}
-		vectorRepo := &fakeVectorRepo{}
-		manager = NewManager(repo, locks, schemaManager, network, cfg, logger, authorizer, vectorizer, vectorRepo)
+		manager = NewManager(locks, schemaManager, network, cfg, logger, authorizer, vectorizer, vectorRepo)
 	}
 
 	t.Run("without an id set", func(t *testing.T) {
@@ -167,7 +165,7 @@ func Test_Add_Thing(t *testing.T) {
 		}
 
 		res, err := manager.AddThing(ctx, nil, class)
-		uuidDuringCreation := repo.Mock.Calls[0].Arguments.Get(1).(strfmt.UUID)
+		uuidDuringCreation := vectorRepo.Mock.Calls[0].Arguments.Get(0).(*models.Thing).ID
 
 		assert.Nil(t, err)
 		assert.Len(t, uuidDuringCreation, 36, "check that a uuid was assigned")
@@ -183,10 +181,10 @@ func Test_Add_Thing(t *testing.T) {
 			ID:    id,
 			Class: "Foo",
 		}
-		repo.On("ClassExists", id).Return(false, nil).Once()
+		vectorRepo.On("Exists", id).Return(false, nil).Once()
 
 		res, err := manager.AddThing(ctx, nil, class)
-		uuidDuringCreation := repo.Mock.Calls[1].Arguments.Get(1).(strfmt.UUID)
+		uuidDuringCreation := vectorRepo.Mock.Calls[1].Arguments.Get(0).(*models.Thing).ID
 
 		assert.Nil(t, err)
 		assert.Equal(t, id, uuidDuringCreation, "check that a uuid is the user specified one")
@@ -203,7 +201,7 @@ func Test_Add_Thing(t *testing.T) {
 			Class: "Foo",
 		}
 
-		repo.On("ClassExists", id).Return(true, nil).Once()
+		vectorRepo.On("Exists", id).Return(true, nil).Once()
 
 		_, err := manager.AddThing(ctx, nil, class)
 		assert.Equal(t, NewErrInvalidUserInput("id '%s' already exists", id), err)
@@ -219,7 +217,7 @@ func Test_Add_Thing(t *testing.T) {
 			Class: "Foo",
 		}
 
-		repo.On("ClassExists", id).Return(false, nil).Once()
+		vectorRepo.On("Exists", id).Return(false, nil).Once()
 
 		_, err := manager.AddThing(ctx, nil, class)
 		assert.Equal(t, NewErrInvalidUserInput("invalid thing: uuid: incorrect UUID length: %s", id), err)

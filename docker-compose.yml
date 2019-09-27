@@ -45,7 +45,7 @@ services:
       dockerfile: Dockerfile
       target: weaviate
     depends_on:
-      - janus
+      - esvector
     restart: on-failure:0
     ports:
       - "8080:8080"
@@ -81,48 +81,6 @@ services:
     restart: on-failure:0
     ports:
       - "8081:8081"
-  janus:
-    image: semitechnologies/janusgraph-docker:0.3.1
-    depends_on:
-      - db
-      - index
-    ports:
-     - "8182:8182"
-     - "8184:8184"
-    environment:
-     - DEV_MODE=true
-    volumes:
-      - ./adapters/connectors/janusgraph/janusgraph.properties:/janusgraph-config/janusgraph.properties
-      - ./adapters/connectors/janusgraph/gremlin-server.yaml:/janusgraph-config/gremlin-server.yaml
-  db:
-    image: scylladb/scylla:2.0.1
-    ports:
-     # http://docs.scylladb.com/kb/posix/
-     # REST API
-     - "10000:10000"
-     # CQL ports (native_transport_port)
-     - "9042:9042"
-     # Thrift (rpc_port)
-     - "9160:9160"
-     # Internode
-     - "7000:7000"
-     - "7001:7001"
-     # JMX
-     - "7199:7199"
-     # Prometheus monitoring
-     - "9180:9180"
-     - "9100:9100"
-    volumes:
-     - ./data/scylla/data:/var/lib/scylla
-  index:
-    image: docker.elastic.co/elasticsearch/elasticsearch:6.4.2
-    ports:
-     - "9200:9200"
-     - "9300:9300"
-    environment:
-      ES_JAVA_OPTS: -Xms500m -Xmx500m
-      xpack.security.enabled: "false"
-      discovery.type: single-node
   etcd:
     image: gcr.io/etcd-development/etcd:v3.3.8
     ports:
@@ -163,6 +121,9 @@ services:
       xpack.security.enabled: "false"
       discovery.type: single-node
       ES_JAVA_OPTS: -Xms500m -Xmx500m
+      path.repo: "/mounts/backups,"
+    volumes:
+      - "./esbackups:/mounts/backups"
     ports: 
       - "9201:9200"
       - "9301:9300"

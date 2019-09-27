@@ -34,9 +34,16 @@ const fakeThingId strfmt.UUID = "11111111-1111-1111-1111-111111111111"
 
 func TestCreateThingWithUserSpecifiedID(t *testing.T) {
 	t.Parallel()
+
+	id := strfmt.UUID("d47ea61b-0ed7-4e5f-9c05-6d2c0786660f")
+	// clean up to make sure we can run this test multiple times in a row
+	defer func() {
+		params := things.NewThingsDeleteParams().WithID(id)
+		helper.Client(t).Things.ThingsDelete(params, nil)
+	}()
+
 	// Set all thing values to compare
 	thingTestString := "Test string"
-	id := strfmt.UUID("d47ea61b-0ed7-4e5f-9c05-6d2c0786660f")
 
 	params := things.NewThingsCreateParams().WithBody(
 		&models.Thing{
@@ -61,6 +68,16 @@ func TestCreateThingWithUserSpecifiedID(t *testing.T) {
 
 		// Check whether the returned information is the same as the data added
 		assert.Equal(t, thingTestString, schema["testString"])
+	})
+
+	// wait for the thing to be created
+	helper.AssertEventuallyEqual(t, id, func() interface{} {
+		thing, err := helper.Client(t).Things.ThingsGet(things.NewThingsGetParams().WithID(id), nil)
+		if err != nil {
+			return nil
+		}
+
+		return thing.Payload.ID
 	})
 
 	// Try to create the same thing again and make sure it fails

@@ -16,33 +16,33 @@ package descriptions
 
 // AGGREGATE
 const AggregateProperty = "Aggregate this property"
-const LocalAggregateThings = "Aggregate Things on a local Weaviate"
-const LocalAggregateActions = "Aggregate Things on a local Weaviate"
+const AggregateThings = "Aggregate Things on a local Weaviate"
+const AggregateActions = "Aggregate Things on a local Weaviate"
 
 const GroupBy = "Specify which properties to group by"
 
-const LocalAggregateObj = "An object allowing Aggregation of Things and Actions"
-const LocalAggregatePropertyObject = "An object containing Aggregation information about this property"
+const AggregateObj = "An object allowing Aggregation of Things and Actions"
+const AggregatePropertyObject = "An object containing Aggregation information about this property"
 
-const LocalAggregateThingsActionsObj = "An object allowing Aggregation of %ss on a local Weaviate"
+const AggregateThingsActionsObj = "An object allowing Aggregation of %ss on a local Weaviate"
 
-const LocalAggregateMean = "Aggregate on the mean of numeric property values"
-const LocalAggregateSum = "Aggregate on the sum of numeric property values"
-const LocalAggregateMedian = "Aggregate on the median of numeric property values"
-const LocalAggregateMode = "Aggregate on the mode of numeric property values"
-const LocalAggregateMin = "Aggregate on the minimum of numeric property values"
-const LocalAggregateMax = "Aggregate on the maximum of numeric property values"
-const LocalAggregateCount = "Aggregate on the total amount of found property values"
-const LocalAggregateGroupedBy = "Indicates the group of returned data"
+const AggregateMean = "Aggregate on the mean of numeric property values"
+const AggregateSum = "Aggregate on the sum of numeric property values"
+const AggregateMedian = "Aggregate on the median of numeric property values"
+const AggregateMode = "Aggregate on the mode of numeric property values"
+const AggregateMin = "Aggregate on the minimum of numeric property values"
+const AggregateMax = "Aggregate on the maximum of numeric property values"
+const AggregateCount = "Aggregate on the total amount of found property values"
+const AggregateGroupedBy = "Indicates the group of returned data"
 
-const LocalAggregateNumericObj = "An object containing the %s of numeric properties"
+const AggregateNumericObj = "An object containing the %s of numeric properties"
 
-const LocalAggregateCountObj = "An object containing countable properties"
+const AggregateCountObj = "An object containing countable properties"
 
-const LocalAggregateGroupedByObj = "An object containing the path and value of the grouped property"
+const AggregateGroupedByObj = "An object containing the path and value of the grouped property"
 
-const LocalAggregateGroupedByGroupedByPath = "The path of the grouped property"
-const LocalAggregateGroupedByGroupedByValue = "The value of the grouped property"
+const AggregateGroupedByGroupedByPath = "The path of the grouped property"
+const AggregateGroupedByGroupedByValue = "The value of the grouped property"
 
 // NETWORK
 const NetworkAggregateWeaviateObj = "An object containing Get Things and Actions fields for network Weaviate instance: "

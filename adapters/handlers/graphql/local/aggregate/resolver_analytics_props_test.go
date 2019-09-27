@@ -56,7 +56,7 @@ func Test_ExtractAnalyticsPropsFromAggregate(t *testing.T) {
 		Analytics: analytics,
 	}
 	resolver := newMockResolver(cfg)
-	resolver.On("LocalAggregate", expectedParams).
+	resolver.On("Aggregate", expectedParams).
 		Return([]interface{}{}, nil).Once()
 
 	resolver.AssertResolve(t, query)

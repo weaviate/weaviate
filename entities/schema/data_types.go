@@ -111,9 +111,13 @@ func (p *propertyDataType) ContainsClass(needle ClassName) bool {
 // Based on the schema, return a valid description of the defined datatype
 func (s *Schema) FindPropertyDataType(dataType []string) (PropertyDataType, error) {
 	if len(dataType) < 1 {
-		return nil, errors.New("Empty datatype is invalid")
+		return nil, errors.New("dataType must have at least one element")
 	} else if len(dataType) == 1 {
 		someDataType := dataType[0]
+		if len(someDataType) == 0 {
+			return nil, fmt.Errorf("dataType cannot be an empty string")
+
+		}
 		firstLetter := rune(someDataType[0])
 		if unicode.IsLower(firstLetter) {
 			switch someDataType {

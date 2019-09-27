@@ -69,7 +69,7 @@ func TestGetWithNetworkRefResolvesCorrectly(t *testing.T) {
 	}
 	resolver := newMockResolver(peers)
 
-	expectedParams := &traverser.GetParams{
+	expectedParams := traverser.GetParams{
 		Kind:      kind.Thing,
 		ClassName: "SomeThing",
 		Properties: []traverser.SelectProperty{
@@ -168,7 +168,7 @@ func TestGetNoNetworkRequestIsMadeWhenUserDoesntWantNetworkRef(t *testing.T) {
 	}
 	resolver := newMockResolver(peers)
 
-	expectedParams := &traverser.GetParams{
+	expectedParams := traverser.GetParams{
 		Kind:      kind.Thing,
 		ClassName: "SomeThing",
 		Properties: []traverser.SelectProperty{

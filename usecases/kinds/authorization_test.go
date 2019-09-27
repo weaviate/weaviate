@@ -171,7 +171,6 @@ func Test_Kinds_Authorization(t *testing.T) {
 		principal := &models.Principal{}
 		logger, _ := test.NewNullLogger()
 		for _, test := range tests {
-			repo := &fakeRepo{}
 			schemaManager := &fakeSchemaManager{}
 			locks := &fakeLocks{}
 			network := &fakeNetwork{}
@@ -179,7 +178,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 			authorizer := &authDenier{}
 			vectorizer := &fakeVectorizer{}
 			vectorRepo := &fakeVectorRepo{}
-			manager := NewManager(repo, locks, schemaManager, network,
+			manager := NewManager(locks, schemaManager, network,
 				cfg, logger, authorizer, vectorizer, vectorRepo)
 
 			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
@@ -241,7 +240,6 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 		principal := &models.Principal{}
 		logger, _ := test.NewNullLogger()
 		for _, test := range tests {
-			repo := &fakeRepo{}
 			schemaManager := &fakeSchemaManager{}
 			locks := &fakeLocks{}
 			network := &fakeNetwork{}
@@ -249,7 +247,7 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			authorizer := &authDenier{}
 			vectorRepo := &fakeVectorRepo{}
 			vectorizer := &fakeVectorizer{}
-			manager := NewBatchManager(repo, vectorRepo, vectorizer, locks, schemaManager, network, cfg, logger, authorizer)
+			manager := NewBatchManager(vectorRepo, vectorizer, locks, schemaManager, network, cfg, logger, authorizer)
 
 			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 			out, _ := callFuncByName(manager, test.methodName, args...)
