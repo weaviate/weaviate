@@ -207,6 +207,11 @@ func testPrmitiveProps(repo *Repo,
 				}, wgr, dtGeoCoordinates),
 				expectedIDs: []strfmt.UUID{carSprinterID},
 			},
+			{
+				name:        "by id",
+				filter:      buildFilter("uuid", carPoloID.String(), eq, dtString),
+				expectedIDs: []strfmt.UUID{carPoloID},
+			},
 		}
 
 		for _, test := range tests {
