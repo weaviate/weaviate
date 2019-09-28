@@ -40,8 +40,8 @@ func main() {
 	defer server.Shutdown()
 
 	parser := flags.NewParser(server, flags.Default)
-	parser.ShortDescription = "Weaviate - Decentralised Knowledge Graph"
-	parser.LongDescription = "Decentralised Knowledge Graph"
+	parser.ShortDescription = "Weaviate Knowledge Graph"
+	parser.LongDescription = "Open Source Knowledge Graph (GraphQL/RESTful/P2P)"
 
 	server.ConfigureFlags()
 	for _, optsGroup := range api.CommandLineOptionsGroups {
