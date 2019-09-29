@@ -1,11 +1,5 @@
 version: '3.4'
 services:
-  weaviate-playground:
-    image: semitechnologies/weaviate-playground:latest
-    depends_on:
-      - weaviate
-    ports:
-     - "80:80"
   weaviate:
     image: semitechnologies/weaviate:0.20.0
     command: 
