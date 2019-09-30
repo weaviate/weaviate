@@ -204,7 +204,7 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 	}
 }
 
-/*WeaviateAPI Decentralised Knowledge Graph */
+/*WeaviateAPI Open Source Knowledge Graph (GraphQL/RESTful/P2P) */
 type WeaviateAPI struct {
 	spec            *loads.Document
 	context         *middleware.Context
