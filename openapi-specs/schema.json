@@ -653,8 +653,8 @@
       "name": "Weaviate",
       "url": "https://github.com/semi-technologies"
     },
-    "description": "Decentralised Knowledge Graph",
-    "title": "Weaviate - Decentralised Knowledge Graph",
+    "description": "Open Source Knowledge Graph (GraphQL/RESTful/P2P)",
+    "title": "Weaviate",
     "version": "0.20.0"
   },
   "parameters": {
