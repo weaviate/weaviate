@@ -4,8 +4,8 @@ Weaviate is an GraphQL, RESTful API based knowledge graph with a build in semant
 
 ## Documentation
 
-- [Documenation](https://semi.technology/guides/weaviate/current/).
-- [Getting Started Guide](https://semi.technology/guides/weaviate/current/getting_started.html)
+- [Documenation](https://semi.technology/documentation/weaviate/current/).
+- [Getting Started Guide](https://semi.technology/documentation/weaviate/current/getting_started.html)
 
 ## Support
 
