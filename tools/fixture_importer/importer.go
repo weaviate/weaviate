@@ -49,7 +49,7 @@ type DemoDataset struct {
 
 type DemoInstance map[string]interface{}
 
-var client *apiclient.WeaviateDecentralisedKnowledgeGraph
+var client *apiclient.Weaviate
 var auth runtime.ClientAuthInfoWriterFunc
 
 var demoDataset DemoDataset
