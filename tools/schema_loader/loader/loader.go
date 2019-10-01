@@ -61,7 +61,7 @@ type loader struct {
 	// Client and auth
 	auth      runtime.ClientAuthInfoWriterFunc
 	transport *httptransport.Runtime
-	client    *apiclient.WeaviateDecentralisedKnowledgeGraph
+	client    *apiclient.Weaviate
 
 	// Internal state
 	schema         schema.Schema  // schema to be imported
