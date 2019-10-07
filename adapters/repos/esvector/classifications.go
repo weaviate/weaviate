@@ -25,6 +25,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/classification"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/semi-technologies/weaviate/usecases/vectorizer"
 )
 
 func (r *Repo) GetUnclassified(ctx context.Context, kind kind.Kind,
@@ -178,10 +179,11 @@ func (r *Repo) AggregateNeighbors(ctx context.Context, vector []float32, kind ki
 		return nil, fmt.Errorf("vector search: %v", err)
 	}
 
-	return r.aggregateNeighborsResponse(res)
+	return r.aggregateNeighborsResponse(res, vector)
 }
 
-func (r *Repo) aggregateNeighborsResponse(res *esapi.Response) ([]classification.NeighborRef, error) {
+func (r *Repo) aggregateNeighborsResponse(res *esapi.Response,
+	sourceVector []float32) ([]classification.NeighborRef, error) {
 	if err := errorResToErr(res, r.logger); err != nil {
 		return nil, fmt.Errorf("neighbor aggregation: %v", err)
 	}
@@ -194,26 +196,26 @@ func (r *Repo) aggregateNeighborsResponse(res *esapi.Response) ([]classification
 		return nil, fmt.Errorf("neighbor aggregation: decode json: %v", err)
 	}
 
-	out, err := r.aggregationsToClassificationNeighborRefs(sr)
+	out, err := r.aggregationsToClassificationNeighborRefs(sr, sourceVector)
 	if err != nil {
 		return nil, fmt.Errorf("aggregate neighbors: %v", err)
 	}
 	return out, nil
 }
 
-func (r *Repo) aggregationsToClassificationNeighborRefs(input searchResponse) ([]classification.NeighborRef, error) {
+func (r *Repo) aggregationsToClassificationNeighborRefs(input searchResponse,
+	sourceVector []float32) ([]classification.NeighborRef, error) {
 	hits := input.Hits.Hits
 
-	aggregations, err := extractRefNeighborsFromHits(hits)
+	aggregations, err := extractRefNeighborsFromHits(hits, sourceVector)
 	if err != nil {
 		return nil, err
 	}
 
 	return aggregateRefNeighbors(aggregations)
-
 }
 
-func aggregateRefNeighbors(props map[string]map[string][]float64) ([]classification.NeighborRef, error) {
+func aggregateRefNeighbors(props map[string]map[string][]float32) ([]classification.NeighborRef, error) {
 	var out []classification.NeighborRef
 	for prop, beacons := range props {
 		var winningBeacon string
@@ -226,10 +228,14 @@ func aggregateRefNeighbors(props map[string]map[string][]float64) ([]classificat
 			}
 		}
 
+		winning, losing := extractWinningAndLoosingDistances(beacons, winningBeacon)
+
 		out = append(out, classification.NeighborRef{
-			Beacon:   strfmt.URI(winningBeacon),
-			Count:    winningCount,
-			Property: prop,
+			Beacon:          strfmt.URI(winningBeacon),
+			Count:           winningCount,
+			Property:        prop,
+			WinningDistance: winning,
+			LosingDistance:  losing,
 		})
 
 	}
@@ -237,22 +243,31 @@ func aggregateRefNeighbors(props map[string]map[string][]float64) ([]classificat
 	return out, nil
 }
 
-func extractRefNeighborsFromHits(hits []hit) (map[string]map[string][]float64, error) {
+func extractRefNeighborsFromHits(hits []hit,
+	sourceVector []float32) (map[string]map[string][]float32, error) {
 	// structure is [prop][beacon][[]distance]
-	aggregations := map[string]map[string][]float64{}
+	aggregations := map[string]map[string][]float32{}
 
 	for _, hit := range hits {
+		v, err := extractVectorFromHit(hit)
+		if err != nil {
+			return nil, err
+		}
+
+		dist, err := vectorizer.NormalizedDistance(sourceVector, v)
+		if err != nil {
+			return nil, err
+		}
 
 		for key, value := range hit.Source {
 			if key == keyVector.String() {
-				// ignore for now
 				continue
 			}
 
 			// assume is a ref
 			prop, ok := aggregations[key]
 			if !ok {
-				prop = map[string][]float64{}
+				prop = map[string][]float32{}
 			}
 
 			beacon, err := extractBeaconFromProp(value)
@@ -260,13 +275,21 @@ func extractRefNeighborsFromHits(hits []hit) (map[string]map[string][]float64, e
 				return nil, fmt.Errorf("prop %s: %v", key, err)
 			}
 
-			prop[beacon] = append(prop[beacon], 100)
+			prop[beacon] = append(prop[beacon], dist)
 			aggregations[key] = prop
-
 		}
 	}
 
 	return aggregations, nil
+}
+
+func extractVectorFromHit(hit hit) ([]float32, error) {
+	vector, ok := hit.Source[keyVector.String()]
+	if !ok {
+		return nil, fmt.Errorf("expected key %s, but got %v", keyVector, hit.Source)
+	}
+
+	return base64ToVector(vector.(string))
 }
 
 func extractBeaconFromProp(prop interface{}) (string, error) {
@@ -291,4 +314,36 @@ func extractBeaconFromProp(prop interface{}) (string, error) {
 	}
 
 	return beacon.(string), nil
+}
+
+func extractWinningAndLoosingDistances(beacons map[string][]float32, winner string) (float32, *float32) {
+
+	var winningDistances []float32
+	var losingDistances []float32
+
+	for beacon, distances := range beacons {
+
+		if beacon == winner {
+			winningDistances = distances
+		} else {
+			losingDistances = append(losingDistances, distances...)
+		}
+	}
+
+	var losingDistance *float32
+	if len(losingDistances) > 0 {
+		d := mean(losingDistances)
+		losingDistance = &d
+	}
+
+	return mean(winningDistances), losingDistance
+}
+
+func mean(in []float32) float32 {
+	sum := float32(0)
+	for _, v := range in {
+		sum += v
+	}
+
+	return sum / float32(len(in))
 }

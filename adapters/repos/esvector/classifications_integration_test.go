@@ -72,14 +72,16 @@ func testClassifications(repo *Repo, migrator *Migrator) func(t *testing.T) {
 
 				expectedRes := []classification.NeighborRef{
 					classification.NeighborRef{
-						Beacon:   strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", idCategoryPolitics)),
-						Property: "exactCategory",
-						Count:    1,
+						Beacon:          strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", idCategoryPolitics)),
+						Property:        "exactCategory",
+						Count:           1,
+						WinningDistance: 0.00010201335,
 					},
 					classification.NeighborRef{
-						Beacon:   strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", idMainCategoryPoliticsAndSociety)),
-						Property: "mainCategory",
-						Count:    1,
+						Beacon:          strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", idMainCategoryPoliticsAndSociety)),
+						Property:        "mainCategory",
+						Count:           1,
+						WinningDistance: 0.00010201335,
 					},
 				}
 
@@ -93,14 +95,16 @@ func testClassifications(repo *Repo, migrator *Migrator) func(t *testing.T) {
 
 				expectedRes := []classification.NeighborRef{
 					classification.NeighborRef{
-						Beacon:   strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", idCategoryFoodAndDrink)),
-						Property: "exactCategory",
-						Count:    1,
+						Beacon:          strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", idCategoryFoodAndDrink)),
+						Property:        "exactCategory",
+						Count:           1,
+						WinningDistance: 0.00011473894,
 					},
 					classification.NeighborRef{
-						Beacon:   strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", idMainCategoryFoodAndDrink)),
-						Property: "mainCategory",
-						Count:    1,
+						Beacon:          strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", idMainCategoryFoodAndDrink)),
+						Property:        "mainCategory",
+						Count:           1,
+						WinningDistance: 0.00011473894,
 					},
 				}
 

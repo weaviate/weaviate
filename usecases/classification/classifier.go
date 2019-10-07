@@ -76,6 +76,9 @@ type NeighborRef struct {
 
 	// Count (n<=k) of number of the winning Beacon
 	Count int
+
+	WinningDistance float32
+	LosingDistance  *float32
 }
 
 func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, params models.Classification) (*models.Classification, error) {
