@@ -3184,6 +3184,31 @@ func init() {
       "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
     },
+    "ReferenceMeta": {
+      "description": "Additional Meta information about this particular reference.",
+      "properties": {
+        "classification": {
+          "description": "If a property was set through a classification, this meta field contains additional info",
+          "$ref": "#/definitions/ReferenceMetaClassification"
+        }
+      }
+    },
+    "ReferenceMetaClassification": {
+      "description": "This meta field contains additional info about the classified reference property",
+      "properties": {
+        "losingDistance": {
+          "description": "Mean distance of all neighbors from the losing group. Optional. If k equals the size of the winning group, there is no losing group.",
+          "type": "number",
+          "format": "float32",
+          "x-nullable": true
+        },
+        "winningDistance": {
+          "description": "Mean distance of all neighbors from the winning group",
+          "type": "number",
+          "format": "float32"
+        }
+      }
+    },
     "Schema": {
       "description": "Definitions of semantic schemas (also see: https://github.com/semi-technologies/weaviate-semantic-schemas).",
       "type": "object",
@@ -3230,6 +3255,10 @@ func init() {
           "description": "If using a concept reference (rather than a direct reference), specify the desired class name here",
           "type": "string",
           "format": "uri"
+        },
+        "meta": {
+          "description": "Additional Meta information about this particular reference. Only shown if meta==true.",
+          "$ref": "#/definitions/ReferenceMeta"
         },
         "schema": {
           "description": "If using a concept reference (rather than a direct reference), specify the desired properties here",
@@ -6531,6 +6560,31 @@ func init() {
       "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
     },
+    "ReferenceMeta": {
+      "description": "Additional Meta information about this particular reference.",
+      "properties": {
+        "classification": {
+          "description": "If a property was set through a classification, this meta field contains additional info",
+          "$ref": "#/definitions/ReferenceMetaClassification"
+        }
+      }
+    },
+    "ReferenceMetaClassification": {
+      "description": "This meta field contains additional info about the classified reference property",
+      "properties": {
+        "losingDistance": {
+          "description": "Mean distance of all neighbors from the losing group. Optional. If k equals the size of the winning group, there is no losing group.",
+          "type": "number",
+          "format": "float32",
+          "x-nullable": true
+        },
+        "winningDistance": {
+          "description": "Mean distance of all neighbors from the winning group",
+          "type": "number",
+          "format": "float32"
+        }
+      }
+    },
     "Schema": {
       "description": "Definitions of semantic schemas (also see: https://github.com/semi-technologies/weaviate-semantic-schemas).",
       "type": "object",
@@ -6577,6 +6631,10 @@ func init() {
           "description": "If using a concept reference (rather than a direct reference), specify the desired class name here",
           "type": "string",
           "format": "uri"
+        },
+        "meta": {
+          "description": "Additional Meta information about this particular reference. Only shown if meta==true.",
+          "$ref": "#/definitions/ReferenceMeta"
         },
         "schema": {
           "description": "If using a concept reference (rather than a direct reference), specify the desired properties here",

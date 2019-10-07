@@ -512,6 +512,35 @@
           "description": "If using a direct reference, specify the URI to point to the cross-ref here. Should be in the form of weaviate://localhost/things/<uuid> for the example of a local cross-ref to a thing",
           "format": "uri",
           "type": "string"
+        },
+        "meta": {
+          "description": "Additional Meta information about this particular reference. Only shown if meta==true.",
+          "$ref": "#/definitions/ReferenceMeta"
+        }
+      }
+    },
+    "ReferenceMeta": {
+      "description": "Additional Meta information about this particular reference.",
+      "properties": {
+        "classification": {
+          "description": "If a property was set through a classification, this meta field contains additional info",
+          "$ref": "#/definitions/ReferenceMetaClassification"
+        }
+      }
+    },
+    "ReferenceMetaClassification": {
+      "description": "This meta field contains additional info about the classified reference property",
+      "properties": {
+        "winningDistance": {
+          "description": "Mean distance of all neighbors from the winning group",
+          "type": "number",
+          "format": "float32"
+        },
+        "losingDistance": {
+          "description": "Mean distance of all neighbors from the losing group. Optional. If k equals the size of the winning group, there is no losing group.",
+          "type": "number",
+          "format": "float32",
+          "x-nullable": true
         }
       }
     },
