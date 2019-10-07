@@ -108,7 +108,8 @@ func (m *Manager) GetActions(ctx context.Context, principal *models.Principal, l
 }
 
 func (m *Manager) getThingFromRepo(ctx context.Context, id strfmt.UUID) (*search.Result, error) {
-	res, err := m.vectorRepo.ThingByID(ctx, id, traverser.SelectProperties{})
+	// TODO dynamically set meta
+	res, err := m.vectorRepo.ThingByID(ctx, id, traverser.SelectProperties{}, false)
 	if err != nil {
 		return nil, NewErrInternal("repo: thing by id: %v", err)
 	}
@@ -132,7 +133,8 @@ func (m *Manager) getThingsFromRepo(ctx context.Context, limit *int64) ([]*model
 }
 
 func (m *Manager) getActionFromRepo(ctx context.Context, id strfmt.UUID) (*search.Result, error) {
-	res, err := m.vectorRepo.ActionByID(ctx, id, traverser.SelectProperties{})
+	// TODO dynamically set meta
+	res, err := m.vectorRepo.ActionByID(ctx, id, traverser.SelectProperties{}, false)
 	if err != nil {
 		return nil, NewErrInternal("repo: action by id: %v", err)
 	}

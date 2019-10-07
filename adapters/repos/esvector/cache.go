@@ -136,10 +136,10 @@ func (c *cacheManager) getObject(ctx context.Context, k kind.Kind, id strfmt.UUI
 	switch k {
 	case kind.Thing:
 		// empty selectproperties make sure that we don't resolve any refs
-		return c.repo.ThingByID(ctx, id, traverser.SelectProperties{})
+		return c.repo.ThingByID(ctx, id, traverser.SelectProperties{}, false)
 	case kind.Action:
 		// empty selectproperties make sure that we don't resolve any refs
-		return c.repo.ActionByID(ctx, id, traverser.SelectProperties{})
+		return c.repo.ActionByID(ctx, id, traverser.SelectProperties{}, false)
 	default:
 		return nil, fmt.Errorf("impossible kind: %v", k)
 	}

@@ -244,7 +244,7 @@ func testEsVectorCache(t *testing.T) {
 
 		requestCounter.reset()
 		res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-			fullyNestedSelectProperties())
+			fullyNestedSelectProperties(), false)
 		require.Nil(t, err)
 		assert.Equal(t, false, res.CacheHot)
 		assert.Equal(t, expectedSchema, res.Schema)
@@ -285,7 +285,7 @@ func testEsVectorCache(t *testing.T) {
 
 		requestCounter.reset()
 		res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-			partiallyNestedSelectProperties())
+			partiallyNestedSelectProperties(), false)
 		require.Nil(t, err)
 		assert.Equal(t, false, res.CacheHot)
 		assert.Equal(t, expectedSchema, res.Schema)
@@ -301,15 +301,18 @@ func testEsVectorCache(t *testing.T) {
 	time.Sleep(1000 * time.Millisecond)
 
 	t.Run("all 3 (outer) things must now have a hot cache", func(t *testing.T) {
-		res, err := repo.ThingByID(context.Background(), "18c80a16-346a-477d-849d-9d92e5040ac9", traverser.SelectProperties{})
+		res, err := repo.ThingByID(context.Background(), "18c80a16-346a-477d-849d-9d92e5040ac9",
+			traverser.SelectProperties{}, false)
 		require.Nil(t, err)
 		assert.Equal(t, true, res.CacheHot)
 
-		res, err = repo.ThingByID(context.Background(), "18c80a16-346a-477d-849d-9d92e5040ac9", traverser.SelectProperties{})
+		res, err = repo.ThingByID(context.Background(), "18c80a16-346a-477d-849d-9d92e5040ac9",
+			traverser.SelectProperties{}, false)
 		require.Nil(t, err)
 		assert.Equal(t, true, res.CacheHot)
 
-		res, err = repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac", traverser.SelectProperties{})
+		res, err = repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
+			traverser.SelectProperties{}, false)
 		require.Nil(t, err)
 		assert.Equal(t, true, res.CacheHot)
 	})
@@ -318,7 +321,7 @@ func testEsVectorCache(t *testing.T) {
 		func(t *testing.T) {
 			requestCounter.reset()
 			res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-				traverser.SelectProperties{})
+				traverser.SelectProperties{}, false)
 			require.Nil(t, err)
 			// we didn't specify any selectProperties, so there shouldn't be any
 			// additional requests at all, only the initial request to get the place
@@ -352,7 +355,7 @@ func testEsVectorCache(t *testing.T) {
 	t.Run("fully resolving the place after cache is hot", func(t *testing.T) {
 		requestCounter.reset()
 		res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-			fullyNestedSelectProperties())
+			fullyNestedSelectProperties(), false)
 		// we are crossing the cache boundary, so we are expecting an additional request
 		assert.Equal(t, 2, requestCounter.count)
 
@@ -363,7 +366,7 @@ func testEsVectorCache(t *testing.T) {
 
 	t.Run("resolving without any refs", func(t *testing.T) {
 		res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-			traverser.SelectProperties{})
+			traverser.SelectProperties{}, false)
 
 		expectedSchema := map[string]interface{}{
 			"uuid": "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
@@ -382,7 +385,7 @@ func testEsVectorCache(t *testing.T) {
 
 	t.Run("partially resolving the place after cache is hot", func(t *testing.T) {
 		res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-			partiallyNestedSelectProperties())
+			partiallyNestedSelectProperties(), false)
 		expectedSchema := map[string]interface{}{
 			"InCity": []interface{}{
 				get.LocalRef{
@@ -428,7 +431,8 @@ func testEsVectorCache(t *testing.T) {
 	time.Sleep(1000 * time.Millisecond)
 
 	t.Run("the newly added place must have a hot cache by now", func(t *testing.T) {
-		res, err := repo.ThingByID(context.Background(), "0f02d525-902d-4dc0-8052-647cb420c1a6", traverser.SelectProperties{})
+		res, err := repo.ThingByID(context.Background(), "0f02d525-902d-4dc0-8052-647cb420c1a6", traverser.SelectProperties{},
+			false)
 		require.Nil(t, err)
 		assert.Equal(t, true, res.CacheHot)
 	})
