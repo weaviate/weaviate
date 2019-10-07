@@ -34,7 +34,7 @@ type getRepo interface {
 
 // GetThing Class from the connected DB
 func (m *Manager) GetThing(ctx context.Context, principal *models.Principal,
-	id strfmt.UUID) (*models.Thing, error) {
+	id strfmt.UUID, meta bool) (*models.Thing, error) {
 	err := m.authorizer.Authorize(principal, "get", fmt.Sprintf("things/%s", id.String()))
 	if err != nil {
 		return nil, err
@@ -46,7 +46,7 @@ func (m *Manager) GetThing(ctx context.Context, principal *models.Principal,
 	}
 	defer unlock()
 
-	res, err := m.getThingFromRepo(ctx, id)
+	res, err := m.getThingFromRepo(ctx, id, meta)
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +71,8 @@ func (m *Manager) GetThings(ctx context.Context, principal *models.Principal, li
 }
 
 // GetAction Class from connected DB
-func (m *Manager) GetAction(ctx context.Context, principal *models.Principal, id strfmt.UUID) (*models.Action, error) {
+func (m *Manager) GetAction(ctx context.Context, principal *models.Principal, id strfmt.UUID,
+	meta bool) (*models.Action, error) {
 	err := m.authorizer.Authorize(principal, "get", fmt.Sprintf("actions/%s", id.String()))
 	if err != nil {
 		return nil, err
@@ -83,7 +84,7 @@ func (m *Manager) GetAction(ctx context.Context, principal *models.Principal, id
 	}
 	defer unlock()
 
-	action, err := m.getActionFromRepo(ctx, id)
+	action, err := m.getActionFromRepo(ctx, id, meta)
 	if err != nil {
 		return nil, err
 	}
@@ -107,9 +108,8 @@ func (m *Manager) GetActions(ctx context.Context, principal *models.Principal, l
 	return m.getActionsFromRepo(ctx, limit)
 }
 
-func (m *Manager) getThingFromRepo(ctx context.Context, id strfmt.UUID) (*search.Result, error) {
-	// TODO dynamically set meta
-	res, err := m.vectorRepo.ThingByID(ctx, id, traverser.SelectProperties{}, false)
+func (m *Manager) getThingFromRepo(ctx context.Context, id strfmt.UUID, meta bool) (*search.Result, error) {
+	res, err := m.vectorRepo.ThingByID(ctx, id, traverser.SelectProperties{}, meta)
 	if err != nil {
 		return nil, NewErrInternal("repo: thing by id: %v", err)
 	}
@@ -132,9 +132,8 @@ func (m *Manager) getThingsFromRepo(ctx context.Context, limit *int64) ([]*model
 	return res.Things(), nil
 }
 
-func (m *Manager) getActionFromRepo(ctx context.Context, id strfmt.UUID) (*search.Result, error) {
-	// TODO dynamically set meta
-	res, err := m.vectorRepo.ActionByID(ctx, id, traverser.SelectProperties{}, false)
+func (m *Manager) getActionFromRepo(ctx context.Context, id strfmt.UUID, meta bool) (*search.Result, error) {
+	res, err := m.vectorRepo.ActionByID(ctx, id, traverser.SelectProperties{}, meta)
 	if err != nil {
 		return nil, NewErrInternal("repo: action by id: %v", err)
 	}
