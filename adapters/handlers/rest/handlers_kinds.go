@@ -120,7 +120,11 @@ func (h *kindHandlers) validateAction(params actions.ActionsValidateParams,
 
 func (h *kindHandlers) getThing(params things.ThingsGetParams,
 	principal *models.Principal) middleware.Responder {
-	thing, err := h.manager.GetThing(params.HTTPRequest.Context(), principal, params.ID)
+	var includeMeta bool
+	if params.Meta != nil && *params.Meta {
+		includeMeta = true
+	}
+	thing, err := h.manager.GetThing(params.HTTPRequest.Context(), principal, params.ID, includeMeta)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -140,7 +144,11 @@ func (h *kindHandlers) getThing(params things.ThingsGetParams,
 
 func (h *kindHandlers) getAction(params actions.ActionsGetParams,
 	principal *models.Principal) middleware.Responder {
-	action, err := h.manager.GetAction(params.HTTPRequest.Context(), principal, params.ID)
+	var includeMeta bool
+	if params.Meta != nil && *params.Meta {
+		includeMeta = true
+	}
+	action, err := h.manager.GetAction(params.HTTPRequest.Context(), principal, params.ID, includeMeta)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -290,7 +298,7 @@ func (h *kindHandlers) deleteAction(params actions.ActionsDeleteParams,
 // Internally, this means, we need to first run the Get UC, then apply the
 // patch and then run the update UC
 func (h *kindHandlers) patchThing(params things.ThingsPatchParams, principal *models.Principal) middleware.Responder {
-	origThing, err := h.manager.GetThing(params.HTTPRequest.Context(), principal, params.ID)
+	origThing, err := h.manager.GetThing(params.HTTPRequest.Context(), principal, params.ID, false)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -346,7 +354,7 @@ func (h *kindHandlers) patchThing(params things.ThingsPatchParams, principal *mo
 // Internally, this means, we need to first run the Get UC, then apply the
 // patch and then run the update UC
 func (h *kindHandlers) patchAction(params actions.ActionsPatchParams, principal *models.Principal) middleware.Responder {
-	origAction, err := h.manager.GetAction(params.HTTPRequest.Context(), principal, params.ID)
+	origAction, err := h.manager.GetAction(params.HTTPRequest.Context(), principal, params.ID, false)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:

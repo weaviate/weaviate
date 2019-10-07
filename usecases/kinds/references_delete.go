@@ -48,7 +48,7 @@ func (m *Manager) deleteActionReferenceFromConnector(ctx context.Context, princi
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
 
 	// get action to see if it exists
-	actionRes, err := m.getActionFromRepo(ctx, id)
+	actionRes, err := m.getActionFromRepo(ctx, id, false)
 	if err != nil {
 		return err
 	}
@@ -98,7 +98,7 @@ func (m *Manager) deleteThingReferenceFromConnector(ctx context.Context, princip
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
 
 	// get thing to see if it exists
-	thingRes, err := m.getThingFromRepo(ctx, id)
+	thingRes, err := m.getThingFromRepo(ctx, id, false)
 	if err != nil {
 		return err
 	}

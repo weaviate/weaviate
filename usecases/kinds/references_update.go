@@ -52,7 +52,7 @@ func (m *Manager) updateActionReferenceToConnectorAndSchema(ctx context.Context,
 	id strfmt.UUID, propertyName string, refs models.MultipleRef) error {
 
 	// get action to see if it exists
-	actionRes, err := m.getActionFromRepo(ctx, id)
+	actionRes, err := m.getActionFromRepo(ctx, id, false)
 	if err != nil {
 		return err
 	}
@@ -117,7 +117,7 @@ func (m *Manager) updateThingReferenceToConnectorAndSchema(ctx context.Context, 
 	id strfmt.UUID, propertyName string, refs models.MultipleRef) error {
 
 	// get thing to see if it exists
-	thingRes, err := m.getThingFromRepo(ctx, id)
+	thingRes, err := m.getThingFromRepo(ctx, id, false)
 	if err != nil {
 		return err
 	}

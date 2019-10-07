@@ -68,13 +68,13 @@ func Test_Kinds_Authorization(t *testing.T) {
 		},
 		testCase{
 			methodName:       "GetThing",
-			additionalArgs:   []interface{}{strfmt.UUID("foo")},
+			additionalArgs:   []interface{}{strfmt.UUID("foo"), false},
 			expectedVerb:     "get",
 			expectedResource: "things/foo",
 		},
 		testCase{
 			methodName:       "GetAction",
-			additionalArgs:   []interface{}{strfmt.UUID("foo")},
+			additionalArgs:   []interface{}{strfmt.UUID("foo"), false},
 			expectedVerb:     "get",
 			expectedResource: "actions/foo",
 		},
