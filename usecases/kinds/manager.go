@@ -76,6 +76,8 @@ type VectorRepo interface {
 
 	ThingSearch(ctx context.Context, limit int, filters *filters.LocalFilter) (search.Results, error)
 	ActionSearch(ctx context.Context, limit int, filters *filters.LocalFilter) (search.Results, error)
+
+	Exists(ctx context.Context, id strfmt.UUID) (bool, error)
 }
 
 // NewManager creates a new manager

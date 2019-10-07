@@ -35,7 +35,7 @@ type Peer struct {
 
 // CreateClient to access the full API of the peer. Pre-configured to the
 // peer's URI and scheme. Currently assumes the default BasePath
-func (p Peer) CreateClient() (*client.WeaviateDecentralisedKnowledgeGraph, error) {
+func (p Peer) CreateClient() (*client.Weaviate, error) {
 	url, err := url.Parse(p.URI.String())
 	if err != nil {
 		return nil, fmt.Errorf("could not parse peer URL: %s", err)

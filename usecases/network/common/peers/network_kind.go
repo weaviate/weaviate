@@ -47,7 +47,7 @@ func (p Peers) RemoteKind(kind crossrefs.NetworkKind) (interface{}, error) {
 }
 
 func (p Peers) getRemoteThingOrAction(kind crossrefs.NetworkKind,
-	client *client.WeaviateDecentralisedKnowledgeGraph) (interface{}, error) {
+	client *client.Weaviate) (interface{}, error) {
 	result := models.Thing{}
 	switch kind.Kind {
 	case libkind.Thing:

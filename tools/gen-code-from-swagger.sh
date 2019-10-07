@@ -18,7 +18,7 @@ fi
 (cd $DIR/..; rm -rf entities/models client adapters/handlers/rest/operations/)
 
 (cd $DIR/..; $SWAGGER generate server --name=weaviate --model-package=entities/models --server-package=adapters/handlers/rest --spec=openapi-specs/schema.json -P models.Principal --default-scheme=https)
-(cd $DIR/..; $SWAGGER generate client --model-package=entities/models --spec=openapi-specs/schema.json -P models.Principal --default-scheme=https)
+(cd $DIR/..; $SWAGGER generate client --name=weaviate --model-package=entities/models --spec=openapi-specs/schema.json -P models.Principal --default-scheme=https)
 
 echo Now add the header to the generated code too.
 (cd $DIR/..; GO111MODULE=on go run ./tools/license_headers/main.go)

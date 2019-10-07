@@ -74,6 +74,7 @@ func (i *cacheIndexer) init() {
 				// nothing to do at the moment, let's sleep for the configured duration
 				// before trying again
 				time.Sleep(i.waitOnIdle)
+
 				continue
 			}
 

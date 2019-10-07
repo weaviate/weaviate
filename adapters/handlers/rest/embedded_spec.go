@@ -43,14 +43,14 @@ func init() {
   ],
   "swagger": "2.0",
   "info": {
-    "description": "Decentralised Knowledge Graph",
-    "title": "Weaviate - Decentralised Knowledge Graph",
+    "description": "Open Source Knowledge Graph (GraphQL/RESTful/P2P)",
+    "title": "Weaviate",
     "contact": {
       "name": "Weaviate",
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "0.20.0-rc0"
+    "version": "0.20.1"
   },
   "basePath": "/v1",
   "paths": {
@@ -3382,14 +3382,14 @@ func init() {
   ],
   "swagger": "2.0",
   "info": {
-    "description": "Decentralised Knowledge Graph",
-    "title": "Weaviate - Decentralised Knowledge Graph",
+    "description": "Open Source Knowledge Graph (GraphQL/RESTful/P2P)",
+    "title": "Weaviate",
     "contact": {
       "name": "Weaviate",
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "0.20.0-rc0"
+    "version": "0.20.1"
   },
   "basePath": "/v1",
   "paths": {

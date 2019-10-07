@@ -54,6 +54,53 @@ func (r *Repo) ActionByID(ctx context.Context, id strfmt.UUID,
 	return r.searchByID(ctx, allActionIndices, id, params)
 }
 
+// Exists checks if an object with the id exists, if not, it forces a refresh
+// and retries once.
+func (r *Repo) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
+	ok, err := r.exists(ctx, id)
+	if err != nil {
+		return false, fmt.Errorf("check exists: %v", err)
+	}
+
+	if ok {
+		return true, nil
+	}
+
+	err = r.forceRefresh(ctx)
+	if err != nil {
+		return false, fmt.Errorf("check exists: force refresh: %v", err)
+	}
+
+	ok, err = r.exists(ctx, id)
+	if err != nil {
+		return false, fmt.Errorf("check exists: after forced refresh: %v", err)
+	}
+
+	return ok, nil
+}
+
+func (r *Repo) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
+	res, err := r.searchByID(ctx, allClassIndices, id, nil)
+	return res != nil, err
+}
+
+func (r *Repo) forceRefresh(ctx context.Context) error {
+	req := esapi.IndicesRefreshRequest{
+		Index: []string{allClassIndices},
+	}
+
+	res, err := req.Do(ctx, r.client)
+	if err != nil {
+		return fmt.Errorf("index refresh request: %v", err)
+	}
+
+	if err := errorResToErr(res, r.logger); err != nil {
+		return fmt.Errorf("index refresh request: %v", err)
+	}
+
+	return nil
+}
+
 func (r *Repo) byIndexAndID(ctx context.Context, index string, id strfmt.UUID,
 	params traverser.SelectProperties) (*search.Result, error) {
 	return r.searchByID(ctx, index, id, params)

@@ -35,7 +35,7 @@ import (
 	"github.com/semi-technologies/weaviate/client/things"
 )
 
-// Default weaviate decentralised knowledge graph HTTP client.
+// Default weaviate HTTP client.
 var Default = NewHTTPClient(nil)
 
 const (
@@ -50,14 +50,14 @@ const (
 // DefaultSchemes are the default schemes found in Meta (info) section of spec file
 var DefaultSchemes = []string{"https"}
 
-// NewHTTPClient creates a new weaviate decentralised knowledge graph HTTP client.
-func NewHTTPClient(formats strfmt.Registry) *WeaviateDecentralisedKnowledgeGraph {
+// NewHTTPClient creates a new weaviate HTTP client.
+func NewHTTPClient(formats strfmt.Registry) *Weaviate {
 	return NewHTTPClientWithConfig(formats, nil)
 }
 
-// NewHTTPClientWithConfig creates a new weaviate decentralised knowledge graph HTTP client,
+// NewHTTPClientWithConfig creates a new weaviate HTTP client,
 // using a customizable transport config.
-func NewHTTPClientWithConfig(formats strfmt.Registry, cfg *TransportConfig) *WeaviateDecentralisedKnowledgeGraph {
+func NewHTTPClientWithConfig(formats strfmt.Registry, cfg *TransportConfig) *Weaviate {
 	// ensure nullable parameters have default
 	if cfg == nil {
 		cfg = DefaultTransportConfig()
@@ -68,14 +68,14 @@ func NewHTTPClientWithConfig(formats strfmt.Registry, cfg *TransportConfig) *Wea
 	return New(transport, formats)
 }
 
-// New creates a new weaviate decentralised knowledge graph client
-func New(transport runtime.ClientTransport, formats strfmt.Registry) *WeaviateDecentralisedKnowledgeGraph {
+// New creates a new weaviate client
+func New(transport runtime.ClientTransport, formats strfmt.Registry) *Weaviate {
 	// ensure nullable parameters have default
 	if formats == nil {
 		formats = strfmt.Default
 	}
 
-	cli := new(WeaviateDecentralisedKnowledgeGraph)
+	cli := new(Weaviate)
 	cli.Transport = transport
 
 	cli.Actions = actions.New(transport, formats)
@@ -138,8 +138,8 @@ func (cfg *TransportConfig) WithSchemes(schemes []string) *TransportConfig {
 	return cfg
 }
 
-// WeaviateDecentralisedKnowledgeGraph is a client for weaviate decentralised knowledge graph
-type WeaviateDecentralisedKnowledgeGraph struct {
+// Weaviate is a client for weaviate
+type Weaviate struct {
 	Actions *actions.Client
 
 	Classifications *classifications.Client
@@ -162,7 +162,7 @@ type WeaviateDecentralisedKnowledgeGraph struct {
 }
 
 // SetTransport changes the transport on the client and all its subresources
-func (c *WeaviateDecentralisedKnowledgeGraph) SetTransport(transport runtime.ClientTransport) {
+func (c *Weaviate) SetTransport(transport runtime.ClientTransport) {
 	c.Transport = transport
 
 	c.Actions.SetTransport(transport)
