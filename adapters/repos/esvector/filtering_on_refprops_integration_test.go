@@ -45,6 +45,16 @@ func testFilteringOnRefProps(repo *Repo) func(t *testing.T) {
 				require.Len(t, res, 2)
 			})
 
+			t.Run("ref id matches", func(t *testing.T) {
+				filter := filterCarParkedAtGarage(schema.DataTypeString,
+					"uuid", filters.OperatorEqual, "a7e10b55-1ac4-464f-80df-82508eea1951")
+				params := getParamsWithFilter("MultiRefCar", filter)
+
+				res, err := repo.ClassSearch(context.Background(), params)
+				require.Nil(t, err)
+				require.Len(t, res, 2)
+			})
+
 			t.Run("ref name doesn't match", func(t *testing.T) {
 				filter := filterCarParkedAtGarage(schema.DataTypeString,
 					"name", filters.OperatorEqual, "There is no parking garage with this name")

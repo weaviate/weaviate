@@ -410,6 +410,28 @@ func testNumericalAggregationsWithGrouping(repo *Repo) func(t *testing.T) {
 
 func testNumericalAggregationsWithoutGrouping(repo *Repo) func(t *testing.T) {
 	return func(t *testing.T) {
+		t.Run("only meta count, no other aggregations", func(t *testing.T) {
+			params := traverser.AggregateParams{
+				Kind:             kind.Thing,
+				ClassName:        schema.ClassName(companyClass.Class),
+				IncludeMetaCount: true,
+				GroupBy:          nil, // explicitly set to nil
+			}
+
+			res, err := repo.Aggregate(context.Background(), params)
+			require.Nil(t, err)
+
+			expectedResult := &aggregation.Result{
+				Groups: []aggregation.Group{
+					aggregation.Group{
+						GroupedBy: nil,
+						Count:     9,
+					},
+				},
+			}
+
+			assert.Equal(t, expectedResult.Groups, res.Groups)
+		})
 		t.Run("single field, single aggregator", func(t *testing.T) {
 			params := traverser.AggregateParams{
 				Kind:      kind.Thing,

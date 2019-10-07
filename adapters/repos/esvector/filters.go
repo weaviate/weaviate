@@ -93,6 +93,10 @@ func primitiveFilterFromClause(clause *filters.Clause) (map[string]interface{}, 
 		return nil, err
 	}
 
+	if clause.On.Property == "uuid" {
+		clause.On.Property = "_id"
+	}
+
 	return map[string]interface{}{
 		m.queryType: map[string]interface{}{
 			clause.On.Property.String(): map[string]interface{}{

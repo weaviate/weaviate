@@ -20,9 +20,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -84,7 +82,7 @@ func Test_Add_Action(t *testing.T) {
 			ID:    id,
 			Class: "Foo",
 		}
-		vectorRepo.On("ActionByID", id, traverser.SelectProperties{}).Return((*search.Result)(nil), nil).Once()
+		vectorRepo.On("Exists", id).Return(false, nil).Once()
 
 		res, err := manager.AddAction(ctx, nil, class)
 		uuidDuringCreation := vectorRepo.Mock.Calls[1].Arguments.Get(0).(*models.Action).ID
@@ -104,10 +102,7 @@ func Test_Add_Action(t *testing.T) {
 			Class: "Foo",
 		}
 
-		// NOTE that any non-nil response in ActionByID will trigger exists to
-		// return true, so an empty result (compare it with the typed nil-result of
-		// the previous test), means the ID exists
-		vectorRepo.On("ActionByID", id, traverser.SelectProperties{}).Return(&search.Result{}, nil).Once()
+		vectorRepo.On("Exists", id).Return(true, nil).Once()
 
 		_, err := manager.AddAction(ctx, nil, class)
 		assert.Equal(t, NewErrInvalidUserInput("id '%s' already exists", id), err)
@@ -123,7 +118,7 @@ func Test_Add_Action(t *testing.T) {
 			Class: "Foo",
 		}
 
-		vectorRepo.On("ActionByID", id, traverser.SelectProperties{}).Return((*search.Result)(nil), nil).Once()
+		vectorRepo.On("Exists", id).Return(false, nil).Once()
 
 		_, err := manager.AddAction(ctx, nil, class)
 		assert.Equal(t, NewErrInvalidUserInput("invalid action: uuid: incorrect UUID length: %s", id), err)
@@ -186,7 +181,7 @@ func Test_Add_Thing(t *testing.T) {
 			ID:    id,
 			Class: "Foo",
 		}
-		vectorRepo.On("ThingByID", id, traverser.SelectProperties{}).Return((*search.Result)(nil), nil).Once()
+		vectorRepo.On("Exists", id).Return(false, nil).Once()
 
 		res, err := manager.AddThing(ctx, nil, class)
 		uuidDuringCreation := vectorRepo.Mock.Calls[1].Arguments.Get(0).(*models.Thing).ID
@@ -206,10 +201,7 @@ func Test_Add_Thing(t *testing.T) {
 			Class: "Foo",
 		}
 
-		// NOTE that any non-nil response in ActionByID will trigger exists to
-		// return true, so an empty result (compare it with the typed nil-result of
-		// the previous test), means the ID exists
-		vectorRepo.On("ThingByID", id, traverser.SelectProperties{}).Return(&search.Result{}, nil).Once()
+		vectorRepo.On("Exists", id).Return(true, nil).Once()
 
 		_, err := manager.AddThing(ctx, nil, class)
 		assert.Equal(t, NewErrInvalidUserInput("id '%s' already exists", id), err)
@@ -225,7 +217,7 @@ func Test_Add_Thing(t *testing.T) {
 			Class: "Foo",
 		}
 
-		vectorRepo.On("ThingByID", id, traverser.SelectProperties{}).Return((*search.Result)(nil), nil).Once()
+		vectorRepo.On("Exists", id).Return(false, nil).Once()
 
 		_, err := manager.AddThing(ctx, nil, class)
 		assert.Equal(t, NewErrInvalidUserInput("invalid thing: uuid: incorrect UUID length: %s", id), err)

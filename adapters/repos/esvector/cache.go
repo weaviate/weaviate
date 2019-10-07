@@ -62,10 +62,8 @@ func (c *cacheManager) populate(ctx context.Context, kind kind.Kind, id strfmt.U
 	}
 
 	if obj.CacheHot {
-		// nothing to do, cache is already hot
-		// TODO: make this check dependent on when the cache was last populated,
-		// otherwise we can never renew if it becomes stale
-		return prepareForStoringAsCache(obj), nil
+		res := prepareForStoringAsCache(obj, depth, c.repo.denormalizationDepthLimit)
+		return res, nil
 	}
 
 	resolvedSchema := map[string]interface{}{}
@@ -244,7 +242,7 @@ func copyMap(in map[string]interface{}) map[string]interface{} {
 // this function is only ever called if we had a hot cache. calling it will
 // prepare the output for another insertion and will itself take refs from
 // cache if it has any or leave them untouched if not cached
-func prepareForStoringAsCache(in *search.Result) *search.Result {
+func prepareForStoringAsCache(in *search.Result, depth int, limit int) *search.Result {
 	schema := map[string]interface{}{}
 
 	for prop, value := range in.Schema.(map[string]interface{}) {
@@ -258,7 +256,7 @@ func prepareForStoringAsCache(in *search.Result) *search.Result {
 
 		case models.MultipleRef:
 			// refs need to be taken from cache if present or left untouched otherwise
-			if ref, ok := in.CacheSchema[prop]; ok {
+			if ref, ok := in.CacheSchema[prop]; ok && depth < limit {
 				schema[prop] = ref
 			} else {
 				schema[prop] = value

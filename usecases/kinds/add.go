@@ -23,7 +23,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/kinds/validation"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type addAndGetRepo interface {
@@ -140,16 +139,7 @@ func (m *Manager) validateAction(ctx context.Context, principal *models.Principa
 }
 
 func (m *Manager) exists(ctx context.Context, k kind.Kind, id strfmt.UUID) (bool, error) {
-	switch k {
-	case kind.Thing:
-		res, err := m.vectorRepo.ThingByID(ctx, id, traverser.SelectProperties{})
-		return res != nil, err
-	case kind.Action:
-		res, err := m.vectorRepo.ActionByID(ctx, id, traverser.SelectProperties{})
-		return res != nil, err
-	default:
-		panic("impossible kind")
-	}
+	return m.vectorRepo.Exists(ctx, id)
 }
 
 // AddThing Class Instance to the connected DB. If the class contains a network

@@ -25,13 +25,14 @@ import (
 )
 
 type invalidator struct {
-	repo      *Repo
-	className string
-	id        string
+	repo       *Repo
+	className  string
+	id         string
+	depthLimit int
 }
 
 func (r *Repo) invalidateCache(className, id string) {
-	invalidator := &invalidator{r, className, id}
+	invalidator := &invalidator{r, className, id, r.denormalizationDepthLimit}
 	err := invalidator.do()
 	if err != nil {
 		// log and ignore, we are doing an async operation here, we can't return
@@ -44,24 +45,27 @@ func (r *Repo) invalidateCache(className, id string) {
 }
 
 func (inv *invalidator) do() error {
-	indexAndIds, err := inv.findIDs()
-	if err != nil {
-		return err
-	}
-	if len(indexAndIds) == 0 {
-		return nil
-	}
 
-	err = inv.bulk(indexAndIds)
-	if err != nil {
-		return err
+	for i := 1; i <= inv.depthLimit; i++ {
+		indexAndIds, err := inv.findIDs(i)
+		if err != nil {
+			return err
+		}
+		if len(indexAndIds) == 0 {
+			return nil
+		}
+
+		err = inv.bulk(indexAndIds)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
 }
 
-func (inv *invalidator) findIDs() ([]bulkIndex, error) {
-	query, err := inv.buildFindIDQuery()
+func (inv *invalidator) findIDs(level int) ([]bulkIndex, error) {
+	query, err := inv.buildFindIDQuery(level)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +101,6 @@ func (inv *invalidator) findIDs() ([]bulkIndex, error) {
 	ids := make([]bulkIndex, len(sr.Hits.Hits), len(sr.Hits.Hits))
 	for i, hit := range sr.Hits.Hits {
 
-		// TODO include index
 		ids[i] = bulkIndex{
 			ID:    hit.ID,
 			Index: hit.Index,
@@ -107,12 +110,18 @@ func (inv *invalidator) findIDs() ([]bulkIndex, error) {
 	return ids, nil
 }
 
-func (inv *invalidator) buildFindIDQuery() (map[string]interface{}, error) {
+func (inv *invalidator) buildFindIDQuery(level int) (map[string]interface{}, error) {
 	paths := inv.repo.schemaRefFinder.Find(schema.ClassName(inv.className))
 
 	var queries []map[string]interface{}
 
 	for _, path := range paths {
+		if len(path.Slice()) != (2*level + 1) {
+			// path is always an odd number, as always contains a primitive property
+			// (last element), optionally it can contain always a combination of
+			// refProp+class, that*s why the check is for 2*level+1
+			continue
+		}
 		clause := &filters.Clause{
 			On:       &path,
 			Value:    &filters.Value{Value: inv.id, Type: schema.DataTypeString},
