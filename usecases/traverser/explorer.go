@@ -29,7 +29,10 @@ import (
 type Explorer struct {
 	search     vectorClassSearch
 	vectorizer CorpiVectorizer
+	distancer  distancer
 }
+
+type distancer func(a, b []float32) (float32, error)
 
 type vectorClassSearch interface {
 	ClassSearch(ctx context.Context, params GetParams) ([]search.Result, error)
@@ -44,8 +47,8 @@ type explorerRepo interface {
 }
 
 // NewExplorer with search and connector repo
-func NewExplorer(search vectorClassSearch, vectorizer CorpiVectorizer) *Explorer {
-	return &Explorer{search, vectorizer}
+func NewExplorer(search vectorClassSearch, vectorizer CorpiVectorizer, distancer distancer) *Explorer {
+	return &Explorer{search, vectorizer, distancer}
 }
 
 // GetClass from search and connector repo
@@ -100,7 +103,7 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 
 	for _, res := range input {
 		if searchVector != nil {
-			dist, err := e.vectorizer.NormalizedDistance(res.Vector, searchVector)
+			dist, err := e.distancer(res.Vector, searchVector)
 			if err != nil {
 				return nil, fmt.Errorf("explorer: calculate distance: %v", err)
 			}
@@ -135,7 +138,7 @@ func (e *Explorer) Concepts(ctx context.Context,
 	results := []search.Result{}
 	for _, item := range res {
 		item.Beacon = beacon(item)
-		dist, err := e.vectorizer.NormalizedDistance(vector, item.Vector)
+		dist, err := e.distancer(vector, item.Vector)
 		if err != nil {
 			return nil, fmt.Errorf("res %s: %v", item.Beacon, err)
 		}
