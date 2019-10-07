@@ -101,8 +101,21 @@ func (c *Classifier) classifyItem(item search.Result, kind kind.Kind, params mod
 	}
 
 	for _, agg := range res {
+		var losingDistance *float64
+		if agg.LosingDistance != nil {
+			d := float64(*agg.LosingDistance)
+			losingDistance = &d
+		}
 		item.Schema.(map[string]interface{})[agg.Property] = models.MultipleRef{
-			&models.SingleRef{Beacon: agg.Beacon},
+			&models.SingleRef{
+				Beacon: agg.Beacon,
+				Meta: &models.ReferenceMeta{
+					Classification: &models.ReferenceMetaClassification{
+						WinningDistance: float64(agg.WinningDistance),
+						LosingDistance:  losingDistance,
+					},
+				},
+			},
 		}
 	}
 
