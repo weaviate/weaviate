@@ -91,7 +91,7 @@ func (r *Repo) unclassifiedSearchResponse(res *esapi.Response, properties traver
 		return nil, err
 	}
 
-	return sr.toResults(r, properties)
+	return sr.toResults(r, properties, false)
 }
 
 func checkClassificationCount(res map[string]interface{}) error {

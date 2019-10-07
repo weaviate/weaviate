@@ -204,14 +204,14 @@ func (f *fakeVectorRepo) Exists(ctx context.Context,
 }
 
 func (f *fakeVectorRepo) ThingByID(ctx context.Context,
-	id strfmt.UUID, props traverser.SelectProperties) (*search.Result, error) {
-	args := f.Called(id, props)
+	id strfmt.UUID, props traverser.SelectProperties, meta bool) (*search.Result, error) {
+	args := f.Called(id, props, meta)
 	return args.Get(0).(*search.Result), args.Error(1)
 }
 
 func (f *fakeVectorRepo) ActionByID(ctx context.Context,
-	id strfmt.UUID, props traverser.SelectProperties) (*search.Result, error) {
-	args := f.Called(id, props)
+	id strfmt.UUID, props traverser.SelectProperties, meta bool) (*search.Result, error) {
+	args := f.Called(id, props, meta)
 	return args.Get(0).(*search.Result), args.Error(1)
 }
 

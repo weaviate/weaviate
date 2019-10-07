@@ -30,12 +30,10 @@ import (
 // parseSchema lightly parses the schema, while most fields stay untyped, those
 // with special meaning, such as GeoCoordinates are marshalled into their
 // required types
-func (r *Repo) parseSchema(input map[string]interface{}, properties traverser.SelectProperties, cache cache,
+func (r *Repo) parseSchema(input map[string]interface{}, properties traverser.SelectProperties,
+	meta bool, cache cache,
 	currentDepth int) (map[string]interface{}, error) {
 	output := map[string]interface{}{}
-
-	// TODO: don't hard-code, pass in
-	meta := false
 
 	for key, value := range input {
 		if isID(key) {
@@ -238,7 +236,7 @@ func (r *Repo) resolveRefWithoutCache(item interface{}, desiredClass string,
 
 	switch ref.Kind {
 	case kind.Thing:
-		res, err := r.ThingByID(context.TODO(), ref.TargetID, innerProperties)
+		res, err := r.ThingByID(context.TODO(), ref.TargetID, innerProperties, false)
 		if err != nil {
 			return nil, err
 		}
@@ -251,7 +249,7 @@ func (r *Repo) resolveRefWithoutCache(item interface{}, desiredClass string,
 		out.Fields = res.Schema.(map[string]interface{})
 		return &out, nil
 	case kind.Action:
-		res, err := r.ActionByID(context.TODO(), ref.TargetID, innerProperties)
+		res, err := r.ActionByID(context.TODO(), ref.TargetID, innerProperties, false)
 		if err != nil {
 			return nil, err
 		}
