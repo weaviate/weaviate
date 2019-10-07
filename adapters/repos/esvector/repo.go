@@ -41,14 +41,18 @@ func (k internalKey) String() string {
 }
 
 const (
-	keyVector    internalKey = "_embedding_vector"
-	keyID        internalKey = "_uuid"
-	keyKind      internalKey = "_kind"
-	keyClassName internalKey = "_class_name"
-	keyCreated   internalKey = "_created"
-	keyUpdated   internalKey = "_updated"
-	keyCache     internalKey = "_cache"
-	keyCacheHot  internalKey = "_hot"
+	keyVector                            internalKey = "_embedding_vector"
+	keyID                                internalKey = "_uuid"
+	keyKind                              internalKey = "_kind"
+	keyClassName                         internalKey = "_class_name"
+	keyCreated                           internalKey = "_created"
+	keyUpdated                           internalKey = "_updated"
+	keyCache                             internalKey = "_cache"
+	keyCacheHot                          internalKey = "_hot"
+	keyMeta                              internalKey = "meta"
+	keyMetaClassification                internalKey = "classification"
+	keyMetaClassificationWinningDistance internalKey = "winningDistance"
+	keyMetaClassificationLosingDistance  internalKey = "losingDistance"
 )
 
 // Repo stores and retrieves vector info in elasticsearch

@@ -34,6 +34,9 @@ func (r *Repo) parseSchema(input map[string]interface{}, properties traverser.Se
 	currentDepth int) (map[string]interface{}, error) {
 	output := map[string]interface{}{}
 
+	// TODO: don't hard-code, pass in
+	meta := false
+
 	for key, value := range input {
 		if isID(key) {
 			output["uuid"] = value
@@ -59,15 +62,20 @@ func (r *Repo) parseSchema(input map[string]interface{}, properties traverser.Se
 				// return the unresolved beacon
 				refs := []*models.SingleRef{}
 				for _, ref := range typed {
-					refs = append(refs,
-						&models.SingleRef{Beacon: strfmt.URI(ref.(map[string]interface{})["beacon"].(string))})
+					refMap := ref.(map[string]interface{})
+					singleRef := &models.SingleRef{
+						Beacon: strfmt.URI(refMap["beacon"].(string)),
+					}
+
+					if meta {
+						singleRef.Meta = parseRefMeta(refMap)
+					}
+					refs = append(refs, singleRef)
 				}
 
 				output[key] = models.MultipleRef(refs)
 				continue
 			}
-
-			// properties.ShouldResolve([]string{uppercaseFirstLetter(
 
 			// ref keys are uppercased in the desired response
 			refKey := uppercaseFirstLetter(key)
@@ -93,6 +101,38 @@ func (r *Repo) parseSchema(input map[string]interface{}, properties traverser.Se
 	}
 
 	return output, nil
+}
+
+func parseRefMeta(ref map[string]interface{}) *models.ReferenceMeta {
+	meta, ok := ref[keyMeta.String()]
+	if !ok {
+		return nil
+	}
+
+	classification := meta.(map[string]interface{})[keyMetaClassification.String()]
+	if classification == nil {
+		// for now classification is the only viable meta option so if it's not set
+		// we can return early. If other options are added in the future, we need
+		// to check them too
+		return nil
+	}
+
+	asMap := classification.(map[string]interface{})
+	classificationOutput := &models.ReferenceMetaClassification{}
+	winningDistance, ok := asMap[keyMetaClassificationWinningDistance.String()]
+	if ok {
+		classificationOutput.WinningDistance = winningDistance.(float64)
+	}
+
+	losingDistance, ok := asMap[keyMetaClassificationLosingDistance.String()]
+	if ok {
+		d := losingDistance.(float64)
+		classificationOutput.LosingDistance = &d
+	}
+
+	return &models.ReferenceMeta{
+		Classification: classificationOutput,
+	}
 }
 
 func isID(key string) bool {
