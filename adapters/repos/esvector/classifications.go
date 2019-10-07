@@ -120,29 +120,15 @@ func checkClassificationCount(res map[string]interface{}) error {
 func (r *Repo) AggregateNeighbors(ctx context.Context, vector []float32, kind kind.Kind, class string,
 	properties []string, k int) ([]classification.NeighborRef, error) {
 
-	propertyAggregations := map[string]interface{}{}
 	mustExist := []map[string]interface{}{}
+	var propNames []string
 	for _, prop := range properties {
-		propertyAggregations[prop] = map[string]interface{}{
-			"terms": map[string]interface{}{
-				"size":  1,
-				"field": fmt.Sprintf("%s.beacon", prop),
-			},
-		}
+		propNames = append(propNames, prop)
 		mustExist = append(mustExist, map[string]interface{}{
 			"exists": map[string]interface{}{
 				"field": prop,
 			},
 		})
-	}
-
-	aggregations := map[string]interface{}{
-		"sample": map[string]interface{}{
-			"sampler": map[string]interface{}{
-				"shard_size": k,
-			},
-			"aggregations": propertyAggregations,
-		},
 	}
 
 	query := map[string]interface{}{
@@ -172,9 +158,9 @@ func (r *Repo) AggregateNeighbors(ctx context.Context, vector []float32, kind ki
 	}
 
 	body := map[string]interface{}{
-		"query":        query,
-		"aggregations": aggregations,
-		"size":         0,
+		"query":   query,
+		"size":    k,
+		"_source": append(propNames, keyVector.String()),
 	}
 
 	var buf bytes.Buffer
@@ -216,72 +202,93 @@ func (r *Repo) aggregateNeighborsResponse(res *esapi.Response) ([]classification
 }
 
 func (r *Repo) aggregationsToClassificationNeighborRefs(input searchResponse) ([]classification.NeighborRef, error) {
-	sample, ok := input.Aggregations["sample"]
-	if !ok {
-		return nil, fmt.Errorf("expected aggregation response to contain agg 'sample'")
+	hits := input.Hits.Hits
+
+	aggregations, err := extractRefNeighborsFromHits(hits)
+	if err != nil {
+		return nil, err
 	}
 
-	asMap, ok := sample.(map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("expected 'sample' to be map, got %T", sample)
-	}
+	return aggregateRefNeighbors(aggregations)
 
+}
+
+func aggregateRefNeighbors(props map[string]map[string][]float64) ([]classification.NeighborRef, error) {
 	var out []classification.NeighborRef
-	for key, value := range asMap {
-		if key == "doc_count" {
-			continue
+	for prop, beacons := range props {
+		var winningBeacon string
+		var winningCount int
+
+		for beacon, distances := range beacons {
+			if len(distances) > winningCount {
+				winningBeacon = beacon
+				winningCount = len(distances)
+			}
 		}
 
-		inner, err := extractInnerNeighborAgg(key, value)
-		if err != nil {
-			return nil, fmt.Errorf("for prop %s: %v", key, err)
-		}
+		out = append(out, classification.NeighborRef{
+			Beacon:   strfmt.URI(winningBeacon),
+			Count:    winningCount,
+			Property: prop,
+		})
 
-		out = append(out, inner)
 	}
 
 	return out, nil
 }
 
-func extractInnerNeighborAgg(prop string, agg interface{}) (classification.NeighborRef, error) {
-	var out classification.NeighborRef
-	asMap, ok := agg.(map[string]interface{})
+func extractRefNeighborsFromHits(hits []hit) (map[string]map[string][]float64, error) {
+	// structure is [prop][beacon][[]distance]
+	aggregations := map[string]map[string][]float64{}
+
+	for _, hit := range hits {
+
+		for key, value := range hit.Source {
+			if key == keyVector.String() {
+				// ignore for now
+				continue
+			}
+
+			// assume is a ref
+			prop, ok := aggregations[key]
+			if !ok {
+				prop = map[string][]float64{}
+			}
+
+			beacon, err := extractBeaconFromProp(value)
+			if err != nil {
+				return nil, fmt.Errorf("prop %s: %v", key, err)
+			}
+
+			prop[beacon] = append(prop[beacon], 100)
+			aggregations[key] = prop
+
+		}
+	}
+
+	return aggregations, nil
+}
+
+func extractBeaconFromProp(prop interface{}) (string, error) {
+	propSlice, ok := prop.([]interface{})
 	if !ok {
-		return out, fmt.Errorf("expected inner agg to be map, got %T", agg)
+		return "", fmt.Errorf("expected refs to be slice, got %T", prop)
 	}
 
-	buckets, ok := asMap["buckets"]
+	if len(propSlice) != 1 {
+		return "", fmt.Errorf("expected refs to have len 1, got %d", len(propSlice))
+	}
+
+	ref := propSlice[0]
+	refMap, ok := ref.(map[string]interface{})
 	if !ok {
-		return out, fmt.Errorf("expected key 'buckets', got %v", asMap)
+		return "", fmt.Errorf("expected ref to be map, got %T", ref)
 	}
 
-	bucketsSlice, ok := buckets.([]interface{})
+	beacon, ok := refMap["beacon"]
 	if !ok {
-		return out, fmt.Errorf("expected buckets to be a slice, got %T", buckets)
+		return "", fmt.Errorf("expected ref (map) to have field 'beacon', got %v", refMap)
 	}
 
-	if len(bucketsSlice) != 1 {
-		return out, fmt.Errorf("expected buckets to have len=1, got %#v", bucketsSlice)
-	}
-
-	bucketMap, ok := bucketsSlice[0].(map[string]interface{})
-	if !ok {
-		return out, fmt.Errorf("expected key 'buckets' to be map, got %T", bucketsSlice[0])
-	}
-
-	beacon, ok := bucketMap["key"]
-	if !ok {
-		return out, fmt.Errorf("expected bucket to have key 'key', got %v", bucketMap)
-	}
-
-	count, ok := bucketMap["doc_count"]
-	if !ok {
-		return out, fmt.Errorf("expected bucket to have key 'doc_count', got %v", bucketMap)
-	}
-
-	out.Beacon = strfmt.URI(beacon.(string))
-	out.Count = int(count.(float64))
-	out.Property = prop
-
-	return out, nil
+	return beacon.(string), nil
 }
