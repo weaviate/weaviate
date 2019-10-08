@@ -100,6 +100,8 @@ func (c *Classifier) classifyItem(item search.Result, kind kind.Kind, params mod
 		return fmt.Errorf("classify %s/%s: %v", item.ClassName, item.ID, err)
 	}
 
+	var classified []string
+
 	for _, agg := range res {
 		var losingDistance *float64
 		if agg.LosingDistance != nil {
@@ -117,8 +119,13 @@ func (c *Classifier) classifyItem(item search.Result, kind kind.Kind, params mod
 				},
 			},
 		}
+
+		// append list of actually classified (can differ from scope!) properties,
+		// so we can build the object meta information
+		classified = append(classified, agg.Property)
 	}
 
+	c.extendItemWithObjectMeta(&item, params, classified)
 	err = c.store(item)
 	if err != nil {
 		return fmt.Errorf("store %s/%s: %v", item.ClassName, item.ID, err)
@@ -136,5 +143,20 @@ func (c *Classifier) store(item search.Result) error {
 		return c.vectorRepo.PutAction(context.Background(), item.Action(), item.Vector)
 	default:
 		return fmt.Errorf("impossible kind")
+	}
+}
+
+func (c *Classifier) extendItemWithObjectMeta(item *search.Result,
+	params models.Classification, classified []string) {
+	// don't overwrite existing non-classification meta info
+	if item.Meta == nil {
+		item.Meta = &models.ObjectMeta{}
+	}
+
+	item.Meta.Classification = &models.ObjectMetaClassification{
+		ID:               params.ID,
+		Scope:            params.ClassifyProperties,
+		ClassifiedFields: classified,
+		Completed:        strfmt.DateTime(time.Now()),
 	}
 }
