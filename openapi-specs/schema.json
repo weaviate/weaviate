@@ -26,6 +26,9 @@
         "schema": {
           "$ref": "#/definitions/PropertySchema"
         },
+        "meta": {
+          "$ref": "#/definitions/ObjectMeta"
+        },
         "id": {
           "description": "ID of the Action.",
           "format": "uuid",
@@ -528,6 +531,15 @@
         }
       }
     },
+    "ObjectMeta": {
+      "description": "Additional Meta information about a single thing/action object.",
+      "properties": {
+        "classification": {
+          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
+          "$ref": "#/definitions/ObjectMetaClassification"
+        }
+      }
+    },
     "ReferenceMetaClassification": {
       "description": "This meta field contains additional info about the classified reference property",
       "properties": {
@@ -541,6 +553,42 @@
           "type": "number",
           "format": "float32",
           "x-nullable": true
+        }
+      }
+    },
+    "ObjectMetaClassification": {
+      "description": "This meta field contains additional info about the classification which affected this object",
+      "properties": {
+        "id": {
+          "description": "unique identifier of the classification run",
+          "type": "string",
+          "format": "uuid"
+        },
+        "completed": {
+          "description": "Timestamp when this particular object was classified. This is usually sooner than the overall completion time of the classification, as the overall completion time will only be set once every object has been classified.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "scope": {
+          "description": "The properties in scope of the classification. Note that this doesn't mean that these fields were necessarily classified, this only means that those fields were in scope of the classificiation. See \"classifiedFields\" for details.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "classifiedFields": {
+          "description": "The (reference) fields which were classified as part of this classification. Note that this might contain fewere entries than \"scope\", if one of the fields was already set prior to the classification, for example",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "classifiedFields": {
+          "description": "The (primitive) field(s) which were used as a basis for classification. For example, if the type of classification is \"knn\" with k=3, the 3 nearest neighbors - based on these fields - were considered for the classification.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -609,6 +657,9 @@
         },
         "schema": {
           "$ref": "#/definitions/PropertySchema"
+        },
+        "meta": {
+          "$ref": "#/definitions/ObjectMeta"
         },
         "id": {
           "description": "ID of the Thing.",

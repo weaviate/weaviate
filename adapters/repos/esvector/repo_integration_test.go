@@ -102,6 +102,14 @@ func TestEsVectorRepo(t *testing.T) {
 		assert.Nil(t, err)
 	})
 
+	timeMust := func(t strfmt.DateTime, err error) strfmt.DateTime {
+		if err != nil {
+			panic(err)
+		}
+
+		return t
+	}
+
 	actionID := strfmt.UUID("022ca5ba-7c0b-4a78-85bf-26346bbcfae7")
 	t.Run("adding an action", func(t *testing.T) {
 		action := &models.Action{
@@ -111,6 +119,14 @@ func TestEsVectorRepo(t *testing.T) {
 			Class:              "TheBestActionClass",
 			Schema: map[string]interface{}{
 				"stringProp": "some act-citing value",
+			},
+			Meta: &models.ObjectMeta{
+				Classification: &models.ObjectMetaClassification{
+					ID:               "foo",
+					Scope:            []string{"scope1", "scope2"},
+					ClassifiedFields: []string{"field1", "field2"},
+					Completed:        timeMust(strfmt.ParseDateTime("2006-01-02T15:04:05.000Z")),
+				},
 			},
 		}
 		vector := []float32{3, 1, 0.3, 12}
@@ -167,6 +183,7 @@ func TestEsVectorRepo(t *testing.T) {
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
 		assert.Equal(t, &models.GeoCoordinates{1, 2}, schema["location"], "has correct geo prop")
 		assert.Equal(t, thingID.String(), schema["uuid"], "has id in schema as uuid field")
+		assert.Nil(t, res[0].Meta, "not meta information should be included unless explicitly asked for")
 	})
 
 	t.Run("searching by class type", func(t *testing.T) {
@@ -221,7 +238,7 @@ func TestEsVectorRepo(t *testing.T) {
 		assert.Equal(t, thingID.String(), schema["uuid"], "has id in schema as uuid field")
 	})
 
-	t.Run("searching an action by ID", func(t *testing.T) {
+	t.Run("searching an action by ID without meta", func(t *testing.T) {
 		item, err := repo.ActionByID(context.Background(), actionID, traverser.SelectProperties{}, false)
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
@@ -231,6 +248,27 @@ func TestEsVectorRepo(t *testing.T) {
 		assert.Equal(t, "TheBestActionClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some act-citing value", schema["stringProp"], "has correct string prop")
+		assert.Nil(t, item.Meta, "not meta information should be included unless explicitly asked for")
+	})
+
+	t.Run("searching an action by ID without meta", func(t *testing.T) {
+		item, err := repo.ActionByID(context.Background(), actionID, traverser.SelectProperties{}, true)
+		require.Nil(t, err)
+		require.NotNil(t, item, "must have a result")
+
+		assert.Equal(t, actionID, item.ID, "extracted the ID")
+		assert.Equal(t, kind.Action, item.Kind, "matches the kind")
+		assert.Equal(t, "TheBestActionClass", item.ClassName, "matches the class name")
+		schema := item.Schema.(map[string]interface{})
+		assert.Equal(t, "some act-citing value", schema["stringProp"], "has correct string prop")
+		assert.Equal(t, &models.ObjectMeta{
+			Classification: &models.ObjectMetaClassification{
+				ID:               "foo",
+				Scope:            []string{"scope1", "scope2"},
+				ClassifiedFields: []string{"field1", "field2"},
+				Completed:        timeMust(strfmt.ParseDateTime("2006-01-02T15:04:05.000Z")),
+			},
+		}, item.Meta, "it should include the object meta as it was explicitly specified")
 	})
 
 	t.Run("searching all actions", func(t *testing.T) {

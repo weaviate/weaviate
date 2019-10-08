@@ -2565,6 +2565,9 @@ func init() {
           "type": "integer",
           "format": "int64"
         },
+        "meta": {
+          "$ref": "#/definitions/ObjectMeta"
+        },
         "schema": {
           "$ref": "#/definitions/PropertySchema"
         }
@@ -3076,6 +3079,44 @@ func init() {
         "$ref": "#/definitions/SingleRef"
       }
     },
+    "ObjectMeta": {
+      "description": "Additional Meta information about a single thing/action object.",
+      "properties": {
+        "classification": {
+          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
+          "$ref": "#/definitions/ObjectMetaClassification"
+        }
+      }
+    },
+    "ObjectMetaClassification": {
+      "description": "This meta field contains additional info about the classification which affected this object",
+      "properties": {
+        "classifiedFields": {
+          "description": "The (primitive) field(s) which were used as a basis for classification. For example, if the type of classification is \"knn\" with k=3, the 3 nearest neighbors - based on these fields - were considered for the classification.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "completed": {
+          "description": "Timestamp when this particular object was classified. This is usually sooner than the overall completion time of the classification, as the overall completion time will only be set once every object has been classified.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "id": {
+          "description": "unique identifier of the classification run",
+          "type": "string",
+          "format": "uuid"
+        },
+        "scope": {
+          "description": "The properties in scope of the classification. Note that this doesn't mean that these fields were necessarily classified, this only means that those fields were in scope of the classificiation. See \"classifiedFields\" for details.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "PatchDocument": {
       "description": "A JSONPatch document as defined by RFC 6902.",
       "required": [
@@ -3293,6 +3334,9 @@ func init() {
           "description": "Timestamp of the last Thing update in milliseconds since epoch UTC.",
           "type": "integer",
           "format": "int64"
+        },
+        "meta": {
+          "$ref": "#/definitions/ObjectMeta"
         },
         "schema": {
           "$ref": "#/definitions/PropertySchema"
@@ -5959,6 +6003,9 @@ func init() {
           "type": "integer",
           "format": "int64"
         },
+        "meta": {
+          "$ref": "#/definitions/ObjectMeta"
+        },
         "schema": {
           "$ref": "#/definitions/PropertySchema"
         }
@@ -6470,6 +6517,44 @@ func init() {
         "$ref": "#/definitions/SingleRef"
       }
     },
+    "ObjectMeta": {
+      "description": "Additional Meta information about a single thing/action object.",
+      "properties": {
+        "classification": {
+          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
+          "$ref": "#/definitions/ObjectMetaClassification"
+        }
+      }
+    },
+    "ObjectMetaClassification": {
+      "description": "This meta field contains additional info about the classification which affected this object",
+      "properties": {
+        "classifiedFields": {
+          "description": "The (primitive) field(s) which were used as a basis for classification. For example, if the type of classification is \"knn\" with k=3, the 3 nearest neighbors - based on these fields - were considered for the classification.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "completed": {
+          "description": "Timestamp when this particular object was classified. This is usually sooner than the overall completion time of the classification, as the overall completion time will only be set once every object has been classified.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "id": {
+          "description": "unique identifier of the classification run",
+          "type": "string",
+          "format": "uuid"
+        },
+        "scope": {
+          "description": "The properties in scope of the classification. Note that this doesn't mean that these fields were necessarily classified, this only means that those fields were in scope of the classificiation. See \"classifiedFields\" for details.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "PatchDocument": {
       "description": "A JSONPatch document as defined by RFC 6902.",
       "required": [
@@ -6687,6 +6772,9 @@ func init() {
           "description": "Timestamp of the last Thing update in milliseconds since epoch UTC.",
           "type": "integer",
           "format": "int64"
+        },
+        "meta": {
+          "$ref": "#/definitions/ObjectMeta"
         },
         "schema": {
           "$ref": "#/definitions/PropertySchema"

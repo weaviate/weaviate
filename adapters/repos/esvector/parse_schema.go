@@ -302,6 +302,55 @@ func (r *Repo) extractCache(in map[string]interface{}) cache {
 	}
 }
 
+func (r *Repo) extractMeta(in map[string]interface{}) *models.ObjectMeta {
+	objectMetaField, ok := in[keyObjectMeta.String()]
+	if !ok {
+		return nil
+	}
+
+	objectMetaMap, ok := objectMetaField.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	classificationField, ok := objectMetaMap[keyMetaClassification.String()]
+	if !ok {
+		// for now classification is the only meta field, so we can return early if
+		// no classification is set. If a second meta type is added in the future,
+		// we need to check for those as well
+		return nil
+	}
+
+	classificationMap, ok := classificationField.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	classification := &models.ObjectMetaClassification{}
+	if id, ok := classificationMap["id"]; ok {
+		classification.ID = strfmt.UUID(id.(string))
+	}
+
+	if completed, ok := classificationMap["completed"]; ok {
+		t, err := strfmt.ParseDateTime(completed.(string))
+		if err == nil {
+			classification.Completed = t
+		}
+	}
+
+	if scope, ok := classificationMap["scope"]; ok {
+		classification.Scope = interfaceToStringSlice(scope.([]interface{}))
+	}
+
+	if classified, ok := classificationMap["classifiedFields"]; ok {
+		classification.ClassifiedFields = interfaceToStringSlice(classified.([]interface{}))
+	}
+
+	return &models.ObjectMeta{
+		Classification: classification,
+	}
+}
+
 func uppercaseFirstLetter(in string) string {
 	first := string(in[0])
 	rest := string(in[1:])

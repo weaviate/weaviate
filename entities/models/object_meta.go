@@ -23,42 +23,21 @@ import (
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/swag"
-	"github.com/go-openapi/validate"
 )
 
-// Action action
-// swagger:model Action
-type Action struct {
+// ObjectMeta Additional Meta information about a single thing/action object.
+// swagger:model ObjectMeta
+type ObjectMeta struct {
 
-	// Type of the Action, defined in the schema.
-	Class string `json:"class,omitempty"`
-
-	// Timestamp of creation of this Action in milliseconds since epoch UTC.
-	CreationTimeUnix int64 `json:"creationTimeUnix,omitempty"`
-
-	// ID of the Action.
-	// Format: uuid
-	ID strfmt.UUID `json:"id,omitempty"`
-
-	// Timestamp of the last update made to the Action since epoch UTC.
-	LastUpdateTimeUnix int64 `json:"lastUpdateTimeUnix,omitempty"`
-
-	// meta
-	Meta *ObjectMeta `json:"meta,omitempty"`
-
-	// schema
-	Schema PropertySchema `json:"schema,omitempty"`
+	// If this object was subject of a classificiation, additional meta info about this classification is available here
+	Classification *ObjectMetaClassification `json:"classification,omitempty"`
 }
 
-// Validate validates this action
-func (m *Action) Validate(formats strfmt.Registry) error {
+// Validate validates this object meta
+func (m *ObjectMeta) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateID(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateMeta(formats); err != nil {
+	if err := m.validateClassification(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -68,29 +47,16 @@ func (m *Action) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *Action) validateID(formats strfmt.Registry) error {
+func (m *ObjectMeta) validateClassification(formats strfmt.Registry) error {
 
-	if swag.IsZero(m.ID) { // not required
+	if swag.IsZero(m.Classification) { // not required
 		return nil
 	}
 
-	if err := validate.FormatOf("id", "body", "uuid", m.ID.String(), formats); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (m *Action) validateMeta(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.Meta) { // not required
-		return nil
-	}
-
-	if m.Meta != nil {
-		if err := m.Meta.Validate(formats); err != nil {
+	if m.Classification != nil {
+		if err := m.Classification.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("meta")
+				return ve.ValidateName("classification")
 			}
 			return err
 		}
@@ -100,7 +66,7 @@ func (m *Action) validateMeta(formats strfmt.Registry) error {
 }
 
 // MarshalBinary interface implementation
-func (m *Action) MarshalBinary() ([]byte, error) {
+func (m *ObjectMeta) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -108,8 +74,8 @@ func (m *Action) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *Action) UnmarshalBinary(b []byte) error {
-	var res Action
+func (m *ObjectMeta) UnmarshalBinary(b []byte) error {
+	var res ObjectMeta
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

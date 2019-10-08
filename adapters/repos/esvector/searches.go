@@ -297,6 +297,9 @@ func (sr searchResponse) toResults(r *Repo, properties traverser.SelectPropertie
 			CacheHot:    cacheHot,
 			CacheSchema: cache.schema,
 		}
+		if meta {
+			output[i].Meta = r.extractMeta(hit.Source)
+		}
 	}
 
 	return output, nil
