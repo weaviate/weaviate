@@ -29,7 +29,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
-	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -107,7 +107,7 @@ func testEsVectorCache(t *testing.T) {
 		},
 	}
 	require.Nil(t, err)
-	logger, _ := test.NewNullLogger()
+	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{schema: refSchema}
 	repo := NewRepo(client, logger, schemaGetter, 2)
 	waitForEsToBeReady(t, repo)
@@ -405,8 +405,6 @@ func testEsVectorCache(t *testing.T) {
 		assert.Equal(t, expectedSchema, res.Schema, "result without a cache and with a cache should look the same")
 	})
 
-	// TODO: partially resolve up until cache end to verify no additional request is made
-
 	t.Run("adding a new place to verify idnexing is constantly happening in the background", func(t *testing.T) {
 		newPlace := models.Thing{
 			Class: "Place",
@@ -435,6 +433,40 @@ func testEsVectorCache(t *testing.T) {
 			false)
 		require.Nil(t, err)
 		assert.Equal(t, true, res.CacheHot)
+	})
+
+	t.Run("the newly added place respects cache boundaries", func(t *testing.T) {
+		requestCounter.reset()
+		res, err := repo.ThingByID(context.Background(), "0f02d525-902d-4dc0-8052-647cb420c1a6",
+			traverser.SelectProperties{}, false)
+		require.Nil(t, err)
+		// we didn't specify any selectProperties, so there shouldn't be any
+		// additional requests at all, only the initial request to get the place
+		assert.Equal(t, 1, requestCounter.count)
+
+		// our desired depth is 2, this means 2 refs should be fully
+		// resolved, whereas the 3rd one is merely referenced by a beacon.
+		// This means we should see fully resolved
+		// inCity/City->inCountry/Country->, the next level
+		// (onContinent/continent) should merely be referenced by an unresolved beacon
+
+		inCity := res.CacheSchema["inCity"].(map[string]interface{})
+		city := inCity["City"].([]interface{})[0].(map[string]interface{})
+		inCountry := city["inCountry"].(map[string]interface{})
+		country := inCountry["Country"].([]interface{})[0].(map[string]interface{})
+
+		refs, ok := country["onContinent"].([]interface{})
+		// if onPlanet were resolved it would be a map. The fact that it's a
+		// slice is the first indication that it was unresolved
+		require.True(t, ok, fmt.Sprintf("should be a slice, got %#v", country["onContinent"]))
+		require.Len(t, refs, 1)
+
+		firstRef, ok := refs[0].(map[string]interface{})
+		assert.True(t, ok)
+
+		beacon, ok := firstRef["beacon"]
+		assert.True(t, ok)
+		assert.Equal(t, "weaviate://localhost/things/4aad8154-e7f3-45b8-81a6-725171419e55", beacon)
 	})
 
 	repo.StopCacheIndexing()
