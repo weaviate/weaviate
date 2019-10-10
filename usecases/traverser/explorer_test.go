@@ -55,7 +55,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		vectorizer := &fakeVectorizer{}
-		explorer := NewExplorer(search, vectorizer)
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer())
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
 		search.
@@ -107,7 +107,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		vectorizer := &fakeVectorizer{}
-		explorer := NewExplorer(search, vectorizer)
+
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer())
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
 		search.
@@ -153,7 +154,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		vectorizer := &fakeVectorizer{}
-		explorer := NewExplorer(search, vectorizer)
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer())
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		search.
@@ -179,4 +180,10 @@ func Test_Explorer_GetClass(t *testing.T) {
 				}, res[1])
 		})
 	})
+}
+
+func newFakeDistancer() func(a, b []float32) (float32, error) {
+	return func(source, target []float32) (float32, error) {
+		return 0.5, nil
+	}
 }

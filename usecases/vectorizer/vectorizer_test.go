@@ -15,6 +15,7 @@ package vectorizer
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -45,7 +46,7 @@ func TestVectorizingThings(t *testing.T) {
 					"brand": "Mercedes",
 				},
 			},
-			expectedClientCall: []string{"car", "brand mercedes"},
+			expectedClientCall: []string{"car brand mercedes"},
 		},
 
 		testCase{
@@ -56,7 +57,7 @@ func TestVectorizingThings(t *testing.T) {
 					"power": 300,
 				},
 			},
-			expectedClientCall: []string{"car", "power"},
+			expectedClientCall: []string{"car"},
 		},
 
 		testCase{
@@ -69,8 +70,7 @@ func TestVectorizingThings(t *testing.T) {
 					"review": "a very great car",
 				},
 			},
-			expectedClientCall: []string{"car", "brand best brand",
-				"power", "review a very great car"},
+			expectedClientCall: []string{"car brand best brand review a very great car"},
 		},
 
 		testCase{
@@ -83,8 +83,7 @@ func TestVectorizingThings(t *testing.T) {
 					"review":        "a very great car",
 				},
 			},
-			expectedClientCall: []string{"super car", "brand of the car best brand",
-				"power", "review a very great car"},
+			expectedClientCall: []string{"super car brand of the car best brand review a very great car"},
 		},
 	}
 
@@ -97,8 +96,9 @@ func TestVectorizingThings(t *testing.T) {
 
 			require.Nil(t, err)
 			assert.Equal(t, []float32{0, 1, 2, 3}, res)
-			assert.ElementsMatch(t, test.expectedClientCall, client.lastInput)
-
+			expected := strings.Split(test.expectedClientCall[0], " ")
+			actual := strings.Split(client.lastInput[0], " ")
+			assert.ElementsMatch(t, expected, actual)
 		})
 
 	}
@@ -127,7 +127,7 @@ func TestVectorizingActions(t *testing.T) {
 					"brand": "Mercedes",
 				},
 			},
-			expectedClientCall: []string{"flight", "brand mercedes"},
+			expectedClientCall: []string{"flight brand mercedes"},
 		},
 
 		testCase{
@@ -138,7 +138,7 @@ func TestVectorizingActions(t *testing.T) {
 					"length": 300,
 				},
 			},
-			expectedClientCall: []string{"flight", "length"},
+			expectedClientCall: []string{"flight"},
 		},
 
 		testCase{
@@ -151,8 +151,7 @@ func TestVectorizingActions(t *testing.T) {
 					"review": "a very great flight",
 				},
 			},
-			expectedClientCall: []string{"flight", "brand best brand",
-				"length", "review a very great flight"},
+			expectedClientCall: []string{"flight brand best brand review a very great flight"},
 		},
 	}
 
@@ -165,7 +164,9 @@ func TestVectorizingActions(t *testing.T) {
 
 			require.Nil(t, err)
 			assert.Equal(t, []float32{0, 1, 2, 3}, res)
-			assert.ElementsMatch(t, test.expectedClientCall, client.lastInput)
+			expected := strings.Split(test.expectedClientCall[0], " ")
+			actual := strings.Split(client.lastInput[0], " ")
+			assert.ElementsMatch(t, expected, actual)
 
 		})
 

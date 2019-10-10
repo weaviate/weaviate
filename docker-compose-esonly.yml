@@ -55,7 +55,7 @@ services:
       - "9999:9999"
     environment:
       SCHEMA_PROVIDER_URL: etcd:2379
-      OCCURRENCE_WEIGHT_LINEAR_FACTOR: 0.75
+      OCCURRENCE_WEIGHT_LINEAR_FACTOR: 0.99
   etcd:
     image: gcr.io/etcd-development/etcd:v3.3.8
     ports:

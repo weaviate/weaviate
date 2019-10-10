@@ -62,7 +62,7 @@ func (m *Manager) updateActionToConnectorAndSchema(ctx context.Context, principa
 		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
 
-	originalAction, err := m.getActionFromRepo(ctx, id)
+	originalAction, err := m.getActionFromRepo(ctx, id, false)
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +121,7 @@ func (m *Manager) updateThingToConnectorAndSchema(ctx context.Context, principal
 		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
 
-	originalThing, err := m.getThingFromRepo(ctx, id)
+	originalThing, err := m.getThingFromRepo(ctx, id, false)
 	if err != nil {
 		return nil, err
 	}

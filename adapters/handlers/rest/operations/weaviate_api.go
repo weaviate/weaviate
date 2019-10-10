@@ -34,6 +34,7 @@ import (
 	"github.com/go-openapi/swag"
 
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/actions"
+	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/classifications"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/contextionary_api"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/meta"
@@ -109,6 +110,12 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		ContextionaryAPIC11yWordsHandler: contextionary_api.C11yWordsHandlerFunc(func(params contextionary_api.C11yWordsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ContextionaryAPIC11yWords has not yet been implemented")
+		}),
+		ClassificationsClassificationsGetHandler: classifications.ClassificationsGetHandlerFunc(func(params classifications.ClassificationsGetParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation ClassificationsClassificationsGet has not yet been implemented")
+		}),
+		ClassificationsClassificationsPostHandler: classifications.ClassificationsPostHandlerFunc(func(params classifications.ClassificationsPostParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation ClassificationsClassificationsPost has not yet been implemented")
 		}),
 		GraphqlGraphqlBatchHandler: graphql.GraphqlBatchHandlerFunc(func(params graphql.GraphqlBatchParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation GraphqlGraphqlBatch has not yet been implemented")
@@ -273,6 +280,10 @@ type WeaviateAPI struct {
 	ContextionaryAPIC11yCorpusGetHandler contextionary_api.C11yCorpusGetHandler
 	// ContextionaryAPIC11yWordsHandler sets the operation handler for the c11y words operation
 	ContextionaryAPIC11yWordsHandler contextionary_api.C11yWordsHandler
+	// ClassificationsClassificationsGetHandler sets the operation handler for the classifications get operation
+	ClassificationsClassificationsGetHandler classifications.ClassificationsGetHandler
+	// ClassificationsClassificationsPostHandler sets the operation handler for the classifications post operation
+	ClassificationsClassificationsPostHandler classifications.ClassificationsPostHandler
 	// GraphqlGraphqlBatchHandler sets the operation handler for the graphql batch operation
 	GraphqlGraphqlBatchHandler graphql.GraphqlBatchHandler
 	// GraphqlGraphqlPostHandler sets the operation handler for the graphql post operation
@@ -462,6 +473,14 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.ContextionaryAPIC11yWordsHandler == nil {
 		unregistered = append(unregistered, "contextionary_api.C11yWordsHandler")
+	}
+
+	if o.ClassificationsClassificationsGetHandler == nil {
+		unregistered = append(unregistered, "classifications.ClassificationsGetHandler")
+	}
+
+	if o.ClassificationsClassificationsPostHandler == nil {
+		unregistered = append(unregistered, "classifications.ClassificationsPostHandler")
 	}
 
 	if o.GraphqlGraphqlBatchHandler == nil {
@@ -768,6 +787,16 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/c11y/words/{words}"] = contextionary_api.NewC11yWords(o.context, o.ContextionaryAPIC11yWordsHandler)
+
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/classifications/{id}"] = classifications.NewClassificationsGet(o.context, o.ClassificationsClassificationsGetHandler)
+
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/classifications"] = classifications.NewClassificationsPost(o.context, o.ClassificationsClassificationsPostHandler)
 
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)

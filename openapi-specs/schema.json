@@ -26,6 +26,9 @@
         "schema": {
           "$ref": "#/definitions/PropertySchema"
         },
+        "meta": {
+          "$ref": "#/definitions/ObjectMeta"
+        },
         "id": {
           "description": "ID of the Action.",
           "format": "uuid",
@@ -512,6 +515,80 @@
           "description": "If using a direct reference, specify the URI to point to the cross-ref here. Should be in the form of weaviate://localhost/things/<uuid> for the example of a local cross-ref to a thing",
           "format": "uri",
           "type": "string"
+        },
+        "meta": {
+          "description": "Additional Meta information about this particular reference. Only shown if meta==true.",
+          "$ref": "#/definitions/ReferenceMeta"
+        }
+      }
+    },
+    "ReferenceMeta": {
+      "description": "Additional Meta information about this particular reference.",
+      "properties": {
+        "classification": {
+          "description": "If a property was set through a classification, this meta field contains additional info",
+          "$ref": "#/definitions/ReferenceMetaClassification"
+        }
+      }
+    },
+    "ObjectMeta": {
+      "description": "Additional Meta information about a single thing/action object.",
+      "properties": {
+        "classification": {
+          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
+          "$ref": "#/definitions/ObjectMetaClassification"
+        }
+      }
+    },
+    "ReferenceMetaClassification": {
+      "description": "This meta field contains additional info about the classified reference property",
+      "properties": {
+        "winningDistance": {
+          "description": "Mean distance of all neighbors from the winning group",
+          "type": "number",
+          "format": "float32"
+        },
+        "losingDistance": {
+          "description": "Mean distance of all neighbors from the losing group. Optional. If k equals the size of the winning group, there is no losing group.",
+          "type": "number",
+          "format": "float32",
+          "x-nullable": true
+        }
+      }
+    },
+    "ObjectMetaClassification": {
+      "description": "This meta field contains additional info about the classification which affected this object",
+      "properties": {
+        "id": {
+          "description": "unique identifier of the classification run",
+          "type": "string",
+          "format": "uuid"
+        },
+        "completed": {
+          "description": "Timestamp when this particular object was classified. This is usually sooner than the overall completion time of the classification, as the overall completion time will only be set once every object has been classified.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "scope": {
+          "description": "The properties in scope of the classification. Note that this doesn't mean that these fields were necessarily classified, this only means that those fields were in scope of the classificiation. See \"classifiedFields\" for details.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "classifiedFields": {
+          "description": "The (reference) fields which were classified as part of this classification. Note that this might contain fewere entries than \"scope\", if one of the fields was already set prior to the classification, for example",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "classifiedFields": {
+          "description": "The (primitive) field(s) which were used as a basis for classification. For example, if the type of classification is \"knn\" with k=3, the 3 nearest neighbors - based on these fields - were considered for the classification.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -581,6 +658,9 @@
         "schema": {
           "$ref": "#/definitions/PropertySchema"
         },
+        "meta": {
+          "$ref": "#/definitions/ObjectMeta"
+        },
         "id": {
           "description": "ID of the Thing.",
           "format": "uuid",
@@ -642,6 +722,103 @@
         }
       },
       "type": "object"
+    },
+    "Classification": {
+      "description": "Manage classifications, trigger them and view status of past classifications.",
+      "properties": {
+        "id": {
+          "description": "ID to uniquely identify this classification run",
+          "format": "uuid",
+          "type": "string",
+          "example": "ee722219-b8ec-4db1-8f8d-5150bb1a9e0c"
+        },
+        "class": {
+          "description": "class (name) which is used in this classification",
+          "type": "string",
+          "example": "City"
+        },
+        "classifyProperties": {
+          "description": "which ref-property to set as part of the classification",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "example": ["inCountry"]
+        },
+        "basedOnProperties": {
+          "description": "base the text-based classification on these fields (of type text)",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "example": ["description"]
+        },
+        "status": {
+          "description": "status of this classification",
+          "type": "string",
+          "enum": ["running", "completed", "failed"],
+          "example": "running"
+        },
+        "meta": {
+          "description": "additional meta information about the classification",
+          "type": "object",
+          "$ref": "#/definitions/ClassificationMeta"
+        },
+        "type": {
+          "description": "which algorythim to use for classifications",
+          "type": "string",
+          "enum": ["knn"],
+          "default": "knn",
+          "example": "knn"
+        },
+        "k": {
+          "description": "k-value when using k-Neareast-Neighbor",
+          "format": "int32",
+          "type": "integer",
+          "default": 3,
+          "example": 3
+        },
+        "error": {
+          "description": "error message if status == failed",
+          "type": "string",
+          "default": "",
+          "example": "classify xzy: something went wrong"
+        }
+      },
+      "type": "object"
+    },
+    "ClassificationMeta": {
+      "description": "Additional information to a specific classification",
+      "properties": {
+        "started": {
+          "description": "time when this classification was started",
+          "type": "string",
+          "format": "date-time",
+          "example": "2017-07-21T17:32:28Z"
+        },
+        "completed": {
+          "description": "time when this classification finished",
+          "type": "string",
+          "format": "date-time",
+          "example": "2017-07-21T17:32:28Z"
+        },
+        "count": {
+          "description": "number of objects which were taken into consideration for classification",
+          "type": "integer",
+          "example": 147
+        },
+        "countSucceeded": {
+          "description": "number of objects successfully classified",
+          "type": "integer",
+          "example": 140
+        },
+        "countFailed": {
+          "description": "number of objects which could not be classified - see error message for details",
+          "type": "integer",
+          "example": 7
+        }
+      },
+      "type": "object"
     }
   },
   "externalDocs": {
@@ -655,7 +832,7 @@
     },
     "description": "Open Source Knowledge Graph (GraphQL/RESTful/P2P)",
     "title": "Weaviate",
-    "version": "0.20.1"
+    "version": "0.20.2"
   },
   "parameters": {
     "CommonLimitParameterQuery": {
@@ -665,6 +842,13 @@
       "name": "limit",
       "required": false,
       "type": "integer"
+    },
+    "CommonMetaParameterQuery": {
+      "description": "Should additional meta information (e.g. about classified properties) be included? Defaults to false.",
+      "in": "query",
+      "name": "meta",
+      "required": false,
+      "type": "boolean"
     }
   },
   "paths": {
@@ -860,6 +1044,9 @@
             "name": "id",
             "required": true,
             "type": "string"
+          },
+          {
+            "$ref": "#/parameters/CommonMetaParameterQuery"
           }
         ],
         "responses": {
@@ -2404,6 +2591,9 @@
             "name": "id",
             "required": true,
             "type": "string"
+          },
+          {
+            "$ref": "#/parameters/CommonMetaParameterQuery"
           }
         ],
         "responses": {
@@ -2829,6 +3019,99 @@
         "tags": ["contextionary-API"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
+      }
+    },
+    "/classifications/": {
+      "post": {
+        "description": "Trigger a classification based on the specified params. Classifications will run in the background, use GET /classifications/<id> to retrieve the status of your classificaiton.",
+        "operationId": "classifications.post",
+        "x-serviceIds": ["weaviate.classifications.post"],
+        "parameters": [
+          {
+            "description": "parameters to start a classification",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/Classification"
+            },
+            "name": "params",
+            "required": true
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successfully started classification.",
+            "schema": {
+              "$ref": "#/definitions/Classification"
+            }
+          },
+          "400": {
+            "description": "Incorrect request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "summary": "Starts a classification.",
+        "tags": ["classifications"]
+      }
+    },
+    "/classifications/{id}": {
+      "get": {
+        "description": "Get status, results and metadata of a previously created classification",
+        "operationId": "classifications.get",
+        "x-serviceIds": ["weaviate.classifications.get"],
+        "parameters": [
+          {
+            "description": "classification id",
+            "in": "path",
+            "type": "string",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Found the classification, returned as body",
+            "schema": {
+              "$ref": "#/definitions/Classification"
+            }
+          },
+          "404": {
+            "description": "Not Found - Classification does not exist"
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "summary": "View previously created classification",
+        "tags": ["classifications"]
       }
     },
     "/.well-known/openid-configuration": {

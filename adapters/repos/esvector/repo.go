@@ -49,6 +49,15 @@ const (
 	keyUpdated   internalKey = "_updated"
 	keyCache     internalKey = "_cache"
 	keyCacheHot  internalKey = "_hot"
+
+	// meta in references
+	keyMeta                              internalKey = "meta"
+	keyMetaClassification                internalKey = "classification"
+	keyMetaClassificationWinningDistance internalKey = "winningDistance"
+	keyMetaClassificationLosingDistance  internalKey = "losingDistance"
+
+	// object meta
+	keyObjectMeta internalKey = "_meta"
 )
 
 // Repo stores and retrieves vector info in elasticsearch
@@ -135,7 +144,7 @@ func (r *Repo) WaitForStartup(maxWaitTime time.Duration) error {
 func (r *Repo) PutThing(ctx context.Context,
 	concept *models.Thing, vector []float32) error {
 	err := r.putObject(ctx, kind.Thing, concept.ID.String(),
-		concept.Class, concept.Schema, vector, concept.CreationTimeUnix,
+		concept.Class, concept.Schema, concept.Meta, vector, concept.CreationTimeUnix,
 		concept.LastUpdateTimeUnix)
 	if err != nil {
 		return fmt.Errorf("put thing: %v", err)
@@ -148,7 +157,7 @@ func (r *Repo) PutThing(ctx context.Context,
 func (r *Repo) PutAction(ctx context.Context,
 	concept *models.Action, vector []float32) error {
 	err := r.putObject(ctx, kind.Action, concept.ID.String(),
-		concept.Class, concept.Schema, vector, concept.CreationTimeUnix,
+		concept.Class, concept.Schema, concept.Meta, vector, concept.CreationTimeUnix,
 		concept.LastUpdateTimeUnix)
 	if err != nil {
 		return fmt.Errorf("put action: %v", err)
@@ -158,15 +167,16 @@ func (r *Repo) PutAction(ctx context.Context,
 }
 
 func (r *Repo) objectBucket(k kind.Kind, id, className string, props models.PropertySchema,
-	vector []float32, createTime, updateTime int64) map[string]interface{} {
+	meta *models.ObjectMeta, vector []float32, createTime, updateTime int64) map[string]interface{} {
 
 	bucket := map[string]interface{}{
-		keyKind.String():      k.Name(),
-		keyID.String():        id,
-		keyClassName.String(): className,
-		keyVector.String():    vectorToBase64(vector),
-		keyCreated.String():   createTime,
-		keyUpdated.String():   updateTime,
+		keyKind.String():       k.Name(),
+		keyID.String():         id,
+		keyClassName.String():  className,
+		keyVector.String():     vectorToBase64(vector),
+		keyCreated.String():    createTime,
+		keyUpdated.String():    updateTime,
+		keyObjectMeta.String(): meta,
 	}
 
 	ex := extendBucketWithProps(bucket, props)
@@ -175,9 +185,9 @@ func (r *Repo) objectBucket(k kind.Kind, id, className string, props models.Prop
 
 func (r *Repo) putObject(ctx context.Context,
 	k kind.Kind, id, className string, props models.PropertySchema,
-	vector []float32, createTime, updateTime int64) error {
+	meta *models.ObjectMeta, vector []float32, createTime, updateTime int64) error {
 
-	bucket := r.objectBucket(k, id, className, props, vector, createTime, updateTime)
+	bucket := r.objectBucket(k, id, className, props, meta, vector, createTime, updateTime)
 
 	var buf bytes.Buffer
 	err := json.NewEncoder(&buf).Encode(bucket)

@@ -1,0 +1,107 @@
+{
+      "properties": {
+        "_cache": {
+          "properties": {
+            "_hot": {
+              "type": "boolean"
+            },
+            "content": {
+              "type": "text",
+              "fields": {
+                "keyword": {
+                  "type": "keyword",
+                  "ignore_above": 256
+                }
+              }
+            },
+            "controlCategoryId": {
+              "type": "text",
+              "fields": {
+                "keyword": {
+                  "type": "keyword",
+                  "ignore_above": 256
+                }
+              }
+            },
+            "ofCategory": {
+              "properties": {
+                "Category": {
+                  "type": "nested",
+                  "properties": {
+                    "code": {
+                      "type": "keyword"
+                    },
+                    "displayName": {
+                      "type": "keyword"
+                    },
+                    "uuid": {
+                      "type": "text",
+                      "fields": {
+                        "keyword": {
+                          "type": "keyword",
+                          "ignore_above": 256
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "training": {
+              "type": "boolean"
+            },
+            "uuid": {
+              "type": "text",
+              "fields": {
+                "keyword": {
+                  "type": "keyword",
+                  "ignore_above": 256
+                }
+              }
+            }
+          }
+        },
+        "_class_name": {
+          "type": "keyword"
+        },
+        "_created": {
+          "type": "date"
+        },
+        "_embedding_vector": {
+          "type": "binary",
+          "doc_values": true
+        },
+        "_kind": {
+          "type": "keyword"
+        },
+        "_updated": {
+          "type": "date"
+        },
+        "_uuid": {
+          "type": "keyword"
+        },
+        "content": {
+          "type": "text"
+        },
+        "controlCategoryId": {
+          "type": "keyword"
+        },
+        "ofCategory": {
+          "properties": {
+            "beacon": {
+              "type": "keyword",
+              "fields": {
+                "keyword": {
+                  "type": "keyword",
+                  "ignore_above": 256
+                }
+              }
+            }
+          }
+        },
+        "training": {
+          "type": "boolean"
+        }
+      }
+}
+

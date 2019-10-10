@@ -20,7 +20,7 @@ import (
 
 // NormalizedDistance between two arbitrary vectors, errors if dimensions don't
 // match, will return results between 0 (no distance) and 1 (maximum distance)
-func (v *Vectorizer) NormalizedDistance(a, b []float32) (float32, error) {
+func NormalizedDistance(a, b []float32) (float32, error) {
 	sim, err := cosineSim(a, b)
 	if err != nil {
 		return 1, fmt.Errorf("normalized distance: %v", err)

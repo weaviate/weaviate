@@ -35,6 +35,7 @@ type Result struct {
 	Updated     int64
 	CacheHot    bool
 	CacheSchema map[string]interface{}
+	Meta        *models.ObjectMeta
 }
 
 type Results []Result
@@ -51,6 +52,7 @@ func (r Result) Thing() *models.Thing {
 		Schema:             schema,
 		CreationTimeUnix:   r.Created,
 		LastUpdateTimeUnix: r.Updated,
+		Meta:               r.Meta,
 	}
 
 	return t
@@ -68,6 +70,7 @@ func (r Result) Action() *models.Action {
 		Schema:             schema,
 		CreationTimeUnix:   r.Created,
 		LastUpdateTimeUnix: r.Updated,
+		Meta:               r.Meta,
 	}
 
 	return t

@@ -33,7 +33,7 @@ func Test_Delete_Action(t *testing.T) {
 
 	reset := func() {
 		vectorRepo = &fakeVectorRepo{}
-		vectorRepo.On("ActionByID", mock.Anything, mock.Anything).Return(&search.Result{
+		vectorRepo.On("ActionByID", mock.Anything, mock.Anything, mock.Anything).Return(&search.Result{
 			ClassName: "MyAction",
 		}, nil).Once()
 		schemaManager := &fakeSchemaManager{}
@@ -68,7 +68,7 @@ func Test_Delete_Thing(t *testing.T) {
 
 	reset := func() {
 		vectorRepo = &fakeVectorRepo{}
-		vectorRepo.On("ThingByID", mock.Anything, mock.Anything).Return(&search.Result{
+		vectorRepo.On("ThingByID", mock.Anything, mock.Anything, mock.Anything).Return(&search.Result{
 			ClassName: "MyThing",
 		}, nil).Once()
 		schemaManager := &fakeSchemaManager{}
