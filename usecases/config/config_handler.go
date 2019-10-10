@@ -77,7 +77,7 @@ type VectorIndex struct {
 
 func (v *VectorIndex) SetDefaults() {
 	if v.DenormalizationDepth == 0 {
-		v.DenormalizationDepth = 3
+		v.DenormalizationDepth = 2
 	}
 
 	if v.CacheCycleIdleWaitTime == 0 {

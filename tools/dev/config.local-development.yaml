@@ -12,6 +12,7 @@ database:
 vector_index:
   enabled: true
   url: http://localhost:9201
+  denormalizationDepth: 2
 analytics_engine:
   enabled: true
   defaultUseAnalyticsEngine: false
