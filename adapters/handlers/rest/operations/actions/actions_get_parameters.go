@@ -22,7 +22,9 @@ import (
 	"net/http"
 
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
 
 	strfmt "github.com/go-openapi/strfmt"
@@ -49,6 +51,10 @@ type ActionsGetParams struct {
 	  In: path
 	*/
 	ID strfmt.UUID
+	/*Should additional meta information (e.g. about classified properties) be included? Defaults to false.
+	  In: query
+	*/
+	Meta *bool
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -60,8 +66,15 @@ func (o *ActionsGetParams) BindRequest(r *http.Request, route *middleware.Matche
 
 	o.HTTPRequest = r
 
+	qs := runtime.Values(r.URL.Query())
+
 	rID, rhkID, _ := route.Params.GetOK("id")
 	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	qMeta, qhkMeta, _ := qs.GetOK("meta")
+	if err := o.bindMeta(qMeta, qhkMeta, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -101,5 +114,27 @@ func (o *ActionsGetParams) validateID(formats strfmt.Registry) error {
 	if err := validate.FormatOf("id", "path", "uuid", o.ID.String(), formats); err != nil {
 		return err
 	}
+	return nil
+}
+
+// bindMeta binds and validates parameter Meta from query.
+func (o *ActionsGetParams) bindMeta(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+
+	value, err := swag.ConvertBool(raw)
+	if err != nil {
+		return errors.InvalidType("meta", "query", "bool", raw)
+	}
+	o.Meta = &value
+
 	return nil
 }

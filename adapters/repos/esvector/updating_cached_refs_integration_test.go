@@ -57,7 +57,7 @@ func testUpdatingCachedRefProps(repo *Repo, schema libschema.Schema) func(t *tes
 		t.Run("verify direct ref (one level) has an updated cache", func(t *testing.T) {
 			helper.AssertEventuallyEqual(t, "Very Luxury Parking Garage", func() interface{} {
 				res, err := repo.ThingByID(context.Background(), "fe3ca25d-8734-4ede-9a81-bc1ed8c3ea43",
-					parkedAtGarage())
+					parkedAtGarage(), false)
 				require.Nil(t, err)
 
 				parkedSlice, ok := res.Schema.(map[string]interface{})["ParkedAt"].([]interface{})
@@ -73,7 +73,7 @@ func testUpdatingCachedRefProps(repo *Repo, schema libschema.Schema) func(t *tes
 		t.Run("verify indirect ref (two levels) has an updated cache", func(t *testing.T) {
 			helper.AssertEventuallyEqual(t, "Very Luxury Parking Garage", func() interface{} {
 				res, err := repo.ThingByID(context.Background(), "9653ab38-c16b-4561-80df-7a7e19300dd0",
-					drivesCarParkedAtGarage())
+					drivesCarParkedAtGarage(), false)
 				require.Nil(t, err)
 
 				drivesSlice, ok := res.Schema.(map[string]interface{})["Drives"].([]interface{})

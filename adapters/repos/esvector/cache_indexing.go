@@ -213,5 +213,5 @@ func (i *cacheIndexer) refreshIndices() error {
 }
 
 func ctx() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), 2*time.Second)
+	return context.WithTimeout(context.Background(), 10*time.Second)
 }

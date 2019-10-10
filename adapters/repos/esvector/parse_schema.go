@@ -30,7 +30,8 @@ import (
 // parseSchema lightly parses the schema, while most fields stay untyped, those
 // with special meaning, such as GeoCoordinates are marshalled into their
 // required types
-func (r *Repo) parseSchema(input map[string]interface{}, properties traverser.SelectProperties, cache cache,
+func (r *Repo) parseSchema(input map[string]interface{}, properties traverser.SelectProperties,
+	meta bool, cache cache,
 	currentDepth int) (map[string]interface{}, error) {
 	output := map[string]interface{}{}
 
@@ -59,15 +60,20 @@ func (r *Repo) parseSchema(input map[string]interface{}, properties traverser.Se
 				// return the unresolved beacon
 				refs := []*models.SingleRef{}
 				for _, ref := range typed {
-					refs = append(refs,
-						&models.SingleRef{Beacon: strfmt.URI(ref.(map[string]interface{})["beacon"].(string))})
+					refMap := ref.(map[string]interface{})
+					singleRef := &models.SingleRef{
+						Beacon: strfmt.URI(refMap["beacon"].(string)),
+					}
+
+					if meta {
+						singleRef.Meta = parseRefMeta(refMap)
+					}
+					refs = append(refs, singleRef)
 				}
 
 				output[key] = models.MultipleRef(refs)
 				continue
 			}
-
-			// properties.ShouldResolve([]string{uppercaseFirstLetter(
 
 			// ref keys are uppercased in the desired response
 			refKey := uppercaseFirstLetter(key)
@@ -93,6 +99,38 @@ func (r *Repo) parseSchema(input map[string]interface{}, properties traverser.Se
 	}
 
 	return output, nil
+}
+
+func parseRefMeta(ref map[string]interface{}) *models.ReferenceMeta {
+	meta, ok := ref[keyMeta.String()]
+	if !ok {
+		return nil
+	}
+
+	classification := meta.(map[string]interface{})[keyMetaClassification.String()]
+	if classification == nil {
+		// for now classification is the only viable meta option so if it's not set
+		// we can return early. If other options are added in the future, we need
+		// to check them too
+		return nil
+	}
+
+	asMap := classification.(map[string]interface{})
+	classificationOutput := &models.ReferenceMetaClassification{}
+	winningDistance, ok := asMap[keyMetaClassificationWinningDistance.String()]
+	if ok {
+		classificationOutput.WinningDistance = winningDistance.(float64)
+	}
+
+	losingDistance, ok := asMap[keyMetaClassificationLosingDistance.String()]
+	if ok {
+		d := losingDistance.(float64)
+		classificationOutput.LosingDistance = &d
+	}
+
+	return &models.ReferenceMeta{
+		Classification: classificationOutput,
+	}
 }
 
 func isID(key string) bool {
@@ -198,7 +236,7 @@ func (r *Repo) resolveRefWithoutCache(item interface{}, desiredClass string,
 
 	switch ref.Kind {
 	case kind.Thing:
-		res, err := r.ThingByID(context.TODO(), ref.TargetID, innerProperties)
+		res, err := r.ThingByID(context.TODO(), ref.TargetID, innerProperties, false)
 		if err != nil {
 			return nil, err
 		}
@@ -211,7 +249,7 @@ func (r *Repo) resolveRefWithoutCache(item interface{}, desiredClass string,
 		out.Fields = res.Schema.(map[string]interface{})
 		return &out, nil
 	case kind.Action:
-		res, err := r.ActionByID(context.TODO(), ref.TargetID, innerProperties)
+		res, err := r.ActionByID(context.TODO(), ref.TargetID, innerProperties, false)
 		if err != nil {
 			return nil, err
 		}
@@ -261,6 +299,55 @@ func (r *Repo) extractCache(in map[string]interface{}) cache {
 	return cache{
 		hot:    hot.(bool),
 		schema: schema,
+	}
+}
+
+func (r *Repo) extractMeta(in map[string]interface{}) *models.ObjectMeta {
+	objectMetaField, ok := in[keyObjectMeta.String()]
+	if !ok {
+		return nil
+	}
+
+	objectMetaMap, ok := objectMetaField.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	classificationField, ok := objectMetaMap[keyMetaClassification.String()]
+	if !ok {
+		// for now classification is the only meta field, so we can return early if
+		// no classification is set. If a second meta type is added in the future,
+		// we need to check for those as well
+		return nil
+	}
+
+	classificationMap, ok := classificationField.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	classification := &models.ObjectMetaClassification{}
+	if id, ok := classificationMap["id"]; ok {
+		classification.ID = strfmt.UUID(id.(string))
+	}
+
+	if completed, ok := classificationMap["completed"]; ok {
+		t, err := strfmt.ParseDateTime(completed.(string))
+		if err == nil {
+			classification.Completed = t
+		}
+	}
+
+	if scope, ok := classificationMap["scope"]; ok {
+		classification.Scope = interfaceToStringSlice(scope.([]interface{}))
+	}
+
+	if classified, ok := classificationMap["classifiedFields"]; ok {
+		classification.ClassifiedFields = interfaceToStringSlice(classified.([]interface{}))
+	}
+
+	return &models.ObjectMeta{
+		Classification: classification,
 	}
 }
 

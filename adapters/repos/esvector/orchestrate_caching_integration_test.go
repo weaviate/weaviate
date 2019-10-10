@@ -55,6 +55,8 @@ func Test_OrchestrateCaching(t *testing.T) {
 
 	t.Run("updating cached ref props", testUpdatingCachedRefProps(repo, parkingGaragesSchema()))
 
+	t.Run("classifications", testClassifications(repo, migrator))
+
 	// explicitly stop cache indexing to clean up
 	repo.StopCacheIndexing()
 }
@@ -134,6 +136,26 @@ func parkingGaragesSchema() schema.Schema {
 						&models.Property{
 							Name:     "hasMembers",
 							DataType: []string{"MultiRefPerson"},
+						},
+					},
+				},
+
+				// for classifications test
+				&models.Class{
+					Class: "ExactCategory",
+					Properties: []*models.Property{
+						&models.Property{
+							Name:     "name",
+							DataType: []string{string(schema.DataTypeString)},
+						},
+					},
+				},
+				&models.Class{
+					Class: "MainCategory",
+					Properties: []*models.Property{
+						&models.Property{
+							Name:     "name",
+							DataType: []string{string(schema.DataTypeString)},
 						},
 					},
 				},

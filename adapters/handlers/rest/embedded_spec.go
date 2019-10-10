@@ -50,7 +50,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "0.20.1"
+    "version": "0.20.2"
   },
   "basePath": "/v1",
   "paths": {
@@ -253,6 +253,9 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "$ref": "#/parameters/CommonMetaParameterQuery"
           }
         ],
         "responses": {
@@ -976,6 +979,107 @@ func init() {
         "x-available-in-websocket": false,
         "x-serviceIds": [
           "weaviate.c11y.words.get"
+        ]
+      }
+    },
+    "/classifications/": {
+      "post": {
+        "description": "Trigger a classification based on the specified params. Classifications will run in the background, use GET /classifications/\u003cid\u003e to retrieve the status of your classificaiton.",
+        "tags": [
+          "classifications"
+        ],
+        "summary": "Starts a classification.",
+        "operationId": "classifications.post",
+        "parameters": [
+          {
+            "description": "parameters to start a classification",
+            "name": "params",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Classification"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successfully started classification.",
+            "schema": {
+              "$ref": "#/definitions/Classification"
+            }
+          },
+          "400": {
+            "description": "Incorrect request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.classifications.post"
+        ]
+      }
+    },
+    "/classifications/{id}": {
+      "get": {
+        "description": "Get status, results and metadata of a previously created classification",
+        "tags": [
+          "classifications"
+        ],
+        "summary": "View previously created classification",
+        "operationId": "classifications.get",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "classification id",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Found the classification, returned as body",
+            "schema": {
+              "$ref": "#/definitions/Classification"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Classification does not exist"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.classifications.get"
         ]
       }
     },
@@ -2026,6 +2130,9 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "$ref": "#/parameters/CommonMetaParameterQuery"
           }
         ],
         "responses": {
@@ -2458,6 +2565,9 @@ func init() {
           "type": "integer",
           "format": "int64"
         },
+        "meta": {
+          "$ref": "#/definitions/ObjectMeta"
+        },
         "schema": {
           "$ref": "#/definitions/PropertySchema"
         }
@@ -2699,6 +2809,113 @@ func init() {
         }
       }
     },
+    "Classification": {
+      "description": "Manage classifications, trigger them and view status of past classifications.",
+      "type": "object",
+      "properties": {
+        "basedOnProperties": {
+          "description": "base the text-based classification on these fields (of type text)",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "example": [
+            "description"
+          ]
+        },
+        "class": {
+          "description": "class (name) which is used in this classification",
+          "type": "string",
+          "example": "City"
+        },
+        "classifyProperties": {
+          "description": "which ref-property to set as part of the classification",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "example": [
+            "inCountry"
+          ]
+        },
+        "error": {
+          "description": "error message if status == failed",
+          "type": "string",
+          "default": "",
+          "example": "classify xzy: something went wrong"
+        },
+        "id": {
+          "description": "ID to uniquely identify this classification run",
+          "type": "string",
+          "format": "uuid",
+          "example": "ee722219-b8ec-4db1-8f8d-5150bb1a9e0c"
+        },
+        "k": {
+          "description": "k-value when using k-Neareast-Neighbor",
+          "type": "integer",
+          "format": "int32",
+          "default": 3,
+          "example": 3
+        },
+        "meta": {
+          "description": "additional meta information about the classification",
+          "type": "object",
+          "$ref": "#/definitions/ClassificationMeta"
+        },
+        "status": {
+          "description": "status of this classification",
+          "type": "string",
+          "enum": [
+            "running",
+            "completed",
+            "failed"
+          ],
+          "example": "running"
+        },
+        "type": {
+          "description": "which algorythim to use for classifications",
+          "type": "string",
+          "default": "knn",
+          "enum": [
+            "knn"
+          ],
+          "example": "knn"
+        }
+      }
+    },
+    "ClassificationMeta": {
+      "description": "Additional information to a specific classification",
+      "type": "object",
+      "properties": {
+        "completed": {
+          "description": "time when this classification finished",
+          "type": "string",
+          "format": "date-time",
+          "example": "2017-07-21T17:32:28Z"
+        },
+        "count": {
+          "description": "number of objects which were taken into consideration for classification",
+          "type": "integer",
+          "example": 147
+        },
+        "countFailed": {
+          "description": "number of objects which could not be classified - see error message for details",
+          "type": "integer",
+          "example": 7
+        },
+        "countSucceeded": {
+          "description": "number of objects successfully classified",
+          "type": "integer",
+          "example": 140
+        },
+        "started": {
+          "description": "time when this classification was started",
+          "type": "string",
+          "format": "date-time",
+          "example": "2017-07-21T17:32:28Z"
+        }
+      }
+    },
     "ErrorResponse": {
       "description": "An error response given by Weaviate end-points.",
       "type": "object",
@@ -2862,6 +3079,44 @@ func init() {
         "$ref": "#/definitions/SingleRef"
       }
     },
+    "ObjectMeta": {
+      "description": "Additional Meta information about a single thing/action object.",
+      "properties": {
+        "classification": {
+          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
+          "$ref": "#/definitions/ObjectMetaClassification"
+        }
+      }
+    },
+    "ObjectMetaClassification": {
+      "description": "This meta field contains additional info about the classification which affected this object",
+      "properties": {
+        "classifiedFields": {
+          "description": "The (primitive) field(s) which were used as a basis for classification. For example, if the type of classification is \"knn\" with k=3, the 3 nearest neighbors - based on these fields - were considered for the classification.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "completed": {
+          "description": "Timestamp when this particular object was classified. This is usually sooner than the overall completion time of the classification, as the overall completion time will only be set once every object has been classified.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "id": {
+          "description": "unique identifier of the classification run",
+          "type": "string",
+          "format": "uuid"
+        },
+        "scope": {
+          "description": "The properties in scope of the classification. Note that this doesn't mean that these fields were necessarily classified, this only means that those fields were in scope of the classificiation. See \"classifiedFields\" for details.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "PatchDocument": {
       "description": "A JSONPatch document as defined by RFC 6902.",
       "required": [
@@ -2976,6 +3231,31 @@ func init() {
       "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
     },
+    "ReferenceMeta": {
+      "description": "Additional Meta information about this particular reference.",
+      "properties": {
+        "classification": {
+          "description": "If a property was set through a classification, this meta field contains additional info",
+          "$ref": "#/definitions/ReferenceMetaClassification"
+        }
+      }
+    },
+    "ReferenceMetaClassification": {
+      "description": "This meta field contains additional info about the classified reference property",
+      "properties": {
+        "losingDistance": {
+          "description": "Mean distance of all neighbors from the losing group. Optional. If k equals the size of the winning group, there is no losing group.",
+          "type": "number",
+          "format": "float32",
+          "x-nullable": true
+        },
+        "winningDistance": {
+          "description": "Mean distance of all neighbors from the winning group",
+          "type": "number",
+          "format": "float32"
+        }
+      }
+    },
     "Schema": {
       "description": "Definitions of semantic schemas (also see: https://github.com/semi-technologies/weaviate-semantic-schemas).",
       "type": "object",
@@ -3023,6 +3303,10 @@ func init() {
           "type": "string",
           "format": "uri"
         },
+        "meta": {
+          "description": "Additional Meta information about this particular reference. Only shown if meta==true.",
+          "$ref": "#/definitions/ReferenceMeta"
+        },
         "schema": {
           "description": "If using a concept reference (rather than a direct reference), specify the desired properties here",
           "$ref": "#/definitions/PropertySchema"
@@ -3050,6 +3334,9 @@ func init() {
           "description": "Timestamp of the last Thing update in milliseconds since epoch UTC.",
           "type": "integer",
           "format": "int64"
+        },
+        "meta": {
+          "$ref": "#/definitions/ObjectMeta"
         },
         "schema": {
           "$ref": "#/definitions/PropertySchema"
@@ -3111,6 +3398,12 @@ func init() {
       "format": "int64",
       "description": "The maximum number of items to be returned per page. Default value is set in Weaviate config.",
       "name": "limit",
+      "in": "query"
+    },
+    "CommonMetaParameterQuery": {
+      "type": "boolean",
+      "description": "Should additional meta information (e.g. about classified properties) be included? Defaults to false.",
+      "name": "meta",
       "in": "query"
     }
   },
@@ -3181,7 +3474,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "0.20.1"
+    "version": "0.20.2"
   },
   "basePath": "/v1",
   "paths": {
@@ -3388,6 +3681,12 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "boolean",
+            "description": "Should additional meta information (e.g. about classified properties) be included? Defaults to false.",
+            "name": "meta",
+            "in": "query"
           }
         ],
         "responses": {
@@ -4111,6 +4410,107 @@ func init() {
         "x-available-in-websocket": false,
         "x-serviceIds": [
           "weaviate.c11y.words.get"
+        ]
+      }
+    },
+    "/classifications/": {
+      "post": {
+        "description": "Trigger a classification based on the specified params. Classifications will run in the background, use GET /classifications/\u003cid\u003e to retrieve the status of your classificaiton.",
+        "tags": [
+          "classifications"
+        ],
+        "summary": "Starts a classification.",
+        "operationId": "classifications.post",
+        "parameters": [
+          {
+            "description": "parameters to start a classification",
+            "name": "params",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Classification"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successfully started classification.",
+            "schema": {
+              "$ref": "#/definitions/Classification"
+            }
+          },
+          "400": {
+            "description": "Incorrect request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.classifications.post"
+        ]
+      }
+    },
+    "/classifications/{id}": {
+      "get": {
+        "description": "Get status, results and metadata of a previously created classification",
+        "tags": [
+          "classifications"
+        ],
+        "summary": "View previously created classification",
+        "operationId": "classifications.get",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "classification id",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Found the classification, returned as body",
+            "schema": {
+              "$ref": "#/definitions/Classification"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Classification does not exist"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.classifications.get"
         ]
       }
     },
@@ -5165,6 +5565,12 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "boolean",
+            "description": "Should additional meta information (e.g. about classified properties) be included? Defaults to false.",
+            "name": "meta",
+            "in": "query"
           }
         ],
         "responses": {
@@ -5597,6 +6003,9 @@ func init() {
           "type": "integer",
           "format": "int64"
         },
+        "meta": {
+          "$ref": "#/definitions/ObjectMeta"
+        },
         "schema": {
           "$ref": "#/definitions/PropertySchema"
         }
@@ -5838,6 +6247,113 @@ func init() {
         }
       }
     },
+    "Classification": {
+      "description": "Manage classifications, trigger them and view status of past classifications.",
+      "type": "object",
+      "properties": {
+        "basedOnProperties": {
+          "description": "base the text-based classification on these fields (of type text)",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "example": [
+            "description"
+          ]
+        },
+        "class": {
+          "description": "class (name) which is used in this classification",
+          "type": "string",
+          "example": "City"
+        },
+        "classifyProperties": {
+          "description": "which ref-property to set as part of the classification",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "example": [
+            "inCountry"
+          ]
+        },
+        "error": {
+          "description": "error message if status == failed",
+          "type": "string",
+          "default": "",
+          "example": "classify xzy: something went wrong"
+        },
+        "id": {
+          "description": "ID to uniquely identify this classification run",
+          "type": "string",
+          "format": "uuid",
+          "example": "ee722219-b8ec-4db1-8f8d-5150bb1a9e0c"
+        },
+        "k": {
+          "description": "k-value when using k-Neareast-Neighbor",
+          "type": "integer",
+          "format": "int32",
+          "default": 3,
+          "example": 3
+        },
+        "meta": {
+          "description": "additional meta information about the classification",
+          "type": "object",
+          "$ref": "#/definitions/ClassificationMeta"
+        },
+        "status": {
+          "description": "status of this classification",
+          "type": "string",
+          "enum": [
+            "running",
+            "completed",
+            "failed"
+          ],
+          "example": "running"
+        },
+        "type": {
+          "description": "which algorythim to use for classifications",
+          "type": "string",
+          "default": "knn",
+          "enum": [
+            "knn"
+          ],
+          "example": "knn"
+        }
+      }
+    },
+    "ClassificationMeta": {
+      "description": "Additional information to a specific classification",
+      "type": "object",
+      "properties": {
+        "completed": {
+          "description": "time when this classification finished",
+          "type": "string",
+          "format": "date-time",
+          "example": "2017-07-21T17:32:28Z"
+        },
+        "count": {
+          "description": "number of objects which were taken into consideration for classification",
+          "type": "integer",
+          "example": 147
+        },
+        "countFailed": {
+          "description": "number of objects which could not be classified - see error message for details",
+          "type": "integer",
+          "example": 7
+        },
+        "countSucceeded": {
+          "description": "number of objects successfully classified",
+          "type": "integer",
+          "example": 140
+        },
+        "started": {
+          "description": "time when this classification was started",
+          "type": "string",
+          "format": "date-time",
+          "example": "2017-07-21T17:32:28Z"
+        }
+      }
+    },
     "ErrorResponse": {
       "description": "An error response given by Weaviate end-points.",
       "type": "object",
@@ -6001,6 +6517,44 @@ func init() {
         "$ref": "#/definitions/SingleRef"
       }
     },
+    "ObjectMeta": {
+      "description": "Additional Meta information about a single thing/action object.",
+      "properties": {
+        "classification": {
+          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
+          "$ref": "#/definitions/ObjectMetaClassification"
+        }
+      }
+    },
+    "ObjectMetaClassification": {
+      "description": "This meta field contains additional info about the classification which affected this object",
+      "properties": {
+        "classifiedFields": {
+          "description": "The (primitive) field(s) which were used as a basis for classification. For example, if the type of classification is \"knn\" with k=3, the 3 nearest neighbors - based on these fields - were considered for the classification.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "completed": {
+          "description": "Timestamp when this particular object was classified. This is usually sooner than the overall completion time of the classification, as the overall completion time will only be set once every object has been classified.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "id": {
+          "description": "unique identifier of the classification run",
+          "type": "string",
+          "format": "uuid"
+        },
+        "scope": {
+          "description": "The properties in scope of the classification. Note that this doesn't mean that these fields were necessarily classified, this only means that those fields were in scope of the classificiation. See \"classifiedFields\" for details.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "PatchDocument": {
       "description": "A JSONPatch document as defined by RFC 6902.",
       "required": [
@@ -6115,6 +6669,31 @@ func init() {
       "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
     },
+    "ReferenceMeta": {
+      "description": "Additional Meta information about this particular reference.",
+      "properties": {
+        "classification": {
+          "description": "If a property was set through a classification, this meta field contains additional info",
+          "$ref": "#/definitions/ReferenceMetaClassification"
+        }
+      }
+    },
+    "ReferenceMetaClassification": {
+      "description": "This meta field contains additional info about the classified reference property",
+      "properties": {
+        "losingDistance": {
+          "description": "Mean distance of all neighbors from the losing group. Optional. If k equals the size of the winning group, there is no losing group.",
+          "type": "number",
+          "format": "float32",
+          "x-nullable": true
+        },
+        "winningDistance": {
+          "description": "Mean distance of all neighbors from the winning group",
+          "type": "number",
+          "format": "float32"
+        }
+      }
+    },
     "Schema": {
       "description": "Definitions of semantic schemas (also see: https://github.com/semi-technologies/weaviate-semantic-schemas).",
       "type": "object",
@@ -6162,6 +6741,10 @@ func init() {
           "type": "string",
           "format": "uri"
         },
+        "meta": {
+          "description": "Additional Meta information about this particular reference. Only shown if meta==true.",
+          "$ref": "#/definitions/ReferenceMeta"
+        },
         "schema": {
           "description": "If using a concept reference (rather than a direct reference), specify the desired properties here",
           "$ref": "#/definitions/PropertySchema"
@@ -6189,6 +6772,9 @@ func init() {
           "description": "Timestamp of the last Thing update in milliseconds since epoch UTC.",
           "type": "integer",
           "format": "int64"
+        },
+        "meta": {
+          "$ref": "#/definitions/ObjectMeta"
         },
         "schema": {
           "$ref": "#/definitions/PropertySchema"
@@ -6250,6 +6836,12 @@ func init() {
       "format": "int64",
       "description": "The maximum number of items to be returned per page. Default value is set in Weaviate config.",
       "name": "limit",
+      "in": "query"
+    },
+    "CommonMetaParameterQuery": {
+      "type": "boolean",
+      "description": "Should additional meta information (e.g. about classified properties) be included? Defaults to false.",
+      "name": "meta",
       "in": "query"
     }
   },

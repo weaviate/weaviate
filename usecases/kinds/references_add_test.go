@@ -58,7 +58,7 @@ func Test_ReferencesAdd_CardinalityMany(t *testing.T) {
 	t.Run("without prior refs", func(t *testing.T) {
 		reset()
 		vectorRepo.On("Exists", mock.Anything).Return(true, nil)
-		vectorRepo.On("ThingByID", mock.Anything, mock.Anything).Return(&search.Result{
+		vectorRepo.On("ThingByID", mock.Anything, mock.Anything, mock.Anything).Return(&search.Result{
 			ClassName: "Zoo",
 			Schema: map[string]interface{}{
 				"name": "MyZoo",
@@ -88,7 +88,7 @@ func Test_ReferencesAdd_CardinalityMany(t *testing.T) {
 	t.Run("adding a second ref when one already exists", func(t *testing.T) {
 		reset()
 		vectorRepo.On("Exists", mock.Anything).Return(true, nil)
-		vectorRepo.On("ThingByID", mock.Anything, mock.Anything).Return(&search.Result{
+		vectorRepo.On("ThingByID", mock.Anything, mock.Anything, mock.Anything).Return(&search.Result{
 			ClassName: "Zoo",
 			Schema: map[string]interface{}{
 				"name": "MyZoo",

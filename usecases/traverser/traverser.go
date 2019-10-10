@@ -51,7 +51,6 @@ type CorpiVectorizer interface {
 	Corpi(ctx context.Context, corpi []string) ([]float32, error)
 	MoveTo(source []float32, target []float32, weight float32) ([]float32, error)
 	MoveAwayFrom(source []float32, target []float32, weight float32) ([]float32, error)
-	NormalizedDistance(a, b []float32) (float32, error)
 }
 
 type VectorSearcher interface {

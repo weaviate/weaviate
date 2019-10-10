@@ -25,11 +25,14 @@ import (
 	"strings"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 )
 
 // ThingsGetURL generates an URL for the things get operation
 type ThingsGetURL struct {
 	ID strfmt.UUID
+
+	Meta *bool
 
 	_basePath string
 	// avoid unkeyed usage
@@ -69,6 +72,18 @@ func (o *ThingsGetURL) Build() (*url.URL, error) {
 		_basePath = "/v1"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
+
+	qs := make(url.Values)
+
+	var meta string
+	if o.Meta != nil {
+		meta = swag.FormatBool(*o.Meta)
+	}
+	if meta != "" {
+		qs.Set("meta", meta)
+	}
+
+	_result.RawQuery = qs.Encode()
 
 	return &_result, nil
 }
