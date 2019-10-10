@@ -16,4 +16,4 @@ query_defaults:
 vector_index:
   enabled: true
   url: http://esvector:9200
-  denormalizationDepth: 3
+  denormalizationDepth: 2
