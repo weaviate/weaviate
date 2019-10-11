@@ -140,21 +140,27 @@ func (m *Migrator) esPropsFromClassProps(props []*models.Property, depth int) (m
 	cache := map[string]interface{}{}
 
 	for _, prop := range props {
+		// index everything unless explicitly turned off
+		index := true
+		if prop.Index != nil && *prop.Index == false {
+			index = false
+		}
+
 		switch prop.DataType[0] {
 		case string(schema.DataTypeString):
-			esProperties[prop.Name] = typeMap(Keyword)
+			esProperties[prop.Name] = typeMap(Keyword, index)
 		case string(schema.DataTypeText):
-			esProperties[prop.Name] = typeMap(Text)
+			esProperties[prop.Name] = typeMap(Text, index)
 		case string(schema.DataTypeInt):
-			esProperties[prop.Name] = typeMap(Integer)
+			esProperties[prop.Name] = typeMap(Integer, index)
 		case string(schema.DataTypeNumber):
-			esProperties[prop.Name] = typeMap(Float)
+			esProperties[prop.Name] = typeMap(Float, index)
 		case string(schema.DataTypeBoolean):
-			esProperties[prop.Name] = typeMap(Boolean)
+			esProperties[prop.Name] = typeMap(Boolean, index)
 		case string(schema.DataTypeDate):
-			esProperties[prop.Name] = typeMap(Date)
+			esProperties[prop.Name] = typeMap(Date, index)
 		case string(schema.DataTypeGeoCoordinates):
-			esProperties[prop.Name] = typeMap(GeoPoint)
+			esProperties[prop.Name] = typeMap(GeoPoint, index)
 		default:
 			// must be a ref
 
@@ -206,9 +212,10 @@ func (m *Migrator) esPropsFromClassProps(props []*models.Property, depth int) (m
 	return esProperties, nil
 }
 
-func typeMap(ft FieldType) map[string]interface{} {
+func typeMap(ft FieldType, index bool) map[string]interface{} {
 	return map[string]interface{}{
-		"type": ft,
+		"type":  ft,
+		"index": index,
 	}
 }
 
