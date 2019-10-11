@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/elastic/go-elasticsearch/v5"
@@ -333,9 +334,68 @@ func errorResToErr(res *esapi.Response, logger logrus.FieldLogger) error {
 
 	logger.WithField("error", e).Error("error response from es")
 
-	return fmt.Errorf("request is error: status: %v, type: %v, reason: %v",
+	shardInfo := extractShardInfoFromError(e["error"].(map[string]interface{}))
+	return fmt.Errorf("request is error: status: %v, type: %v, reason: %v, shards: %v",
 		res.Status(),
 		e["error"].(map[string]interface{})["type"],
 		e["error"].(map[string]interface{})["reason"],
+		shardInfo,
 	)
+}
+
+func extractShardInfoFromError(errorMap map[string]interface{}) string {
+	failedShards, ok := errorMap["failed_shards"]
+	if !ok {
+		return ""
+	}
+
+	asSlice, ok := failedShards.([]interface{})
+	if !ok {
+		return ""
+	}
+
+	if len(asSlice) == 0 {
+		return ""
+	}
+
+	var msgs strings.Builder
+
+	for i, shard := range asSlice {
+		asMap, ok := shard.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		reason, ok := asMap["reason"]
+		if !ok {
+			continue
+		}
+
+		reasonMap, ok := reason.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		cause, ok := reasonMap["caused_by"]
+		if !ok {
+			continue
+		}
+
+		causeMap, ok := cause.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		innerReason, ok := causeMap["reason"]
+		if !ok {
+			continue
+		}
+
+		if i != 0 {
+			msgs.WriteString(", ")
+		}
+		msgs.WriteString(innerReason.(string))
+	}
+
+	return msgs.String()
 }
