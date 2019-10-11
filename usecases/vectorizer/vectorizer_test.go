@@ -28,6 +28,7 @@ func TestVectorizingThings(t *testing.T) {
 		name               string
 		input              *models.Thing
 		expectedClientCall []string
+		noindex            string
 	}
 
 	tests := []testCase{
@@ -72,6 +73,19 @@ func TestVectorizingThings(t *testing.T) {
 			},
 			expectedClientCall: []string{"car brand best brand review a very great car"},
 		},
+		testCase{
+			name:    "with a noindexed property",
+			noindex: "review",
+			input: &models.Thing{
+				Class: "Car",
+				Schema: map[string]interface{}{
+					"brand":  "best brand",
+					"power":  300,
+					"review": "a very great car",
+				},
+			},
+			expectedClientCall: []string{"car brand best brand"},
+		},
 
 		testCase{
 			name: "with compound class and prop names",
@@ -90,7 +104,9 @@ func TestVectorizingThings(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			client := &fakeClient{}
-			v := New(client)
+			indexer := &propertyIndexer{test.noindex}
+
+			v := New(client, indexer)
 
 			res, err := v.Thing(context.Background(), test.input)
 
@@ -104,11 +120,24 @@ func TestVectorizingThings(t *testing.T) {
 	}
 }
 
+type propertyIndexer struct {
+	noIndex string
+}
+
+func (p *propertyIndexer) Indexed(className, property string) bool {
+	if property == p.noIndex {
+		return false
+	}
+
+	return true
+}
+
 func TestVectorizingActions(t *testing.T) {
 	type testCase struct {
 		name               string
 		input              *models.Action
 		expectedClientCall []string
+		noindex            string
 	}
 
 	tests := []testCase{
@@ -158,7 +187,8 @@ func TestVectorizingActions(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			client := &fakeClient{}
-			v := New(client)
+			indexer := &propertyIndexer{test.noindex}
+			v := New(client, indexer)
 
 			res, err := v.Action(context.Background(), test.input)
 
@@ -178,6 +208,7 @@ func TestVectorizingSearchTerms(t *testing.T) {
 		name               string
 		input              []string
 		expectedClientCall []string
+		noindex            string
 	}
 
 	tests := []testCase{
@@ -206,7 +237,8 @@ func TestVectorizingSearchTerms(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			client := &fakeClient{}
-			v := New(client)
+			indexer := &propertyIndexer{test.noindex}
+			v := New(client, indexer)
 
 			res, err := v.Corpi(context.Background(), test.input)
 

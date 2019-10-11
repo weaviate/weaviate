@@ -300,7 +300,15 @@ func testAddPropertyDuringCreation(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
 	var properties []*models.Property = []*models.Property{
-		{Name: "color", DataType: []string{"string"}},
+		{
+			Name:     "color",
+			DataType: []string{"string"},
+		},
+		{
+			Name:     "colorRaw",
+			DataType: []string{"string"},
+			Index:    pointerToFalse(),
+		},
 	}
 
 	err := lsm.AddThing(context.Background(), nil, &models.Class{
@@ -311,9 +319,17 @@ func testAddPropertyDuringCreation(t *testing.T, lsm *Manager) {
 
 	thingClasses := testGetClasses(lsm, kind.Thing)
 	require.Len(t, thingClasses, 1)
-	require.Len(t, thingClasses[0].Properties, 1)
+	require.Len(t, thingClasses[0].Properties, 2)
 	assert.Equal(t, thingClasses[0].Properties[0].Name, "color")
 	assert.Equal(t, thingClasses[0].Properties[0].DataType, []string{"string"})
+
+	assert.True(t, lsm.Indexed("Car", "color"), "color should be indexed")
+	assert.False(t, lsm.Indexed("Car", "colorRaw"), "color should not be indexed")
+}
+
+func pointerToFalse() *bool {
+	b := false
+	return &b
 }
 
 func testAddInvalidPropertyDuringCreation(t *testing.T, lsm *Manager) {

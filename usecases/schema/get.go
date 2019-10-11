@@ -40,3 +40,27 @@ func (m *Manager) GetSchemaSkipAuth() schema.Schema {
 		Things:  m.state.ThingSchema,
 	}
 }
+
+func (m *Manager) Indexed(className, propertyName string) bool {
+	s := schema.Schema{
+		Actions: m.state.ActionSchema,
+		Things:  m.state.ThingSchema,
+	}
+	class := s.FindClassByName(schema.ClassName(className))
+	if class == nil {
+		return false
+	}
+
+	for _, prop := range class.Properties {
+		if prop.Name == propertyName {
+			if prop.Index == nil {
+				return true
+			}
+
+			return *prop.Index
+		}
+
+	}
+
+	return false
+}
