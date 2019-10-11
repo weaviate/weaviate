@@ -7,7 +7,7 @@ services:
     ports:
      - "80:80"
   weaviate:
-    image: semitechnologies/weaviate:0.20.2
+    image: semitechnologies/weaviate:0.20.3
     command: 
       - "--host"
       - "0.0.0.0"
