@@ -64,6 +64,7 @@ type vectorRepo interface {
 type vectorizer interface {
 	kinds.Vectorizer
 	traverser.CorpiVectorizer
+	SetIndexChecker(libvectorizer.IndexCheck)
 }
 
 type explorer interface {
@@ -97,7 +98,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	vectorMigrator = esvector.NewMigrator(repo)
 	vectorRepo = repo
 	migrator = vectorMigrator
-	vectorizer = libvectorizer.New(appState.Contextionary)
+	vectorizer = libvectorizer.New(appState.Contextionary, nil)
 	explorer = traverser.NewExplorer(repo, vectorizer, libvectorizer.NormalizedDistance)
 
 	schemaRepo := etcd.NewSchemaRepo(etcdClient)
@@ -113,6 +114,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	vectorRepo.SetSchemaGetter(schemaManager)
+	vectorizer.SetIndexChecker(schemaManager)
+
 	err = vectorRepo.WaitForStartup(2 * time.Minute)
 	if err != nil {
 		appState.Logger.

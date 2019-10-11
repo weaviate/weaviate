@@ -140,7 +140,8 @@ func Test_Schema_Authorization(t *testing.T) {
 
 		for _, method := range allExportedMethods(&Manager{}) {
 			switch method {
-			case "TriggerSchemaUpdateCallbacks", "RegisterSchemaUpdateCallback", "UpdateMeta", "GetSchemaSkipAuth":
+			case "TriggerSchemaUpdateCallbacks", "RegisterSchemaUpdateCallback", "UpdateMeta", "GetSchemaSkipAuth",
+				"Indexed":
 				// don't require auth on methods which are exported because other
 				// packages need to call them for maintenance and other regular jobs,
 				// but aren't user facing
