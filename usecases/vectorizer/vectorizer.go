@@ -24,46 +24,56 @@ import (
 
 // Vectorizer turns things and actions into vectors
 type Vectorizer struct {
-	client client
+	client     client
+	indexCheck IndexCheck
 }
 
 type client interface {
 	VectorForCorpi(ctx context.Context, corpi []string) ([]float32, error)
 }
 
+// IndexCheck returns whether a property of a class should be indexed
+type IndexCheck interface {
+	Indexed(className, property string) bool
+}
+
 // New from c11y client
-func New(client client) *Vectorizer {
-	return &Vectorizer{client}
+func New(client client, indexCheck IndexCheck) *Vectorizer {
+	return &Vectorizer{client, indexCheck}
 }
 
-// Thing concept to vector
-func (v *Vectorizer) Thing(ctx context.Context, concept *models.Thing) ([]float32, error) {
-
-	return v.concept(ctx, concept.Class, concept.Schema)
+func (v *Vectorizer) SetIndexChecker(ic IndexCheck) {
+	v.indexCheck = ic
 }
 
-// Action concept to vector
-func (v *Vectorizer) Action(ctx context.Context, concept *models.Action) ([]float32, error) {
+// Thing object to vector
+func (v *Vectorizer) Thing(ctx context.Context, object *models.Thing) ([]float32, error) {
 
-	return v.concept(ctx, concept.Class, concept.Schema)
+	return v.object(ctx, object.Class, object.Schema)
 }
 
-func (v *Vectorizer) concept(ctx context.Context, className string,
+// Action object to vector
+func (v *Vectorizer) Action(ctx context.Context, object *models.Action) ([]float32, error) {
+
+	return v.object(ctx, object.Class, object.Schema)
+}
+
+func (v *Vectorizer) object(ctx context.Context, className string,
 	schema interface{}) ([]float32, error) {
 	var corpi []string
 	corpi = append(corpi, camelCaseToLower(className))
 
 	if schema != nil {
 		for prop, value := range schema.(map[string]interface{}) {
+			if !v.indexCheck.Indexed(className, prop) {
+				continue
+			}
+
 			valueString, ok := value.(string)
 			if ok {
 				// use prop and value
 				corpi = append(corpi, strings.ToLower(
 					fmt.Sprintf("%s %s", camelCaseToLower(prop), valueString)))
-			} else {
-				// // use only prop name
-				// corpi = append(corpi, strings.ToLower(
-				// 	fmt.Sprintf("%s", camelCaseToLower(prop))))
 			}
 		}
 	}
