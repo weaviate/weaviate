@@ -42,6 +42,9 @@ type Property struct {
 	// Description of the property.
 	Description string `json:"description,omitempty"`
 
+	// Optional. By default each property is fully indexed both for full-text, as well as vector-search. You can ignore properties in searches by explicitly setting index to false. Not set is the same as true
+	Index *bool `json:"index,omitempty"`
+
 	// keywords
 	Keywords Keywords `json:"keywords,omitempty"`
 

@@ -3218,6 +3218,11 @@ func init() {
           "description": "Description of the property.",
           "type": "string"
         },
+        "index": {
+          "description": "Optional. By default each property is fully indexed both for full-text, as well as vector-search. You can ignore properties in searches by explicitly setting index to false. Not set is the same as true",
+          "type": "boolean",
+          "x-nullable": true
+        },
         "keywords": {
           "$ref": "#/definitions/Keywords"
         },
@@ -6655,6 +6660,11 @@ func init() {
         "description": {
           "description": "Description of the property.",
           "type": "string"
+        },
+        "index": {
+          "description": "Optional. By default each property is fully indexed both for full-text, as well as vector-search. You can ignore properties in searches by explicitly setting index to false. Not set is the same as true",
+          "type": "boolean",
+          "x-nullable": true
         },
         "keywords": {
           "$ref": "#/definitions/Keywords"
