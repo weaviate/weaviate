@@ -38,6 +38,37 @@ type Client struct {
 }
 
 /*
+C11yConcepts checks if a concept is part of the contextionary
+
+Checks if a concept is part of the contextionary. Concepts should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase
+*/
+func (a *Client) C11yConcepts(params *C11yConceptsParams, authInfo runtime.ClientAuthInfoWriter) (*C11yConceptsOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewC11yConceptsParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "c11y.concepts",
+		Method:             "GET",
+		PathPattern:        "/c11y/concepts/{concept}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &C11yConceptsReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*C11yConceptsOK), nil
+
+}
+
+/*
 C11yCorpusGet checks if a word or word string is part of the contextionary
 
 Analyzes a sentence based on the contextionary

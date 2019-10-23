@@ -105,6 +105,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		BatchingThingsCreateHandler: BatchingThingsCreateHandlerFunc(func(params BatchingThingsCreateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation BatchingThingsCreate has not yet been implemented")
 		}),
+		ContextionaryAPIC11yConceptsHandler: contextionary_api.C11yConceptsHandlerFunc(func(params contextionary_api.C11yConceptsParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation ContextionaryAPIC11yConcepts has not yet been implemented")
+		}),
 		ContextionaryAPIC11yCorpusGetHandler: contextionary_api.C11yCorpusGetHandlerFunc(func(params contextionary_api.C11yCorpusGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ContextionaryAPIC11yCorpusGet has not yet been implemented")
 		}),
@@ -276,6 +279,8 @@ type WeaviateAPI struct {
 	BatchingReferencesCreateHandler BatchingReferencesCreateHandler
 	// BatchingThingsCreateHandler sets the operation handler for the batching things create operation
 	BatchingThingsCreateHandler BatchingThingsCreateHandler
+	// ContextionaryAPIC11yConceptsHandler sets the operation handler for the c11y concepts operation
+	ContextionaryAPIC11yConceptsHandler contextionary_api.C11yConceptsHandler
 	// ContextionaryAPIC11yCorpusGetHandler sets the operation handler for the c11y corpus get operation
 	ContextionaryAPIC11yCorpusGetHandler contextionary_api.C11yCorpusGetHandler
 	// ContextionaryAPIC11yWordsHandler sets the operation handler for the c11y words operation
@@ -465,6 +470,10 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.BatchingThingsCreateHandler == nil {
 		unregistered = append(unregistered, "BatchingThingsCreateHandler")
+	}
+
+	if o.ContextionaryAPIC11yConceptsHandler == nil {
+		unregistered = append(unregistered, "contextionary_api.C11yConceptsHandler")
 	}
 
 	if o.ContextionaryAPIC11yCorpusGetHandler == nil {
@@ -777,6 +786,11 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/batching/things"] = NewBatchingThingsCreate(o.context, o.BatchingThingsCreateHandler)
+
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/c11y/concepts/{concept}"] = contextionary_api.NewC11yConcepts(o.context, o.ContextionaryAPIC11yConceptsHandler)
 
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)

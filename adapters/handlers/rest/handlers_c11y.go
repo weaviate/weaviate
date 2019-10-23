@@ -49,6 +49,22 @@ func setupC11yHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Reque
 		return contextionary_api.NewC11yWordsOK().WithPayload(res)
 	})
 
+	api.ContextionaryAPIC11yConceptsHandler = contextionary_api.C11yConceptsHandlerFunc(func(params contextionary_api.C11yConceptsParams, principal *models.Principal) middleware.Responder {
+		ctx := params.HTTPRequest.Context()
+		// Register the request
+
+		res, err := inspector.GetWords(ctx, params.Concept)
+		if err != nil {
+			return contextionary_api.NewC11yConceptsBadRequest().WithPayload(errPayloadFromSingleErr(err))
+		}
+
+		go func() {
+			requestsLog.Register(telemetry.TypeREST, telemetry.LocalTools)
+		}()
+
+		return contextionary_api.NewC11yConceptsOK().WithPayload(res)
+	})
+
 	api.ContextionaryAPIC11yCorpusGetHandler = contextionary_api.C11yCorpusGetHandlerFunc(func(params contextionary_api.C11yCorpusGetParams, principal *models.Principal) middleware.Responder {
 		return middleware.NotImplemented("operation contextionary_api.C11yCorpusGet has not yet been implemented")
 	})
