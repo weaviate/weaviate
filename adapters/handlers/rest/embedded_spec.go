@@ -888,6 +888,60 @@ func init() {
         ]
       }
     },
+    "/c11y/concepts/{concept}": {
+      "get": {
+        "description": "Checks if a concept is part of the contextionary. Concepts should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase",
+        "tags": [
+          "contextionary-API"
+        ],
+        "summary": "Checks if a concept is part of the contextionary.",
+        "operationId": "c11y.concepts",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "CamelCase list of words to validate.",
+            "name": "concept",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/C11yWordsResponse"
+            }
+          },
+          "400": {
+            "description": "Incorrect request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.c11y.words.get"
+        ]
+      }
+    },
     "/c11y/corpus": {
       "post": {
         "description": "Analyzes a sentence based on the contextionary",
@@ -4321,6 +4375,60 @@ func init() {
         "x-available-in-websocket": false,
         "x-serviceIds": [
           "weaviate.local.add"
+        ]
+      }
+    },
+    "/c11y/concepts/{concept}": {
+      "get": {
+        "description": "Checks if a concept is part of the contextionary. Concepts should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase",
+        "tags": [
+          "contextionary-API"
+        ],
+        "summary": "Checks if a concept is part of the contextionary.",
+        "operationId": "c11y.concepts",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "CamelCase list of words to validate.",
+            "name": "concept",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/C11yWordsResponse"
+            }
+          },
+          "400": {
+            "description": "Incorrect request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.c11y.words.get"
         ]
       }
     },
