@@ -19,10 +19,11 @@ services:
     volumes:
      - ./config.yaml:/config.yaml
   contextionary:
-    image: semitechnologies/contextionary:en0.9.0-v0.3.3
+    image: semitechnologies/contextionary:2-word-compounds-experimental
     ports:
       - "9999:9999"
     environment:
+      LOG_LEVEL: debug
       SCHEMA_PROVIDER_URL: etcd:2379
       OCCURRENCE_WEIGHT_LINEAR_FACTOR: 0.75
   etcd:
