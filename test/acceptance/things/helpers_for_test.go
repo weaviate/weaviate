@@ -42,6 +42,20 @@ func assertCreateThing(t *testing.T, className string, schema map[string]interfa
 	return thingID
 }
 
+func assertCreateThingWithID(t *testing.T, className string, id strfmt.UUID, schema map[string]interface{}) {
+	params := things.NewThingsCreateParams().WithBody(
+		&models.Thing{
+			ID:     id,
+			Class:  className,
+			Schema: schema,
+		})
+
+	resp, err := helper.Client(t).Things.ThingsCreate(params, nil)
+
+	// Ensure that the response is OK
+	helper.AssertRequestOk(t, resp, err, nil)
+}
+
 func assertGetThing(t *testing.T, uuid strfmt.UUID) *models.Thing {
 	getResp, err := helper.Client(t).Things.ThingsGet(things.NewThingsGetParams().WithID(uuid), nil)
 
