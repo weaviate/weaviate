@@ -103,6 +103,8 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 		require.Nil(t, err)
 	})
 
+	refreshAll(t, client)
+
 	t.Run("add reference between them", func(t *testing.T) {
 		err := repo.AddReference(context.Background(), kind.Thing, sourceID, "toTarget", &models.SingleRef{
 			Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", targetID)),
