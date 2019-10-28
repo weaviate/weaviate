@@ -20,7 +20,7 @@ func (r *Repo) classNameFromID(ctx context.Context, k kind.Kind, id strfmt.UUID)
 	case kind.Thing:
 		res, err = r.ThingByID(ctx, id, nil, false)
 	case kind.Action:
-		res, err = r.ThingByID(ctx, id, nil, false)
+		res, err = r.ActionByID(ctx, id, nil, false)
 	default:
 		return "", fmt.Errorf("impossible kind: %v", k)
 	}

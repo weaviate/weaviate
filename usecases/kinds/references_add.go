@@ -65,22 +65,15 @@ func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, pr
 		return err
 	}
 
-	extended, err := m.extendClassPropsWithReference(action.Schema, propertyName, property)
-	if err != nil {
-		return err
-	}
-	action.Schema = extended
-	action.LastUpdateTimeUnix = unixNow()
-
 	// the new ref could be a network ref
 	err = m.addNetworkDataTypesForAction(ctx, principal, action)
 	if err != nil {
 		return NewErrInternal("could not update schema for network refs: %v", err)
 	}
 
-	err = m.vectorRepo.PutAction(ctx, action, actionRes.Vector)
+	err = m.vectorRepo.AddReference(ctx, kind.Action, action.ID, propertyName, property)
 	if err != nil {
-		return NewErrInternal("could not store action: %v", err)
+		return NewErrInternal("add reference to vector repo: %v", err)
 	}
 
 	return nil
@@ -126,22 +119,15 @@ func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, pri
 		return err
 	}
 
-	extended, err := m.extendClassPropsWithReference(thing.Schema, propertyName, property)
-	if err != nil {
-		return err
-	}
-	thing.Schema = extended
-	thing.LastUpdateTimeUnix = unixNow()
-
 	// the new ref could be a network ref
 	err = m.addNetworkDataTypesForThing(ctx, principal, thing)
 	if err != nil {
 		return NewErrInternal("could not update schema for network refs: %v", err)
 	}
 
-	err = m.vectorRepo.PutThing(ctx, thing, thingRes.Vector)
+	err = m.vectorRepo.AddReference(ctx, kind.Thing, thing.ID, propertyName, property)
 	if err != nil {
-		return NewErrInternal("could not store thing: %v", err)
+		return NewErrInternal("add reference to vector repo: %v", err)
 	}
 
 	return nil
@@ -193,28 +179,4 @@ func (m *Manager) validateCanModifyReference(principal *models.Principal, k kind
 	}
 
 	return nil
-}
-
-func (m *Manager) extendClassPropsWithReference(props interface{}, propertyName string,
-	property *models.SingleRef) (interface{}, error) {
-
-	if props == nil {
-		props = map[string]interface{}{}
-	}
-
-	propsMap := props.(map[string]interface{})
-
-	_, ok := propsMap[propertyName]
-	if !ok {
-		propsMap[propertyName] = models.MultipleRef{}
-	}
-
-	existingRefs := propsMap[propertyName]
-	existingMultipleRef, ok := existingRefs.(models.MultipleRef)
-	if !ok {
-		return nil, NewErrInternal("expected models.MultipleRef for reference props, but got %T", existingRefs)
-	}
-
-	propsMap[propertyName] = append(existingMultipleRef, property)
-	return propsMap, nil
 }

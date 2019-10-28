@@ -26,6 +26,7 @@ import (
 	uuid "github.com/satori/go.uuid"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
@@ -78,6 +79,8 @@ type VectorRepo interface {
 	ActionSearch(ctx context.Context, limit int, filters *filters.LocalFilter) (search.Results, error)
 
 	Exists(ctx context.Context, id strfmt.UUID) (bool, error)
+
+	AddReference(ctx context.Context, kind kind.Kind, source strfmt.UUID, propName string, ref *models.SingleRef) error
 }
 
 // NewManager creates a new manager
