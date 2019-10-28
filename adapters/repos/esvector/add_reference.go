@@ -44,9 +44,6 @@ func (r *Repo) AddReference(ctx context.Context, k kind.Kind, source strfmt.UUID
 		return fmt.Errorf("look up class name: %v", err)
 	}
 
-	// TODO: set cache hot to false
-	// TODO: invalidate cache for dependants
-
 	body := map[string]interface{}{
 		"upsert": map[string]interface{}{
 			refProp: []interface{}{},
@@ -54,11 +51,12 @@ func (r *Repo) AddReference(ctx context.Context, k kind.Kind, source strfmt.UUID
 		"script": map[string]interface{}{
 			"source": fmt.Sprintf(`
 				if (ctx._source.containsKey("%s")) { 
-					ctx._source.%s += params.refs 
+					ctx._source.%s.add(params.refs)
 				} else { 
 					ctx._source.%s = [params.refs]
 				} 
-			`, refProp, refProp, refProp),
+			  ctx._source.%s.%s = false
+			`, refProp, refProp, refProp, keyCache, keyCacheHot),
 			"lang": "painless",
 			"params": map[string]interface{}{
 				"refs": ref,
@@ -96,6 +94,8 @@ func (r *Repo) AddReference(ctx context.Context, k kind.Kind, source strfmt.UUID
 
 		return fmt.Errorf("update refererence request: %v", err)
 	}
+
+	go r.invalidateCache(className, source.String())
 
 	return nil
 }
