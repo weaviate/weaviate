@@ -65,6 +65,17 @@ func setupC11yHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Reque
 		return contextionary_api.NewC11yConceptsOK().WithPayload(res)
 	})
 
+	api.ContextionaryAPIC11yExtensionsHandler = contextionary_api.C11yExtensionsHandlerFunc(func(params contextionary_api.C11yExtensionsParams, principal *models.Principal) middleware.Responder {
+		ctx := params.HTTPRequest.Context()
+		_ = ctx
+
+		go func() {
+			requestsLog.Register(telemetry.TypeREST, telemetry.LocalTools)
+		}()
+
+		return contextionary_api.NewC11yExtensionsOK().WithPayload(params.Extension)
+	})
+
 	api.ContextionaryAPIC11yCorpusGetHandler = contextionary_api.C11yCorpusGetHandlerFunc(func(params contextionary_api.C11yCorpusGetParams, principal *models.Principal) middleware.Responder {
 		return middleware.NotImplemented("operation contextionary_api.C11yCorpusGet has not yet been implemented")
 	})

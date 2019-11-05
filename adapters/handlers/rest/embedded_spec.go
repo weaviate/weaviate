@@ -980,6 +980,62 @@ func init() {
         ]
       }
     },
+    "/c11y/extensions/": {
+      "post": {
+        "description": "Extend the contextionary with your own custom concepts",
+        "tags": [
+          "contextionary-API"
+        ],
+        "summary": "Extend the contextionary with custom concepts",
+        "operationId": "c11y.extensions",
+        "parameters": [
+          {
+            "description": "Description and definition of the concept to extend the contextionary with",
+            "name": "extension",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/C11yExtension"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully extended the contextionary with the custom cocnept",
+            "schema": {
+              "$ref": "#/definitions/C11yExtension"
+            }
+          },
+          "400": {
+            "description": "Incorrect request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.extensions.post"
+        ]
+      }
+    },
     "/c11y/words/{words}": {
       "get": {
         "description": "Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase",
@@ -2720,6 +2776,25 @@ func init() {
           }
         }
       ]
+    },
+    "C11yExtension": {
+      "description": "A resource describing an extension to the contextinoary, containing both the identifier and the definition of the extension",
+      "properties": {
+        "concept": {
+          "description": "The new concept you want to extend. Must be an all-lowercase single word, or a space delimited compound word. Examples: 'foobarium', 'my custom concept'",
+          "type": "string",
+          "example": "foobarium"
+        },
+        "definition": {
+          "description": "A list of space-delimited words or a sentence describing what the custom concept is about. Avoid using the custom concept itself. An Example definition for the custom concept 'foobarium': would be 'a naturally occourring element which can only be seen by programmers'",
+          "type": "string"
+        },
+        "weight": {
+          "description": "Weight of the definition of the new concept where 1='override existing definition entirely' and 0='ignore custom definition'. Note that if the custom concept is not present in the contextionary yet, the weight cannot be less than 1.",
+          "type": "number",
+          "format": "float"
+        }
+      }
     },
     "C11yNearestNeighbors": {
       "description": "C11y function to show the nearest neighbors to a word.",
@@ -4470,6 +4545,62 @@ func init() {
         ]
       }
     },
+    "/c11y/extensions/": {
+      "post": {
+        "description": "Extend the contextionary with your own custom concepts",
+        "tags": [
+          "contextionary-API"
+        ],
+        "summary": "Extend the contextionary with custom concepts",
+        "operationId": "c11y.extensions",
+        "parameters": [
+          {
+            "description": "Description and definition of the concept to extend the contextionary with",
+            "name": "extension",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/C11yExtension"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully extended the contextionary with the custom cocnept",
+            "schema": {
+              "$ref": "#/definitions/C11yExtension"
+            }
+          },
+          "400": {
+            "description": "Incorrect request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.extensions.post"
+        ]
+      }
+    },
     "/c11y/words/{words}": {
       "get": {
         "description": "Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase",
@@ -6217,6 +6348,25 @@ func init() {
           }
         }
       ]
+    },
+    "C11yExtension": {
+      "description": "A resource describing an extension to the contextinoary, containing both the identifier and the definition of the extension",
+      "properties": {
+        "concept": {
+          "description": "The new concept you want to extend. Must be an all-lowercase single word, or a space delimited compound word. Examples: 'foobarium', 'my custom concept'",
+          "type": "string",
+          "example": "foobarium"
+        },
+        "definition": {
+          "description": "A list of space-delimited words or a sentence describing what the custom concept is about. Avoid using the custom concept itself. An Example definition for the custom concept 'foobarium': would be 'a naturally occourring element which can only be seen by programmers'",
+          "type": "string"
+        },
+        "weight": {
+          "description": "Weight of the definition of the new concept where 1='override existing definition entirely' and 0='ignore custom definition'. Note that if the custom concept is not present in the contextionary yet, the weight cannot be less than 1.",
+          "type": "number",
+          "format": "float"
+        }
+      }
     },
     "C11yNearestNeighbors": {
       "description": "C11y function to show the nearest neighbors to a word.",

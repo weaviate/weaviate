@@ -111,6 +111,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		ContextionaryAPIC11yCorpusGetHandler: contextionary_api.C11yCorpusGetHandlerFunc(func(params contextionary_api.C11yCorpusGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ContextionaryAPIC11yCorpusGet has not yet been implemented")
 		}),
+		ContextionaryAPIC11yExtensionsHandler: contextionary_api.C11yExtensionsHandlerFunc(func(params contextionary_api.C11yExtensionsParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation ContextionaryAPIC11yExtensions has not yet been implemented")
+		}),
 		ContextionaryAPIC11yWordsHandler: contextionary_api.C11yWordsHandlerFunc(func(params contextionary_api.C11yWordsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ContextionaryAPIC11yWords has not yet been implemented")
 		}),
@@ -283,6 +286,8 @@ type WeaviateAPI struct {
 	ContextionaryAPIC11yConceptsHandler contextionary_api.C11yConceptsHandler
 	// ContextionaryAPIC11yCorpusGetHandler sets the operation handler for the c11y corpus get operation
 	ContextionaryAPIC11yCorpusGetHandler contextionary_api.C11yCorpusGetHandler
+	// ContextionaryAPIC11yExtensionsHandler sets the operation handler for the c11y extensions operation
+	ContextionaryAPIC11yExtensionsHandler contextionary_api.C11yExtensionsHandler
 	// ContextionaryAPIC11yWordsHandler sets the operation handler for the c11y words operation
 	ContextionaryAPIC11yWordsHandler contextionary_api.C11yWordsHandler
 	// ClassificationsClassificationsGetHandler sets the operation handler for the classifications get operation
@@ -478,6 +483,10 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.ContextionaryAPIC11yCorpusGetHandler == nil {
 		unregistered = append(unregistered, "contextionary_api.C11yCorpusGetHandler")
+	}
+
+	if o.ContextionaryAPIC11yExtensionsHandler == nil {
+		unregistered = append(unregistered, "contextionary_api.C11yExtensionsHandler")
 	}
 
 	if o.ContextionaryAPIC11yWordsHandler == nil {
@@ -796,6 +805,11 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/c11y/corpus"] = contextionary_api.NewC11yCorpusGet(o.context, o.ContextionaryAPIC11yCorpusGetHandler)
+
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/c11y/extensions"] = contextionary_api.NewC11yExtensions(o.context, o.ContextionaryAPIC11yExtensionsHandler)
 
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
