@@ -100,6 +100,37 @@ func (a *Client) C11yCorpusGet(params *C11yCorpusGetParams, authInfo runtime.Cli
 }
 
 /*
+C11yExtensions extends the contextionary with custom concepts
+
+Extend the contextionary with your own custom concepts
+*/
+func (a *Client) C11yExtensions(params *C11yExtensionsParams, authInfo runtime.ClientAuthInfoWriter) (*C11yExtensionsOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewC11yExtensionsParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "c11y.extensions",
+		Method:             "POST",
+		PathPattern:        "/c11y/extensions/",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &C11yExtensionsReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*C11yExtensionsOK), nil
+
+}
+
+/*
 C11yWords checks if a word or word string is part of the contextionary
 
 Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase
