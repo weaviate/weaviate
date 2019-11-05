@@ -205,7 +205,7 @@ func (r *Repo) buildSearchBody(filterQuery map[string]interface{}, vector []floa
 								"inline": "binary_vector_score",
 								"lang":   "knn",
 								"params": map[string]interface{}{
-									"cosine": false,
+									"cosine": true,
 									"field":  keyVector,
 									"vector": vector,
 								},
