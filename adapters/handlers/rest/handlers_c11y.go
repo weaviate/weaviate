@@ -28,7 +28,12 @@ type inspector interface {
 	GetWords(ctx context.Context, words string) (*models.C11yWordsResponse, error)
 }
 
-func setupC11yHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog, inspector inspector) {
+type c11yProxy interface {
+	AddExtension(ctx context.Context, extension *models.C11yExtension) error
+}
+
+func setupC11yHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog,
+	inspector inspector, proxy c11yProxy) {
 	/*
 	 * HANDLE C11Y
 	 */
@@ -67,7 +72,13 @@ func setupC11yHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Reque
 
 	api.ContextionaryAPIC11yExtensionsHandler = contextionary_api.C11yExtensionsHandlerFunc(func(params contextionary_api.C11yExtensionsParams, principal *models.Principal) middleware.Responder {
 		ctx := params.HTTPRequest.Context()
-		_ = ctx
+
+		err := proxy.AddExtension(ctx, params.Extension)
+		if err != nil {
+			// TODO: distuingish between 400 and 500, right now the grpc client always returns the same kind of error
+			return contextionary_api.NewC11yExtensionsBadRequest().WithPayload(
+				errPayloadFromSingleErr(err))
+		}
 
 		go func() {
 			requestsLog.Register(telemetry.TypeREST, telemetry.LocalTools)
