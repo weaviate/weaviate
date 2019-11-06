@@ -228,6 +228,16 @@ func (c *Client) WordCount(ctx context.Context) (int64, error) {
 	return m.WordCount, nil
 }
 
+func (c *Client) AddExtension(ctx context.Context, extension *models.C11yExtension) error {
+	_, err := c.grpcClient.AddExtension(ctx, &pb.ExtensionInput{
+		Concept:    extension.Concept,
+		Definition: extension.Definition,
+		Weight:     extension.Weight,
+	})
+
+	return err
+}
+
 func vectorToProto(in []float32) *pb.Vector {
 	output := make([]*pb.VectorEntry, len(in), len(in))
 	for i, entry := range in {

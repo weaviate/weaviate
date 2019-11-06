@@ -17,6 +17,7 @@ import (
 	"context"
 
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/semi-technologies/weaviate/usecases/auth/authentication/oidc"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization"
@@ -67,4 +68,5 @@ type contextionary interface {
 	VectorForCorpi(ctx context.Context, corpi []string) ([]float32, error)
 	Version(ctx context.Context) (string, error)
 	WordCount(ctx context.Context) (int64, error)
+	AddExtension(ctx context.Context, extension *models.C11yExtension) error
 }

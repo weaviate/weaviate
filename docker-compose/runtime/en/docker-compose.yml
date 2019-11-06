@@ -1,7 +1,7 @@
 version: '3.4'
 services:
   weaviate:
-    image: semitechnologies/weaviate:0.20.3
+    image: semitechnologies/weaviate:0.20.4
     command: 
       - "--host"
       - "0.0.0.0"
@@ -19,7 +19,7 @@ services:
     volumes:
      - ./config.yaml:/config.yaml
   contextionary:
-    image: semitechnologies/contextionary:en0.9.0-v0.3.3
+    image: semitechnologies/contextionary:en0.10.0-v0.4.0 
     ports:
       - "9999:9999"
     environment:
