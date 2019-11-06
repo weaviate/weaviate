@@ -50,8 +50,7 @@ services:
     ports:
       - "8080:8080"
   contextionary:
-    image: semitechnologies/contextionary:enlocal
-    # image: semitechnologies/contextionary:en0.9.0-v0.3.3
+    image: semitechnologies/contextionary:en0.10.0-v0.4.0 
     ports:
       - "9999:9999"
     environment:
