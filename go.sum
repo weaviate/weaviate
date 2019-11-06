@@ -199,6 +199,8 @@ github.com/satori/go.uuid v0.0.0-20180103174451-36e9d2ebbde5 h1:tfcGHuraNSEY9xRb
 github.com/satori/go.uuid v0.0.0-20180103174451-36e9d2ebbde5/go.mod h1:dA0hQrYB0VpLJoorglMZABFdXlWrHn1NEOzdhQKdks0=
 github.com/semi-technologies/contextionary v0.0.0-20190527123400-07bbd00c0d7b8b80c1a5c0f5963f1b001620f0a3 h1:xKzPTDjdr5YhS6ThBw5XHzzeJf3xIJRQQL+1D+EQI6M=
 github.com/semi-technologies/contextionary v0.0.0-20190527123400-07bbd00c0d7b8b80c1a5c0f5963f1b001620f0a3/go.mod h1:BTxMOKlpVWytb7TYDfHEP77GsmPtVEKa6BjnW5IbaUU=
+github.com/semi-technologies/contextionary v0.0.0-20190527123400-159020f819c7829640d081c9802e927bd31bdfc9 h1:SLz6FMtMWDM39ne803pKX7zdwwAYNa2QlZhzdiSyhck=
+github.com/semi-technologies/contextionary v0.0.0-20190527123400-159020f819c7829640d081c9802e927bd31bdfc9/go.mod h1:9wOTgXqKQ2FTu8kyzqb6Zr8qoh972YKHFbkEPObPEwg=
 github.com/semi-technologies/contextionary v0.0.0-20190527123400-7574cd1d3565e984f3d00db4f355d06361ea720f h1:/K8SiE9Dld8qA8pcVTx3/A3lWEAyh1GQfq34oKbBnPc=
 github.com/semi-technologies/contextionary v0.0.0-20190527123400-7574cd1d3565e984f3d00db4f355d06361ea720f/go.mod h1:BTxMOKlpVWytb7TYDfHEP77GsmPtVEKa6BjnW5IbaUU=
 github.com/semi-technologies/contextionary v0.0.0-20190527123400-e184d9d7cafa88a20c08859e7cbcefa2aeccab34 h1:LYNreGJEkZ3sB/kMxhS30XPw2mRKOSb6eZ8SIDbgKwA=
@@ -229,6 +231,7 @@ github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 h1:eY9dn8+vbi4tKz5
 github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2/go.mod h1:UETIi67q53MR2AWcXfiuqkDkRtnGDLqkBTpCHuJHxtU=
 go.etcd.io/bbolt v1.3.2 h1:Z/90sZLPOeCy2PwprqkFa25PdkusRzaj9P8zm/KNyvk=
 go.etcd.io/bbolt v1.3.2/go.mod h1:IbVyRI1SCnLcuJnV2u8VeU0CEYM7e686BmAb1XKL+uU=
+go.etcd.io/bbolt v1.3.3/go.mod h1:IbVyRI1SCnLcuJnV2u8VeU0CEYM7e686BmAb1XKL+uU=
 go.uber.org/atomic v1.3.2 h1:2Oa65PReHzfn29GpvgsYwloV9AVFHPDk8tYxt2c2tr4=
 go.uber.org/atomic v1.3.2/go.mod h1:gD2HeocX3+yG+ygLZcrzQJaqmWj9AIm7n08wl/qW/PE=
 go.uber.org/multierr v1.1.0 h1:HoEmRHQPVSqub6w2z2d2EOVs2fjyFRGyofhKuyDq0QI=
