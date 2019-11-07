@@ -40,20 +40,13 @@ type BatchVectorRepo interface {
 	batchRepoNew
 }
 
-// Repo describes the requirements the kinds UC has to the connected database
-type batchRepo interface {
-	AddThingsBatch(ctx context.Context, things BatchThings) error
-	AddActionsBatch(ctx context.Context, actions BatchActions) error
-	AddBatchReferences(ctx context.Context, references BatchReferences) error
-}
-
 type batchRepoNew interface {
 	BatchPutThings(ctx context.Context, things BatchThings) (BatchThings, error)
 	BatchPutActions(ctx context.Context, actions BatchActions) (BatchActions, error)
+	AddBatchReferences(ctx context.Context, references BatchReferences) (BatchReferences, error)
 }
 
 type batchAndGetRepo interface {
-	batchRepo
 	getRepo
 	ClassExists(ctx context.Context, id strfmt.UUID) (bool, error)
 }
