@@ -25,10 +25,11 @@ import (
 )
 
 type bulkControlObject struct {
-	Index bulkIndex `json:"index"`
+	Index  *bulkID `json:"index,omitempty"`
+	Update *bulkID `json:"update,omitempty"`
 }
 
-type bulkIndex struct {
+type bulkID struct {
 	Index string `json:"_index"`
 	ID    string `json:"_id"`
 }
@@ -221,7 +222,7 @@ func mergeBatchThingsWithErrors(batch kinds.BatchThings, res *esapi.Response) (k
 
 func (r *Repo) bulkIndexControlObject(index, id string) bulkControlObject {
 	return bulkControlObject{
-		Index: bulkIndex{
+		Index: &bulkID{
 			Index: index,
 			ID:    id,
 		},

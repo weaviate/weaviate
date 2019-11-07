@@ -35,16 +35,8 @@ func (r *Repo) classNameFromID(ctx context.Context, k kind.Kind, id strfmt.UUID)
 	return res.ClassName, nil
 }
 
-func (r *Repo) AddReference(ctx context.Context, k kind.Kind, source strfmt.UUID,
-	refProp string, ref *models.SingleRef) error {
-	// we need to first search for the source, as we need the class name to
-	// reference the exact ES index
-	className, err := r.classNameFromID(ctx, k, source)
-	if err != nil {
-		return fmt.Errorf("look up class name: %v", err)
-	}
-
-	body := map[string]interface{}{
+func (r *Repo) upsertReferenceBucket(refProp string, ref *models.SingleRef) map[string]interface{} {
+	return map[string]interface{}{
 		"upsert": map[string]interface{}{
 			refProp: []interface{}{},
 		},
@@ -63,6 +55,19 @@ func (r *Repo) AddReference(ctx context.Context, k kind.Kind, source strfmt.UUID
 			},
 		},
 	}
+
+}
+
+func (r *Repo) AddReference(ctx context.Context, k kind.Kind, source strfmt.UUID,
+	refProp string, ref *models.SingleRef) error {
+	// we need to first search for the source, as we need the class name to
+	// reference the exact ES index
+	className, err := r.classNameFromID(ctx, k, source)
+	if err != nil {
+		return fmt.Errorf("look up class name: %v", err)
+	}
+
+	body := r.upsertReferenceBucket(refProp, ref)
 
 	var buf bytes.Buffer
 	err = json.NewEncoder(&buf).Encode(body)
