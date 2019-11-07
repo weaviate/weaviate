@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/elastic/go-elasticsearch/v5"
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -108,7 +109,8 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 
 	t.Run("add reference between them - first batch", func(t *testing.T) {
 		source, err := crossref.ParseSource(fmt.Sprintf(
-			"weaviate://localhost/things/AddingBatchReferencesTestSource/%s/toTarget/", sourceID))
+			"weaviate://localhost/things/AddingBatchReferencesTestSource/%s/toTarget", sourceID))
+		require.Nil(t, err)
 		targets := []strfmt.UUID{target1, target2}
 		refs := make(kinds.BatchReferences, len(targets), len(targets))
 		for i, target := range targets {
@@ -120,30 +122,29 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 				To:   to,
 			}
 		}
-		_, err = repo.AddBatchReferences(context.Background(), refs)
+		res, err := repo.AddBatchReferences(context.Background(), refs)
+		spew.Dump(res)
 		assert.Nil(t, err)
 	})
 
-	refreshAll(t, client)
-
-	t.Run("check references were added", func(t *testing.T) {
-		source, err := repo.ThingByID(context.Background(), sourceID, nil, false)
+	t.Run("add reference between them - second batch", func(t *testing.T) {
+		source, err := crossref.ParseSource(fmt.Sprintf(
+			"weaviate://localhost/things/AddingBatchReferencesTestSource/%s/toTarget", sourceID))
 		require.Nil(t, err)
-
-		refs := source.Thing().Schema.(map[string]interface{})["toTarget"]
-		refsSlice, ok := refs.(models.MultipleRef)
-		require.True(t, ok, fmt.Sprintf("toTarget must be models.MultipleRef, but got %#v", refs))
-
-		foundBeacons := []string{}
-		for _, ref := range refsSlice {
-			foundBeacons = append(foundBeacons, ref.Beacon.String())
+		targets := []strfmt.UUID{target3, target4}
+		refs := make(kinds.BatchReferences, len(targets), len(targets))
+		for i, target := range targets {
+			to, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/things/%s", target))
+			require.Nil(t, err)
+			refs[i] = kinds.BatchReference{
+				Err:  nil,
+				From: source,
+				To:   to,
+			}
 		}
-		expectedBeacons := []string{
-			fmt.Sprintf("weaviate://localhost/things/%s", target1),
-			fmt.Sprintf("weaviate://localhost/things/%s", target2),
-		}
-
-		assert.ElementsMatch(t, foundBeacons, expectedBeacons)
+		res, err := repo.AddBatchReferences(context.Background(), refs)
+		spew.Dump(res)
+		assert.Nil(t, err)
 	})
 
 	refreshAll(t, client)
