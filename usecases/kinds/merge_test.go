@@ -2,8 +2,10 @@ package kinds
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -63,6 +65,43 @@ func Test_MergeThing(t *testing.T) {
 				},
 			},
 		},
+		testCase{
+			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
+			name: "adding many primitive properties of different types",
+			previous: &models.Thing{
+				Class:  "Zoo",
+				Schema: map[string]interface{}{},
+			},
+			updated: &models.Thing{
+				Class: "Zoo",
+				Schema: map[string]interface{}{
+					"name":      "My little pony zoo with extra sparkles",
+					"area":      3.222,
+					"employees": json.Number("70"),
+					"located": map[string]interface{}{
+						"latitude":  30.2,
+						"longitude": 60.2,
+					},
+					"foundedIn": "2002-10-02T15:00:00Z",
+				},
+			},
+			expectedErr: nil,
+			expectedOutput: &MergeDocument{
+				Kind:  kind.Thing,
+				Class: "Zoo",
+				ID:    "dd59815b-142b-4c54-9b12-482434bd54ca",
+				PrimitiveSchema: map[string]interface{}{
+					"name":      "My little pony zoo with extra sparkles",
+					"area":      3.222,
+					"employees": int64(70),
+					"located": &models.GeoCoordinates{
+						Latitude:  30.2,
+						Longitude: 60.2,
+					},
+					"foundedIn": timeMustParse(time.RFC3339, "2002-10-02T15:00:00Z"),
+				},
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -102,4 +141,12 @@ func Test_MergeThing(t *testing.T) {
 
 	}
 
+}
+
+func timeMustParse(layout, value string) time.Time {
+	t, err := time.Parse(layout, value)
+	if err != nil {
+		panic(err)
+	}
+	return t
 }
