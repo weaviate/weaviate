@@ -3220,8 +3220,15 @@ func init() {
     "ObjectMetaClassification": {
       "description": "This meta field contains additional info about the classification which affected this object",
       "properties": {
-        "classifiedFields": {
+        "basedOn": {
           "description": "The (primitive) field(s) which were used as a basis for classification. For example, if the type of classification is \"knn\" with k=3, the 3 nearest neighbors - based on these fields - were considered for the classification.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "classifiedFields": {
+          "description": "The (reference) fields which were classified as part of this classification. Note that this might contain fewere entries than \"scope\", if one of the fields was already set prior to the classification, for example",
           "type": "array",
           "items": {
             "type": "string"
@@ -6792,8 +6799,15 @@ func init() {
     "ObjectMetaClassification": {
       "description": "This meta field contains additional info about the classification which affected this object",
       "properties": {
-        "classifiedFields": {
+        "basedOn": {
           "description": "The (primitive) field(s) which were used as a basis for classification. For example, if the type of classification is \"knn\" with k=3, the 3 nearest neighbors - based on these fields - were considered for the classification.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "classifiedFields": {
+          "description": "The (reference) fields which were classified as part of this classification. Note that this might contain fewere entries than \"scope\", if one of the fields was already set prior to the classification, for example",
           "type": "array",
           "items": {
             "type": "string"

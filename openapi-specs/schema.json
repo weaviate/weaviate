@@ -607,7 +607,7 @@
             "type": "string"
           }
         },
-        "classifiedFields": {
+        "basedOn": {
           "description": "The (primitive) field(s) which were used as a basis for classification. For example, if the type of classification is \"knn\" with k=3, the 3 nearest neighbors - based on these fields - were considered for the classification.",
           "type": "array",
           "items": {
