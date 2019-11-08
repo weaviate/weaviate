@@ -96,6 +96,22 @@ func zooAnimalSchemaForTest() schema.Schema {
 							DataType: []string{"string"},
 						},
 						&models.Property{
+							Name:     "area",
+							DataType: []string{"number"},
+						},
+						&models.Property{
+							Name:     "employees",
+							DataType: []string{"int"},
+						},
+						&models.Property{
+							Name:     "located",
+							DataType: []string{"geoCoordinates"},
+						},
+						&models.Property{
+							Name:     "foundedIn",
+							DataType: []string{"date"},
+						},
+						&models.Property{
 							Name:        "hasAnimals",
 							DataType:    []string{"Animal"},
 							Cardinality: &many,
