@@ -31,6 +31,9 @@ import (
 type ObjectMetaClassification struct {
 
 	// The (primitive) field(s) which were used as a basis for classification. For example, if the type of classification is "knn" with k=3, the 3 nearest neighbors - based on these fields - were considered for the classification.
+	BasedOn []string `json:"basedOn"`
+
+	// The (reference) fields which were classified as part of this classification. Note that this might contain fewere entries than "scope", if one of the fields was already set prior to the classification, for example
 	ClassifiedFields []string `json:"classifiedFields"`
 
 	// Timestamp when this particular object was classified. This is usually sooner than the overall completion time of the classification, as the overall completion time will only be set once every object has been classified.
