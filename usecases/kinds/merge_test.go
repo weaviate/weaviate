@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -102,6 +103,40 @@ func Test_MergeThing(t *testing.T) {
 				},
 			},
 		},
+		testCase{
+			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
+			name: "adding a primitive and a ref property",
+			previous: &models.Thing{
+				Class:  "Zoo",
+				Schema: map[string]interface{}{},
+			},
+			updated: &models.Thing{
+				Class: "Zoo",
+				Schema: map[string]interface{}{
+					"name": "My little pony zoo with extra sparkles",
+					"hasAnimals": []interface{}{
+						map[string]interface{}{
+							"beacon": "weaviate://localhost/things/a8ffc82c-9845-4014-876c-11369353c33c",
+						},
+					},
+				},
+			},
+			expectedErr: nil,
+			expectedOutput: &MergeDocument{
+				Kind:  kind.Thing,
+				Class: "Zoo",
+				ID:    "dd59815b-142b-4c54-9b12-482434bd54ca",
+				PrimitiveSchema: map[string]interface{}{
+					"name": "My little pony zoo with extra sparkles",
+				},
+				References: BatchReferences{
+					BatchReference{
+						From: crossrefMustParseSource("weaviate://localhost/things/Zoo/dd59815b-142b-4c54-9b12-482434bd54ca/hasAnimals"),
+						To:   crossrefMustParse("weaviate://localhost/things/a8ffc82c-9845-4014-876c-11369353c33c"),
+					},
+				},
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -149,4 +184,22 @@ func timeMustParse(layout, value string) time.Time {
 		panic(err)
 	}
 	return t
+}
+
+func crossrefMustParse(in string) *crossref.Ref {
+	ref, err := crossref.Parse(in)
+	if err != nil {
+		panic(err)
+	}
+
+	return ref
+}
+
+func crossrefMustParseSource(in string) *crossref.RefSource {
+	ref, err := crossref.ParseSource(in)
+	if err != nil {
+		panic(err)
+	}
+
+	return ref
 }
