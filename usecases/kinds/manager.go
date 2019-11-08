@@ -81,6 +81,7 @@ type VectorRepo interface {
 	Exists(ctx context.Context, id strfmt.UUID) (bool, error)
 
 	AddReference(ctx context.Context, kind kind.Kind, source strfmt.UUID, propName string, ref *models.SingleRef) error
+	Merge(ctx context.Context, merge MergeDocument) error
 }
 
 // NewManager creates a new manager
