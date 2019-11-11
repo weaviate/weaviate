@@ -84,7 +84,47 @@ func zooAnimalSchemaForTest() schema.Schema {
 	many := "many"
 	return schema.Schema{
 		Actions: &models.Schema{
-			Classes: []*models.Class{},
+			Classes: []*models.Class{
+				&models.Class{
+					Class: "ZooAction",
+					Properties: []*models.Property{
+						&models.Property{
+							Name:     "name",
+							DataType: []string{"string"},
+						},
+						&models.Property{
+							Name:     "area",
+							DataType: []string{"number"},
+						},
+						&models.Property{
+							Name:     "employees",
+							DataType: []string{"int"},
+						},
+						&models.Property{
+							Name:     "located",
+							DataType: []string{"geoCoordinates"},
+						},
+						&models.Property{
+							Name:     "foundedIn",
+							DataType: []string{"date"},
+						},
+						&models.Property{
+							Name:        "hasAnimals",
+							DataType:    []string{"AnimalAction"},
+							Cardinality: &many,
+						},
+					},
+				},
+				&models.Class{
+					Class: "AnimalAction",
+					Properties: []*models.Property{
+						&models.Property{
+							Name:     "name",
+							DataType: []string{"string"},
+						},
+					},
+				},
+			},
 		},
 		Things: &models.Schema{
 			Classes: []*models.Class{
