@@ -39,6 +39,9 @@ func (r *Repo) upsertReferenceBucket(refProp string, ref *models.SingleRef) map[
 	return map[string]interface{}{
 		"upsert": map[string]interface{}{
 			refProp: []interface{}{},
+			keyCache.String(): map[string]interface{}{
+				keyCacheHot.String(): false,
+			},
 		},
 		"script": map[string]interface{}{
 			"source": fmt.Sprintf(`
