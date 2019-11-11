@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/elastic/go-elasticsearch/v5"
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -122,8 +121,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 				To:   to,
 			}
 		}
-		res, err := repo.AddBatchReferences(context.Background(), refs)
-		spew.Dump(res)
+		_, err = repo.AddBatchReferences(context.Background(), refs)
 		assert.Nil(t, err)
 	})
 
@@ -142,8 +140,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 				To:   to,
 			}
 		}
-		res, err := repo.AddBatchReferences(context.Background(), refs)
-		spew.Dump(res)
+		_, err = repo.AddBatchReferences(context.Background(), refs)
 		assert.Nil(t, err)
 	})
 
