@@ -42,7 +42,8 @@ type bulkIndexResponse struct {
 }
 
 type bulkItem struct {
-	Index *bulkIndexItem `json:"index"`
+	Index  *bulkIndexItem `json:"index"`
+	Update *bulkIndexItem `json:"update"`
 }
 
 type bulkIndexItem struct {

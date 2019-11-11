@@ -90,7 +90,7 @@ func mergeBatchReferencesWithErrors(batch kinds.BatchReferences, res *esapi.Resp
 			continue
 		}
 
-		err := parsed.Items[bulkIndex].Index.Error
+		err := parsed.Items[bulkIndex].Update.Error
 		if err != nil {
 			batch[i].Err = fmt.Errorf("%v", err)
 		}
