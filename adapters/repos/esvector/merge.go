@@ -5,8 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/elastic/go-elasticsearch/v5/esapi"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
 )
@@ -36,7 +36,28 @@ func (r *Repo) Merge(ctx context.Context, merge kinds.MergeDocument) error {
 }
 
 func (r *Repo) errorsInBulkResponse(res *esapi.Response) error {
-	spew.Dump(res)
+	var parsed bulkIndexResponse
+	err := json.NewDecoder(res.Body).Decode(&parsed)
+	if err != nil {
+		return err
+	}
+
+	if !parsed.Errors {
+		// no need to check for error positions if there are none
+		return nil
+	}
+
+	var errors []string
+	for _, item := range parsed.Items {
+		err := item.Update.Error
+		if err != nil {
+			errors = append(errors, err.(string))
+		}
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf("%s", strings.Join(errors, ", "))
+	}
 	return nil
 }
 
