@@ -362,8 +362,8 @@
       },
       "type": "array"
     },
-    "PatchDocument": {
-      "description": "A JSONPatch document as defined by RFC 6902.",
+    "PatchDocumentThing": {
+      "description": "Either a JSONPatch document as defined by RFC 6902 (from, op, path, value), or a merge document (RFC 7396).",
       "properties": {
         "from": {
           "description": "A string containing a JSON Pointer value.",
@@ -381,7 +381,36 @@
         "value": {
           "description": "The value to be used within the operations.",
           "type": "object"
-        }
+        }, 
+        "merge": {
+          "$ref": "#/definitions/Thing"
+        } 
+      },
+      "required": ["op", "path"]
+    },
+    "PatchDocumentAction": {
+      "description": "Either a JSONPatch document as defined by RFC 6902 (from, op, path, value), or a merge document (RFC 7396).",
+      "properties": {
+        "from": {
+          "description": "A string containing a JSON Pointer value.",
+          "type": "string"
+        },
+        "op": {
+          "description": "The operation to be performed.",
+          "enum": ["add", "remove", "replace", "move", "copy", "test"],
+          "type": "string"
+        },
+        "path": {
+          "description": "A JSON-Pointer.",
+          "type": "string"
+        },
+        "value": {
+          "description": "The value to be used within the operations.",
+          "type": "object"
+        }, 
+        "merge": {
+          "$ref": "#/definitions/Thing"
+        } 
       },
       "required": ["op", "path"]
     },
@@ -1105,7 +1134,7 @@
         "x-available-in-websocket": false
       },
       "patch": {
-        "description": "Updates an Action. This method supports patch semantics. Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "description": "Updates an Action. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "operationId": "actions.patch",
         "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
@@ -1118,15 +1147,12 @@
             "type": "string"
           },
           {
-            "description": "JSONPatch document as defined by RFC 6902.",
+            "description": "RFC 7396-style patch, the body contains the action object to merge into the existing action object.",
             "in": "body",
             "name": "body",
-            "required": true,
+            "required": false,
             "schema": {
-              "items": {
-                "$ref": "#/definitions/PatchDocument"
-              },
-              "type": "array"
+              "$ref": "#/definitions/Action"
             }
           }
         ],
@@ -2665,15 +2691,12 @@
             "type": "string"
           },
           {
-            "description": "JSONPatch document as defined by RFC 6902.",
+            "description": "RFC 7396-style patch, the body contains the thing object to merge into the existing thing object.",
             "in": "body",
             "name": "body",
-            "required": true,
+            "required": false,
             "schema": {
-              "items": {
-                "$ref": "#/definitions/PatchDocument"
-              },
-              "type": "array"
+              "$ref": "#/definitions/Thing"
             }
           }
         ],

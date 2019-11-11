@@ -1,3 +1,16 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 SeMI Holding B.V. (registered @ Dutch Chamber of Commerce no 75221632). All rights reserved.
+//  LICENSE WEAVIATE OPEN SOURCE: https://www.semi.technology/playbook/playbook/contract-weaviate-OSS.html
+//  LICENSE WEAVIATE ENTERPRISE: https://www.semi.technology/playbook/contract-weaviate-enterprise.html
+//  CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
 package kinds
 
 import (
@@ -16,6 +29,157 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
+
+func Test_MergeAction(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	type testCase struct {
+		name           string
+		previous       *models.Action // nil implies return false on Exist()
+		updated        *models.Action
+		expectedErr    error
+		expectedOutput *MergeDocument
+		id             strfmt.UUID
+	}
+
+	tests := []testCase{
+		testCase{
+			id:       "dd59815b-142b-4c54-9b12-482434bd54ca",
+			name:     "didn't previously exist",
+			previous: nil,
+			updated: &models.Action{
+				Class: "ZooAction",
+				Schema: map[string]interface{}{
+					"foo": "bar",
+				},
+			},
+			expectedErr: fmt.Errorf("invalid merge: action object with id '%s' does not exist",
+				"dd59815b-142b-4c54-9b12-482434bd54ca"),
+		},
+		testCase{
+			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
+			name: "adding a new property",
+			previous: &models.Action{
+				Class:  "ZooAction",
+				Schema: map[string]interface{}{},
+			},
+			updated: &models.Action{
+				Class: "ZooAction",
+				Schema: map[string]interface{}{
+					"name": "My little pony zoo with extra sparkles",
+				},
+			},
+			expectedErr: nil,
+			expectedOutput: &MergeDocument{
+				Kind:  kind.Action,
+				Class: "ZooAction",
+				ID:    "dd59815b-142b-4c54-9b12-482434bd54ca",
+				PrimitiveSchema: map[string]interface{}{
+					"name": "My little pony zoo with extra sparkles",
+				},
+			},
+		},
+		testCase{
+			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
+			name: "adding many primitive properties of different types",
+			previous: &models.Action{
+				Class:  "ZooAction",
+				Schema: map[string]interface{}{},
+			},
+			updated: &models.Action{
+				Class: "ZooAction",
+				Schema: map[string]interface{}{
+					"name":      "My little pony zoo with extra sparkles",
+					"area":      3.222,
+					"employees": json.Number("70"),
+					"located": map[string]interface{}{
+						"latitude":  30.2,
+						"longitude": 60.2,
+					},
+					"foundedIn": "2002-10-02T15:00:00Z",
+				},
+			},
+			expectedErr: nil,
+			expectedOutput: &MergeDocument{
+				Kind:  kind.Action,
+				Class: "ZooAction",
+				ID:    "dd59815b-142b-4c54-9b12-482434bd54ca",
+				PrimitiveSchema: map[string]interface{}{
+					"name":      "My little pony zoo with extra sparkles",
+					"area":      3.222,
+					"employees": int64(70),
+					"located": &models.GeoCoordinates{
+						Latitude:  30.2,
+						Longitude: 60.2,
+					},
+					"foundedIn": timeMustParse(time.RFC3339, "2002-10-02T15:00:00Z"),
+				},
+			},
+		},
+		testCase{
+			id:   "dd59815b-142b-4c54-9b12-482434bd54ca",
+			name: "adding a primitive and a ref property",
+			previous: &models.Action{
+				Class:  "ZooAction",
+				Schema: map[string]interface{}{},
+			},
+			updated: &models.Action{
+				Class: "ZooAction",
+				Schema: map[string]interface{}{
+					"name": "My little pony zoo with extra sparkles",
+					"hasAnimals": []interface{}{
+						map[string]interface{}{
+							"beacon": "weaviate://localhost/actions/a8ffc82c-9845-4014-876c-11369353c33c",
+						},
+					},
+				},
+			},
+			expectedErr: nil,
+			expectedOutput: &MergeDocument{
+				Kind:  kind.Action,
+				Class: "ZooAction",
+				ID:    "dd59815b-142b-4c54-9b12-482434bd54ca",
+				PrimitiveSchema: map[string]interface{}{
+					"name": "My little pony zoo with extra sparkles",
+				},
+				References: BatchReferences{
+					BatchReference{
+						From: crossrefMustParseSource("weaviate://localhost/actions/ZooAction/dd59815b-142b-4c54-9b12-482434bd54ca/hasAnimals"),
+						To:   crossrefMustParse("weaviate://localhost/actions/a8ffc82c-9845-4014-876c-11369353c33c"),
+					},
+				},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			vectorRepo := &fakeVectorRepo{}
+			schemaManager := &fakeSchemaManager{
+				GetSchemaResponse: zooAnimalSchemaForTest(),
+			}
+			locks := &fakeLocks{}
+			network := &fakeNetwork{}
+			cfg := &config.WeaviateConfig{}
+			authorizer := &fakeAuthorizer{}
+			vectorizer := &fakeVectorizer{}
+			manager := NewManager(locks, schemaManager, network,
+				cfg, logger, authorizer, vectorizer, vectorRepo)
+
+			vectorRepo.On("Exists", mock.Anything).Return(test.previous != nil, nil)
+
+			if test.expectedOutput != nil {
+				vectorRepo.On("Merge", *test.expectedOutput).Return(nil)
+
+			}
+
+			err := manager.MergeAction(context.Background(), nil, test.id, test.updated)
+			assert.Equal(t, test.expectedErr, err)
+
+			vectorRepo.AssertExpectations(t)
+		})
+	}
+}
 
 func Test_MergeThing(t *testing.T) {
 	logger, _ := test.NewNullLogger()
@@ -164,11 +328,8 @@ func Test_MergeThing(t *testing.T) {
 			assert.Equal(t, test.expectedErr, err)
 
 			vectorRepo.AssertExpectations(t)
-
 		})
-
 	}
-
 }
 
 func timeMustParse(layout, value string) time.Time {
