@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/elastic/go-elasticsearch/v5/esapi"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
 )
@@ -15,8 +14,6 @@ func (r *Repo) AddBatchReferences(ctx context.Context, list kinds.BatchReference
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	r.encodeBatchReferences(enc, list)
-
-	spew.Dump(enc)
 
 	if buf.Len() == 0 {
 		// we cannot send an empty request to ES, as it will error. However, if the

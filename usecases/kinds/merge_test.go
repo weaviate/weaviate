@@ -155,13 +155,6 @@ func Test_MergeThing(t *testing.T) {
 
 			vectorRepo.On("Exists", mock.Anything).Return(test.previous != nil, nil)
 
-			if test.previous != nil {
-				// vectorRepo.On("ThingByID", mock.Anything, mock.Anything, mock.Anything).Return(&search.Result{
-				// 	ClassName: test.previous.Class,
-				// 	Schema:    test.previous.Schema,
-				// }, nil)
-			}
-
 			if test.expectedOutput != nil {
 				vectorRepo.On("Merge", *test.expectedOutput).Return(nil)
 
