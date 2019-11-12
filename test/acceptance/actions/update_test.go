@@ -17,7 +17,6 @@ package test
 
 import (
 	"encoding/json"
-	"fmt"
 	"testing"
 
 	"github.com/semi-technologies/weaviate/client/actions"
@@ -25,146 +24,146 @@ import (
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 )
 
-func TestCanUpdateActionSetNumber(t *testing.T) {
-	t.Parallel()
+// run from setup_test.go
+func updateActions(t *testing.T) {
+	t.Run("update and set number", func(t *testing.T) {
+		uuid := assertCreateAction(t, "TestAction", map[string]interface{}{})
+		assertGetActionEventually(t, uuid)
 
-	uuid := assertCreateAction(t, "TestAction", map[string]interface{}{})
-	assertGetActionEventually(t, uuid)
+		schema := models.PropertySchema(map[string]interface{}{
+			"testNumber": 41.0,
+		})
 
-	schema := models.PropertySchema(map[string]interface{}{
-		"testNumber": 41.0,
+		update := models.Action{}
+		update.Schema = schema
+		update.Class = "TestAction"
+		update.ID = uuid
+
+		params := actions.NewActionsUpdateParams().WithID(uuid).WithBody(&update)
+		updateResp, err := helper.Client(t).Actions.ActionsUpdate(params, nil)
+		helper.AssertRequestOk(t, updateResp, err, nil)
+
+		actualThunk := func() interface{} {
+			updatedAction := assertGetAction(t, uuid)
+			updatedSchema := updatedAction.Schema.(map[string]interface{})
+			if updatedSchema["testNumber"] == nil {
+				return nil
+			}
+			num, _ := updatedSchema["testNumber"].(json.Number).Float64()
+			return num
+		}
+		helper.AssertEventuallyEqual(t, 41.0, actualThunk)
 	})
 
-	update := models.Action{}
-	update.Schema = schema
-	update.Class = "TestAction"
-	update.ID = uuid
+	t.Run("update and set string", func(t *testing.T) {
+		uuid := assertCreateAction(t, "TestAction", map[string]interface{}{})
+		assertGetActionEventually(t, uuid)
 
-	params := actions.NewActionsUpdateParams().WithID(uuid).WithBody(&update)
-	updateResp, err := helper.Client(t).Actions.ActionsUpdate(params, nil)
-	helper.AssertRequestOk(t, updateResp, err, nil)
+		schema := models.PropertySchema(map[string]interface{}{
+			"testString": "wibbly wobbly",
+		})
 
-	actualThunk := func() interface{} {
-		updatedAction := assertGetAction(t, uuid)
-		updatedSchema := updatedAction.Schema.(map[string]interface{})
-		if updatedSchema["testNumber"] == nil {
-			return nil
+		update := models.Action{}
+		update.Schema = schema
+		update.Class = "TestAction"
+		update.ID = uuid
+
+		params := actions.NewActionsUpdateParams().WithID(uuid).WithBody(&update)
+		updateResp, err := helper.Client(t).Actions.ActionsUpdate(params, nil)
+		helper.AssertRequestOk(t, updateResp, err, nil)
+
+		actualThunk := func() interface{} {
+			updatedAction := assertGetAction(t, uuid)
+			updatedSchema := updatedAction.Schema.(map[string]interface{})
+			return updatedSchema["testString"]
 		}
-		num, _ := updatedSchema["testNumber"].(json.Number).Float64()
-		return num
-	}
-	helper.AssertEventuallyEqual(t, 41.0, actualThunk)
-}
-
-func TestCanUpdateActionSetString(t *testing.T) {
-	t.Parallel()
-
-	uuid := assertCreateAction(t, "TestAction", map[string]interface{}{})
-	assertGetActionEventually(t, uuid)
-
-	schema := models.PropertySchema(map[string]interface{}{
-		"testString": "wibbly wobbly",
+		helper.AssertEventuallyEqual(t, "wibbly wobbly", actualThunk)
 	})
 
-	update := models.Action{}
-	update.Schema = schema
-	update.Class = "TestAction"
-	update.ID = uuid
+	t.Run("update and set bool", func(t *testing.T) {
+		t.Parallel()
+		uuid := assertCreateAction(t, "TestAction", map[string]interface{}{})
+		assertGetActionEventually(t, uuid)
 
-	params := actions.NewActionsUpdateParams().WithID(uuid).WithBody(&update)
-	updateResp, err := helper.Client(t).Actions.ActionsUpdate(params, nil)
-	helper.AssertRequestOk(t, updateResp, err, nil)
+		schema := models.PropertySchema(map[string]interface{}{
+			"testTrueFalse": true,
+		})
 
-	actualThunk := func() interface{} {
-		updatedAction := assertGetAction(t, uuid)
-		updatedSchema := updatedAction.Schema.(map[string]interface{})
-		return updatedSchema["testString"]
-	}
-	helper.AssertEventuallyEqual(t, "wibbly wobbly", actualThunk)
-}
+		update := models.Action{}
+		update.Schema = schema
+		update.Class = "TestAction"
+		update.ID = uuid
 
-func TestCanUpdateActionSetBool(t *testing.T) {
-	t.Parallel()
-	uuid := assertCreateAction(t, "TestAction", map[string]interface{}{})
-	assertGetActionEventually(t, uuid)
+		params := actions.NewActionsUpdateParams().WithID(uuid).WithBody(&update)
+		updateResp, err := helper.Client(t).Actions.ActionsUpdate(params, nil)
 
-	schema := models.PropertySchema(map[string]interface{}{
-		"testTrueFalse": true,
+		helper.AssertRequestOk(t, updateResp, err, nil)
+
+		actualThunk := func() interface{} {
+			updatedAction := assertGetAction(t, uuid)
+			updatedSchema := updatedAction.Schema.(map[string]interface{})
+			return updatedSchema["testTrueFalse"]
+		}
+		helper.AssertEventuallyEqual(t, true, actualThunk)
 	})
 
-	update := models.Action{}
-	update.Schema = schema
-	update.Class = "TestAction"
-	update.ID = uuid
+	// TODO reeanable gh-1021
+	// func TestCanPatchActionsSetCref(t *testing.T) {
+	// 	t.Parallel()
 
-	params := actions.NewActionsUpdateParams().WithID(uuid).WithBody(&update)
-	updateResp, err := helper.Client(t).Actions.ActionsUpdate(params, nil)
+	// 	thingToRefID := assertCreateThing(t, "TestThing", nil)
+	// 	assertGetThingEventually(t, thingToRefID)
+	// 	actionID := assertCreateAction(t, "TestAction", nil)
+	// 	assertGetActionEventually(t, actionID)
 
-	helper.AssertRequestOk(t, updateResp, err, nil)
+	// 	op := "add"
+	// 	path := "/schema/testReference"
 
-	actualThunk := func() interface{} {
-		updatedAction := assertGetAction(t, uuid)
-		updatedSchema := updatedAction.Schema.(map[string]interface{})
-		return updatedSchema["testTrueFalse"]
-	}
-	helper.AssertEventuallyEqual(t, true, actualThunk)
-}
+	// 	patch := &models.PatchDocument{
+	// 		Op:   &op,
+	// 		Path: &path,
+	// 		Value: []interface{}{
+	// 			map[string]interface{}{
+	// 				"beacon": fmt.Sprintf("weaviate://localhost/things/%s", thingToRefID),
+	// 			},
+	// 		},
+	// 	}
 
-func TestCanPatchActionsSetCref(t *testing.T) {
-	t.Parallel()
+	// 	// Now to try to link
+	// 	params := actions.NewActionsPatchParams().
+	// 		WithBody([]*models.PatchDocument{patch}).
+	// 		WithID(actionID)
+	// 	patchResp, err := helper.Client(t).Actions.ActionsPatch(params, nil)
+	// 	helper.AssertRequestOk(t, patchResp, err, nil)
 
-	thingToRefID := assertCreateThing(t, "TestThing", nil)
-	assertGetThingEventually(t, thingToRefID)
-	actionID := assertCreateAction(t, "TestAction", nil)
-	assertGetActionEventually(t, actionID)
+	// 	actualThunk := func() interface{} {
+	// 		patchedAction := assertGetAction(t, actionID)
 
-	op := "add"
-	path := "/schema/testReference"
+	// 		rawRef, ok := patchedAction.Schema.(map[string]interface{})["testReference"]
+	// 		if !ok {
+	// 			return nil
+	// 		}
 
-	patch := &models.PatchDocument{
-		Op:   &op,
-		Path: &path,
-		Value: []interface{}{
-			map[string]interface{}{
-				"beacon": fmt.Sprintf("weaviate://localhost/things/%s", thingToRefID),
-			},
-		},
-	}
+	// 		refsSlice, ok := rawRef.([]interface{})
+	// 		if !ok {
+	// 			t.Logf("found the ref prop, but it was not a slice, but %T", refsSlice)
+	// 			t.Fail()
+	// 		}
 
-	// Now to try to link
-	params := actions.NewActionsPatchParams().
-		WithBody([]*models.PatchDocument{patch}).
-		WithID(actionID)
-	patchResp, err := helper.Client(t).Actions.ActionsPatch(params, nil)
-	helper.AssertRequestOk(t, patchResp, err, nil)
+	// 		if len(refsSlice) != 1 {
+	// 			t.Logf("expected ref slice to have one element, but got: %d", len(refsSlice))
+	// 			t.Fail()
+	// 		}
 
-	actualThunk := func() interface{} {
-		patchedAction := assertGetAction(t, actionID)
+	// 		refMap, ok := refsSlice[0].(map[string]interface{})
+	// 		if !ok {
+	// 			t.Logf("found the ref element, but it was not a map, but %T", refsSlice[0])
+	// 			t.Fail()
+	// 		}
 
-		rawRef, ok := patchedAction.Schema.(map[string]interface{})["testReference"]
-		if !ok {
-			return nil
-		}
+	// 		return refMap["beacon"]
+	// 	}
 
-		refsSlice, ok := rawRef.([]interface{})
-		if !ok {
-			t.Logf("found the ref prop, but it was not a slice, but %T", refsSlice)
-			t.Fail()
-		}
-
-		if len(refsSlice) != 1 {
-			t.Logf("expected ref slice to have one element, but got: %d", len(refsSlice))
-			t.Fail()
-		}
-
-		refMap, ok := refsSlice[0].(map[string]interface{})
-		if !ok {
-			t.Logf("found the ref element, but it was not a map, but %T", refsSlice[0])
-			t.Fail()
-		}
-
-		return refMap["beacon"]
-	}
-
-	helper.AssertEventuallyEqual(t, fmt.Sprintf("weaviate://localhost/things/%s", thingToRefID), actualThunk)
+	// 	helper.AssertEventuallyEqual(t, fmt.Sprintf("weaviate://localhost/things/%s", thingToRefID), actualThunk)
+	// }
 }
