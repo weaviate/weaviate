@@ -41,7 +41,7 @@ func (m *Manager) MergeThing(ctx context.Context, principal *models.Principal,
 	}
 
 	if err := m.validateMergeThing(ctx, principal, id, updated); err != nil {
-		return fmt.Errorf("invalid merge: %v", err)
+		return NewErrInvalidUserInput("invalid merge: %v", err)
 	}
 	primitive, refs := m.splitPrimitiveAndRefs(updated.Schema.(map[string]interface{}),
 		updated.Class, id, kind.Thing)
@@ -54,7 +54,7 @@ func (m *Manager) MergeThing(ctx context.Context, principal *models.Principal,
 		References:      refs,
 	})
 	if err != nil {
-		return err
+		return NewErrInternal("repo: %v", err)
 	}
 
 	return nil
@@ -94,7 +94,7 @@ func (m *Manager) MergeAction(ctx context.Context, principal *models.Principal,
 	}
 
 	if err := m.validateMergeAction(ctx, principal, id, updated); err != nil {
-		return fmt.Errorf("invalid merge: %v", err)
+		return NewErrInvalidUserInput("invalid merge: %v", err)
 	}
 	primitive, refs := m.splitPrimitiveAndRefs(updated.Schema.(map[string]interface{}),
 		updated.Class, id, kind.Action)
@@ -106,7 +106,7 @@ func (m *Manager) MergeAction(ctx context.Context, principal *models.Principal,
 		References:      refs,
 	})
 	if err != nil {
-		return err
+		return NewErrInternal("repo: %v", err)
 	}
 
 	return nil

@@ -16,7 +16,6 @@ package kinds
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"testing"
 	"time"
 
@@ -53,7 +52,7 @@ func Test_MergeAction(t *testing.T) {
 					"foo": "bar",
 				},
 			},
-			expectedErr: fmt.Errorf("invalid merge: action object with id '%s' does not exist",
+			expectedErr: NewErrInvalidUserInput("invalid merge: action object with id '%s' does not exist",
 				"dd59815b-142b-4c54-9b12-482434bd54ca"),
 		},
 		testCase{
@@ -204,7 +203,7 @@ func Test_MergeThing(t *testing.T) {
 					"foo": "bar",
 				},
 			},
-			expectedErr: fmt.Errorf("invalid merge: thing object with id '%s' does not exist",
+			expectedErr: NewErrInvalidUserInput("invalid merge: thing object with id '%s' does not exist",
 				"dd59815b-142b-4c54-9b12-482434bd54ca"),
 		},
 		testCase{
