@@ -28,9 +28,8 @@ import (
 
 // Test that we can properly list things.
 // Create two things, and check that the list all contains them all.
-func TestListAll(t *testing.T) {
-	t.Parallel()
-
+// This test is run by setup_test.go
+func listingThings(t *testing.T) {
 	params1 := things.NewThingsCreateParams().WithBody(
 		&models.Thing{
 			Class:  "TestThing",
