@@ -64,7 +64,7 @@ func (r *Repo) errorsInBulkResponse(res *esapi.Response) error {
 	for _, item := range parsed.Items {
 		err := item.Update.Error
 		if err != nil {
-			errors = append(errors, err.(string))
+			errors = append(errors, fmt.Sprintf("%v", err))
 		}
 	}
 

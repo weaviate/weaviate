@@ -17,8 +17,10 @@ package test
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/semi-technologies/weaviate/client/actions"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
@@ -107,63 +109,59 @@ func updateActions(t *testing.T) {
 		helper.AssertEventuallyEqual(t, true, actualThunk)
 	})
 
-	// TODO reeanable gh-1021
-	// func TestCanPatchActionsSetCref(t *testing.T) {
-	// 	t.Parallel()
+	t.Run("can patch action with cref", func(t *testing.T) {
+		thingToRefID := assertCreateThing(t, "ActionTestThing", nil)
+		assertGetThingEventually(t, thingToRefID)
+		actionID := assertCreateAction(t, "TestAction", nil)
+		assertGetActionEventually(t, actionID)
 
-	// 	thingToRefID := assertCreateThing(t, "TestThing", nil)
-	// 	assertGetThingEventually(t, thingToRefID)
-	// 	actionID := assertCreateAction(t, "TestAction", nil)
-	// 	assertGetActionEventually(t, actionID)
+		merge := &models.Action{
+			Class: "TestAction",
+			Schema: map[string]interface{}{
+				"testReference": []interface{}{
+					map[string]interface{}{
+						"beacon": fmt.Sprintf("weaviate://localhost/things/%s", thingToRefID),
+					},
+				},
+			},
+		}
 
-	// 	op := "add"
-	// 	path := "/schema/testReference"
+		// Now to try to link
+		params := actions.NewActionsPatchParams().
+			WithBody(merge).
+			WithID(actionID)
+		patchResp, err := helper.Client(t).Actions.ActionsPatch(params, nil)
+		spew.Dump(err)
+		helper.AssertRequestOk(t, patchResp, err, nil)
 
-	// 	patch := &models.PatchDocument{
-	// 		Op:   &op,
-	// 		Path: &path,
-	// 		Value: []interface{}{
-	// 			map[string]interface{}{
-	// 				"beacon": fmt.Sprintf("weaviate://localhost/things/%s", thingToRefID),
-	// 			},
-	// 		},
-	// 	}
+		actualThunk := func() interface{} {
+			patchedAction := assertGetAction(t, actionID)
 
-	// 	// Now to try to link
-	// 	params := actions.NewActionsPatchParams().
-	// 		WithBody([]*models.PatchDocument{patch}).
-	// 		WithID(actionID)
-	// 	patchResp, err := helper.Client(t).Actions.ActionsPatch(params, nil)
-	// 	helper.AssertRequestOk(t, patchResp, err, nil)
+			rawRef, ok := patchedAction.Schema.(map[string]interface{})["testReference"]
+			if !ok {
+				return nil
+			}
 
-	// 	actualThunk := func() interface{} {
-	// 		patchedAction := assertGetAction(t, actionID)
+			refsSlice, ok := rawRef.([]interface{})
+			if !ok {
+				t.Logf("found the ref prop, but it was not a slice, but %T", refsSlice)
+				t.Fail()
+			}
 
-	// 		rawRef, ok := patchedAction.Schema.(map[string]interface{})["testReference"]
-	// 		if !ok {
-	// 			return nil
-	// 		}
+			if len(refsSlice) != 1 {
+				t.Logf("expected ref slice to have one element, but got: %d", len(refsSlice))
+				t.Fail()
+			}
 
-	// 		refsSlice, ok := rawRef.([]interface{})
-	// 		if !ok {
-	// 			t.Logf("found the ref prop, but it was not a slice, but %T", refsSlice)
-	// 			t.Fail()
-	// 		}
+			refMap, ok := refsSlice[0].(map[string]interface{})
+			if !ok {
+				t.Logf("found the ref element, but it was not a map, but %T", refsSlice[0])
+				t.Fail()
+			}
 
-	// 		if len(refsSlice) != 1 {
-	// 			t.Logf("expected ref slice to have one element, but got: %d", len(refsSlice))
-	// 			t.Fail()
-	// 		}
+			return refMap["beacon"]
+		}
 
-	// 		refMap, ok := refsSlice[0].(map[string]interface{})
-	// 		if !ok {
-	// 			t.Logf("found the ref element, but it was not a map, but %T", refsSlice[0])
-	// 			t.Fail()
-	// 		}
-
-	// 		return refMap["beacon"]
-	// 	}
-
-	// 	helper.AssertEventuallyEqual(t, fmt.Sprintf("weaviate://localhost/things/%s", thingToRefID), actualThunk)
-	// }
+		helper.AssertEventuallyEqual(t, fmt.Sprintf("weaviate://localhost/things/%s", thingToRefID), actualThunk)
+	})
 }
