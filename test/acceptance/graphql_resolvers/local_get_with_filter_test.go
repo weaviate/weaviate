@@ -21,7 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestGetWithComplexFilter(t *testing.T) {
+func gettingObjectsWithFilters(t *testing.T) {
 	t.Run("without filters <- this is the control", func(t *testing.T) {
 		query := `
 		{
