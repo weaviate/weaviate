@@ -22,7 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 )
 
-func TestCanAddAndRemoveAction(t *testing.T) {
+func removingActions(t *testing.T) {
 	actionId := assertCreateAction(t, "TestAction", map[string]interface{}{})
 
 	// Yes, it's created
