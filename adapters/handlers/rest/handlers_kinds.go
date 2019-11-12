@@ -14,9 +14,6 @@
 package rest
 
 import (
-	"encoding/json"
-
-	jsonpatch "github.com/evanphx/json-patch"
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/actions"
@@ -335,41 +332,6 @@ func (h *kindHandlers) patchAction(params actions.ActionsPatchParams, principal 
 
 	// TODO payload
 	return actions.NewActionsPatchOK().WithPayload(nil)
-}
-
-func (h *kindHandlers) getPatchedKind(orig interface{},
-	patch interface{}, target interface{}) error {
-
-	// Get PATCH params in format RFC 6902
-	jsonBody, err := json.Marshal(patch)
-	if err != nil {
-		return kinds.NewErrInternal(err.Error())
-	}
-
-	patchObject, err := jsonpatch.DecodePatch([]byte(jsonBody))
-	if err != nil {
-		return kinds.NewErrInvalidUserInput(err.Error())
-	}
-
-	// Convert Kind to JSON
-	origJSON, err := json.Marshal(orig)
-	if err != nil {
-		return kinds.NewErrInternal(err.Error())
-	}
-
-	// Apply the patch
-	updatedJSON, err := patchObject.Apply(origJSON)
-	if err != nil {
-		return kinds.NewErrInternal(err.Error())
-	}
-
-	// Marshal back to original format
-	err = json.Unmarshal([]byte(updatedJSON), &target)
-	if err != nil {
-		return kinds.NewErrInternal(err.Error())
-	}
-
-	return nil
 }
 
 func (h *kindHandlers) addThingReference(params things.ThingsReferencesCreateParams,
