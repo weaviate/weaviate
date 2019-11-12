@@ -45,13 +45,17 @@ func (m *Manager) MergeThing(ctx context.Context, principal *models.Principal,
 	}
 	primitive, refs := m.splitPrimitiveAndRefs(updated.Schema.(map[string]interface{}),
 		updated.Class, id, kind.Thing)
-	m.vectorRepo.Merge(ctx, MergeDocument{
+
+	err = m.vectorRepo.Merge(ctx, MergeDocument{
 		Kind:            kind.Thing,
 		Class:           updated.Class,
 		ID:              id,
 		PrimitiveSchema: primitive,
 		References:      refs,
 	})
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -94,13 +98,16 @@ func (m *Manager) MergeAction(ctx context.Context, principal *models.Principal,
 	}
 	primitive, refs := m.splitPrimitiveAndRefs(updated.Schema.(map[string]interface{}),
 		updated.Class, id, kind.Action)
-	m.vectorRepo.Merge(ctx, MergeDocument{
+	err = m.vectorRepo.Merge(ctx, MergeDocument{
 		Kind:            kind.Action,
 		Class:           updated.Class,
 		ID:              id,
 		PrimitiveSchema: primitive,
 		References:      refs,
 	})
+	if err != nil {
+		return err
+	}
 
 	return nil
 }

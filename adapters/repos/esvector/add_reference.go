@@ -63,8 +63,12 @@ func (r *Repo) upsertReferenceBucket(refProp string, ref *models.SingleRef) map[
 				} else { 
 					ctx._source.%s = [params.refs]
 				} 
-			  ctx._source.%s.%s = false
-			`, refProp, refProp, refProp, keyCache, keyCacheHot),
+				if (ctx._source.containsKey("%s")) { 
+					ctx._source.%s.%s = false
+				} else {
+					ctx._source.%s = [ "%s": false ]
+				}
+			`, refProp, refProp, refProp, keyCache, keyCache, keyCacheHot, keyCache, keyCacheHot),
 			"lang": "painless",
 			"params": map[string]interface{}{
 				"refs": ref,

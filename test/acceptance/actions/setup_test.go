@@ -10,6 +10,15 @@ import (
 
 func Test_Actions(t *testing.T) {
 	t.Run("setup", func(t *testing.T) {
+		createThingClass(t, &models.Class{
+			Class: "ActionTestThing",
+			Properties: []*models.Property{
+				&models.Property{
+					Name:     "testString",
+					DataType: []string{"string"},
+				},
+			},
+		})
 		createActionClass(t, &models.Class{
 			Class: "TestAction",
 			Properties: []*models.Property{
@@ -32,6 +41,10 @@ func Test_Actions(t *testing.T) {
 				&models.Property{
 					Name:     "testTrueFalse",
 					DataType: []string{"boolean"},
+				},
+				&models.Property{
+					Name:     "testReference",
+					DataType: []string{"ActionTestThing"},
 				},
 			},
 		})
@@ -63,8 +76,9 @@ func Test_Actions(t *testing.T) {
 	t.Run("updating actions", updateActions)
 
 	// tear down
-	deleteActionClass(t, "TestAction")
-	deleteActionClass(t, "TestActionTwo")
+	// deleteThingClass(t, "ActionTestThing")
+	// deleteActionClass(t, "TestAction")
+	// deleteActionClass(t, "TestActionTwo")
 }
 
 func createActionClass(t *testing.T, class *models.Class) {
@@ -76,5 +90,17 @@ func createActionClass(t *testing.T, class *models.Class) {
 func deleteActionClass(t *testing.T, class string) {
 	delParams := schema.NewSchemaActionsDeleteParams().WithClassName(class)
 	delRes, err := helper.Client(t).Schema.SchemaActionsDelete(delParams, nil)
+	helper.AssertRequestOk(t, delRes, err, nil)
+}
+
+func createThingClass(t *testing.T, class *models.Class) {
+	params := schema.NewSchemaThingsCreateParams().WithThingClass(class)
+	resp, err := helper.Client(t).Schema.SchemaThingsCreate(params, nil)
+	helper.AssertRequestOk(t, resp, err, nil)
+}
+
+func deleteThingClass(t *testing.T, class string) {
+	delParams := schema.NewSchemaThingsDeleteParams().WithClassName(class)
+	delRes, err := helper.Client(t).Schema.SchemaThingsDelete(delParams, nil)
 	helper.AssertRequestOk(t, delRes, err, nil)
 }
