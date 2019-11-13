@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	uuid "github.com/satori/go.uuid"
@@ -322,4 +323,8 @@ func (ec *errorCompounder) toError() error {
 	}
 
 	return errors.New(msg.String())
+}
+
+func unixNow() int64 {
+	return time.Now().UnixNano() / int64(time.Millisecond)
 }

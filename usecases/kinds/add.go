@@ -98,7 +98,7 @@ func (m *Manager) addActionToConnectorAndSchema(ctx context.Context, principal *
 		return nil, NewErrInternal("could not update schema for network refs: %v", err)
 	}
 
-	now := unixNow()
+	now := m.timeSource.Now()
 	class.CreationTimeUnix = now
 	class.LastUpdateTimeUnix = now
 
@@ -180,7 +180,7 @@ func (m *Manager) addThingToConnectorAndSchema(ctx context.Context, principal *m
 		return nil, NewErrInternal("could not update schema for network refs: %v", err)
 	}
 
-	now := unixNow()
+	now := m.timeSource.Now()
 	class.CreationTimeUnix = now
 	class.LastUpdateTimeUnix = now
 

@@ -93,7 +93,11 @@ func (r *Repo) encodeMerge(enc *json.Encoder, merge kinds.MergeDocument) error {
 func (r *Repo) encodeMergePrimitive(enc *json.Encoder, merge kinds.MergeDocument) error {
 	index := classIndexFromClassName(merge.Kind, merge.Class)
 	control := r.bulkUpdateControlObject(index, merge.ID.String())
-	props := r.addPropsToBucket(map[string]interface{}{}, merge.PrimitiveSchema)
+	initial := map[string]interface{}{
+		keyVector.String():  vectorToBase64(merge.Vector),
+		keyUpdated.String(): merge.UpdateTime,
+	}
+	props := r.addPropsToBucket(initial, merge.PrimitiveSchema)
 
 	bucket := r.primitiveUpsertBucket(props)
 

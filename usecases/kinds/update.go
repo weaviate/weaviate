@@ -16,7 +16,6 @@ package kinds
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -85,7 +84,7 @@ func (m *Manager) updateActionToConnectorAndSchema(ctx context.Context, principa
 		return nil, NewErrInternal("could not update schema for network refs: %v", err)
 	}
 
-	class.LastUpdateTimeUnix = unixNow()
+	class.LastUpdateTimeUnix = m.timeSource.Now()
 
 	err = m.vectorizeAndPutAction(ctx, class)
 	if err != nil {
@@ -144,7 +143,7 @@ func (m *Manager) updateThingToConnectorAndSchema(ctx context.Context, principal
 		return nil, NewErrInternal("update schema for network refs: %v", err)
 	}
 
-	class.LastUpdateTimeUnix = unixNow()
+	class.LastUpdateTimeUnix = m.timeSource.Now()
 
 	err = m.vectorizeAndPutThing(ctx, class)
 	if err != nil {
@@ -152,8 +151,4 @@ func (m *Manager) updateThingToConnectorAndSchema(ctx context.Context, principal
 	}
 
 	return class, nil
-}
-
-func unixNow() int64 {
-	return time.Now().UnixNano() / int64(time.Millisecond)
 }

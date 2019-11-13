@@ -79,10 +79,11 @@ func Test_MergeAction(t *testing.T) {
 				},
 			},
 			expectedOutput: &MergeDocument{
-				Kind:   kind.Action,
-				Class:  "ZooAction",
-				ID:     "dd59815b-142b-4c54-9b12-482434bd54ca",
-				Vector: []float32{1, 2, 3},
+				UpdateTime: 12345,
+				Kind:       kind.Action,
+				Class:      "ZooAction",
+				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
+				Vector:     []float32{1, 2, 3},
 				PrimitiveSchema: map[string]interface{}{
 					"name": "My little pony zoo with extra sparkles",
 				},
@@ -123,10 +124,11 @@ func Test_MergeAction(t *testing.T) {
 				},
 			},
 			expectedOutput: &MergeDocument{
-				Kind:   kind.Action,
-				Class:  "ZooAction",
-				ID:     "dd59815b-142b-4c54-9b12-482434bd54ca",
-				Vector: []float32{1, 2, 3},
+				UpdateTime: 12345,
+				Kind:       kind.Action,
+				Class:      "ZooAction",
+				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
+				Vector:     []float32{1, 2, 3},
 				PrimitiveSchema: map[string]interface{}{
 					"name":      "My little pony zoo with extra sparkles",
 					"area":      3.222,
@@ -165,9 +167,10 @@ func Test_MergeAction(t *testing.T) {
 				},
 			},
 			expectedOutput: &MergeDocument{
-				Kind:  kind.Action,
-				Class: "ZooAction",
-				ID:    "dd59815b-142b-4c54-9b12-482434bd54ca",
+				UpdateTime: 12345,
+				Kind:       kind.Action,
+				Class:      "ZooAction",
+				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
 				PrimitiveSchema: map[string]interface{}{
 					"name": "My little pony zoo with extra sparkles",
 				},
@@ -195,6 +198,7 @@ func Test_MergeAction(t *testing.T) {
 			vectorizer := &fakeVectorizer{}
 			manager := NewManager(locks, schemaManager, network,
 				cfg, logger, authorizer, vectorizer, vectorRepo)
+			manager.timeSource = fakeTimeSource{}
 
 			if test.previous != nil {
 				vectorRepo.On("ActionByID", test.id, traverser.SelectProperties(nil), false).
@@ -274,10 +278,11 @@ func Test_MergeThing(t *testing.T) {
 				},
 			},
 			expectedOutput: &MergeDocument{
-				Kind:   kind.Thing,
-				Class:  "Zoo",
-				ID:     "dd59815b-142b-4c54-9b12-482434bd54ca",
-				Vector: []float32{1, 2, 3},
+				UpdateTime: 12345,
+				Kind:       kind.Thing,
+				Class:      "Zoo",
+				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
+				Vector:     []float32{1, 2, 3},
 				PrimitiveSchema: map[string]interface{}{
 					"name": "My little pony zoo with extra sparkles",
 				},
@@ -318,10 +323,11 @@ func Test_MergeThing(t *testing.T) {
 				},
 			},
 			expectedOutput: &MergeDocument{
-				Kind:   kind.Thing,
-				Class:  "Zoo",
-				ID:     "dd59815b-142b-4c54-9b12-482434bd54ca",
-				Vector: []float32{1, 2, 3},
+				UpdateTime: 12345,
+				Kind:       kind.Thing,
+				Class:      "Zoo",
+				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
+				Vector:     []float32{1, 2, 3},
 				PrimitiveSchema: map[string]interface{}{
 					"name":      "My little pony zoo with extra sparkles",
 					"area":      3.222,
@@ -360,9 +366,10 @@ func Test_MergeThing(t *testing.T) {
 				},
 			},
 			expectedOutput: &MergeDocument{
-				Kind:  kind.Thing,
-				Class: "Zoo",
-				ID:    "dd59815b-142b-4c54-9b12-482434bd54ca",
+				UpdateTime: 12345,
+				Kind:       kind.Thing,
+				Class:      "Zoo",
+				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
 				PrimitiveSchema: map[string]interface{}{
 					"name": "My little pony zoo with extra sparkles",
 				},
@@ -390,6 +397,7 @@ func Test_MergeThing(t *testing.T) {
 			vectorizer := &fakeVectorizer{}
 			manager := NewManager(locks, schemaManager, network,
 				cfg, logger, authorizer, vectorizer, vectorRepo)
+			manager.timeSource = fakeTimeSource{}
 
 			if test.previous != nil {
 				vectorRepo.On("ThingByID", test.id, traverser.SelectProperties(nil), false).
@@ -445,4 +453,10 @@ func crossrefMustParseSource(in string) *crossref.RefSource {
 	}
 
 	return ref
+}
+
+type fakeTimeSource struct{}
+
+func (f fakeTimeSource) Now() int64 {
+	return 12345
 }
