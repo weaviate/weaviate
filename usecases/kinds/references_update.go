@@ -73,7 +73,7 @@ func (m *Manager) updateActionReferenceToConnectorAndSchema(ctx context.Context,
 		return err
 	}
 	action.Schema = updatedSchema
-	action.LastUpdateTimeUnix = unixNow()
+	action.LastUpdateTimeUnix = m.timeSource.Now()
 
 	// the new refs could be network refs
 	err = m.addNetworkDataTypesForAction(ctx, principal, action)
@@ -138,7 +138,7 @@ func (m *Manager) updateThingReferenceToConnectorAndSchema(ctx context.Context, 
 		return err
 	}
 	thing.Schema = updatedSchema
-	thing.LastUpdateTimeUnix = unixNow()
+	thing.LastUpdateTimeUnix = m.timeSource.Now()
 
 	// the new refs could be network refs
 	err = m.addNetworkDataTypesForThing(ctx, principal, thing)

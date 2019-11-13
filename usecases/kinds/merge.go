@@ -32,6 +32,7 @@ type MergeDocument struct {
 	PrimitiveSchema map[string]interface{}
 	References      BatchReferences
 	Vector          []float32
+	UpdateTime      int64
 }
 
 func (m *Manager) MergeAction(ctx context.Context, principal *models.Principal,
@@ -61,6 +62,7 @@ func (m *Manager) MergeAction(ctx context.Context, principal *models.Principal,
 		PrimitiveSchema: primitive,
 		References:      refs,
 		Vector:          vector,
+		UpdateTime:      m.timeSource.Now(),
 	})
 	if err != nil {
 		return NewErrInternal("repo: %v", err)
@@ -147,6 +149,7 @@ func (m *Manager) MergeThing(ctx context.Context, principal *models.Principal,
 		PrimitiveSchema: primitive,
 		References:      refs,
 		Vector:          vector,
+		UpdateTime:      m.timeSource.Now(),
 	})
 	if err != nil {
 		return NewErrInternal("repo: %v", err)

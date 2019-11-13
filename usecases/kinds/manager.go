@@ -21,6 +21,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	uuid "github.com/satori/go.uuid"
@@ -45,6 +46,11 @@ type Manager struct {
 	authorizer    authorizer
 	vectorizer    Vectorizer
 	vectorRepo    VectorRepo
+	timeSource    timeSource
+}
+
+type timeSource interface {
+	Now() int64
 }
 
 type Vectorizer interface {
@@ -97,6 +103,7 @@ func NewManager(locks locks, schemaManager schemaManager,
 		vectorizer:    vectorizer,
 		authorizer:    authorizer,
 		vectorRepo:    vectorRepo,
+		timeSource:    defaultTimeSource{},
 	}
 }
 
@@ -118,4 +125,10 @@ func generateUUID() (strfmt.UUID, error) {
 	}
 
 	return strfmt.UUID(fmt.Sprintf("%v", uuid)), nil
+}
+
+type defaultTimeSource struct{}
+
+func (ts defaultTimeSource) Now() int64 {
+	return time.Now().UnixNano() / int64(time.Millisecond)
 }
