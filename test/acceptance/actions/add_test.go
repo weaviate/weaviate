@@ -13,8 +13,6 @@
 
 package test
 
-// Acceptance tests for actions
-
 import (
 	"encoding/json"
 	"fmt"
@@ -27,109 +25,108 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestCanCreateAction(t *testing.T) {
-	t.Parallel()
+// executed in setup_test.go
+func addingActions(t *testing.T) {
+	t.Run("can create action", func(t *testing.T) {
+		// Set all action values to compare
+		actionTestString := "Test string"
+		actionTestInt := 1
+		actionTestBoolean := true
+		actionTestNumber := 1.337
+		actionTestDate := "2017-10-06T08:15:30+01:00"
 
-	// Set all action values to compare
-	actionTestString := "Test string"
-	actionTestInt := 1
-	actionTestBoolean := true
-	actionTestNumber := 1.337
-	actionTestDate := "2017-10-06T08:15:30+01:00"
+		params := actions.NewActionsCreateParams().WithBody(
+			&models.Action{
+				Class: "TestAction",
+				Schema: map[string]interface{}{
+					"testString":      actionTestString,
+					"testWholeNumber": actionTestInt,
+					"testTrueFalse":   actionTestBoolean,
+					"testNumber":      actionTestNumber,
+					"testDateTime":    actionTestDate,
+				},
+			})
 
-	params := actions.NewActionsCreateParams().WithBody(
-		&models.Action{
-			Class: "TestAction",
-			Schema: map[string]interface{}{
-				"testString":      actionTestString,
-				"testWholeNumber": actionTestInt,
-				"testTrueFalse":   actionTestBoolean,
-				"testNumber":      actionTestNumber,
-				"testDateTime":    actionTestDate,
+		resp, err := helper.Client(t).Actions.ActionsCreate(params, nil)
+
+		// Ensure that the response is OK
+		helper.AssertRequestOk(t, resp, err, func() {
+			action := resp.Payload
+			assert.Regexp(t, strfmt.UUIDPattern, action.ID)
+
+			schema, ok := action.Schema.(map[string]interface{})
+			if !ok {
+				t.Fatal("The returned schema is not an JSON object")
+			}
+
+			testWholeNumber, _ := schema["testWholeNumber"].(json.Number).Int64()
+			testNumber, _ := schema["testNumber"].(json.Number).Float64()
+
+			// Check whether the returned information is the same as the data added
+			assert.Equal(t, actionTestString, schema["testString"])
+			assert.Equal(t, actionTestInt, int(testWholeNumber))
+			assert.Equal(t, actionTestBoolean, schema["testTrueFalse"])
+			assert.Equal(t, actionTestNumber, testNumber)
+			assert.Equal(t, actionTestDate, schema["testDateTime"])
+		})
+	})
+
+	t.Run("can create and get action", func(t *testing.T) {
+		actionTestString := "Test string"
+		actionTestInt := 1
+		actionTestBoolean := true
+		actionTestNumber := 1.337
+		actionTestDate := "2017-10-06T08:15:30+01:00"
+
+		actionID := assertCreateAction(t, "TestAction", map[string]interface{}{
+			"testString":      actionTestString,
+			"testWholeNumber": actionTestInt,
+			"testTrueFalse":   actionTestBoolean,
+			"testNumber":      actionTestNumber,
+			"testDateTime":    actionTestDate,
+		})
+		assertGetActionEventually(t, actionID)
+
+		// Now fetch the action
+		getResp, err := helper.Client(t).Actions.ActionsGet(actions.NewActionsGetParams().WithID(actionID), nil)
+
+		helper.AssertRequestOk(t, getResp, err, func() {
+			action := getResp.Payload
+
+			schema, ok := action.Schema.(map[string]interface{})
+			if !ok {
+				t.Fatal("The returned schema is not an JSON object")
+			}
+
+			testWholeNumber, _ := schema["testWholeNumber"].(json.Number).Int64()
+			testNumber, _ := schema["testNumber"].(json.Number).Float64()
+
+			// Check whether the returned information is the same as the data added
+			assert.Equal(t, actionTestString, schema["testString"])
+			assert.Equal(t, actionTestInt, int(testWholeNumber))
+			assert.Equal(t, actionTestBoolean, schema["testTrueFalse"])
+			assert.Equal(t, actionTestNumber, testNumber)
+			assert.Equal(t, actionTestDate, schema["testDateTime"])
+		})
+	})
+
+	t.Run("can add single ref", func(t *testing.T) {
+		fmt.Println("before first")
+		firstID := assertCreateAction(t, "TestAction", map[string]interface{}{})
+		assertGetActionEventually(t, firstID)
+
+		secondID := assertCreateAction(t, "TestActionTwo", map[string]interface{}{
+			"testString": "stringy",
+			"testReference": []interface{}{
+				map[string]interface{}{
+					"beacon": fmt.Sprintf("weaviate://localhost/actions/%s", firstID),
+				},
 			},
 		})
 
-	resp, err := helper.Client(t).Actions.ActionsCreate(params, nil)
+		secondAction := assertGetActionEventually(t, secondID)
 
-	// Ensure that the response is OK
-	helper.AssertRequestOk(t, resp, err, func() {
-		action := resp.Payload
-		assert.Regexp(t, strfmt.UUIDPattern, action.ID)
-
-		schema, ok := action.Schema.(map[string]interface{})
-		if !ok {
-			t.Fatal("The returned schema is not an JSON object")
-		}
-
-		testWholeNumber, _ := schema["testWholeNumber"].(json.Number).Int64()
-		testNumber, _ := schema["testNumber"].(json.Number).Float64()
-
-		// Check whether the returned information is the same as the data added
-		assert.Equal(t, actionTestString, schema["testString"])
-		assert.Equal(t, actionTestInt, int(testWholeNumber))
-		assert.Equal(t, actionTestBoolean, schema["testTrueFalse"])
-		assert.Equal(t, actionTestNumber, testNumber)
-		assert.Equal(t, actionTestDate, schema["testDateTime"])
+		singleRef := secondAction.Schema.(map[string]interface{})["testReference"].([]interface{})[0].(map[string]interface{})
+		assert.Equal(t, singleRef["beacon"].(string), fmt.Sprintf("weaviate://localhost/actions/%s", firstID))
 	})
-}
-
-func TestCanCreateAndGetAction(t *testing.T) {
-	t.Parallel()
-
-	actionTestString := "Test string"
-	actionTestInt := 1
-	actionTestBoolean := true
-	actionTestNumber := 1.337
-	actionTestDate := "2017-10-06T08:15:30+01:00"
-
-	actionID := assertCreateAction(t, "TestAction", map[string]interface{}{
-		"testString":      actionTestString,
-		"testWholeNumber": actionTestInt,
-		"testTrueFalse":   actionTestBoolean,
-		"testNumber":      actionTestNumber,
-		"testDateTime":    actionTestDate,
-	})
-	assertGetActionEventually(t, actionID)
-
-	// Now fetch the action
-	getResp, err := helper.Client(t).Actions.ActionsGet(actions.NewActionsGetParams().WithID(actionID), nil)
-
-	helper.AssertRequestOk(t, getResp, err, func() {
-		action := getResp.Payload
-
-		schema, ok := action.Schema.(map[string]interface{})
-		if !ok {
-			t.Fatal("The returned schema is not an JSON object")
-		}
-
-		testWholeNumber, _ := schema["testWholeNumber"].(json.Number).Int64()
-		testNumber, _ := schema["testNumber"].(json.Number).Float64()
-
-		// Check whether the returned information is the same as the data added
-		assert.Equal(t, actionTestString, schema["testString"])
-		assert.Equal(t, actionTestInt, int(testWholeNumber))
-		assert.Equal(t, actionTestBoolean, schema["testTrueFalse"])
-		assert.Equal(t, actionTestNumber, testNumber)
-		assert.Equal(t, actionTestDate, schema["testDateTime"])
-	})
-}
-
-func TestCanAddSingleRefAction(t *testing.T) {
-	fmt.Println("before first")
-	firstID := assertCreateAction(t, "TestAction", map[string]interface{}{})
-	assertGetActionEventually(t, firstID)
-
-	secondID := assertCreateAction(t, "TestActionTwo", map[string]interface{}{
-		"testString": "stringy",
-		"testReference": []interface{}{
-			map[string]interface{}{
-				"beacon": fmt.Sprintf("weaviate://localhost/actions/%s", firstID),
-			},
-		},
-	})
-
-	secondAction := assertGetActionEventually(t, secondID)
-
-	singleRef := secondAction.Schema.(map[string]interface{})["testReference"].([]interface{})[0].(map[string]interface{})
-	assert.Equal(t, singleRef["beacon"].(string), fmt.Sprintf("weaviate://localhost/actions/%s", firstID))
 }

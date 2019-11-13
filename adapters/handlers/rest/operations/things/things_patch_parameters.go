@@ -19,7 +19,6 @@ package things
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	"io"
 	"net/http"
 
 	"github.com/go-openapi/errors"
@@ -48,11 +47,10 @@ type ThingsPatchParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*JSONPatch document as defined by RFC 6902.
-	  Required: true
+	/*RFC 7396-style patch, the body contains the thing object to merge into the existing thing object.
 	  In: body
 	*/
-	Body []*models.PatchDocument
+	Body *models.Thing
 	/*Unique ID of the Thing.
 	  Required: true
 	  In: path
@@ -71,30 +69,19 @@ func (o *ThingsPatchParams) BindRequest(r *http.Request, route *middleware.Match
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body []*models.PatchDocument
+		var body models.Thing
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
-			if err == io.EOF {
-				res = append(res, errors.Required("body", "body"))
-			} else {
-				res = append(res, errors.NewParseError("body", "body", "", err))
-			}
+			res = append(res, errors.NewParseError("body", "body", "", err))
 		} else {
-			// validate array of body objects
-			for i := range body {
-				if body[i] == nil {
-					continue
-				}
-				if err := body[i].Validate(route.Formats); err != nil {
-					res = append(res, err)
-					break
-				}
+			// validate body object
+			if err := body.Validate(route.Formats); err != nil {
+				res = append(res, err)
 			}
+
 			if len(res) == 0 {
-				o.Body = body
+				o.Body = &body
 			}
 		}
-	} else {
-		res = append(res, errors.Required("body", "body"))
 	}
 	rID, rhkID, _ := route.Params.GetOK("id")
 	if err := o.bindID(rID, rhkID, route.Formats); err != nil {

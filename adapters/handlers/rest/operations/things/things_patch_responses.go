@@ -26,48 +26,28 @@ import (
 	models "github.com/semi-technologies/weaviate/entities/models"
 )
 
-// ThingsPatchOKCode is the HTTP code returned for type ThingsPatchOK
-const ThingsPatchOKCode int = 200
+// ThingsPatchNoContentCode is the HTTP code returned for type ThingsPatchNoContent
+const ThingsPatchNoContentCode int = 204
 
-/*ThingsPatchOK Successfully applied.
+/*ThingsPatchNoContent Successfully applied. No content returned
 
-swagger:response thingsPatchOK
+swagger:response thingsPatchNoContent
 */
-type ThingsPatchOK struct {
-
-	/*
-	  In: Body
-	*/
-	Payload *models.Thing `json:"body,omitempty"`
+type ThingsPatchNoContent struct {
 }
 
-// NewThingsPatchOK creates ThingsPatchOK with default headers values
-func NewThingsPatchOK() *ThingsPatchOK {
+// NewThingsPatchNoContent creates ThingsPatchNoContent with default headers values
+func NewThingsPatchNoContent() *ThingsPatchNoContent {
 
-	return &ThingsPatchOK{}
-}
-
-// WithPayload adds the payload to the things patch o k response
-func (o *ThingsPatchOK) WithPayload(payload *models.Thing) *ThingsPatchOK {
-	o.Payload = payload
-	return o
-}
-
-// SetPayload sets the payload to the things patch o k response
-func (o *ThingsPatchOK) SetPayload(payload *models.Thing) {
-	o.Payload = payload
+	return &ThingsPatchNoContent{}
 }
 
 // WriteResponse to the client
-func (o *ThingsPatchOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+func (o *ThingsPatchNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.WriteHeader(200)
-	if o.Payload != nil {
-		payload := o.Payload
-		if err := producer.Produce(rw, payload); err != nil {
-			panic(err) // let the recovery middleware deal with this
-		}
-	}
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+
+	rw.WriteHeader(204)
 }
 
 // ThingsPatchBadRequestCode is the HTTP code returned for type ThingsPatchBadRequest

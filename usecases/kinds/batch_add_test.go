@@ -53,6 +53,7 @@ func Test_BatchManager_AddActions(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		authorizer := &fakeAuthorizer{}
 		vectorizer := &fakeVectorizer{}
+		vectorizer.On("Action", mock.Anything).Return([]float32{0, 1, 2}, nil)
 		manager = NewBatchManager(vectorRepo, vectorizer, locks,
 			schemaManager, nil, config, logger, authorizer)
 	}
@@ -167,6 +168,7 @@ func Test_BatchManager_AddThings(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		authorizer := &fakeAuthorizer{}
 		vectorizer := &fakeVectorizer{}
+		vectorizer.On("Thing", mock.Anything).Return([]float32{0, 1, 2}, nil)
 		manager = NewBatchManager(vectorRepo, vectorizer,
 			locks, schemaManager, nil, config, logger, authorizer)
 	}

@@ -38,8 +38,8 @@ type ThingsPatchReader struct {
 func (o *ThingsPatchReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
 
-	case 200:
-		result := NewThingsPatchOK()
+	case 204:
+		result := NewThingsPatchNoContent()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -92,31 +92,23 @@ func (o *ThingsPatchReader) ReadResponse(response runtime.ClientResponse, consum
 	}
 }
 
-// NewThingsPatchOK creates a ThingsPatchOK with default headers values
-func NewThingsPatchOK() *ThingsPatchOK {
-	return &ThingsPatchOK{}
+// NewThingsPatchNoContent creates a ThingsPatchNoContent with default headers values
+func NewThingsPatchNoContent() *ThingsPatchNoContent {
+	return &ThingsPatchNoContent{}
 }
 
-/*ThingsPatchOK handles this case with default header values.
+/*ThingsPatchNoContent handles this case with default header values.
 
-Successfully applied.
+Successfully applied. No content returned
 */
-type ThingsPatchOK struct {
-	Payload *models.Thing
+type ThingsPatchNoContent struct {
 }
 
-func (o *ThingsPatchOK) Error() string {
-	return fmt.Sprintf("[PATCH /things/{id}][%d] thingsPatchOK  %+v", 200, o.Payload)
+func (o *ThingsPatchNoContent) Error() string {
+	return fmt.Sprintf("[PATCH /things/{id}][%d] thingsPatchNoContent ", 204)
 }
 
-func (o *ThingsPatchOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	o.Payload = new(models.Thing)
-
-	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
-		return err
-	}
+func (o *ThingsPatchNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	return nil
 }

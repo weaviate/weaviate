@@ -28,12 +28,15 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// PatchDocument A JSONPatch document as defined by RFC 6902.
-// swagger:model PatchDocument
-type PatchDocument struct {
+// PatchDocumentAction Either a JSONPatch document as defined by RFC 6902 (from, op, path, value), or a merge document (RFC 7396).
+// swagger:model PatchDocumentAction
+type PatchDocumentAction struct {
 
 	// A string containing a JSON Pointer value.
 	From string `json:"from,omitempty"`
+
+	// merge
+	Merge *Thing `json:"merge,omitempty"`
 
 	// The operation to be performed.
 	// Required: true
@@ -48,9 +51,13 @@ type PatchDocument struct {
 	Value interface{} `json:"value,omitempty"`
 }
 
-// Validate validates this patch document
-func (m *PatchDocument) Validate(formats strfmt.Registry) error {
+// Validate validates this patch document action
+func (m *PatchDocumentAction) Validate(formats strfmt.Registry) error {
 	var res []error
+
+	if err := m.validateMerge(formats); err != nil {
+		res = append(res, err)
+	}
 
 	if err := m.validateOp(formats); err != nil {
 		res = append(res, err)
@@ -66,7 +73,25 @@ func (m *PatchDocument) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-var patchDocumentTypeOpPropEnum []interface{}
+func (m *PatchDocumentAction) validateMerge(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Merge) { // not required
+		return nil
+	}
+
+	if m.Merge != nil {
+		if err := m.Merge.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("merge")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+var patchDocumentActionTypeOpPropEnum []interface{}
 
 func init() {
 	var res []string
@@ -74,40 +99,40 @@ func init() {
 		panic(err)
 	}
 	for _, v := range res {
-		patchDocumentTypeOpPropEnum = append(patchDocumentTypeOpPropEnum, v)
+		patchDocumentActionTypeOpPropEnum = append(patchDocumentActionTypeOpPropEnum, v)
 	}
 }
 
 const (
 
-	// PatchDocumentOpAdd captures enum value "add"
-	PatchDocumentOpAdd string = "add"
+	// PatchDocumentActionOpAdd captures enum value "add"
+	PatchDocumentActionOpAdd string = "add"
 
-	// PatchDocumentOpRemove captures enum value "remove"
-	PatchDocumentOpRemove string = "remove"
+	// PatchDocumentActionOpRemove captures enum value "remove"
+	PatchDocumentActionOpRemove string = "remove"
 
-	// PatchDocumentOpReplace captures enum value "replace"
-	PatchDocumentOpReplace string = "replace"
+	// PatchDocumentActionOpReplace captures enum value "replace"
+	PatchDocumentActionOpReplace string = "replace"
 
-	// PatchDocumentOpMove captures enum value "move"
-	PatchDocumentOpMove string = "move"
+	// PatchDocumentActionOpMove captures enum value "move"
+	PatchDocumentActionOpMove string = "move"
 
-	// PatchDocumentOpCopy captures enum value "copy"
-	PatchDocumentOpCopy string = "copy"
+	// PatchDocumentActionOpCopy captures enum value "copy"
+	PatchDocumentActionOpCopy string = "copy"
 
-	// PatchDocumentOpTest captures enum value "test"
-	PatchDocumentOpTest string = "test"
+	// PatchDocumentActionOpTest captures enum value "test"
+	PatchDocumentActionOpTest string = "test"
 )
 
 // prop value enum
-func (m *PatchDocument) validateOpEnum(path, location string, value string) error {
-	if err := validate.Enum(path, location, value, patchDocumentTypeOpPropEnum); err != nil {
+func (m *PatchDocumentAction) validateOpEnum(path, location string, value string) error {
+	if err := validate.Enum(path, location, value, patchDocumentActionTypeOpPropEnum); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (m *PatchDocument) validateOp(formats strfmt.Registry) error {
+func (m *PatchDocumentAction) validateOp(formats strfmt.Registry) error {
 
 	if err := validate.Required("op", "body", m.Op); err != nil {
 		return err
@@ -121,7 +146,7 @@ func (m *PatchDocument) validateOp(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *PatchDocument) validatePath(formats strfmt.Registry) error {
+func (m *PatchDocumentAction) validatePath(formats strfmt.Registry) error {
 
 	if err := validate.Required("path", "body", m.Path); err != nil {
 		return err
@@ -131,7 +156,7 @@ func (m *PatchDocument) validatePath(formats strfmt.Registry) error {
 }
 
 // MarshalBinary interface implementation
-func (m *PatchDocument) MarshalBinary() ([]byte, error) {
+func (m *PatchDocumentAction) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -139,8 +164,8 @@ func (m *PatchDocument) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *PatchDocument) UnmarshalBinary(b []byte) error {
-	var res PatchDocument
+func (m *PatchDocumentAction) UnmarshalBinary(b []byte) error {
+	var res PatchDocumentAction
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

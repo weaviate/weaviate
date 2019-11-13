@@ -298,7 +298,7 @@ func testEsVectorCache(t *testing.T) {
 	})
 
 	// wait for both es indexing as well as esvector caching to be complete
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(2000 * time.Millisecond)
 
 	t.Run("all 3 (outer) things must now have a hot cache", func(t *testing.T) {
 		res, err := repo.ThingByID(context.Background(), "18c80a16-346a-477d-849d-9d92e5040ac9",
@@ -426,7 +426,7 @@ func testEsVectorCache(t *testing.T) {
 	refreshAll(t, client)
 
 	// wait for both es indexing as well as esvector caching to be complete
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(2000 * time.Millisecond)
 
 	t.Run("the newly added place must have a hot cache by now", func(t *testing.T) {
 		res, err := repo.ThingByID(context.Background(), "0f02d525-902d-4dc0-8052-647cb420c1a6", traverser.SelectProperties{},

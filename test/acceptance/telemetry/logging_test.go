@@ -37,9 +37,9 @@ import (
 // exist, waits a few seconds to ensure the log *should* be sent to the mock endpoint and then retrieves
 // the most recently received log from the mock endpoint. The test then decodes the response and
 // validates its structure.
-func TestCreateActionLogging(t *testing.T) {
-	t.Parallel()
-
+//
+// controlled by setup_test.go
+func createActionLogging(t *testing.T) {
 	// send a request
 	sendCreateActionRequest(t)
 
@@ -80,7 +80,7 @@ func sendCreateActionRequest(t *testing.T) {
 
 	params := actions.NewActionsCreateParams().WithBody(
 		&models.Action{
-			Class: "TestAction",
+			Class: "MonitoringTestAction",
 			Schema: map[string]interface{}{
 				"testString":      actionTestString,
 				"testWholeNumber": actionTestInt,

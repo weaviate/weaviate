@@ -66,7 +66,7 @@ func (m *Manager) deleteActionReferenceFromConnector(ctx context.Context, princi
 		return err
 	}
 	action.Schema = extended
-	action.LastUpdateTimeUnix = unixNow()
+	action.LastUpdateTimeUnix = m.timeSource.Now()
 
 	err = m.vectorRepo.PutAction(ctx, action, actionRes.Vector)
 	if err != nil {
@@ -116,7 +116,7 @@ func (m *Manager) deleteThingReferenceFromConnector(ctx context.Context, princip
 		return err
 	}
 	thing.Schema = extended
-	thing.LastUpdateTimeUnix = unixNow()
+	thing.LastUpdateTimeUnix = m.timeSource.Now()
 
 	err = m.vectorRepo.PutThing(ctx, thing, thingRes.Vector)
 	if err != nil {

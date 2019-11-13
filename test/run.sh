@@ -30,11 +30,11 @@ function main() {
   echo "This could take some time..."
   tools/test/run_ci_server.sh
 
-  echo_green "Import required schema and test fixtures..."
-  # Note: It's not best practice to do this as part of the test script
-  # It would be better if each test independently prepared (and also 
-  # cleaned up) the test fixtures it needs, but one step at a time ;)
-  surpress_on_success import_test_fixtures
+  # echo_green "Import required schema and test fixtures..."
+  # # Note: It's not best practice to do this as part of the test script
+  # # It would be better if each test independently prepared (and also 
+  # # cleaned up) the test fixtures it needs, but one step at a time ;)
+  # surpress_on_success import_test_fixtures
 
   echo_green "Run acceptance tests..."
   run_acceptance_tests "$@"

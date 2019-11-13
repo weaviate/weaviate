@@ -14,9 +14,6 @@
 package rest
 
 import (
-	"encoding/json"
-
-	jsonpatch "github.com/evanphx/json-patch"
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/actions"
@@ -292,43 +289,9 @@ func (h *kindHandlers) deleteAction(params actions.ActionsDeleteParams,
 	return actions.NewActionsDeleteNoContent()
 }
 
-// patchThing uses RFC 6902 semantics (https://tools.ietf.org/html/rfc6902) to allow
-// a partial modificatiof the thing resource
-//
-// Internally, this means, we need to first run the Get UC, then apply the
-// patch and then run the update UC
 func (h *kindHandlers) patchThing(params things.ThingsPatchParams, principal *models.Principal) middleware.Responder {
-	origThing, err := h.manager.GetThing(params.HTTPRequest.Context(), principal, params.ID, false)
-	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return things.NewThingsPatchForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		case kinds.ErrNotFound:
-			return things.NewThingsPatchNotFound()
-		default:
-			return things.NewThingsPatchInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
-		}
-	}
 
-	patched := &models.Thing{}
-	err = h.getPatchedKind(origThing, params.Body, patched)
-	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return things.NewThingsPatchForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		case kinds.ErrInvalidUserInput:
-			return things.NewThingsPatchUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
-		default:
-			return things.NewThingsPatchInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
-		}
-	}
-
-	updated, err := h.manager.UpdateThing(params.HTTPRequest.Context(), principal, params.ID, patched)
+	err := h.manager.MergeThing(params.HTTPRequest.Context(), principal, params.ID, params.Body)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -345,46 +308,11 @@ func (h *kindHandlers) patchThing(params things.ThingsPatchParams, principal *mo
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
 
-	return things.NewThingsPatchOK().WithPayload(updated)
+	return things.NewThingsPatchNoContent()
 }
 
-// patchAction uses RFC 6902 semantics (https://tools.ietf.org/html/rfc6902) to allow
-// a partial modificatiof the action resource
-//
-// Internally, this means, we need to first run the Get UC, then apply the
-// patch and then run the update UC
 func (h *kindHandlers) patchAction(params actions.ActionsPatchParams, principal *models.Principal) middleware.Responder {
-	origAction, err := h.manager.GetAction(params.HTTPRequest.Context(), principal, params.ID, false)
-	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return actions.NewActionsPatchForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		case kinds.ErrNotFound:
-			return actions.NewActionsPatchNotFound()
-		default:
-			return actions.NewActionsPatchInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
-		}
-	}
-
-	patched := &models.Action{}
-	err = h.getPatchedKind(origAction, params.Body, patched)
-	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return actions.NewActionsPatchForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		case kinds.ErrInvalidUserInput:
-			return actions.NewActionsPatchUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
-		default:
-			return actions.NewActionsPatchInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
-		}
-	}
-
-	updated, err := h.manager.UpdateAction(params.HTTPRequest.Context(), principal, params.ID, patched)
+	err := h.manager.MergeAction(params.HTTPRequest.Context(), principal, params.ID, params.Body)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -401,43 +329,7 @@ func (h *kindHandlers) patchAction(params actions.ActionsPatchParams, principal 
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
 
-	// Returns accepted so a Go routine can process in the background
-	return actions.NewActionsPatchOK().WithPayload(updated)
-}
-
-func (h *kindHandlers) getPatchedKind(orig interface{},
-	patch interface{}, target interface{}) error {
-
-	// Get PATCH params in format RFC 6902
-	jsonBody, err := json.Marshal(patch)
-	if err != nil {
-		return kinds.NewErrInternal(err.Error())
-	}
-
-	patchObject, err := jsonpatch.DecodePatch([]byte(jsonBody))
-	if err != nil {
-		return kinds.NewErrInvalidUserInput(err.Error())
-	}
-
-	// Convert Kind to JSON
-	origJSON, err := json.Marshal(orig)
-	if err != nil {
-		return kinds.NewErrInternal(err.Error())
-	}
-
-	// Apply the patch
-	updatedJSON, err := patchObject.Apply(origJSON)
-	if err != nil {
-		return kinds.NewErrInternal(err.Error())
-	}
-
-	// Marshal back to original format
-	err = json.Unmarshal([]byte(updatedJSON), &target)
-	if err != nil {
-		return kinds.NewErrInternal(err.Error())
-	}
-
-	return nil
+	return actions.NewActionsPatchNoContent()
 }
 
 func (h *kindHandlers) addThingReference(params things.ThingsReferencesCreateParams,
