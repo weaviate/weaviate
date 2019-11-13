@@ -97,7 +97,19 @@ func Test_Kinds_Authorization(t *testing.T) {
 			expectedResource: "things/foo",
 		},
 		testCase{
+			methodName:       "MergeThing",
+			additionalArgs:   []interface{}{strfmt.UUID("foo"), (*models.Thing)(nil)},
+			expectedVerb:     "update",
+			expectedResource: "things/foo",
+		},
+		testCase{
 			methodName:       "UpdateAction",
+			additionalArgs:   []interface{}{strfmt.UUID("foo"), (*models.Action)(nil)},
+			expectedVerb:     "update",
+			expectedResource: "actions/foo",
+		},
+		testCase{
+			methodName:       "MergeAction",
 			additionalArgs:   []interface{}{strfmt.UUID("foo"), (*models.Action)(nil)},
 			expectedVerb:     "update",
 			expectedResource: "actions/foo",

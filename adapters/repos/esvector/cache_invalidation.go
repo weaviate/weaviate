@@ -64,7 +64,7 @@ func (inv *invalidator) do() error {
 	return nil
 }
 
-func (inv *invalidator) findIDs(level int) ([]bulkIndex, error) {
+func (inv *invalidator) findIDs(level int) ([]bulkID, error) {
 	query, err := inv.buildFindIDQuery(level)
 	if err != nil {
 		return nil, err
@@ -98,10 +98,10 @@ func (inv *invalidator) findIDs(level int) ([]bulkIndex, error) {
 		return nil, fmt.Errorf("id search: decode json: %v", err)
 	}
 
-	ids := make([]bulkIndex, len(sr.Hits.Hits), len(sr.Hits.Hits))
+	ids := make([]bulkID, len(sr.Hits.Hits), len(sr.Hits.Hits))
 	for i, hit := range sr.Hits.Hits {
 
-		ids[i] = bulkIndex{
+		ids[i] = bulkID{
 			ID:    hit.ID,
 			Index: hit.Index,
 		}
@@ -152,7 +152,7 @@ func (inv *invalidator) buildFindIDQuery(level int) (map[string]interface{}, err
 
 }
 
-func (inv *invalidator) bulk(targets []bulkIndex) error {
+func (inv *invalidator) bulk(targets []bulkID) error {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 
@@ -177,7 +177,7 @@ func (inv *invalidator) bulk(targets []bulkIndex) error {
 	return nil
 }
 
-func (inv *invalidator) encodeBatchUpdate(enc *json.Encoder, targets []bulkIndex) error {
+func (inv *invalidator) encodeBatchUpdate(enc *json.Encoder, targets []bulkID) error {
 	for _, target := range targets {
 
 		control := inv.bulkUpdateControlObject(target)
@@ -197,10 +197,10 @@ func (inv *invalidator) encodeBatchUpdate(enc *json.Encoder, targets []bulkIndex
 }
 
 type bulkUpdateControl struct {
-	Update bulkIndex `json:"update"`
+	Update bulkID `json:"update"`
 }
 
-func (inv *invalidator) bulkUpdateControlObject(target bulkIndex) bulkUpdateControl {
+func (inv *invalidator) bulkUpdateControlObject(target bulkID) bulkUpdateControl {
 	return bulkUpdateControl{
 		Update: target,
 	}

@@ -164,9 +164,9 @@ func (a *Client) ActionsList(params *ActionsListParams, authInfo runtime.ClientA
 /*
 ActionsPatch updates an action based on its UUID using patch semantics
 
-Updates an Action. This method supports patch semantics. Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
+Updates an Action. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
-func (a *Client) ActionsPatch(params *ActionsPatchParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsPatchOK, error) {
+func (a *Client) ActionsPatch(params *ActionsPatchParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsPatchNoContent, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewActionsPatchParams()
@@ -188,7 +188,7 @@ func (a *Client) ActionsPatch(params *ActionsPatchParams, authInfo runtime.Clien
 	if err != nil {
 		return nil, err
 	}
-	return result.(*ActionsPatchOK), nil
+	return result.(*ActionsPatchNoContent), nil
 
 }
 

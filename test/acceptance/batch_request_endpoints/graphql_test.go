@@ -13,6 +13,11 @@
 
 package batch_request_endpoints
 
+// TODO: These tests add little value, they only test one specific error case,
+// but don't test any happy path at all. This should probably be removed or
+// fixed. However, they do at least assure that the order of return values matches
+// the order of input values.
+
 // Acceptance tests for the batch GraphQL endpoint
 
 // There is a helper struct called GraphQLResult that helps to navigate through the output,
@@ -33,8 +38,7 @@ import (
 
 // Check if batch results are returned in the correct order by comparing result equality to predefined outcomes.
 // This includes testing whether individual requests and the batch request are handled correctly
-func TestBatchGraphQLResultsOrder(t *testing.T) {
-	t.Parallel()
+func gqlResultsOrder(t *testing.T) {
 
 	queryOneName := "testQuery"
 	queryTwoName := "testQuery2"

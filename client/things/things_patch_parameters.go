@@ -77,10 +77,10 @@ for the things patch operation typically these are written to a http.Request
 type ThingsPatchParams struct {
 
 	/*Body
-	  JSONPatch document as defined by RFC 6902.
+	  RFC 7396-style patch, the body contains the thing object to merge into the existing thing object.
 
 	*/
-	Body []*models.PatchDocument
+	Body *models.Thing
 	/*ID
 	  Unique ID of the Thing.
 
@@ -126,13 +126,13 @@ func (o *ThingsPatchParams) SetHTTPClient(client *http.Client) {
 }
 
 // WithBody adds the body to the things patch params
-func (o *ThingsPatchParams) WithBody(body []*models.PatchDocument) *ThingsPatchParams {
+func (o *ThingsPatchParams) WithBody(body *models.Thing) *ThingsPatchParams {
 	o.SetBody(body)
 	return o
 }
 
 // SetBody adds the body to the things patch params
-func (o *ThingsPatchParams) SetBody(body []*models.PatchDocument) {
+func (o *ThingsPatchParams) SetBody(body *models.Thing) {
 	o.Body = body
 }
 

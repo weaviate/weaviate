@@ -90,15 +90,12 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 	assertGetThingEventually(t, cityID)
 
 	t.Log("5. patch city to point to the first place")
-	add := "add"
-	path := "/schema/hasPlaces"
 	patchParams := things.NewThingsPatchParams().
 		WithID(cityID).
-		WithBody([]*models.PatchDocument{
-			&models.PatchDocument{
-				Op:   &add,
-				Path: &path,
-				Value: []interface{}{
+		WithBody(&models.Thing{
+			Class: "ReferenceTestCity",
+			Schema: map[string]interface{}{
+				"hasPlaces": []interface{}{
 					map[string]interface{}{
 						"beacon": fmt.Sprintf("weaviate://localhost/things/%s", place1ID.String()),
 					},
@@ -125,16 +122,15 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 	}, actualThunk)
 
 	t.Log("7. patch city to point to the second place")
-	add = "add"
-	path = "/schema/hasPlaces/-"
 	patchParams = things.NewThingsPatchParams().
 		WithID(cityID).
-		WithBody([]*models.PatchDocument{
-			&models.PatchDocument{
-				Op:   &add,
-				Path: &path,
-				Value: map[string]interface{}{
-					"beacon": fmt.Sprintf("weaviate://localhost/things/%s", place2ID.String()),
+		WithBody(&models.Thing{
+			Class: "ReferenceTestCity",
+			Schema: map[string]interface{}{
+				"hasPlaces": []interface{}{
+					map[string]interface{}{
+						"beacon": fmt.Sprintf("weaviate://localhost/things/%s", place2ID.String()),
+					},
 				},
 			},
 		})

@@ -26,48 +26,28 @@ import (
 	models "github.com/semi-technologies/weaviate/entities/models"
 )
 
-// ActionsPatchOKCode is the HTTP code returned for type ActionsPatchOK
-const ActionsPatchOKCode int = 200
+// ActionsPatchNoContentCode is the HTTP code returned for type ActionsPatchNoContent
+const ActionsPatchNoContentCode int = 204
 
-/*ActionsPatchOK Successfully applied.
+/*ActionsPatchNoContent Successfully applied. No content provided.
 
-swagger:response actionsPatchOK
+swagger:response actionsPatchNoContent
 */
-type ActionsPatchOK struct {
-
-	/*
-	  In: Body
-	*/
-	Payload *models.Action `json:"body,omitempty"`
+type ActionsPatchNoContent struct {
 }
 
-// NewActionsPatchOK creates ActionsPatchOK with default headers values
-func NewActionsPatchOK() *ActionsPatchOK {
+// NewActionsPatchNoContent creates ActionsPatchNoContent with default headers values
+func NewActionsPatchNoContent() *ActionsPatchNoContent {
 
-	return &ActionsPatchOK{}
-}
-
-// WithPayload adds the payload to the actions patch o k response
-func (o *ActionsPatchOK) WithPayload(payload *models.Action) *ActionsPatchOK {
-	o.Payload = payload
-	return o
-}
-
-// SetPayload sets the payload to the actions patch o k response
-func (o *ActionsPatchOK) SetPayload(payload *models.Action) {
-	o.Payload = payload
+	return &ActionsPatchNoContent{}
 }
 
 // WriteResponse to the client
-func (o *ActionsPatchOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+func (o *ActionsPatchNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.WriteHeader(200)
-	if o.Payload != nil {
-		payload := o.Payload
-		if err := producer.Produce(rw, payload); err != nil {
-			panic(err) // let the recovery middleware deal with this
-		}
-	}
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+
+	rw.WriteHeader(204)
 }
 
 // ActionsPatchBadRequestCode is the HTTP code returned for type ActionsPatchBadRequest

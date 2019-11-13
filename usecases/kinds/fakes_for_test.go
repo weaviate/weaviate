@@ -27,79 +27,6 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
-type fakeRepo struct {
-	mock.Mock
-	GetThingResponse     *models.Thing
-	GetActionResponse    *models.Action
-	UpdateThingParameter *models.Thing
-}
-
-func (f *fakeRepo) ClassExists(ctx context.Context, id strfmt.UUID) (bool, error) {
-	args := f.Called(id)
-	return args.Bool(0), args.Error(1)
-}
-
-func (f *fakeRepo) AddAction(ctx context.Context, class *models.Action, id strfmt.UUID) error {
-	args := f.Called(class, id)
-	return args.Error(0)
-}
-
-func (f *fakeRepo) AddThing(ctx context.Context, class *models.Thing, id strfmt.UUID) error {
-	args := f.Called(class, id)
-	return args.Error(0)
-}
-
-func (f *fakeRepo) GetThing(ctx context.Context, id strfmt.UUID, thing *models.Thing) error {
-	*thing = *f.GetThingResponse
-	return nil
-}
-
-func (f *fakeRepo) GetAction(ctx context.Context, id strfmt.UUID, action *models.Action) error {
-	*action = *f.GetActionResponse
-	return nil
-}
-
-func (f *fakeRepo) ListThings(ctx context.Context, limit int, thingsResponse *models.ThingsListResponse) error {
-	panic("not implemented")
-}
-
-func (f *fakeRepo) ListActions(ctx context.Context, limit int, actionsResponse *models.ActionsListResponse) error {
-	panic("not implemented")
-}
-
-func (f *fakeRepo) UpdateAction(ctx context.Context, class *models.Action, id strfmt.UUID) error {
-	panic("not implemented")
-}
-
-func (f *fakeRepo) UpdateThing(ctx context.Context, class *models.Thing, id strfmt.UUID) error {
-	f.UpdateThingParameter = class
-	return nil
-}
-
-func (f *fakeRepo) DeleteThing(ctx context.Context, thing *models.Thing, uuid strfmt.UUID) error {
-	args := f.Called(thing, uuid)
-	return args.Error(0)
-}
-
-func (f *fakeRepo) DeleteAction(ctx context.Context, thing *models.Action, uuid strfmt.UUID) error {
-	args := f.Called(thing, uuid)
-	return args.Error(0)
-}
-
-func (f *fakeRepo) AddThingsBatch(ctx context.Context, things BatchThings) error {
-	args := f.Called(things)
-	return args.Error(0)
-}
-
-func (f *fakeRepo) AddActionsBatch(ctx context.Context, actions BatchActions) error {
-	args := f.Called(actions)
-	return args.Error(0)
-}
-
-func (f *fakeRepo) AddBatchReferences(ctx context.Context, references BatchReferences) error {
-	panic("not implemented")
-}
-
 type fakeSchemaManager struct {
 	CalledWith struct {
 		kind      kind.Kind
@@ -140,14 +67,18 @@ func (f *fakeLocks) LockSchema() (func() error, error) {
 	return func() error { return nil }, nil
 }
 
-type fakeVectorizer struct{}
-
-func (f *fakeVectorizer) Thing(ctx context.Context, thing *models.Thing) ([]float32, error) {
-	return []float32{0, 1, 2}, nil
+type fakeVectorizer struct {
+	mock.Mock
 }
 
-func (f *fakeVectorizer) Action(ctx context.Context, thing *models.Action) ([]float32, error) {
-	return []float32{0, 1, 2}, nil
+func (f *fakeVectorizer) Thing(ctx context.Context, thing *models.Thing) ([]float32, error) {
+	args := f.Called(thing)
+	return args.Get(0).([]float32), args.Error(1)
+}
+
+func (f *fakeVectorizer) Action(ctx context.Context, action *models.Action) ([]float32, error) {
+	args := f.Called(action)
+	return args.Get(0).([]float32), args.Error(1)
 }
 
 func (f *fakeVectorizer) Corpi(ctx context.Context, corpi []string) ([]float32, error) {
@@ -246,6 +177,16 @@ func (f *fakeVectorRepo) BatchPutActions(ctx context.Context, batch BatchActions
 	return batch, args.Error(0)
 }
 
+func (f *fakeVectorRepo) AddBatchReferences(ctx context.Context, batch BatchReferences) (BatchReferences, error) {
+	args := f.Called(batch)
+	return batch, args.Error(0)
+}
+
+func (f *fakeVectorRepo) Merge(ctx context.Context, merge MergeDocument) error {
+	args := f.Called(merge)
+	return args.Error(0)
+}
+
 func (f *fakeVectorRepo) DeleteAction(ctx context.Context,
 	className string, id strfmt.UUID) error {
 	args := f.Called(className, id)
@@ -255,5 +196,11 @@ func (f *fakeVectorRepo) DeleteAction(ctx context.Context,
 func (f *fakeVectorRepo) DeleteThing(ctx context.Context,
 	className string, id strfmt.UUID) error {
 	args := f.Called(className, id)
+	return args.Error(0)
+}
+
+func (f *fakeVectorRepo) AddReference(ctx context.Context, kind kind.Kind, source strfmt.UUID, prop string,
+	ref *models.SingleRef) error {
+	args := f.Called(kind, source, prop, ref)
 	return args.Error(0)
 }

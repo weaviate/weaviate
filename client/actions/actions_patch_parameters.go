@@ -77,10 +77,10 @@ for the actions patch operation typically these are written to a http.Request
 type ActionsPatchParams struct {
 
 	/*Body
-	  JSONPatch document as defined by RFC 6902.
+	  RFC 7396-style patch, the body contains the action object to merge into the existing action object.
 
 	*/
-	Body []*models.PatchDocument
+	Body *models.Action
 	/*ID
 	  Unique ID of the Action.
 
@@ -126,13 +126,13 @@ func (o *ActionsPatchParams) SetHTTPClient(client *http.Client) {
 }
 
 // WithBody adds the body to the actions patch params
-func (o *ActionsPatchParams) WithBody(body []*models.PatchDocument) *ActionsPatchParams {
+func (o *ActionsPatchParams) WithBody(body *models.Action) *ActionsPatchParams {
 	o.SetBody(body)
 	return o
 }
 
 // SetBody adds the body to the actions patch params
-func (o *ActionsPatchParams) SetBody(body []*models.PatchDocument) {
+func (o *ActionsPatchParams) SetBody(body *models.Action) {
 	o.Body = body
 }
 

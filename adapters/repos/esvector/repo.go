@@ -180,7 +180,7 @@ func (r *Repo) objectBucket(k kind.Kind, id, className string, props models.Prop
 		keyObjectMeta.String(): meta,
 	}
 
-	ex := extendBucketWithProps(bucket, props)
+	ex := r.addPropsToBucket(bucket, props)
 	return ex
 }
 
@@ -260,7 +260,7 @@ func (r *Repo) DeleteAction(ctx context.Context, className string, id strfmt.UUI
 	return nil
 }
 
-func extendBucketWithProps(bucket map[string]interface{}, props models.PropertySchema) map[string]interface{} {
+func (r *Repo) addPropsToBucket(bucket map[string]interface{}, props models.PropertySchema) map[string]interface{} {
 	if props == nil {
 		return bucket
 	}

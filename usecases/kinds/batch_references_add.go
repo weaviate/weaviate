@@ -48,11 +48,11 @@ func (b *BatchManager) addReferences(ctx context.Context, refs []*models.BatchRe
 	}
 
 	batchReferences := b.validateReferencesConcurrently(refs)
-	if err := b.repo.AddBatchReferences(ctx, batchReferences); err != nil {
+	if res, err := b.vectorRepo.AddBatchReferences(ctx, batchReferences); err != nil {
 		return nil, NewErrInternal("could not add batch request to connector: %v", err)
+	} else {
+		return res, nil
 	}
-
-	return batchReferences, nil
 }
 
 func (b *BatchManager) validateReferenceForm(refs []*models.BatchReference) error {

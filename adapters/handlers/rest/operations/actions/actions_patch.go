@@ -48,7 +48,7 @@ func NewActionsPatch(ctx *middleware.Context, handler ActionsPatchHandler) *Acti
 
 Update an Action based on its UUID (using patch semantics).
 
-Updates an Action. This method supports patch semantics. Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
+Updates an Action. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 
 */
 type ActionsPatch struct {

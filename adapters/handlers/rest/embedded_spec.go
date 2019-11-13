@@ -50,7 +50,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "0.20.4"
+    "version": "0.21.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -400,7 +400,7 @@ func init() {
         ]
       },
       "patch": {
-        "description": "Updates an Action. This method supports patch semantics. Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "description": "Updates an Action. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "tags": [
           "actions"
         ],
@@ -416,24 +416,17 @@ func init() {
             "required": true
           },
           {
-            "description": "JSONPatch document as defined by RFC 6902.",
+            "description": "RFC 7396-style patch, the body contains the action object to merge into the existing action object.",
             "name": "body",
             "in": "body",
-            "required": true,
             "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/PatchDocument"
-              }
+              "$ref": "#/definitions/Action"
             }
           }
         ],
         "responses": {
-          "200": {
-            "description": "Successfully applied.",
-            "schema": {
-              "$ref": "#/definitions/Action"
-            }
+          "204": {
+            "description": "Successfully applied. No content provided."
           },
           "400": {
             "description": "The patch-JSON is malformed."
@@ -2403,24 +2396,17 @@ func init() {
             "required": true
           },
           {
-            "description": "JSONPatch document as defined by RFC 6902.",
+            "description": "RFC 7396-style patch, the body contains the thing object to merge into the existing thing object.",
             "name": "body",
             "in": "body",
-            "required": true,
             "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/PatchDocument"
-              }
+              "$ref": "#/definitions/Thing"
             }
           }
         ],
         "responses": {
-          "200": {
-            "description": "Successfully applied.",
-            "schema": {
-              "$ref": "#/definitions/Thing"
-            }
+          "204": {
+            "description": "Successfully applied. No content returned"
           },
           "400": {
             "description": "The patch-JSON is malformed."
@@ -3253,8 +3239,8 @@ func init() {
         }
       }
     },
-    "PatchDocument": {
-      "description": "A JSONPatch document as defined by RFC 6902.",
+    "PatchDocumentAction": {
+      "description": "Either a JSONPatch document as defined by RFC 6902 (from, op, path, value), or a merge document (RFC 7396).",
       "required": [
         "op",
         "path"
@@ -3263,6 +3249,45 @@ func init() {
         "from": {
           "description": "A string containing a JSON Pointer value.",
           "type": "string"
+        },
+        "merge": {
+          "$ref": "#/definitions/Thing"
+        },
+        "op": {
+          "description": "The operation to be performed.",
+          "type": "string",
+          "enum": [
+            "add",
+            "remove",
+            "replace",
+            "move",
+            "copy",
+            "test"
+          ]
+        },
+        "path": {
+          "description": "A JSON-Pointer.",
+          "type": "string"
+        },
+        "value": {
+          "description": "The value to be used within the operations.",
+          "type": "object"
+        }
+      }
+    },
+    "PatchDocumentThing": {
+      "description": "Either a JSONPatch document as defined by RFC 6902 (from, op, path, value), or a merge document (RFC 7396).",
+      "required": [
+        "op",
+        "path"
+      ],
+      "properties": {
+        "from": {
+          "description": "A string containing a JSON Pointer value.",
+          "type": "string"
+        },
+        "merge": {
+          "$ref": "#/definitions/Thing"
         },
         "op": {
           "description": "The operation to be performed.",
@@ -3615,7 +3640,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "0.20.4"
+    "version": "0.21.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -3972,7 +3997,7 @@ func init() {
         ]
       },
       "patch": {
-        "description": "Updates an Action. This method supports patch semantics. Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "description": "Updates an Action. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "tags": [
           "actions"
         ],
@@ -3988,24 +4013,17 @@ func init() {
             "required": true
           },
           {
-            "description": "JSONPatch document as defined by RFC 6902.",
+            "description": "RFC 7396-style patch, the body contains the action object to merge into the existing action object.",
             "name": "body",
             "in": "body",
-            "required": true,
             "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/PatchDocument"
-              }
+              "$ref": "#/definitions/Action"
             }
           }
         ],
         "responses": {
-          "200": {
-            "description": "Successfully applied.",
-            "schema": {
-              "$ref": "#/definitions/Action"
-            }
+          "204": {
+            "description": "Successfully applied. No content provided."
           },
           "400": {
             "description": "The patch-JSON is malformed."
@@ -5982,24 +6000,17 @@ func init() {
             "required": true
           },
           {
-            "description": "JSONPatch document as defined by RFC 6902.",
+            "description": "RFC 7396-style patch, the body contains the thing object to merge into the existing thing object.",
             "name": "body",
             "in": "body",
-            "required": true,
             "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/PatchDocument"
-              }
+              "$ref": "#/definitions/Thing"
             }
           }
         ],
         "responses": {
-          "200": {
-            "description": "Successfully applied.",
-            "schema": {
-              "$ref": "#/definitions/Thing"
-            }
+          "204": {
+            "description": "Successfully applied. No content returned"
           },
           "400": {
             "description": "The patch-JSON is malformed."
@@ -6832,8 +6843,8 @@ func init() {
         }
       }
     },
-    "PatchDocument": {
-      "description": "A JSONPatch document as defined by RFC 6902.",
+    "PatchDocumentAction": {
+      "description": "Either a JSONPatch document as defined by RFC 6902 (from, op, path, value), or a merge document (RFC 7396).",
       "required": [
         "op",
         "path"
@@ -6842,6 +6853,45 @@ func init() {
         "from": {
           "description": "A string containing a JSON Pointer value.",
           "type": "string"
+        },
+        "merge": {
+          "$ref": "#/definitions/Thing"
+        },
+        "op": {
+          "description": "The operation to be performed.",
+          "type": "string",
+          "enum": [
+            "add",
+            "remove",
+            "replace",
+            "move",
+            "copy",
+            "test"
+          ]
+        },
+        "path": {
+          "description": "A JSON-Pointer.",
+          "type": "string"
+        },
+        "value": {
+          "description": "The value to be used within the operations.",
+          "type": "object"
+        }
+      }
+    },
+    "PatchDocumentThing": {
+      "description": "Either a JSONPatch document as defined by RFC 6902 (from, op, path, value), or a merge document (RFC 7396).",
+      "required": [
+        "op",
+        "path"
+      ],
+      "properties": {
+        "from": {
+          "description": "A string containing a JSON Pointer value.",
+          "type": "string"
+        },
+        "merge": {
+          "$ref": "#/definitions/Thing"
         },
         "op": {
           "description": "The operation to be performed.",
