@@ -292,5 +292,4 @@ func Test_MergingObjects(t *testing.T) {
 
 		assert.ElementsMatch(t, foundBeacons, expectedBeacons)
 	})
-
 }

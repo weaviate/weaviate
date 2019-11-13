@@ -308,8 +308,7 @@ func (h *kindHandlers) patchThing(params things.ThingsPatchParams, principal *mo
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
 
-	// TODO payload
-	return things.NewThingsPatchOK().WithPayload(nil)
+	return things.NewThingsPatchNoContent()
 }
 
 func (h *kindHandlers) patchAction(params actions.ActionsPatchParams, principal *models.Principal) middleware.Responder {
@@ -330,8 +329,7 @@ func (h *kindHandlers) patchAction(params actions.ActionsPatchParams, principal 
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
 
-	// TODO payload
-	return actions.NewActionsPatchOK().WithPayload(nil)
+	return actions.NewActionsPatchNoContent()
 }
 
 func (h *kindHandlers) addThingReference(params things.ThingsReferencesCreateParams,

@@ -166,7 +166,7 @@ ThingsPatch updates a thing based on its UUID using patch semantics
 
 Updates a Thing's data. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
-func (a *Client) ThingsPatch(params *ThingsPatchParams, authInfo runtime.ClientAuthInfoWriter) (*ThingsPatchOK, error) {
+func (a *Client) ThingsPatch(params *ThingsPatchParams, authInfo runtime.ClientAuthInfoWriter) (*ThingsPatchNoContent, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewThingsPatchParams()
@@ -188,7 +188,7 @@ func (a *Client) ThingsPatch(params *ThingsPatchParams, authInfo runtime.ClientA
 	if err != nil {
 		return nil, err
 	}
-	return result.(*ThingsPatchOK), nil
+	return result.(*ThingsPatchNoContent), nil
 
 }
 
