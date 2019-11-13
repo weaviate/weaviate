@@ -258,6 +258,8 @@ func startupRoutine() (*state.State, *clientv3.Client, *elasticsearch.Client) {
 	}
 	appState.Locks = etcdLock
 
+	// appState.Locks = &dummyLock{}
+
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("created etcd session")
 		// END remove
@@ -336,4 +338,14 @@ func logger() *logrus.Logger {
 	}
 
 	return logger
+}
+
+type dummyLock struct{}
+
+func (d *dummyLock) LockConnector() (func() error, error) {
+	return func() error { return nil }, nil
+}
+
+func (d *dummyLock) LockSchema() (func() error, error) {
+	return func() error { return nil }, nil
 }
