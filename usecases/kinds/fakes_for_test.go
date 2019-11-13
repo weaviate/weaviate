@@ -67,14 +67,18 @@ func (f *fakeLocks) LockSchema() (func() error, error) {
 	return func() error { return nil }, nil
 }
 
-type fakeVectorizer struct{}
-
-func (f *fakeVectorizer) Thing(ctx context.Context, thing *models.Thing) ([]float32, error) {
-	return []float32{0, 1, 2}, nil
+type fakeVectorizer struct {
+	mock.Mock
 }
 
-func (f *fakeVectorizer) Action(ctx context.Context, thing *models.Action) ([]float32, error) {
-	return []float32{0, 1, 2}, nil
+func (f *fakeVectorizer) Thing(ctx context.Context, thing *models.Thing) ([]float32, error) {
+	args := f.Called(thing)
+	return args.Get(0).([]float32), args.Error(1)
+}
+
+func (f *fakeVectorizer) Action(ctx context.Context, action *models.Action) ([]float32, error) {
+	args := f.Called(action)
+	return args.Get(0).([]float32), args.Error(1)
 }
 
 func (f *fakeVectorizer) Corpi(ctx context.Context, corpi []string) ([]float32, error) {

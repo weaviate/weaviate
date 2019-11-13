@@ -23,7 +23,9 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -33,12 +35,13 @@ func Test_MergeAction(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	type testCase struct {
-		name           string
-		previous       *models.Action // nil implies return false on Exist()
-		updated        *models.Action
-		expectedErr    error
-		expectedOutput *MergeDocument
-		id             strfmt.UUID
+		name                 string
+		previous             *models.Action // nil implies return false on Exist()
+		updated              *models.Action
+		expectedErr          error
+		expectedOutput       *MergeDocument
+		id                   strfmt.UUID
+		vectorizerCalledWith *models.Action
 	}
 
 	tests := []testCase{
@@ -69,10 +72,17 @@ func Test_MergeAction(t *testing.T) {
 				},
 			},
 			expectedErr: nil,
-			expectedOutput: &MergeDocument{
-				Kind:  kind.Action,
+			vectorizerCalledWith: &models.Action{
 				Class: "ZooAction",
-				ID:    "dd59815b-142b-4c54-9b12-482434bd54ca",
+				Schema: map[string]interface{}{
+					"name": "My little pony zoo with extra sparkles",
+				},
+			},
+			expectedOutput: &MergeDocument{
+				Kind:   kind.Action,
+				Class:  "ZooAction",
+				ID:     "dd59815b-142b-4c54-9b12-482434bd54ca",
+				Vector: []float32{1, 2, 3},
 				PrimitiveSchema: map[string]interface{}{
 					"name": "My little pony zoo with extra sparkles",
 				},
@@ -99,10 +109,24 @@ func Test_MergeAction(t *testing.T) {
 				},
 			},
 			expectedErr: nil,
-			expectedOutput: &MergeDocument{
-				Kind:  kind.Action,
+			vectorizerCalledWith: &models.Action{
 				Class: "ZooAction",
-				ID:    "dd59815b-142b-4c54-9b12-482434bd54ca",
+				Schema: map[string]interface{}{
+					"name":      "My little pony zoo with extra sparkles",
+					"area":      3.222,
+					"employees": int64(70),
+					"located": &models.GeoCoordinates{
+						Latitude:  30.2,
+						Longitude: 60.2,
+					},
+					"foundedIn": timeMustParse(time.RFC3339, "2002-10-02T15:00:00Z"),
+				},
+			},
+			expectedOutput: &MergeDocument{
+				Kind:   kind.Action,
+				Class:  "ZooAction",
+				ID:     "dd59815b-142b-4c54-9b12-482434bd54ca",
+				Vector: []float32{1, 2, 3},
 				PrimitiveSchema: map[string]interface{}{
 					"name":      "My little pony zoo with extra sparkles",
 					"area":      3.222,
@@ -134,6 +158,12 @@ func Test_MergeAction(t *testing.T) {
 				},
 			},
 			expectedErr: nil,
+			vectorizerCalledWith: &models.Action{
+				Class: "ZooAction",
+				Schema: map[string]interface{}{
+					"name": "My little pony zoo with extra sparkles",
+				},
+			},
 			expectedOutput: &MergeDocument{
 				Kind:  kind.Action,
 				Class: "ZooAction",
@@ -141,6 +171,7 @@ func Test_MergeAction(t *testing.T) {
 				PrimitiveSchema: map[string]interface{}{
 					"name": "My little pony zoo with extra sparkles",
 				},
+				Vector: []float32{1, 2, 3},
 				References: BatchReferences{
 					BatchReference{
 						From: crossrefMustParseSource("weaviate://localhost/actions/ZooAction/dd59815b-142b-4c54-9b12-482434bd54ca/hasAnimals"),
@@ -165,17 +196,32 @@ func Test_MergeAction(t *testing.T) {
 			manager := NewManager(locks, schemaManager, network,
 				cfg, logger, authorizer, vectorizer, vectorRepo)
 
-			vectorRepo.On("Exists", mock.Anything).Return(test.previous != nil, nil)
+			if test.previous != nil {
+				vectorRepo.On("ActionByID", test.id, traverser.SelectProperties(nil), false).
+					Return(&search.Result{
+						Schema:    test.previous.Schema,
+						ClassName: test.previous.Class,
+						Kind:      kind.Action,
+					}, nil)
+			} else {
+				vectorRepo.On("ActionByID", test.id, traverser.SelectProperties(nil), false).
+					Return((*search.Result)(nil), nil)
+			}
 
 			if test.expectedOutput != nil {
 				vectorRepo.On("Merge", *test.expectedOutput).Return(nil)
-
+				vectorizer.On("Action", test.vectorizerCalledWith).Return([]float32{1, 2, 3}, nil)
 			}
+
+			// only for validation of cross-refs. Maybe indicates that if this call
+			// doesn't happen the test won't fail
+			vectorRepo.On("Exists", mock.Anything).Maybe().Return(true, nil)
 
 			err := manager.MergeAction(context.Background(), nil, test.id, test.updated)
 			assert.Equal(t, test.expectedErr, err)
 
 			vectorRepo.AssertExpectations(t)
+			vectorizer.AssertExpectations(t)
 		})
 	}
 }
@@ -184,12 +230,13 @@ func Test_MergeThing(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	type testCase struct {
-		name           string
-		previous       *models.Thing // nil implies return false on Exist()
-		updated        *models.Thing
-		expectedErr    error
-		expectedOutput *MergeDocument
-		id             strfmt.UUID
+		name                 string
+		previous             *models.Thing // nil implies return false on Exist()
+		updated              *models.Thing
+		expectedErr          error
+		expectedOutput       *MergeDocument
+		id                   strfmt.UUID
+		vectorizerCalledWith *models.Thing
 	}
 
 	tests := []testCase{
@@ -220,10 +267,17 @@ func Test_MergeThing(t *testing.T) {
 				},
 			},
 			expectedErr: nil,
-			expectedOutput: &MergeDocument{
-				Kind:  kind.Thing,
+			vectorizerCalledWith: &models.Thing{
 				Class: "Zoo",
-				ID:    "dd59815b-142b-4c54-9b12-482434bd54ca",
+				Schema: map[string]interface{}{
+					"name": "My little pony zoo with extra sparkles",
+				},
+			},
+			expectedOutput: &MergeDocument{
+				Kind:   kind.Thing,
+				Class:  "Zoo",
+				ID:     "dd59815b-142b-4c54-9b12-482434bd54ca",
+				Vector: []float32{1, 2, 3},
 				PrimitiveSchema: map[string]interface{}{
 					"name": "My little pony zoo with extra sparkles",
 				},
@@ -250,10 +304,24 @@ func Test_MergeThing(t *testing.T) {
 				},
 			},
 			expectedErr: nil,
-			expectedOutput: &MergeDocument{
-				Kind:  kind.Thing,
+			vectorizerCalledWith: &models.Thing{
 				Class: "Zoo",
-				ID:    "dd59815b-142b-4c54-9b12-482434bd54ca",
+				Schema: map[string]interface{}{
+					"name":      "My little pony zoo with extra sparkles",
+					"area":      3.222,
+					"employees": int64(70),
+					"located": &models.GeoCoordinates{
+						Latitude:  30.2,
+						Longitude: 60.2,
+					},
+					"foundedIn": timeMustParse(time.RFC3339, "2002-10-02T15:00:00Z"),
+				},
+			},
+			expectedOutput: &MergeDocument{
+				Kind:   kind.Thing,
+				Class:  "Zoo",
+				ID:     "dd59815b-142b-4c54-9b12-482434bd54ca",
+				Vector: []float32{1, 2, 3},
 				PrimitiveSchema: map[string]interface{}{
 					"name":      "My little pony zoo with extra sparkles",
 					"area":      3.222,
@@ -285,6 +353,12 @@ func Test_MergeThing(t *testing.T) {
 				},
 			},
 			expectedErr: nil,
+			vectorizerCalledWith: &models.Thing{
+				Class: "Zoo",
+				Schema: map[string]interface{}{
+					"name": "My little pony zoo with extra sparkles",
+				},
+			},
 			expectedOutput: &MergeDocument{
 				Kind:  kind.Thing,
 				Class: "Zoo",
@@ -292,6 +366,7 @@ func Test_MergeThing(t *testing.T) {
 				PrimitiveSchema: map[string]interface{}{
 					"name": "My little pony zoo with extra sparkles",
 				},
+				Vector: []float32{1, 2, 3},
 				References: BatchReferences{
 					BatchReference{
 						From: crossrefMustParseSource("weaviate://localhost/things/Zoo/dd59815b-142b-4c54-9b12-482434bd54ca/hasAnimals"),
@@ -316,17 +391,32 @@ func Test_MergeThing(t *testing.T) {
 			manager := NewManager(locks, schemaManager, network,
 				cfg, logger, authorizer, vectorizer, vectorRepo)
 
-			vectorRepo.On("Exists", mock.Anything).Return(test.previous != nil, nil)
+			if test.previous != nil {
+				vectorRepo.On("ThingByID", test.id, traverser.SelectProperties(nil), false).
+					Return(&search.Result{
+						Schema:    test.previous.Schema,
+						ClassName: test.previous.Class,
+						Kind:      kind.Thing,
+					}, nil)
+			} else {
+				vectorRepo.On("ThingByID", test.id, traverser.SelectProperties(nil), false).
+					Return((*search.Result)(nil), nil)
+			}
 
 			if test.expectedOutput != nil {
 				vectorRepo.On("Merge", *test.expectedOutput).Return(nil)
-
+				vectorizer.On("Thing", test.vectorizerCalledWith).Return([]float32{1, 2, 3}, nil)
 			}
+
+			// only for validation of cross-refs. Maybe indicates that if this call
+			// doesn't happen the test won't fail
+			vectorRepo.On("Exists", mock.Anything).Maybe().Return(true, nil)
 
 			err := manager.MergeThing(context.Background(), nil, test.id, test.updated)
 			assert.Equal(t, test.expectedErr, err)
 
 			vectorRepo.AssertExpectations(t)
+			vectorizer.AssertExpectations(t)
 		})
 	}
 }
