@@ -425,11 +425,8 @@ func init() {
           }
         ],
         "responses": {
-          "200": {
-            "description": "Successfully applied.",
-            "schema": {
-              "$ref": "#/definitions/Action"
-            }
+          "204": {
+            "description": "Successfully applied. No content provided."
           },
           "400": {
             "description": "The patch-JSON is malformed."
@@ -2408,11 +2405,8 @@ func init() {
           }
         ],
         "responses": {
-          "200": {
-            "description": "Successfully applied.",
-            "schema": {
-              "$ref": "#/definitions/Thing"
-            }
+          "204": {
+            "description": "Successfully applied. No content returned"
           },
           "400": {
             "description": "The patch-JSON is malformed."
@@ -4021,11 +4015,8 @@ func init() {
           }
         ],
         "responses": {
-          "200": {
-            "description": "Successfully applied.",
-            "schema": {
-              "$ref": "#/definitions/Action"
-            }
+          "204": {
+            "description": "Successfully applied. No content provided."
           },
           "400": {
             "description": "The patch-JSON is malformed."
@@ -6011,11 +6002,8 @@ func init() {
           }
         ],
         "responses": {
-          "200": {
-            "description": "Successfully applied.",
-            "schema": {
-              "$ref": "#/definitions/Thing"
-            }
+          "204": {
+            "description": "Successfully applied. No content returned"
           },
           "400": {
             "description": "The patch-JSON is malformed."
