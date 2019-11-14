@@ -59,6 +59,8 @@ func parseClause(args map[string]interface{}, rootClass string) (*filters.Clause
 		clause, err = parseOperandsOp(args, filters.OperatorOr, rootClass)
 	case "Equal":
 		clause, err = parseCompareOp(args, filters.OperatorEqual, rootClass)
+	case "Like":
+		clause, err = parseCompareOp(args, filters.OperatorLike, rootClass)
 	case "NotEqual":
 		clause, err = parseCompareOp(args, filters.OperatorNotEqual, rootClass)
 	case "GreaterThan":
