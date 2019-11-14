@@ -31,6 +31,7 @@ const (
 	OperatorOr               Operator = 8
 	OperatorNot              Operator = 9
 	OperatorWithinGeoRange   Operator = 10
+	OperatorLike             Operator = 11
 )
 
 func (o Operator) OnValue() bool {
@@ -41,7 +42,8 @@ func (o Operator) OnValue() bool {
 		OperatorGreaterThanEqual,
 		OperatorLessThan,
 		OperatorLessThanEqual,
-		OperatorWithinGeoRange:
+		OperatorWithinGeoRange,
+		OperatorLike:
 		return true
 	default:
 		return false
@@ -70,6 +72,8 @@ func (o Operator) Name() string {
 		return "Not"
 	case OperatorWithinGeoRange:
 		return "WithinGeoRange"
+	case OperatorLike:
+		return "Like"
 	default:
 		panic("Unknown operator")
 	}

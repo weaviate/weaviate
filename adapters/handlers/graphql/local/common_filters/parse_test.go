@@ -54,6 +54,32 @@ func TestExtractFilterToplevelField(t *testing.T) {
 	query := `{ SomeAction(where: { path: ["intField"], operator: Equal, valueInt: 42}) }`
 	resolver.AssertResolve(t, query)
 }
+func TestExtractFilterLike(t *testing.T) {
+	t.Parallel()
+
+	resolver := newMockResolver()
+	expectedParams := &filters.LocalFilter{Root: &filters.Clause{
+		Operator: filters.OperatorLike,
+		On: &filters.Path{
+			Class:    schema.AssertValidClassName("SomeAction"),
+			Property: schema.AssertValidPropertyName("name"),
+		},
+		Value: &filters.Value{
+			Value: "Schn*el",
+			Type:  schema.DataTypeString,
+		},
+	}}
+
+	resolver.On("ReportFilters", expectedParams).
+		Return(test_helper.EmptyList(), nil).Once()
+
+	query := `{ SomeAction(where: {
+			path: ["name"],
+			operator: Like,
+			valueString: "Schn*el",
+		}) }`
+	resolver.AssertResolve(t, query)
+}
 
 func TestExtractFilterGeoLocation(t *testing.T) {
 	t.Parallel()
