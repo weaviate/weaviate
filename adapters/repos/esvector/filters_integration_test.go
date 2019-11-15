@@ -34,13 +34,14 @@ import (
 
 var (
 	// operators
-	eq  = filters.OperatorEqual
-	neq = filters.OperatorNotEqual
-	lt  = filters.OperatorLessThan
-	lte = filters.OperatorLessThanEqual
-	gt  = filters.OperatorGreaterThan
-	gte = filters.OperatorGreaterThanEqual
-	wgr = filters.OperatorWithinGeoRange
+	eq   = filters.OperatorEqual
+	neq  = filters.OperatorNotEqual
+	lt   = filters.OperatorLessThan
+	lte  = filters.OperatorLessThanEqual
+	like = filters.OperatorLike
+	gt   = filters.OperatorGreaterThan
+	gte  = filters.OperatorGreaterThanEqual
+	wgr  = filters.OperatorWithinGeoRange
 
 	// datatypes
 	dtInt            = schema.DataTypeInt
@@ -135,6 +136,11 @@ func testPrmitiveProps(repo *Repo,
 				name:        "modelName != sprinter",
 				filter:      buildFilter("modelName", "sprinter", neq, dtString),
 				expectedIDs: []strfmt.UUID{carE63sID, carPoloID},
+			},
+			{
+				name:        "modelName = spr*er",
+				filter:      buildFilter("modelName", "sprinter", like, dtString),
+				expectedIDs: []strfmt.UUID{carSprinterID},
 			},
 			{
 				name:        "weight == 3499.90",
