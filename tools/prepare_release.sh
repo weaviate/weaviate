@@ -6,6 +6,14 @@ VERSION=$(jq -r '.info.version' openapi-specs/schema.json)
 LANGUAGES="en nl"
 IMAGE_BASE="semitechnologies/weaviate:"
 MSG=${1:""}
+REQUIRED_TOOLS="jq yaml2json json2yaml git"
+
+for tool in $REQUIRED_TOOLS; do
+  if ! hash "$tool" 2>/dev/null; then
+    echo "This script requires '$tool', but it is not installed."
+    exit 1
+  fi
+done
 
 if git rev-parse "$VERSION" >/dev/null 2>&1; then
   echo "Cannot prepare relese, a release for $VERSION already exists"
