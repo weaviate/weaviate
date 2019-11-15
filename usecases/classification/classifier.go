@@ -92,10 +92,7 @@ func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, 
 		return nil, err
 	}
 
-	if params.K == nil {
-		defaultK := int32(3)
-		params.K = &defaultK
-	}
+	c.setDefaultValuesForOptionalFields(&params)
 
 	if err := c.assignNewID(&params); err != nil {
 		return nil, fmt.Errorf("classification: assign id: %v", err)
@@ -141,4 +138,17 @@ func (c *Classifier) Get(ctx context.Context, principal *models.Principal, id st
 	}
 
 	return c.repo.Get(ctx, id)
+}
+
+func (c *Classifier) setDefaultValuesForOptionalFields(params *models.Classification) {
+	if params.Type == nil {
+		defaultType := "knn"
+		params.Type = &defaultType
+	}
+
+	if params.K == nil {
+		defaultK := int32(3)
+		params.K = &defaultK
+	}
+
 }
