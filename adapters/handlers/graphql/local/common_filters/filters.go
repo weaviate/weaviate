@@ -29,6 +29,7 @@ func BuildNew(path string) graphql.InputObjectConfigFieldMap {
 				Name: fmt.Sprintf("%sWhereOperatorEnum", path),
 				Values: graphql.EnumValueConfigMap{
 					"And":              &graphql.EnumValueConfig{},
+					"Like":             &graphql.EnumValueConfig{},
 					"Or":               &graphql.EnumValueConfig{},
 					"Equal":            &graphql.EnumValueConfig{},
 					"Not":              &graphql.EnumValueConfig{},

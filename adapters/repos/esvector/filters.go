@@ -214,6 +214,9 @@ func matcherFromOperator(o filters.Operator) (m matcher, err error) {
 	case filters.OperatorGreaterThanEqual:
 		m.queryType = "range"
 		m.operator = "gte"
+	case filters.OperatorLike:
+		m.queryType = "wildcard"
+		m.operator = "value"
 	default:
 		err = fmt.Errorf("unsupported operator")
 	}
