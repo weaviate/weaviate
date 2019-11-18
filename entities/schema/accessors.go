@@ -66,7 +66,6 @@ func (s *Schema) GetKindOfClass(className ClassName) (kind.Kind, bool) {
 	return "", false
 }
 
-// TODO: fix order of error and property
 func (s *Schema) GetProperty(kind kind.Kind, className ClassName, propName PropertyName) (*models.Property, error) {
 	semSchemaClass, err := GetClassByName(s.SemanticSchemaFor(kind), string(className))
 	if err != nil {
