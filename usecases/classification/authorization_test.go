@@ -70,7 +70,7 @@ func Test_Classifier_Authorization(t *testing.T) {
 		for _, test := range tests {
 			authorizer := &authDenier{}
 			repo := &fakeClassificationRepo{}
-			vectorRepo := &fakeVectorRepo{}
+			vectorRepo := &fakeVectorRepoKNN{}
 			schemaGetter := &fakeSchemaGetter{}
 
 			classifier := New(schemaGetter, repo, vectorRepo, authorizer)

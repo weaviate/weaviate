@@ -25,6 +25,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type Classifier struct {
@@ -64,6 +65,7 @@ type vectorRepo interface {
 	VectorRepo
 	PutThing(ctx context.Context, thing *models.Thing, vector []float32) error
 	PutAction(ctx context.Context, action *models.Action, vector []float32) error
+	VectorClassSearch(ctx context.Context, params traverser.GetParams) ([]search.Result, error)
 }
 
 // NeighborRef is the result of an aggregation of the ref properties of k neighbors

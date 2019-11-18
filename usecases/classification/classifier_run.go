@@ -56,9 +56,12 @@ func (c *Classifier) run(params models.Classification, kind kind.Kind) {
 	switch *params.Type {
 	case "knn":
 		classifyItem = c.classifyItemUsingKNN
+	case "contextual":
+		classifyItem = c.classifyItemContextual
 	default:
 		c.failRunWithError(params,
 			fmt.Errorf("unsupported type '%s', have no classify item fn for this", *params.Type))
+		return
 	}
 
 	errors := &errorCompounder{}
