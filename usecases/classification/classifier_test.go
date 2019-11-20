@@ -200,7 +200,7 @@ func Test_Classifier_Contextual(t *testing.T) {
 		sg := &fakeSchemaGetter{testSchema()}
 		repo := newFakeClassificationRepo()
 		authorizer := &fakeAuthorizer{}
-		vectorRepo := newFakeVectorRepoContextual(testDataToBeClassified())
+		vectorRepo := newFakeVectorRepoContextual(testDataToBeClassified(), testDataPossibleTargets())
 		classifier := New(sg, repo, vectorRepo, authorizer)
 
 		contextual := "contextual"

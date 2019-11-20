@@ -196,9 +196,10 @@ func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource s
 	return nil
 }
 
-func newFakeVectorRepoContextual(unclassified search.Results) *fakeVectorRepoContextual {
+func newFakeVectorRepoContextual(unclassified, targets search.Results) *fakeVectorRepoContextual {
 	return &fakeVectorRepoContextual{
 		unclassified: unclassified,
+		targets:      targets,
 		db:           map[strfmt.UUID]*models.Thing{},
 	}
 }
@@ -208,6 +209,7 @@ func newFakeVectorRepoContextual(unclassified search.Results) *fakeVectorRepoCon
 type fakeVectorRepoContextual struct {
 	sync.Mutex
 	unclassified     []search.Result
+	targets          []search.Result
 	db               map[strfmt.UUID]*models.Thing
 	errorOnAggregate error
 }
@@ -247,5 +249,30 @@ func (f *fakeVectorRepoContextual) PutAction(ctx context.Context, thing *models.
 
 func (f *fakeVectorRepoContextual) VectorClassSearch(ctx context.Context,
 	params traverser.GetParams) ([]search.Result, error) {
-	return nil, fmt.Errorf("vector class search not implemented in fake")
+	// simulate that this takes some time
+	time.Sleep(5 * time.Millisecond)
+
+	if params.Kind != kind.Thing {
+		return nil, fmt.Errorf("unsupported kind in test fake: %v", params.Kind)
+	}
+
+	results := f.targets
+	sort.SliceStable(results, func(i, j int) bool {
+		simI, err := cosineSim(results[i].Vector, params.SearchVector)
+		if err != nil {
+			panic(err.Error())
+		}
+
+		simJ, err := cosineSim(results[j].Vector, params.SearchVector)
+		if err != nil {
+			panic(err.Error())
+		}
+		return simI > simJ
+	})
+
+	var out = []search.Result{
+		results[0],
+	}
+
+	return out, f.errorOnAggregate
 }
