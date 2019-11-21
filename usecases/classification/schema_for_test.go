@@ -138,56 +138,47 @@ func testDataPossibleTargets() search.Results {
 	return search.Results{
 		search.Result{
 			Kind:      kind.Thing,
-			ID:        "75ba35af-6a08-40ae-b442-3bec69b355f9",
-			ClassName: "Article",
-			Vector:    []float32{0.78, 0, 0},
+			ID:        idMainCategoryPoliticsAndSociety,
+			ClassName: "MainCategory",
+			Vector:    []float32{1.01, 1.01, 0},
 			Schema: map[string]interface{}{
-				"description": "Barack Obama is a former US president",
+				"name": "Politics and Society",
 			},
 		},
 		search.Result{
 			Kind:      kind.Thing,
-			ID:        "f850439a-d3cd-4f17-8fbf-5a64405645cd",
-			ClassName: "Article",
-			Vector:    []float32{0.90, 0, 0},
+			ID:        idMainCategoryFoodAndDrink,
+			ClassName: "MainCategory",
+			Vector:    []float32{0, 0, 0.99},
 			Schema: map[string]interface{}{
-				"description": "Michelle Obama is Barack Obamas wife",
+				"name": "Food and Drinks",
 			},
 		},
 		search.Result{
 			Kind:      kind.Thing,
-			ID:        "a2bbcbdc-76e1-477d-9e72-a6d2cfb50109",
-			ClassName: "Article",
-			Vector:    []float32{0, 0.78, 0},
+			ID:        idCategoryPolitics,
+			ClassName: "ExactCategory",
+			Vector:    []float32{0.99, 0, 0},
 			Schema: map[string]interface{}{
-				"description": "Johnny Depp is an actor",
+				"name": "Politics",
 			},
 		},
 		search.Result{
 			Kind:      kind.Thing,
-			ID:        "069410c3-4b9e-4f68-8034-32a066cb7997",
-			ClassName: "Article",
+			ID:        idCategorySociety,
+			ClassName: "ExactCategory",
 			Vector:    []float32{0, 0.90, 0},
 			Schema: map[string]interface{}{
-				"description": "Brad Pitt starred in a Quentin Tarantino movie",
+				"name": "Society",
 			},
 		},
 		search.Result{
 			Kind:      kind.Thing,
-			ID:        "06a1e824-889c-4649-97f9-1ed3fa401d8e",
-			ClassName: "Article",
-			Vector:    []float32{0, 0, 0.78},
+			ID:        idCategoryFoodAndDrink,
+			ClassName: "ExactCategory",
+			Vector:    []float32{0, 0, 0.99},
 			Schema: map[string]interface{}{
-				"description": "Ice Cream often contains a lot of sugar",
-			},
-		},
-		search.Result{
-			Kind:      kind.Thing,
-			ID:        "6402e649-b1e0-40ea-b192-a64eab0d5e56",
-			ClassName: "Article",
-			Vector:    []float32{0, 0, 0.90},
-			Schema: map[string]interface{}{
-				"description": "French Fries are more common in Belgium and the US than in France",
+				"name": "Food and Drink",
 			},
 		},
 	}
