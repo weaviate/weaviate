@@ -48,7 +48,7 @@ func Test_Aggregations(t *testing.T) {
 			},
 		},
 	}
-	repo := NewRepo(client, logger, schemaGetter, 3)
+	repo := NewRepo(client, logger, schemaGetter, 3, 100)
 	waitForEsToBeReady(t, repo)
 	migrator := NewMigrator(repo)
 
