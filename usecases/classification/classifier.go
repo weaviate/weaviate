@@ -59,13 +59,13 @@ type VectorRepo interface {
 	GetUnclassified(ctx context.Context, kind kind.Kind, class string, properites []string) ([]search.Result, error)
 	AggregateNeighbors(ctx context.Context, vector []float32,
 		kind kind.Kind, class string, properties []string, k int) ([]NeighborRef, error)
+	VectorClassSearch(ctx context.Context, params traverser.GetParams) ([]search.Result, error)
 }
 
 type vectorRepo interface {
 	VectorRepo
 	PutThing(ctx context.Context, thing *models.Thing, vector []float32) error
 	PutAction(ctx context.Context, action *models.Action, vector []float32) error
-	VectorClassSearch(ctx context.Context, params traverser.GetParams) ([]search.Result, error)
 }
 
 // NeighborRef is the result of an aggregation of the ref properties of k neighbors

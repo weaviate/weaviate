@@ -256,7 +256,8 @@ func (f *fakeVectorRepoContextual) VectorClassSearch(ctx context.Context,
 		return nil, fmt.Errorf("unsupported kind in test fake: %v", params.Kind)
 	}
 
-	results := f.targets
+	filteredTargets := matchClassName(f.targets, params.ClassName)
+	results := filteredTargets
 	sort.SliceStable(results, func(i, j int) bool {
 		simI, err := cosineSim(results[i].Vector, params.SearchVector)
 		if err != nil {
@@ -270,9 +271,24 @@ func (f *fakeVectorRepoContextual) VectorClassSearch(ctx context.Context,
 		return simI > simJ
 	})
 
+	if len(results) == 0 {
+		return nil, f.errorOnAggregate
+	}
+
 	var out = []search.Result{
 		results[0],
 	}
 
 	return out, f.errorOnAggregate
+}
+
+func matchClassName(in []search.Result, className string) []search.Result {
+	var out []search.Result
+	for _, item := range in {
+		if item.ClassName == className {
+			out = append(out, item)
+		}
+	}
+
+	return out
 }
