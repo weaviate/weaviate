@@ -885,7 +885,7 @@
     },
     "description": "Open Source Knowledge Graph (GraphQL/RESTful/P2P)",
     "title": "Weaviate",
-    "version": "0.21.1"
+    "version": "0.21.2"
   },
   "parameters": {
     "CommonLimitParameterQuery": {
@@ -905,6 +905,31 @@
     }
   },
   "paths": {
+     "/.well-known/live": {
+      "get": {
+        "description": "Determines whether the application is alive. Can be used for kubernetes liveness probe",
+        "operationId": "weaviate.wellknown.liveness",
+        "responses": {
+          "204": {
+            "description": "The application is able to respond to HTTP requests"
+          }
+        }
+      }
+    },
+    "/.well-known/ready": {
+      "get": {
+        "description": "Determines whether the application is ready to receive traffic. Can be used for kubernetes readiness probe.",
+        "operationId": "weaviate.wellknown.readiness",
+        "responses": {
+          "204": {
+            "description": "The application has completed its start-up routine and is ready to accept traffic."
+          },
+          "503": {
+            "description": "The application is currently not able to serve traffic. If other horizontal replicas of weaviate are available and they are capable of receving traffic, all traffic should be redirected there instead."
+          }
+        }
+      }
+    },
     "/actions": {
       "get": {
         "description": "Lists all Actions in reverse order of creation, owned by the user that belongs to the used token.",

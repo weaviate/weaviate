@@ -1,14 +1,6 @@
 authentication:
   anonymous_access:
     enabled: true
-database:
-  name: janusgraph
-  database_config:
-    url: http://localhost:8182
-    analytics_engine:
-      enabled: true
-      type: spark-analytics-api
-      url: http://localhost:8100
 vector_index:
   enabled: true
   url: http://localhost:9201
