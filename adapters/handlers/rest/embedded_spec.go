@@ -2992,7 +2992,8 @@ func init() {
           "type": "string",
           "default": "knn",
           "enum": [
-            "knn"
+            "knn",
+            "contextual"
           ],
           "example": "knn"
         }
@@ -6596,7 +6597,8 @@ func init() {
           "type": "string",
           "default": "knn",
           "enum": [
-            "knn"
+            "knn",
+            "contextual"
           ],
           "example": "knn"
         }

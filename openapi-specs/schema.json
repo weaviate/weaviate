@@ -820,7 +820,7 @@
         "type": {
           "description": "which algorythim to use for classifications",
           "type": "string",
-          "enum": ["knn"],
+          "enum": ["knn", "contextual"],
           "default": "knn",
           "example": "knn"
         },
