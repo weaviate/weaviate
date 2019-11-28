@@ -20,18 +20,10 @@ if [[ "$*" == *--spark* ]]; then
 elif [[ "$*" == *--keycloak* ]]; then
   DOCKER_COMPOSE_FILE=docker-compose.yml
   ADDITIONAL_SERVICES+=('keycloak')
-  ADDITIONAL_SERVICES+=('janus')
-  ADDITIONAL_SERVICES+=('db')
-  ADDITIONAL_SERVICES+=('index')
-  ADDITIONAL_SERVICES+=('genesis_fake')
-  ADDITIONAL_SERVICES+=('weaviate_b_fake')
 elif [[ "$*" == *--esvector-only* ]]; then
   DOCKER_COMPOSE_FILE=docker-compose-esonly.yml
 else
   DOCKER_COMPOSE_FILE=docker-compose.yml
-  ADDITIONAL_SERVICES+=('janus')
-  ADDITIONAL_SERVICES+=('db')
-  ADDITIONAL_SERVICES+=('index')
   ADDITIONAL_SERVICES+=('genesis_fake')
   ADDITIONAL_SERVICES+=('weaviate_b_fake')
 fi
