@@ -54,6 +54,17 @@ func init() {
   },
   "basePath": "/v1",
   "paths": {
+    "/.well-known/live": {
+      "get": {
+        "description": "Determines whether the application is alive. Can be used for kubernetes liveness probe",
+        "operationId": "weaviate.wellknown.liveness",
+        "responses": {
+          "204": {
+            "description": "The application is able to respond to HTTP requests"
+          }
+        }
+      }
+    },
     "/.well-known/openid-configuration": {
       "get": {
         "description": "OIDC Discovery page, redirects to the token issuer if one is configured",
@@ -86,6 +97,20 @@ func init() {
         },
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
+      }
+    },
+    "/.well-known/ready": {
+      "get": {
+        "description": "Determines whether the application is ready to receive traffic. Can be used for kubernetes readiness probe.",
+        "operationId": "weaviate.wellknown.readiness",
+        "responses": {
+          "204": {
+            "description": "The application has completed its start-up routine and is ready to accept traffic."
+          },
+          "503": {
+            "description": "The application is currently not able to serve traffic. If other horizontal replicas of weaviate are available and they are capable of receving traffic, all traffic should be redirected there instead."
+          }
+        }
       }
     },
     "/actions": {
@@ -3644,6 +3669,17 @@ func init() {
   },
   "basePath": "/v1",
   "paths": {
+    "/.well-known/live": {
+      "get": {
+        "description": "Determines whether the application is alive. Can be used for kubernetes liveness probe",
+        "operationId": "weaviate.wellknown.liveness",
+        "responses": {
+          "204": {
+            "description": "The application is able to respond to HTTP requests"
+          }
+        }
+      }
+    },
     "/.well-known/openid-configuration": {
       "get": {
         "description": "OIDC Discovery page, redirects to the token issuer if one is configured",
@@ -3676,6 +3712,20 @@ func init() {
         },
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
+      }
+    },
+    "/.well-known/ready": {
+      "get": {
+        "description": "Determines whether the application is ready to receive traffic. Can be used for kubernetes readiness probe.",
+        "operationId": "weaviate.wellknown.readiness",
+        "responses": {
+          "204": {
+            "description": "The application has completed its start-up routine and is ready to accept traffic."
+          },
+          "503": {
+            "description": "The application is currently not able to serve traffic. If other horizontal replicas of weaviate are available and they are capable of receving traffic, all traffic should be redirected there instead."
+          }
+        }
       }
     },
     "/actions": {
