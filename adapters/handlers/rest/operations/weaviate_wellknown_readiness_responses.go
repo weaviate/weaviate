@@ -24,28 +24,28 @@ import (
 	"github.com/go-openapi/runtime"
 )
 
-// WeaviateWellknownReadinessNoContentCode is the HTTP code returned for type WeaviateWellknownReadinessNoContent
-const WeaviateWellknownReadinessNoContentCode int = 204
+// WeaviateWellknownReadinessOKCode is the HTTP code returned for type WeaviateWellknownReadinessOK
+const WeaviateWellknownReadinessOKCode int = 200
 
-/*WeaviateWellknownReadinessNoContent The application has completed its start-up routine and is ready to accept traffic.
+/*WeaviateWellknownReadinessOK The application has completed its start-up routine and is ready to accept traffic.
 
-swagger:response weaviateWellknownReadinessNoContent
+swagger:response weaviateWellknownReadinessOK
 */
-type WeaviateWellknownReadinessNoContent struct {
+type WeaviateWellknownReadinessOK struct {
 }
 
-// NewWeaviateWellknownReadinessNoContent creates WeaviateWellknownReadinessNoContent with default headers values
-func NewWeaviateWellknownReadinessNoContent() *WeaviateWellknownReadinessNoContent {
+// NewWeaviateWellknownReadinessOK creates WeaviateWellknownReadinessOK with default headers values
+func NewWeaviateWellknownReadinessOK() *WeaviateWellknownReadinessOK {
 
-	return &WeaviateWellknownReadinessNoContent{}
+	return &WeaviateWellknownReadinessOK{}
 }
 
 // WriteResponse to the client
-func (o *WeaviateWellknownReadinessNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+func (o *WeaviateWellknownReadinessOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
-	rw.WriteHeader(204)
+	rw.WriteHeader(200)
 }
 
 // WeaviateWellknownReadinessServiceUnavailableCode is the HTTP code returned for type WeaviateWellknownReadinessServiceUnavailable

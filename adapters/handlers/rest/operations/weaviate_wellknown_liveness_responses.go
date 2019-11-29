@@ -24,26 +24,26 @@ import (
 	"github.com/go-openapi/runtime"
 )
 
-// WeaviateWellknownLivenessNoContentCode is the HTTP code returned for type WeaviateWellknownLivenessNoContent
-const WeaviateWellknownLivenessNoContentCode int = 204
+// WeaviateWellknownLivenessOKCode is the HTTP code returned for type WeaviateWellknownLivenessOK
+const WeaviateWellknownLivenessOKCode int = 200
 
-/*WeaviateWellknownLivenessNoContent The application is able to respond to HTTP requests
+/*WeaviateWellknownLivenessOK The application is able to respond to HTTP requests
 
-swagger:response weaviateWellknownLivenessNoContent
+swagger:response weaviateWellknownLivenessOK
 */
-type WeaviateWellknownLivenessNoContent struct {
+type WeaviateWellknownLivenessOK struct {
 }
 
-// NewWeaviateWellknownLivenessNoContent creates WeaviateWellknownLivenessNoContent with default headers values
-func NewWeaviateWellknownLivenessNoContent() *WeaviateWellknownLivenessNoContent {
+// NewWeaviateWellknownLivenessOK creates WeaviateWellknownLivenessOK with default headers values
+func NewWeaviateWellknownLivenessOK() *WeaviateWellknownLivenessOK {
 
-	return &WeaviateWellknownLivenessNoContent{}
+	return &WeaviateWellknownLivenessOK{}
 }
 
 // WriteResponse to the client
-func (o *WeaviateWellknownLivenessNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+func (o *WeaviateWellknownLivenessOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
-	rw.WriteHeader(204)
+	rw.WriteHeader(200)
 }

@@ -35,8 +35,8 @@ type WeaviateWellknownLivenessReader struct {
 func (o *WeaviateWellknownLivenessReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
 
-	case 204:
-		result := NewWeaviateWellknownLivenessNoContent()
+	case 200:
+		result := NewWeaviateWellknownLivenessOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -47,23 +47,23 @@ func (o *WeaviateWellknownLivenessReader) ReadResponse(response runtime.ClientRe
 	}
 }
 
-// NewWeaviateWellknownLivenessNoContent creates a WeaviateWellknownLivenessNoContent with default headers values
-func NewWeaviateWellknownLivenessNoContent() *WeaviateWellknownLivenessNoContent {
-	return &WeaviateWellknownLivenessNoContent{}
+// NewWeaviateWellknownLivenessOK creates a WeaviateWellknownLivenessOK with default headers values
+func NewWeaviateWellknownLivenessOK() *WeaviateWellknownLivenessOK {
+	return &WeaviateWellknownLivenessOK{}
 }
 
-/*WeaviateWellknownLivenessNoContent handles this case with default header values.
+/*WeaviateWellknownLivenessOK handles this case with default header values.
 
 The application is able to respond to HTTP requests
 */
-type WeaviateWellknownLivenessNoContent struct {
+type WeaviateWellknownLivenessOK struct {
 }
 
-func (o *WeaviateWellknownLivenessNoContent) Error() string {
-	return fmt.Sprintf("[GET /.well-known/live][%d] weaviateWellknownLivenessNoContent ", 204)
+func (o *WeaviateWellknownLivenessOK) Error() string {
+	return fmt.Sprintf("[GET /.well-known/live][%d] weaviateWellknownLivenessOK ", 200)
 }
 
-func (o *WeaviateWellknownLivenessNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+func (o *WeaviateWellknownLivenessOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	return nil
 }
