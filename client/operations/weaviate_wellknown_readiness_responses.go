@@ -35,8 +35,8 @@ type WeaviateWellknownReadinessReader struct {
 func (o *WeaviateWellknownReadinessReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
 
-	case 204:
-		result := NewWeaviateWellknownReadinessNoContent()
+	case 200:
+		result := NewWeaviateWellknownReadinessOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -54,23 +54,23 @@ func (o *WeaviateWellknownReadinessReader) ReadResponse(response runtime.ClientR
 	}
 }
 
-// NewWeaviateWellknownReadinessNoContent creates a WeaviateWellknownReadinessNoContent with default headers values
-func NewWeaviateWellknownReadinessNoContent() *WeaviateWellknownReadinessNoContent {
-	return &WeaviateWellknownReadinessNoContent{}
+// NewWeaviateWellknownReadinessOK creates a WeaviateWellknownReadinessOK with default headers values
+func NewWeaviateWellknownReadinessOK() *WeaviateWellknownReadinessOK {
+	return &WeaviateWellknownReadinessOK{}
 }
 
-/*WeaviateWellknownReadinessNoContent handles this case with default header values.
+/*WeaviateWellknownReadinessOK handles this case with default header values.
 
 The application has completed its start-up routine and is ready to accept traffic.
 */
-type WeaviateWellknownReadinessNoContent struct {
+type WeaviateWellknownReadinessOK struct {
 }
 
-func (o *WeaviateWellknownReadinessNoContent) Error() string {
-	return fmt.Sprintf("[GET /.well-known/ready][%d] weaviateWellknownReadinessNoContent ", 204)
+func (o *WeaviateWellknownReadinessOK) Error() string {
+	return fmt.Sprintf("[GET /.well-known/ready][%d] weaviateWellknownReadinessOK ", 200)
 }
 
-func (o *WeaviateWellknownReadinessNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+func (o *WeaviateWellknownReadinessOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	return nil
 }

@@ -164,7 +164,7 @@ func (a *Client) BatchingThingsCreate(params *BatchingThingsCreateParams, authIn
 /*
 WeaviateWellknownLiveness Determines whether the application is alive. Can be used for kubernetes liveness probe
 */
-func (a *Client) WeaviateWellknownLiveness(params *WeaviateWellknownLivenessParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateWellknownLivenessNoContent, error) {
+func (a *Client) WeaviateWellknownLiveness(params *WeaviateWellknownLivenessParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateWellknownLivenessOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateWellknownLivenessParams()
@@ -186,14 +186,14 @@ func (a *Client) WeaviateWellknownLiveness(params *WeaviateWellknownLivenessPara
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateWellknownLivenessNoContent), nil
+	return result.(*WeaviateWellknownLivenessOK), nil
 
 }
 
 /*
 WeaviateWellknownReadiness Determines whether the application is ready to receive traffic. Can be used for kubernetes readiness probe.
 */
-func (a *Client) WeaviateWellknownReadiness(params *WeaviateWellknownReadinessParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateWellknownReadinessNoContent, error) {
+func (a *Client) WeaviateWellknownReadiness(params *WeaviateWellknownReadinessParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateWellknownReadinessOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateWellknownReadinessParams()
@@ -215,7 +215,7 @@ func (a *Client) WeaviateWellknownReadiness(params *WeaviateWellknownReadinessPa
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateWellknownReadinessNoContent), nil
+	return result.(*WeaviateWellknownReadinessOK), nil
 
 }
 

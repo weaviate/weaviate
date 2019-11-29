@@ -50,7 +50,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "0.21.2"
+    "version": "0.21.3"
   },
   "basePath": "/v1",
   "paths": {
@@ -59,7 +59,7 @@ func init() {
         "description": "Determines whether the application is alive. Can be used for kubernetes liveness probe",
         "operationId": "weaviate.wellknown.liveness",
         "responses": {
-          "204": {
+          "200": {
             "description": "The application is able to respond to HTTP requests"
           }
         }
@@ -104,7 +104,7 @@ func init() {
         "description": "Determines whether the application is ready to receive traffic. Can be used for kubernetes readiness probe.",
         "operationId": "weaviate.wellknown.readiness",
         "responses": {
-          "204": {
+          "200": {
             "description": "The application has completed its start-up routine and is ready to accept traffic."
           },
           "503": {
@@ -3665,7 +3665,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "0.21.2"
+    "version": "0.21.3"
   },
   "basePath": "/v1",
   "paths": {
@@ -3674,7 +3674,7 @@ func init() {
         "description": "Determines whether the application is alive. Can be used for kubernetes liveness probe",
         "operationId": "weaviate.wellknown.liveness",
         "responses": {
-          "204": {
+          "200": {
             "description": "The application is able to respond to HTTP requests"
           }
         }
@@ -3719,7 +3719,7 @@ func init() {
         "description": "Determines whether the application is ready to receive traffic. Can be used for kubernetes readiness probe.",
         "operationId": "weaviate.wellknown.readiness",
         "responses": {
-          "204": {
+          "200": {
             "description": "The application has completed its start-up routine and is ready to accept traffic."
           },
           "503": {
