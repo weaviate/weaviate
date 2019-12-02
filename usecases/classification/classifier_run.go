@@ -31,7 +31,10 @@ import (
 type classifyItemFn func(item search.Result, kind kind.Kind, params models.Classification) error
 
 func (c *Classifier) run(params models.Classification, kind kind.Kind) {
-	unclassifiedItems, err := c.vectorRepo.GetUnclassified(context.Background(),
+	ctx, cancel := contextWithTimeout(30 * time.Second)
+	defer cancel()
+
+	unclassifiedItems, err := c.vectorRepo.GetUnclassified(ctx,
 		kind, params.Class, params.ClassifyProperties)
 	if err != nil {
 		c.failRunWithError(params, err)
@@ -94,7 +97,9 @@ func (c *Classifier) run(params models.Classification, kind kind.Kind) {
 
 func (c *Classifier) succeedRun(params models.Classification) {
 	params.Status = models.ClassificationStatusCompleted
-	err := c.repo.Put(context.Background(), params)
+	ctx, cancel := contextWithTimeout(2 * time.Second)
+	defer cancel()
+	err := c.repo.Put(ctx, params)
 	if err != nil {
 		// TODO: log
 
@@ -112,11 +117,13 @@ func (c *Classifier) failRunWithError(params models.Classification, err error) {
 }
 
 func (c *Classifier) store(item search.Result) error {
+	ctx, cancel := contextWithTimeout(2 * time.Second)
+	defer cancel()
 	switch item.Kind {
 	case kind.Thing:
-		return c.vectorRepo.PutThing(context.Background(), item.Thing(), item.Vector)
+		return c.vectorRepo.PutThing(ctx, item.Thing(), item.Vector)
 	case kind.Action:
-		return c.vectorRepo.PutAction(context.Background(), item.Action(), item.Vector)
+		return c.vectorRepo.PutAction(ctx, item.Action(), item.Vector)
 	default:
 		return fmt.Errorf("impossible kind")
 	}
@@ -135,4 +142,8 @@ func (c *Classifier) extendItemWithObjectMeta(item *search.Result,
 		ClassifiedFields: classified,
 		Completed:        strfmt.DateTime(time.Now()),
 	}
+}
+
+func contextWithTimeout(d time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), d)
 }

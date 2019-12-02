@@ -14,8 +14,8 @@
 package classification
 
 import (
-	"context"
 	"fmt"
+	"time"
 
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
@@ -23,8 +23,11 @@ import (
 )
 
 func (c *Classifier) classifyItemUsingKNN(item search.Result, kind kind.Kind, params models.Classification) error {
+	ctx, cancel := contextWithTimeout(2 * time.Second)
+	defer cancel()
+
 	// K is guaranteed to be set by now, no danger in dereferencing the pointer
-	res, err := c.vectorRepo.AggregateNeighbors(context.Background(), item.Vector,
+	res, err := c.vectorRepo.AggregateNeighbors(ctx, item.Vector,
 		kind, item.ClassName,
 		params.ClassifyProperties, int(*params.K))
 
