@@ -14,8 +14,8 @@
 package classification
 
 import (
-	"context"
 	"fmt"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/filters"
@@ -123,7 +123,10 @@ func (c *contextualItemClassifier) classAndKindOfTarget(propName string) (schema
 }
 
 func (c *contextualItemClassifier) findTarget(targetClass schema.ClassName, targetKind kind.Kind) (*search.Result, error) {
-	res, err := c.classifier.vectorRepo.VectorClassSearch(context.Background(), traverser.GetParams{
+	ctx, cancel := contextWithTimeout(2 * time.Second)
+	defer cancel()
+
+	res, err := c.classifier.vectorRepo.VectorClassSearch(ctx, traverser.GetParams{
 		SearchVector: c.item.Vector,
 		ClassName:    targetClass.String(),
 		Kind:         targetKind,
