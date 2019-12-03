@@ -28,6 +28,10 @@ func Test_ValidateUserInput(t *testing.T) {
 		expectedError error
 	}
 
+	contextual := "contextual"
+	k7 := int32(7)
+
+	// knn or general
 	tests := []testcase{
 		testcase{
 			name: "missing class",
@@ -142,6 +146,30 @@ func Test_ValidateUserInput(t *testing.T) {
 			name:          "multiple missing fields (aborts early as we can't validate properties if class is not set)",
 			input:         models.Classification{},
 			expectedError: fmt.Errorf("invalid classification: class must be set"),
+		},
+
+		// specific for contextual
+		testcase{
+			name: "classifyProperty has more than one target class",
+			input: models.Classification{
+				Class:              "Article",
+				BasedOnProperties:  []string{"description"},
+				ClassifyProperties: []string{"anyCategory"},
+				Type:               &contextual,
+			},
+			expectedError: fmt.Errorf("invalid classification: classifyProperties: property 'anyCategory' has more than one target class, classification of type 'contextual' requires exactly one target class"),
+		},
+
+		testcase{
+			name: "type is contextual, but k is set",
+			input: models.Classification{
+				Class:              "Article",
+				BasedOnProperties:  []string{"description"},
+				ClassifyProperties: []string{"exactCategory"},
+				Type:               &contextual,
+				K:                  &k7,
+			},
+			expectedError: fmt.Errorf("invalid classification: field 'k' can only be set for type 'knn', but got type 'contextual'"),
 		},
 	}
 
