@@ -86,13 +86,18 @@ func (c *contextualItemClassifier) property(propName string) (string, error) {
 		return "", fmt.Errorf("find target: %v", err)
 	}
 
+	distance, err := c.distance(res.Vector)
+	if err != nil {
+		return "", fmt.Errorf("calculate distance: %v", err)
+	}
+
 	targetBeacon := crossref.New("localhost", res.ID, res.Kind).String()
 	c.item.Schema.(map[string]interface{})[propName] = models.MultipleRef{
 		&models.SingleRef{
 			Beacon: strfmt.URI(targetBeacon),
 			Meta: &models.ReferenceMeta{
 				Classification: &models.ReferenceMetaClassification{
-					WinningDistance: float64(9000), // TODO
+					WinningDistance: distance,
 				},
 			},
 		},
@@ -148,4 +153,9 @@ func (c *contextualItemClassifier) findTarget(targetClass schema.ClassName, targ
 	}
 
 	return &res[0], nil
+}
+
+func (c *contextualItemClassifier) distance(target []float32) (float64, error) {
+	dist, err := c.classifier.distancer(c.item.Vector, target)
+	return float64(dist), err
 }
