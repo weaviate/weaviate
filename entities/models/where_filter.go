@@ -20,6 +20,7 @@ package models
 
 import (
 	"encoding/json"
+	"strconv"
 
 	strfmt "github.com/go-openapi/strfmt"
 
@@ -31,6 +32,9 @@ import (
 // WhereFilter Filter search results using a where filter
 // swagger:model WhereFilter
 type WhereFilter struct {
+
+	// combine multiple where filters, requires 'And' or 'Or' operator
+	Operands []*WhereFilter `json:"operands"`
 
 	// operator to use
 	// Enum: [And Or Equal Like Not NotEqual GreaterThan GreaterThanEqual LessThan LessThanEqual WithinGeoRange]
@@ -59,6 +63,10 @@ type WhereFilter struct {
 func (m *WhereFilter) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateOperands(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateOperator(formats); err != nil {
 		res = append(res, err)
 	}
@@ -66,6 +74,31 @@ func (m *WhereFilter) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *WhereFilter) validateOperands(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Operands) { // not required
+		return nil
+	}
+
+	for i := 0; i < len(m.Operands); i++ {
+		if swag.IsZero(m.Operands[i]) { // not required
+			continue
+		}
+
+		if m.Operands[i] != nil {
+			if err := m.Operands[i].Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("operands" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
 	return nil
 }
 
