@@ -3562,6 +3562,13 @@ func init() {
       "description": "Filter search results using a where filter",
       "type": "object",
       "properties": {
+        "operands": {
+          "description": "combine multiple where filters, requires 'And' or 'Or' operator",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/WhereFilter"
+          }
+        },
         "operator": {
           "description": "operator to use",
           "type": "string",
@@ -7235,6 +7242,13 @@ func init() {
       "description": "Filter search results using a where filter",
       "type": "object",
       "properties": {
+        "operands": {
+          "description": "combine multiple where filters, requires 'And' or 'Or' operator",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/WhereFilter"
+          }
+        },
         "operator": {
           "description": "operator to use",
           "type": "string",
