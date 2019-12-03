@@ -58,6 +58,10 @@ func testSchema() schema.Schema {
 							Name:        "categories",
 							DataType:    []string{"ExactCategory"},
 						},
+						&models.Property{
+							Name:     "anyCategory",
+							DataType: []string{"MainCategory", "ExactCategory"},
+						},
 					},
 				},
 			},
