@@ -3557,6 +3557,74 @@ func init() {
           "format": "int64"
         }
       }
+    },
+    "WhereFilter": {
+      "description": "Filter search results using a where filter",
+      "type": "object",
+      "properties": {
+        "operator": {
+          "description": "operator to use",
+          "type": "string",
+          "enum": [
+            "And",
+            "Or",
+            "Equal",
+            "Like",
+            "Not",
+            "NotEqual",
+            "GreaterThan",
+            "GreaterThanEqual",
+            "LessThan",
+            "LessThanEqual",
+            "WithinGeoRange"
+          ],
+          "example": "GreaterThanEqual"
+        },
+        "path": {
+          "description": "path to the property currently being filtered",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "example": [
+            "inCity",
+            "City",
+            "name"
+          ]
+        },
+        "valueBoolean": {
+          "description": "value as boolean",
+          "type": "boolean",
+          "x-nullable": true,
+          "example": false
+        },
+        "valueDate": {
+          "description": "value as string (on text props)",
+          "type": "string",
+          "x-nullable": true,
+          "example": "TODO"
+        },
+        "valueInt": {
+          "description": "value as integer",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "example": 2000
+        },
+        "valueNumber": {
+          "description": "value as number/float",
+          "type": "number",
+          "format": "float64",
+          "x-nullable": true,
+          "example": 3.14
+        },
+        "valueString": {
+          "description": "value as string",
+          "type": "string",
+          "x-nullable": true,
+          "example": "my search term"
+        }
+      }
     }
   },
   "parameters": {
@@ -7160,6 +7228,74 @@ func init() {
           "description": "The total number of Things for the query. The number of items in a response may be smaller due to paging.",
           "type": "integer",
           "format": "int64"
+        }
+      }
+    },
+    "WhereFilter": {
+      "description": "Filter search results using a where filter",
+      "type": "object",
+      "properties": {
+        "operator": {
+          "description": "operator to use",
+          "type": "string",
+          "enum": [
+            "And",
+            "Or",
+            "Equal",
+            "Like",
+            "Not",
+            "NotEqual",
+            "GreaterThan",
+            "GreaterThanEqual",
+            "LessThan",
+            "LessThanEqual",
+            "WithinGeoRange"
+          ],
+          "example": "GreaterThanEqual"
+        },
+        "path": {
+          "description": "path to the property currently being filtered",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "example": [
+            "inCity",
+            "City",
+            "name"
+          ]
+        },
+        "valueBoolean": {
+          "description": "value as boolean",
+          "type": "boolean",
+          "x-nullable": true,
+          "example": false
+        },
+        "valueDate": {
+          "description": "value as string (on text props)",
+          "type": "string",
+          "x-nullable": true,
+          "example": "TODO"
+        },
+        "valueInt": {
+          "description": "value as integer",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "example": 2000
+        },
+        "valueNumber": {
+          "description": "value as number/float",
+          "type": "number",
+          "format": "float64",
+          "x-nullable": true,
+          "example": 3.14
+        },
+        "valueString": {
+          "description": "value as string",
+          "type": "string",
+          "x-nullable": true,
+          "example": "my search term"
         }
       }
     }

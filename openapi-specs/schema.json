@@ -872,6 +872,58 @@
         }
       },
       "type": "object"
+    },
+    "WhereFilter": {
+      "description": "Filter search results using a where filter",
+      "properties": {
+        "operator": {
+          "description": "operator to use",
+          "type": "string",
+          "enum": ["And", "Or", "Equal","Like", "Not", "NotEqual", "GreaterThan", "GreaterThanEqual", "LessThan", "LessThanEqual", "WithinGeoRange" ],
+          "example": "GreaterThanEqual"
+        },
+        "path": {
+          "description": "path to the property currently being filtered",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "example": ["inCity", "City", "name"]
+        },
+        "valueInt": {
+          "description": "value as integer",
+          "type": "integer",
+          "format": "int64",
+          "example": 2000,
+          "x-nullable": true
+        },
+        "valueNumber": {
+          "description": "value as number/float",
+          "type": "number",
+          "format": "float64",
+          "example": 3.14,
+          "x-nullable": true
+        },
+        "valueBoolean": {
+          "description": "value as boolean",
+          "type": "boolean",
+          "example": false,
+          "x-nullable": true
+        },
+        "valueString": {
+          "description": "value as string",
+          "type": "string",
+          "example": "my search term",
+          "x-nullable": true
+        },
+        "valueDate": {
+          "description": "value as string (on text props)",
+          "type": "string",
+          "example": "TODO",
+          "x-nullable": true
+        }
+      },
+      "type": "object"
     }
   },
   "externalDocs": {
