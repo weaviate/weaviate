@@ -14,6 +14,7 @@
 package filterext
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/semi-technologies/weaviate/entities/filters"
@@ -172,6 +173,66 @@ func Test_ExtractFlatFilters(t *testing.T) {
 						Type: schema.DataTypeGeoCoordinates,
 					},
 				}},
+			},
+		}
+
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				filter, err := Parse(test.input)
+				assert.Equal(t, test.expectedErr, err)
+				assert.Equal(t, test.expectedFilter, filter)
+			})
+		}
+	})
+
+	t.Run("invalid cases", func(t *testing.T) {
+		tests := []test{
+			test{
+				name: "geo missing coordinates",
+				input: &models.WhereFilter{
+					Operator: "WithinGeoRange",
+					ValueGeoRange: &models.WhereFilterGeoRange{
+						Distance: &models.WhereFilterGeoRangeDistance{
+							Max: 20.0,
+						},
+					},
+					Path: []string{"geoField"},
+				},
+				expectedErr: fmt.Errorf("invalid where filter: valueGeoRange: " +
+					"field 'geoCoordinates' must be set"),
+			},
+			test{
+				name: "geo missing distance object",
+				input: &models.WhereFilter{
+					Operator: "WithinGeoRange",
+					ValueGeoRange: &models.WhereFilterGeoRange{
+						GeoCoordinates: &models.GeoCoordinates{
+							Latitude:  4.5,
+							Longitude: 3.7,
+						},
+					},
+					Path: []string{"geoField"},
+				},
+				expectedErr: fmt.Errorf("invalid where filter: valueGeoRange: " +
+					"field 'distance' must be set"),
+			},
+			test{
+				name: "geo having negative distance",
+				input: &models.WhereFilter{
+					Operator: "WithinGeoRange",
+					ValueGeoRange: &models.WhereFilterGeoRange{
+						GeoCoordinates: &models.GeoCoordinates{
+							Latitude:  4.5,
+							Longitude: 3.7,
+						},
+						Distance: &models.WhereFilterGeoRangeDistance{
+							Max: -20.0,
+						},
+					},
+					Path: []string{"geoField"},
+				},
+				expectedErr: fmt.Errorf("invalid where filter: valueGeoRange: " +
+					"field 'distance.max' must be a positive number"),
 			},
 		}
 
