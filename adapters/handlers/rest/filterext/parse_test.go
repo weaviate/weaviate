@@ -32,130 +32,181 @@ func Test_ExtractFlatFilters(t *testing.T) {
 		expectedErr    error
 	}
 
-	tests := []test{
-		test{
-			name: "valid int filter",
-			input: &models.WhereFilter{
-				Operator: "Equal",
-				ValueInt: ptInt(42),
-				Path:     []string{"intField"},
+	t.Run("all value types", func(t *testing.T) {
+		tests := []test{
+			test{
+				name: "valid int filter",
+				input: &models.WhereFilter{
+					Operator: "Equal",
+					ValueInt: ptInt(42),
+					Path:     []string{"intField"},
+				},
+				expectedFilter: &filters.LocalFilter{Root: &filters.Clause{
+					Operator: filters.OperatorEqual,
+					On: &filters.Path{
+						Class:    schema.AssertValidClassName("Todo"),
+						Property: schema.AssertValidPropertyName("intField"),
+					},
+					Value: &filters.Value{
+						Value: 42,
+						Type:  schema.DataTypeInt,
+					},
+				}},
 			},
-			expectedFilter: &filters.LocalFilter{Root: &filters.Clause{
-				Operator: filters.OperatorEqual,
-				On: &filters.Path{
-					Class:    schema.AssertValidClassName("Todo"),
-					Property: schema.AssertValidPropertyName("intField"),
+			test{
+				name: "valid string filter",
+				input: &models.WhereFilter{
+					Operator:    "Equal",
+					ValueString: ptString("foo bar"),
+					Path:        []string{"stringField"},
 				},
-				Value: &filters.Value{
-					Value: 42,
-					Type:  schema.DataTypeInt,
-				},
-			}},
-		},
-		test{
-			name: "valid string filter",
-			input: &models.WhereFilter{
-				Operator:    "Equal",
-				ValueString: ptString("foo bar"),
-				Path:        []string{"stringField"},
+				expectedFilter: &filters.LocalFilter{Root: &filters.Clause{
+					Operator: filters.OperatorEqual,
+					On: &filters.Path{
+						Class:    schema.AssertValidClassName("Todo"),
+						Property: schema.AssertValidPropertyName("stringField"),
+					},
+					Value: &filters.Value{
+						Value: "foo bar",
+						Type:  schema.DataTypeString,
+					},
+				}},
 			},
-			expectedFilter: &filters.LocalFilter{Root: &filters.Clause{
-				Operator: filters.OperatorEqual,
-				On: &filters.Path{
-					Class:    schema.AssertValidClassName("Todo"),
-					Property: schema.AssertValidPropertyName("stringField"),
+			test{
+				name: "valid date filter",
+				input: &models.WhereFilter{
+					Operator:  "Equal",
+					ValueDate: ptString("foo bar"),
+					Path:      []string{"dateField"},
 				},
-				Value: &filters.Value{
-					Value: "foo bar",
-					Type:  schema.DataTypeString,
-				},
-			}},
-		},
-		test{
-			name: "valid date filter",
-			input: &models.WhereFilter{
-				Operator:  "Equal",
-				ValueDate: ptString("foo bar"),
-				Path:      []string{"dateField"},
+				expectedFilter: &filters.LocalFilter{Root: &filters.Clause{
+					Operator: filters.OperatorEqual,
+					On: &filters.Path{
+						Class:    schema.AssertValidClassName("Todo"),
+						Property: schema.AssertValidPropertyName("dateField"),
+					},
+					Value: &filters.Value{
+						Value: "foo bar",
+						Type:  schema.DataTypeDate,
+					},
+				}},
 			},
-			expectedFilter: &filters.LocalFilter{Root: &filters.Clause{
-				Operator: filters.OperatorEqual,
-				On: &filters.Path{
-					Class:    schema.AssertValidClassName("Todo"),
-					Property: schema.AssertValidPropertyName("dateField"),
+			test{
+				name: "valid text filter",
+				input: &models.WhereFilter{
+					Operator:  "Equal",
+					ValueText: ptString("foo bar"),
+					Path:      []string{"textField"},
 				},
-				Value: &filters.Value{
-					Value: "foo bar",
-					Type:  schema.DataTypeDate,
-				},
-			}},
-		},
-		test{
-			name: "valid text filter",
-			input: &models.WhereFilter{
-				Operator:  "Equal",
-				ValueText: ptString("foo bar"),
-				Path:      []string{"textField"},
+				expectedFilter: &filters.LocalFilter{Root: &filters.Clause{
+					Operator: filters.OperatorEqual,
+					On: &filters.Path{
+						Class:    schema.AssertValidClassName("Todo"),
+						Property: schema.AssertValidPropertyName("textField"),
+					},
+					Value: &filters.Value{
+						Value: "foo bar",
+						Type:  schema.DataTypeText,
+					},
+				}},
 			},
-			expectedFilter: &filters.LocalFilter{Root: &filters.Clause{
-				Operator: filters.OperatorEqual,
-				On: &filters.Path{
-					Class:    schema.AssertValidClassName("Todo"),
-					Property: schema.AssertValidPropertyName("textField"),
+			test{
+				name: "valid number filter",
+				input: &models.WhereFilter{
+					Operator:    "Equal",
+					ValueNumber: ptFloat(20.20),
+					Path:        []string{"numberField"},
 				},
-				Value: &filters.Value{
-					Value: "foo bar",
-					Type:  schema.DataTypeText,
-				},
-			}},
-		},
-		test{
-			name: "valid number filter",
-			input: &models.WhereFilter{
-				Operator:    "Equal",
-				ValueNumber: ptFloat(20.20),
-				Path:        []string{"numberField"},
+				expectedFilter: &filters.LocalFilter{Root: &filters.Clause{
+					Operator: filters.OperatorEqual,
+					On: &filters.Path{
+						Class:    schema.AssertValidClassName("Todo"),
+						Property: schema.AssertValidPropertyName("numberField"),
+					},
+					Value: &filters.Value{
+						Value: 20.20,
+						Type:  schema.DataTypeNumber,
+					},
+				}},
 			},
-			expectedFilter: &filters.LocalFilter{Root: &filters.Clause{
-				Operator: filters.OperatorEqual,
-				On: &filters.Path{
-					Class:    schema.AssertValidClassName("Todo"),
-					Property: schema.AssertValidPropertyName("numberField"),
+			test{
+				name: "valid bool filter",
+				input: &models.WhereFilter{
+					Operator:     "Equal",
+					ValueBoolean: ptBool(true),
+					Path:         []string{"booleanField"},
 				},
-				Value: &filters.Value{
-					Value: 20.20,
-					Type:  schema.DataTypeNumber,
-				},
-			}},
-		},
-		test{
-			name: "valid bool filter",
-			input: &models.WhereFilter{
-				Operator:     "Equal",
-				ValueBoolean: ptBool(true),
-				Path:         []string{"booleanField"},
+				expectedFilter: &filters.LocalFilter{Root: &filters.Clause{
+					Operator: filters.OperatorEqual,
+					On: &filters.Path{
+						Class:    schema.AssertValidClassName("Todo"),
+						Property: schema.AssertValidPropertyName("booleanField"),
+					},
+					Value: &filters.Value{
+						Value: true,
+						Type:  schema.DataTypeBoolean,
+					},
+				}},
 			},
-			expectedFilter: &filters.LocalFilter{Root: &filters.Clause{
-				Operator: filters.OperatorEqual,
-				On: &filters.Path{
-					Class:    schema.AssertValidClassName("Todo"),
-					Property: schema.AssertValidPropertyName("booleanField"),
-				},
-				Value: &filters.Value{
-					Value: true,
-					Type:  schema.DataTypeBoolean,
-				},
-			}},
-		},
-	}
+		}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			filter, err := Parse(test.input)
-			assert.Equal(t, test.expectedErr, err)
-			assert.Equal(t, test.expectedFilter, filter)
-		})
-	}
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				filter, err := Parse(test.input)
+				assert.Equal(t, test.expectedErr, err)
+				assert.Equal(t, test.expectedFilter, filter)
+			})
+		}
+	})
+
+	t.Run("all operator types", func(t *testing.T) {
+		// all tests use int as the value type, value types are tested separately
+		tests := []test{
+			test{
+				name:           "equal",
+				input:          inputIntFilterWithOp("Equal"),
+				expectedFilter: intFilterWithOp(filters.OperatorEqual),
+			},
+			test{
+				name:           "like", // doesn't make sense on an int, but that's irrelevant for parsing
+				input:          inputIntFilterWithOp("Like"),
+				expectedFilter: intFilterWithOp(filters.OperatorLike),
+			},
+			test{
+				name:           "not equal",
+				input:          inputIntFilterWithOp("NotEqual"),
+				expectedFilter: intFilterWithOp(filters.OperatorNotEqual),
+			},
+			test{
+				name:           "greater than",
+				input:          inputIntFilterWithOp("GreaterThan"),
+				expectedFilter: intFilterWithOp(filters.OperatorGreaterThan),
+			},
+			test{
+				name:           "greater than/equal",
+				input:          inputIntFilterWithOp("GreaterThanEqual"),
+				expectedFilter: intFilterWithOp(filters.OperatorGreaterThanEqual),
+			},
+			test{
+				name:           "less than",
+				input:          inputIntFilterWithOp("LessThan"),
+				expectedFilter: intFilterWithOp(filters.OperatorLessThan),
+			},
+			test{
+				name:           "less than/equal",
+				input:          inputIntFilterWithOp("LessThanEqual"),
+				expectedFilter: intFilterWithOp(filters.OperatorLessThanEqual),
+			},
+		}
+
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				filter, err := Parse(test.input)
+				assert.Equal(t, test.expectedErr, err)
+				assert.Equal(t, test.expectedFilter, filter)
+			})
+		}
+	})
 }
 
 func ptInt(in int) *int64 {
@@ -173,4 +224,28 @@ func ptString(in string) *string {
 
 func ptBool(in bool) *bool {
 	return &in
+}
+
+func intFilterWithOp(op filters.Operator) *filters.LocalFilter {
+	return &filters.LocalFilter{
+		Root: &filters.Clause{
+			Operator: op,
+			On: &filters.Path{
+				Class:    schema.AssertValidClassName("Todo"),
+				Property: schema.AssertValidPropertyName("intField"),
+			},
+			Value: &filters.Value{
+				Value: 42,
+				Type:  schema.DataTypeInt,
+			},
+		},
+	}
+}
+
+func inputIntFilterWithOp(op string) *models.WhereFilter {
+	return &models.WhereFilter{
+		Operator: op,
+		ValueInt: ptInt(42),
+		Path:     []string{"intField"},
+	}
 }
