@@ -57,6 +57,9 @@ type WhereFilter struct {
 
 	// value as string
 	ValueString *string `json:"valueString,omitempty"`
+
+	// value as text
+	ValueText *string `json:"valueText,omitempty"`
 }
 
 // Validate validates this where filter

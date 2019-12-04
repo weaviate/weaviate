@@ -1,3 +1,16 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2019 SeMI Holding B.V. (registered @ Dutch Chamber of Commerce no 75221632). All rights reserved.
+//  LICENSE WEAVIATE OPEN SOURCE: https://www.semi.technology/playbook/playbook/contract-weaviate-OSS.html
+//  LICENSE WEAVIATE ENTERPRISE: https://www.semi.technology/playbook/contract-weaviate-enterprise.html
+//  CONCEPT: Bob van Luijt (@bobvanluijt)
+//  CONTACT: hello@semi.technology
+//
+
 package filterext
 
 import (
@@ -39,13 +52,53 @@ func parseValue(in *models.WhereFilter) (*filters.Value, error) {
 type valueExtractorFunc func(*models.WhereFilter) (*filters.Value, error)
 
 var valueExtractors = []valueExtractorFunc{
+	// int
 	func(in *models.WhereFilter) (*filters.Value, error) {
-
 		if in.ValueInt == nil {
 			return nil, nil
 		}
 
 		return valueFilter(int(*in.ValueInt), schema.DataTypeInt), nil
+	},
+	// number
+	func(in *models.WhereFilter) (*filters.Value, error) {
+		if in.ValueNumber == nil {
+			return nil, nil
+		}
+
+		return valueFilter(*in.ValueNumber, schema.DataTypeNumber), nil
+	},
+	// string
+	func(in *models.WhereFilter) (*filters.Value, error) {
+		if in.ValueString == nil {
+			return nil, nil
+		}
+
+		return valueFilter(*in.ValueString, schema.DataTypeString), nil
+	},
+	// text
+	func(in *models.WhereFilter) (*filters.Value, error) {
+		if in.ValueText == nil {
+			return nil, nil
+		}
+
+		return valueFilter(*in.ValueText, schema.DataTypeText), nil
+	},
+	// date (as string)
+	func(in *models.WhereFilter) (*filters.Value, error) {
+		if in.ValueDate == nil {
+			return nil, nil
+		}
+
+		return valueFilter(*in.ValueDate, schema.DataTypeDate), nil
+	},
+	// boolean
+	func(in *models.WhereFilter) (*filters.Value, error) {
+		if in.ValueBoolean == nil {
+			return nil, nil
+		}
+
+		return valueFilter(*in.ValueBoolean, schema.DataTypeBoolean), nil
 	},
 }
 

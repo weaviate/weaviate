@@ -923,6 +923,12 @@
           "example": "my search term",
           "x-nullable": true
         },
+        "valueText": {
+          "description": "value as text",
+          "type": "string",
+          "example": "my search term",
+          "x-nullable": true
+        },
         "valueDate": {
           "description": "value as string (on text props)",
           "type": "string",
