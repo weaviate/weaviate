@@ -3630,6 +3630,12 @@ func init() {
           "type": "string",
           "x-nullable": true,
           "example": "my search term"
+        },
+        "valueText": {
+          "description": "value as text",
+          "type": "string",
+          "x-nullable": true,
+          "example": "my search term"
         }
       }
     }
@@ -7307,6 +7313,12 @@ func init() {
         },
         "valueString": {
           "description": "value as string",
+          "type": "string",
+          "x-nullable": true,
+          "example": "my search term"
+        },
+        "valueText": {
+          "description": "value as text",
           "type": "string",
           "x-nullable": true,
           "example": "my search term"
