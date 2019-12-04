@@ -30,10 +30,13 @@ func Parse(in *models.WhereFilter) (*filters.LocalFilter, error) {
 	}
 
 	if operator.OnValue() {
-		return parseValueFilter(in, operator)
-	} else {
-		return nil, fmt.Errorf("nested filters not supported yet")
+		filter, err := parseValueFilter(in, operator)
+		if err != nil {
+			return nil, fmt.Errorf("invalid where filter: %v", err)
+		}
+		return filter, nil
 	}
+	return nil, fmt.Errorf("nested filters not supported yet")
 }
 
 func parseValueFilter(in *models.WhereFilter, operator filters.Operator) (*filters.LocalFilter, error) {

@@ -107,11 +107,15 @@ var valueExtractors = []valueExtractorFunc{
 		}
 
 		if in.ValueGeoRange.Distance == nil {
-			return nil, fmt.Errorf("TODO")
+			return nil, fmt.Errorf("valueGeoRange: field 'distance' must be set")
+		}
+
+		if in.ValueGeoRange.Distance.Max < 0 {
+			return nil, fmt.Errorf("valueGeoRange: field 'distance.max' must be a positive number")
 		}
 
 		if in.ValueGeoRange.GeoCoordinates == nil {
-			return nil, fmt.Errorf("TODO")
+			return nil, fmt.Errorf("valueGeoRange: field 'geoCoordinates' must be set")
 		}
 
 		return valueFilter(filters.GeoRange{
