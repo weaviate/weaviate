@@ -924,19 +924,43 @@
           "x-nullable": true
         },
         "valueText": {
-          "description": "value as text",
+          "description": "value as text (on text props)",
           "type": "string",
           "example": "my search term",
           "x-nullable": true
         },
         "valueDate": {
-          "description": "value as string (on text props)",
+          "description": "value as date (as string)",
           "type": "string",
           "example": "TODO",
+          "x-nullable": true
+        },
+        "valueGeoRange": {
+          "description": "value as geo coordinates and distance",
+          "type": "object",
+          "$ref": "#/definitions/WhereFilterGeoRange",
           "x-nullable": true
         }
       },
       "type": "object"
+    },
+    "WhereFilterGeoRange": {
+      "type": "object",
+      "description": "filter within a distance of a georange",
+      "properties": {
+        "geoCoordinates": { 
+          "$ref": "#/definitions/GeoCoordinates"
+        },
+        "distance": {
+          "type": "object",
+          "properties": {
+            "max": {
+              "type": "number",
+              "format": "float"
+            }
+          }
+        }
+      }
     }
   },
   "externalDocs": {

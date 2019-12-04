@@ -3606,10 +3606,16 @@ func init() {
           "example": false
         },
         "valueDate": {
-          "description": "value as string (on text props)",
+          "description": "value as date (as string)",
           "type": "string",
           "x-nullable": true,
           "example": "TODO"
+        },
+        "valueGeoRange": {
+          "description": "value as geo coordinates and distance",
+          "type": "object",
+          "x-nullable": true,
+          "$ref": "#/definitions/WhereFilterGeoRange"
         },
         "valueInt": {
           "description": "value as integer",
@@ -3632,10 +3638,28 @@ func init() {
           "example": "my search term"
         },
         "valueText": {
-          "description": "value as text",
+          "description": "value as text (on text props)",
           "type": "string",
           "x-nullable": true,
           "example": "my search term"
+        }
+      }
+    },
+    "WhereFilterGeoRange": {
+      "description": "filter within a distance of a georange",
+      "type": "object",
+      "properties": {
+        "distance": {
+          "type": "object",
+          "properties": {
+            "max": {
+              "type": "number",
+              "format": "float"
+            }
+          }
+        },
+        "geoCoordinates": {
+          "$ref": "#/definitions/GeoCoordinates"
         }
       }
     }
@@ -7292,10 +7316,16 @@ func init() {
           "example": false
         },
         "valueDate": {
-          "description": "value as string (on text props)",
+          "description": "value as date (as string)",
           "type": "string",
           "x-nullable": true,
           "example": "TODO"
+        },
+        "valueGeoRange": {
+          "description": "value as geo coordinates and distance",
+          "type": "object",
+          "x-nullable": true,
+          "$ref": "#/definitions/WhereFilterGeoRange"
         },
         "valueInt": {
           "description": "value as integer",
@@ -7318,10 +7348,28 @@ func init() {
           "example": "my search term"
         },
         "valueText": {
-          "description": "value as text",
+          "description": "value as text (on text props)",
           "type": "string",
           "x-nullable": true,
           "example": "my search term"
+        }
+      }
+    },
+    "WhereFilterGeoRange": {
+      "description": "filter within a distance of a georange",
+      "type": "object",
+      "properties": {
+        "distance": {
+          "type": "object",
+          "properties": {
+            "max": {
+              "type": "number",
+              "format": "float"
+            }
+          }
+        },
+        "geoCoordinates": {
+          "$ref": "#/definitions/GeoCoordinates"
         }
       }
     }
