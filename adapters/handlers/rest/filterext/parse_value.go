@@ -100,6 +100,28 @@ var valueExtractors = []valueExtractorFunc{
 
 		return valueFilter(*in.ValueBoolean, schema.DataTypeBoolean), nil
 	},
+	// geo range
+	func(in *models.WhereFilter) (*filters.Value, error) {
+		if in.ValueGeoRange == nil {
+			return nil, nil
+		}
+
+		if in.ValueGeoRange.Distance == nil {
+			return nil, fmt.Errorf("TODO")
+		}
+
+		if in.ValueGeoRange.GeoCoordinates == nil {
+			return nil, fmt.Errorf("TODO")
+		}
+
+		return valueFilter(filters.GeoRange{
+			Distance: float32(in.ValueGeoRange.Distance.Max),
+			GeoCoordinates: &models.GeoCoordinates{
+				Latitude:  in.ValueGeoRange.GeoCoordinates.Latitude,
+				Longitude: in.ValueGeoRange.GeoCoordinates.Longitude,
+			},
+		}, schema.DataTypeGeoCoordinates), nil
+	},
 }
 
 func valueFilter(value interface{}, dt schema.DataType) *filters.Value {

@@ -956,7 +956,7 @@
           "properties": {
             "max": {
               "type": "number",
-              "format": "float"
+              "format": "float64"
             }
           }
         }

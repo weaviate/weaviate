@@ -72,6 +72,8 @@ func parseOperator(in string) (filters.Operator, error) {
 		return filters.OperatorGreaterThanEqual, nil
 	case models.WhereFilterOperatorNotEqual:
 		return filters.OperatorNotEqual, nil
+	case models.WhereFilterOperatorWithinGeoRange:
+		return filters.OperatorWithinGeoRange, nil
 
 	default:
 		return -1, fmt.Errorf("unrecognized operator: %s", in)

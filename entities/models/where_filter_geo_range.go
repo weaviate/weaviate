@@ -113,7 +113,7 @@ func (m *WhereFilterGeoRange) UnmarshalBinary(b []byte) error {
 type WhereFilterGeoRangeDistance struct {
 
 	// max
-	Max float32 `json:"max,omitempty"`
+	Max float64 `json:"max,omitempty"`
 }
 
 // Validate validates this where filter geo range distance
