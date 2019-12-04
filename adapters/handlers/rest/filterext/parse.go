@@ -60,6 +60,18 @@ func parseOperator(in string) (filters.Operator, error) {
 	switch in {
 	case models.WhereFilterOperatorEqual:
 		return filters.OperatorEqual, nil
+	case models.WhereFilterOperatorLike:
+		return filters.OperatorLike, nil
+	case models.WhereFilterOperatorLessThan:
+		return filters.OperatorLessThan, nil
+	case models.WhereFilterOperatorLessThanEqual:
+		return filters.OperatorLessThanEqual, nil
+	case models.WhereFilterOperatorGreaterThan:
+		return filters.OperatorGreaterThan, nil
+	case models.WhereFilterOperatorGreaterThanEqual:
+		return filters.OperatorGreaterThanEqual, nil
+	case models.WhereFilterOperatorNotEqual:
+		return filters.OperatorNotEqual, nil
 
 	default:
 		return -1, fmt.Errorf("unrecognized operator: %s", in)
