@@ -46,8 +46,11 @@ type WhereFilter struct {
 	// value as boolean
 	ValueBoolean *bool `json:"valueBoolean,omitempty"`
 
-	// value as string (on text props)
+	// value as date (as string)
 	ValueDate *string `json:"valueDate,omitempty"`
+
+	// value as geo coordinates and distance
+	ValueGeoRange *WhereFilterGeoRange `json:"valueGeoRange,omitempty"`
 
 	// value as integer
 	ValueInt *int64 `json:"valueInt,omitempty"`
@@ -58,7 +61,7 @@ type WhereFilter struct {
 	// value as string
 	ValueString *string `json:"valueString,omitempty"`
 
-	// value as text
+	// value as text (on text props)
 	ValueText *string `json:"valueText,omitempty"`
 }
 
@@ -71,6 +74,10 @@ func (m *WhereFilter) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateOperator(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateValueGeoRange(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -170,6 +177,24 @@ func (m *WhereFilter) validateOperator(formats strfmt.Registry) error {
 	// value enum
 	if err := m.validateOperatorEnum("operator", "body", m.Operator); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (m *WhereFilter) validateValueGeoRange(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.ValueGeoRange) { // not required
+		return nil
+	}
+
+	if m.ValueGeoRange != nil {
+		if err := m.ValueGeoRange.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("valueGeoRange")
+			}
+			return err
+		}
 	}
 
 	return nil
