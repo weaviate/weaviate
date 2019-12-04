@@ -3654,7 +3654,7 @@ func init() {
           "properties": {
             "max": {
               "type": "number",
-              "format": "float"
+              "format": "float64"
             }
           }
         },
@@ -7364,7 +7364,7 @@ func init() {
           "properties": {
             "max": {
               "type": "number",
-              "format": "float"
+              "format": "float64"
             }
           }
         },

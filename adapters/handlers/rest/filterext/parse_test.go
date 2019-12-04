@@ -148,6 +148,31 @@ func Test_ExtractFlatFilters(t *testing.T) {
 					},
 				}},
 			},
+			test{
+				name: "valid geo range filter",
+				input: &models.WhereFilter{
+					Operator:      "WithinGeoRange",
+					ValueGeoRange: inputGeoRangeFilter(0.5, 0.6, 2.0),
+					Path:          []string{"geoField"},
+				},
+				expectedFilter: &filters.LocalFilter{Root: &filters.Clause{
+					Operator: filters.OperatorWithinGeoRange,
+					On: &filters.Path{
+						Class:    schema.AssertValidClassName("Todo"),
+						Property: schema.AssertValidPropertyName("geoField"),
+					},
+					Value: &filters.Value{
+						Value: filters.GeoRange{
+							GeoCoordinates: &models.GeoCoordinates{
+								Latitude:  0.5,
+								Longitude: 0.6,
+							},
+							Distance: 2.0,
+						},
+						Type: schema.DataTypeGeoCoordinates,
+					},
+				}},
+			},
 		}
 
 		for _, test := range tests {
@@ -247,5 +272,17 @@ func inputIntFilterWithOp(op string) *models.WhereFilter {
 		Operator: op,
 		ValueInt: ptInt(42),
 		Path:     []string{"intField"},
+	}
+}
+
+func inputGeoRangeFilter(lat, lon, max float64) *models.WhereFilterGeoRange {
+	return &models.WhereFilterGeoRange{
+		Distance: &models.WhereFilterGeoRangeDistance{
+			Max: max,
+		},
+		GeoCoordinates: &models.GeoCoordinates{
+			Latitude:  float32(lat),
+			Longitude: float32(lon),
+		},
 	}
 }
