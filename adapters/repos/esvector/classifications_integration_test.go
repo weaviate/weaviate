@@ -89,9 +89,10 @@ func testClassifications(repo *Repo, migrator *Migrator) func(t *testing.T) {
 
 		t.Run("aggregating over item neighbors", func(t *testing.T) {
 
-			t.Run("close to politics", func(t *testing.T) {
-				res, err := repo.AggregateNeighbors(context.Background(), []float32{0.7, 0.01, 0.01}, kind.Thing,
-					"Article", []string{"exactCategory", "mainCategory"}, 1)
+			t.Run("close to politics (no filters)", func(t *testing.T) {
+				res, err := repo.AggregateNeighbors(context.Background(),
+					[]float32{0.7, 0.01, 0.01}, kind.Thing, "Article",
+					[]string{"exactCategory", "mainCategory"}, 1, nil)
 
 				expectedRes := []classification.NeighborRef{
 					classification.NeighborRef{
@@ -112,9 +113,10 @@ func testClassifications(repo *Repo, migrator *Migrator) func(t *testing.T) {
 				assert.ElementsMatch(t, expectedRes, res)
 			})
 
-			t.Run("close to food and drink", func(t *testing.T) {
-				res, err := repo.AggregateNeighbors(context.Background(), []float32{0.01, 0.01, 0.66}, kind.Thing,
-					"Article", []string{"exactCategory", "mainCategory"}, 1)
+			t.Run("close to food and drink (no filters)", func(t *testing.T) {
+				res, err := repo.AggregateNeighbors(context.Background(),
+					[]float32{0.01, 0.01, 0.66}, kind.Thing, "Article",
+					[]string{"exactCategory", "mainCategory"}, 1, nil)
 
 				expectedRes := []classification.NeighborRef{
 					classification.NeighborRef{
@@ -128,6 +130,41 @@ func testClassifications(repo *Repo, migrator *Migrator) func(t *testing.T) {
 						Property:        "mainCategory",
 						Count:           1,
 						WinningDistance: 0.00011473894,
+					},
+				}
+
+				require.Nil(t, err)
+				assert.ElementsMatch(t, expectedRes, res)
+			})
+
+			t.Run("close to food and drink (but limiting to politics through filter)", func(t *testing.T) {
+				filter := &filters.LocalFilter{
+					Root: &filters.Clause{
+						On: &filters.Path{
+							Property: "description",
+						},
+						Value: &filters.Value{
+							Value: "politics",
+						},
+						Operator: filters.OperatorEqual,
+					},
+				}
+				res, err := repo.AggregateNeighbors(context.Background(),
+					[]float32{0.01, 0.01, 0.66}, kind.Thing, "Article",
+					[]string{"exactCategory", "mainCategory"}, 1, filter)
+
+				expectedRes := []classification.NeighborRef{
+					classification.NeighborRef{
+						Beacon:          strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", idCategoryPolitics)),
+						Property:        "exactCategory",
+						Count:           1,
+						WinningDistance: 0.49242598,
+					},
+					classification.NeighborRef{
+						Beacon:          strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", idMainCategoryPoliticsAndSociety)),
+						Property:        "mainCategory",
+						Count:           1,
+						WinningDistance: 0.49242598,
 					},
 				}
 

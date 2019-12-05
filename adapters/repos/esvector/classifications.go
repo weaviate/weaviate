@@ -68,11 +68,6 @@ func (r *Repo) GetUnclassified(ctx context.Context, kind kind.Kind,
 		}
 	}
 
-	fmt.Printf("\n\n\n")
-	j, _ := json.MarshalIndent(query, "", "  ")
-	fmt.Printf("%s", string(j))
-	fmt.Printf("\n\n\n")
-
 	body := map[string]interface{}{
 		"query": query,
 		"size":  9999,
@@ -146,18 +141,29 @@ func checkClassificationCount(res map[string]interface{}) error {
 	return nil
 }
 
-func (r *Repo) AggregateNeighbors(ctx context.Context, vector []float32, kind kind.Kind, class string,
-	properties []string, k int) ([]classification.NeighborRef, error) {
+func (r *Repo) AggregateNeighbors(ctx context.Context, vector []float32,
+	kind kind.Kind, class string, properties []string, k int,
+	filter *filters.LocalFilter) ([]classification.NeighborRef, error) {
 
-	mustExist := []map[string]interface{}{}
+	mustQueries := []map[string]interface{}{}
 	var propNames []string
 	for _, prop := range properties {
 		propNames = append(propNames, prop)
-		mustExist = append(mustExist, map[string]interface{}{
+		mustQueries = append(mustQueries, map[string]interface{}{
 			"exists": map[string]interface{}{
 				"field": prop,
 			},
 		})
+	}
+
+	if filter != nil {
+		// query = map[string]interface{}{
+		subquery, err := queryFromFilter(filter)
+		if err != nil {
+			return nil, err
+		}
+
+		mustQueries = append(mustQueries, subquery)
 	}
 
 	query := map[string]interface{}{
@@ -165,7 +171,7 @@ func (r *Repo) AggregateNeighbors(ctx context.Context, vector []float32, kind ki
 			"boost_mode": "replace",
 			"query": map[string]interface{}{
 				"bool": map[string]interface{}{
-					"must": mustExist,
+					"must": mustQueries,
 				},
 			},
 			"functions": []interface{}{

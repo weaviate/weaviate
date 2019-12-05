@@ -66,7 +66,8 @@ type VectorRepo interface {
 	GetUnclassified(ctx context.Context, kind kind.Kind, class string,
 		properties []string, filter *libfilters.LocalFilter) ([]search.Result, error)
 	AggregateNeighbors(ctx context.Context, vector []float32,
-		kind kind.Kind, class string, properties []string, k int) ([]NeighborRef, error)
+		kind kind.Kind, class string, properties []string, k int,
+		filter *libfilters.LocalFilter) ([]NeighborRef, error)
 	VectorClassSearch(ctx context.Context, params traverser.GetParams) ([]search.Result, error)
 }
 
@@ -114,11 +115,6 @@ func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, 
 		return nil, fmt.Errorf("classification: assign id: %v", err)
 	}
 
-	sourceFilter, err := filterext.Parse(params.SourceWhere)
-	if err != nil {
-		return nil, fmt.Errorf("field 'sourceWhere': %v", err)
-	}
-
 	params.Status = models.ClassificationStatusRunning
 	params.Meta = &models.ClassificationMeta{
 		Started: strfmt.DateTime(time.Now()),
@@ -130,12 +126,37 @@ func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, 
 
 	// asynchronously trigger the classification
 	kind := c.getKind(params)
-	filters := filters{
-		source: sourceFilter,
+	filters, err := extractFilters(params)
+	if err != nil {
+		return nil, err
 	}
+
 	go c.run(params, kind, filters)
 
 	return &params, nil
+}
+
+func extractFilters(params models.Classification) (filters, error) {
+	source, err := filterext.Parse(params.SourceWhere)
+	if err != nil {
+		return filters{}, fmt.Errorf("field 'sourceWhere': %v", err)
+	}
+
+	trainingSet, err := filterext.Parse(params.TrainingSetWhere)
+	if err != nil {
+		return filters{}, fmt.Errorf("field 'trainingSetWhere': %v", err)
+	}
+
+	target, err := filterext.Parse(params.TargetWhere)
+	if err != nil {
+		return filters{}, fmt.Errorf("field 'targetWhere': %v", err)
+	}
+
+	return filters{
+		source:      source,
+		trainingSet: trainingSet,
+		target:      target,
+	}, nil
 }
 
 func (c *Classifier) getKind(params models.Classification) kind.Kind {
