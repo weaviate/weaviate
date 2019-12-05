@@ -28,7 +28,7 @@ import (
 // which is generic, whereas the individual classify_item fns can be found in
 // the respective files such as classifier_run_knn.go
 
-type classifyItemFn func(item search.Result, kind kind.Kind, params models.Classification) error
+type classifyItemFn func(item search.Result, kind kind.Kind, params models.Classification, filters filters) error
 
 func (c *Classifier) run(params models.Classification, kind kind.Kind,
 	filters filters) {
@@ -70,7 +70,7 @@ func (c *Classifier) run(params models.Classification, kind kind.Kind,
 
 	errors := &errorCompounder{}
 	for _, item := range unclassifiedItems {
-		err := classifyItem(item, kind, params)
+		err := classifyItem(item, kind, params, filters)
 		if err != nil {
 			errors.add(err)
 			errorCount++

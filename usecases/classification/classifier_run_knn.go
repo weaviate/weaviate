@@ -22,14 +22,14 @@ import (
 	"github.com/semi-technologies/weaviate/entities/search"
 )
 
-func (c *Classifier) classifyItemUsingKNN(item search.Result, kind kind.Kind, params models.Classification) error {
+func (c *Classifier) classifyItemUsingKNN(item search.Result, kind kind.Kind, params models.Classification, filters filters) error {
 	ctx, cancel := contextWithTimeout(2 * time.Second)
 	defer cancel()
 
 	// K is guaranteed to be set by now, no danger in dereferencing the pointer
 	res, err := c.vectorRepo.AggregateNeighbors(ctx, item.Vector,
 		kind, item.ClassName,
-		params.ClassifyProperties, int(*params.K))
+		params.ClassifyProperties, int(*params.K), filters.trainingSet)
 
 	if err != nil {
 		return fmt.Errorf("classify %s/%s: %v", item.ClassName, item.ID, err)

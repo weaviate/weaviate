@@ -33,9 +33,10 @@ type contextualItemClassifier struct {
 	params     models.Classification
 	classifier *Classifier
 	schema     schema.Schema
+	filters    filters
 }
 
-func (c *Classifier) classifyItemContextual(item search.Result, kind kind.Kind, params models.Classification) error {
+func (c *Classifier) classifyItemContextual(item search.Result, kind kind.Kind, params models.Classification, filters filters) error {
 	schema := c.schemaGetter.GetSchemaSkipAuth()
 	run := &contextualItemClassifier{
 		item:       item,
@@ -43,6 +44,7 @@ func (c *Classifier) classifyItemContextual(item search.Result, kind kind.Kind, 
 		params:     params,
 		classifier: c,
 		schema:     schema,
+		filters:    filters,
 	}
 
 	err := run.do()
@@ -138,6 +140,7 @@ func (c *contextualItemClassifier) findTarget(targetClass schema.ClassName, targ
 		Pagination: &libfilters.Pagination{
 			Limit: 1,
 		},
+		Filters: c.filters.target,
 		Properties: traverser.SelectProperties{
 			traverser.SelectProperty{
 				Name: "uuid",
