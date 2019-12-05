@@ -20,6 +20,8 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	uuid "github.com/satori/go.uuid"
+	"github.com/semi-technologies/weaviate/adapters/handlers/rest/filterext"
+	libfilters "github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
@@ -61,7 +63,8 @@ type Repo interface {
 }
 
 type VectorRepo interface {
-	GetUnclassified(ctx context.Context, kind kind.Kind, class string, properites []string) ([]search.Result, error)
+	GetUnclassified(ctx context.Context, kind kind.Kind, class string,
+		properties []string, filter *libfilters.LocalFilter) ([]search.Result, error)
 	AggregateNeighbors(ctx context.Context, vector []float32,
 		kind kind.Kind, class string, properties []string, k int) ([]NeighborRef, error)
 	VectorClassSearch(ctx context.Context, params traverser.GetParams) ([]search.Result, error)
@@ -88,6 +91,12 @@ type NeighborRef struct {
 	LosingDistance  *float32
 }
 
+type filters struct {
+	source      *libfilters.LocalFilter
+	target      *libfilters.LocalFilter
+	trainingSet *libfilters.LocalFilter
+}
+
 func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, params models.Classification) (*models.Classification, error) {
 	err := c.authorizer.Authorize(principal, "create", "classifications/*")
 	if err != nil {
@@ -105,6 +114,11 @@ func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, 
 		return nil, fmt.Errorf("classification: assign id: %v", err)
 	}
 
+	sourceFilter, err := filterext.Parse(params.SourceWhere)
+	if err != nil {
+		return nil, fmt.Errorf("field 'sourceWhere': %v", err)
+	}
+
 	params.Status = models.ClassificationStatusRunning
 	params.Meta = &models.ClassificationMeta{
 		Started: strfmt.DateTime(time.Now()),
@@ -116,7 +130,10 @@ func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, 
 
 	// asynchronously trigger the classification
 	kind := c.getKind(params)
-	go c.run(params, kind)
+	filters := filters{
+		source: sourceFilter,
+	}
+	go c.run(params, kind, filters)
 
 	return &params, nil
 }

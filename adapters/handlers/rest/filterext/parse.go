@@ -20,7 +20,11 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
+// Parse Filter from REST construct to entities filter
 func Parse(in *models.WhereFilter) (*filters.LocalFilter, error) {
+	if in == nil {
+		return nil, nil
+	}
 
 	operator, err := parseOperator(in.Operator)
 	if err != nil {

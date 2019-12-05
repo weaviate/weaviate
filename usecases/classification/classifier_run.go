@@ -30,12 +30,13 @@ import (
 
 type classifyItemFn func(item search.Result, kind kind.Kind, params models.Classification) error
 
-func (c *Classifier) run(params models.Classification, kind kind.Kind) {
+func (c *Classifier) run(params models.Classification, kind kind.Kind,
+	filters filters) {
 	ctx, cancel := contextWithTimeout(30 * time.Second)
 	defer cancel()
 
 	unclassifiedItems, err := c.vectorRepo.GetUnclassified(ctx,
-		kind, params.Class, params.ClassifyProperties)
+		kind, params.Class, params.ClassifyProperties, filters.source)
 	if err != nil {
 		c.failRunWithError(params, err)
 		return
