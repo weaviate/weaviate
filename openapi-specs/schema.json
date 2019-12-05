@@ -836,6 +836,21 @@
           "type": "string",
           "default": "",
           "example": "classify xzy: something went wrong"
+        },
+        "sourceWhere": {
+          "description": "limit the objects to be classified",
+          "type": "object",
+          "$ref": "#/definitions/WhereFilter"
+        },
+        "trainingSetWhere": {
+          "description": "Limit the training objects to be considered during the classification. Can only be used on types with explicit training sets, such as 'knn'",
+          "type": "object",
+          "$ref": "#/definitions/WhereFilter"
+        },
+        "targetWhere": {
+          "description": "Limit the possible sources when using an algorithm which doesn't really on trainig data, e.g. 'contextual'. When using an algorithm with a training set, such as 'knn', limit the training set instead",
+          "type": "object",
+          "$ref": "#/definitions/WhereFilter"
         }
       },
       "type": "object"

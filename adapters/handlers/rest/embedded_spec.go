@@ -2977,6 +2977,11 @@ func init() {
           "type": "object",
           "$ref": "#/definitions/ClassificationMeta"
         },
+        "sourceWhere": {
+          "description": "limit the objects to be classified",
+          "type": "object",
+          "$ref": "#/definitions/WhereFilter"
+        },
         "status": {
           "description": "status of this classification",
           "type": "string",
@@ -2986,6 +2991,16 @@ func init() {
             "failed"
           ],
           "example": "running"
+        },
+        "targetWhere": {
+          "description": "Limit the possible sources when using an algorithm which doesn't really on trainig data, e.g. 'contextual'. When using an algorithm with a training set, such as 'knn', limit the training set instead",
+          "type": "object",
+          "$ref": "#/definitions/WhereFilter"
+        },
+        "trainingSetWhere": {
+          "description": "Limit the training objects to be considered during the classification. Can only be used on types with explicit training sets, such as 'knn'",
+          "type": "object",
+          "$ref": "#/definitions/WhereFilter"
         },
         "type": {
           "description": "which algorythim to use for classifications",
@@ -6687,6 +6702,11 @@ func init() {
           "type": "object",
           "$ref": "#/definitions/ClassificationMeta"
         },
+        "sourceWhere": {
+          "description": "limit the objects to be classified",
+          "type": "object",
+          "$ref": "#/definitions/WhereFilter"
+        },
         "status": {
           "description": "status of this classification",
           "type": "string",
@@ -6696,6 +6716,16 @@ func init() {
             "failed"
           ],
           "example": "running"
+        },
+        "targetWhere": {
+          "description": "Limit the possible sources when using an algorithm which doesn't really on trainig data, e.g. 'contextual'. When using an algorithm with a training set, such as 'knn', limit the training set instead",
+          "type": "object",
+          "$ref": "#/definitions/WhereFilter"
+        },
+        "trainingSetWhere": {
+          "description": "Limit the training objects to be considered during the classification. Can only be used on types with explicit training sets, such as 'knn'",
+          "type": "object",
+          "$ref": "#/definitions/WhereFilter"
         },
         "type": {
           "description": "which algorythim to use for classifications",
