@@ -207,6 +207,12 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		ThingsThingsValidateHandler: things.ThingsValidateHandlerFunc(func(params things.ThingsValidateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ThingsThingsValidate has not yet been implemented")
 		}),
+		WeaviateWellknownLivenessHandler: WeaviateWellknownLivenessHandlerFunc(func(params WeaviateWellknownLivenessParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation WeaviateWellknownLiveness has not yet been implemented")
+		}),
+		WeaviateWellknownReadinessHandler: WeaviateWellknownReadinessHandlerFunc(func(params WeaviateWellknownReadinessParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation WeaviateWellknownReadiness has not yet been implemented")
+		}),
 
 		OidcAuth: func(token string, scopes []string) (*models.Principal, error) {
 			return nil, errors.NotImplemented("oauth2 bearer auth (oidc) has not yet been implemented")
@@ -350,6 +356,10 @@ type WeaviateAPI struct {
 	ThingsThingsUpdateHandler things.ThingsUpdateHandler
 	// ThingsThingsValidateHandler sets the operation handler for the things validate operation
 	ThingsThingsValidateHandler things.ThingsValidateHandler
+	// WeaviateWellknownLivenessHandler sets the operation handler for the weaviate wellknown liveness operation
+	WeaviateWellknownLivenessHandler WeaviateWellknownLivenessHandler
+	// WeaviateWellknownReadinessHandler sets the operation handler for the weaviate wellknown readiness operation
+	WeaviateWellknownReadinessHandler WeaviateWellknownReadinessHandler
 
 	// ServeError is called when an error is received, there is a default handler
 	// but you can set your own with this
@@ -611,6 +621,14 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.ThingsThingsValidateHandler == nil {
 		unregistered = append(unregistered, "things.ThingsValidateHandler")
+	}
+
+	if o.WeaviateWellknownLivenessHandler == nil {
+		unregistered = append(unregistered, "WeaviateWellknownLivenessHandler")
+	}
+
+	if o.WeaviateWellknownReadinessHandler == nil {
+		unregistered = append(unregistered, "WeaviateWellknownReadinessHandler")
 	}
 
 	if len(unregistered) > 0 {
@@ -965,6 +983,16 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/things/validate"] = things.NewThingsValidate(o.context, o.ThingsThingsValidateHandler)
+
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/.well-known/live"] = NewWeaviateWellknownLiveness(o.context, o.WeaviateWellknownLivenessHandler)
+
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/.well-known/ready"] = NewWeaviateWellknownReadiness(o.context, o.WeaviateWellknownReadinessHandler)
 
 }
 

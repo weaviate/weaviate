@@ -161,6 +161,64 @@ func (a *Client) BatchingThingsCreate(params *BatchingThingsCreateParams, authIn
 
 }
 
+/*
+WeaviateWellknownLiveness Determines whether the application is alive. Can be used for kubernetes liveness probe
+*/
+func (a *Client) WeaviateWellknownLiveness(params *WeaviateWellknownLivenessParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateWellknownLivenessOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewWeaviateWellknownLivenessParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "weaviate.wellknown.liveness",
+		Method:             "GET",
+		PathPattern:        "/.well-known/live",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &WeaviateWellknownLivenessReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*WeaviateWellknownLivenessOK), nil
+
+}
+
+/*
+WeaviateWellknownReadiness Determines whether the application is ready to receive traffic. Can be used for kubernetes readiness probe.
+*/
+func (a *Client) WeaviateWellknownReadiness(params *WeaviateWellknownReadinessParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateWellknownReadinessOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewWeaviateWellknownReadinessParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "weaviate.wellknown.readiness",
+		Method:             "GET",
+		PathPattern:        "/.well-known/ready",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &WeaviateWellknownReadinessReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*WeaviateWellknownReadinessOK), nil
+
+}
+
 // SetTransport changes the transport on the client
 func (a *Client) SetTransport(transport runtime.ClientTransport) {
 	a.transport = transport

@@ -1,11 +1,7 @@
-database:
-  name: janusgraph
-  database_config:
-    url: http://localhost:8182
-    analytics_engine:
-      enabled: true
-      type: spark-analytics-api
-      url: http://localhost:8100
+vector_index:
+  enabled: true
+  url: http://localhost:9201
+  denormalizationDepth: 2
 authentication:
   anonymous_access:
     enabled: false
@@ -22,9 +18,6 @@ authorization:
     users:
     read_only_users:
       - john@doe.com
-analytics_engine:
-  enabled: true
-  defaultUseAnalyticsEngine: false
 configuration_storage:
   type: etcd
   url: http://localhost:2379
@@ -37,9 +30,5 @@ logging:
   interval: 1
   enabled: false
   url: http://telemetry_mock_api:8087/mock/new
-network:
-  genesis_url: http://localhost:8090
-  public_url: http://localhost:8080
-  peer_name: bestWeaviate
 telemetry:
   disabled: true
