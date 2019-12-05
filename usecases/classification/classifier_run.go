@@ -24,8 +24,17 @@ import (
 	"github.com/semi-technologies/weaviate/entities/search"
 )
 
+// the contents of this file deal with anything about a classification run
+// which is generic, whereas the individual classify_item fns can be found in
+// the respective files such as classifier_run_knn.go
+
+type classifyItemFn func(item search.Result, kind kind.Kind, params models.Classification) error
+
 func (c *Classifier) run(params models.Classification, kind kind.Kind) {
-	unclassifiedItems, err := c.vectorRepo.GetUnclassified(context.Background(),
+	ctx, cancel := contextWithTimeout(30 * time.Second)
+	defer cancel()
+
+	unclassifiedItems, err := c.vectorRepo.GetUnclassified(ctx,
 		kind, params.Class, params.ClassifyProperties)
 	if err != nil {
 		c.failRunWithError(params, err)
@@ -43,9 +52,24 @@ func (c *Classifier) run(params models.Classification, kind kind.Kind) {
 		errorCount   int64
 	)
 
+	var classifyItem classifyItemFn
+
+	// safe to deref as we have passed validation at this point and or setting of
+	// default values
+	switch *params.Type {
+	case "knn":
+		classifyItem = c.classifyItemUsingKNN
+	case "contextual":
+		classifyItem = c.classifyItemContextual
+	default:
+		c.failRunWithError(params,
+			fmt.Errorf("unsupported type '%s', have no classify item fn for this", *params.Type))
+		return
+	}
+
 	errors := &errorCompounder{}
 	for _, item := range unclassifiedItems {
-		err := c.classifyItem(item, kind, params)
+		err := classifyItem(item, kind, params)
 		if err != nil {
 			errors.add(err)
 			errorCount++
@@ -73,7 +97,9 @@ func (c *Classifier) run(params models.Classification, kind kind.Kind) {
 
 func (c *Classifier) succeedRun(params models.Classification) {
 	params.Status = models.ClassificationStatusCompleted
-	err := c.repo.Put(context.Background(), params)
+	ctx, cancel := contextWithTimeout(2 * time.Second)
+	defer cancel()
+	err := c.repo.Put(ctx, params)
 	if err != nil {
 		// TODO: log
 
@@ -90,57 +116,14 @@ func (c *Classifier) failRunWithError(params models.Classification, err error) {
 	}
 }
 
-func (c *Classifier) classifyItem(item search.Result, kind kind.Kind, params models.Classification) error {
-	// K is guaranteed to be set by now, no danger in dereferencing the pointer
-	res, err := c.vectorRepo.AggregateNeighbors(context.Background(), item.Vector,
-		kind, item.ClassName,
-		params.ClassifyProperties, int(*params.K))
-
-	if err != nil {
-		return fmt.Errorf("classify %s/%s: %v", item.ClassName, item.ID, err)
-	}
-
-	var classified []string
-
-	for _, agg := range res {
-		var losingDistance *float64
-		if agg.LosingDistance != nil {
-			d := float64(*agg.LosingDistance)
-			losingDistance = &d
-		}
-		item.Schema.(map[string]interface{})[agg.Property] = models.MultipleRef{
-			&models.SingleRef{
-				Beacon: agg.Beacon,
-				Meta: &models.ReferenceMeta{
-					Classification: &models.ReferenceMetaClassification{
-						WinningDistance: float64(agg.WinningDistance),
-						LosingDistance:  losingDistance,
-					},
-				},
-			},
-		}
-
-		// append list of actually classified (can differ from scope!) properties,
-		// so we can build the object meta information
-		classified = append(classified, agg.Property)
-	}
-
-	c.extendItemWithObjectMeta(&item, params, classified)
-	err = c.store(item)
-	if err != nil {
-		return fmt.Errorf("store %s/%s: %v", item.ClassName, item.ID, err)
-	}
-
-	return nil
-
-}
-
 func (c *Classifier) store(item search.Result) error {
+	ctx, cancel := contextWithTimeout(2 * time.Second)
+	defer cancel()
 	switch item.Kind {
 	case kind.Thing:
-		return c.vectorRepo.PutThing(context.Background(), item.Thing(), item.Vector)
+		return c.vectorRepo.PutThing(ctx, item.Thing(), item.Vector)
 	case kind.Action:
-		return c.vectorRepo.PutAction(context.Background(), item.Action(), item.Vector)
+		return c.vectorRepo.PutAction(ctx, item.Action(), item.Vector)
 	default:
 		return fmt.Errorf("impossible kind")
 	}
@@ -159,4 +142,8 @@ func (c *Classifier) extendItemWithObjectMeta(item *search.Result,
 		ClassifiedFields: classified,
 		Completed:        strfmt.DateTime(time.Now()),
 	}
+}
+
+func contextWithTimeout(d time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), d)
 }

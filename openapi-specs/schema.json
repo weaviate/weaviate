@@ -820,7 +820,7 @@
         "type": {
           "description": "which algorythim to use for classifications",
           "type": "string",
-          "enum": ["knn"],
+          "enum": ["knn", "contextual"],
           "default": "knn",
           "example": "knn"
         },
@@ -885,7 +885,7 @@
     },
     "description": "Open Source Knowledge Graph (GraphQL/RESTful/P2P)",
     "title": "Weaviate",
-    "version": "0.21.3"
+    "version": "0.21.4"
   },
   "parameters": {
     "CommonLimitParameterQuery": {

@@ -57,13 +57,23 @@ func (v *Validator) validate() {
 
 	class := v.schema.FindClassByName(schema.ClassName(v.subject.Class))
 	if class == nil {
-		v.errors.addf("TODO")
+		v.errors.addf("class '%s' not found in schema", v.subject.Class)
 		return
 	}
 
+	v.contextualTypeFeasibility()
 	v.basedOnProperties(class)
 	v.classifyProperties(class)
+}
 
+func (v *Validator) contextualTypeFeasibility() {
+	if !v.typeContextual() {
+		return
+	}
+
+	if v.subject.K != nil {
+		v.errors.addf("field 'k' can only be set for type 'knn', but got type 'contextual'")
+	}
 }
 
 func (v *Validator) basedOnProperties(class *models.Class) {
@@ -141,6 +151,14 @@ func (v *Validator) classifyProperty(class *models.Class, propName string) {
 			" is of cardinality 'many', can only classifiy references of cardinality 'atMostOne'", propName)
 		return
 	}
+
+	if v.typeContextual() {
+		if len(dt.Classes()) > 1 {
+			v.errors.addf("classifyProperties: property '%s'"+
+				" has more than one target class, classification of type 'contextual' requires exactly one target class", propName)
+			return
+		}
+	}
 }
 
 func (v *Validator) propertyByName(class *models.Class, propName string) (*models.Property, bool) {
@@ -151,6 +169,14 @@ func (v *Validator) propertyByName(class *models.Class, propName string) (*model
 	}
 
 	return nil, false
+}
+
+func (v *Validator) typeContextual() bool {
+	if v.subject.Type == nil {
+		return false
+	}
+
+	return *v.subject.Type == "contextual"
 }
 
 type errorCompounder struct {
