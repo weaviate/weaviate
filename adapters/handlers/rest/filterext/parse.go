@@ -127,6 +127,10 @@ func parseOperator(in string) (filters.Operator, error) {
 		return filters.OperatorWithinGeoRange, nil
 	case models.WhereFilterOperatorAnd:
 		return filters.OperatorAnd, nil
+	case models.WhereFilterOperatorOr:
+		return filters.OperatorOr, nil
+	case models.WhereFilterOperatorNot:
+		return filters.OperatorNot, nil
 
 	default:
 		return -1, fmt.Errorf("unrecognized operator: %s", in)
