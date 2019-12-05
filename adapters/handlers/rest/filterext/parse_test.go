@@ -36,6 +36,9 @@ func Test_ExtractFlatFilters(t *testing.T) {
 	t.Run("all value types", func(t *testing.T) {
 		tests := []test{
 			test{
+				name: "no filter",
+			},
+			test{
 				name: "valid int filter",
 				input: &models.WhereFilter{
 					Operator: "Equal",

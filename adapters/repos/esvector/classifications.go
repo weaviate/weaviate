@@ -21,6 +21,7 @@ import (
 
 	"github.com/elastic/go-elasticsearch/v5/esapi"
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/classification"
@@ -29,7 +30,7 @@ import (
 )
 
 func (r *Repo) GetUnclassified(ctx context.Context, kind kind.Kind,
-	class string, properties []string) ([]search.Result, error) {
+	class string, properties []string, filter *filters.LocalFilter) ([]search.Result, error) {
 
 	mustNot := []map[string]interface{}{}
 	for _, prop := range properties {
@@ -38,16 +39,43 @@ func (r *Repo) GetUnclassified(ctx context.Context, kind kind.Kind,
 				"field": prop,
 			},
 		})
-
 	}
 
-	body := map[string]interface{}{
-		"query": map[string]interface{}{
+	var query map[string]interface{}
+
+	if filter == nil {
+		query = map[string]interface{}{
 			"bool": map[string]interface{}{
 				"must_not": mustNot,
 			},
-		},
-		"size": 9999,
+		}
+	} else {
+		subquery, err := queryFromFilter(filter)
+		if err != nil {
+			return nil, fmt.Errorf("build filter: %v", err)
+		}
+		query = map[string]interface{}{
+			"bool": map[string]interface{}{
+				"must": []interface{}{
+					subquery,
+					map[string]interface{}{
+						"bool": map[string]interface{}{
+							"must_not": mustNot,
+						},
+					},
+				},
+			},
+		}
+	}
+
+	fmt.Printf("\n\n\n")
+	j, _ := json.MarshalIndent(query, "", "  ")
+	fmt.Printf("%s", string(j))
+	fmt.Printf("\n\n\n")
+
+	body := map[string]interface{}{
+		"query": query,
+		"size":  9999,
 		"aggregations": map[string]interface{}{
 			"count": map[string]interface{}{
 				"value_count": map[string]interface{}{

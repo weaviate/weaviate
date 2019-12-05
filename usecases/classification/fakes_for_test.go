@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	libfilters "github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
@@ -87,8 +88,8 @@ type fakeVectorRepoKNN struct {
 }
 
 func (f *fakeVectorRepoKNN) GetUnclassified(ctx context.Context,
-	k kind.Kind, class string,
-	properties []string) ([]search.Result, error) {
+	k kind.Kind, class string, properties []string,
+	filter *libfilters.LocalFilter) ([]search.Result, error) {
 	if k != kind.Thing {
 		return nil, fmt.Errorf("unsupported kind in test fake: %v", k)
 	}
@@ -222,8 +223,8 @@ func (f *fakeVectorRepoContextual) get(id strfmt.UUID) (*models.Thing, bool) {
 }
 
 func (f *fakeVectorRepoContextual) GetUnclassified(ctx context.Context,
-	k kind.Kind, class string,
-	properties []string) ([]search.Result, error) {
+	k kind.Kind, class string, properties []string,
+	filter *libfilters.LocalFilter) ([]search.Result, error) {
 	if k != kind.Thing {
 		return nil, fmt.Errorf("unsupported kind in test fake: %v", k)
 	}

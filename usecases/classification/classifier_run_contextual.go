@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/filters"
+	libfilters "github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
@@ -135,7 +135,7 @@ func (c *contextualItemClassifier) findTarget(targetClass schema.ClassName, targ
 		SearchVector: c.item.Vector,
 		ClassName:    targetClass.String(),
 		Kind:         targetKind,
-		Pagination: &filters.Pagination{
+		Pagination: &libfilters.Pagination{
 			Limit: 1,
 		},
 		Properties: traverser.SelectProperties{
