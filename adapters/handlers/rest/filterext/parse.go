@@ -22,8 +22,6 @@ import (
 
 func Parse(in *models.WhereFilter) (*filters.LocalFilter, error) {
 
-	// TODO: validate
-
 	operator, err := parseOperator(in.Operator)
 	if err != nil {
 		return nil, err
@@ -69,15 +67,24 @@ func parseNestedFilter(in *models.WhereFilter,
 	operator filters.Operator) (*filters.LocalFilter, error) {
 
 	if in.Path != nil {
-		return nil, fmt.Errorf("TODO")
+		return nil, fmt.Errorf(
+			"operator '%s' not compatible with field 'path', remove 'path' "+
+				"or switch to compare operator (eg. Equal, NotEqual, etc.)",
+			operator.Name())
 	}
 
 	if !allValuesNil(in) {
-		return nil, fmt.Errorf("TODO")
+		return nil, fmt.Errorf(
+			"operator '%s' not compatible with field 'value<Type>', "+
+				"remove value field or switch to compare operator "+
+				"(eg. Equal, NotEqual, etc.)",
+			operator.Name())
 	}
 
 	if in.Operands == nil || len(in.Operands) == 0 {
-		return nil, fmt.Errorf("TODO")
+		return nil, fmt.Errorf(
+			"operator '%s', but no operands set - add at least one operand",
+			operator.Name())
 	}
 
 	operands, err := parseOperands(in.Operands)
@@ -138,6 +145,10 @@ func parseOperator(in string) (filters.Operator, error) {
 }
 
 func parsePath(in []string) (*filters.Path, error) {
+	if in == nil || len(in) == 0 {
+		return nil, fmt.Errorf("field 'path': must have at least one element")
+	}
+
 	asInterface := make([]interface{}, len(in), len(in))
 	for i, elem := range in {
 		asInterface[i] = elem

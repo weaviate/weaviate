@@ -43,7 +43,8 @@ func parseValue(in *models.WhereFilter) (*filters.Value, error) {
 	}
 
 	if value == nil {
-		return nil, fmt.Errorf("no value set in filter '%s'", jsonify(in))
+		return nil, fmt.Errorf("got operator '%s', but no value<Type> field set",
+			in.Operator)
 	}
 
 	return value, nil
