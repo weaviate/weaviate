@@ -293,6 +293,63 @@ func Test_ExtractFlatFilters(t *testing.T) {
 			})
 		}
 	})
+
+	t.Run("nested filters", func(t *testing.T) {
+		// all tests use int as the value type, value types are tested separately
+		tests := []test{
+			test{
+				name: "chainied together using and",
+				input: &models.WhereFilter{
+					Operator: "And",
+					Operands: []*models.WhereFilter{
+						inputIntFilterWithValue(42),
+						inputIntFilterWithValueAndPath(43,
+							[]string{"hasAction", "SomeAction", "intField"}),
+					},
+				},
+				expectedFilter: &filters.LocalFilter{Root: &filters.Clause{
+					Operator: filters.OperatorAnd,
+					Operands: []filters.Clause{
+						filters.Clause{
+							Operator: filters.OperatorEqual,
+							On: &filters.Path{
+								Class:    schema.AssertValidClassName("Todo"),
+								Property: schema.AssertValidPropertyName("intField"),
+							},
+							Value: &filters.Value{
+								Value: 42,
+								Type:  schema.DataTypeInt,
+							},
+						},
+						filters.Clause{
+							Operator: filters.OperatorEqual,
+							On: &filters.Path{
+								Class:    schema.AssertValidClassName("Todo"),
+								Property: schema.AssertValidPropertyName("hasAction"),
+								Child: &filters.Path{
+									Class:    schema.AssertValidClassName("SomeAction"),
+									Property: schema.AssertValidPropertyName("intField"),
+								},
+							},
+							Value: &filters.Value{
+								Value: 43,
+								Type:  schema.DataTypeInt,
+							},
+						},
+					},
+				},
+				},
+			},
+		}
+
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				filter, err := Parse(test.input)
+				assert.Equal(t, test.expectedErr, err)
+				assert.Equal(t, test.expectedFilter, filter)
+			})
+		}
+	})
 }
 
 func ptInt(in int) *int64 {
@@ -333,6 +390,23 @@ func inputIntFilterWithOp(op string) *models.WhereFilter {
 		Operator: op,
 		ValueInt: ptInt(42),
 		Path:     []string{"intField"},
+	}
+}
+
+func inputIntFilterWithValue(value int) *models.WhereFilter {
+	return &models.WhereFilter{
+		Operator: "Equal",
+		ValueInt: ptInt(value),
+		Path:     []string{"intField"},
+	}
+}
+
+func inputIntFilterWithValueAndPath(value int,
+	path []string) *models.WhereFilter {
+	return &models.WhereFilter{
+		Operator: "Equal",
+		ValueInt: ptInt(value),
+		Path:     path,
 	}
 }
 

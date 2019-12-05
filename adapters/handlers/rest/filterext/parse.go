@@ -36,10 +36,16 @@ func Parse(in *models.WhereFilter) (*filters.LocalFilter, error) {
 		}
 		return filter, nil
 	}
-	return nil, fmt.Errorf("nested filters not supported yet")
+
+	filter, err := parseNestedFilter(in, operator)
+	if err != nil {
+		return nil, fmt.Errorf("invalid where filter: %v", err)
+	}
+	return filter, nil
 }
 
-func parseValueFilter(in *models.WhereFilter, operator filters.Operator) (*filters.LocalFilter, error) {
+func parseValueFilter(in *models.WhereFilter,
+	operator filters.Operator) (*filters.LocalFilter, error) {
 	value, err := parseValue(in)
 	if err != nil {
 		return nil, err
@@ -57,6 +63,48 @@ func parseValueFilter(in *models.WhereFilter, operator filters.Operator) (*filte
 			On:       path,
 		},
 	}, nil
+}
+
+func parseNestedFilter(in *models.WhereFilter,
+	operator filters.Operator) (*filters.LocalFilter, error) {
+
+	if in.Path != nil {
+		return nil, fmt.Errorf("TODO")
+	}
+
+	if !allValuesNil(in) {
+		return nil, fmt.Errorf("TODO")
+	}
+
+	if in.Operands == nil || len(in.Operands) == 0 {
+		return nil, fmt.Errorf("TODO")
+	}
+
+	operands, err := parseOperands(in.Operands)
+	if err != nil {
+		return nil, err
+	}
+
+	return &filters.LocalFilter{
+		Root: &filters.Clause{
+			Operator: operator,
+			Operands: operands,
+		},
+	}, nil
+}
+
+func parseOperands(ops []*models.WhereFilter) ([]filters.Clause, error) {
+	out := make([]filters.Clause, len(ops), len(ops))
+	for i, operand := range ops {
+		res, err := Parse(operand)
+		if err != nil {
+			return nil, fmt.Errorf("operand %d: %v", i, err)
+		}
+
+		out[i] = *res.Root
+	}
+
+	return out, nil
 }
 
 func parseOperator(in string) (filters.Operator, error) {
@@ -77,6 +125,8 @@ func parseOperator(in string) (filters.Operator, error) {
 		return filters.OperatorNotEqual, nil
 	case models.WhereFilterOperatorWithinGeoRange:
 		return filters.OperatorWithinGeoRange, nil
+	case models.WhereFilterOperatorAnd:
+		return filters.OperatorAnd, nil
 
 	default:
 		return -1, fmt.Errorf("unrecognized operator: %s", in)
@@ -90,4 +140,14 @@ func parsePath(in []string) (*filters.Path, error) {
 	}
 
 	return filters.ParsePath(asInterface, "Todo") // TODO: do we need to set a root class?
+}
+
+func allValuesNil(in *models.WhereFilter) bool {
+	return in.ValueBoolean == nil &&
+		in.ValueDate == nil &&
+		in.ValueString == nil &&
+		in.ValueText == nil &&
+		in.ValueInt == nil &&
+		in.ValueNumber == nil &&
+		in.ValueGeoRange == nil
 }
