@@ -50,7 +50,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "0.21.3"
+    "version": "0.21.4"
   },
   "basePath": "/v1",
   "paths": {
@@ -3017,7 +3017,8 @@ func init() {
           "type": "string",
           "default": "knn",
           "enum": [
-            "knn"
+            "knn",
+            "contextual"
           ],
           "example": "knn"
         }
@@ -3665,7 +3666,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "0.21.3"
+    "version": "0.21.4"
   },
   "basePath": "/v1",
   "paths": {
@@ -6646,7 +6647,8 @@ func init() {
           "type": "string",
           "default": "knn",
           "enum": [
-            "knn"
+            "knn",
+            "contextual"
           ],
           "example": "knn"
         }

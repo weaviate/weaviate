@@ -58,6 +58,10 @@ func testSchema() schema.Schema {
 							Name:        "categories",
 							DataType:    []string{"ExactCategory"},
 						},
+						&models.Property{
+							Name:     "anyCategory",
+							DataType: []string{"MainCategory", "ExactCategory"},
+						},
 					},
 				},
 			},
@@ -133,11 +137,63 @@ const (
 	idCategoryFoodAndDrink           = "027b708a-31ca-43ea-9001-88bec864c79c"
 )
 
+// only used for contextual type classification
+func testDataPossibleTargets() search.Results {
+	return search.Results{
+		search.Result{
+			Kind:      kind.Thing,
+			ID:        idMainCategoryPoliticsAndSociety,
+			ClassName: "MainCategory",
+			Vector:    []float32{1.01, 1.01, 0},
+			Schema: map[string]interface{}{
+				"name": "Politics and Society",
+			},
+		},
+		search.Result{
+			Kind:      kind.Thing,
+			ID:        idMainCategoryFoodAndDrink,
+			ClassName: "MainCategory",
+			Vector:    []float32{0, 0, 0.99},
+			Schema: map[string]interface{}{
+				"name": "Food and Drinks",
+			},
+		},
+		search.Result{
+			Kind:      kind.Thing,
+			ID:        idCategoryPolitics,
+			ClassName: "ExactCategory",
+			Vector:    []float32{0.99, 0, 0},
+			Schema: map[string]interface{}{
+				"name": "Politics",
+			},
+		},
+		search.Result{
+			Kind:      kind.Thing,
+			ID:        idCategorySociety,
+			ClassName: "ExactCategory",
+			Vector:    []float32{0, 0.90, 0},
+			Schema: map[string]interface{}{
+				"name": "Society",
+			},
+		},
+		search.Result{
+			Kind:      kind.Thing,
+			ID:        idCategoryFoodAndDrink,
+			ClassName: "ExactCategory",
+			Vector:    []float32{0, 0, 0.99},
+			Schema: map[string]interface{}{
+				"name": "Food and Drink",
+			},
+		},
+	}
+}
+
 func beaconRef(target string) *models.SingleRef {
 	beacon := fmt.Sprintf("weaviate://localhost/things/%s", target)
 	return &models.SingleRef{Beacon: strfmt.URI(beacon)}
 }
 
+// only used for knn-type
 func testDataAlreadyClassified() search.Results {
 	return search.Results{
 		search.Result{

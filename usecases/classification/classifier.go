@@ -25,13 +25,18 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
+	libvectorizer "github.com/semi-technologies/weaviate/usecases/vectorizer"
 )
+
+type distancer func(a, b []float32) (float32, error)
 
 type Classifier struct {
 	schemaGetter schemaUC.SchemaGetter
 	repo         Repo
 	vectorRepo   vectorRepo
 	authorizer   authorizer
+	distancer    distancer
 }
 
 type authorizer interface {
@@ -44,6 +49,7 @@ func New(sg schemaUC.SchemaGetter, cr Repo, vr vectorRepo, authorizer authorizer
 		repo:         cr,
 		vectorRepo:   vr,
 		authorizer:   authorizer,
+		distancer:    libvectorizer.NormalizedDistance,
 	}
 }
 
@@ -58,6 +64,7 @@ type VectorRepo interface {
 	GetUnclassified(ctx context.Context, kind kind.Kind, class string, properites []string) ([]search.Result, error)
 	AggregateNeighbors(ctx context.Context, vector []float32,
 		kind kind.Kind, class string, properties []string, k int) ([]NeighborRef, error)
+	VectorClassSearch(ctx context.Context, params traverser.GetParams) ([]search.Result, error)
 }
 
 type vectorRepo interface {
@@ -92,10 +99,7 @@ func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, 
 		return nil, err
 	}
 
-	if params.K == nil {
-		defaultK := int32(3)
-		params.K = &defaultK
-	}
+	c.setDefaultValuesForOptionalFields(&params)
 
 	if err := c.assignNewID(&params); err != nil {
 		return nil, fmt.Errorf("classification: assign id: %v", err)
@@ -141,4 +145,17 @@ func (c *Classifier) Get(ctx context.Context, principal *models.Principal, id st
 	}
 
 	return c.repo.Get(ctx, id)
+}
+
+func (c *Classifier) setDefaultValuesForOptionalFields(params *models.Classification) {
+	if params.Type == nil {
+		defaultType := "knn"
+		params.Type = &defaultType
+	}
+
+	if params.K == nil {
+		defaultK := int32(3)
+		params.K = &defaultK
+	}
+
 }
