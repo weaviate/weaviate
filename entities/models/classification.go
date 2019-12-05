@@ -59,7 +59,7 @@ type Classification struct {
 	Status string `json:"status,omitempty"`
 
 	// which algorythim to use for classifications
-	// Enum: [knn]
+	// Enum: [knn contextual]
 	Type *string `json:"type,omitempty"`
 }
 
@@ -170,7 +170,7 @@ var classificationTypeTypePropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["knn"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["knn","contextual"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -182,6 +182,9 @@ const (
 
 	// ClassificationTypeKnn captures enum value "knn"
 	ClassificationTypeKnn string = "knn"
+
+	// ClassificationTypeContextual captures enum value "contextual"
+	ClassificationTypeContextual string = "contextual"
 )
 
 // prop value enum
