@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/entities/filters"
+	libfilters "github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
@@ -33,9 +33,10 @@ type contextualItemClassifier struct {
 	params     models.Classification
 	classifier *Classifier
 	schema     schema.Schema
+	filters    filters
 }
 
-func (c *Classifier) classifyItemContextual(item search.Result, kind kind.Kind, params models.Classification) error {
+func (c *Classifier) classifyItemContextual(item search.Result, kind kind.Kind, params models.Classification, filters filters) error {
 	schema := c.schemaGetter.GetSchemaSkipAuth()
 	run := &contextualItemClassifier{
 		item:       item,
@@ -43,6 +44,7 @@ func (c *Classifier) classifyItemContextual(item search.Result, kind kind.Kind, 
 		params:     params,
 		classifier: c,
 		schema:     schema,
+		filters:    filters,
 	}
 
 	err := run.do()
@@ -135,9 +137,10 @@ func (c *contextualItemClassifier) findTarget(targetClass schema.ClassName, targ
 		SearchVector: c.item.Vector,
 		ClassName:    targetClass.String(),
 		Kind:         targetKind,
-		Pagination: &filters.Pagination{
+		Pagination: &libfilters.Pagination{
 			Limit: 1,
 		},
+		Filters: c.filters.target,
 		Properties: traverser.SelectProperties{
 			traverser.SelectProperty{
 				Name: "uuid",

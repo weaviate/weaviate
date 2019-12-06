@@ -50,7 +50,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "0.21.4"
+    "version": "0.21.5"
   },
   "basePath": "/v1",
   "paths": {
@@ -3002,6 +3002,11 @@ func init() {
           "type": "object",
           "$ref": "#/definitions/ClassificationMeta"
         },
+        "sourceWhere": {
+          "description": "limit the objects to be classified",
+          "type": "object",
+          "$ref": "#/definitions/WhereFilter"
+        },
         "status": {
           "description": "status of this classification",
           "type": "string",
@@ -3011,6 +3016,16 @@ func init() {
             "failed"
           ],
           "example": "running"
+        },
+        "targetWhere": {
+          "description": "Limit the possible sources when using an algorithm which doesn't really on trainig data, e.g. 'contextual'. When using an algorithm with a training set, such as 'knn', limit the training set instead",
+          "type": "object",
+          "$ref": "#/definitions/WhereFilter"
+        },
+        "trainingSetWhere": {
+          "description": "Limit the training objects to be considered during the classification. Can only be used on types with explicit training sets, such as 'knn'",
+          "type": "object",
+          "$ref": "#/definitions/WhereFilter"
         },
         "type": {
           "description": "which algorythim to use for classifications",
@@ -3580,6 +3595,111 @@ func init() {
           "description": "The total number of Things for the query. The number of items in a response may be smaller due to paging.",
           "type": "integer",
           "format": "int64"
+        }
+      }
+    },
+    "WhereFilter": {
+      "description": "Filter search results using a where filter",
+      "type": "object",
+      "properties": {
+        "operands": {
+          "description": "combine multiple where filters, requires 'And' or 'Or' operator",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/WhereFilter"
+          }
+        },
+        "operator": {
+          "description": "operator to use",
+          "type": "string",
+          "enum": [
+            "And",
+            "Or",
+            "Equal",
+            "Like",
+            "Not",
+            "NotEqual",
+            "GreaterThan",
+            "GreaterThanEqual",
+            "LessThan",
+            "LessThanEqual",
+            "WithinGeoRange"
+          ],
+          "example": "GreaterThanEqual"
+        },
+        "path": {
+          "description": "path to the property currently being filtered",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "example": [
+            "inCity",
+            "City",
+            "name"
+          ]
+        },
+        "valueBoolean": {
+          "description": "value as boolean",
+          "type": "boolean",
+          "x-nullable": true,
+          "example": false
+        },
+        "valueDate": {
+          "description": "value as date (as string)",
+          "type": "string",
+          "x-nullable": true,
+          "example": "TODO"
+        },
+        "valueGeoRange": {
+          "description": "value as geo coordinates and distance",
+          "type": "object",
+          "x-nullable": true,
+          "$ref": "#/definitions/WhereFilterGeoRange"
+        },
+        "valueInt": {
+          "description": "value as integer",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "example": 2000
+        },
+        "valueNumber": {
+          "description": "value as number/float",
+          "type": "number",
+          "format": "float64",
+          "x-nullable": true,
+          "example": 3.14
+        },
+        "valueString": {
+          "description": "value as string",
+          "type": "string",
+          "x-nullable": true,
+          "example": "my search term"
+        },
+        "valueText": {
+          "description": "value as text (on text props)",
+          "type": "string",
+          "x-nullable": true,
+          "example": "my search term"
+        }
+      }
+    },
+    "WhereFilterGeoRange": {
+      "description": "filter within a distance of a georange",
+      "type": "object",
+      "properties": {
+        "distance": {
+          "type": "object",
+          "properties": {
+            "max": {
+              "type": "number",
+              "format": "float64"
+            }
+          }
+        },
+        "geoCoordinates": {
+          "$ref": "#/definitions/GeoCoordinates"
         }
       }
     }
@@ -3666,7 +3786,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "0.21.4"
+    "version": "0.21.5"
   },
   "basePath": "/v1",
   "paths": {
@@ -6632,6 +6752,11 @@ func init() {
           "type": "object",
           "$ref": "#/definitions/ClassificationMeta"
         },
+        "sourceWhere": {
+          "description": "limit the objects to be classified",
+          "type": "object",
+          "$ref": "#/definitions/WhereFilter"
+        },
         "status": {
           "description": "status of this classification",
           "type": "string",
@@ -6641,6 +6766,16 @@ func init() {
             "failed"
           ],
           "example": "running"
+        },
+        "targetWhere": {
+          "description": "Limit the possible sources when using an algorithm which doesn't really on trainig data, e.g. 'contextual'. When using an algorithm with a training set, such as 'knn', limit the training set instead",
+          "type": "object",
+          "$ref": "#/definitions/WhereFilter"
+        },
+        "trainingSetWhere": {
+          "description": "Limit the training objects to be considered during the classification. Can only be used on types with explicit training sets, such as 'knn'",
+          "type": "object",
+          "$ref": "#/definitions/WhereFilter"
         },
         "type": {
           "description": "which algorythim to use for classifications",
@@ -7210,6 +7345,111 @@ func init() {
           "description": "The total number of Things for the query. The number of items in a response may be smaller due to paging.",
           "type": "integer",
           "format": "int64"
+        }
+      }
+    },
+    "WhereFilter": {
+      "description": "Filter search results using a where filter",
+      "type": "object",
+      "properties": {
+        "operands": {
+          "description": "combine multiple where filters, requires 'And' or 'Or' operator",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/WhereFilter"
+          }
+        },
+        "operator": {
+          "description": "operator to use",
+          "type": "string",
+          "enum": [
+            "And",
+            "Or",
+            "Equal",
+            "Like",
+            "Not",
+            "NotEqual",
+            "GreaterThan",
+            "GreaterThanEqual",
+            "LessThan",
+            "LessThanEqual",
+            "WithinGeoRange"
+          ],
+          "example": "GreaterThanEqual"
+        },
+        "path": {
+          "description": "path to the property currently being filtered",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "example": [
+            "inCity",
+            "City",
+            "name"
+          ]
+        },
+        "valueBoolean": {
+          "description": "value as boolean",
+          "type": "boolean",
+          "x-nullable": true,
+          "example": false
+        },
+        "valueDate": {
+          "description": "value as date (as string)",
+          "type": "string",
+          "x-nullable": true,
+          "example": "TODO"
+        },
+        "valueGeoRange": {
+          "description": "value as geo coordinates and distance",
+          "type": "object",
+          "x-nullable": true,
+          "$ref": "#/definitions/WhereFilterGeoRange"
+        },
+        "valueInt": {
+          "description": "value as integer",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true,
+          "example": 2000
+        },
+        "valueNumber": {
+          "description": "value as number/float",
+          "type": "number",
+          "format": "float64",
+          "x-nullable": true,
+          "example": 3.14
+        },
+        "valueString": {
+          "description": "value as string",
+          "type": "string",
+          "x-nullable": true,
+          "example": "my search term"
+        },
+        "valueText": {
+          "description": "value as text (on text props)",
+          "type": "string",
+          "x-nullable": true,
+          "example": "my search term"
+        }
+      }
+    },
+    "WhereFilterGeoRange": {
+      "description": "filter within a distance of a georange",
+      "type": "object",
+      "properties": {
+        "distance": {
+          "type": "object",
+          "properties": {
+            "max": {
+              "type": "number",
+              "format": "float64"
+            }
+          }
+        },
+        "geoCoordinates": {
+          "$ref": "#/definitions/GeoCoordinates"
         }
       }
     }

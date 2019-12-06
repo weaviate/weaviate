@@ -20,6 +20,8 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	uuid "github.com/satori/go.uuid"
+	"github.com/semi-technologies/weaviate/adapters/handlers/rest/filterext"
+	libfilters "github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
@@ -61,9 +63,11 @@ type Repo interface {
 }
 
 type VectorRepo interface {
-	GetUnclassified(ctx context.Context, kind kind.Kind, class string, properites []string) ([]search.Result, error)
+	GetUnclassified(ctx context.Context, kind kind.Kind, class string,
+		properties []string, filter *libfilters.LocalFilter) ([]search.Result, error)
 	AggregateNeighbors(ctx context.Context, vector []float32,
-		kind kind.Kind, class string, properties []string, k int) ([]NeighborRef, error)
+		kind kind.Kind, class string, properties []string, k int,
+		filter *libfilters.LocalFilter) ([]NeighborRef, error)
 	VectorClassSearch(ctx context.Context, params traverser.GetParams) ([]search.Result, error)
 }
 
@@ -86,6 +90,12 @@ type NeighborRef struct {
 
 	WinningDistance float32
 	LosingDistance  *float32
+}
+
+type filters struct {
+	source      *libfilters.LocalFilter
+	target      *libfilters.LocalFilter
+	trainingSet *libfilters.LocalFilter
 }
 
 func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, params models.Classification) (*models.Classification, error) {
@@ -116,9 +126,37 @@ func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, 
 
 	// asynchronously trigger the classification
 	kind := c.getKind(params)
-	go c.run(params, kind)
+	filters, err := extractFilters(params)
+	if err != nil {
+		return nil, err
+	}
+
+	go c.run(params, kind, filters)
 
 	return &params, nil
+}
+
+func extractFilters(params models.Classification) (filters, error) {
+	source, err := filterext.Parse(params.SourceWhere)
+	if err != nil {
+		return filters{}, fmt.Errorf("field 'sourceWhere': %v", err)
+	}
+
+	trainingSet, err := filterext.Parse(params.TrainingSetWhere)
+	if err != nil {
+		return filters{}, fmt.Errorf("field 'trainingSetWhere': %v", err)
+	}
+
+	target, err := filterext.Parse(params.TargetWhere)
+	if err != nil {
+		return filters{}, fmt.Errorf("field 'targetWhere': %v", err)
+	}
+
+	return filters{
+		source:      source,
+		trainingSet: trainingSet,
+		target:      target,
+	}, nil
 }
 
 func (c *Classifier) getKind(params models.Classification) kind.Kind {
@@ -153,9 +191,23 @@ func (c *Classifier) setDefaultValuesForOptionalFields(params *models.Classifica
 		params.Type = &defaultType
 	}
 
+	if *params.Type == "knn" {
+		c.setDefaultsForKNN(params)
+	}
+
+	if *params.Type == "contextual" {
+		c.setDefaultsForContextual(params)
+	}
+
+}
+
+func (c *Classifier) setDefaultsForKNN(params *models.Classification) {
 	if params.K == nil {
 		defaultK := int32(3)
 		params.K = &defaultK
 	}
+}
 
+func (c *Classifier) setDefaultsForContextual(params *models.Classification) {
+	// none at the moment
 }

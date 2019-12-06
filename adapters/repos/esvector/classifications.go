@@ -21,6 +21,7 @@ import (
 
 	"github.com/elastic/go-elasticsearch/v5/esapi"
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/classification"
@@ -29,7 +30,7 @@ import (
 )
 
 func (r *Repo) GetUnclassified(ctx context.Context, kind kind.Kind,
-	class string, properties []string) ([]search.Result, error) {
+	class string, properties []string, filter *filters.LocalFilter) ([]search.Result, error) {
 
 	mustNot := []map[string]interface{}{}
 	for _, prop := range properties {
@@ -38,16 +39,38 @@ func (r *Repo) GetUnclassified(ctx context.Context, kind kind.Kind,
 				"field": prop,
 			},
 		})
-
 	}
 
-	body := map[string]interface{}{
-		"query": map[string]interface{}{
+	var query map[string]interface{}
+
+	if filter == nil {
+		query = map[string]interface{}{
 			"bool": map[string]interface{}{
 				"must_not": mustNot,
 			},
-		},
-		"size": 9999,
+		}
+	} else {
+		subquery, err := queryFromFilter(filter)
+		if err != nil {
+			return nil, fmt.Errorf("build filter: %v", err)
+		}
+		query = map[string]interface{}{
+			"bool": map[string]interface{}{
+				"must": []interface{}{
+					subquery,
+					map[string]interface{}{
+						"bool": map[string]interface{}{
+							"must_not": mustNot,
+						},
+					},
+				},
+			},
+		}
+	}
+
+	body := map[string]interface{}{
+		"query": query,
+		"size":  9999,
 		"aggregations": map[string]interface{}{
 			"count": map[string]interface{}{
 				"value_count": map[string]interface{}{
@@ -118,18 +141,29 @@ func checkClassificationCount(res map[string]interface{}) error {
 	return nil
 }
 
-func (r *Repo) AggregateNeighbors(ctx context.Context, vector []float32, kind kind.Kind, class string,
-	properties []string, k int) ([]classification.NeighborRef, error) {
+func (r *Repo) AggregateNeighbors(ctx context.Context, vector []float32,
+	kind kind.Kind, class string, properties []string, k int,
+	filter *filters.LocalFilter) ([]classification.NeighborRef, error) {
 
-	mustExist := []map[string]interface{}{}
+	mustQueries := []map[string]interface{}{}
 	var propNames []string
 	for _, prop := range properties {
 		propNames = append(propNames, prop)
-		mustExist = append(mustExist, map[string]interface{}{
+		mustQueries = append(mustQueries, map[string]interface{}{
 			"exists": map[string]interface{}{
 				"field": prop,
 			},
 		})
+	}
+
+	if filter != nil {
+		// query = map[string]interface{}{
+		subquery, err := queryFromFilter(filter)
+		if err != nil {
+			return nil, err
+		}
+
+		mustQueries = append(mustQueries, subquery)
 	}
 
 	query := map[string]interface{}{
@@ -137,7 +171,7 @@ func (r *Repo) AggregateNeighbors(ctx context.Context, vector []float32, kind ki
 			"boost_mode": "replace",
 			"query": map[string]interface{}{
 				"bool": map[string]interface{}{
-					"must": mustExist,
+					"must": mustQueries,
 				},
 			},
 			"functions": []interface{}{

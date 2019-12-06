@@ -62,6 +62,7 @@ func (v *Validator) validate() {
 	}
 
 	v.contextualTypeFeasibility()
+	v.knnTypeFeasibility()
 	v.basedOnProperties(class)
 	v.classifyProperties(class)
 }
@@ -73,6 +74,20 @@ func (v *Validator) contextualTypeFeasibility() {
 
 	if v.subject.K != nil {
 		v.errors.addf("field 'k' can only be set for type 'knn', but got type 'contextual'")
+	}
+
+	if v.subject.TrainingSetWhere != nil {
+		v.errors.addf("type is 'contextual', but 'trainingSetWhere' filter is set, for 'contextual' there is no training data, instead limit possible target data directly through setting 'targetWhere'")
+	}
+}
+
+func (v *Validator) knnTypeFeasibility() {
+	if !v.typeKNN() {
+		return
+	}
+
+	if v.subject.TargetWhere != nil {
+		v.errors.addf("type is 'knn', but 'targetWhere' filter is set, for 'knn' you cannot limit target data directly, instead limit training data through setting 'trainingSetWhere'")
 	}
 }
 
@@ -177,6 +192,14 @@ func (v *Validator) typeContextual() bool {
 	}
 
 	return *v.subject.Type == "contextual"
+}
+
+func (v *Validator) typeKNN() bool {
+	if v.subject.Type == nil {
+		return true
+	}
+
+	return *v.subject.Type == "knn"
 }
 
 type errorCompounder struct {
