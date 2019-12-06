@@ -191,9 +191,23 @@ func (c *Classifier) setDefaultValuesForOptionalFields(params *models.Classifica
 		params.Type = &defaultType
 	}
 
+	if *params.Type == "knn" {
+		c.setDefaultsForKNN(params)
+	}
+
+	if *params.Type == "contextual" {
+		c.setDefaultsForContextual(params)
+	}
+
+}
+
+func (c *Classifier) setDefaultsForKNN(params *models.Classification) {
 	if params.K == nil {
 		defaultK := int32(3)
 		params.K = &defaultK
 	}
+}
 
+func (c *Classifier) setDefaultsForContextual(params *models.Classification) {
+	// none at the moment
 }
