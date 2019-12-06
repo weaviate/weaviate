@@ -28,9 +28,6 @@ func Test_ValidateUserInput(t *testing.T) {
 		expectedError error
 	}
 
-	contextual := "contextual"
-	k7 := int32(7)
-
 	// knn or general
 	tests := []testcase{
 		testcase{
@@ -148,6 +145,19 @@ func Test_ValidateUserInput(t *testing.T) {
 			expectedError: fmt.Errorf("invalid classification: class must be set"),
 		},
 
+		// specific for knn
+		testcase{
+			name: "targetWhere is set",
+			input: models.Classification{
+				Class:              "Article",
+				BasedOnProperties:  []string{"description"},
+				ClassifyProperties: []string{"exactCategory"},
+				TargetWhere:        &models.WhereFilter{Operator: "Equal", Path: []string{"foo"}, ValueString: ptString("bar")},
+				Type:               ptString("knn"),
+			},
+			expectedError: fmt.Errorf("invalid classification: type is 'knn', but 'targetWhere' filter is set, for 'knn' you cannot limit target data directly, instead limit training data through setting 'trainingSetWhere'"),
+		},
+
 		// specific for contextual
 		testcase{
 			name: "classifyProperty has more than one target class",
@@ -155,7 +165,7 @@ func Test_ValidateUserInput(t *testing.T) {
 				Class:              "Article",
 				BasedOnProperties:  []string{"description"},
 				ClassifyProperties: []string{"anyCategory"},
-				Type:               &contextual,
+				Type:               ptString("contextual"),
 			},
 			expectedError: fmt.Errorf("invalid classification: classifyProperties: property 'anyCategory' has more than one target class, classification of type 'contextual' requires exactly one target class"),
 		},
@@ -166,10 +176,21 @@ func Test_ValidateUserInput(t *testing.T) {
 				Class:              "Article",
 				BasedOnProperties:  []string{"description"},
 				ClassifyProperties: []string{"exactCategory"},
-				Type:               &contextual,
-				K:                  &k7,
+				Type:               ptString("contextual"),
+				K:                  ptInt(7),
 			},
 			expectedError: fmt.Errorf("invalid classification: field 'k' can only be set for type 'knn', but got type 'contextual'"),
+		},
+		testcase{
+			name: "trainingSetWhere is set",
+			input: models.Classification{
+				Class:              "Article",
+				BasedOnProperties:  []string{"description"},
+				ClassifyProperties: []string{"exactCategory"},
+				TrainingSetWhere:   &models.WhereFilter{Operator: "Equal", Path: []string{"foo"}, ValueString: ptString("bar")},
+				Type:               ptString("contextual"),
+			},
+			expectedError: fmt.Errorf("invalid classification: type is 'contextual', but 'trainingSetWhere' filter is set, for 'contextual' there is no training data, instead limit possible target data directly through setting 'targetWhere'"),
 		},
 	}
 
@@ -180,4 +201,13 @@ func Test_ValidateUserInput(t *testing.T) {
 			assert.Equal(t, test.expectedError, err)
 		})
 	}
+}
+
+func ptInt(in int) *int32 {
+	a := int32(in)
+	return &a
+}
+
+func ptString(in string) *string {
+	return &in
 }

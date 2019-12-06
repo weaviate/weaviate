@@ -54,9 +54,18 @@ type Classification struct {
 	// additional meta information about the classification
 	Meta *ClassificationMeta `json:"meta,omitempty"`
 
+	// limit the objects to be classified
+	SourceWhere *WhereFilter `json:"sourceWhere,omitempty"`
+
 	// status of this classification
 	// Enum: [running completed failed]
 	Status string `json:"status,omitempty"`
+
+	// Limit the possible sources when using an algorithm which doesn't really on trainig data, e.g. 'contextual'. When using an algorithm with a training set, such as 'knn', limit the training set instead
+	TargetWhere *WhereFilter `json:"targetWhere,omitempty"`
+
+	// Limit the training objects to be considered during the classification. Can only be used on types with explicit training sets, such as 'knn'
+	TrainingSetWhere *WhereFilter `json:"trainingSetWhere,omitempty"`
 
 	// which algorythim to use for classifications
 	// Enum: [knn contextual]
@@ -75,7 +84,19 @@ func (m *Classification) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validateSourceWhere(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateStatus(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateTargetWhere(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateTrainingSetWhere(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -112,6 +133,24 @@ func (m *Classification) validateMeta(formats strfmt.Registry) error {
 		if err := m.Meta.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("meta")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Classification) validateSourceWhere(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.SourceWhere) { // not required
+		return nil
+	}
+
+	if m.SourceWhere != nil {
+		if err := m.SourceWhere.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("sourceWhere")
 			}
 			return err
 		}
@@ -161,6 +200,42 @@ func (m *Classification) validateStatus(formats strfmt.Registry) error {
 	// value enum
 	if err := m.validateStatusEnum("status", "body", m.Status); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (m *Classification) validateTargetWhere(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.TargetWhere) { // not required
+		return nil
+	}
+
+	if m.TargetWhere != nil {
+		if err := m.TargetWhere.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("targetWhere")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Classification) validateTrainingSetWhere(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.TrainingSetWhere) { // not required
+		return nil
+	}
+
+	if m.TrainingSetWhere != nil {
+		if err := m.TrainingSetWhere.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("trainingSetWhere")
+			}
+			return err
+		}
 	}
 
 	return nil

@@ -836,6 +836,21 @@
           "type": "string",
           "default": "",
           "example": "classify xzy: something went wrong"
+        },
+        "sourceWhere": {
+          "description": "limit the objects to be classified",
+          "type": "object",
+          "$ref": "#/definitions/WhereFilter"
+        },
+        "trainingSetWhere": {
+          "description": "Limit the training objects to be considered during the classification. Can only be used on types with explicit training sets, such as 'knn'",
+          "type": "object",
+          "$ref": "#/definitions/WhereFilter"
+        },
+        "targetWhere": {
+          "description": "Limit the possible sources when using an algorithm which doesn't really on trainig data, e.g. 'contextual'. When using an algorithm with a training set, such as 'knn', limit the training set instead",
+          "type": "object",
+          "$ref": "#/definitions/WhereFilter"
         }
       },
       "type": "object"
@@ -872,6 +887,95 @@
         }
       },
       "type": "object"
+    },
+    "WhereFilter": {
+      "description": "Filter search results using a where filter",
+      "properties": {
+        "operands": {
+          "description": "combine multiple where filters, requires 'And' or 'Or' operator",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/WhereFilter"
+          }
+        },
+        "operator": {
+          "description": "operator to use",
+          "type": "string",
+          "enum": ["And", "Or", "Equal","Like", "Not", "NotEqual", "GreaterThan", "GreaterThanEqual", "LessThan", "LessThanEqual", "WithinGeoRange" ],
+          "example": "GreaterThanEqual"
+        },
+        "path": {
+          "description": "path to the property currently being filtered",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "example": ["inCity", "City", "name"]
+        },
+        "valueInt": {
+          "description": "value as integer",
+          "type": "integer",
+          "format": "int64",
+          "example": 2000,
+          "x-nullable": true
+        },
+        "valueNumber": {
+          "description": "value as number/float",
+          "type": "number",
+          "format": "float64",
+          "example": 3.14,
+          "x-nullable": true
+        },
+        "valueBoolean": {
+          "description": "value as boolean",
+          "type": "boolean",
+          "example": false,
+          "x-nullable": true
+        },
+        "valueString": {
+          "description": "value as string",
+          "type": "string",
+          "example": "my search term",
+          "x-nullable": true
+        },
+        "valueText": {
+          "description": "value as text (on text props)",
+          "type": "string",
+          "example": "my search term",
+          "x-nullable": true
+        },
+        "valueDate": {
+          "description": "value as date (as string)",
+          "type": "string",
+          "example": "TODO",
+          "x-nullable": true
+        },
+        "valueGeoRange": {
+          "description": "value as geo coordinates and distance",
+          "type": "object",
+          "$ref": "#/definitions/WhereFilterGeoRange",
+          "x-nullable": true
+        }
+      },
+      "type": "object"
+    },
+    "WhereFilterGeoRange": {
+      "type": "object",
+      "description": "filter within a distance of a georange",
+      "properties": {
+        "geoCoordinates": { 
+          "$ref": "#/definitions/GeoCoordinates"
+        },
+        "distance": {
+          "type": "object",
+          "properties": {
+            "max": {
+              "type": "number",
+              "format": "float64"
+            }
+          }
+        }
+      }
     }
   },
   "externalDocs": {
@@ -885,7 +989,7 @@
     },
     "description": "Open Source Knowledge Graph (GraphQL/RESTful/P2P)",
     "title": "Weaviate",
-    "version": "0.21.4"
+    "version": "0.21.5"
   },
   "parameters": {
     "CommonLimitParameterQuery": {

@@ -28,14 +28,15 @@ import (
 // which is generic, whereas the individual classify_item fns can be found in
 // the respective files such as classifier_run_knn.go
 
-type classifyItemFn func(item search.Result, kind kind.Kind, params models.Classification) error
+type classifyItemFn func(item search.Result, kind kind.Kind, params models.Classification, filters filters) error
 
-func (c *Classifier) run(params models.Classification, kind kind.Kind) {
+func (c *Classifier) run(params models.Classification, kind kind.Kind,
+	filters filters) {
 	ctx, cancel := contextWithTimeout(30 * time.Second)
 	defer cancel()
 
 	unclassifiedItems, err := c.vectorRepo.GetUnclassified(ctx,
-		kind, params.Class, params.ClassifyProperties)
+		kind, params.Class, params.ClassifyProperties, filters.source)
 	if err != nil {
 		c.failRunWithError(params, err)
 		return
@@ -69,7 +70,7 @@ func (c *Classifier) run(params models.Classification, kind kind.Kind) {
 
 	errors := &errorCompounder{}
 	for _, item := range unclassifiedItems {
-		err := classifyItem(item, kind, params)
+		err := classifyItem(item, kind, params, filters)
 		if err != nil {
 			errors.add(err)
 			errorCount++
