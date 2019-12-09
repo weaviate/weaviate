@@ -28,17 +28,20 @@ import (
 
 func Test_GraphQL(t *testing.T) {
 	t.Run("setup test schema", addTestSchema)
-	t.Run("import test data", addTestData)
+	t.Run("import test data (city, country, airport)", addTestDataCityAirport)
+	t.Run("import test data (companies)", addTestDataCompanies)
 
 	// tests
 	t.Run("getting objects", gettingObjects)
 	t.Run("getting objects with filters", gettingObjectsWithFilters)
 	t.Run("getting objects with geo filters", gettingObjectsWithGeoFilters)
+	t.Run("getting objects with grouping", gettingObjectsWithGrouping)
 
 	// tear down
 	deleteThingClass(t, "Country")
 	deleteThingClass(t, "City")
 	deleteThingClass(t, "Airport")
+	deleteThingClass(t, "Company")
 }
 
 func createThingClass(t *testing.T, class *models.Class) {
@@ -105,9 +108,23 @@ func addTestSchema(t *testing.T) {
 			},
 		},
 	})
+
+	createThingClass(t, &models.Class{
+		Class: "Company",
+		Properties: []*models.Property{
+			&models.Property{
+				Name:     "name",
+				DataType: []string{"string"},
+			},
+			&models.Property{
+				Name:     "inCity",
+				DataType: []string{"City"},
+			},
+		},
+	})
 }
 
-func addTestData(t *testing.T) {
+func addTestDataCityAirport(t *testing.T) {
 
 	var (
 		netherlands strfmt.UUID = "67b79643-cf8b-4b22-b206-6e63dbb4e57a"
@@ -258,4 +275,48 @@ func addTestData(t *testing.T) {
 
 	// give cache some time to become hot
 	time.Sleep(2 * time.Second)
+}
+
+func addTestDataCompanies(t *testing.T) {
+	var (
+		microsoft1 strfmt.UUID = "cfa3b21e-ca4f-4db7-a432-7fc6a23c534d"
+		microsoft2 strfmt.UUID = "8f75ed97-39dd-4294-bff7-ecabd7923062"
+		microsoft3 strfmt.UUID = "f343f51d-7e05-4084-bd66-d504db3b6bec"
+		apple1     strfmt.UUID = "477fec91-1292-4928-8f53-f0ff49c76900"
+		apple2     strfmt.UUID = "bb2cfdba-d4ba-4cf8-abda-e719ef35ac33"
+		apple3     strfmt.UUID = "b71d2b4c-3da1-4684-9c5e-aabd2a4f2998"
+		google1    strfmt.UUID = "8c2e21fc-46fe-4999-b41c-a800595129af"
+		google2    strfmt.UUID = "62b969c6-f184-4be0-8c40-7470af417cfc"
+		google3    strfmt.UUID = "c7829929-2037-4420-acbc-a433269feb93"
+	)
+
+	type nameAndID struct {
+		id   strfmt.UUID
+		name string
+	}
+
+	companies := []nameAndID{
+		nameAndID{id: microsoft1, name: "Microsoft Inc."},
+		nameAndID{id: microsoft2, name: "Microsoft Incorporated"},
+		nameAndID{id: microsoft3, name: "Microsoft"},
+		nameAndID{id: apple1, name: "Apple Inc."},
+		nameAndID{id: apple2, name: "Apple Incorporated"},
+		nameAndID{id: apple3, name: "Apple"},
+		nameAndID{id: google1, name: "Google Inc."},
+		nameAndID{id: google2, name: "Google Incorporated"},
+		nameAndID{id: google3, name: "Google"},
+	}
+
+	// companies
+	for _, company := range companies {
+		createThing(t, &models.Thing{
+			Class: "Company",
+			ID:    company.id,
+			Schema: map[string]interface{}{
+				"name": company.name,
+			},
+		})
+	}
+
+	assertGetThingEventually(t, companies[len(companies)-1].id)
 }
