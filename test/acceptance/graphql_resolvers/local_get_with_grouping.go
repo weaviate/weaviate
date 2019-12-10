@@ -14,6 +14,7 @@
 package test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
@@ -52,12 +53,11 @@ func gettingObjectsWithGrouping(t *testing.T) {
 	})
 
 	t.Run("grouping mode set to closest", func(t *testing.T) {
-		t.Skip() // TODO: enable when feature is done
 		query := `
 		{
 				Get {
 					Things {
-						Company(group: {type: closest, force:0.8}) {
+						Company(group: {type: closest, force:0.08}) {
 							name
 						}
 					}
@@ -67,12 +67,17 @@ func gettingObjectsWithGrouping(t *testing.T) {
 		result := AssertGraphQL(t, helper.RootAuth, query)
 		companies := result.Get("Get", "Things", "Company").AsSlice()
 
-		expected := []interface{}{
-			map[string]interface{}{"name": "Microsoft Inc."},
-			map[string]interface{}{"name": "Apple Inc."},
-			map[string]interface{}{"name": "Google Inc."},
-		}
+		assert.Len(t, companies, 3)
+		mustContain := []string{"Apple", "Microsoft", "Google"}
+	outer:
+		for _, toContain := range mustContain {
+			for _, current := range companies {
+				if strings.Contains(current.(map[string]interface{})["name"].(string), toContain) {
+					continue outer
+				}
+			}
 
-		assert.ElementsMatch(t, expected, companies)
+			t.Errorf("%s not contained in %v", toContain, companies)
+		}
 	})
 }

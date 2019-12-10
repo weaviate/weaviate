@@ -10,7 +10,7 @@ import (
 type Grouper struct{}
 
 // NewGrouper creates a Grouper UC from the specified configuration
-func NewGrouper() *Grouper {
+func New() *Grouper {
 	return &Grouper{}
 }
 

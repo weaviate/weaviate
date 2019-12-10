@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/traverser/grouper"
 )
 
 // Explorer is a helper construct to perform vector-based searches. It does not
@@ -91,6 +92,15 @@ func (e *Explorer) getClassList(ctx context.Context,
 	res, err := e.search.ClassSearch(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("explorer: get class: search: %v", err)
+	}
+
+	if params.Group != nil {
+		grouped, err := grouper.New().Group(res, params.Group.Strategy, params.Group.Force)
+		if err != nil {
+			return nil, fmt.Errorf("grouper: %v", err)
+		}
+
+		res = grouped
 	}
 
 	return e.searchResultsToGetResponse(ctx, res, 0, nil)
