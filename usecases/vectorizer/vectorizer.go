@@ -61,7 +61,6 @@ func (v *Vectorizer) Action(ctx context.Context, object *models.Action) ([]float
 func (v *Vectorizer) object(ctx context.Context, className string,
 	schema interface{}) ([]float32, error) {
 	var corpi []string
-	corpi = append(corpi, camelCaseToLower(className))
 
 	if schema != nil {
 		for prop, value := range schema.(map[string]interface{}) {
@@ -73,14 +72,28 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 			if ok {
 				// use prop and value
 				corpi = append(corpi, strings.ToLower(
-					fmt.Sprintf("%s %s", camelCaseToLower(prop), valueString)))
+					// fmt.Sprintf("%s %s", camelCaseToLower(prop), valueString)))
+					fmt.Sprintf("%s", valueString)))
 			}
 		}
 	}
 
+	if len(corpi) == 0 {
+		// fall back to using the class name
+		corpi = append(corpi, camelCaseToLower(className))
+	}
+
 	vector, err := v.client.VectorForCorpi(ctx, []string{strings.Join(corpi, " ")})
 	if err != nil {
-		return nil, fmt.Errorf("vectorizing thing with corpus '%+v': %v", corpi, err)
+
+		// try again with the class name
+		corpi = append(corpi, camelCaseToLower(className))
+		vector, err := v.client.VectorForCorpi(ctx, []string{strings.Join(corpi, " ")})
+		if err != nil {
+			return nil, fmt.Errorf("vectorizing thing with corpus '%+v': %v", corpi, err)
+		} else {
+			return vector, nil
+		}
 	}
 
 	return vector, nil

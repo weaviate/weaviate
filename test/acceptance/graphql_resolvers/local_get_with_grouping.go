@@ -57,7 +57,7 @@ func gettingObjectsWithGrouping(t *testing.T) {
 		{
 				Get {
 					Things {
-						Company(group: {type: closest, force:0.08}) {
+						Company(group: {type: closest, force:0.07}) {
 							name
 						}
 					}

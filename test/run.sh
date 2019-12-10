@@ -16,11 +16,11 @@ function main() {
   echo "Done!"
 
   echo_green "Run all unit tests..."
-  run_unit_tests
+  run_unit_tests "$@"
   echo_green "Unit tests successful"
 
   echo_green "Run integration tests..."
-  run_integration_tests
+  run_integration_tests "$@"
   echo_green "Integration tests successful"
 
   echo_green "Stop any running docker-compose containers..."
@@ -43,10 +43,19 @@ function main() {
 }
 
 function run_unit_tests() {
+  if [[ "$*" == *--acceptance-only* ]]; then
+    echo "Skipping unit test"
+    return
+  fi
   go test -race -count 1 $(go list ./... | grep -v 'test/acceptance') | grep -v '\[no test files\]'
 }
 
 function run_integration_tests() {
+  if [[ "$*" == *--acceptance-only* ]]; then
+    echo "Skipping integration test"
+    return
+  fi
+
   ./test/integration/run.sh
 }
 

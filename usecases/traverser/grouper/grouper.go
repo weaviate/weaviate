@@ -1,31 +1,33 @@
 package grouper
 
 import (
-	"github.com/davecgh/go-spew/spew"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/vectorizer"
+	"github.com/sirupsen/logrus"
 )
 
 // Grouper groups or merges search results by how releated they are
-type Grouper struct{}
+type Grouper struct {
+	logger logrus.FieldLogger
+}
 
 // NewGrouper creates a Grouper UC from the specified configuration
-func New() *Grouper {
-	return &Grouper{}
+func New(logger logrus.FieldLogger) *Grouper {
+	return &Grouper{logger: logger}
 }
 
 // Group using the applied strategy and force
 func (g *Grouper) Group(in []search.Result, strategy string,
 	force float32) ([]search.Result, error) {
 
-	var groups groups
+	var groups = groups{logger: g.logger}
 
 	for _, current := range in {
 		pos, ok := groups.hasMatch(current.Vector, force)
 		if !ok {
 			groups.new(current)
 		} else {
-			groups.elements[pos].add(current)
+			groups.Elements[pos].add(current)
 		}
 	}
 
@@ -33,16 +35,16 @@ func (g *Grouper) Group(in []search.Result, strategy string,
 }
 
 type group struct {
-	elements []search.Result
+	Elements []search.Result `json:"elements"`
 }
 
-func (g group) add(item search.Result) {
-	g.elements = append(g.elements, item)
+func (g *group) add(item search.Result) {
+	g.Elements = append(g.Elements, item)
 }
 
 func (g group) matches(vector []float32, force float32) bool {
-	// iterate over all group elements and consider it a match if any matches
-	for _, elem := range g.elements {
+	// iterate over all group Elements and consider it a match if any matches
+	for _, elem := range g.Elements {
 		dist, err := vectorizer.NormalizedDistance(vector, elem.Vector)
 		if err != nil {
 			// TODO: log error
@@ -61,11 +63,12 @@ func (g group) matches(vector []float32, force float32) bool {
 }
 
 type groups struct {
-	elements []group
+	Elements []group `json:"elements"`
+	logger   logrus.FieldLogger
 }
 
 func (gs groups) hasMatch(vector []float32, force float32) (int, bool) {
-	for pos, group := range gs.elements {
+	for pos, group := range gs.Elements {
 		if group.matches(vector, force) {
 			return pos, true
 		}
@@ -74,15 +77,24 @@ func (gs groups) hasMatch(vector []float32, force float32) (int, bool) {
 }
 
 func (gs *groups) new(item search.Result) {
-	gs.elements = append(gs.elements, group{elements: []search.Result{item}})
+	gs.Elements = append(gs.Elements, group{Elements: []search.Result{item}})
 }
 
 func (gs groups) flatten(strategy string) []search.Result {
-	spew.Dump(gs.elements)
-	out := make([]search.Result, len(gs.elements), len(gs.elements))
-	for i, group := range gs.elements {
-		out[i] = group.elements[0] // hard-code "closest" strategy for now
+	gs.logger.WithField("action", "grouping_before_flatten").
+		WithField("strategy", strategy).
+		WithField("groups", gs.Elements).
+		Debug("group before flattening")
+
+	out := make([]search.Result, len(gs.Elements), len(gs.Elements))
+	for i, group := range gs.Elements {
+		out[i] = group.Elements[0] // hard-code "closest" strategy for now
 	}
+
+	gs.logger.WithField("action", "grouping_after_flatten").
+		WithField("strategy", strategy).
+		WithField("groups", gs.Elements).
+		Debug("group after flattening")
 
 	return out
 }
