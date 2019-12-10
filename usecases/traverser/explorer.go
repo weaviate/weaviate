@@ -22,6 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser/grouper"
+	"github.com/sirupsen/logrus"
 )
 
 // Explorer is a helper construct to perform vector-based searches. It does not
@@ -31,6 +32,7 @@ type Explorer struct {
 	search     vectorClassSearch
 	vectorizer CorpiVectorizer
 	distancer  distancer
+	logger     logrus.FieldLogger
 }
 
 type distancer func(a, b []float32) (float32, error)
@@ -48,8 +50,9 @@ type explorerRepo interface {
 }
 
 // NewExplorer with search and connector repo
-func NewExplorer(search vectorClassSearch, vectorizer CorpiVectorizer, distancer distancer) *Explorer {
-	return &Explorer{search, vectorizer, distancer}
+func NewExplorer(search vectorClassSearch, vectorizer CorpiVectorizer,
+	distancer distancer, logger logrus.FieldLogger) *Explorer {
+	return &Explorer{search, vectorizer, distancer, logger}
 }
 
 // GetClass from search and connector repo
@@ -95,7 +98,7 @@ func (e *Explorer) getClassList(ctx context.Context,
 	}
 
 	if params.Group != nil {
-		grouped, err := grouper.New().Group(res, params.Group.Strategy, params.Group.Force)
+		grouped, err := grouper.New(e.logger).Group(res, params.Group.Strategy, params.Group.Force)
 		if err != nil {
 			return nil, fmt.Errorf("grouper: %v", err)
 		}

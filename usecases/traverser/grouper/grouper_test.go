@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -64,7 +65,8 @@ func TestGrouper(t *testing.T) {
 		},
 	}
 
-	res, err := New().Group(in, "closest", 0.2)
+	log, _ := test.NewNullLogger()
+	res, err := New(log).Group(in, "closest", 0.2)
 	require.Nil(t, err)
 	assert.Equal(t, expectedOut, res)
 }
