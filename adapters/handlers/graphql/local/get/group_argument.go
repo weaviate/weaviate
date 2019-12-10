@@ -48,7 +48,7 @@ func groupFields(prefix string) graphql.InputObjectConfigFieldMap {
 		},
 		"force": &graphql.InputObjectFieldConfig{
 			Description: descriptions.Force,
-			Type:        graphql.Float,
+			Type:        graphql.NewNonNull(graphql.Float),
 		},
 	}
 }

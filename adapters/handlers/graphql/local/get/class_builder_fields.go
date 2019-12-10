@@ -196,6 +196,8 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 			exploreParams = &p
 		}
 
+		group := extractGroup(p.Args)
+
 		params := traverser.GetParams{
 			Filters:    filters,
 			Kind:       k,
@@ -203,6 +205,7 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 			Pagination: pagination,
 			Properties: properties,
 			Explore:    exploreParams,
+			Group:      group,
 		}
 
 		// Log the request
@@ -217,6 +220,21 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 		return func() (interface{}, error) {
 			return resolver.GetClass(p.Context, principalFromContext(p.Context), params)
 		}, nil
+	}
+}
+
+func extractGroup(args map[string]interface{}) *traverser.GroupParams {
+	group, ok := args["group"]
+	if !ok {
+		return nil
+	}
+
+	asMap := group.(map[string]interface{}) // guaranteed by graphql
+	strategy := asMap["type"].(string)
+	force := asMap["force"].(float64)
+	return &traverser.GroupParams{
+		Strategy: strategy,
+		Force:    float32(force),
 	}
 }
 
