@@ -64,7 +64,7 @@ func TestGrouper(t *testing.T) {
 		},
 	}
 
-	res, err := NewGrouper().Group(in, "closest", 0.2)
+	res, err := New().Group(in, "closest", 0.2)
 	require.Nil(t, err)
 	assert.Equal(t, expectedOut, res)
 }
