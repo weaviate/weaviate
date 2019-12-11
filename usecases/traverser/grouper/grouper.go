@@ -1,6 +1,8 @@
 package grouper
 
 import (
+	"fmt"
+
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"github.com/sirupsen/logrus"
@@ -31,7 +33,7 @@ func (g *Grouper) Group(in []search.Result, strategy string,
 		}
 	}
 
-	return groups.flatten(strategy), nil
+	return groups.flatten(strategy)
 }
 
 type group struct {
@@ -80,15 +82,22 @@ func (gs *groups) new(item search.Result) {
 	gs.Elements = append(gs.Elements, group{Elements: []search.Result{item}})
 }
 
-func (gs groups) flatten(strategy string) []search.Result {
+func (gs groups) flatten(strategy string) (out []search.Result, err error) {
 	gs.logger.WithField("action", "grouping_before_flatten").
 		WithField("strategy", strategy).
 		WithField("groups", gs.Elements).
 		Debug("group before flattening")
 
-	out := make([]search.Result, len(gs.Elements), len(gs.Elements))
-	for i, group := range gs.Elements {
-		out[i] = group.Elements[0] // hard-code "closest" strategy for now
+	switch strategy {
+	case "closest":
+		out, err = gs.flattenClosest()
+	case "merge":
+		out, err = gs.flattenMerge()
+	default:
+		return nil, fmt.Errorf("unrecognized grouping strategy '%s'", strategy)
+	}
+	if err != nil {
+		return
 	}
 
 	gs.logger.WithField("action", "grouping_after_flatten").
@@ -96,5 +105,28 @@ func (gs groups) flatten(strategy string) []search.Result {
 		WithField("groups", gs.Elements).
 		Debug("group after flattening")
 
-	return out
+	return out, nil
+}
+
+func (gs groups) flattenClosest() ([]search.Result, error) {
+	out := make([]search.Result, len(gs.Elements), len(gs.Elements))
+	for i, group := range gs.Elements {
+		out[i] = group.Elements[0] // hard-code "closest" strategy for now
+	}
+
+	return out, nil
+}
+
+func (gs groups) flattenMerge() ([]search.Result, error) {
+	out := make([]search.Result, len(gs.Elements), len(gs.Elements))
+	for i, group := range gs.Elements {
+		merged, err := group.flattenMerge()
+		if err != nil {
+			return nil, fmt.Errorf("group %d: %v", i, err)
+		}
+
+		out[i] = merged
+	}
+
+	return out, nil
 }
