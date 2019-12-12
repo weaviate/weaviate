@@ -3,6 +3,7 @@ package grouper
 import (
 	"testing"
 
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -78,6 +79,10 @@ func TestGrouper_ModeMerge(t *testing.T) {
 				"name":    "A1",
 				"count":   10.0,
 				"illegal": true,
+				"location": &models.GeoCoordinates{
+					Latitude:  20,
+					Longitude: 20,
+				},
 			},
 		},
 		search.Result{
@@ -102,6 +107,10 @@ func TestGrouper_ModeMerge(t *testing.T) {
 				"name":    "A3",
 				"count":   12.0,
 				"illegal": false,
+				"location": &models.GeoCoordinates{
+					Latitude:  22,
+					Longitude: 18,
+				},
 			},
 		},
 		search.Result{
@@ -131,6 +140,10 @@ func TestGrouper_ModeMerge(t *testing.T) {
 				"name":    "A1 (A2, A3)", // note that A2 is only contained once, even though its twice in the input set
 				"count":   11.0,          // mean of all inputs
 				"illegal": true,          // the most common input value, with a bias towards true on equal count
+				"location": &models.GeoCoordinates{
+					Latitude:  21,
+					Longitude: 19,
+				},
 			},
 		},
 		search.Result{
