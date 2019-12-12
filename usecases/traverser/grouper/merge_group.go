@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
 )
 
@@ -79,6 +80,8 @@ func mergeValueGroups(props map[string]valueGroup) (map[string]interface{}, erro
 			res, err = mergeNumericalProps(group.values)
 		case boolean:
 			res, err = mergeBooleanProps(group.values)
+		case geo:
+			res, err = mergeGeoProps(group.values)
 		default:
 			err = fmt.Errorf("unrecognized value type")
 		}
@@ -100,6 +103,8 @@ func valueTypeOf(in interface{}) valueType {
 		return numerical
 	case bool:
 		return boolean
+	case *models.GeoCoordinates:
+		return geo
 	default:
 		return unknown
 	}
@@ -161,4 +166,24 @@ func mergeBooleanProps(in []interface{}) (bool, error) {
 	}
 
 	return countTrue >= countFalse, nil
+}
+
+func mergeGeoProps(in []interface{}) (*models.GeoCoordinates, error) {
+	var sumLat float32
+	var sumLon float32
+
+	for i, elem := range in {
+		asGeo, ok := elem.(*models.GeoCoordinates)
+		if !ok {
+			return nil, fmt.Errorf("element %d: expected geo element to be *models.GeoCoordinates, but got %T", i, elem)
+		}
+
+		sumLat += asGeo.Latitude
+		sumLon += asGeo.Longitude
+	}
+
+	return &models.GeoCoordinates{
+		Latitude:  sumLat / float32(len(in)),
+		Longitude: sumLon / float32(len(in)),
+	}, nil
 }
