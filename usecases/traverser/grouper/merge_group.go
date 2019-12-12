@@ -120,6 +120,10 @@ func mergeValueGroups(props map[string]valueGroup) (map[string]interface{}, erro
 			res, err = mergeBooleanProps(group.values)
 		case geo:
 			res, err = mergeGeoProps(group.values)
+		case reference:
+			res, err = mergeReferenceProps(group.values)
+		case unknown:
+			continue
 		default:
 			err = fmt.Errorf("unrecognized value type")
 		}
@@ -143,6 +147,8 @@ func valueTypeOf(in interface{}) valueType {
 		return boolean
 	case *models.GeoCoordinates:
 		return geo
+	case []interface{}:
+		return reference
 	default:
 		return unknown
 	}
@@ -224,4 +230,40 @@ func mergeGeoProps(in []interface{}) (*models.GeoCoordinates, error) {
 		Latitude:  sumLat / float32(len(in)),
 		Longitude: sumLon / float32(len(in)),
 	}, nil
+}
+
+func mergeReferenceProps(in []interface{}) ([]interface{}, error) {
+	var out []interface{}
+	seenID := map[string]struct{}{}
+
+	for i, elem := range in {
+		asSlice, ok := elem.([]interface{})
+		if !ok {
+			return nil, fmt.Errorf("element %d: expected reference values to be slice, but got %T", i, elem)
+		}
+
+		for _, singleRef := range asSlice {
+			asRef, ok := singleRef.(search.LocalRef)
+			if !ok {
+				// don't know what to do with this type, ignore
+				continue
+			}
+
+			id, ok := asRef.Fields["uuid"]
+			if !ok {
+				return nil, fmt.Errorf("found a search.LocalRef, but 'uuid' field is missing: %#v", asRef)
+			}
+
+			if _, ok := seenID[id.(string)]; ok {
+				// duplicate
+				continue
+			}
+
+			out = append(out, asRef)
+			seenID[id.(string)] = struct{}{} // make sure we skip this next time
+		}
+
+	}
+
+	return out, nil
 }

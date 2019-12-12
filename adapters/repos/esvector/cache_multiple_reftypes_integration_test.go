@@ -22,9 +22,9 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -269,7 +269,7 @@ func testMultipleCrossRefTypes(repo *Repo, migrator *Migrator) func(t *testing.T
 					"name": "Car which is parked in a garage",
 					"uuid": id.String(),
 					"ParkedAt": []interface{}{
-						get.LocalRef{
+						search.LocalRef{
 							Class: "MultiRefParkingGarage",
 							Fields: map[string]interface{}{
 								"name": "Luxury Parking Garage",
@@ -343,7 +343,7 @@ func testMultipleCrossRefTypes(repo *Repo, migrator *Migrator) func(t *testing.T
 					"name": "Car which is parked in a lot",
 					"uuid": id.String(),
 					"ParkedAt": []interface{}{
-						get.LocalRef{
+						search.LocalRef{
 							Class: "MultiRefParkingLot",
 							Fields: map[string]interface{}{
 								"name": "Fancy Parking Lot",
@@ -410,7 +410,7 @@ func testMultipleCrossRefTypes(repo *Repo, migrator *Migrator) func(t *testing.T
 					"name": "Car which is parked in two places at the same time (magic!)",
 					"uuid": id.String(),
 					"ParkedAt": []interface{}{
-						get.LocalRef{
+						search.LocalRef{
 							Class: "MultiRefParkingLot",
 							Fields: map[string]interface{}{
 								"name": "Fancy Parking Lot",
@@ -423,7 +423,7 @@ func testMultipleCrossRefTypes(repo *Repo, migrator *Migrator) func(t *testing.T
 					"name": "Car which is parked in two places at the same time (magic!)",
 					"uuid": id.String(),
 					"ParkedAt": []interface{}{
-						get.LocalRef{
+						search.LocalRef{
 							Class: "MultiRefParkingGarage",
 							Fields: map[string]interface{}{
 								"name": "Luxury Parking Garage",
@@ -440,14 +440,14 @@ func testMultipleCrossRefTypes(repo *Repo, migrator *Migrator) func(t *testing.T
 					"name": "Car which is parked in two places at the same time (magic!)",
 					"uuid": id.String(),
 					"ParkedAt": []interface{}{
-						get.LocalRef{
+						search.LocalRef{
 							Class: "MultiRefParkingLot",
 							Fields: map[string]interface{}{
 								"name": "Fancy Parking Lot",
 								"uuid": "1023967b-9512-475b-8ef9-673a110b695d",
 							},
 						},
-						get.LocalRef{
+						search.LocalRef{
 							Class: "MultiRefParkingGarage",
 							Fields: map[string]interface{}{
 								"name": "Luxury Parking Garage",
@@ -579,7 +579,7 @@ func testMultipleCrossRefTypes(repo *Repo, migrator *Migrator) func(t *testing.T
 					"name": "Car which is parked in a garage",
 					"uuid": id.String(),
 					"ParkedAt": []interface{}{
-						get.LocalRef{
+						search.LocalRef{
 							Class: "MultiRefParkingGarage",
 							Fields: map[string]interface{}{
 								"name": "Luxury Parking Garage",
@@ -653,7 +653,7 @@ func testMultipleCrossRefTypes(repo *Repo, migrator *Migrator) func(t *testing.T
 					"name": "Car which is parked in a lot",
 					"uuid": id.String(),
 					"ParkedAt": []interface{}{
-						get.LocalRef{
+						search.LocalRef{
 							Class: "MultiRefParkingLot",
 							Fields: map[string]interface{}{
 								"name": "Fancy Parking Lot",
@@ -720,7 +720,7 @@ func testMultipleCrossRefTypes(repo *Repo, migrator *Migrator) func(t *testing.T
 					"name": "Car which is parked in two places at the same time (magic!)",
 					"uuid": id.String(),
 					"ParkedAt": []interface{}{
-						get.LocalRef{
+						search.LocalRef{
 							Class: "MultiRefParkingLot",
 							Fields: map[string]interface{}{
 								"name": "Fancy Parking Lot",
@@ -733,7 +733,7 @@ func testMultipleCrossRefTypes(repo *Repo, migrator *Migrator) func(t *testing.T
 					"name": "Car which is parked in two places at the same time (magic!)",
 					"uuid": id.String(),
 					"ParkedAt": []interface{}{
-						get.LocalRef{
+						search.LocalRef{
 							Class: "MultiRefParkingGarage",
 							Fields: map[string]interface{}{
 								"name": "Luxury Parking Garage",
@@ -799,13 +799,13 @@ func testMultipleCrossRefTypes(repo *Repo, migrator *Migrator) func(t *testing.T
 					"uuid": id.String(),
 					"name": "Johny Drivemuch",
 					"Drives": []interface{}{
-						get.LocalRef{
+						search.LocalRef{
 							Class: "MultiRefCar",
 							Fields: map[string]interface{}{
 								"uuid": "533673a7-2a5c-4e1c-b35d-a3809deabace",
 								"name": "Car which is parked in two places at the same time (magic!)",
 								"ParkedAt": []interface{}{
-									get.LocalRef{
+									search.LocalRef{
 										Class: "MultiRefParkingLot",
 										Fields: map[string]interface{}{
 											"name": "Fancy Parking Lot",
@@ -822,13 +822,13 @@ func testMultipleCrossRefTypes(repo *Repo, migrator *Migrator) func(t *testing.T
 					"uuid": id.String(),
 					"name": "Johny Drivemuch",
 					"Drives": []interface{}{
-						get.LocalRef{
+						search.LocalRef{
 							Class: "MultiRefCar",
 							Fields: map[string]interface{}{
 								"uuid": "533673a7-2a5c-4e1c-b35d-a3809deabace",
 								"name": "Car which is parked in two places at the same time (magic!)",
 								"ParkedAt": []interface{}{
-									get.LocalRef{
+									search.LocalRef{
 										Class: "MultiRefParkingGarage",
 										Fields: map[string]interface{}{
 											"name": "Luxury Parking Garage",
@@ -876,7 +876,7 @@ func testMultipleCrossRefTypes(repo *Repo, migrator *Migrator) func(t *testing.T
 					require.True(t, ok)
 					require.Len(t, drivesSlice, 1)
 
-					drivesRef, ok := drivesSlice[0].(get.LocalRef)
+					drivesRef, ok := drivesSlice[0].(search.LocalRef)
 					require.True(t, ok)
 
 					parkedAt, ok := drivesRef.Fields["ParkedAt"]
@@ -898,19 +898,19 @@ func testMultipleCrossRefTypes(repo *Repo, migrator *Migrator) func(t *testing.T
 					"uuid": id.String(),
 					"name": "Jane Doughnut",
 					"FriendsWith": []interface{}{
-						get.LocalRef{
+						search.LocalRef{
 							Class: "MultiRefDriver",
 							Fields: map[string]interface{}{
 								"uuid": "9653ab38-c16b-4561-80df-7a7e19300dd0",
 								"name": "Johny Drivemuch",
 								"Drives": []interface{}{
-									get.LocalRef{
+									search.LocalRef{
 										Class: "MultiRefCar",
 										Fields: map[string]interface{}{
 											"uuid": "533673a7-2a5c-4e1c-b35d-a3809deabace",
 											"name": "Car which is parked in two places at the same time (magic!)",
 											"ParkedAt": []interface{}{
-												get.LocalRef{
+												search.LocalRef{
 													Class: "MultiRefParkingLot",
 													Fields: map[string]interface{}{
 														"name": "Fancy Parking Lot",
@@ -930,19 +930,19 @@ func testMultipleCrossRefTypes(repo *Repo, migrator *Migrator) func(t *testing.T
 					"uuid": id.String(),
 					"name": "Jane Doughnut",
 					"FriendsWith": []interface{}{
-						get.LocalRef{
+						search.LocalRef{
 							Class: "MultiRefDriver",
 							Fields: map[string]interface{}{
 								"uuid": "9653ab38-c16b-4561-80df-7a7e19300dd0",
 								"name": "Johny Drivemuch",
 								"Drives": []interface{}{
-									get.LocalRef{
+									search.LocalRef{
 										Class: "MultiRefCar",
 										Fields: map[string]interface{}{
 											"uuid": "533673a7-2a5c-4e1c-b35d-a3809deabace",
 											"name": "Car which is parked in two places at the same time (magic!)",
 											"ParkedAt": []interface{}{
-												get.LocalRef{
+												search.LocalRef{
 													Class: "MultiRefParkingGarage",
 													Fields: map[string]interface{}{
 														"name": "Luxury Parking Garage",
@@ -999,7 +999,7 @@ func testMultipleCrossRefTypes(repo *Repo, migrator *Migrator) func(t *testing.T
 					require.True(t, ok)
 					require.Len(t, friendsSlice, 1)
 
-					friendsRef, ok := friendsSlice[0].(get.LocalRef)
+					friendsRef, ok := friendsSlice[0].(search.LocalRef)
 					require.True(t, ok)
 
 					drives, ok := friendsRef.Fields["Drives"]
@@ -1009,7 +1009,7 @@ func testMultipleCrossRefTypes(repo *Repo, migrator *Migrator) func(t *testing.T
 					require.True(t, ok)
 					require.Len(t, drivesSlice, 1)
 
-					drivesRef, ok := drivesSlice[0].(get.LocalRef)
+					drivesRef, ok := drivesSlice[0].(search.LocalRef)
 					require.True(t, ok)
 
 					parkedAt, ok := drivesRef.Fields["ParkedAt"]
@@ -1032,25 +1032,25 @@ func testMultipleCrossRefTypes(repo *Repo, migrator *Migrator) func(t *testing.T
 					"uuid": id.String(),
 					"name": "Cool People",
 					"HasMembers": []interface{}{
-						get.LocalRef{
+						search.LocalRef{
 							Class: "MultiRefPerson",
 							Fields: map[string]interface{}{
 								"uuid": "91ad23a3-07ba-4d4c-9836-76c57094f734",
 								"name": "Jane Doughnut",
 								"FriendsWith": []interface{}{
-									get.LocalRef{
+									search.LocalRef{
 										Class: "MultiRefDriver",
 										Fields: map[string]interface{}{
 											"uuid": "9653ab38-c16b-4561-80df-7a7e19300dd0",
 											"name": "Johny Drivemuch",
 											"Drives": []interface{}{
-												get.LocalRef{
+												search.LocalRef{
 													Class: "MultiRefCar",
 													Fields: map[string]interface{}{
 														"uuid": "533673a7-2a5c-4e1c-b35d-a3809deabace",
 														"name": "Car which is parked in two places at the same time (magic!)",
 														"ParkedAt": []interface{}{
-															get.LocalRef{
+															search.LocalRef{
 																Class: "MultiRefParkingLot",
 																Fields: map[string]interface{}{
 																	"name": "Fancy Parking Lot",
@@ -1073,25 +1073,25 @@ func testMultipleCrossRefTypes(repo *Repo, migrator *Migrator) func(t *testing.T
 					"uuid": id.String(),
 					"name": "Cool People",
 					"HasMembers": []interface{}{
-						get.LocalRef{
+						search.LocalRef{
 							Class: "MultiRefPerson",
 							Fields: map[string]interface{}{
 								"uuid": "91ad23a3-07ba-4d4c-9836-76c57094f734",
 								"name": "Jane Doughnut",
 								"FriendsWith": []interface{}{
-									get.LocalRef{
+									search.LocalRef{
 										Class: "MultiRefDriver",
 										Fields: map[string]interface{}{
 											"uuid": "9653ab38-c16b-4561-80df-7a7e19300dd0",
 											"name": "Johny Drivemuch",
 											"Drives": []interface{}{
-												get.LocalRef{
+												search.LocalRef{
 													Class: "MultiRefCar",
 													Fields: map[string]interface{}{
 														"uuid": "533673a7-2a5c-4e1c-b35d-a3809deabace",
 														"name": "Car which is parked in two places at the same time (magic!)",
 														"ParkedAt": []interface{}{
-															get.LocalRef{
+															search.LocalRef{
 																Class: "MultiRefParkingGarage",
 																Fields: map[string]interface{}{
 																	"name": "Luxury Parking Garage",
@@ -1149,7 +1149,7 @@ func testMultipleCrossRefTypes(repo *Repo, migrator *Migrator) func(t *testing.T
 					require.True(t, ok)
 					require.Len(t, membersSlice, 1)
 
-					membersRef, ok := membersSlice[0].(get.LocalRef)
+					membersRef, ok := membersSlice[0].(search.LocalRef)
 					require.True(t, ok)
 
 					friendsWith, ok := membersRef.Fields["FriendsWith"]
@@ -1159,7 +1159,7 @@ func testMultipleCrossRefTypes(repo *Repo, migrator *Migrator) func(t *testing.T
 					require.True(t, ok)
 					require.Len(t, friendsSlice, 1)
 
-					friendsRef, ok := friendsSlice[0].(get.LocalRef)
+					friendsRef, ok := friendsSlice[0].(search.LocalRef)
 					require.True(t, ok)
 
 					drives, ok := friendsRef.Fields["Drives"]
@@ -1169,7 +1169,7 @@ func testMultipleCrossRefTypes(repo *Repo, migrator *Migrator) func(t *testing.T
 					require.True(t, ok)
 					require.Len(t, drivesSlice, 1)
 
-					drivesRef, ok := drivesSlice[0].(get.LocalRef)
+					drivesRef, ok := drivesSlice[0].(search.LocalRef)
 					require.True(t, ok)
 
 					parkedAt, ok := drivesRef.Fields["ParkedAt"]
@@ -1391,14 +1391,14 @@ func hasMembersFriendsWithDrivesCarParkedAtEither() traverser.SelectProperties {
 
 func refToBothGarages() []interface{} {
 	return []interface{}{
-		get.LocalRef{
+		search.LocalRef{
 			Class: "MultiRefParkingLot",
 			Fields: map[string]interface{}{
 				"name": "Fancy Parking Lot",
 				"uuid": "1023967b-9512-475b-8ef9-673a110b695d",
 			},
 		},
-		get.LocalRef{
+		search.LocalRef{
 			Class: "MultiRefParkingGarage",
 			Fields: map[string]interface{}{
 				"name": "Luxury Parking Garage",
