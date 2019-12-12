@@ -80,4 +80,47 @@ func gettingObjectsWithGrouping(t *testing.T) {
 			t.Errorf("%s not contained in %v", toContain, companies)
 		}
 	})
+
+	t.Run("grouping mode set to merge", func(t *testing.T) {
+		query := `
+		{
+				Get {
+					Things {
+						Company(group: {type: merge, force:0.07}) {
+							name
+						}
+					}
+				}
+		}
+		`
+		result := AssertGraphQL(t, helper.RootAuth, query)
+		companies := result.Get("Get", "Things", "Company").AsSlice()
+
+		assert.Len(t, companies, 3)
+		mustContain := [][]string{
+			[]string{"Apple", "Apple Inc.", "Apple Incorporated"},
+			[]string{"Microsoft", "Microsoft Inc.", "Microsoft Incorporated"},
+			[]string{"Google", "Google Inc.", "Google Incorporated"},
+		}
+
+		allContained := func(current map[string]interface{}, toContains []string) bool {
+			for _, toContain := range toContains {
+				if !strings.Contains(current["name"].(string), toContain) {
+					return false
+				}
+			}
+			return true
+		}
+
+	outer:
+		for _, toContain := range mustContain {
+			for _, current := range companies {
+				if allContained(current.(map[string]interface{}), toContain) {
+					continue outer
+				}
+			}
+
+			t.Errorf("%s not contained in %v", toContain, companies)
+		}
+	})
 }
