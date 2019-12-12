@@ -1,6 +1,9 @@
 # Weaviate <img alt='Weaviate logo' src='https://raw.githubusercontent.com/semi-technologies/weaviate/19de0956c69b66c5552447e84d016f4fe29d12c9/docs/assets/weaviate-logo.png' width='180' align='right' />
+#### The GraphQL-based Smart Graph 
 
-Weaviate is an GraphQL, RESTful API based knowledge graph with a build in semantic model called the contextionary.
+- Semantic Search engine
+- Automatic Classification
+- Knowledge Representation
 
 ## Documentation
 
