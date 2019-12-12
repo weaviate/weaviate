@@ -86,6 +86,15 @@ func (e *Explorer) getClassExploration(ctx context.Context,
 		return nil, fmt.Errorf("explorer: get class: vector search: %v", err)
 	}
 
+	if params.Group != nil {
+		grouped, err := grouper.New(e.logger).Group(res, params.Group.Strategy, params.Group.Force)
+		if err != nil {
+			return nil, fmt.Errorf("grouper: %v", err)
+		}
+
+		res = grouped
+	}
+
 	return e.searchResultsToGetResponse(ctx, res, params.Explore.Certainty, searchVector)
 }
 
