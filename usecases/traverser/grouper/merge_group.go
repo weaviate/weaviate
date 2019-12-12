@@ -77,6 +77,8 @@ func mergeValueGroups(props map[string]valueGroup) (map[string]interface{}, erro
 			res, err = mergeTextualProps(group.values)
 		case numerical:
 			res, err = mergeNumericalProps(group.values)
+		case boolean:
+			res, err = mergeBooleanProps(group.values)
 		default:
 			err = fmt.Errorf("unrecognized value type")
 		}
@@ -105,12 +107,19 @@ func valueTypeOf(in interface{}) valueType {
 
 func mergeTextualProps(in []interface{}) (string, error) {
 	var values []string
+	seen := make(map[string]struct{}, len(in))
 	for i, elem := range in {
 		asString, ok := elem.(string)
 		if !ok {
-			return "", fmt.Errorf("element %d: expected numerical element to be float64, but got %T", i, elem)
+			return "", fmt.Errorf("element %d: expected textual element to be string, but got %T", i, elem)
 		}
 
+		if _, ok := seen[asString]; ok {
+			// this is a duplicate, don't append it again
+			continue
+		}
+
+		seen[asString] = struct{}{}
 		values = append(values, asString)
 	}
 
@@ -133,4 +142,23 @@ func mergeNumericalProps(in []interface{}) (float64, error) {
 	}
 
 	return sum / float64(len(in)), nil
+}
+
+func mergeBooleanProps(in []interface{}) (bool, error) {
+	var countTrue uint
+	var countFalse uint
+	for i, elem := range in {
+		asBool, ok := elem.(bool)
+		if !ok {
+			return false, fmt.Errorf("element %d: expected boolean element to be bool, but got %T", i, elem)
+		}
+
+		if asBool {
+			countTrue++
+		} else {
+			countFalse++
+		}
+	}
+
+	return countTrue >= countFalse, nil
 }
