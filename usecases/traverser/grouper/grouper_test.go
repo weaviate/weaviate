@@ -135,7 +135,7 @@ func TestGrouper_ModeMerge(t *testing.T) {
 
 	expectedOut := []search.Result{
 		search.Result{
-			// Vector: []float32{0.1, 0.1, 0.98},
+			Vector: []float32{0.1, 0.1, 0.95750004}, // centroid position of all inputs
 			Schema: map[string]interface{}{
 				"name":    "A1 (A2, A3)", // note that A2 is only contained once, even though its twice in the input set
 				"count":   11.0,          // mean of all inputs
@@ -147,7 +147,7 @@ func TestGrouper_ModeMerge(t *testing.T) {
 			},
 		},
 		search.Result{
-			// Vector: []float32{0.1, 0.98, 0.1},
+			Vector: []float32{0.1, 0.9433334, 0.1},
 			Schema: map[string]interface{}{
 				"name": "B1 (B2, B3)",
 			},

@@ -32,8 +32,14 @@ func (g group) flattenMerge() (search.Result, error) {
 		return search.Result{}, fmt.Errorf("merge values: %v", err)
 	}
 
+	vector, err := g.mergeVectors()
+	if err != nil {
+		return search.Result{}, fmt.Errorf("merge vectors: %v", err)
+	}
+
 	return search.Result{
 		Schema: merged,
+		Vector: vector,
 	}, nil
 }
 
@@ -63,6 +69,38 @@ func (g group) makeValueGroups() map[string]valueGroup {
 	}
 
 	return values
+}
+
+func (g group) mergeVectors() ([]float32, error) {
+	amount := len(g.Elements)
+	if amount == 0 {
+		return nil, nil
+	}
+
+	if amount == 1 {
+		return g.Elements[0].Vector, nil
+	}
+
+	dimensions := len(g.Elements[0].Vector)
+	out := make([]float32, dimensions, dimensions)
+
+	// sum up
+	for _, groupElement := range g.Elements {
+		if len(groupElement.Vector) != dimensions {
+			return nil, fmt.Errorf("vectors have different dimensions")
+		}
+
+		for i, vectorElement := range groupElement.Vector {
+			out[i] = out[i] + vectorElement
+		}
+	}
+
+	// divide by amount of vectors
+	for i := range out {
+		out[i] = out[i] / float32(amount)
+	}
+
+	return out, nil
 }
 
 func mergeValueGroups(props map[string]valueGroup) (map[string]interface{}, error) {
