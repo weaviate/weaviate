@@ -19,11 +19,11 @@ import (
 	"strings"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
@@ -216,8 +216,8 @@ func (r *Repo) resolveRefsWithoutCache(input []interface{},
 }
 
 func (r *Repo) resolveRefWithoutCache(item interface{}, desiredClass string,
-	innerProperties traverser.SelectProperties) (*get.LocalRef, error) {
-	var out get.LocalRef
+	innerProperties traverser.SelectProperties) (*search.LocalRef, error) {
+	var out search.LocalRef
 
 	refMap, ok := item.(map[string]interface{})
 	if !ok {
@@ -404,7 +404,7 @@ func (r *Repo) parseCacheSchemaToRefs(in map[string]interface{}, prop string, de
 				return nil, err
 			}
 
-			out = append(out, get.LocalRef{
+			out = append(out, search.LocalRef{
 				Class:  className,
 				Fields: parsed,
 			})

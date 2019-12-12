@@ -19,9 +19,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get"
 	"github.com/semi-technologies/weaviate/entities/models"
 	libschema "github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 	ucschema "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/stretchr/testify/require"
@@ -64,7 +64,7 @@ func testUpdatingCachedRefProps(repo *Repo, schema libschema.Schema) func(t *tes
 				require.True(t, ok)
 				require.Len(t, parkedSlice, 1)
 
-				garageRef, ok := parkedSlice[0].(get.LocalRef)
+				garageRef, ok := parkedSlice[0].(search.LocalRef)
 				require.True(t, ok)
 				return garageRef.Fields["name"]
 			})
@@ -80,14 +80,14 @@ func testUpdatingCachedRefProps(repo *Repo, schema libschema.Schema) func(t *tes
 				require.True(t, ok)
 				require.Len(t, drivesSlice, 1)
 
-				carRef, ok := drivesSlice[0].(get.LocalRef)
+				carRef, ok := drivesSlice[0].(search.LocalRef)
 				require.True(t, ok)
 
 				parkedSlice, ok := carRef.Fields["ParkedAt"].([]interface{})
 				require.True(t, ok)
 				require.Len(t, parkedSlice, 1)
 
-				garageRef, ok := parkedSlice[0].(get.LocalRef)
+				garageRef, ok := parkedSlice[0].(search.LocalRef)
 				require.True(t, ok)
 
 				return garageRef.Fields["name"]
