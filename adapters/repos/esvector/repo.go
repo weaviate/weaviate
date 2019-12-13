@@ -70,6 +70,8 @@ type Repo struct {
 	requestCounter            counter
 	cacheIndexer              *cacheIndexer
 	schemaRefFinder           schemaRefFinder
+	numberOfShards            int
+	autoExpandReplicas        string
 }
 
 type schemaRefFinder interface {
@@ -92,7 +94,7 @@ func (c *noopCounter) Inc() {}
 
 // NewRepo from existing es client
 func NewRepo(client *elasticsearch.Client, logger logrus.FieldLogger,
-	schemaGetter schemaUC.SchemaGetter, denormalizationLimit int) *Repo {
+	schemaGetter schemaUC.SchemaGetter, denormalizationLimit int, numberOfShards int, autoExpandReplicas string) *Repo {
 	return &Repo{
 		client:                    client,
 		logger:                    logger,
@@ -101,6 +103,8 @@ func NewRepo(client *elasticsearch.Client, logger logrus.FieldLogger,
 		requestCounter:            &noopCounter{},
 		cacheIndexer:              nil,
 		schemaRefFinder:           &noopSchemaRefFinder{},
+		numberOfShards:            numberOfShards,
+		autoExpandReplicas:        autoExpandReplicas,
 	}
 }
 
