@@ -14,6 +14,10 @@ if [ ! -f $SWAGGER ]; then
   chmod +x $SWAGGER
 fi
 
+if ! hash goimports >/dev/null 2>&1; then
+  go get golang.org/x/tools/cmd/goimports
+fi
+
 # Remove old stuff.
 (cd $DIR/..; rm -rf entities/models client adapters/handlers/rest/operations/)
 
@@ -22,6 +26,8 @@ fi
 
 echo Now add the header to the generated code too.
 (cd $DIR/..; GO111MODULE=on go run ./tools/license_headers/main.go)
+
+(cd $DIR/..; goimports -w . )
 
 # echo Add licenses to file.
 # $DIR/create-license-dependency-file.sh
