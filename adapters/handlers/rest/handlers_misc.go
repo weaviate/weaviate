@@ -22,6 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/meta"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/p2_p"
+	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/well_known"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
@@ -81,7 +82,7 @@ func setupMiscHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Reque
 		return meta.NewMetaGetOK().WithPayload(res)
 	})
 
-	api.P2PP2pGenesisUpdateHandler = p2_p.P2pGenesisUpdateHandlerFunc(func(params p2_p.P2pGenesisUpdateParams) middleware.Responder {
+	api.P2pP2pGenesisUpdateHandler = p2_p.P2pGenesisUpdateHandlerFunc(func(params p2_p.P2pGenesisUpdateParams) middleware.Responder {
 		newPeers := make([]peers.Peer, 0)
 
 		for _, genesisPeer := range params.Peers {
@@ -107,24 +108,24 @@ func setupMiscHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Reque
 		return p2_p.NewP2pGenesisUpdateInternalServerError()
 	})
 
-	api.P2PP2pHealthHandler = p2_p.P2pHealthHandlerFunc(func(params p2_p.P2pHealthParams) middleware.Responder {
+	api.P2pP2pHealthHandler = p2_p.P2pHealthHandlerFunc(func(params p2_p.P2pHealthParams) middleware.Responder {
 		// For now, always just return success.
 		return middleware.NotImplemented("operation P2PP2pHealth has not yet been implemented")
 	})
 
-	api.GetWellKnownOpenidConfigurationHandler = operations.GetWellKnownOpenidConfigurationHandlerFunc(
-		func(params operations.GetWellKnownOpenidConfigurationParams, principal *models.Principal) middleware.Responder {
+	api.WellKnownGetWellKnownOpenidConfigurationHandler = well_known.GetWellKnownOpenidConfigurationHandlerFunc(
+		func(params well_known.GetWellKnownOpenidConfigurationParams, principal *models.Principal) middleware.Responder {
 			if !serverConfig.Config.Authentication.OIDC.Enabled {
-				return operations.NewGetWellKnownOpenidConfigurationNotFound()
+				return well_known.NewGetWellKnownOpenidConfigurationNotFound()
 			}
 
 			target := fmt.Sprintf("%s/.well-known/openid-configuration", serverConfig.Config.Authentication.OIDC.Issuer)
 			clientID := serverConfig.Config.Authentication.OIDC.ClientID
-			body := &operations.GetWellKnownOpenidConfigurationOKBody{
+			body := &well_known.GetWellKnownOpenidConfigurationOKBody{
 				Href:     target,
 				ClientID: clientID,
 			}
 
-			return operations.NewGetWellKnownOpenidConfigurationOK().WithPayload(body)
+			return well_known.NewGetWellKnownOpenidConfigurationOK().WithPayload(body)
 		})
 }

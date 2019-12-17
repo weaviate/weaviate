@@ -34,6 +34,7 @@ import (
 	"github.com/go-openapi/swag"
 
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/actions"
+	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/batching"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/classifications"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/contextionary_api"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/graphql"
@@ -41,6 +42,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/p2_p"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/things"
+	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/well_known"
 
 	models "github.com/semi-technologies/weaviate/entities/models"
 )
@@ -63,8 +65,8 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		JSONConsumer:        runtime.JSONConsumer(),
 		YamlConsumer:        yamlpc.YAMLConsumer(),
 		JSONProducer:        runtime.JSONProducer(),
-		GetWellKnownOpenidConfigurationHandler: GetWellKnownOpenidConfigurationHandlerFunc(func(params GetWellKnownOpenidConfigurationParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation GetWellKnownOpenidConfiguration has not yet been implemented")
+		WellKnownGetWellKnownOpenidConfigurationHandler: well_known.GetWellKnownOpenidConfigurationHandlerFunc(func(params well_known.GetWellKnownOpenidConfigurationParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation WellKnownGetWellKnownOpenidConfiguration has not yet been implemented")
 		}),
 		ActionsActionsCreateHandler: actions.ActionsCreateHandlerFunc(func(params actions.ActionsCreateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ActionsActionsCreate has not yet been implemented")
@@ -96,14 +98,14 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		ActionsActionsValidateHandler: actions.ActionsValidateHandlerFunc(func(params actions.ActionsValidateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ActionsActionsValidate has not yet been implemented")
 		}),
-		BatchingActionsCreateHandler: BatchingActionsCreateHandlerFunc(func(params BatchingActionsCreateParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation BatchingActionsCreate has not yet been implemented")
+		BatchingBatchingActionsCreateHandler: batching.BatchingActionsCreateHandlerFunc(func(params batching.BatchingActionsCreateParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation BatchingBatchingActionsCreate has not yet been implemented")
 		}),
-		BatchingReferencesCreateHandler: BatchingReferencesCreateHandlerFunc(func(params BatchingReferencesCreateParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation BatchingReferencesCreate has not yet been implemented")
+		BatchingBatchingReferencesCreateHandler: batching.BatchingReferencesCreateHandlerFunc(func(params batching.BatchingReferencesCreateParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation BatchingBatchingReferencesCreate has not yet been implemented")
 		}),
-		BatchingThingsCreateHandler: BatchingThingsCreateHandlerFunc(func(params BatchingThingsCreateParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation BatchingThingsCreate has not yet been implemented")
+		BatchingBatchingThingsCreateHandler: batching.BatchingThingsCreateHandlerFunc(func(params batching.BatchingThingsCreateParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation BatchingBatchingThingsCreate has not yet been implemented")
 		}),
 		ContextionaryAPIC11yConceptsHandler: contextionary_api.C11yConceptsHandlerFunc(func(params contextionary_api.C11yConceptsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ContextionaryAPIC11yConcepts has not yet been implemented")
@@ -132,11 +134,11 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		MetaMetaGetHandler: meta.MetaGetHandlerFunc(func(params meta.MetaGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation MetaMetaGet has not yet been implemented")
 		}),
-		P2PP2pGenesisUpdateHandler: p2_p.P2pGenesisUpdateHandlerFunc(func(params p2_p.P2pGenesisUpdateParams) middleware.Responder {
-			return middleware.NotImplemented("operation P2PP2pGenesisUpdate has not yet been implemented")
+		P2pP2pGenesisUpdateHandler: p2_p.P2pGenesisUpdateHandlerFunc(func(params p2_p.P2pGenesisUpdateParams) middleware.Responder {
+			return middleware.NotImplemented("operation P2pP2pGenesisUpdate has not yet been implemented")
 		}),
-		P2PP2pHealthHandler: p2_p.P2pHealthHandlerFunc(func(params p2_p.P2pHealthParams) middleware.Responder {
-			return middleware.NotImplemented("operation P2PP2pHealth has not yet been implemented")
+		P2pP2pHealthHandler: p2_p.P2pHealthHandlerFunc(func(params p2_p.P2pHealthParams) middleware.Responder {
+			return middleware.NotImplemented("operation P2pP2pHealth has not yet been implemented")
 		}),
 		SchemaSchemaActionsCreateHandler: schema.SchemaActionsCreateHandlerFunc(func(params schema.SchemaActionsCreateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation SchemaSchemaActionsCreate has not yet been implemented")
@@ -236,13 +238,13 @@ type WeaviateAPI struct {
 	Middleware      func(middleware.Builder) http.Handler
 
 	// BasicAuthenticator generates a runtime.Authenticator from the supplied basic auth function.
-	// It has a default implemention in the security package, however you can replace it for your particular usage.
+	// It has a default implementation in the security package, however you can replace it for your particular usage.
 	BasicAuthenticator func(security.UserPassAuthentication) runtime.Authenticator
 	// APIKeyAuthenticator generates a runtime.Authenticator from the supplied token auth function.
-	// It has a default implemention in the security package, however you can replace it for your particular usage.
+	// It has a default implementation in the security package, however you can replace it for your particular usage.
 	APIKeyAuthenticator func(string, string, security.TokenAuthentication) runtime.Authenticator
 	// BearerAuthenticator generates a runtime.Authenticator from the supplied bearer token auth function.
-	// It has a default implemention in the security package, however you can replace it for your particular usage.
+	// It has a default implementation in the security package, however you can replace it for your particular usage.
 	BearerAuthenticator func(string, security.ScopedTokenAuthentication) runtime.Authenticator
 
 	// JSONConsumer registers a consumer for a "application/json" mime type
@@ -260,8 +262,8 @@ type WeaviateAPI struct {
 	// APIAuthorizer provides access control (ACL/RBAC/ABAC) by providing access to the request and authenticated principal
 	APIAuthorizer runtime.Authorizer
 
-	// GetWellKnownOpenidConfigurationHandler sets the operation handler for the get well known openid configuration operation
-	GetWellKnownOpenidConfigurationHandler GetWellKnownOpenidConfigurationHandler
+	// WellKnownGetWellKnownOpenidConfigurationHandler sets the operation handler for the get well known openid configuration operation
+	WellKnownGetWellKnownOpenidConfigurationHandler well_known.GetWellKnownOpenidConfigurationHandler
 	// ActionsActionsCreateHandler sets the operation handler for the actions create operation
 	ActionsActionsCreateHandler actions.ActionsCreateHandler
 	// ActionsActionsDeleteHandler sets the operation handler for the actions delete operation
@@ -282,12 +284,12 @@ type WeaviateAPI struct {
 	ActionsActionsUpdateHandler actions.ActionsUpdateHandler
 	// ActionsActionsValidateHandler sets the operation handler for the actions validate operation
 	ActionsActionsValidateHandler actions.ActionsValidateHandler
-	// BatchingActionsCreateHandler sets the operation handler for the batching actions create operation
-	BatchingActionsCreateHandler BatchingActionsCreateHandler
-	// BatchingReferencesCreateHandler sets the operation handler for the batching references create operation
-	BatchingReferencesCreateHandler BatchingReferencesCreateHandler
-	// BatchingThingsCreateHandler sets the operation handler for the batching things create operation
-	BatchingThingsCreateHandler BatchingThingsCreateHandler
+	// BatchingBatchingActionsCreateHandler sets the operation handler for the batching actions create operation
+	BatchingBatchingActionsCreateHandler batching.BatchingActionsCreateHandler
+	// BatchingBatchingReferencesCreateHandler sets the operation handler for the batching references create operation
+	BatchingBatchingReferencesCreateHandler batching.BatchingReferencesCreateHandler
+	// BatchingBatchingThingsCreateHandler sets the operation handler for the batching things create operation
+	BatchingBatchingThingsCreateHandler batching.BatchingThingsCreateHandler
 	// ContextionaryAPIC11yConceptsHandler sets the operation handler for the c11y concepts operation
 	ContextionaryAPIC11yConceptsHandler contextionary_api.C11yConceptsHandler
 	// ContextionaryAPIC11yCorpusGetHandler sets the operation handler for the c11y corpus get operation
@@ -306,10 +308,10 @@ type WeaviateAPI struct {
 	GraphqlGraphqlPostHandler graphql.GraphqlPostHandler
 	// MetaMetaGetHandler sets the operation handler for the meta get operation
 	MetaMetaGetHandler meta.MetaGetHandler
-	// P2PP2pGenesisUpdateHandler sets the operation handler for the p2p genesis update operation
-	P2PP2pGenesisUpdateHandler p2_p.P2pGenesisUpdateHandler
-	// P2PP2pHealthHandler sets the operation handler for the p2p health operation
-	P2PP2pHealthHandler p2_p.P2pHealthHandler
+	// P2pP2pGenesisUpdateHandler sets the operation handler for the p2p genesis update operation
+	P2pP2pGenesisUpdateHandler p2_p.P2pGenesisUpdateHandler
+	// P2pP2pHealthHandler sets the operation handler for the p2p health operation
+	P2pP2pHealthHandler p2_p.P2pHealthHandler
 	// SchemaSchemaActionsCreateHandler sets the operation handler for the schema actions create operation
 	SchemaSchemaActionsCreateHandler schema.SchemaActionsCreateHandler
 	// SchemaSchemaActionsDeleteHandler sets the operation handler for the schema actions delete operation
@@ -431,8 +433,8 @@ func (o *WeaviateAPI) Validate() error {
 		unregistered = append(unregistered, "OidcAuth")
 	}
 
-	if o.GetWellKnownOpenidConfigurationHandler == nil {
-		unregistered = append(unregistered, "GetWellKnownOpenidConfigurationHandler")
+	if o.WellKnownGetWellKnownOpenidConfigurationHandler == nil {
+		unregistered = append(unregistered, "well_known.GetWellKnownOpenidConfigurationHandler")
 	}
 
 	if o.ActionsActionsCreateHandler == nil {
@@ -475,16 +477,16 @@ func (o *WeaviateAPI) Validate() error {
 		unregistered = append(unregistered, "actions.ActionsValidateHandler")
 	}
 
-	if o.BatchingActionsCreateHandler == nil {
-		unregistered = append(unregistered, "BatchingActionsCreateHandler")
+	if o.BatchingBatchingActionsCreateHandler == nil {
+		unregistered = append(unregistered, "batching.BatchingActionsCreateHandler")
 	}
 
-	if o.BatchingReferencesCreateHandler == nil {
-		unregistered = append(unregistered, "BatchingReferencesCreateHandler")
+	if o.BatchingBatchingReferencesCreateHandler == nil {
+		unregistered = append(unregistered, "batching.BatchingReferencesCreateHandler")
 	}
 
-	if o.BatchingThingsCreateHandler == nil {
-		unregistered = append(unregistered, "BatchingThingsCreateHandler")
+	if o.BatchingBatchingThingsCreateHandler == nil {
+		unregistered = append(unregistered, "batching.BatchingThingsCreateHandler")
 	}
 
 	if o.ContextionaryAPIC11yConceptsHandler == nil {
@@ -523,11 +525,11 @@ func (o *WeaviateAPI) Validate() error {
 		unregistered = append(unregistered, "meta.MetaGetHandler")
 	}
 
-	if o.P2PP2pGenesisUpdateHandler == nil {
+	if o.P2pP2pGenesisUpdateHandler == nil {
 		unregistered = append(unregistered, "p2_p.P2pGenesisUpdateHandler")
 	}
 
-	if o.P2PP2pHealthHandler == nil {
+	if o.P2pP2pHealthHandler == nil {
 		unregistered = append(unregistered, "p2_p.P2pHealthHandler")
 	}
 
@@ -647,12 +649,12 @@ func (o *WeaviateAPI) ServeErrorFor(operationID string) func(http.ResponseWriter
 func (o *WeaviateAPI) AuthenticatorsFor(schemes map[string]spec.SecurityScheme) map[string]runtime.Authenticator {
 
 	result := make(map[string]runtime.Authenticator)
-	for name, scheme := range schemes {
+	for name := range schemes {
 		switch name {
 
 		case "oidc":
 
-			result[name] = o.BearerAuthenticator(scheme.Name, func(token string, scopes []string) (interface{}, error) {
+			result[name] = o.BearerAuthenticator(name, func(token string, scopes []string) (interface{}, error) {
 				return o.OidcAuth(token, scopes)
 			})
 
@@ -747,7 +749,7 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/.well-known/openid-configuration"] = NewGetWellKnownOpenidConfiguration(o.context, o.GetWellKnownOpenidConfigurationHandler)
+	o.handlers["GET"]["/.well-known/openid-configuration"] = well_known.NewGetWellKnownOpenidConfiguration(o.context, o.WellKnownGetWellKnownOpenidConfigurationHandler)
 
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
@@ -802,17 +804,17 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/batching/actions"] = NewBatchingActionsCreate(o.context, o.BatchingActionsCreateHandler)
+	o.handlers["POST"]["/batching/actions"] = batching.NewBatchingActionsCreate(o.context, o.BatchingBatchingActionsCreateHandler)
 
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/batching/references"] = NewBatchingReferencesCreate(o.context, o.BatchingReferencesCreateHandler)
+	o.handlers["POST"]["/batching/references"] = batching.NewBatchingReferencesCreate(o.context, o.BatchingBatchingReferencesCreateHandler)
 
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/batching/things"] = NewBatchingThingsCreate(o.context, o.BatchingThingsCreateHandler)
+	o.handlers["POST"]["/batching/things"] = batching.NewBatchingThingsCreate(o.context, o.BatchingBatchingThingsCreateHandler)
 
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
@@ -862,12 +864,12 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
-	o.handlers["PUT"]["/p2p/genesis"] = p2_p.NewP2pGenesisUpdate(o.context, o.P2PP2pGenesisUpdateHandler)
+	o.handlers["PUT"]["/p2p/genesis"] = p2_p.NewP2pGenesisUpdate(o.context, o.P2pP2pGenesisUpdateHandler)
 
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/p2p/health"] = p2_p.NewP2pHealth(o.context, o.P2PP2pHealthHandler)
+	o.handlers["GET"]["/p2p/health"] = p2_p.NewP2pHealth(o.context, o.P2pP2pHealthHandler)
 
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)

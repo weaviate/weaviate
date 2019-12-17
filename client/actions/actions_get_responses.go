@@ -37,35 +37,30 @@ type ActionsGetReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *ActionsGetReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 200:
 		result := NewActionsGetOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	case 401:
 		result := NewActionsGetUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 403:
 		result := NewActionsGetForbidden()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 404:
 		result := NewActionsGetNotFound()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 500:
 		result := NewActionsGetInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -93,6 +88,10 @@ type ActionsGetOK struct {
 
 func (o *ActionsGetOK) Error() string {
 	return fmt.Sprintf("[GET /actions/{id}][%d] actionsGetOK  %+v", 200, o.Payload)
+}
+
+func (o *ActionsGetOK) GetPayload() *models.Action {
+	return o.Payload
 }
 
 func (o *ActionsGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -145,6 +144,10 @@ func (o *ActionsGetForbidden) Error() string {
 	return fmt.Sprintf("[GET /actions/{id}][%d] actionsGetForbidden  %+v", 403, o.Payload)
 }
 
+func (o *ActionsGetForbidden) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *ActionsGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -193,6 +196,10 @@ type ActionsGetInternalServerError struct {
 
 func (o *ActionsGetInternalServerError) Error() string {
 	return fmt.Sprintf("[GET /actions/{id}][%d] actionsGetInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *ActionsGetInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *ActionsGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

@@ -37,35 +37,30 @@ type SchemaActionsUpdateReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *SchemaActionsUpdateReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 200:
 		result := NewSchemaActionsUpdateOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	case 401:
 		result := NewSchemaActionsUpdateUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 403:
 		result := NewSchemaActionsUpdateForbidden()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 422:
 		result := NewSchemaActionsUpdateUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 500:
 		result := NewSchemaActionsUpdateInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -137,6 +132,10 @@ func (o *SchemaActionsUpdateForbidden) Error() string {
 	return fmt.Sprintf("[PUT /schema/actions/{className}][%d] schemaActionsUpdateForbidden  %+v", 403, o.Payload)
 }
 
+func (o *SchemaActionsUpdateForbidden) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *SchemaActionsUpdateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -166,6 +165,10 @@ func (o *SchemaActionsUpdateUnprocessableEntity) Error() string {
 	return fmt.Sprintf("[PUT /schema/actions/{className}][%d] schemaActionsUpdateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
+func (o *SchemaActionsUpdateUnprocessableEntity) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *SchemaActionsUpdateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -193,6 +196,10 @@ type SchemaActionsUpdateInternalServerError struct {
 
 func (o *SchemaActionsUpdateInternalServerError) Error() string {
 	return fmt.Sprintf("[PUT /schema/actions/{className}][%d] schemaActionsUpdateInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *SchemaActionsUpdateInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *SchemaActionsUpdateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

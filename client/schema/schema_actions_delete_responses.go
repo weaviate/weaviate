@@ -37,35 +37,30 @@ type SchemaActionsDeleteReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *SchemaActionsDeleteReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 200:
 		result := NewSchemaActionsDeleteOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	case 400:
 		result := NewSchemaActionsDeleteBadRequest()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 401:
 		result := NewSchemaActionsDeleteUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 403:
 		result := NewSchemaActionsDeleteForbidden()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 500:
 		result := NewSchemaActionsDeleteInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -114,6 +109,10 @@ type SchemaActionsDeleteBadRequest struct {
 
 func (o *SchemaActionsDeleteBadRequest) Error() string {
 	return fmt.Sprintf("[DELETE /schema/actions/{className}][%d] schemaActionsDeleteBadRequest  %+v", 400, o.Payload)
+}
+
+func (o *SchemaActionsDeleteBadRequest) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *SchemaActionsDeleteBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -166,6 +165,10 @@ func (o *SchemaActionsDeleteForbidden) Error() string {
 	return fmt.Sprintf("[DELETE /schema/actions/{className}][%d] schemaActionsDeleteForbidden  %+v", 403, o.Payload)
 }
 
+func (o *SchemaActionsDeleteForbidden) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *SchemaActionsDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -193,6 +196,10 @@ type SchemaActionsDeleteInternalServerError struct {
 
 func (o *SchemaActionsDeleteInternalServerError) Error() string {
 	return fmt.Sprintf("[DELETE /schema/actions/{className}][%d] schemaActionsDeleteInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *SchemaActionsDeleteInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *SchemaActionsDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

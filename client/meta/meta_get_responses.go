@@ -37,28 +37,24 @@ type MetaGetReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *MetaGetReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 200:
 		result := NewMetaGetOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	case 401:
 		result := NewMetaGetUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 403:
 		result := NewMetaGetForbidden()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 500:
 		result := NewMetaGetInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -86,6 +82,10 @@ type MetaGetOK struct {
 
 func (o *MetaGetOK) Error() string {
 	return fmt.Sprintf("[GET /meta][%d] metaGetOK  %+v", 200, o.Payload)
+}
+
+func (o *MetaGetOK) GetPayload() *models.Meta {
+	return o.Payload
 }
 
 func (o *MetaGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -138,6 +138,10 @@ func (o *MetaGetForbidden) Error() string {
 	return fmt.Sprintf("[GET /meta][%d] metaGetForbidden  %+v", 403, o.Payload)
 }
 
+func (o *MetaGetForbidden) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *MetaGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -165,6 +169,10 @@ type MetaGetInternalServerError struct {
 
 func (o *MetaGetInternalServerError) Error() string {
 	return fmt.Sprintf("[GET /meta][%d] metaGetInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *MetaGetInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *MetaGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

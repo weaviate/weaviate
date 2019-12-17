@@ -37,35 +37,30 @@ type ActionsDeleteReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *ActionsDeleteReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 204:
 		result := NewActionsDeleteNoContent()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	case 401:
 		result := NewActionsDeleteUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 403:
 		result := NewActionsDeleteForbidden()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 404:
 		result := NewActionsDeleteNotFound()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 500:
 		result := NewActionsDeleteInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -137,6 +132,10 @@ func (o *ActionsDeleteForbidden) Error() string {
 	return fmt.Sprintf("[DELETE /actions/{id}][%d] actionsDeleteForbidden  %+v", 403, o.Payload)
 }
 
+func (o *ActionsDeleteForbidden) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *ActionsDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -185,6 +184,10 @@ type ActionsDeleteInternalServerError struct {
 
 func (o *ActionsDeleteInternalServerError) Error() string {
 	return fmt.Sprintf("[DELETE /actions/{id}][%d] actionsDeleteInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *ActionsDeleteInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *ActionsDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

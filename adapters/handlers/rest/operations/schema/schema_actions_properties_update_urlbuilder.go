@@ -60,14 +60,14 @@ func (o *SchemaActionsPropertiesUpdateURL) Build() (*url.URL, error) {
 	if className != "" {
 		_path = strings.Replace(_path, "{className}", className, -1)
 	} else {
-		return nil, errors.New("ClassName is required on SchemaActionsPropertiesUpdateURL")
+		return nil, errors.New("className is required on SchemaActionsPropertiesUpdateURL")
 	}
 
 	propertyName := o.PropertyName
 	if propertyName != "" {
 		_path = strings.Replace(_path, "{propertyName}", propertyName, -1)
 	} else {
-		return nil, errors.New("PropertyName is required on SchemaActionsPropertiesUpdateURL")
+		return nil, errors.New("propertyName is required on SchemaActionsPropertiesUpdateURL")
 	}
 
 	_basePath := o._basePath

@@ -59,7 +59,7 @@ func (o *C11yConceptsURL) Build() (*url.URL, error) {
 	if concept != "" {
 		_path = strings.Replace(_path, "{concept}", concept, -1)
 	} else {
-		return nil, errors.New("Concept is required on C11yConceptsURL")
+		return nil, errors.New("concept is required on C11yConceptsURL")
 	}
 
 	_basePath := o._basePath

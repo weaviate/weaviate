@@ -3730,7 +3730,7 @@ func init() {
   "security": [
     {},
     {
-      "oidc": null
+      "oidc": []
     }
   ],
   "tags": [

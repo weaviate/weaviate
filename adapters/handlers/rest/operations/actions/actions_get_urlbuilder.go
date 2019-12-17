@@ -64,7 +64,7 @@ func (o *ActionsGetURL) Build() (*url.URL, error) {
 	if id != "" {
 		_path = strings.Replace(_path, "{id}", id, -1)
 	} else {
-		return nil, errors.New("ID is required on ActionsGetURL")
+		return nil, errors.New("id is required on ActionsGetURL")
 	}
 
 	_basePath := o._basePath
@@ -75,12 +75,12 @@ func (o *ActionsGetURL) Build() (*url.URL, error) {
 
 	qs := make(url.Values)
 
-	var meta string
+	var metaQ string
 	if o.Meta != nil {
-		meta = swag.FormatBool(*o.Meta)
+		metaQ = swag.FormatBool(*o.Meta)
 	}
-	if meta != "" {
-		qs.Set("meta", meta)
+	if metaQ != "" {
+		qs.Set("meta", metaQ)
 	}
 
 	_result.RawQuery = qs.Encode()
