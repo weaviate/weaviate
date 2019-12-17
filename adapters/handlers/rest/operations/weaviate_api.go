@@ -28,6 +28,7 @@ import (
 	runtime "github.com/go-openapi/runtime"
 	middleware "github.com/go-openapi/runtime/middleware"
 	security "github.com/go-openapi/runtime/security"
+	"github.com/go-openapi/runtime/yamlpc"
 	spec "github.com/go-openapi/spec"
 	strfmt "github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
