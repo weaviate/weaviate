@@ -26,7 +26,7 @@ require (
 	github.com/prometheus/common v0.0.0-20190107103113-2998b132700a
 	github.com/rs/cors v1.5.0
 	github.com/satori/go.uuid v0.0.0-20180103174451-36e9d2ebbde5
-	github.com/semi-technologies/contextionary v0.0.0-20190527123400-159020f819c7829640d081c9802e927bd31bdfc9
+	github.com/semi-technologies/contextionary v0.0.0-20190527123400-159020f819c7
 	github.com/sirupsen/logrus v1.2.0
 	github.com/square/go-jose v2.3.0+incompatible
 	github.com/stretchr/testify v1.3.0
@@ -37,3 +37,5 @@ require (
 	gopkg.in/square/go-jose.v2 v2.3.1 // indirect
 	gopkg.in/yaml.v2 v2.2.1
 )
+
+go 1.13
