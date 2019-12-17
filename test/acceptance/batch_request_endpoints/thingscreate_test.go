@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/client/operations"
+	"github.com/semi-technologies/weaviate/client/batching"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 	"github.com/stretchr/testify/assert"
@@ -52,13 +52,13 @@ func TestBatchThingsCreateResultsOrder(t *testing.T) {
 	testFields := "ALL"
 
 	// generate request body
-	params := operations.NewBatchingThingsCreateParams().WithBody(operations.BatchingThingsCreateBody{
+	params := batching.NewBatchingThingsCreateParams().WithBody(batching.BatchingThingsCreateBody{
 		Things: []*models.Thing{thing1, thing2},
 		Fields: []*string{&testFields},
 	})
 
 	// perform the request
-	resp, err := helper.OperationsClient(t).BatchingThingsCreate(params, nil)
+	resp, err := helper.BatchingClient(t).BatchingThingsCreate(params, nil)
 
 	// ensure that the response is OK
 	helper.AssertRequestOk(t, resp, err, func() {

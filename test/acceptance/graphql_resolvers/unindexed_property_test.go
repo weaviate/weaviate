@@ -22,6 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/client/things"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+	testhelper "github.com/semi-technologies/weaviate/test/helper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -142,7 +143,7 @@ func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.Thing {
 		return err == nil
 	}
 
-	helper.AssertEventuallyEqual(t, true, checkThunk)
+	testhelper.AssertEventuallyEqual(t, true, checkThunk)
 
 	var thing *models.Thing
 

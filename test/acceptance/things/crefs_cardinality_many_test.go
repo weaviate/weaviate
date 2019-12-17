@@ -22,6 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/client/things"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+	testhelper "github.com/semi-technologies/weaviate/test/helper"
 )
 
 // This test suite is meant to prevent a regression on
@@ -112,7 +113,7 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 		return cityAfterFirstPatch.Schema
 	}
 
-	helper.AssertEventuallyEqual(t, map[string]interface{}{
+	testhelper.AssertEventuallyEqual(t, map[string]interface{}{
 		"name": "My City",
 		"hasPlaces": []interface{}{
 			map[string]interface{}{
@@ -152,7 +153,7 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 		},
 	}
 
-	helper.AssertEventuallyEqual(t, expectedRefs, actualThunk)
+	testhelper.AssertEventuallyEqual(t, expectedRefs, actualThunk)
 }
 
 // This test suite is meant to prevent a regression on
@@ -237,7 +238,7 @@ func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 		return city.Schema
 	}
 	t.Log("7. verify first cross ref was added")
-	helper.AssertEventuallyEqual(t, map[string]interface{}{
+	testhelper.AssertEventuallyEqual(t, map[string]interface{}{
 		"name": "My City",
 		"hasPlaces": []interface{}{
 			map[string]interface{}{
@@ -271,5 +272,5 @@ func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 		},
 	}
 
-	helper.AssertEventuallyEqual(t, expectedRefs, actualThunk)
+	testhelper.AssertEventuallyEqual(t, expectedRefs, actualThunk)
 }
