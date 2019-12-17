@@ -37,6 +37,7 @@ github.com/coreos/go-systemd v0.0.0-20190321100706-95778dfbb74e h1:Wf6HqHfScWJN9
 github.com/coreos/go-systemd v0.0.0-20190321100706-95778dfbb74e/go.mod h1:F5haX7vjVVG0kc13fIWeqUViNPyEJxv/OmvnBo0Yme4=
 github.com/coreos/pkg v0.0.0-20180928190104-399ea9e2e55f h1:lBNOc5arjvs8E5mO2tbpBpLoyyu8B6e44T7hJy6potg=
 github.com/coreos/pkg v0.0.0-20180928190104-399ea9e2e55f/go.mod h1:E3G3o1h8I7cfcXa63jLwjI0eiQQMgzzUDFVpN/nH/eA=
+github.com/creativesoftwarefdn/weaviate v0.0.0-20190304205250-143dae290ce222872d6dc418534b697cad00f771/go.mod h1:hypDk3b5i2LYvJk3U+/Is8q3yb23yel3RRiYEksK/50=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
@@ -196,6 +197,8 @@ github.com/satori/go.uuid v0.0.0-20180103174451-36e9d2ebbde5 h1:tfcGHuraNSEY9xRb
 github.com/satori/go.uuid v0.0.0-20180103174451-36e9d2ebbde5/go.mod h1:dA0hQrYB0VpLJoorglMZABFdXlWrHn1NEOzdhQKdks0=
 github.com/semi-technologies/contextionary v0.0.0-20190527123400-07bbd00c0d7b8b80c1a5c0f5963f1b001620f0a3 h1:xKzPTDjdr5YhS6ThBw5XHzzeJf3xIJRQQL+1D+EQI6M=
 github.com/semi-technologies/contextionary v0.0.0-20190527123400-07bbd00c0d7b8b80c1a5c0f5963f1b001620f0a3/go.mod h1:BTxMOKlpVWytb7TYDfHEP77GsmPtVEKa6BjnW5IbaUU=
+github.com/semi-technologies/contextionary v0.0.0-20190527123400-159020f819c7 h1:Ri6aUaRUg5vfEzxJ6OBTBBwdW3Zk+GwIyJE5uEsNqgk=
+github.com/semi-technologies/contextionary v0.0.0-20190527123400-159020f819c7/go.mod h1:9wOTgXqKQ2FTu8kyzqb6Zr8qoh972YKHFbkEPObPEwg=
 github.com/semi-technologies/contextionary v0.0.0-20190527123400-159020f819c7829640d081c9802e927bd31bdfc9 h1:SLz6FMtMWDM39ne803pKX7zdwwAYNa2QlZhzdiSyhck=
 github.com/semi-technologies/contextionary v0.0.0-20190527123400-159020f819c7829640d081c9802e927bd31bdfc9/go.mod h1:9wOTgXqKQ2FTu8kyzqb6Zr8qoh972YKHFbkEPObPEwg=
 github.com/semi-technologies/contextionary v0.0.0-20190527123400-7574cd1d3565e984f3d00db4f355d06361ea720f h1:/K8SiE9Dld8qA8pcVTx3/A3lWEAyh1GQfq34oKbBnPc=
