@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
+	testhelper "github.com/semi-technologies/weaviate/test/helper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -371,45 +372,11 @@ func checkRef(t *testing.T, repo genericFakeRepo, source, propName, target strin
 }
 
 func waitForStatusToNoLongerBeRunning(t *testing.T, classifier *Classifier, id strfmt.UUID) {
-	AssertEventuallyEqual(t, true, func() interface{} {
+	testhelper.AssertEventuallyEqual(t, true, func() interface{} {
 		class, err := classifier.Get(context.Background(), nil, id)
 		require.Nil(t, err)
 		require.NotNil(t, class)
 
 		return class.Status != models.ClassificationStatusRunning
 	}, "wait until status in no longer running")
-}
-
-func AssertEventuallyEqual(t *testing.T, expected interface{}, actualThunk func() interface{}, msg ...interface{}) {
-	interval := 10 * time.Millisecond
-	timeout := 4000 * time.Millisecond
-	elapsed := 0 * time.Millisecond
-	fakeT := &fakeT{}
-
-	for elapsed < timeout {
-		fakeT.Reset()
-		actual := actualThunk()
-		assert.Equal(fakeT, expected, actual, msg...)
-
-		if fakeT.lastError == nil {
-			return
-		}
-
-		time.Sleep(interval)
-		elapsed += interval
-	}
-
-	t.Errorf("waiting for %s, but never succeeded:\n\n%s", elapsed, fakeT.lastError)
-}
-
-type fakeT struct {
-	lastError error
-}
-
-func (f *fakeT) Reset() {
-	f.lastError = nil
-}
-
-func (f *fakeT) Errorf(msg string, args ...interface{}) {
-	f.lastError = fmt.Errorf(msg, args...)
 }
