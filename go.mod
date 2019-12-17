@@ -7,6 +7,7 @@ require (
 	github.com/coreos/go-oidc v2.0.0+incompatible
 	github.com/davecgh/go-spew v1.1.1
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
+	github.com/docker/go-units v0.4.0 // indirect
 	github.com/elastic/go-elasticsearch/v5 v5.6.0
 	github.com/evanphx/json-patch v3.0.0+incompatible
 	github.com/fatih/camelcase v1.0.0
@@ -22,9 +23,11 @@ require (
 	github.com/graphql-go/graphql v0.7.7
 	github.com/jessevdk/go-flags v1.4.0
 	github.com/mitchellh/mapstructure v1.1.2
+	github.com/pquerna/cachecontrol v0.0.0-20180517163645-1555304b9b35 // indirect
 	github.com/prometheus/common v0.0.0-20190107103113-2998b132700a
 	github.com/rs/cors v1.5.0
 	github.com/satori/go.uuid v0.0.0-20180103174451-36e9d2ebbde5
+	github.com/semi-technologies/contextionary v0.0.0-20191217102943-101dfb9e85c3
 	github.com/sirupsen/logrus v1.2.0
 	github.com/square/go-jose v2.3.0+incompatible
 	github.com/stretchr/testify v1.3.0
