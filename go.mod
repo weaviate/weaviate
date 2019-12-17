@@ -1,7 +1,6 @@
 module github.com/semi-technologies/weaviate
 
 require (
-	github.com/SeMI-network/janus-spark-analytics v0.0.0-20190311154421-9a5188468325
 	github.com/TylerBrock/colorjson v0.0.0-20180527164720-95ec53f28296
 	github.com/bmatcuk/doublestar v1.1.3
 	github.com/coreos/etcd v3.3.11+incompatible
@@ -26,7 +25,6 @@ require (
 	github.com/prometheus/common v0.0.0-20190107103113-2998b132700a
 	github.com/rs/cors v1.5.0
 	github.com/satori/go.uuid v0.0.0-20180103174451-36e9d2ebbde5
-	github.com/semi-technologies/contextionary v0.0.0-20190527123400-159020f819c7
 	github.com/sirupsen/logrus v1.2.0
 	github.com/square/go-jose v2.3.0+incompatible
 	github.com/stretchr/testify v1.3.0
