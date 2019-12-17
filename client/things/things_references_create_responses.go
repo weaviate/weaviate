@@ -37,35 +37,30 @@ type ThingsReferencesCreateReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *ThingsReferencesCreateReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 200:
 		result := NewThingsReferencesCreateOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	case 401:
 		result := NewThingsReferencesCreateUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 403:
 		result := NewThingsReferencesCreateForbidden()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 422:
 		result := NewThingsReferencesCreateUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 500:
 		result := NewThingsReferencesCreateInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -137,6 +132,10 @@ func (o *ThingsReferencesCreateForbidden) Error() string {
 	return fmt.Sprintf("[POST /things/{id}/references/{propertyName}][%d] thingsReferencesCreateForbidden  %+v", 403, o.Payload)
 }
 
+func (o *ThingsReferencesCreateForbidden) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *ThingsReferencesCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -166,6 +165,10 @@ func (o *ThingsReferencesCreateUnprocessableEntity) Error() string {
 	return fmt.Sprintf("[POST /things/{id}/references/{propertyName}][%d] thingsReferencesCreateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
+func (o *ThingsReferencesCreateUnprocessableEntity) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *ThingsReferencesCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -193,6 +196,10 @@ type ThingsReferencesCreateInternalServerError struct {
 
 func (o *ThingsReferencesCreateInternalServerError) Error() string {
 	return fmt.Sprintf("[POST /things/{id}/references/{propertyName}][%d] thingsReferencesCreateInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *ThingsReferencesCreateInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *ThingsReferencesCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

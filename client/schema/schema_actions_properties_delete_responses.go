@@ -37,28 +37,24 @@ type SchemaActionsPropertiesDeleteReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *SchemaActionsPropertiesDeleteReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 200:
 		result := NewSchemaActionsPropertiesDeleteOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	case 401:
 		result := NewSchemaActionsPropertiesDeleteUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 403:
 		result := NewSchemaActionsPropertiesDeleteForbidden()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 500:
 		result := NewSchemaActionsPropertiesDeleteInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -130,6 +126,10 @@ func (o *SchemaActionsPropertiesDeleteForbidden) Error() string {
 	return fmt.Sprintf("[DELETE /schema/actions/{className}/properties/{propertyName}][%d] schemaActionsPropertiesDeleteForbidden  %+v", 403, o.Payload)
 }
 
+func (o *SchemaActionsPropertiesDeleteForbidden) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *SchemaActionsPropertiesDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -157,6 +157,10 @@ type SchemaActionsPropertiesDeleteInternalServerError struct {
 
 func (o *SchemaActionsPropertiesDeleteInternalServerError) Error() string {
 	return fmt.Sprintf("[DELETE /schema/actions/{className}/properties/{propertyName}][%d] schemaActionsPropertiesDeleteInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *SchemaActionsPropertiesDeleteInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *SchemaActionsPropertiesDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

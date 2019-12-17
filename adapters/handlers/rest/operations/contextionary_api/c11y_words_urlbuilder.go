@@ -59,7 +59,7 @@ func (o *C11yWordsURL) Build() (*url.URL, error) {
 	if words != "" {
 		_path = strings.Replace(_path, "{words}", words, -1)
 	} else {
-		return nil, errors.New("Words is required on C11yWordsURL")
+		return nil, errors.New("words is required on C11yWordsURL")
 	}
 
 	_basePath := o._basePath

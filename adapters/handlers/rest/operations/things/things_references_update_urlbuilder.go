@@ -62,14 +62,14 @@ func (o *ThingsReferencesUpdateURL) Build() (*url.URL, error) {
 	if id != "" {
 		_path = strings.Replace(_path, "{id}", id, -1)
 	} else {
-		return nil, errors.New("ID is required on ThingsReferencesUpdateURL")
+		return nil, errors.New("id is required on ThingsReferencesUpdateURL")
 	}
 
 	propertyName := o.PropertyName
 	if propertyName != "" {
 		_path = strings.Replace(_path, "{propertyName}", propertyName, -1)
 	} else {
-		return nil, errors.New("PropertyName is required on ThingsReferencesUpdateURL")
+		return nil, errors.New("propertyName is required on ThingsReferencesUpdateURL")
 	}
 
 	_basePath := o._basePath

@@ -37,49 +37,42 @@ type ActionsPatchReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *ActionsPatchReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 204:
 		result := NewActionsPatchNoContent()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	case 400:
 		result := NewActionsPatchBadRequest()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 401:
 		result := NewActionsPatchUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 403:
 		result := NewActionsPatchForbidden()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 404:
 		result := NewActionsPatchNotFound()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 422:
 		result := NewActionsPatchUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 500:
 		result := NewActionsPatchInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -172,6 +165,10 @@ func (o *ActionsPatchForbidden) Error() string {
 	return fmt.Sprintf("[PATCH /actions/{id}][%d] actionsPatchForbidden  %+v", 403, o.Payload)
 }
 
+func (o *ActionsPatchForbidden) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *ActionsPatchForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -222,6 +219,10 @@ func (o *ActionsPatchUnprocessableEntity) Error() string {
 	return fmt.Sprintf("[PATCH /actions/{id}][%d] actionsPatchUnprocessableEntity  %+v", 422, o.Payload)
 }
 
+func (o *ActionsPatchUnprocessableEntity) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *ActionsPatchUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -249,6 +250,10 @@ type ActionsPatchInternalServerError struct {
 
 func (o *ActionsPatchInternalServerError) Error() string {
 	return fmt.Sprintf("[PATCH /actions/{id}][%d] actionsPatchInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *ActionsPatchInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *ActionsPatchInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
