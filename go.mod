@@ -11,17 +11,16 @@ require (
 	github.com/coreos/pkg v0.0.0-20180928190104-399ea9e2e55f // indirect
 	github.com/davecgh/go-spew v1.1.1
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
-	github.com/docker/go-units v0.4.0 // indirect
 	github.com/elastic/go-elasticsearch/v5 v5.6.0
 	github.com/fatih/camelcase v1.0.0
 	github.com/fatih/color v1.7.0 // indirect
-	github.com/go-openapi/errors v0.17.0
-	github.com/go-openapi/loads v0.17.0
-	github.com/go-openapi/runtime v0.0.0-20180628220156-9a3091f566c0
-	github.com/go-openapi/spec v0.17.0
-	github.com/go-openapi/strfmt v0.17.0
-	github.com/go-openapi/swag v0.17.0
-	github.com/go-openapi/validate v0.0.0-20180703152151-9a6e517cddf1
+	github.com/go-openapi/errors v0.19.2
+	github.com/go-openapi/loads v0.19.3
+	github.com/go-openapi/runtime v0.19.9
+	github.com/go-openapi/spec v0.19.3
+	github.com/go-openapi/strfmt v0.19.3
+	github.com/go-openapi/swag v0.19.5
+	github.com/go-openapi/validate v0.19.3
 	github.com/golang/groupcache v0.0.0-20191027212112-611e8accdfc9 // indirect
 	github.com/google/btree v1.0.0 // indirect
 	github.com/gorilla/mux v1.7.0
@@ -45,7 +44,6 @@ require (
 	github.com/sirupsen/logrus v1.4.2
 	github.com/soheilhy/cmux v0.1.4 // indirect
 	github.com/square/go-jose v2.3.0+incompatible
-	github.com/stretchr/objx v0.2.0 // indirect
 	github.com/stretchr/testify v1.4.0
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20190109142713-0ad062ec5ee5 // indirect
 	github.com/ugorji/go/codec v0.0.0-20190309163734-c4a1c341dc93
