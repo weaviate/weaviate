@@ -18,6 +18,9 @@ if ! hash goimports >/dev/null 2>&1; then
   go get golang.org/x/tools/cmd/goimports
 fi
 
+# Explictly get yamplc package
+(go get -u github.com/go-openapi/runtime/yamlpc)
+
 # Remove old stuff.
 (cd $DIR/..; rm -rf entities/models client adapters/handlers/rest/operations/)
 
