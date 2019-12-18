@@ -37,6 +37,8 @@ func (r *Repo) PutIndex(ctx context.Context, index string) error {
 	body := map[string]interface{}{
 		"settings": map[string]interface{}{
 			// "index.mapping.single_type": true,
+			"index.number_of_shards":     r.numberOfShards,
+			"index.auto_expand_replicas": r.autoExpandReplicas,
 		},
 	}
 

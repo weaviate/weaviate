@@ -60,7 +60,7 @@ func Test_Filters(t *testing.T) {
 
 	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{}
-	repo := NewRepo(client, logger, schemaGetter, 3, 100)
+	repo := NewRepo(client, logger, schemaGetter, 3, 100, 1, "0-1")
 	waitForEsToBeReady(t, repo)
 	migrator := NewMigrator(repo)
 
