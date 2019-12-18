@@ -95,8 +95,10 @@ func Test_Resolve(t *testing.T) {
 				aggregation.Group{
 					Properties: map[string]aggregation.Property{
 						"modelName": aggregation.Property{
-							Type:            aggregation.PropertyTypeText,
-							TextAggregation: nil,
+							Type: aggregation.PropertyTypeText,
+							TextAggregation: aggregation.Text{
+								Count: 20,
+							},
 						},
 					},
 				},
@@ -138,7 +140,7 @@ func Test_Resolve(t *testing.T) {
 					map[string]interface{}{
 						"__typename": "AggregateCar",
 						"modelName": map[string]interface{}{
-							"count":      nil,
+							"count":      20,
 							"__typename": "AggregateCarmodelNameObj",
 						},
 					},
@@ -233,13 +235,16 @@ func Test_Resolve(t *testing.T) {
 							SchemaType: "string",
 							Type:       aggregation.PropertyTypeText,
 							TextAggregation: aggregation.Text{
-								aggregation.TextOccurrence{
-									Value:  "fastcar",
-									Occurs: 39,
-								},
-								aggregation.TextOccurrence{
-									Value:  "slowcar",
-									Occurs: 1,
+								Count: 40,
+								Items: []aggregation.TextOccurrence{
+									aggregation.TextOccurrence{
+										Value:  "fastcar",
+										Occurs: 39,
+									},
+									aggregation.TextOccurrence{
+										Value:  "slowcar",
+										Occurs: 1,
+									},
 								},
 							},
 						},
@@ -268,7 +273,7 @@ func Test_Resolve(t *testing.T) {
 							"count":           40,
 						},
 						"modelName": map[string]interface{}{
-							"count": nil, // gh-974 TODO: support count in topOccurrences
+							"count": 40,
 							"type":  "string",
 							"topOccurrences": []interface{}{
 								map[string]interface{}{
@@ -488,42 +493,43 @@ func Test_Resolve(t *testing.T) {
 			},
 		},
 
-		// TODO: gh-974 support text count
-		// testCase{
-		// 	name:  "single prop: string",
-		// 	query: `{ Aggregate { Things { Car(groupBy:["madeBy", "Manufacturer", "name"]) { modelName { count } } } } }`,
-		// 	expectedProps: []traverser.AggregateProperty{
-		// 		{
-		// 			Name:        "modelName",
-		// 			Aggregators: []traverser.Aggregator{traverser.CountAggregator},
-		// 		},
-		// 	},
-		// 	resolverReturn: []aggregation.Group{
-		// 		aggregation.Group{
-		// 			GroupedBy: &aggregation.GroupedBy{
-		// 				Path:  []string{"madeBy", "Manufacturer", "name"},
-		// 				Value: "best-manufacturer",
-		// 			},
-		// 			Properties: map[string]aggregation.Property{
-		// 				"modelName": aggregation.Property{
-		// 					Type:  aggregation.PropertyTypeText,
-		// 					Count: 7,
-		// 				},
-		// 			},
-		// 		},
-		// 	},
-		// 	expectedGroupBy: groupCarByMadeByManufacturerName(),
-		// 	expectedResults: []result{{
-		// 		pathToField: []string{"Aggregate", "Things", "Car"},
-		// 		expectedValue: []interface{}{
-		// 			map[string]interface{}{
-		// 				"modelName": map[string]interface{}{
-		// 					"count": 7,
-		// 				},
-		// 			},
-		// 		},
-		// 	}},
-		// },
+		testCase{
+			name:  "single prop: string",
+			query: `{ Aggregate { Things { Car(groupBy:["madeBy", "Manufacturer", "name"]) { modelName { count } } } } }`,
+			expectedProps: []traverser.AggregateProperty{
+				{
+					Name:        "modelName",
+					Aggregators: []traverser.Aggregator{traverser.CountAggregator},
+				},
+			},
+			resolverReturn: []aggregation.Group{
+				aggregation.Group{
+					GroupedBy: &aggregation.GroupedBy{
+						Path:  []string{"madeBy", "Manufacturer", "name"},
+						Value: "best-manufacturer",
+					},
+					Properties: map[string]aggregation.Property{
+						"modelName": aggregation.Property{
+							Type: aggregation.PropertyTypeText,
+							TextAggregation: aggregation.Text{
+								Count: 7,
+							},
+						},
+					},
+				},
+			},
+			expectedGroupBy: groupCarByMadeByManufacturerName(),
+			expectedResults: []result{{
+				pathToField: []string{"Aggregate", "Things", "Car"},
+				expectedValue: []interface{}{
+					map[string]interface{}{
+						"modelName": map[string]interface{}{
+							"count": 7,
+						},
+					},
+				},
+			}},
+		},
 	}
 
 	tests.AssertExtraction(t, kind.Thing, "Car")
