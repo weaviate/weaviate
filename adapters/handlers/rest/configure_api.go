@@ -94,7 +94,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	var explorer explorer
 
 	repo := esvector.NewRepo(esClient, appState.Logger, nil,
-		appState.ServerConfig.Config.VectorIndex.DenormalizationDepth)
+		appState.ServerConfig.Config.VectorIndex.DenormalizationDepth, appState.ServerConfig.Config.VectorIndex.SupernodeThreshold)
 	vectorMigrator = esvector.NewMigrator(repo)
 	vectorRepo = repo
 	migrator = vectorMigrator
