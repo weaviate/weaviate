@@ -19,6 +19,8 @@ package schema
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"fmt"
+
 	"github.com/go-openapi/runtime"
 
 	strfmt "github.com/go-openapi/strfmt"
@@ -62,8 +64,14 @@ func (a *Client) SchemaActionsCreate(params *SchemaActionsCreateParams, authInfo
 	if err != nil {
 		return nil, err
 	}
-	return result.(*SchemaActionsCreateOK), nil
-
+	success, ok := result.(*SchemaActionsCreateOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for schema.actions.create: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -91,8 +99,14 @@ func (a *Client) SchemaActionsDelete(params *SchemaActionsDeleteParams, authInfo
 	if err != nil {
 		return nil, err
 	}
-	return result.(*SchemaActionsDeleteOK), nil
-
+	success, ok := result.(*SchemaActionsDeleteOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for schema.actions.delete: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -120,8 +134,14 @@ func (a *Client) SchemaActionsPropertiesAdd(params *SchemaActionsPropertiesAddPa
 	if err != nil {
 		return nil, err
 	}
-	return result.(*SchemaActionsPropertiesAddOK), nil
-
+	success, ok := result.(*SchemaActionsPropertiesAddOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for schema.actions.properties.add: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -149,8 +169,14 @@ func (a *Client) SchemaActionsPropertiesDelete(params *SchemaActionsPropertiesDe
 	if err != nil {
 		return nil, err
 	}
-	return result.(*SchemaActionsPropertiesDeleteOK), nil
-
+	success, ok := result.(*SchemaActionsPropertiesDeleteOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for schema.actions.properties.delete: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -178,8 +204,14 @@ func (a *Client) SchemaActionsPropertiesUpdate(params *SchemaActionsPropertiesUp
 	if err != nil {
 		return nil, err
 	}
-	return result.(*SchemaActionsPropertiesUpdateOK), nil
-
+	success, ok := result.(*SchemaActionsPropertiesUpdateOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for schema.actions.properties.update: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -207,8 +239,14 @@ func (a *Client) SchemaActionsUpdate(params *SchemaActionsUpdateParams, authInfo
 	if err != nil {
 		return nil, err
 	}
-	return result.(*SchemaActionsUpdateOK), nil
-
+	success, ok := result.(*SchemaActionsUpdateOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for schema.actions.update: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -236,8 +274,14 @@ func (a *Client) SchemaDump(params *SchemaDumpParams, authInfo runtime.ClientAut
 	if err != nil {
 		return nil, err
 	}
-	return result.(*SchemaDumpOK), nil
-
+	success, ok := result.(*SchemaDumpOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for schema.dump: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -265,8 +309,14 @@ func (a *Client) SchemaThingsCreate(params *SchemaThingsCreateParams, authInfo r
 	if err != nil {
 		return nil, err
 	}
-	return result.(*SchemaThingsCreateOK), nil
-
+	success, ok := result.(*SchemaThingsCreateOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for schema.things.create: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -294,8 +344,14 @@ func (a *Client) SchemaThingsDelete(params *SchemaThingsDeleteParams, authInfo r
 	if err != nil {
 		return nil, err
 	}
-	return result.(*SchemaThingsDeleteOK), nil
-
+	success, ok := result.(*SchemaThingsDeleteOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for schema.things.delete: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -323,8 +379,14 @@ func (a *Client) SchemaThingsPropertiesAdd(params *SchemaThingsPropertiesAddPara
 	if err != nil {
 		return nil, err
 	}
-	return result.(*SchemaThingsPropertiesAddOK), nil
-
+	success, ok := result.(*SchemaThingsPropertiesAddOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for schema.things.properties.add: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -352,8 +414,14 @@ func (a *Client) SchemaThingsPropertiesDelete(params *SchemaThingsPropertiesDele
 	if err != nil {
 		return nil, err
 	}
-	return result.(*SchemaThingsPropertiesDeleteOK), nil
-
+	success, ok := result.(*SchemaThingsPropertiesDeleteOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for schema.things.properties.delete: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -381,8 +449,14 @@ func (a *Client) SchemaThingsPropertiesUpdate(params *SchemaThingsPropertiesUpda
 	if err != nil {
 		return nil, err
 	}
-	return result.(*SchemaThingsPropertiesUpdateOK), nil
-
+	success, ok := result.(*SchemaThingsPropertiesUpdateOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for schema.things.properties.update: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -410,8 +484,14 @@ func (a *Client) SchemaThingsUpdate(params *SchemaThingsUpdateParams, authInfo r
 	if err != nil {
 		return nil, err
 	}
-	return result.(*SchemaThingsUpdateOK), nil
-
+	success, ok := result.(*SchemaThingsUpdateOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for schema.things.update: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 // SetTransport changes the transport on the client

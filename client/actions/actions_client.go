@@ -19,6 +19,8 @@ package actions
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"fmt"
+
 	"github.com/go-openapi/runtime"
 
 	strfmt "github.com/go-openapi/strfmt"
@@ -64,8 +66,14 @@ func (a *Client) ActionsCreate(params *ActionsCreateParams, authInfo runtime.Cli
 	if err != nil {
 		return nil, err
 	}
-	return result.(*ActionsCreateOK), nil
-
+	success, ok := result.(*ActionsCreateOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for actions.create: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -95,8 +103,14 @@ func (a *Client) ActionsDelete(params *ActionsDeleteParams, authInfo runtime.Cli
 	if err != nil {
 		return nil, err
 	}
-	return result.(*ActionsDeleteNoContent), nil
-
+	success, ok := result.(*ActionsDeleteNoContent)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for actions.delete: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -126,8 +140,14 @@ func (a *Client) ActionsGet(params *ActionsGetParams, authInfo runtime.ClientAut
 	if err != nil {
 		return nil, err
 	}
-	return result.(*ActionsGetOK), nil
-
+	success, ok := result.(*ActionsGetOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for actions.get: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -157,8 +177,14 @@ func (a *Client) ActionsList(params *ActionsListParams, authInfo runtime.ClientA
 	if err != nil {
 		return nil, err
 	}
-	return result.(*ActionsListOK), nil
-
+	success, ok := result.(*ActionsListOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for actions.list: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -188,8 +214,14 @@ func (a *Client) ActionsPatch(params *ActionsPatchParams, authInfo runtime.Clien
 	if err != nil {
 		return nil, err
 	}
-	return result.(*ActionsPatchNoContent), nil
-
+	success, ok := result.(*ActionsPatchNoContent)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for actions.patch: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -219,8 +251,14 @@ func (a *Client) ActionsReferencesCreate(params *ActionsReferencesCreateParams, 
 	if err != nil {
 		return nil, err
 	}
-	return result.(*ActionsReferencesCreateOK), nil
-
+	success, ok := result.(*ActionsReferencesCreateOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for actions.references.create: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -250,8 +288,14 @@ func (a *Client) ActionsReferencesDelete(params *ActionsReferencesDeleteParams, 
 	if err != nil {
 		return nil, err
 	}
-	return result.(*ActionsReferencesDeleteNoContent), nil
-
+	success, ok := result.(*ActionsReferencesDeleteNoContent)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for actions.references.delete: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -281,8 +325,14 @@ func (a *Client) ActionsReferencesUpdate(params *ActionsReferencesUpdateParams, 
 	if err != nil {
 		return nil, err
 	}
-	return result.(*ActionsReferencesUpdateOK), nil
-
+	success, ok := result.(*ActionsReferencesUpdateOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for actions.references.update: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -312,8 +362,14 @@ func (a *Client) ActionsUpdate(params *ActionsUpdateParams, authInfo runtime.Cli
 	if err != nil {
 		return nil, err
 	}
-	return result.(*ActionsUpdateOK), nil
-
+	success, ok := result.(*ActionsUpdateOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for actions.update: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -343,8 +399,14 @@ func (a *Client) ActionsValidate(params *ActionsValidateParams, authInfo runtime
 	if err != nil {
 		return nil, err
 	}
-	return result.(*ActionsValidateOK), nil
-
+	success, ok := result.(*ActionsValidateOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for actions.validate: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 // SetTransport changes the transport on the client

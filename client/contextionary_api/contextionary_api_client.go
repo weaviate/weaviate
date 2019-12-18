@@ -19,6 +19,8 @@ package contextionary_api
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"fmt"
+
 	"github.com/go-openapi/runtime"
 
 	strfmt "github.com/go-openapi/strfmt"
@@ -64,8 +66,14 @@ func (a *Client) C11yConcepts(params *C11yConceptsParams, authInfo runtime.Clien
 	if err != nil {
 		return nil, err
 	}
-	return result.(*C11yConceptsOK), nil
-
+	success, ok := result.(*C11yConceptsOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for c11y.concepts: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -96,7 +104,6 @@ func (a *Client) C11yCorpusGet(params *C11yCorpusGetParams, authInfo runtime.Cli
 		return err
 	}
 	return nil
-
 }
 
 /*
@@ -126,8 +133,14 @@ func (a *Client) C11yExtensions(params *C11yExtensionsParams, authInfo runtime.C
 	if err != nil {
 		return nil, err
 	}
-	return result.(*C11yExtensionsOK), nil
-
+	success, ok := result.(*C11yExtensionsOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for c11y.extensions: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -157,8 +170,14 @@ func (a *Client) C11yWords(params *C11yWordsParams, authInfo runtime.ClientAuthI
 	if err != nil {
 		return nil, err
 	}
-	return result.(*C11yWordsOK), nil
-
+	success, ok := result.(*C11yWordsOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for c11y.words: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 // SetTransport changes the transport on the client

@@ -22,6 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/client/things"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+	testhelper "github.com/semi-technologies/weaviate/test/helper"
 )
 
 const fakeActionId strfmt.UUID = "11111111-1111-1111-1111-111111111111"
@@ -68,7 +69,7 @@ func assertGetActionEventually(t *testing.T, uuid strfmt.UUID) *models.Action {
 		return err == nil
 	}
 
-	helper.AssertEventuallyEqual(t, true, checkThunk)
+	testhelper.AssertEventuallyEqual(t, true, checkThunk)
 
 	var action *models.Action
 
@@ -89,7 +90,7 @@ func assertGetActionFailsEventually(t *testing.T, uuid strfmt.UUID) error {
 		return err != nil
 	}
 
-	helper.AssertEventuallyEqual(t, true, checkThunk)
+	testhelper.AssertEventuallyEqual(t, true, checkThunk)
 
 	return err
 }
@@ -105,7 +106,7 @@ func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.Thing {
 		return err == nil
 	}
 
-	helper.AssertEventuallyEqual(t, true, checkThunk)
+	testhelper.AssertEventuallyEqual(t, true, checkThunk)
 
 	var thing *models.Thing
 

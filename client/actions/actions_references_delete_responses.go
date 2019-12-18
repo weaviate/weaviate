@@ -37,35 +37,30 @@ type ActionsReferencesDeleteReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *ActionsReferencesDeleteReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 204:
 		result := NewActionsReferencesDeleteNoContent()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	case 401:
 		result := NewActionsReferencesDeleteUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 403:
 		result := NewActionsReferencesDeleteForbidden()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 404:
 		result := NewActionsReferencesDeleteNotFound()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 500:
 		result := NewActionsReferencesDeleteInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -137,6 +132,10 @@ func (o *ActionsReferencesDeleteForbidden) Error() string {
 	return fmt.Sprintf("[DELETE /actions/{id}/references/{propertyName}][%d] actionsReferencesDeleteForbidden  %+v", 403, o.Payload)
 }
 
+func (o *ActionsReferencesDeleteForbidden) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *ActionsReferencesDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -166,6 +165,10 @@ func (o *ActionsReferencesDeleteNotFound) Error() string {
 	return fmt.Sprintf("[DELETE /actions/{id}/references/{propertyName}][%d] actionsReferencesDeleteNotFound  %+v", 404, o.Payload)
 }
 
+func (o *ActionsReferencesDeleteNotFound) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *ActionsReferencesDeleteNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -193,6 +196,10 @@ type ActionsReferencesDeleteInternalServerError struct {
 
 func (o *ActionsReferencesDeleteInternalServerError) Error() string {
 	return fmt.Sprintf("[DELETE /actions/{id}/references/{propertyName}][%d] actionsReferencesDeleteInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *ActionsReferencesDeleteInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *ActionsReferencesDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

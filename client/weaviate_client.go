@@ -25,6 +25,7 @@ import (
 	strfmt "github.com/go-openapi/strfmt"
 
 	"github.com/semi-technologies/weaviate/client/actions"
+	"github.com/semi-technologies/weaviate/client/batching"
 	"github.com/semi-technologies/weaviate/client/classifications"
 	"github.com/semi-technologies/weaviate/client/contextionary_api"
 	"github.com/semi-technologies/weaviate/client/graphql"
@@ -33,6 +34,7 @@ import (
 	"github.com/semi-technologies/weaviate/client/p2_p"
 	"github.com/semi-technologies/weaviate/client/schema"
 	"github.com/semi-technologies/weaviate/client/things"
+	"github.com/semi-technologies/weaviate/client/well_known"
 )
 
 // Default weaviate HTTP client.
@@ -80,6 +82,8 @@ func New(transport runtime.ClientTransport, formats strfmt.Registry) *Weaviate {
 
 	cli.Actions = actions.New(transport, formats)
 
+	cli.Batching = batching.New(transport, formats)
+
 	cli.Classifications = classifications.New(transport, formats)
 
 	cli.ContextionaryAPI = contextionary_api.New(transport, formats)
@@ -90,11 +94,13 @@ func New(transport runtime.ClientTransport, formats strfmt.Registry) *Weaviate {
 
 	cli.Operations = operations.New(transport, formats)
 
-	cli.P2P = p2_p.New(transport, formats)
+	cli.P2p = p2_p.New(transport, formats)
 
 	cli.Schema = schema.New(transport, formats)
 
 	cli.Things = things.New(transport, formats)
+
+	cli.WellKnown = well_known.New(transport, formats)
 
 	return cli
 }
@@ -142,6 +148,8 @@ func (cfg *TransportConfig) WithSchemes(schemes []string) *TransportConfig {
 type Weaviate struct {
 	Actions *actions.Client
 
+	Batching *batching.Client
+
 	Classifications *classifications.Client
 
 	ContextionaryAPI *contextionary_api.Client
@@ -152,11 +160,13 @@ type Weaviate struct {
 
 	Operations *operations.Client
 
-	P2P *p2_p.Client
+	P2p *p2_p.Client
 
 	Schema *schema.Client
 
 	Things *things.Client
+
+	WellKnown *well_known.Client
 
 	Transport runtime.ClientTransport
 }
@@ -166,6 +176,8 @@ func (c *Weaviate) SetTransport(transport runtime.ClientTransport) {
 	c.Transport = transport
 
 	c.Actions.SetTransport(transport)
+
+	c.Batching.SetTransport(transport)
 
 	c.Classifications.SetTransport(transport)
 
@@ -177,10 +189,12 @@ func (c *Weaviate) SetTransport(transport runtime.ClientTransport) {
 
 	c.Operations.SetTransport(transport)
 
-	c.P2P.SetTransport(transport)
+	c.P2p.SetTransport(transport)
 
 	c.Schema.SetTransport(transport)
 
 	c.Things.SetTransport(transport)
+
+	c.WellKnown.SetTransport(transport)
 
 }

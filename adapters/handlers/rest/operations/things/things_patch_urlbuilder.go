@@ -61,7 +61,7 @@ func (o *ThingsPatchURL) Build() (*url.URL, error) {
 	if id != "" {
 		_path = strings.Replace(_path, "{id}", id, -1)
 	} else {
-		return nil, errors.New("ID is required on ThingsPatchURL")
+		return nil, errors.New("id is required on ThingsPatchURL")
 	}
 
 	_basePath := o._basePath

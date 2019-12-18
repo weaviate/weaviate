@@ -61,7 +61,7 @@ func (o *ActionsPatchURL) Build() (*url.URL, error) {
 	if id != "" {
 		_path = strings.Replace(_path, "{id}", id, -1)
 	} else {
-		return nil, errors.New("ID is required on ActionsPatchURL")
+		return nil, errors.New("id is required on ActionsPatchURL")
 	}
 
 	_basePath := o._basePath

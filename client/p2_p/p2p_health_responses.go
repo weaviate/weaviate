@@ -37,14 +37,12 @@ type P2pHealthReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *P2pHealthReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 200:
 		result := NewP2pHealthOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	case 500:
 		result := NewP2pHealthInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -93,6 +91,10 @@ type P2pHealthInternalServerError struct {
 
 func (o *P2pHealthInternalServerError) Error() string {
 	return fmt.Sprintf("[GET /p2p/health][%d] p2pHealthInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *P2pHealthInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *P2pHealthInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
