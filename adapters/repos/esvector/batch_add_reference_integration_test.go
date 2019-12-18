@@ -74,7 +74,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 	}
 	schemaGetter := &fakeSchemaGetter{schema: schema}
 	logger := logrus.New()
-	repo := NewRepo(client, logger, schemaGetter, 2)
+	repo := NewRepo(client, logger, schemaGetter, 2, 100)
 	waitForEsToBeReady(t, repo)
 	migrator := NewMigrator(repo)
 

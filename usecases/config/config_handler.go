@@ -70,6 +70,7 @@ type VectorIndex struct {
 	Enabled                bool   `json:"enabled" yaml:"enabled"`
 	URL                    string `json:"url" yaml:"url"`
 	DenormalizationDepth   int    `json:"denormalizationDepth" yaml:"denormalizationDepth"`
+	SupernodeThreshold     int    `json:"supernodeThreshold" yaml:"supernodeThreshold"`
 	CacheCycleIdleWaitTime int    `json:"cacheCycleIdleWaitTime" yaml:"cacheCycleIdleWaitTime"`
 	CacheCycleBusyWaitTime int    `json:"cacheCycleBusyWaitTime" yaml:"cacheCycleBusyWaitTime"`
 	CacheCycleBulkSize     int    `json:"cacheCycleBulkSize" yaml:"cacheCycleBulkSize"`
@@ -78,6 +79,10 @@ type VectorIndex struct {
 func (v *VectorIndex) SetDefaults() {
 	if v.DenormalizationDepth == 0 {
 		v.DenormalizationDepth = 2
+	}
+
+	if v.SupernodeThreshold == 0 {
+		v.SupernodeThreshold = 100
 	}
 
 	if v.CacheCycleIdleWaitTime == 0 {
