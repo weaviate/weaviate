@@ -93,6 +93,11 @@ func (c *cacheManager) populate(ctx context.Context, kind kind.Kind, id strfmt.U
 				continue
 			}
 
+			if len(refs) > c.repo.superNodeThreshold {
+				resolvedSchema[prop] = value
+				continue
+			}
+
 			resolvedRefs, err := c.resolveRefs(ctx, refs, depth+1)
 			if err != nil {
 				return nil, err

@@ -37,35 +37,30 @@ type SchemaThingsCreateReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *SchemaThingsCreateReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 200:
 		result := NewSchemaThingsCreateOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	case 401:
 		result := NewSchemaThingsCreateUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 403:
 		result := NewSchemaThingsCreateForbidden()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 422:
 		result := NewSchemaThingsCreateUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 500:
 		result := NewSchemaThingsCreateInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -93,6 +88,10 @@ type SchemaThingsCreateOK struct {
 
 func (o *SchemaThingsCreateOK) Error() string {
 	return fmt.Sprintf("[POST /schema/things][%d] schemaThingsCreateOK  %+v", 200, o.Payload)
+}
+
+func (o *SchemaThingsCreateOK) GetPayload() *models.Class {
+	return o.Payload
 }
 
 func (o *SchemaThingsCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -145,6 +144,10 @@ func (o *SchemaThingsCreateForbidden) Error() string {
 	return fmt.Sprintf("[POST /schema/things][%d] schemaThingsCreateForbidden  %+v", 403, o.Payload)
 }
 
+func (o *SchemaThingsCreateForbidden) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *SchemaThingsCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -174,6 +177,10 @@ func (o *SchemaThingsCreateUnprocessableEntity) Error() string {
 	return fmt.Sprintf("[POST /schema/things][%d] schemaThingsCreateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
+func (o *SchemaThingsCreateUnprocessableEntity) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *SchemaThingsCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -201,6 +208,10 @@ type SchemaThingsCreateInternalServerError struct {
 
 func (o *SchemaThingsCreateInternalServerError) Error() string {
 	return fmt.Sprintf("[POST /schema/things][%d] schemaThingsCreateInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *SchemaThingsCreateInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *SchemaThingsCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

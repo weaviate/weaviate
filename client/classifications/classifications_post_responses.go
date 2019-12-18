@@ -37,35 +37,30 @@ type ClassificationsPostReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *ClassificationsPostReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 201:
 		result := NewClassificationsPostCreated()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	case 400:
 		result := NewClassificationsPostBadRequest()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 401:
 		result := NewClassificationsPostUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 403:
 		result := NewClassificationsPostForbidden()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 500:
 		result := NewClassificationsPostInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -95,6 +90,10 @@ func (o *ClassificationsPostCreated) Error() string {
 	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostCreated  %+v", 201, o.Payload)
 }
 
+func (o *ClassificationsPostCreated) GetPayload() *models.Classification {
+	return o.Payload
+}
+
 func (o *ClassificationsPostCreated) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.Classification)
@@ -122,6 +121,10 @@ type ClassificationsPostBadRequest struct {
 
 func (o *ClassificationsPostBadRequest) Error() string {
 	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostBadRequest  %+v", 400, o.Payload)
+}
+
+func (o *ClassificationsPostBadRequest) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *ClassificationsPostBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -174,6 +177,10 @@ func (o *ClassificationsPostForbidden) Error() string {
 	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostForbidden  %+v", 403, o.Payload)
 }
 
+func (o *ClassificationsPostForbidden) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *ClassificationsPostForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -201,6 +208,10 @@ type ClassificationsPostInternalServerError struct {
 
 func (o *ClassificationsPostInternalServerError) Error() string {
 	return fmt.Sprintf("[POST /classifications/][%d] classificationsPostInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *ClassificationsPostInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *ClassificationsPostInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

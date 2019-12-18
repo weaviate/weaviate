@@ -37,21 +37,18 @@ type P2pGenesisUpdateReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *P2pGenesisUpdateReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 200:
 		result := NewP2pGenesisUpdateOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	case 401:
 		result := NewP2pGenesisUpdateUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 500:
 		result := NewP2pGenesisUpdateInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -121,6 +118,10 @@ type P2pGenesisUpdateInternalServerError struct {
 
 func (o *P2pGenesisUpdateInternalServerError) Error() string {
 	return fmt.Sprintf("[PUT /p2p/genesis][%d] p2pGenesisUpdateInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *P2pGenesisUpdateInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *P2pGenesisUpdateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

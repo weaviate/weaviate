@@ -19,6 +19,8 @@ package operations
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"fmt"
+
 	"github.com/go-openapi/runtime"
 
 	strfmt "github.com/go-openapi/strfmt"
@@ -35,130 +37,6 @@ Client for operations API
 type Client struct {
 	transport runtime.ClientTransport
 	formats   strfmt.Registry
-}
-
-/*
-GetWellKnownOpenidConfiguration os ID c discovery information if o ID c auth is enabled
-
-OIDC Discovery page, redirects to the token issuer if one is configured
-*/
-func (a *Client) GetWellKnownOpenidConfiguration(params *GetWellKnownOpenidConfigurationParams, authInfo runtime.ClientAuthInfoWriter) (*GetWellKnownOpenidConfigurationOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewGetWellKnownOpenidConfigurationParams()
-	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "GetWellKnownOpenidConfiguration",
-		Method:             "GET",
-		PathPattern:        "/.well-known/openid-configuration",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
-		Schemes:            []string{"https"},
-		Params:             params,
-		Reader:             &GetWellKnownOpenidConfigurationReader{formats: a.formats},
-		AuthInfo:           authInfo,
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result.(*GetWellKnownOpenidConfigurationOK), nil
-
-}
-
-/*
-BatchingActionsCreate creates new actions based on an action template as a batch
-
-Register new Actions in bulk. Given meta-data and schema values are validated.
-*/
-func (a *Client) BatchingActionsCreate(params *BatchingActionsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*BatchingActionsCreateOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewBatchingActionsCreateParams()
-	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "batching.actions.create",
-		Method:             "POST",
-		PathPattern:        "/batching/actions",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
-		Schemes:            []string{"https"},
-		Params:             params,
-		Reader:             &BatchingActionsCreateReader{formats: a.formats},
-		AuthInfo:           authInfo,
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result.(*BatchingActionsCreateOK), nil
-
-}
-
-/*
-BatchingReferencesCreate creates new cross references between arbitrary classes in bulk
-
-Register cross-references between any class items (things or actions) in bulk.
-*/
-func (a *Client) BatchingReferencesCreate(params *BatchingReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter) (*BatchingReferencesCreateOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewBatchingReferencesCreateParams()
-	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "batching.references.create",
-		Method:             "POST",
-		PathPattern:        "/batching/references",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
-		Schemes:            []string{"https"},
-		Params:             params,
-		Reader:             &BatchingReferencesCreateReader{formats: a.formats},
-		AuthInfo:           authInfo,
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result.(*BatchingReferencesCreateOK), nil
-
-}
-
-/*
-BatchingThingsCreate creates new things based on a thing template as a batch
-
-Register new Things in bulk. Provided meta-data and schema values are validated.
-*/
-func (a *Client) BatchingThingsCreate(params *BatchingThingsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*BatchingThingsCreateOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewBatchingThingsCreateParams()
-	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "batching.things.create",
-		Method:             "POST",
-		PathPattern:        "/batching/things",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
-		Schemes:            []string{"https"},
-		Params:             params,
-		Reader:             &BatchingThingsCreateReader{formats: a.formats},
-		AuthInfo:           authInfo,
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result.(*BatchingThingsCreateOK), nil
-
 }
 
 /*
@@ -186,8 +64,14 @@ func (a *Client) WeaviateWellknownLiveness(params *WeaviateWellknownLivenessPara
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateWellknownLivenessOK), nil
-
+	success, ok := result.(*WeaviateWellknownLivenessOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for weaviate.wellknown.liveness: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -215,8 +99,14 @@ func (a *Client) WeaviateWellknownReadiness(params *WeaviateWellknownReadinessPa
 	if err != nil {
 		return nil, err
 	}
-	return result.(*WeaviateWellknownReadinessOK), nil
-
+	success, ok := result.(*WeaviateWellknownReadinessOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for weaviate.wellknown.readiness: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 // SetTransport changes the transport on the client

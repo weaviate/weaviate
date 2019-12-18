@@ -37,42 +37,36 @@ type C11yExtensionsReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *C11yExtensionsReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 200:
 		result := NewC11yExtensionsOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	case 400:
 		result := NewC11yExtensionsBadRequest()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 401:
 		result := NewC11yExtensionsUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 403:
 		result := NewC11yExtensionsForbidden()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 500:
 		result := NewC11yExtensionsInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 501:
 		result := NewC11yExtensionsNotImplemented()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -102,6 +96,10 @@ func (o *C11yExtensionsOK) Error() string {
 	return fmt.Sprintf("[POST /c11y/extensions/][%d] c11yExtensionsOK  %+v", 200, o.Payload)
 }
 
+func (o *C11yExtensionsOK) GetPayload() *models.C11yExtension {
+	return o.Payload
+}
+
 func (o *C11yExtensionsOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.C11yExtension)
@@ -129,6 +127,10 @@ type C11yExtensionsBadRequest struct {
 
 func (o *C11yExtensionsBadRequest) Error() string {
 	return fmt.Sprintf("[POST /c11y/extensions/][%d] c11yExtensionsBadRequest  %+v", 400, o.Payload)
+}
+
+func (o *C11yExtensionsBadRequest) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *C11yExtensionsBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -181,6 +183,10 @@ func (o *C11yExtensionsForbidden) Error() string {
 	return fmt.Sprintf("[POST /c11y/extensions/][%d] c11yExtensionsForbidden  %+v", 403, o.Payload)
 }
 
+func (o *C11yExtensionsForbidden) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *C11yExtensionsForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -208,6 +214,10 @@ type C11yExtensionsInternalServerError struct {
 
 func (o *C11yExtensionsInternalServerError) Error() string {
 	return fmt.Sprintf("[POST /c11y/extensions/][%d] c11yExtensionsInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *C11yExtensionsInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *C11yExtensionsInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

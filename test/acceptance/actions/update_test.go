@@ -24,6 +24,7 @@ import (
 	"github.com/semi-technologies/weaviate/client/actions"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+	testhelper "github.com/semi-technologies/weaviate/test/helper"
 )
 
 // run from setup_test.go
@@ -54,7 +55,7 @@ func updateActions(t *testing.T) {
 			num, _ := updatedSchema["testNumber"].(json.Number).Float64()
 			return num
 		}
-		helper.AssertEventuallyEqual(t, 41.0, actualThunk)
+		testhelper.AssertEventuallyEqual(t, 41.0, actualThunk)
 	})
 
 	t.Run("update and set string", func(t *testing.T) {
@@ -79,7 +80,7 @@ func updateActions(t *testing.T) {
 			updatedSchema := updatedAction.Schema.(map[string]interface{})
 			return updatedSchema["testString"]
 		}
-		helper.AssertEventuallyEqual(t, "wibbly wobbly", actualThunk)
+		testhelper.AssertEventuallyEqual(t, "wibbly wobbly", actualThunk)
 	})
 
 	t.Run("update and set bool", func(t *testing.T) {
@@ -106,7 +107,7 @@ func updateActions(t *testing.T) {
 			updatedSchema := updatedAction.Schema.(map[string]interface{})
 			return updatedSchema["testTrueFalse"]
 		}
-		helper.AssertEventuallyEqual(t, true, actualThunk)
+		testhelper.AssertEventuallyEqual(t, true, actualThunk)
 	})
 
 	t.Run("can patch action with cref", func(t *testing.T) {
@@ -162,6 +163,6 @@ func updateActions(t *testing.T) {
 			return refMap["beacon"]
 		}
 
-		helper.AssertEventuallyEqual(t, fmt.Sprintf("weaviate://localhost/things/%s", thingToRefID), actualThunk)
+		testhelper.AssertEventuallyEqual(t, fmt.Sprintf("weaviate://localhost/things/%s", thingToRefID), actualThunk)
 	})
 }

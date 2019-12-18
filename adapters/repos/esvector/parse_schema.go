@@ -171,7 +171,7 @@ func parseGeoProp(lat interface{}, lon interface{}) (*models.GeoCoordinates, err
 func (r *Repo) parseRefs(input []interface{}, prop string, cache cache, depth int,
 	selectProp traverser.SelectProperty) ([]interface{}, error) {
 
-	if cache.hot {
+	if cache.hot && len(input) <= r.superNodeThreshold {
 		// start with depth=1, parseRefs was called on the outermost class
 		// (depth=0), so the first ref is depth=1
 		refs, err := r.parseCacheSchemaToRefs(cache.schema, prop, 1, selectProp)

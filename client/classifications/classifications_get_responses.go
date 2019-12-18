@@ -37,35 +37,30 @@ type ClassificationsGetReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *ClassificationsGetReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 200:
 		result := NewClassificationsGetOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	case 401:
 		result := NewClassificationsGetUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 403:
 		result := NewClassificationsGetForbidden()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 404:
 		result := NewClassificationsGetNotFound()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 500:
 		result := NewClassificationsGetInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -93,6 +88,10 @@ type ClassificationsGetOK struct {
 
 func (o *ClassificationsGetOK) Error() string {
 	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetOK  %+v", 200, o.Payload)
+}
+
+func (o *ClassificationsGetOK) GetPayload() *models.Classification {
+	return o.Payload
 }
 
 func (o *ClassificationsGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -145,6 +144,10 @@ func (o *ClassificationsGetForbidden) Error() string {
 	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetForbidden  %+v", 403, o.Payload)
 }
 
+func (o *ClassificationsGetForbidden) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *ClassificationsGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -193,6 +196,10 @@ type ClassificationsGetInternalServerError struct {
 
 func (o *ClassificationsGetInternalServerError) Error() string {
 	return fmt.Sprintf("[GET /classifications/{id}][%d] classificationsGetInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *ClassificationsGetInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *ClassificationsGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

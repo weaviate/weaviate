@@ -279,6 +279,23 @@ var valueExtractors [](func(args map[string]interface{}) (*filters.Value, error)
 			Value: val,
 		}, nil
 	},
+	// Strings as Text
+	func(args map[string]interface{}) (*filters.Value, error) {
+		rawVal, ok := args["valueText"]
+		if !ok {
+			return nil, nil
+		}
+
+		val, ok := rawVal.(string)
+		if !ok {
+			return nil, fmt.Errorf("the provided valueText is not a string")
+		}
+
+		return &filters.Value{
+			Type:  schema.DataTypeText,
+			Value: val,
+		}, nil
+	},
 	func(args map[string]interface{}) (*filters.Value, error) {
 		rawVal, ok := args["valueGeoRange"]
 		if !ok {

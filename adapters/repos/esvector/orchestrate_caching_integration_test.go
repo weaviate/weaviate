@@ -41,7 +41,7 @@ func Test_OrchestrateCaching(t *testing.T) {
 	require.Nil(t, err)
 	schemaGetter := &fakeSchemaGetter{schema: parkingGaragesSchema()}
 	logger := logrus.New()
-	repo := NewRepo(client, logger, schemaGetter, 2, 1, "0-1")
+	repo := NewRepo(client, logger, schemaGetter, 2, 100, 1, "0-1")
 	waitForEsToBeReady(t, repo)
 	requestCounter := &testCounter{}
 	repo.requestCounter = requestCounter

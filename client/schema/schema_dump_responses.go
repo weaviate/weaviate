@@ -39,28 +39,24 @@ type SchemaDumpReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *SchemaDumpReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 200:
 		result := NewSchemaDumpOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	case 401:
 		result := NewSchemaDumpUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 403:
 		result := NewSchemaDumpForbidden()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 500:
 		result := NewSchemaDumpInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -88,6 +84,10 @@ type SchemaDumpOK struct {
 
 func (o *SchemaDumpOK) Error() string {
 	return fmt.Sprintf("[GET /schema][%d] schemaDumpOK  %+v", 200, o.Payload)
+}
+
+func (o *SchemaDumpOK) GetPayload() *SchemaDumpOKBody {
+	return o.Payload
 }
 
 func (o *SchemaDumpOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -140,6 +140,10 @@ func (o *SchemaDumpForbidden) Error() string {
 	return fmt.Sprintf("[GET /schema][%d] schemaDumpForbidden  %+v", 403, o.Payload)
 }
 
+func (o *SchemaDumpForbidden) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *SchemaDumpForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -167,6 +171,10 @@ type SchemaDumpInternalServerError struct {
 
 func (o *SchemaDumpInternalServerError) Error() string {
 	return fmt.Sprintf("[GET /schema][%d] schemaDumpInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *SchemaDumpInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *SchemaDumpInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

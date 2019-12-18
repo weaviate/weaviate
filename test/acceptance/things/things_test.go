@@ -28,6 +28,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+	testhelper "github.com/semi-technologies/weaviate/test/helper"
 )
 
 // run from setup_test.go
@@ -71,7 +72,7 @@ func creatingThings(t *testing.T) {
 		})
 
 		// wait for the thing to be created
-		helper.AssertEventuallyEqual(t, id, func() interface{} {
+		testhelper.AssertEventuallyEqual(t, id, func() interface{} {
 			thing, err := helper.Client(t).Things.ThingsGet(things.NewThingsGetParams().WithID(id), nil)
 			if err != nil {
 				return nil

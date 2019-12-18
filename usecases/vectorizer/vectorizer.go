@@ -48,7 +48,6 @@ func (v *Vectorizer) SetIndexChecker(ic IndexCheck) {
 
 // Thing object to vector
 func (v *Vectorizer) Thing(ctx context.Context, object *models.Thing) ([]float32, error) {
-
 	return v.object(ctx, object.Class, object.Schema)
 }
 
