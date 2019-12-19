@@ -48,9 +48,9 @@ func JSONNumberResolver(p graphql.ResolveParams) (interface{}, error) {
 
 	case aggregation.Text:
 		switch p.Info.FieldName {
-		case "count":
-			// TODO gh-974: Support Count in text aggregations
-			return nil, nil
+		// case "count":
+		// 	// TODO gh-974: Support Count in text aggregations
+		// 	return nil, nil
 
 		default:
 			return nil, fmt.Errorf("fieldName '%s' does not match text aggregation", p.Info.FieldName)
