@@ -32,7 +32,10 @@ type Property struct {
 	ReferenceAggregation  Reference
 }
 
-type Text []TextOccurrence
+type Text struct {
+	Items []TextOccurrence
+	Count int
+}
 
 type PropertyType string
 

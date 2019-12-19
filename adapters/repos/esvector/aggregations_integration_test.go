@@ -319,25 +319,28 @@ func testNumericalAggregationsWithGrouping(repo *Repo) func(t *testing.T) {
 							"location": aggregation.Property{
 								Type: aggregation.PropertyTypeText,
 								TextAggregation: aggregation.Text{
-									aggregation.TextOccurrence{
-										Value:  "Atlanta",
-										Occurs: 2,
-									},
-									aggregation.TextOccurrence{
-										Value:  "Detroit",
-										Occurs: 1,
-									},
-									aggregation.TextOccurrence{
-										Value:  "Los Angeles",
-										Occurs: 1,
-									},
-									aggregation.TextOccurrence{
-										Value:  "New York",
-										Occurs: 1,
-									},
-									aggregation.TextOccurrence{
-										Value:  "San Francisco",
-										Occurs: 1,
+									Count: 6,
+									Items: []aggregation.TextOccurrence{
+										aggregation.TextOccurrence{
+											Value:  "Atlanta",
+											Occurs: 2,
+										},
+										aggregation.TextOccurrence{
+											Value:  "Detroit",
+											Occurs: 1,
+										},
+										aggregation.TextOccurrence{
+											Value:  "Los Angeles",
+											Occurs: 1,
+										},
+										aggregation.TextOccurrence{
+											Value:  "New York",
+											Occurs: 1,
+										},
+										aggregation.TextOccurrence{
+											Value:  "San Francisco",
+											Occurs: 1,
+										},
 									},
 								},
 							},
@@ -387,13 +390,16 @@ func testNumericalAggregationsWithGrouping(repo *Repo) func(t *testing.T) {
 							"location": aggregation.Property{
 								Type: aggregation.PropertyTypeText,
 								TextAggregation: aggregation.Text{
-									aggregation.TextOccurrence{
-										Value:  "New York",
-										Occurs: 2,
-									},
-									aggregation.TextOccurrence{
-										Value:  "San Francisco",
-										Occurs: 1,
+									Count: 3,
+									Items: []aggregation.TextOccurrence{
+										aggregation.TextOccurrence{
+											Value:  "New York",
+											Occurs: 2,
+										},
+										aggregation.TextOccurrence{
+											Value:  "San Francisco",
+											Occurs: 1,
+										},
 									},
 								},
 							},
@@ -568,25 +574,28 @@ func testNumericalAggregationsWithoutGrouping(repo *Repo) func(t *testing.T) {
 							"location": aggregation.Property{
 								Type: aggregation.PropertyTypeText,
 								TextAggregation: aggregation.Text{
-									aggregation.TextOccurrence{
-										Value:  "New York",
-										Occurs: 3,
-									},
-									aggregation.TextOccurrence{
-										Value:  "Atlanta",
-										Occurs: 2,
-									},
-									aggregation.TextOccurrence{
-										Value:  "San Francisco",
-										Occurs: 2,
-									},
-									aggregation.TextOccurrence{
-										Value:  "Detroit",
-										Occurs: 1,
-									},
-									aggregation.TextOccurrence{
-										Value:  "Los Angeles",
-										Occurs: 1,
+									Count: 9,
+									Items: []aggregation.TextOccurrence{
+										aggregation.TextOccurrence{
+											Value:  "New York",
+											Occurs: 3,
+										},
+										aggregation.TextOccurrence{
+											Value:  "Atlanta",
+											Occurs: 2,
+										},
+										aggregation.TextOccurrence{
+											Value:  "San Francisco",
+											Occurs: 2,
+										},
+										aggregation.TextOccurrence{
+											Value:  "Detroit",
+											Occurs: 1,
+										},
+										aggregation.TextOccurrence{
+											Value:  "Los Angeles",
+											Occurs: 1,
+										},
 									},
 								},
 							},
