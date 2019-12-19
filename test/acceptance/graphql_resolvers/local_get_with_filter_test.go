@@ -14,9 +14,9 @@
 package test
 
 import (
+	"encoding/json"
 	"testing"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 	"github.com/stretchr/testify/assert"
 )
@@ -113,14 +113,13 @@ func gettingObjectsWithFilters(t *testing.T) {
 			}
 		`
 		result := AssertGraphQL(t, helper.RootAuth, query)
-		spew.Dump(result)
 		cityMeta := result.Get("Aggregate", "Things", "City").AsSlice()[0]
 
 		expected := map[string]interface{}{
 			"__typename": "AggregateCity",
 			"name": map[string]interface{}{
 				"__typename": "AggregateCitynameObj",
-				"count":      nil, // TODO: fix in gh-974
+				"count":      json.Number("2"),
 			},
 		}
 
