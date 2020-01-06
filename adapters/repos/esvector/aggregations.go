@@ -110,7 +110,7 @@ func innerAggs(properties []traverser.AggregateProperty, includeCount bool) (map
 			// this is a special case as, we only need to do a single aggregation no
 			// matter if one or all boolean aggregators are set, therefore we're not
 			// iterating over all aggregators, but merely checking for their presence
-			inner[aggName(property.Name, "boolean")] = aggValueBoolean(property.Name)
+			inner[aggName(property.Name, traverser.Aggregator{Type: "boolean"})] = aggValueBoolean(property.Name)
 
 			// additionally, we know that a boolean prop cannot contain any
 			// non-boolean aggregators, so it's safe to consider this property
