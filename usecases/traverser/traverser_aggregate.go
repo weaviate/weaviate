@@ -61,6 +61,7 @@ type AggregateParams struct {
 	Properties       []AggregateProperty
 	GroupBy          *filters.Path
 	IncludeMetaCount bool
+	Limit            *int
 }
 
 // Aggregator is the desired computation that the database connector
