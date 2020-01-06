@@ -85,6 +85,11 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 			return nil, fmt.Errorf("could not extract groupBy path: %s", err)
 		}
 
+		limit, err := extractLimit(p.Args)
+		if err != nil {
+			return nil, fmt.Errorf("could not extract limits: %s", err)
+		}
+
 		filters, err := common_filters.ExtractFilters(p.Args, p.Info.FieldName)
 		if err != nil {
 			return nil, fmt.Errorf("could not extract filters: %s", err)
@@ -116,6 +121,7 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 			GroupBy:          groupBy,
 			Analytics:        analytics,
 			IncludeMetaCount: includeMeta,
+			Limit:            limit,
 		}
 
 		res, err := resolver.Aggregate(p.Context, principalFromContext(p.Context), params)
@@ -217,4 +223,19 @@ func principalFromContext(ctx context.Context) *models.Principal {
 	}
 
 	return principal.(*models.Principal)
+}
+
+func extractLimit(args map[string]interface{}) (*int, error) {
+	limit, ok := args["limit"]
+	if !ok {
+		// not set means the user is not intersted and the UC should use a reasonable default
+		return nil, nil
+	}
+
+	limitInt, ok := limit.(int)
+	if !ok {
+		return nil, fmt.Errorf("limit must be a int, instead got: %#v", limit)
+	}
+
+	return &limitInt, nil
 }

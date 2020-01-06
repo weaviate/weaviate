@@ -63,8 +63,14 @@ func (r *Repo) Aggregate(ctx context.Context, params traverser.AggregateParams) 
 
 func aggBody(query map[string]interface{}, params traverser.AggregateParams) (map[string]interface{}, error) {
 	var includeCount bool
+
 	if params.GroupBy == nil && params.IncludeMetaCount == true {
 		includeCount = true
+	}
+
+	var limit = 100 // default or overwrite if set
+	if params.Limit != nil {
+		limit = *params.Limit
 	}
 
 	inner, err := innerAggs(params.Properties, includeCount)
@@ -80,7 +86,7 @@ func aggBody(query map[string]interface{}, params traverser.AggregateParams) (ma
 			"outer": map[string]interface{}{
 				"terms": map[string]interface{}{
 					"field": params.GroupBy.Property,
-					"size":  100,
+					"size":  limit,
 				},
 				"aggs": inner,
 			},
