@@ -63,8 +63,14 @@ func (r *Repo) Aggregate(ctx context.Context, params traverser.AggregateParams) 
 
 func aggBody(query map[string]interface{}, params traverser.AggregateParams) (map[string]interface{}, error) {
 	var includeCount bool
+
 	if params.GroupBy == nil && params.IncludeMetaCount == true {
 		includeCount = true
+	}
+
+	var limit = 100 // default or overwrite if set
+	if params.Limit != nil {
+		limit = *params.Limit
 	}
 
 	inner, err := innerAggs(params.Properties, includeCount)
@@ -80,7 +86,7 @@ func aggBody(query map[string]interface{}, params traverser.AggregateParams) (ma
 			"outer": map[string]interface{}{
 				"terms": map[string]interface{}{
 					"field": params.GroupBy.Property,
-					"size":  100,
+					"size":  limit,
 				},
 				"aggs": inner,
 			},
@@ -104,7 +110,7 @@ func innerAggs(properties []traverser.AggregateProperty, includeCount bool) (map
 			// this is a special case as, we only need to do a single aggregation no
 			// matter if one or all boolean aggregators are set, therefore we're not
 			// iterating over all aggregators, but merely checking for their presence
-			inner[aggName(property.Name, "boolean")] = aggValueBoolean(property.Name)
+			inner[aggName(property.Name, traverser.Aggregator{Type: "boolean"})] = aggValueBoolean(property.Name)
 
 			// additionally, we know that a boolean prop cannot contain any
 			// non-boolean aggregators, so it's safe to consider this property
@@ -174,20 +180,20 @@ func lookupAgg(input traverser.Aggregator) (string, error) {
 }
 
 func aggValue(prop schema.PropertyName, agg traverser.Aggregator) (map[string]interface{}, error) {
-	switch agg {
+	switch agg.String() {
 
-	case traverser.TypeAggregator, traverser.PointingToAggregator:
+	case traverser.TypeAggregator.String(), traverser.PointingToAggregator.String():
 		// handled outside of the repo
 		return nil, nil
 
-	case traverser.ModeAggregator:
+	case traverser.ModeAggregator.String():
 		return aggValueMode(prop), nil
 
-	case traverser.MedianAggregator:
+	case traverser.MedianAggregator.String():
 		return aggValueMedian(prop), nil
 
-	case traverser.TopOccurrencesAggregator:
-		return aggValueTopOccurrences(prop, 5), nil
+	case traverser.NewTopOccurrencesAggregator(nil).String():
+		return aggValueTopOccurrences(prop, *agg.Limit), nil
 
 	default:
 		esAgg, err := lookupAgg(agg)

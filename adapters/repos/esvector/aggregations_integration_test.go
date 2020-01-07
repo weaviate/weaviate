@@ -264,7 +264,7 @@ func testNumericalAggregationsWithGrouping(repo *Repo) func(t *testing.T) {
 						Name: schema.PropertyName("location"),
 						Aggregators: []traverser.Aggregator{
 							traverser.TypeAggregator,
-							traverser.TopOccurrencesAggregator,
+							traverser.NewTopOccurrencesAggregator(ptInt(5)),
 						},
 					},
 				},
@@ -516,7 +516,7 @@ func testNumericalAggregationsWithoutGrouping(repo *Repo) func(t *testing.T) {
 					traverser.AggregateProperty{
 						Name: schema.PropertyName("location"),
 						Aggregators: []traverser.Aggregator{
-							traverser.TopOccurrencesAggregator,
+							traverser.NewTopOccurrencesAggregator(ptInt(5)),
 						},
 					},
 					traverser.AggregateProperty{
@@ -607,4 +607,8 @@ func testNumericalAggregationsWithoutGrouping(repo *Repo) func(t *testing.T) {
 			assert.Equal(t, expectedResult.Groups, res.Groups)
 		})
 	}
+}
+
+func ptInt(in int) *int {
+	return &in
 }

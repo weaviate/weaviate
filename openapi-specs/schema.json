@@ -989,7 +989,7 @@
     },
     "description": "Open Source Knowledge Graph (GraphQL/RESTful/P2P)",
     "title": "Weaviate",
-    "version": "0.21.7"
+    "version": "0.21.8"
   },
   "parameters": {
     "CommonLimitParameterQuery": {

@@ -47,7 +47,7 @@ func Test_Traverser_Aggregate(t *testing.T) {
 			Properties: []AggregateProperty{
 				AggregateProperty{
 					Name:        "label",
-					Aggregators: []Aggregator{TopOccurrencesAggregator},
+					Aggregators: []Aggregator{NewTopOccurrencesAggregator(nil)},
 				},
 				AggregateProperty{
 					Name:        "number",
@@ -59,7 +59,7 @@ func Test_Traverser_Aggregate(t *testing.T) {
 				},
 				AggregateProperty{
 					Name:        "date",
-					Aggregators: []Aggregator{TopOccurrencesAggregator},
+					Aggregators: []Aggregator{NewTopOccurrencesAggregator(nil)},
 				},
 			},
 		}
@@ -132,7 +132,7 @@ func Test_Traverser_Aggregate(t *testing.T) {
 			Properties: []AggregateProperty{
 				AggregateProperty{
 					Name:        "label",
-					Aggregators: []Aggregator{TypeAggregator, TopOccurrencesAggregator},
+					Aggregators: []Aggregator{TypeAggregator, NewTopOccurrencesAggregator(nil)},
 				},
 				AggregateProperty{
 					Name:        "number",
@@ -144,7 +144,7 @@ func Test_Traverser_Aggregate(t *testing.T) {
 				},
 				AggregateProperty{
 					Name:        "date",
-					Aggregators: []Aggregator{TypeAggregator, TopOccurrencesAggregator},
+					Aggregators: []Aggregator{TypeAggregator, NewTopOccurrencesAggregator(nil)},
 				},
 				AggregateProperty{
 					Name:        "a ref",

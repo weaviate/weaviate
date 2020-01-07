@@ -34,6 +34,7 @@ type testCase struct {
 	expectedGroupBy          *filters.Path
 	expectedWhereFilter      *filters.LocalFilter
 	expectedIncludeMetaCount bool
+	expectedLimit            *int
 }
 
 type testCases []testCase
@@ -59,7 +60,7 @@ func Test_Resolve(t *testing.T) {
 
 	tests := testCases{
 		testCase{
-			name: "for gh-758",
+			name: "for gh-758 (multiple operands)",
 			query: `
 			{
 					Aggregate {
@@ -180,6 +181,39 @@ func Test_Resolve(t *testing.T) {
 			}},
 		},
 		testCase{
+			name:  "setting limits overall",
+			query: `{ Aggregate { Things { Car(limit:20) { horsepower { mean } } } } }`,
+			expectedProps: []traverser.AggregateProperty{
+				{
+					Name:        "horsepower",
+					Aggregators: []traverser.Aggregator{traverser.MeanAggregator},
+				},
+			},
+			resolverReturn: []aggregation.Group{
+				aggregation.Group{
+					Properties: map[string]aggregation.Property{
+						"horsepower": aggregation.Property{
+							Type: aggregation.PropertyTypeNumerical,
+							NumericalAggregations: map[string]float64{
+								"mean": 275.7773,
+							},
+						},
+					},
+				},
+			},
+
+			expectedGroupBy: nil,
+			expectedLimit:   ptInt(20),
+			expectedResults: []result{{
+				pathToField: []string{"Aggregate", "Things", "Car"},
+				expectedValue: []interface{}{
+					map[string]interface{}{
+						"horsepower": map[string]interface{}{"mean": 275.7773},
+					},
+				},
+			}},
+		},
+		testCase{
 			name: "with props formerly contained only in Meta",
 			query: `{ Aggregate { Things { Car { 
 				stillInProduction { type count totalTrue percentageTrue totalFalse percentageFalse } 
@@ -205,7 +239,7 @@ func Test_Resolve(t *testing.T) {
 					Aggregators: []traverser.Aggregator{
 						traverser.TypeAggregator,
 						traverser.CountAggregator,
-						traverser.TopOccurrencesAggregator,
+						traverser.NewTopOccurrencesAggregator(ptInt(5)),
 					},
 				},
 				{
@@ -292,6 +326,64 @@ func Test_Resolve(t *testing.T) {
 						},
 						"meta": map[string]interface{}{
 							"count": 10,
+						},
+					},
+				},
+			}},
+		},
+		testCase{
+			name: "with custom limit in topOccurrences",
+			query: `{ Aggregate { Things { Car { 
+				modelName { topOccurrences(limit: 7) { value occurs } } 
+				} } } } `,
+			expectedProps: []traverser.AggregateProperty{
+				{
+					Name: "modelName",
+					Aggregators: []traverser.Aggregator{
+						traverser.NewTopOccurrencesAggregator(ptInt(7)),
+					},
+				},
+			},
+			resolverReturn: []aggregation.Group{
+				aggregation.Group{
+					Count: 10,
+					Properties: map[string]aggregation.Property{
+						"modelName": aggregation.Property{
+							SchemaType: "string",
+							Type:       aggregation.PropertyTypeText,
+							TextAggregation: aggregation.Text{
+								Items: []aggregation.TextOccurrence{
+									aggregation.TextOccurrence{
+										Value:  "fastcar",
+										Occurs: 39,
+									},
+									aggregation.TextOccurrence{
+										Value:  "slowcar",
+										Occurs: 1,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+
+			expectedGroupBy: nil,
+			expectedResults: []result{{
+				pathToField: []string{"Aggregate", "Things", "Car"},
+				expectedValue: []interface{}{
+					map[string]interface{}{
+						"modelName": map[string]interface{}{
+							"topOccurrences": []interface{}{
+								map[string]interface{}{
+									"value":  "fastcar",
+									"occurs": 39,
+								},
+								map[string]interface{}{
+									"value":  "slowcar",
+									"occurs": 1,
+								},
+							},
 						},
 					},
 				},
@@ -547,6 +639,7 @@ func (tests testCases) AssertExtraction(t *testing.T, k kind.Kind, className str
 				GroupBy:          testCase.expectedGroupBy,
 				Filters:          testCase.expectedWhereFilter,
 				IncludeMetaCount: testCase.expectedIncludeMetaCount,
+				Limit:            testCase.expectedLimit,
 			}
 
 			resolver.On("Aggregate", expectedParams).
@@ -561,4 +654,8 @@ func (tests testCases) AssertExtraction(t *testing.T, k kind.Kind, className str
 			}
 		})
 	}
+}
+
+func ptInt(in int) *int {
+	return &in
 }
