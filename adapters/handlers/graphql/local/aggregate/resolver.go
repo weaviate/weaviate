@@ -17,6 +17,7 @@ package aggregate
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
@@ -195,6 +196,13 @@ func extractAggregators(selections *ast.SelectionSet) ([]traverser.Aggregator, e
 			return nil, err
 		}
 
+		if property.String() == traverser.NewTopOccurrencesAggregator(nil).String() {
+			// a top occurrence, so we need to check if we have a limit argument
+			if overwrite := extractLimitFromArgs(field.Arguments); overwrite != nil {
+				property.Limit = overwrite
+			}
+		}
+
 		analyses = append(analyses, property)
 	}
 
@@ -238,4 +246,22 @@ func extractLimit(args map[string]interface{}) (*int, error) {
 	}
 
 	return &limitInt, nil
+}
+
+func extractLimitFromArgs(args []*ast.Argument) *int {
+
+	for _, arg := range args {
+		if arg.Name.Value != "limit" {
+			continue
+		}
+
+		v, ok := arg.Value.GetValue().(string)
+		if ok {
+			asInt, _ := strconv.Atoi(v)
+			return &asInt
+		}
+
+	}
+
+	return nil
 }

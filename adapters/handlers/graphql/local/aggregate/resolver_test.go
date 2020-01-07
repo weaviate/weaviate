@@ -332,6 +332,64 @@ func Test_Resolve(t *testing.T) {
 			}},
 		},
 		testCase{
+			name: "with custom limit in topOccurrences",
+			query: `{ Aggregate { Things { Car { 
+				modelName { topOccurrences(limit: 7) { value occurs } } 
+				} } } } `,
+			expectedProps: []traverser.AggregateProperty{
+				{
+					Name: "modelName",
+					Aggregators: []traverser.Aggregator{
+						traverser.NewTopOccurrencesAggregator(ptInt(7)),
+					},
+				},
+			},
+			resolverReturn: []aggregation.Group{
+				aggregation.Group{
+					Count: 10,
+					Properties: map[string]aggregation.Property{
+						"modelName": aggregation.Property{
+							SchemaType: "string",
+							Type:       aggregation.PropertyTypeText,
+							TextAggregation: aggregation.Text{
+								Items: []aggregation.TextOccurrence{
+									aggregation.TextOccurrence{
+										Value:  "fastcar",
+										Occurs: 39,
+									},
+									aggregation.TextOccurrence{
+										Value:  "slowcar",
+										Occurs: 1,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+
+			expectedGroupBy: nil,
+			expectedResults: []result{{
+				pathToField: []string{"Aggregate", "Things", "Car"},
+				expectedValue: []interface{}{
+					map[string]interface{}{
+						"modelName": map[string]interface{}{
+							"topOccurrences": []interface{}{
+								map[string]interface{}{
+									"value":  "fastcar",
+									"occurs": 39,
+								},
+								map[string]interface{}{
+									"value":  "slowcar",
+									"occurs": 1,
+								},
+							},
+						},
+					},
+				},
+			}},
+		},
+		testCase{
 			name:  "single prop: mean (with type)",
 			query: `{ Aggregate { Things { Car(groupBy:["madeBy", "Manufacturer", "name"]) { horsepower { mean type } } } } }`,
 			expectedProps: []traverser.AggregateProperty{
