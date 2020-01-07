@@ -165,7 +165,7 @@ func parseAggBucketsPayload(input map[string]interface{}, groupedValue interface
 			switch aggregator {
 			case "boolean":
 				err = addBooleanAggregationsToBucket(&bucket, value, outsideCount)
-			case string(traverser.TopOccurrencesAggregator):
+			case traverser.NewTopOccurrencesAggregator(nil).String():
 				err = addTextAggregationsToBucket(&bucket, value, outsideCount)
 			default:
 				// numerical
@@ -215,7 +215,7 @@ func addNumericalAggregationsToBucket(bucket *aggregationBucket, aggregator stri
 		return err
 	}
 
-	if outsideCount == nil && aggregator == string(traverser.CountAggregator) {
+	if outsideCount == nil && aggregator == traverser.CountAggregator.String() {
 		// this would be the case in an ungrouped aggregation, we need to
 		// extract the count manually
 		bucket.count = int(av.value.(float64))
@@ -232,9 +232,9 @@ func extractNumericalAggregatorAndValue(aggregator string, value interface{}) (a
 	)
 
 	switch aggregator {
-	case string(traverser.ModeAggregator):
+	case traverser.ModeAggregator.String():
 		parsed, err = parseAggBucketPropertyValueAsMode(value)
-	case string(traverser.MedianAggregator):
+	case traverser.MedianAggregator.String():
 		parsed, err = parseAggBucketPropertyValueAsMedian(value)
 	default:
 		parsed, err = parseAggBucketPropertyValue(value)

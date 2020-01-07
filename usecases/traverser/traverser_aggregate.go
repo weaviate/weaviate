@@ -61,44 +61,55 @@ type AggregateParams struct {
 	Properties       []AggregateProperty
 	GroupBy          *filters.Path
 	IncludeMetaCount bool
+	Limit            *int
 }
 
 // Aggregator is the desired computation that the database connector
 // should perform on this property
-type Aggregator string
+type Aggregator struct {
+	Type  string
+	Limit *int // used on TopOccurrence Agg
+}
+
+func (a Aggregator) String() string {
+	return a.Type
+}
 
 // Aggreators used in every prop
-const (
-	CountAggregator Aggregator = "count"
-	TypeAggregator  Aggregator = "type"
+var (
+	CountAggregator = Aggregator{Type: "count"}
+	TypeAggregator  = Aggregator{Type: "type"}
 )
 
 // Aggregators used in numerical props
-const (
-	SumAggregator     Aggregator = "sum"
-	MeanAggregator    Aggregator = "mean"
-	ModeAggregator    Aggregator = "mode"
-	MedianAggregator  Aggregator = "median"
-	MaximumAggregator Aggregator = "maximum"
-	MinimumAggregator Aggregator = "minimum"
+var (
+	SumAggregator     = Aggregator{Type: "sum"}
+	MeanAggregator    = Aggregator{Type: "mean"}
+	ModeAggregator    = Aggregator{Type: "mode"}
+	MedianAggregator  = Aggregator{Type: "median"}
+	MaximumAggregator = Aggregator{Type: "maximum"}
+	MinimumAggregator = Aggregator{Type: "minimum"}
 )
 
 // Aggregators used in boolean props
-const (
-	TotalTrueAggregator       Aggregator = "totalTrue"
-	PercentageTrueAggregator  Aggregator = "percentageTrue"
-	TotalFalseAggregator      Aggregator = "totalFalse"
-	PercentageFalseAggregator Aggregator = "percentageFalse"
+var (
+	TotalTrueAggregator       = Aggregator{Type: "totalTrue"}
+	PercentageTrueAggregator  = Aggregator{Type: "percentageTrue"}
+	TotalFalseAggregator      = Aggregator{Type: "totalFalse"}
+	PercentageFalseAggregator = Aggregator{Type: "percentageFalse"}
 )
 
-// Aggregators used in string props
-const (
-	TopOccurrencesAggregator Aggregator = "topOccurrences"
-)
+const topOccurrencesType = "topOccurrences"
+
+// NewTopOccurrencesAggregator creates a TopOccurrencesAggregator, we cannot
+// use a singleton for this as the desired limit can be different each time
+func NewTopOccurrencesAggregator(limit *int) Aggregator {
+	return Aggregator{Type: topOccurrencesType, Limit: limit}
+}
 
 // Aggregators used in ref props
-const (
-	PointingToAggregator Aggregator = "pointingTo"
+var (
+	PointingToAggregator = Aggregator{Type: "pointingTo"}
 )
 
 // AggregateProperty is any property of a class that we want to retrieve meta
@@ -142,44 +153,48 @@ func ParseAggregatorProp(name string) (Aggregator, error) {
 	switch name {
 
 	// common
-	case string(CountAggregator):
+	case CountAggregator.String():
 		return CountAggregator, nil
-	case string(TypeAggregator):
+	case TypeAggregator.String():
 		return TypeAggregator, nil
 
 	// numerical
-	case string(MeanAggregator):
+	case MeanAggregator.String():
 		return MeanAggregator, nil
-	case string(MedianAggregator):
+	case MedianAggregator.String():
 		return MedianAggregator, nil
-	case string(ModeAggregator):
+	case ModeAggregator.String():
 		return ModeAggregator, nil
-	case string(MaximumAggregator):
+	case MaximumAggregator.String():
 		return MaximumAggregator, nil
-	case string(MinimumAggregator):
+	case MinimumAggregator.String():
 		return MinimumAggregator, nil
-	case string(SumAggregator):
+	case SumAggregator.String():
 		return SumAggregator, nil
 
 	// boolean
-	case string(TotalTrueAggregator):
+	case TotalTrueAggregator.String():
 		return TotalTrueAggregator, nil
-	case string(TotalFalseAggregator):
+	case TotalFalseAggregator.String():
 		return TotalFalseAggregator, nil
-	case string(PercentageTrueAggregator):
+	case PercentageTrueAggregator.String():
 		return PercentageTrueAggregator, nil
-	case string(PercentageFalseAggregator):
+	case PercentageFalseAggregator.String():
 		return PercentageFalseAggregator, nil
 
 	// string/text
-	case string(TopOccurrencesAggregator):
-		return TopOccurrencesAggregator, nil
+	case topOccurrencesType:
+		return NewTopOccurrencesAggregator(ptInt(5)), nil // default to limit 5, can be overwritten
 
 	// ref
-	case string(PointingToAggregator):
+	case PointingToAggregator.String():
 		return PointingToAggregator, nil
 
 	default:
-		return "", fmt.Errorf("unrecognized aggregator prop '%s'", name)
+		return Aggregator{}, fmt.Errorf("unrecognized aggregator prop '%s'", name)
 	}
+}
+
+func ptInt(in int) *int {
+	return &in
 }
