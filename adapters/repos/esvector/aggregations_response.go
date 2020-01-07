@@ -165,7 +165,7 @@ func parseAggBucketsPayload(input map[string]interface{}, groupedValue interface
 			switch aggregator {
 			case "boolean":
 				err = addBooleanAggregationsToBucket(&bucket, value, outsideCount)
-			case traverser.TopOccurrencesAggregator.String():
+			case traverser.NewTopOccurrencesAggregator(nil).String():
 				err = addTextAggregationsToBucket(&bucket, value, outsideCount)
 			default:
 				// numerical
