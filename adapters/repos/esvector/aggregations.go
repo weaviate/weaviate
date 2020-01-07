@@ -180,20 +180,20 @@ func lookupAgg(input traverser.Aggregator) (string, error) {
 }
 
 func aggValue(prop schema.PropertyName, agg traverser.Aggregator) (map[string]interface{}, error) {
-	switch agg {
+	switch agg.String() {
 
-	case traverser.TypeAggregator, traverser.PointingToAggregator:
+	case traverser.TypeAggregator.String(), traverser.PointingToAggregator.String():
 		// handled outside of the repo
 		return nil, nil
 
-	case traverser.ModeAggregator:
+	case traverser.ModeAggregator.String():
 		return aggValueMode(prop), nil
 
-	case traverser.MedianAggregator:
+	case traverser.MedianAggregator.String():
 		return aggValueMedian(prop), nil
 
-	case traverser.TopOccurrencesAggregator:
-		return aggValueTopOccurrences(prop, 5), nil
+	case traverser.NewTopOccurrencesAggregator(nil).String():
+		return aggValueTopOccurrences(prop, *agg.Limit), nil
 
 	default:
 		esAgg, err := lookupAgg(agg)

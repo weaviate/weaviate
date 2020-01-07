@@ -99,10 +99,13 @@ var (
 	PercentageFalseAggregator = Aggregator{Type: "percentageFalse"}
 )
 
-// Aggregators used in string props
-var (
-	TopOccurrencesAggregator = Aggregator{Type: "topOccurrences"}
-)
+const topOccurrencesType = "topOccurrences"
+
+// NewTopOccurrencesAggregator creates a TopOccurrencesAggregator, we cannot
+// use a singleton for this as the desired limit can be different each time
+func NewTopOccurrencesAggregator(limit *int) Aggregator {
+	return Aggregator{Type: topOccurrencesType, Limit: limit}
+}
 
 // Aggregators used in ref props
 var (
@@ -180,8 +183,8 @@ func ParseAggregatorProp(name string) (Aggregator, error) {
 		return PercentageFalseAggregator, nil
 
 	// string/text
-	case TopOccurrencesAggregator.String():
-		return TopOccurrencesAggregator, nil
+	case topOccurrencesType:
+		return NewTopOccurrencesAggregator(ptInt(5)), nil // default to limit 5, can be overwritten
 
 	// ref
 	case PointingToAggregator.String():
@@ -190,4 +193,8 @@ func ParseAggregatorProp(name string) (Aggregator, error) {
 	default:
 		return Aggregator{}, fmt.Errorf("unrecognized aggregator prop '%s'", name)
 	}
+}
+
+func ptInt(in int) *int {
+	return &in
 }

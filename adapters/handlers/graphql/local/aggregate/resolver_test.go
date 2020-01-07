@@ -239,7 +239,7 @@ func Test_Resolve(t *testing.T) {
 					Aggregators: []traverser.Aggregator{
 						traverser.TypeAggregator,
 						traverser.CountAggregator,
-						traverser.TopOccurrencesAggregator,
+						traverser.NewTopOccurrencesAggregator(ptInt(5)),
 					},
 				},
 				{
