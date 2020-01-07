@@ -17,6 +17,7 @@ package aggregate
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
@@ -85,6 +86,11 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 			return nil, fmt.Errorf("could not extract groupBy path: %s", err)
 		}
 
+		limit, err := extractLimit(p.Args)
+		if err != nil {
+			return nil, fmt.Errorf("could not extract limits: %s", err)
+		}
+
 		filters, err := common_filters.ExtractFilters(p.Args, p.Info.FieldName)
 		if err != nil {
 			return nil, fmt.Errorf("could not extract filters: %s", err)
@@ -116,6 +122,7 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 			GroupBy:          groupBy,
 			Analytics:        analytics,
 			IncludeMetaCount: includeMeta,
+			Limit:            limit,
 		}
 
 		res, err := resolver.Aggregate(p.Context, principalFromContext(p.Context), params)
@@ -189,6 +196,13 @@ func extractAggregators(selections *ast.SelectionSet) ([]traverser.Aggregator, e
 			return nil, err
 		}
 
+		if property.String() == traverser.NewTopOccurrencesAggregator(nil).String() {
+			// a top occurrence, so we need to check if we have a limit argument
+			if overwrite := extractLimitFromArgs(field.Arguments); overwrite != nil {
+				property.Limit = overwrite
+			}
+		}
+
 		analyses = append(analyses, property)
 	}
 
@@ -217,4 +231,37 @@ func principalFromContext(ctx context.Context) *models.Principal {
 	}
 
 	return principal.(*models.Principal)
+}
+
+func extractLimit(args map[string]interface{}) (*int, error) {
+	limit, ok := args["limit"]
+	if !ok {
+		// not set means the user is not intersted and the UC should use a reasonable default
+		return nil, nil
+	}
+
+	limitInt, ok := limit.(int)
+	if !ok {
+		return nil, fmt.Errorf("limit must be a int, instead got: %#v", limit)
+	}
+
+	return &limitInt, nil
+}
+
+func extractLimitFromArgs(args []*ast.Argument) *int {
+
+	for _, arg := range args {
+		if arg.Name.Value != "limit" {
+			continue
+		}
+
+		v, ok := arg.Value.GetValue().(string)
+		if ok {
+			asInt, _ := strconv.Atoi(v)
+			return &asInt
+		}
+
+	}
+
+	return nil
 }

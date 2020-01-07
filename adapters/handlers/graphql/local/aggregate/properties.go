@@ -270,12 +270,8 @@ func stringPropertyFields(class *models.Class,
 				return list, nil
 			}),
 			Args: graphql.FieldConfigArgument{
-				"first": &graphql.ArgumentConfig{
+				"limit": &graphql.ArgumentConfig{
 					Description: descriptions.First,
-					Type:        graphql.Int,
-				},
-				"after": &graphql.ArgumentConfig{
-					Description: descriptions.After,
 					Type:        graphql.Int,
 				},
 			},
