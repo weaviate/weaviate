@@ -2,6 +2,7 @@ module github.com/semi-technologies/weaviate
 
 require (
 	github.com/TylerBrock/colorjson v0.0.0-20180527164720-95ec53f28296
+	github.com/asaskevich/govalidator v0.0.0-20200108200545-475eaeb16496 // indirect
 	github.com/bmatcuk/doublestar v1.1.3
 	github.com/coreos/bbolt v1.3.3 // indirect
 	github.com/coreos/etcd v3.3.18+incompatible
@@ -22,6 +23,7 @@ require (
 	github.com/go-openapi/swag v0.19.6
 	github.com/go-openapi/validate v0.19.3
 	github.com/golang/groupcache v0.0.0-20191027212112-611e8accdfc9 // indirect
+	github.com/golang/snappy v0.0.1 // indirect
 	github.com/google/btree v1.0.0 // indirect
 	github.com/gorilla/mux v1.7.0
 	github.com/gorilla/websocket v1.2.0 // indirect
@@ -49,7 +51,7 @@ require (
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20190109142713-0ad062ec5ee5 // indirect
 	github.com/ugorji/go/codec v0.0.0-20190309163734-c4a1c341dc93
 	github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 // indirect
-	go.mongodb.org/mongo-driver v1.2.0 // indirect
+	go.mongodb.org/mongo-driver v1.2.1 // indirect
 	go.uber.org/zap v1.13.0 // indirect
 	golang.org/x/net v0.0.0-20191002035440-2ec189313ef0
 	golang.org/x/time v0.0.0-20191024005414-555d28b269f0 // indirect
