@@ -17,7 +17,7 @@ services:
       DEVELOPMENT_UI: "on"
       LOG_LEVEL: "debug"
   contextionary:
-    image: semitechnologies/contextionary:en0.10.0-v0.4.2-minimal
+    image: semitechnologies/contextionary:en0.10.0-v0.4.4-minimal
     ports:
       - "9999:9999"
     environment:
