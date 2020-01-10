@@ -2946,6 +2946,10 @@ func init() {
           "items": {
             "$ref": "#/definitions/Property"
           }
+        },
+        "vectorizeClassName": {
+          "description": "Set this to true if the object vector should include the class name in calculating the overall vector position",
+          "type": "boolean"
         }
       }
     },
@@ -3431,6 +3435,10 @@ func init() {
         "name": {
           "description": "Name of the property as URI relative to the schema URL.",
           "type": "string"
+        },
+        "vectorizePropertyName": {
+          "description": "Set this to true if the object vector should include this property's name in calculating the overall vector position. If set to false (default), only the property value will be used.",
+          "type": "boolean"
         }
       }
     },
@@ -6696,6 +6704,10 @@ func init() {
           "items": {
             "$ref": "#/definitions/Property"
           }
+        },
+        "vectorizeClassName": {
+          "description": "Set this to true if the object vector should include the class name in calculating the overall vector position",
+          "type": "boolean"
         }
       }
     },
@@ -7181,6 +7193,10 @@ func init() {
         "name": {
           "description": "Name of the property as URI relative to the schema URL.",
           "type": "string"
+        },
+        "vectorizePropertyName": {
+          "description": "Set this to true if the object vector should include this property's name in calculating the overall vector position. If set to false (default), only the property value will be used.",
+          "type": "boolean"
         }
       }
     },
