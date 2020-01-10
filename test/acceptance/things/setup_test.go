@@ -24,7 +24,8 @@ import (
 func Test_Things(t *testing.T) {
 	t.Run("setup", func(t *testing.T) {
 		createThingClass(t, &models.Class{
-			Class: "TestThing",
+			Class:              "TestThing",
+			VectorizeClassName: true,
 			Properties: []*models.Property{
 				&models.Property{
 					Name:     "testString",

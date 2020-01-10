@@ -61,7 +61,8 @@ func deleteThingClass(t *testing.T, class string) {
 
 func addTestSchema(t *testing.T) {
 	createThingClass(t, &models.Class{
-		Class: "Country",
+		Class:              "Country",
+		VectorizeClassName: true,
 		Properties: []*models.Property{
 			&models.Property{
 				Name:     "name",
@@ -71,7 +72,8 @@ func addTestSchema(t *testing.T) {
 	})
 
 	createThingClass(t, &models.Class{
-		Class: "City",
+		Class:              "City",
+		VectorizeClassName: true,
 		Properties: []*models.Property{
 			&models.Property{
 				Name:     "name",
@@ -93,7 +95,8 @@ func addTestSchema(t *testing.T) {
 	})
 
 	createThingClass(t, &models.Class{
-		Class: "Airport",
+		Class:              "Airport",
+		VectorizeClassName: true,
 		Properties: []*models.Property{
 			&models.Property{
 				Name:     "code",
