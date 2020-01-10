@@ -35,6 +35,8 @@ type client interface {
 // IndexCheck returns whether a property of a class should be indexed
 type IndexCheck interface {
 	Indexed(className, property string) bool
+	VectorizeClassName(className string) bool
+	VectorizePropertyName(className, propertyName string) bool
 }
 
 // New from c11y client
@@ -60,7 +62,10 @@ func (v *Vectorizer) Action(ctx context.Context, object *models.Action) ([]float
 func (v *Vectorizer) object(ctx context.Context, className string,
 	schema interface{}) ([]float32, error) {
 	var corpi []string
-	corpi = append(corpi, camelCaseToLower(className))
+
+	if v.indexCheck.VectorizeClassName(className) {
+		corpi = append(corpi, camelCaseToLower(className))
+	}
 
 	if schema != nil {
 		for prop, value := range schema.(map[string]interface{}) {
@@ -70,9 +75,13 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 
 			valueString, ok := value.(string)
 			if ok {
-				// use prop and value
-				corpi = append(corpi, strings.ToLower(
-					fmt.Sprintf("%s %s", camelCaseToLower(prop), valueString)))
+				if v.indexCheck.VectorizePropertyName(className, prop) {
+					// use prop and value
+					corpi = append(corpi, strings.ToLower(
+						fmt.Sprintf("%s %s", camelCaseToLower(prop), valueString)))
+				} else {
+					corpi = append(corpi, strings.ToLower(valueString))
+				}
 			}
 		}
 	}
