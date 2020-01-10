@@ -105,13 +105,33 @@ func testAddThingClass(t *testing.T, lsm *Manager) {
 	assert.NotContains(t, thingClasses, "Car")
 
 	err := lsm.AddThing(context.Background(), nil, &models.Class{
-		Class: "Car",
+		Class:              "Car",
+		VectorizeClassName: false,
 	})
 
 	assert.Nil(t, err)
 
 	thingClasses = testGetClassNames(lsm, kind.Thing)
 	assert.Contains(t, thingClasses, "Car")
+	assert.False(t, lsm.VectorizeClassName("Car"), "class name should be vectorized")
+}
+
+func testAddThingClassWithVectorizedName(t *testing.T, lsm *Manager) {
+	t.Parallel()
+
+	thingClasses := testGetClassNames(lsm, kind.Thing)
+	assert.NotContains(t, thingClasses, "Car")
+
+	err := lsm.AddThing(context.Background(), nil, &models.Class{
+		Class:              "Car",
+		VectorizeClassName: true,
+	})
+
+	assert.Nil(t, err)
+
+	thingClasses = testGetClassNames(lsm, kind.Thing)
+	assert.Contains(t, thingClasses, "Car")
+	assert.True(t, lsm.VectorizeClassName("Car"), "class name should be vectorized")
 }
 
 func testRemoveThingClass(t *testing.T, lsm *Manager) {
@@ -301,13 +321,19 @@ func testAddPropertyDuringCreation(t *testing.T, lsm *Manager) {
 
 	var properties []*models.Property = []*models.Property{
 		{
-			Name:     "color",
-			DataType: []string{"string"},
+			Name:                  "color",
+			DataType:              []string{"string"},
+			VectorizePropertyName: true,
 		},
 		{
 			Name:     "colorRaw",
 			DataType: []string{"string"},
 			Index:    pointerToFalse(),
+		},
+		{
+			Name:                  "content",
+			DataType:              []string{"string"},
+			VectorizePropertyName: false,
 		},
 	}
 
@@ -319,12 +345,16 @@ func testAddPropertyDuringCreation(t *testing.T, lsm *Manager) {
 
 	thingClasses := testGetClasses(lsm, kind.Thing)
 	require.Len(t, thingClasses, 1)
-	require.Len(t, thingClasses[0].Properties, 2)
+	require.Len(t, thingClasses[0].Properties, 3)
 	assert.Equal(t, thingClasses[0].Properties[0].Name, "color")
 	assert.Equal(t, thingClasses[0].Properties[0].DataType, []string{"string"})
 
 	assert.True(t, lsm.Indexed("Car", "color"), "color should be indexed")
 	assert.False(t, lsm.Indexed("Car", "colorRaw"), "color should not be indexed")
+
+	assert.True(t, lsm.VectorizePropertyName("Car", "color"), "color prop should be vectorized")
+	assert.False(t, lsm.VectorizePropertyName("Car", "content"), "content prop should not be vectorized")
+
 }
 
 func pointerToFalse() *bool {
