@@ -64,3 +64,11 @@ func (m *Manager) Indexed(className, propertyName string) bool {
 
 	return false
 }
+
+func (m *Manager) VectorizeClassName(class string) bool {
+	return true // for now TODO: gh-1062
+}
+
+func (m *Manager) VectorizePropertyName(class, property string) bool {
+	return true // for now TODO: gh-1062
+}
