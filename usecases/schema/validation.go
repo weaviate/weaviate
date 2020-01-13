@@ -43,7 +43,7 @@ func (m *Manager) validateClassNameUniqueness(className string) error {
 
 // Check that the format of the name is correct
 // Check that the name is acceptable according to the contextionary
-func (m *Manager) validateClassNameAndKeywords(ctx context.Context, knd kind.Kind, className string, keywords models.Keywords) error {
+func (m *Manager) validateClassNameAndKeywords(ctx context.Context, knd kind.Kind, className string, keywords models.Keywords, vectorizeClass bool) error {
 	_, err := schema.ValidateClassName(className)
 	if err != nil {
 		return err
@@ -82,6 +82,12 @@ func (m *Manager) validateClassNameAndKeywords(ctx context.Context, knd kind.Kin
 	}
 
 	//class name
+	if vectorizeClass == false {
+		// if the user chooses not to vectorize the class, we don't need to check
+		// if its c11y-valid or not
+		return nil
+	}
+
 	camelParts := camelcase.Split(className)
 	stopWordsFound = 0
 	for _, part := range camelParts {
