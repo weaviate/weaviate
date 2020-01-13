@@ -1,6 +1,11 @@
 ### Thanks for looking into contributing to Weaviate!
 Contributing works pretty easy. You can do a pull request or you can commit if you are part of a Weaviate team.
 
+### Code of Conduct
+Please note that this project is released with a Contributor Code of Conduct. By participating in this project you agree to abide by its terms. 
+[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-v2.0%20adopted-ff69b4.svg)](CODE_OF_CONDUCT.md)
+
+
 ### How we use Gitflow
 How we use [Gitflow](https://www.atlassian.com/git/tutorials/comparing-workflows/gitflow-workflow) and how you can contribute following a few steps.
 
