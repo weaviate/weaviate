@@ -402,10 +402,11 @@ func Test_Validation_ClassNames(t *testing.T) {
 
 func Test_Validation_PropertyNames(t *testing.T) {
 	type testCase struct {
-		input    string
-		valid    bool
-		storedAs string
-		name     string
+		input     string
+		valid     bool
+		storedAs  string
+		name      string
+		vectorize bool
 	}
 
 	// for all test cases keep in mind that the word "carrot" is not present in
@@ -415,87 +416,124 @@ func Test_Validation_PropertyNames(t *testing.T) {
 	tests := []testCase{
 		// valid names
 		testCase{
-			name:     "Single uppercase word present in the c11y, stored as lowercase",
-			input:    "Brand",
-			valid:    true,
-			storedAs: "brand",
+			name:      "Single uppercase word present in the c11y, stored as lowercase",
+			input:     "Brand",
+			valid:     true,
+			storedAs:  "brand",
+			vectorize: true,
 		},
 		testCase{
-			name:     "Single lowercase word present in the c11y",
-			input:    "brand",
-			valid:    true,
-			storedAs: "brand",
+			name:      "Single lowercase word present in the c11y",
+			input:     "brand",
+			valid:     true,
+			storedAs:  "brand",
+			vectorize: true,
 		},
 		testCase{
-			name:     "combination of valid words starting with uppercase letter, stored as lowercase",
-			input:    "BrandGarage",
-			valid:    true,
-			storedAs: "brandGarage",
+			name:      "combination of valid words starting with uppercase letter, stored as lowercase",
+			input:     "BrandGarage",
+			valid:     true,
+			storedAs:  "brandGarage",
+			vectorize: true,
 		},
 		testCase{
-			name:     "combination of valid words starting with lowercase letter",
-			input:    "brandGarage",
-			valid:    true,
-			storedAs: "brandGarage",
+			name:      "combination of valid words starting with lowercase letter",
+			input:     "brandGarage",
+			valid:     true,
+			storedAs:  "brandGarage",
+			vectorize: true,
 		},
 		testCase{
-			name:     "combination of valid words and stop words starting with uppercase letter, stored as lowercase",
-			input:    "TheGarage",
-			valid:    true,
-			storedAs: "theGarage",
+			name:      "combination of valid words and stop words starting with uppercase letter, stored as lowercase",
+			input:     "TheGarage",
+			valid:     true,
+			storedAs:  "theGarage",
+			vectorize: true,
 		},
 		testCase{
-			name:     "combination of valid words and stop words starting with lowercase letter",
-			input:    "theGarage",
-			valid:    true,
-			storedAs: "theGarage",
+			name:      "combination of valid words and stop words starting with lowercase letter",
+			input:     "theGarage",
+			valid:     true,
+			storedAs:  "theGarage",
+			vectorize: true,
 		},
 
 		// inavlid names
 		testCase{
-			name:  "Single uppercase word NOT present in the c11y",
-			input: "Carrot",
-			valid: false,
+			name:      "Single uppercase word NOT present in the c11y",
+			input:     "Carrot",
+			valid:     false,
+			vectorize: true,
 		},
 		testCase{
-			name:  "Single lowercase word NOT present in the c11y",
-			input: "carrot",
-			valid: false,
+			name:      "Single lowercase word NOT present in the c11y",
+			input:     "carrot",
+			valid:     false,
+			vectorize: true,
 		},
 		testCase{
-			name:  "Single lowercase stop word",
-			input: "the",
-			valid: false,
+			name:      "Single lowercase stop word",
+			input:     "the",
+			valid:     false,
+			vectorize: true,
 		},
 		testCase{
-			name:  "combination of valid and invalid words, valid word first lowercased",
-			input: "potatoCarrot",
-			valid: false,
+			name:      "combination of valid and invalid words, valid word first lowercased",
+			input:     "potatoCarrot",
+			valid:     false,
+			vectorize: true,
 		},
 		testCase{
-			name:  "combination of valid and invalid words, valid word first uppercased",
-			input: "PotatoCarrot",
-			valid: false,
+			name:      "combination of valid and invalid words, valid word first uppercased",
+			input:     "PotatoCarrot",
+			valid:     false,
+			vectorize: true,
 		},
 		testCase{
-			name:  "combination of valid and invalid words, invalid word first lowercased",
-			input: "carrotPotato",
-			valid: false,
+			name:      "combination of valid and invalid words, invalid word first lowercased",
+			input:     "carrotPotato",
+			valid:     false,
+			vectorize: true,
 		},
 		testCase{
-			name:  "combination of valid and invalid words, invalid word first uppercased",
-			input: "CarrotPotato",
-			valid: false,
+			name:      "combination of valid and invalid words, invalid word first uppercased",
+			input:     "CarrotPotato",
+			valid:     false,
+			vectorize: true,
 		},
 		testCase{
-			name:  "combination of only stop words,  first lowercased",
-			input: "theThe",
-			valid: false,
+			name:      "combination of only stop words,  first lowercased",
+			input:     "theThe",
+			valid:     false,
+			vectorize: true,
 		},
 		testCase{
-			name:  "combination of only stop words, first uppercased",
-			input: "TheThe",
-			valid: false,
+			name:      "combination of only stop words, first uppercased",
+			input:     "TheThe",
+			valid:     false,
+			vectorize: true,
+		},
+
+		// without vectorizing
+		testCase{
+			name:      "non-vectorizing: combination of only stop words, first uppercased",
+			input:     "TheThe",
+			valid:     true,
+			vectorize: false,
+			storedAs:  "theThe",
+		},
+		testCase{
+			name:      "non-vectorizing: combination of only stop words, first uppercased",
+			input:     "carrot",
+			valid:     true,
+			vectorize: false,
+			storedAs:  "carrot",
+		},
+		testCase{
+			name:      "non-vectorizing: empty",
+			input:     "",
+			valid:     false,
+			vectorize: false,
 		},
 	}
 
@@ -507,8 +545,9 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					class := &models.Class{
 						Class: "ValidName",
 						Properties: []*models.Property{{
-							DataType: []string{"string"},
-							Name:     test.input,
+							DataType:              []string{"string"},
+							Name:                  test.input,
+							VectorizePropertyName: test.vectorize,
 						}},
 					}
 
@@ -531,8 +570,9 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					class := &models.Class{
 						Class: "ValidName",
 						Properties: []*models.Property{{
-							DataType: []string{"string"},
-							Name:     test.input,
+							DataType:              []string{"string"},
+							Name:                  test.input,
+							VectorizePropertyName: test.vectorize,
 						}},
 					}
 
@@ -560,9 +600,10 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					class := &models.Class{
 						Class: "ValidName",
 						Properties: []*models.Property{{
-							DataType: []string{"string"},
-							Name:     test.input,
-							Keywords: models.Keywords{{Keyword: "something", Weight: 0.7}},
+							DataType:              []string{"string"},
+							Name:                  test.input,
+							Keywords:              models.Keywords{{Keyword: "something", Weight: 0.7}},
+							VectorizePropertyName: test.vectorize,
 						}},
 					}
 
@@ -585,9 +626,10 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					class := &models.Class{
 						Class: "ValidName",
 						Properties: []*models.Property{{
-							DataType: []string{"string"},
-							Name:     test.input,
-							Keywords: models.Keywords{{Keyword: "something", Weight: 0.7}},
+							DataType:              []string{"string"},
+							Name:                  test.input,
+							Keywords:              models.Keywords{{Keyword: "something", Weight: 0.7}},
+							VectorizePropertyName: test.vectorize,
 						}},
 					}
 
@@ -623,8 +665,9 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					require.Nil(t, err)
 
 					property := &models.Property{
-						DataType: []string{"string"},
-						Name:     test.input,
+						DataType:              []string{"string"},
+						Name:                  test.input,
+						VectorizePropertyName: test.vectorize,
 					}
 					err = m.AddThingProperty(context.Background(), nil, "ValidName", property)
 					t.Log(err)
@@ -650,8 +693,9 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					require.Nil(t, err)
 
 					property := &models.Property{
-						DataType: []string{"string"},
-						Name:     test.input,
+						DataType:              []string{"string"},
+						Name:                  test.input,
+						VectorizePropertyName: test.vectorize,
 					}
 					err = m.AddActionProperty(context.Background(), nil, "ValidName", property)
 					t.Log(err)
@@ -677,9 +721,10 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					class := &models.Class{
 						Class: "ValidName",
 						Properties: []*models.Property{{
-							DataType: []string{"string"},
-							Name:     test.input,
-							Keywords: models.Keywords{{Keyword: "something", Weight: 0.7}},
+							DataType:              []string{"string"},
+							Name:                  test.input,
+							Keywords:              models.Keywords{{Keyword: "something", Weight: 0.7}},
+							VectorizePropertyName: test.vectorize,
 						}},
 					}
 
@@ -702,9 +747,10 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					class := &models.Class{
 						Class: "ValidName",
 						Properties: []*models.Property{{
-							DataType: []string{"string"},
-							Name:     test.input,
-							Keywords: models.Keywords{{Keyword: "something", Weight: 0.7}},
+							DataType:              []string{"string"},
+							Name:                  test.input,
+							Keywords:              models.Keywords{{Keyword: "something", Weight: 0.7}},
+							VectorizePropertyName: test.vectorize,
 						}},
 					}
 
@@ -737,8 +783,9 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						Class: "ValidName",
 						Properties: []*models.Property{
 							&models.Property{
-								DataType: []string{"string"},
-								Name:     originalName,
+								DataType:              []string{"string"},
+								VectorizePropertyName: test.vectorize,
+								Name:                  originalName,
 							},
 						},
 					}
@@ -770,8 +817,9 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						Class: "ValidName",
 						Properties: []*models.Property{
 							&models.Property{
-								DataType: []string{"string"},
-								Name:     originalName,
+								DataType:              []string{"string"},
+								Name:                  originalName,
+								VectorizePropertyName: test.vectorize,
 							},
 						},
 					}
@@ -808,9 +856,10 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					class := &models.Class{
 						Class: "ValidName",
 						Properties: []*models.Property{{
-							DataType: []string{"string"},
-							Name:     test.input,
-							Keywords: models.Keywords{{Keyword: "something", Weight: 0.7}},
+							DataType:              []string{"string"},
+							Name:                  test.input,
+							Keywords:              models.Keywords{{Keyword: "something", Weight: 0.7}},
+							VectorizePropertyName: test.vectorize,
 						}},
 					}
 
@@ -833,9 +882,10 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					class := &models.Class{
 						Class: "ValidName",
 						Properties: []*models.Property{{
-							DataType: []string{"string"},
-							Name:     test.input,
-							Keywords: models.Keywords{{Keyword: "something", Weight: 0.7}},
+							DataType:              []string{"string"},
+							Name:                  test.input,
+							Keywords:              models.Keywords{{Keyword: "something", Weight: 0.7}},
+							VectorizePropertyName: test.vectorize,
 						}},
 					}
 

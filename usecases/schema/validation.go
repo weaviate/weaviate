@@ -140,7 +140,7 @@ func validateWeight(keyword *models.KeywordsItems0) error {
 
 // Check that the format of the name is correct
 // Check that the name is acceptable according to the contextionary
-func (m *Manager) validatePropertyNameAndKeywords(ctx context.Context, className string, propertyName string, keywords models.Keywords) error {
+func (m *Manager) validatePropertyNameAndKeywords(ctx context.Context, className string, propertyName string, keywords models.Keywords, vectorizeProperty bool) error {
 	_, err := schema.ValidatePropertyName(propertyName)
 	if err != nil {
 		return err
@@ -175,6 +175,12 @@ func (m *Manager) validatePropertyNameAndKeywords(ctx context.Context, className
 	if len(keywords) > 0 && len(keywords) == stopWordsFound {
 		return fmt.Errorf("all keywords for propertyName '%s' are stopwords and are therefore not a valid list of keywords. "+
 			"Make sure at least one keyword in the list is not a stop word", propertyName)
+	}
+
+	if vectorizeProperty == false {
+		// user does not want to vectorize this property name, so we don't have to
+		// validate it
+		return nil
 	}
 
 	camelParts := camelcase.Split(propertyName)
