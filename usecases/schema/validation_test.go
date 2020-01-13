@@ -25,10 +25,11 @@ import (
 
 func Test_Validation_ClassNames(t *testing.T) {
 	type testCase struct {
-		input    string
-		valid    bool
-		storedAs string
-		name     string
+		input     string
+		valid     bool
+		storedAs  string
+		name      string
+		vectorize bool
 	}
 
 	// for all test cases keep in mind that the word "carrot" is not present in
@@ -40,92 +41,130 @@ func Test_Validation_ClassNames(t *testing.T) {
 	tests := []testCase{
 		// valid names
 		testCase{
-			name:     "Single uppercase word present in the c11y",
-			input:    "Car",
-			valid:    true,
-			storedAs: "Car",
+			name:      "Single uppercase word present in the c11y",
+			input:     "Car",
+			valid:     true,
+			storedAs:  "Car",
+			vectorize: true,
 		},
 		testCase{
-			name:     "Single lowercase word present in the c11y, stored as uppercase",
-			input:    "car",
-			valid:    true,
-			storedAs: "Car",
+			name:      "Single lowercase word present in the c11y, stored as uppercase",
+			input:     "car",
+			valid:     true,
+			storedAs:  "Car",
+			vectorize: true,
 		},
 		testCase{
-			name:     "combination of valid words starting with uppercase letter",
-			input:    "CarGarage",
-			valid:    true,
-			storedAs: "CarGarage",
+			name:      "combination of valid words starting with uppercase letter",
+			input:     "CarGarage",
+			valid:     true,
+			storedAs:  "CarGarage",
+			vectorize: true,
 		},
 		testCase{
-			name:     "combination of valid words starting with lowercase letter, stored as uppercase",
-			input:    "carGarage",
-			valid:    true,
-			storedAs: "CarGarage",
+			name:      "combination of valid words starting with lowercase letter, stored as uppercase",
+			input:     "carGarage",
+			valid:     true,
+			storedAs:  "CarGarage",
+			vectorize: true,
 		},
 		testCase{
-			name:     "combination of valid words and stopwords, starting with uppercase",
-			input:    "TheCarGarage",
-			valid:    true,
-			storedAs: "TheCarGarage",
+			name:      "combination of valid words and stopwords, starting with uppercase",
+			input:     "TheCarGarage",
+			valid:     true,
+			storedAs:  "TheCarGarage",
+			vectorize: true,
 		},
 		testCase{
-			name:     "combination of valid words and stopwords starting with lowercase letter, stored as uppercase",
-			input:    "carTheGarage",
-			valid:    true,
-			storedAs: "CarTheGarage",
+			name:      "combination of valid words and stopwords starting with lowercase letter, stored as uppercase",
+			input:     "carTheGarage",
+			valid:     true,
+			storedAs:  "CarTheGarage",
+			vectorize: true,
 		},
 
 		// inavlid names
 		testCase{
-			name:  "Single uppercase word NOT present in the c11y",
-			input: "Carrot",
-			valid: false,
+			name:      "Single uppercase word NOT present in the c11y",
+			input:     "Carrot",
+			valid:     false,
+			vectorize: true,
 		},
 		testCase{
-			name:  "Single lowercase word NOT present in the c11y",
-			input: "carrot",
-			valid: false,
+			name:      "Single lowercase word NOT present in the c11y",
+			input:     "carrot",
+			valid:     false,
+			vectorize: true,
 		},
 		testCase{
-			name:  "Single uppercase stopword",
-			input: "The",
-			valid: false,
+			name:      "Single uppercase stopword",
+			input:     "The",
+			valid:     false,
+			vectorize: true,
 		},
 		testCase{
-			name:  "Single lowercase stopword",
-			input: "the",
-			valid: false,
+			name:      "Single lowercase stopword",
+			input:     "the",
+			valid:     false,
+			vectorize: true,
 		},
 		testCase{
-			name:  "combination of valid and invalid words, valid word first lowercased",
-			input: "potatoCarrot",
-			valid: false,
+			name:      "combination of valid and invalid words, valid word first lowercased",
+			input:     "potatoCarrot",
+			valid:     false,
+			vectorize: true,
 		},
 		testCase{
-			name:  "combination of valid and invalid words, valid word first uppercased",
-			input: "PotatoCarrot",
-			valid: false,
+			name:      "combination of valid and invalid words, valid word first uppercased",
+			input:     "PotatoCarrot",
+			valid:     false,
+			vectorize: true,
 		},
 		testCase{
-			name:  "combination of valid and invalid words, invalid word first lowercased",
-			input: "carrotPotato",
-			valid: false,
+			name:      "combination of valid and invalid words, invalid word first lowercased",
+			input:     "carrotPotato",
+			valid:     false,
+			vectorize: true,
 		},
 		testCase{
-			name:  "combination of valid and invalid words, invalid word first uppercased",
-			input: "CarrotPotato",
-			valid: false,
+			name:      "combination of valid and invalid words, invalid word first uppercased",
+			input:     "CarrotPotato",
+			valid:     false,
+			vectorize: true,
 		},
 		testCase{
-			name:  "combination of only stopwords, starting with lowercase",
-			input: "theThe",
-			valid: false,
+			name:      "combination of only stopwords, starting with lowercase",
+			input:     "theThe",
+			valid:     false,
+			vectorize: true,
 		},
 		testCase{
-			name:  "combination of only stopwords, starting with uppercase",
-			input: "TheThe",
-			valid: false,
+			name:      "combination of only stopwords, starting with uppercase",
+			input:     "TheThe",
+			valid:     false,
+			vectorize: true,
+		},
+
+		// vectorize turned off
+		testCase{
+			name:      "non-vectorized: combination of only stopwords, starting with uppercase",
+			input:     "TheThe",
+			valid:     true,
+			vectorize: false,
+			storedAs:  "TheThe",
+		},
+		testCase{
+			name:      "non-vectorized: excluded word",
+			input:     "carrot",
+			valid:     true,
+			vectorize: false,
+			storedAs:  "Carrot",
+		},
+		testCase{
+			name:      "empty class",
+			input:     "",
+			valid:     false,
+			vectorize: false,
 		},
 	}
 
@@ -135,7 +174,8 @@ func Test_Validation_ClassNames(t *testing.T) {
 			for _, test := range tests {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
 					class := &models.Class{
-						Class: test.input,
+						Class:              test.input,
+						VectorizeClassName: test.vectorize,
 					}
 
 					m := newSchemaManager()
@@ -154,7 +194,8 @@ func Test_Validation_ClassNames(t *testing.T) {
 
 				t.Run(test.name+" as action class", func(t *testing.T) {
 					class := &models.Class{
-						Class: test.input,
+						Class:              test.input,
+						VectorizeClassName: test.vectorize,
 					}
 
 					m := newSchemaManager()
@@ -177,7 +218,8 @@ func Test_Validation_ClassNames(t *testing.T) {
 			for _, test := range tests {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
 					class := &models.Class{
-						Class: test.input,
+						Class:              test.input,
+						VectorizeClassName: test.vectorize,
 						Keywords: models.Keywords{{
 							Keyword: "something",
 							Weight:  0.7,
@@ -200,7 +242,8 @@ func Test_Validation_ClassNames(t *testing.T) {
 
 				t.Run(test.name+" as action class", func(t *testing.T) {
 					class := &models.Class{
-						Class: test.input,
+						Class:              test.input,
+						VectorizeClassName: test.vectorize,
 						Keywords: models.Keywords{{
 							Keyword: "something",
 							Weight:  0.7,
@@ -231,7 +274,8 @@ func Test_Validation_ClassNames(t *testing.T) {
 				originalName := "ValidOriginalName"
 				t.Run(test.name+" as thing class", func(t *testing.T) {
 					class := &models.Class{
-						Class: originalName,
+						Class:              originalName,
+						VectorizeClassName: test.vectorize,
 					}
 
 					m := newSchemaManager()
@@ -257,7 +301,8 @@ func Test_Validation_ClassNames(t *testing.T) {
 
 				t.Run(test.name+" as action class", func(t *testing.T) {
 					class := &models.Class{
-						Class: originalName,
+						Class:              originalName,
+						VectorizeClassName: test.vectorize,
 					}
 
 					m := newSchemaManager()
@@ -266,7 +311,8 @@ func Test_Validation_ClassNames(t *testing.T) {
 
 					// now try to update
 					updatedClass := &models.Class{
-						Class: test.input,
+						Class:              test.input,
+						VectorizeClassName: test.vectorize,
 					}
 
 					err = m.UpdateAction(context.Background(), nil, originalName, updatedClass)
@@ -290,7 +336,8 @@ func Test_Validation_ClassNames(t *testing.T) {
 
 				t.Run(test.name+" as thing class", func(t *testing.T) {
 					class := &models.Class{
-						Class: originalName,
+						Class:              originalName,
+						VectorizeClassName: test.vectorize,
 						Keywords: models.Keywords{{
 							Keyword: "something",
 							Weight:  0.7,
@@ -320,7 +367,8 @@ func Test_Validation_ClassNames(t *testing.T) {
 
 				t.Run(test.name+" as action class", func(t *testing.T) {
 					class := &models.Class{
-						Class: originalName,
+						Class:              originalName,
+						VectorizeClassName: test.vectorize,
 						Keywords: models.Keywords{{
 							Keyword: "someaction",
 							Weight:  0.7,
