@@ -103,9 +103,10 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 		switch err.(type) {
 		case ErrNoUsableWords:
 			return nil, fmt.Errorf("The object is invalid, as weaviate could not extract "+
-				"any contextionary-valid words from it. This is the case when you do not "+
-				"vectorize the class name or property names and not a single property's value "+
-				"contains at least one contextionary-valid word. To fix this, you have two "+
+				"any contextionary-valid words from it. This is the case when you have "+
+				"set the options 'vectorizeClassName: false' and 'vectorizePropertyName: false' in this class' schema definition "+
+				"and not a single property's value "+
+				"contains at least one contextionary-valid word. To fix this, you have several "+
 				"options:\n\n1.) Make sure that the schema class name or the set properties are "+
 				"a contextionary-valid term and include them in vectorization using the "+
 				"'vectorizeClassName' or 'vectorizePropertyName' setting. In this case the vector position "+
@@ -115,7 +116,13 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 				"\n\n2.) Alternatively, if you do not want to include schema class/property names "+
 				"in vectorization, you must make sure that at least one text/string property contains "+
 				"at least one contextionary-valid word."+
+				"\n\n3.) If the word corpus weaviate extracted from your object "+
+				"(see below) does contain enough meaning to build a vector position, but the contextionary "+
+				"did not recognize the words, you can extend the contextionary using the "+
+				"REST API. This is the case	when you use mostly industry-specific terms which are "+
+				"not known to the common language contextionary. Once extended, simply reimport this object."+
 				"\n\nThe following words were extracted from your object: %v"+
+				"\n\nTo learn more about the contextionary and how it behaves, check out: https://www.semi.technology/documentation/weaviate/current/contextionary.html"+
 				"\n\nOriginal error: %v", corpi, err)
 		default:
 			return nil, fmt.Errorf("vectorizing object with corpus '%+v': %v", corpi, err)
