@@ -28,6 +28,18 @@ type Vectorizer struct {
 	indexCheck IndexCheck
 }
 
+type ErrNoUsableWords struct {
+	Err error
+}
+
+func (e ErrNoUsableWords) Error() string {
+	return e.Err.Error()
+}
+
+func NewErrNoUsableWordsf(pattern string, args ...interface{}) ErrNoUsableWords {
+	return ErrNoUsableWords{Err: fmt.Errorf(pattern, args...)}
+}
+
 type client interface {
 	VectorForCorpi(ctx context.Context, corpi []string) ([]float32, error)
 }
@@ -88,7 +100,26 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 
 	vector, err := v.client.VectorForCorpi(ctx, []string{strings.Join(corpi, " ")})
 	if err != nil {
-		return nil, fmt.Errorf("vectorizing thing with corpus '%+v': %v", corpi, err)
+		switch err.(type) {
+		case ErrNoUsableWords:
+			return nil, fmt.Errorf("The object is invalid, as weaviate could not extract "+
+				"any contextionary-valid words from it. This is the case when you do not "+
+				"vectorize the class name or property names and not a single property's value "+
+				"contains at least one contextionary-valid word. To fix this, you have two "+
+				"options:\n\n1.) Make sure that the schema class name or the set properties are "+
+				"a contextionary-valid term and include them in vectorization using the "+
+				"'vectorizeClassName' or 'vectorizePropertyName' setting. In this case the vector position "+
+				"will be composed of both the class/property names and the values for those fields. "+
+				"Even if no property values are contextionary-valid, the overall word corpus is still valid "+
+				"due to the contextionary-valid class/property names."+
+				"\n\n2.) Alternatively, if you do not want to include schema class/property names "+
+				"in vectorization, you must make sure that at least one text/string property contains "+
+				"at least one contextionary-valid word."+
+				"\n\nThe following words were extracted from your object: %v"+
+				"\n\nOriginal error: %v", corpi, err)
+		default:
+			return nil, fmt.Errorf("vectorizing object with corpus '%+v': %v", corpi, err)
+		}
 	}
 
 	return vector, nil
@@ -104,7 +135,7 @@ func (v *Vectorizer) Corpi(ctx context.Context, corpi []string,
 
 	vector, err := v.client.VectorForCorpi(ctx, corpi)
 	if err != nil {
-		return nil, fmt.Errorf("vectorizing thing with corpus '%+v': %v", corpi, err)
+		return nil, fmt.Errorf("vectorizing corpus '%+v': %v", corpi, err)
 	}
 
 	return vector, nil
