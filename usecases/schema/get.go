@@ -64,3 +64,36 @@ func (m *Manager) Indexed(className, propertyName string) bool {
 
 	return false
 }
+
+func (m *Manager) VectorizeClassName(className string) bool {
+	s := schema.Schema{
+		Actions: m.state.ActionSchema,
+		Things:  m.state.ThingSchema,
+	}
+	class := s.FindClassByName(schema.ClassName(className))
+	if class == nil {
+		return false
+	}
+
+	return VectorizeClassName(class)
+}
+
+func (m *Manager) VectorizePropertyName(className, propertyName string) bool {
+	s := schema.Schema{
+		Actions: m.state.ActionSchema,
+		Things:  m.state.ThingSchema,
+	}
+	class := s.FindClassByName(schema.ClassName(className))
+	if class == nil {
+		return false
+	}
+
+	for _, prop := range class.Properties {
+		if prop.Name == propertyName {
+			return prop.VectorizePropertyName
+		}
+
+	}
+
+	return false
+}

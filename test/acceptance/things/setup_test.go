@@ -24,7 +24,8 @@ import (
 func Test_Things(t *testing.T) {
 	t.Run("setup", func(t *testing.T) {
 		createThingClass(t, &models.Class{
-			Class: "TestThing",
+			Class:              "TestThing",
+			VectorizeClassName: ptBool(true),
 			Properties: []*models.Property{
 				&models.Property{
 					Name:     "testString",
@@ -68,4 +69,8 @@ func deleteThingClass(t *testing.T, class string) {
 	delParams := schema.NewSchemaThingsDeleteParams().WithClassName(class)
 	delRes, err := helper.Client(t).Schema.SchemaThingsDelete(delParams, nil)
 	helper.AssertRequestOk(t, delRes, err, nil)
+}
+
+func ptBool(in bool) *bool {
+	return &in
 }

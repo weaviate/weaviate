@@ -76,10 +76,10 @@ func TestBatchActionsCreateResultsOrder(t *testing.T) {
 			responseTwo := actionsCreateResponse[1].Result.Errors.Error[0].Message
 
 			fullExpectedOutcomeOne := fmt.Sprintf(expectedResult, classOneName)
-			assert.Equal(t, fullExpectedOutcomeOne, responseOne)
+			assert.Contains(t, responseOne, fullExpectedOutcomeOne)
 
 			fullExpectedOutcomeTwo := fmt.Sprintf(expectedResult, classTwoName)
-			assert.Equal(t, fullExpectedOutcomeTwo, responseTwo)
+			assert.Contains(t, responseTwo, fullExpectedOutcomeTwo)
 		}
 
 	})

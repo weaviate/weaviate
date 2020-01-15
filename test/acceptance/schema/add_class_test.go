@@ -72,7 +72,8 @@ func TestAddAndRemoveThingClass(t *testing.T) {
 	assert.NotContains(t, GetThingClassNames(t), randomThingClassName)
 
 	tc := &models.Class{
-		Class: randomThingClassName,
+		Class:              randomThingClassName,
+		VectorizeClassName: ptBool(true),
 	}
 
 	t.Log("Creating class")
@@ -208,4 +209,8 @@ func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.Thing {
 	})
 
 	return thing
+}
+
+func ptBool(in bool) *bool {
+	return &in
 }

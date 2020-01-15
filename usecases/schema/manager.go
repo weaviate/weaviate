@@ -187,3 +187,14 @@ func newSchema() *State {
 		},
 	}
 }
+
+// VectorizeClassName is the only safe way to access this property, as it could
+// otherwise be nil. It is also the single place a default is set
+func VectorizeClassName(class *models.Class) bool {
+	const defaultValue = true
+	if class.VectorizeClassName == nil {
+		return defaultValue
+	}
+
+	return *class.VectorizeClassName
+}
