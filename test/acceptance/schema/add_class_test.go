@@ -72,7 +72,8 @@ func TestAddAndRemoveThingClass(t *testing.T) {
 	assert.NotContains(t, GetThingClassNames(t), randomThingClassName)
 
 	tc := &models.Class{
-		Class: randomThingClassName,
+		Class:              randomThingClassName,
+		VectorizeClassName: true,
 	}
 
 	t.Log("Creating class")
