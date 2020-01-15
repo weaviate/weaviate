@@ -106,7 +106,7 @@ func testAddThingClass(t *testing.T, lsm *Manager) {
 
 	err := lsm.AddThing(context.Background(), nil, &models.Class{
 		Class:              "Car",
-		VectorizeClassName: false,
+		VectorizeClassName: ptBool(false),
 		Properties: []*models.Property{{
 			DataType: []string{"string"},
 			Name:     "dummy",
@@ -128,7 +128,7 @@ func testAddThingClassWithVectorizedName(t *testing.T, lsm *Manager) {
 
 	err := lsm.AddThing(context.Background(), nil, &models.Class{
 		Class:              "Car",
-		VectorizeClassName: true,
+		VectorizeClassName: ptBool(true),
 	})
 
 	assert.Nil(t, err)
@@ -143,7 +143,7 @@ func testRemoveThingClass(t *testing.T, lsm *Manager) {
 
 	err := lsm.AddThing(context.Background(), nil, &models.Class{
 		Class:              "Car",
-		VectorizeClassName: true,
+		VectorizeClassName: ptBool(true),
 	})
 
 	assert.Nil(t, err)
@@ -164,7 +164,7 @@ func testCantAddSameClassTwice(t *testing.T, lsm *Manager) {
 
 	err := lsm.AddThing(context.Background(), nil, &models.Class{
 		Class:              "Car",
-		VectorizeClassName: true,
+		VectorizeClassName: ptBool(true),
 	})
 
 	assert.Nil(t, err)
@@ -172,7 +172,7 @@ func testCantAddSameClassTwice(t *testing.T, lsm *Manager) {
 	// Add it again
 	err = lsm.AddThing(context.Background(), nil, &models.Class{
 		Class:              "Car",
-		VectorizeClassName: true,
+		VectorizeClassName: ptBool(true),
 	})
 
 	assert.NotNil(t, err)
@@ -183,14 +183,14 @@ func testCantAddSameClassTwiceDifferentKinds(t *testing.T, lsm *Manager) {
 
 	err := lsm.AddThing(context.Background(), nil, &models.Class{
 		Class:              "Car",
-		VectorizeClassName: true,
+		VectorizeClassName: ptBool(true),
 	})
 
 	assert.Nil(t, err)
 
 	// Add it again, but with a different kind.
 	err = lsm.AddAction(context.Background(), nil, &models.Class{
-		VectorizeClassName: true,
+		VectorizeClassName: ptBool(true),
 		Class:              "Car",
 	})
 
@@ -202,7 +202,7 @@ func testUpdateClassName(t *testing.T, lsm *Manager) {
 
 	// Create a simple class.
 	assert.Nil(t, lsm.AddThing(context.Background(), nil,
-		&models.Class{VectorizeClassName: true, Class: "InitialName"}))
+		&models.Class{VectorizeClassName: ptBool(true), Class: "InitialName"}))
 
 	// Rename it
 	updated := models.Class{
@@ -220,12 +220,12 @@ func testUpdateClassNameCollision(t *testing.T, lsm *Manager) {
 
 	// Create a class to rename
 	assert.Nil(t, lsm.AddThing(context.Background(), nil,
-		&models.Class{Class: "InitialName", VectorizeClassName: true}))
+		&models.Class{Class: "InitialName", VectorizeClassName: ptBool(true)}))
 
 	// Create another class, that we'll collide names with.
 	// For some extra action, use a Action class here.
 	assert.Nil(t, lsm.AddAction(context.Background(), nil,
-		&models.Class{Class: "ExistingClass", VectorizeClassName: true}))
+		&models.Class{Class: "ExistingClass", VectorizeClassName: ptBool(true)}))
 
 	// Try to rename a class to one that already exists
 	update := &models.Class{Class: "ExistingClass"}
@@ -250,7 +250,7 @@ func testAddThingClassWithKeywords(t *testing.T, lsm *Manager) {
 	err := lsm.AddThing(context.Background(), nil, &models.Class{
 		Class:              "Car",
 		Keywords:           keywords,
-		VectorizeClassName: true,
+		VectorizeClassName: ptBool(true),
 	})
 	assert.Nil(t, err)
 
@@ -272,7 +272,7 @@ func testAddThingClassWithInvalidKeywordWeights(t *testing.T, lsm *Manager) {
 	}
 	err := lsm.AddThing(context.Background(), nil, &models.Class{
 		Class:              "Car",
-		VectorizeClassName: true,
+		VectorizeClassName: ptBool(true),
 		Keywords:           keywords,
 	})
 	assert.NotNil(t, err)
@@ -283,7 +283,7 @@ func testAddThingClassWithInvalidKeywordWeights(t *testing.T, lsm *Manager) {
 	}
 	err = lsm.AddThing(context.Background(), nil, &models.Class{
 		Class:              "Car",
-		VectorizeClassName: true,
+		VectorizeClassName: ptBool(true),
 		Keywords:           keywords,
 	})
 	assert.NotNil(t, err)
@@ -294,7 +294,7 @@ func testAddThingClassWithInvalidKeywordWeights(t *testing.T, lsm *Manager) {
 	}
 	err = lsm.AddThing(context.Background(), nil, &models.Class{
 		Class:              "Car",
-		VectorizeClassName: true,
+		VectorizeClassName: ptBool(true),
 		Keywords:           keywords,
 	})
 	assert.Nil(t, err)
@@ -311,14 +311,14 @@ func testUpdateClassKeywords(t *testing.T, lsm *Manager) {
 	err := lsm.AddThing(context.Background(), nil, &models.Class{
 		Class:              "Car",
 		Keywords:           keywords,
-		VectorizeClassName: true,
+		VectorizeClassName: ptBool(true),
 	})
 	assert.Nil(t, err)
 
 	//Now update just the keyword
 	updatedKeywords := models.Class{
 		Class:              "Car",
-		VectorizeClassName: true,
+		VectorizeClassName: ptBool(true),
 		Keywords: models.Keywords{
 			{Keyword: "vehicle", Weight: 1.0},
 		},
@@ -610,7 +610,7 @@ func testUpdatePropertyAddDataTypeNew(t *testing.T, lsm *Manager) {
 	err := lsm.AddThing(context.Background(), nil, &models.Class{
 		Class:              "Car",
 		Properties:         properties,
-		VectorizeClassName: true,
+		VectorizeClassName: ptBool(true),
 	})
 	assert.Nil(t, err)
 
@@ -639,7 +639,7 @@ func testUpdatePropertyAddDataTypeExisting(t *testing.T, lsm *Manager) {
 	err := lsm.AddThing(context.Background(), nil, &models.Class{
 		Class:              "Car",
 		Properties:         properties,
-		VectorizeClassName: true,
+		VectorizeClassName: ptBool(true),
 	})
 	assert.Nil(t, err)
 
@@ -706,4 +706,8 @@ func testGetClassNames(l *Manager, k kind.Kind) []string {
 	}
 
 	return names
+}
+
+func ptBool(in bool) *bool {
+	return &in
 }

@@ -2949,7 +2949,8 @@ func init() {
         },
         "vectorizeClassName": {
           "description": "Set this to true if the object vector should include the class name in calculating the overall vector position",
-          "type": "boolean"
+          "type": "boolean",
+          "x-nullable": true
         }
       }
     },
@@ -6707,7 +6708,8 @@ func init() {
         },
         "vectorizeClassName": {
           "description": "Set this to true if the object vector should include the class name in calculating the overall vector position",
-          "type": "boolean"
+          "type": "boolean",
+          "x-nullable": true
         }
       }
     },

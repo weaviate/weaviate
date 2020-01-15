@@ -39,7 +39,7 @@ func Test_UnindexedProperty(t *testing.T) {
 	t.Run("creating a class with two string props", func(t *testing.T) {
 		c := &models.Class{
 			Class:              className,
-			VectorizeClassName: true,
+			VectorizeClassName: ptBool(true),
 			Properties: []*models.Property{
 				&models.Property{
 					Name:     "name",

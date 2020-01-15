@@ -254,7 +254,7 @@ func (m *Manager) validateNetworkCrossRefs(dataTypes []string) error {
 // able to build a vector. In this case we should fail early and deny
 // validation.
 func (m *Manager) validatePropertyIndexState(ctx context.Context, class *models.Class) error {
-	if class.VectorizeClassName {
+	if VectorizeClassName(class) {
 		// if the user chooses to vectorize the classname, vector-building will
 		// always be possible, no need to investigate further
 
