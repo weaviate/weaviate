@@ -92,7 +92,8 @@ func (m *Manager) updateClass(ctx context.Context, className string,
 	}
 
 	// Validate name / keywords in contextionary
-	if err = m.validateClassNameAndKeywords(ctx, k, classNameAfterUpdate, keywordsAfterUpdate, class.VectorizeClassName); err != nil {
+	if err = m.validateClassNameAndKeywords(ctx, k, classNameAfterUpdate, keywordsAfterUpdate,
+		VectorizeClassName(class)); err != nil {
 		return err
 	}
 

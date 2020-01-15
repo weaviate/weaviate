@@ -80,7 +80,7 @@ func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Pri
 		return err
 	}
 
-	err = m.validateClassNameAndKeywords(ctx, knd, class.Class, class.Keywords, class.VectorizeClassName)
+	err = m.validateClassNameAndKeywords(ctx, knd, class.Class, class.Keywords, VectorizeClassName(class))
 	if err != nil {
 		return err
 	}

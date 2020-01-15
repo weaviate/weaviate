@@ -175,7 +175,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
 					class := &models.Class{
 						Class:              test.input,
-						VectorizeClassName: test.vectorize,
+						VectorizeClassName: &test.vectorize,
 						Properties: []*models.Property{
 							&models.Property{
 								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
@@ -201,7 +201,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 				t.Run(test.name+" as action class", func(t *testing.T) {
 					class := &models.Class{
 						Class:              test.input,
-						VectorizeClassName: test.vectorize,
+						VectorizeClassName: &test.vectorize,
 						Properties: []*models.Property{
 							&models.Property{
 								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
@@ -231,7 +231,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
 					class := &models.Class{
 						Class:              test.input,
-						VectorizeClassName: test.vectorize,
+						VectorizeClassName: &test.vectorize,
 						Properties: []*models.Property{
 							&models.Property{
 								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
@@ -261,7 +261,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 				t.Run(test.name+" as action class", func(t *testing.T) {
 					class := &models.Class{
 						Class:              test.input,
-						VectorizeClassName: test.vectorize,
+						VectorizeClassName: &test.vectorize,
 						Properties: []*models.Property{
 							&models.Property{
 								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
@@ -299,7 +299,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
 					class := &models.Class{
 						Class:              originalName,
-						VectorizeClassName: test.vectorize,
+						VectorizeClassName: &test.vectorize,
 						Properties: []*models.Property{
 							&models.Property{
 								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
@@ -332,7 +332,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 				t.Run(test.name+" as action class", func(t *testing.T) {
 					class := &models.Class{
 						Class:              originalName,
-						VectorizeClassName: test.vectorize,
+						VectorizeClassName: &test.vectorize,
 						Properties: []*models.Property{
 							&models.Property{
 								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
@@ -348,7 +348,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 					// now try to update
 					updatedClass := &models.Class{
 						Class:              test.input,
-						VectorizeClassName: test.vectorize,
+						VectorizeClassName: &test.vectorize,
 					}
 
 					err = m.UpdateAction(context.Background(), nil, originalName, updatedClass)
@@ -373,7 +373,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
 					class := &models.Class{
 						Class:              originalName,
-						VectorizeClassName: test.vectorize,
+						VectorizeClassName: &test.vectorize,
 						Keywords: models.Keywords{{
 							Keyword: "something",
 							Weight:  0.7,
@@ -410,7 +410,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 				t.Run(test.name+" as action class", func(t *testing.T) {
 					class := &models.Class{
 						Class:              originalName,
-						VectorizeClassName: test.vectorize,
+						VectorizeClassName: &test.vectorize,
 						Keywords: models.Keywords{{
 							Keyword: "someaction",
 							Weight:  0.7,
@@ -972,7 +972,7 @@ func Test_AllUsablePropsNoindexed(t *testing.T) {
 	t.Run("all schema vectorization turned off", func(t *testing.T) {
 		class := &models.Class{
 			Class:              "ValidName",
-			VectorizeClassName: false,
+			VectorizeClassName: ptBool(false),
 			Properties: []*models.Property{
 				{
 					DataType:              []string{"text"},

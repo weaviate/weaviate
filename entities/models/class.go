@@ -44,7 +44,7 @@ type Class struct {
 	Properties []*Property `json:"properties"`
 
 	// Set this to true if the object vector should include the class name in calculating the overall vector position
-	VectorizeClassName bool `json:"vectorizeClassName,omitempty"`
+	VectorizeClassName *bool `json:"vectorizeClassName,omitempty"`
 }
 
 // Validate validates this class

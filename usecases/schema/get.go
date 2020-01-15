@@ -75,7 +75,7 @@ func (m *Manager) VectorizeClassName(className string) bool {
 		return false
 	}
 
-	return class.VectorizeClassName
+	return VectorizeClassName(class)
 }
 
 func (m *Manager) VectorizePropertyName(className, propertyName string) bool {

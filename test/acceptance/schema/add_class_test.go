@@ -73,7 +73,7 @@ func TestAddAndRemoveThingClass(t *testing.T) {
 
 	tc := &models.Class{
 		Class:              randomThingClassName,
-		VectorizeClassName: true,
+		VectorizeClassName: ptBool(true),
 	}
 
 	t.Log("Creating class")
@@ -209,4 +209,8 @@ func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.Thing {
 	})
 
 	return thing
+}
+
+func ptBool(in bool) *bool {
+	return &in
 }
