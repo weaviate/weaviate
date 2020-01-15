@@ -36,7 +36,7 @@ func listingThings(t *testing.T) {
 			Schema: map[string]interface{}{},
 		})
 	resp1, err := helper.Client(t).Things.ThingsCreate(params1, nil)
-	assert.Nil(t, err, "creation should succeed")
+	require.Nil(t, err, "creation should succeed")
 	thing1ID := resp1.Payload.ID
 
 	params2 := things.NewThingsCreateParams().WithBody(

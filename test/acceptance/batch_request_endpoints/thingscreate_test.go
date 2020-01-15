@@ -62,7 +62,6 @@ func TestBatchThingsCreateResultsOrder(t *testing.T) {
 
 	// ensure that the response is OK
 	helper.AssertRequestOk(t, resp, err, func() {
-
 		thingsCreateResponse := resp.Payload
 
 		// check if the batch response contains two batched responses
@@ -74,10 +73,10 @@ func TestBatchThingsCreateResultsOrder(t *testing.T) {
 			responseTwo := thingsCreateResponse[1].Result.Errors.Error[0].Message
 
 			fullExpectedOutcomeOne := fmt.Sprintf(expectedResult, classOneName)
-			assert.Equal(t, fullExpectedOutcomeOne, responseOne)
+			assert.Contains(t, responseOne, fullExpectedOutcomeOne)
 
 			fullExpectedOutcomeTwo := fmt.Sprintf(expectedResult, classTwoName)
-			assert.Equal(t, fullExpectedOutcomeTwo, responseTwo)
+			assert.Contains(t, responseTwo, fullExpectedOutcomeTwo)
 		}
 
 	})
