@@ -21,7 +21,10 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // Client establishes a gRPC connection to a remote contextionary service
@@ -192,8 +195,14 @@ func vectorFromProto(in []*pb.VectorEntry) []float32 {
 func (c *Client) VectorForCorpi(ctx context.Context, corpi []string) ([]float32, error) {
 	res, err := c.grpcClient.VectorForCorpi(ctx, &pb.Corpi{Corpi: corpi})
 	if err != nil {
-		return nil, fmt.Errorf("could not get vector from remote: %v", err)
+		st, ok := status.FromError(err)
+		if !ok || st.Code() != codes.InvalidArgument {
+			return nil, fmt.Errorf("could not get vector from remote: %v", err)
+		}
+
+		return nil, vectorizer.NewErrNoUsableWordsf(st.Message())
 	}
+
 	return vectorFromProto(res.Entries), nil
 }
 
