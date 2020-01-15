@@ -176,6 +176,12 @@ func Test_Validation_ClassNames(t *testing.T) {
 					class := &models.Class{
 						Class:              test.input,
 						VectorizeClassName: test.vectorize,
+						Properties: []*models.Property{
+							&models.Property{
+								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
+								DataType: []string{"string"},
+							},
+						},
 					}
 
 					m := newSchemaManager()
@@ -196,6 +202,12 @@ func Test_Validation_ClassNames(t *testing.T) {
 					class := &models.Class{
 						Class:              test.input,
 						VectorizeClassName: test.vectorize,
+						Properties: []*models.Property{
+							&models.Property{
+								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
+								DataType: []string{"string"},
+							},
+						},
 					}
 
 					m := newSchemaManager()
@@ -220,6 +232,12 @@ func Test_Validation_ClassNames(t *testing.T) {
 					class := &models.Class{
 						Class:              test.input,
 						VectorizeClassName: test.vectorize,
+						Properties: []*models.Property{
+							&models.Property{
+								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
+								DataType: []string{"string"},
+							},
+						},
 						Keywords: models.Keywords{{
 							Keyword: "something",
 							Weight:  0.7,
@@ -244,6 +262,12 @@ func Test_Validation_ClassNames(t *testing.T) {
 					class := &models.Class{
 						Class:              test.input,
 						VectorizeClassName: test.vectorize,
+						Properties: []*models.Property{
+							&models.Property{
+								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
+								DataType: []string{"string"},
+							},
+						},
 						Keywords: models.Keywords{{
 							Keyword: "something",
 							Weight:  0.7,
@@ -276,6 +300,12 @@ func Test_Validation_ClassNames(t *testing.T) {
 					class := &models.Class{
 						Class:              originalName,
 						VectorizeClassName: test.vectorize,
+						Properties: []*models.Property{
+							&models.Property{
+								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
+								DataType: []string{"string"},
+							},
+						},
 					}
 
 					m := newSchemaManager()
@@ -303,6 +333,12 @@ func Test_Validation_ClassNames(t *testing.T) {
 					class := &models.Class{
 						Class:              originalName,
 						VectorizeClassName: test.vectorize,
+						Properties: []*models.Property{
+							&models.Property{
+								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
+								DataType: []string{"string"},
+							},
+						},
 					}
 
 					m := newSchemaManager()
@@ -342,6 +378,12 @@ func Test_Validation_ClassNames(t *testing.T) {
 							Keyword: "something",
 							Weight:  0.7,
 						}},
+						Properties: []*models.Property{
+							&models.Property{
+								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
+								DataType: []string{"string"},
+							},
+						},
 					}
 
 					m := newSchemaManager()
@@ -373,6 +415,12 @@ func Test_Validation_ClassNames(t *testing.T) {
 							Keyword: "someaction",
 							Weight:  0.7,
 						}},
+						Properties: []*models.Property{
+							&models.Property{
+								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
+								DataType: []string{"string"},
+							},
+						},
 					}
 
 					m := newSchemaManager()
@@ -658,6 +706,12 @@ func Test_Validation_PropertyNames(t *testing.T) {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
 					class := &models.Class{
 						Class: "ValidName",
+						Properties: []*models.Property{
+							&models.Property{
+								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
+								DataType: []string{"string"},
+							},
+						},
 					}
 
 					m := newSchemaManager()
@@ -679,13 +733,19 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					}
 
 					schema, _ := m.GetSchema(nil)
-					propName := schema.Things.Classes[0].Properties[0].Name
+					propName := schema.Things.Classes[0].Properties[1].Name
 					assert.Equal(t, propName, test.storedAs, "class should be stored correctly")
 				})
 
 				t.Run(test.name+" as action class", func(t *testing.T) {
 					class := &models.Class{
 						Class: "ValidName",
+						Properties: []*models.Property{
+							&models.Property{
+								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
+								DataType: []string{"string"},
+							},
+						},
 					}
 
 					m := newSchemaManager()
@@ -707,7 +767,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					}
 
 					schema, _ := m.GetSchema(nil)
-					propName := schema.Actions.Classes[0].Properties[0].Name
+					propName := schema.Actions.Classes[0].Properties[1].Name
 					assert.Equal(t, propName, test.storedAs, "class should be stored correctly")
 				})
 
@@ -906,5 +966,41 @@ func Test_Validation_PropertyNames(t *testing.T) {
 			}
 		})
 	})
+}
 
+func Test_AllUsablePropsNoindexed(t *testing.T) {
+	t.Run("all schema vectorization turned off", func(t *testing.T) {
+		class := &models.Class{
+			Class:              "ValidName",
+			VectorizeClassName: false,
+			Properties: []*models.Property{
+				{
+					DataType:              []string{"text"},
+					Name:                  "decsription",
+					Index:                 ptFalse(),
+					VectorizePropertyName: false,
+				},
+				{
+					DataType:              []string{"string"},
+					Name:                  "name",
+					Index:                 ptFalse(),
+					VectorizePropertyName: false,
+				},
+				{
+					DataType:              []string{"int"},
+					Name:                  "amount",
+					VectorizePropertyName: false,
+				},
+			},
+		}
+
+		m := newSchemaManager()
+		err := m.AddThing(context.Background(), nil, class)
+		assert.NotNil(t, err)
+	})
+}
+
+func ptFalse() *bool {
+	f := false
+	return &f
 }

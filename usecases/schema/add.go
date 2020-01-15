@@ -112,6 +112,14 @@ func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Pri
 		}
 	}
 
+	// The user has the option to no-index select properties, but if they
+	// no-index every prop, there is a chance we don't have enough info to build
+	// vectors. See validation function for details.
+	err = m.validatePropertyIndexState(ctx, class)
+	if err != nil {
+		return err
+	}
+
 	// all is fine!
 	return nil
 }
