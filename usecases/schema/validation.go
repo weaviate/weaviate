@@ -43,7 +43,7 @@ func (m *Manager) validateClassNameUniqueness(className string) error {
 
 // Check that the format of the name is correct
 // Check that the name is acceptable according to the contextionary
-func (m *Manager) validateClassNameAndKeywords(ctx context.Context, knd kind.Kind, className string, keywords models.Keywords) error {
+func (m *Manager) validateClassNameAndKeywords(ctx context.Context, knd kind.Kind, className string, keywords models.Keywords, vectorizeClass bool) error {
 	_, err := schema.ValidateClassName(className)
 	if err != nil {
 		return err
@@ -82,6 +82,12 @@ func (m *Manager) validateClassNameAndKeywords(ctx context.Context, knd kind.Kin
 	}
 
 	//class name
+	if vectorizeClass == false {
+		// if the user chooses not to vectorize the class, we don't need to check
+		// if its c11y-valid or not
+		return nil
+	}
+
 	camelParts := camelcase.Split(className)
 	stopWordsFound = 0
 	for _, part := range camelParts {
@@ -134,7 +140,7 @@ func validateWeight(keyword *models.KeywordsItems0) error {
 
 // Check that the format of the name is correct
 // Check that the name is acceptable according to the contextionary
-func (m *Manager) validatePropertyNameAndKeywords(ctx context.Context, className string, propertyName string, keywords models.Keywords) error {
+func (m *Manager) validatePropertyNameAndKeywords(ctx context.Context, className string, propertyName string, keywords models.Keywords, vectorizeProperty bool) error {
 	_, err := schema.ValidatePropertyName(propertyName)
 	if err != nil {
 		return err
@@ -169,6 +175,12 @@ func (m *Manager) validatePropertyNameAndKeywords(ctx context.Context, className
 	if len(keywords) > 0 && len(keywords) == stopWordsFound {
 		return fmt.Errorf("all keywords for propertyName '%s' are stopwords and are therefore not a valid list of keywords. "+
 			"Make sure at least one keyword in the list is not a stop word", propertyName)
+	}
+
+	if vectorizeProperty == false {
+		// user does not want to vectorize this property name, so we don't have to
+		// validate it
+		return nil
 	}
 
 	camelParts := camelcase.Split(propertyName)
@@ -233,4 +245,43 @@ func (m *Manager) validateNetworkCrossRefs(dataTypes []string) error {
 	}
 
 	return nil
+}
+
+// Generally the user is free to "noindex" as many properties as they want.
+// However, we need to be able to build a vector from every object imported. If
+// the user decides not to index the classname and additionally no-indexes all
+// usabled (i.e. text/string) properties, we know for a fact, that we won't be
+// able to build a vector. In this case we should fail early and deny
+// validation.
+func (m *Manager) validatePropertyIndexState(ctx context.Context, class *models.Class) error {
+	if VectorizeClassName(class) {
+		// if the user chooses to vectorize the classname, vector-building will
+		// always be possible, no need to investigate further
+
+		return nil
+	}
+
+	// search if there is at least one indexed, string/text prop. If found pass validation
+	for _, prop := range class.Properties {
+		if len(prop.DataType) < 1 {
+			return fmt.Errorf("property %s must have at least one datatype, got %v", prop.Name, prop.DataType)
+		}
+
+		if prop.DataType[0] != string(schema.DataTypeString) &&
+			prop.DataType[0] != string(schema.DataTypeText) {
+			continue
+		}
+
+		if prop.Index == nil || *prop.Index == true {
+			// found at least one, this is a valid schema
+			return nil
+		}
+	}
+
+	return fmt.Errorf("invalid properties: didn't find a single property which is of type string or text " +
+		"and is not excluded from indexing. In addition the class name is excluded from vectorization as well, " +
+		"meaning that it cannot be used to determine the vector position. To fix this, set " +
+		"'vectorizeClassName' to true if the class name is contextionary-valid. Alternatively add at least " +
+		"contextionary-valid text/string property which is not excluded from indexing.")
+
 }

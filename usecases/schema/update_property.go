@@ -95,7 +95,8 @@ func (m *Manager) updateClassProperty(ctx context.Context, className string, nam
 	}
 
 	// Validate name / keywords in contextionary
-	err = m.validatePropertyNameAndKeywords(ctx, className, propNameAfterUpdate, keywordsAfterUpdate)
+	err = m.validatePropertyNameAndKeywords(ctx, className, propNameAfterUpdate, keywordsAfterUpdate,
+		prop.VectorizePropertyName)
 	if err != nil {
 		return err
 	}

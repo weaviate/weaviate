@@ -80,7 +80,7 @@ func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Pri
 		return err
 	}
 
-	err = m.validateClassNameAndKeywords(ctx, knd, class.Class, class.Keywords)
+	err = m.validateClassNameAndKeywords(ctx, knd, class.Class, class.Keywords, VectorizeClassName(class))
 	if err != nil {
 		return err
 	}
@@ -88,7 +88,8 @@ func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Pri
 	// Check properties
 	foundNames := map[string]bool{}
 	for _, property := range class.Properties {
-		err = m.validatePropertyNameAndKeywords(ctx, class.Class, property.Name, property.Keywords)
+		err = m.validatePropertyNameAndKeywords(ctx, class.Class, property.Name, property.Keywords,
+			property.VectorizePropertyName)
 		if err != nil {
 			return err
 		}
@@ -109,6 +110,14 @@ func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Pri
 		if err != nil {
 			return fmt.Errorf("property '%s': invalid dataType: %v", property.Name, err)
 		}
+	}
+
+	// The user has the option to no-index select properties, but if they
+	// no-index every prop, there is a chance we don't have enough info to build
+	// vectors. See validation function for details.
+	err = m.validatePropertyIndexState(ctx, class)
+	if err != nil {
+		return err
 	}
 
 	// all is fine!
