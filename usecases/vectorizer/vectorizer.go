@@ -98,6 +98,11 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 		}
 	}
 
+	if len(corpi) == 0 {
+		// fall back to using the class name
+		corpi = append(corpi, camelCaseToLower(className))
+	}
+
 	vector, err := v.client.VectorForCorpi(ctx, []string{strings.Join(corpi, " ")})
 	if err != nil {
 		switch err.(type) {

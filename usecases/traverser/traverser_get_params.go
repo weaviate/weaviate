@@ -30,6 +30,7 @@ type GetParams struct {
 	Properties   SelectProperties
 	Explore      *ExploreParams
 	SearchVector []float32
+	Group        *GroupParams
 }
 
 type SelectProperty struct {
@@ -47,6 +48,11 @@ type SelectProperty struct {
 type SelectClass struct {
 	ClassName     string
 	RefProperties SelectProperties
+}
+
+type GroupParams struct {
+	Strategy string
+	Force    float32
 }
 
 // FindSelectClass by specifying the exact class name
