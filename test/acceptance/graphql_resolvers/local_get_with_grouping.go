@@ -88,6 +88,11 @@ func gettingObjectsWithGrouping(t *testing.T) {
 					Things {
 						Company(group: {type: merge, force:0.07}) {
 							name
+							InCity {
+							  ... on City {
+								  name
+								}
+							}
 						}
 					}
 				}

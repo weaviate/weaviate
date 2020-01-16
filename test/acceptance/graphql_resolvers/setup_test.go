@@ -106,8 +106,9 @@ func addTestSchema(t *testing.T) {
 				DataType: []string{"string"},
 			},
 			&models.Property{
-				Name:     "inCity",
-				DataType: []string{"City"},
+				Name:        "inCity",
+				DataType:    []string{"City"},
+				Cardinality: ptString("many"),
 			},
 		},
 	})
@@ -130,20 +131,20 @@ func addTestSchema(t *testing.T) {
 	})
 }
 
-func addTestDataCityAirport(t *testing.T) {
+const (
+	netherlands strfmt.UUID = "67b79643-cf8b-4b22-b206-6e63dbb4e57a"
+	germany     strfmt.UUID = "561eea29-b733-4079-b50b-cfabd78190b7"
+	amsterdam   strfmt.UUID = "8f5f8e44-d348-459c-88b1-c1a44bb8f8be"
+	rotterdam   strfmt.UUID = "660db307-a163-41d2-8182-560782cd018f"
+	berlin      strfmt.UUID = "9b9cbea5-e87e-4cd0-89af-e2f424fd52d6"
+	dusseldorf  strfmt.UUID = "6ffb03f8-a853-4ec5-a5d8-302e45aaaf13"
+	airport1    strfmt.UUID = "4770bb19-20fd-406e-ac64-9dac54c27a0f"
+	airport2    strfmt.UUID = "cad6ab9b-5bb9-4388-a933-a5bdfd23db37"
+	airport3    strfmt.UUID = "55a4dbbb-e2af-4b2a-901d-98146d1eeca7"
+	airport4    strfmt.UUID = "62d15920-b546-4844-bc87-3ae33268fab5"
+)
 
-	var (
-		netherlands strfmt.UUID = "67b79643-cf8b-4b22-b206-6e63dbb4e57a"
-		germany     strfmt.UUID = "561eea29-b733-4079-b50b-cfabd78190b7"
-		amsterdam   strfmt.UUID = "8f5f8e44-d348-459c-88b1-c1a44bb8f8be"
-		rotterdam   strfmt.UUID = "660db307-a163-41d2-8182-560782cd018f"
-		berlin      strfmt.UUID = "9b9cbea5-e87e-4cd0-89af-e2f424fd52d6"
-		dusseldorf  strfmt.UUID = "6ffb03f8-a853-4ec5-a5d8-302e45aaaf13"
-		airport1    strfmt.UUID = "4770bb19-20fd-406e-ac64-9dac54c27a0f"
-		airport2    strfmt.UUID = "cad6ab9b-5bb9-4388-a933-a5bdfd23db37"
-		airport3    strfmt.UUID = "55a4dbbb-e2af-4b2a-901d-98146d1eeca7"
-		airport4    strfmt.UUID = "62d15920-b546-4844-bc87-3ae33268fab5"
-	)
+func addTestDataCityAirport(t *testing.T) {
 
 	// countries
 	createThing(t, &models.Thing{
@@ -296,30 +297,41 @@ func addTestDataCompanies(t *testing.T) {
 		google3    strfmt.UUID = "c7829929-2037-4420-acbc-a433269feb93"
 	)
 
-	type nameAndID struct {
-		id   strfmt.UUID
-		name string
+	type companyTemplate struct {
+		id     strfmt.UUID
+		name   string
+		inCity []strfmt.UUID
 	}
 
-	companies := []nameAndID{
-		nameAndID{id: microsoft1, name: "Microsoft Inc."},
-		nameAndID{id: microsoft2, name: "Microsoft Incorporated"},
-		nameAndID{id: microsoft3, name: "Microsoft"},
-		nameAndID{id: apple1, name: "Apple Inc."},
-		nameAndID{id: apple2, name: "Apple Incorporated"},
-		nameAndID{id: apple3, name: "Apple"},
-		nameAndID{id: google1, name: "Google Inc."},
-		nameAndID{id: google2, name: "Google Incorporated"},
-		nameAndID{id: google3, name: "Google"},
+	companies := []companyTemplate{
+		companyTemplate{id: microsoft1, name: "Microsoft Inc.", inCity: []strfmt.UUID{dusseldorf}},
+		companyTemplate{id: microsoft2, name: "Microsoft Incorporated", inCity: []strfmt.UUID{dusseldorf, amsterdam}},
+		companyTemplate{id: microsoft3, name: "Microsoft", inCity: []strfmt.UUID{berlin}},
+		companyTemplate{id: apple1, name: "Apple Inc."},
+		companyTemplate{id: apple2, name: "Apple Incorporated"},
+		companyTemplate{id: apple3, name: "Apple"},
+		companyTemplate{id: google1, name: "Google Inc."},
+		companyTemplate{id: google2, name: "Google Incorporated"},
+		companyTemplate{id: google3, name: "Google"},
 	}
 
 	// companies
 	for _, company := range companies {
+
+		inCity := []interface{}{}
+		for _, c := range company.inCity {
+			inCity = append(inCity,
+				map[string]interface{}{
+					"beacon": crossref.New("localhost", c, kind.Thing).String(),
+				})
+		}
+
 		createThing(t, &models.Thing{
 			Class: "Company",
 			ID:    company.id,
 			Schema: map[string]interface{}{
-				"name": company.name,
+				"inCity": inCity,
+				"name":   company.name,
 			},
 		})
 	}
@@ -328,5 +340,9 @@ func addTestDataCompanies(t *testing.T) {
 }
 
 func ptBool(in bool) *bool {
+	return &in
+}
+
+func ptString(in string) *string {
 	return &in
 }
