@@ -61,7 +61,7 @@ func (o *ActionsUpdateURL) Build() (*url.URL, error) {
 	if id != "" {
 		_path = strings.Replace(_path, "{id}", id, -1)
 	} else {
-		return nil, errors.New("ID is required on ActionsUpdateURL")
+		return nil, errors.New("id is required on ActionsUpdateURL")
 	}
 
 	_basePath := o._basePath

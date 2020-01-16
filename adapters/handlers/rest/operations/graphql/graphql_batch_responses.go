@@ -64,13 +64,13 @@ func (o *GraphqlBatchOK) WriteResponse(rw http.ResponseWriter, producer runtime.
 	rw.WriteHeader(200)
 	payload := o.Payload
 	if payload == nil {
-		payload = make(models.GraphQLResponses, 0, 50)
+		// return empty array
+		payload = models.GraphQLResponses{}
 	}
 
 	if err := producer.Produce(rw, payload); err != nil {
 		panic(err) // let the recovery middleware deal with this
 	}
-
 }
 
 // GraphqlBatchUnauthorizedCode is the HTTP code returned for type GraphqlBatchUnauthorized

@@ -59,7 +59,7 @@ func (o *SchemaThingsDeleteURL) Build() (*url.URL, error) {
 	if className != "" {
 		_path = strings.Replace(_path, "{className}", className, -1)
 	} else {
-		return nil, errors.New("ClassName is required on SchemaThingsDeleteURL")
+		return nil, errors.New("className is required on SchemaThingsDeleteURL")
 	}
 
 	_basePath := o._basePath

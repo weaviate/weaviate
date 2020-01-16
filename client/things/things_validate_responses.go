@@ -37,35 +37,30 @@ type ThingsValidateReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *ThingsValidateReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 200:
 		result := NewThingsValidateOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	case 401:
 		result := NewThingsValidateUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 403:
 		result := NewThingsValidateForbidden()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 422:
 		result := NewThingsValidateUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 500:
 		result := NewThingsValidateInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -137,6 +132,10 @@ func (o *ThingsValidateForbidden) Error() string {
 	return fmt.Sprintf("[POST /things/validate][%d] thingsValidateForbidden  %+v", 403, o.Payload)
 }
 
+func (o *ThingsValidateForbidden) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *ThingsValidateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -166,6 +165,10 @@ func (o *ThingsValidateUnprocessableEntity) Error() string {
 	return fmt.Sprintf("[POST /things/validate][%d] thingsValidateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
+func (o *ThingsValidateUnprocessableEntity) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *ThingsValidateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -193,6 +196,10 @@ type ThingsValidateInternalServerError struct {
 
 func (o *ThingsValidateInternalServerError) Error() string {
 	return fmt.Sprintf("[POST /things/validate][%d] thingsValidateInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *ThingsValidateInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *ThingsValidateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

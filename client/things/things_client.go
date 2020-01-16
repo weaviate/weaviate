@@ -19,6 +19,8 @@ package things
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"fmt"
+
 	"github.com/go-openapi/runtime"
 
 	strfmt "github.com/go-openapi/strfmt"
@@ -64,8 +66,14 @@ func (a *Client) ThingsCreate(params *ThingsCreateParams, authInfo runtime.Clien
 	if err != nil {
 		return nil, err
 	}
-	return result.(*ThingsCreateOK), nil
-
+	success, ok := result.(*ThingsCreateOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for things.create: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -95,8 +103,14 @@ func (a *Client) ThingsDelete(params *ThingsDeleteParams, authInfo runtime.Clien
 	if err != nil {
 		return nil, err
 	}
-	return result.(*ThingsDeleteNoContent), nil
-
+	success, ok := result.(*ThingsDeleteNoContent)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for things.delete: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -126,8 +140,14 @@ func (a *Client) ThingsGet(params *ThingsGetParams, authInfo runtime.ClientAuthI
 	if err != nil {
 		return nil, err
 	}
-	return result.(*ThingsGetOK), nil
-
+	success, ok := result.(*ThingsGetOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for things.get: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -157,8 +177,14 @@ func (a *Client) ThingsList(params *ThingsListParams, authInfo runtime.ClientAut
 	if err != nil {
 		return nil, err
 	}
-	return result.(*ThingsListOK), nil
-
+	success, ok := result.(*ThingsListOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for things.list: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -188,8 +214,14 @@ func (a *Client) ThingsPatch(params *ThingsPatchParams, authInfo runtime.ClientA
 	if err != nil {
 		return nil, err
 	}
-	return result.(*ThingsPatchNoContent), nil
-
+	success, ok := result.(*ThingsPatchNoContent)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for things.patch: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -219,8 +251,14 @@ func (a *Client) ThingsReferencesCreate(params *ThingsReferencesCreateParams, au
 	if err != nil {
 		return nil, err
 	}
-	return result.(*ThingsReferencesCreateOK), nil
-
+	success, ok := result.(*ThingsReferencesCreateOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for things.references.create: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -250,8 +288,14 @@ func (a *Client) ThingsReferencesDelete(params *ThingsReferencesDeleteParams, au
 	if err != nil {
 		return nil, err
 	}
-	return result.(*ThingsReferencesDeleteNoContent), nil
-
+	success, ok := result.(*ThingsReferencesDeleteNoContent)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for things.references.delete: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -281,8 +325,14 @@ func (a *Client) ThingsReferencesUpdate(params *ThingsReferencesUpdateParams, au
 	if err != nil {
 		return nil, err
 	}
-	return result.(*ThingsReferencesUpdateOK), nil
-
+	success, ok := result.(*ThingsReferencesUpdateOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for things.references.update: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -312,8 +362,14 @@ func (a *Client) ThingsUpdate(params *ThingsUpdateParams, authInfo runtime.Clien
 	if err != nil {
 		return nil, err
 	}
-	return result.(*ThingsUpdateOK), nil
-
+	success, ok := result.(*ThingsUpdateOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for things.update: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
@@ -343,8 +399,14 @@ func (a *Client) ThingsValidate(params *ThingsValidateParams, authInfo runtime.C
 	if err != nil {
 		return nil, err
 	}
-	return result.(*ThingsValidateOK), nil
-
+	success, ok := result.(*ThingsValidateOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for things.validate: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 // SetTransport changes the transport on the client

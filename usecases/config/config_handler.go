@@ -67,17 +67,24 @@ type Contextionary struct {
 }
 
 type VectorIndex struct {
-	Enabled                bool   `json:"enabled" yaml:"enabled"`
-	URL                    string `json:"url" yaml:"url"`
-	DenormalizationDepth   int    `json:"denormalizationDepth" yaml:"denormalizationDepth"`
-	CacheCycleIdleWaitTime int    `json:"cacheCycleIdleWaitTime" yaml:"cacheCycleIdleWaitTime"`
-	CacheCycleBusyWaitTime int    `json:"cacheCycleBusyWaitTime" yaml:"cacheCycleBusyWaitTime"`
-	CacheCycleBulkSize     int    `json:"cacheCycleBulkSize" yaml:"cacheCycleBulkSize"`
+	Enabled                bool    `json:"enabled" yaml:"enabled"`
+	URL                    string  `json:"url" yaml:"url"`
+	DenormalizationDepth   int     `json:"denormalizationDepth" yaml:"denormalizationDepth"`
+	SupernodeThreshold     int     `json:"supernodeThreshold" yaml:"supernodeThreshold"`
+	CacheCycleIdleWaitTime int     `json:"cacheCycleIdleWaitTime" yaml:"cacheCycleIdleWaitTime"`
+	CacheCycleBusyWaitTime int     `json:"cacheCycleBusyWaitTime" yaml:"cacheCycleBusyWaitTime"`
+	CacheCycleBulkSize     int     `json:"cacheCycleBulkSize" yaml:"cacheCycleBulkSize"`
+	NumberOfShards         *int    `json:"numberOfShards" yaml:"numberOfShards"`
+	AutoExpandReplicas     *string `json:"autoExpandReplicas" yaml:"autoExpandReplicas"`
 }
 
 func (v *VectorIndex) SetDefaults() {
 	if v.DenormalizationDepth == 0 {
 		v.DenormalizationDepth = 2
+	}
+
+	if v.SupernodeThreshold == 0 {
+		v.SupernodeThreshold = 100
 	}
 
 	if v.CacheCycleIdleWaitTime == 0 {
@@ -90,6 +97,14 @@ func (v *VectorIndex) SetDefaults() {
 
 	if v.CacheCycleBulkSize == 0 {
 		v.CacheCycleBulkSize = 200
+	}
+
+	if v.NumberOfShards == nil {
+		v.NumberOfShards = ptInt(3)
+	}
+
+	if v.AutoExpandReplicas == nil {
+		v.AutoExpandReplicas = ptString("0-2")
 	}
 }
 
@@ -220,4 +235,12 @@ func (f *WeaviateConfig) parseConfigFile(file []byte, name string) (Config, erro
 	}
 
 	return config, nil
+}
+
+func ptInt(in int) *int {
+	return &in
+}
+
+func ptString(in string) *string {
+	return &in
 }

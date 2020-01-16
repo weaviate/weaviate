@@ -22,7 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	libschema "github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+	testhelper "github.com/semi-technologies/weaviate/test/helper"
 	ucschema "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/stretchr/testify/require"
 )
@@ -55,7 +55,7 @@ func testUpdatingCachedRefProps(repo *Repo, schema libschema.Schema) func(t *tes
 		})
 
 		t.Run("verify direct ref (one level) has an updated cache", func(t *testing.T) {
-			helper.AssertEventuallyEqual(t, "Very Luxury Parking Garage", func() interface{} {
+			testhelper.AssertEventuallyEqual(t, "Very Luxury Parking Garage", func() interface{} {
 				res, err := repo.ThingByID(context.Background(), "fe3ca25d-8734-4ede-9a81-bc1ed8c3ea43",
 					parkedAtGarage(), false)
 				require.Nil(t, err)
@@ -71,7 +71,7 @@ func testUpdatingCachedRefProps(repo *Repo, schema libschema.Schema) func(t *tes
 		})
 
 		t.Run("verify indirect ref (two levels) has an updated cache", func(t *testing.T) {
-			helper.AssertEventuallyEqual(t, "Very Luxury Parking Garage", func() interface{} {
+			testhelper.AssertEventuallyEqual(t, "Very Luxury Parking Garage", func() interface{} {
 				res, err := repo.ThingByID(context.Background(), "9653ab38-c16b-4561-80df-7a7e19300dd0",
 					drivesCarParkedAtGarage(), false)
 				require.Nil(t, err)

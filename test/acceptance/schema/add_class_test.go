@@ -24,6 +24,7 @@ import (
 	"github.com/semi-technologies/weaviate/client/things"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+	testhelper "github.com/semi-technologies/weaviate/test/helper"
 )
 
 // this test prevents a regression on
@@ -71,7 +72,8 @@ func TestAddAndRemoveThingClass(t *testing.T) {
 	assert.NotContains(t, GetThingClassNames(t), randomThingClassName)
 
 	tc := &models.Class{
-		Class: randomThingClassName,
+		Class:              randomThingClassName,
+		VectorizeClassName: ptBool(true),
 	}
 
 	t.Log("Creating class")
@@ -198,7 +200,7 @@ func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.Thing {
 		return err == nil
 	}
 
-	helper.AssertEventuallyEqual(t, true, checkThunk)
+	testhelper.AssertEventuallyEqual(t, true, checkThunk)
 
 	var thing *models.Thing
 
@@ -207,4 +209,8 @@ func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.Thing {
 	})
 
 	return thing
+}
+
+func ptBool(in bool) *bool {
+	return &in
 }

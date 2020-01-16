@@ -24,7 +24,8 @@ import (
 func Test_Actions(t *testing.T) {
 	t.Run("setup", func(t *testing.T) {
 		createThingClass(t, &models.Class{
-			Class: "ActionTestThing",
+			Class:              "ActionTestThing",
+			VectorizeClassName: ptBool(true),
 			Properties: []*models.Property{
 				&models.Property{
 					Name:     "testString",
@@ -33,7 +34,8 @@ func Test_Actions(t *testing.T) {
 			},
 		})
 		createActionClass(t, &models.Class{
-			Class: "TestAction",
+			Class:              "TestAction",
+			VectorizeClassName: ptBool(true),
 			Properties: []*models.Property{
 				&models.Property{
 					Name:     "testString",
@@ -63,7 +65,8 @@ func Test_Actions(t *testing.T) {
 		})
 		many := "many"
 		createActionClass(t, &models.Class{
-			Class: "TestActionTwo",
+			Class:              "TestActionTwo",
+			VectorizeClassName: ptBool(true),
 			Properties: []*models.Property{
 				&models.Property{
 					Name:     "testReference",
@@ -116,4 +119,8 @@ func deleteThingClass(t *testing.T, class string) {
 	delParams := schema.NewSchemaThingsDeleteParams().WithClassName(class)
 	delRes, err := helper.Client(t).Schema.SchemaThingsDelete(delParams, nil)
 	helper.AssertRequestOk(t, delRes, err, nil)
+}
+
+func ptBool(in bool) *bool {
+	return &in
 }

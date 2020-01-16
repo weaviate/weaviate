@@ -37,35 +37,30 @@ type SchemaThingsUpdateReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *SchemaThingsUpdateReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 200:
 		result := NewSchemaThingsUpdateOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	case 401:
 		result := NewSchemaThingsUpdateUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 403:
 		result := NewSchemaThingsUpdateForbidden()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 422:
 		result := NewSchemaThingsUpdateUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 500:
 		result := NewSchemaThingsUpdateInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -137,6 +132,10 @@ func (o *SchemaThingsUpdateForbidden) Error() string {
 	return fmt.Sprintf("[PUT /schema/things/{className}][%d] schemaThingsUpdateForbidden  %+v", 403, o.Payload)
 }
 
+func (o *SchemaThingsUpdateForbidden) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *SchemaThingsUpdateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -166,6 +165,10 @@ func (o *SchemaThingsUpdateUnprocessableEntity) Error() string {
 	return fmt.Sprintf("[PUT /schema/things/{className}][%d] schemaThingsUpdateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
+func (o *SchemaThingsUpdateUnprocessableEntity) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *SchemaThingsUpdateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -193,6 +196,10 @@ type SchemaThingsUpdateInternalServerError struct {
 
 func (o *SchemaThingsUpdateInternalServerError) Error() string {
 	return fmt.Sprintf("[PUT /schema/things/{className}][%d] schemaThingsUpdateInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *SchemaThingsUpdateInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *SchemaThingsUpdateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

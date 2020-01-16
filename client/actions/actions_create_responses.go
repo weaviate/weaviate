@@ -37,35 +37,30 @@ type ActionsCreateReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *ActionsCreateReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 200:
 		result := NewActionsCreateOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	case 401:
 		result := NewActionsCreateUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 403:
 		result := NewActionsCreateForbidden()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 422:
 		result := NewActionsCreateUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 500:
 		result := NewActionsCreateInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -93,6 +88,10 @@ type ActionsCreateOK struct {
 
 func (o *ActionsCreateOK) Error() string {
 	return fmt.Sprintf("[POST /actions][%d] actionsCreateOK  %+v", 200, o.Payload)
+}
+
+func (o *ActionsCreateOK) GetPayload() *models.Action {
+	return o.Payload
 }
 
 func (o *ActionsCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -145,6 +144,10 @@ func (o *ActionsCreateForbidden) Error() string {
 	return fmt.Sprintf("[POST /actions][%d] actionsCreateForbidden  %+v", 403, o.Payload)
 }
 
+func (o *ActionsCreateForbidden) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *ActionsCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -174,6 +177,10 @@ func (o *ActionsCreateUnprocessableEntity) Error() string {
 	return fmt.Sprintf("[POST /actions][%d] actionsCreateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
+func (o *ActionsCreateUnprocessableEntity) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *ActionsCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -201,6 +208,10 @@ type ActionsCreateInternalServerError struct {
 
 func (o *ActionsCreateInternalServerError) Error() string {
 	return fmt.Sprintf("[POST /actions][%d] actionsCreateInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *ActionsCreateInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *ActionsCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

@@ -37,42 +37,36 @@ type C11yConceptsReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *C11yConceptsReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 200:
 		result := NewC11yConceptsOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	case 400:
 		result := NewC11yConceptsBadRequest()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 401:
 		result := NewC11yConceptsUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 403:
 		result := NewC11yConceptsForbidden()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 500:
 		result := NewC11yConceptsInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 501:
 		result := NewC11yConceptsNotImplemented()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -102,6 +96,10 @@ func (o *C11yConceptsOK) Error() string {
 	return fmt.Sprintf("[GET /c11y/concepts/{concept}][%d] c11yConceptsOK  %+v", 200, o.Payload)
 }
 
+func (o *C11yConceptsOK) GetPayload() *models.C11yWordsResponse {
+	return o.Payload
+}
+
 func (o *C11yConceptsOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.C11yWordsResponse)
@@ -129,6 +127,10 @@ type C11yConceptsBadRequest struct {
 
 func (o *C11yConceptsBadRequest) Error() string {
 	return fmt.Sprintf("[GET /c11y/concepts/{concept}][%d] c11yConceptsBadRequest  %+v", 400, o.Payload)
+}
+
+func (o *C11yConceptsBadRequest) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *C11yConceptsBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -181,6 +183,10 @@ func (o *C11yConceptsForbidden) Error() string {
 	return fmt.Sprintf("[GET /c11y/concepts/{concept}][%d] c11yConceptsForbidden  %+v", 403, o.Payload)
 }
 
+func (o *C11yConceptsForbidden) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *C11yConceptsForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -208,6 +214,10 @@ type C11yConceptsInternalServerError struct {
 
 func (o *C11yConceptsInternalServerError) Error() string {
 	return fmt.Sprintf("[GET /c11y/concepts/{concept}][%d] c11yConceptsInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *C11yConceptsInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *C11yConceptsInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

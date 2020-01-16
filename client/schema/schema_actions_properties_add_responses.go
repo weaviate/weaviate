@@ -37,35 +37,30 @@ type SchemaActionsPropertiesAddReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *SchemaActionsPropertiesAddReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 200:
 		result := NewSchemaActionsPropertiesAddOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	case 401:
 		result := NewSchemaActionsPropertiesAddUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 403:
 		result := NewSchemaActionsPropertiesAddForbidden()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 422:
 		result := NewSchemaActionsPropertiesAddUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 500:
 		result := NewSchemaActionsPropertiesAddInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -93,6 +88,10 @@ type SchemaActionsPropertiesAddOK struct {
 
 func (o *SchemaActionsPropertiesAddOK) Error() string {
 	return fmt.Sprintf("[POST /schema/actions/{className}/properties][%d] schemaActionsPropertiesAddOK  %+v", 200, o.Payload)
+}
+
+func (o *SchemaActionsPropertiesAddOK) GetPayload() *models.Property {
+	return o.Payload
 }
 
 func (o *SchemaActionsPropertiesAddOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -145,6 +144,10 @@ func (o *SchemaActionsPropertiesAddForbidden) Error() string {
 	return fmt.Sprintf("[POST /schema/actions/{className}/properties][%d] schemaActionsPropertiesAddForbidden  %+v", 403, o.Payload)
 }
 
+func (o *SchemaActionsPropertiesAddForbidden) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *SchemaActionsPropertiesAddForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -174,6 +177,10 @@ func (o *SchemaActionsPropertiesAddUnprocessableEntity) Error() string {
 	return fmt.Sprintf("[POST /schema/actions/{className}/properties][%d] schemaActionsPropertiesAddUnprocessableEntity  %+v", 422, o.Payload)
 }
 
+func (o *SchemaActionsPropertiesAddUnprocessableEntity) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *SchemaActionsPropertiesAddUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -201,6 +208,10 @@ type SchemaActionsPropertiesAddInternalServerError struct {
 
 func (o *SchemaActionsPropertiesAddInternalServerError) Error() string {
 	return fmt.Sprintf("[POST /schema/actions/{className}/properties][%d] schemaActionsPropertiesAddInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *SchemaActionsPropertiesAddInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *SchemaActionsPropertiesAddInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

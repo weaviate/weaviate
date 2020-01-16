@@ -22,6 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/client/things"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+	testhelper "github.com/semi-technologies/weaviate/test/helper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -37,7 +38,8 @@ func Test_UnindexedProperty(t *testing.T) {
 
 	t.Run("creating a class with two string props", func(t *testing.T) {
 		c := &models.Class{
-			Class: className,
+			Class:              className,
+			VectorizeClassName: ptBool(true),
 			Properties: []*models.Property{
 				&models.Property{
 					Name:     "name",
@@ -57,7 +59,7 @@ func Test_UnindexedProperty(t *testing.T) {
 
 	})
 
-	t.Run("creating a class with two string props", func(t *testing.T) {
+	t.Run("creating an object", func(t *testing.T) {
 		params := things.NewThingsCreateParams().WithBody(
 			&models.Thing{
 				Class: className,
@@ -142,7 +144,7 @@ func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.Thing {
 		return err == nil
 	}
 
-	helper.AssertEventuallyEqual(t, true, checkThunk)
+	testhelper.AssertEventuallyEqual(t, true, checkThunk)
 
 	var thing *models.Thing
 
