@@ -113,15 +113,18 @@ func addTestSchema(t *testing.T) {
 	})
 
 	createThingClass(t, &models.Class{
-		Class: "Company",
+		Class:              "Company",
+		VectorizeClassName: ptBool(false),
 		Properties: []*models.Property{
 			&models.Property{
-				Name:     "name",
-				DataType: []string{"string"},
+				Name:                  "name",
+				DataType:              []string{"string"},
+				VectorizePropertyName: false,
 			},
 			&models.Property{
-				Name:     "inCity",
-				DataType: []string{"City"},
+				Name:                  "inCity",
+				DataType:              []string{"City"},
+				VectorizePropertyName: false,
 			},
 		},
 	})
