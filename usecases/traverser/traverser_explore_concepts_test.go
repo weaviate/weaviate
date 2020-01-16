@@ -34,7 +34,8 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorizer := &fakeVectorizer{}
 		vectorSearcher := &fakeVectorSearcher{}
-		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer())
+		log, _ := test.NewNullLogger()
+		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorizer, vectorSearcher, explorer, schemaGetter)
@@ -54,7 +55,8 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorizer := &fakeVectorizer{}
 		vectorSearcher := &fakeVectorSearcher{}
-		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer())
+		log, _ := test.NewNullLogger()
+		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorizer, vectorSearcher, explorer, schemaGetter)
@@ -105,7 +107,8 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorizer := &fakeVectorizer{}
 		vectorSearcher := &fakeVectorSearcher{}
-		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer())
+		log, _ := test.NewNullLogger()
+		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorizer, vectorSearcher, explorer, schemaGetter)
@@ -141,7 +144,8 @@ func Test_ExploreConcepts(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorizer := &fakeVectorizer{}
 		vectorSearcher := &fakeVectorSearcher{}
-		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer())
+		log, _ := test.NewNullLogger()
+		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorizer, vectorSearcher, explorer, schemaGetter)
