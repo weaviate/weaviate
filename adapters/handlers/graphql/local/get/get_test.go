@@ -193,6 +193,28 @@ func TestExtractPagination(t *testing.T) {
 	resolver.AssertResolve(t, query)
 }
 
+func TestExtractGroupParams(t *testing.T) {
+	t.Parallel()
+
+	resolver := newMockResolver(emptyPeers())
+
+	expectedParams := traverser.GetParams{
+		Kind:       kind.Action,
+		ClassName:  "SomeAction",
+		Properties: []traverser.SelectProperty{{Name: "intField", IsPrimitive: true}},
+		Group: &traverser.GroupParams{
+			Strategy: "closest",
+			Force:    0.3,
+		},
+	}
+
+	resolver.On("GetClass", expectedParams).
+		Return(test_helper.EmptyList(), nil).Once()
+
+	query := "{ Get { Actions { SomeAction(group: {type: closest, force: 0.3}) { intField } } } }"
+	resolver.AssertResolve(t, query)
+}
+
 func TestGetRelation(t *testing.T) {
 	t.Parallel()
 

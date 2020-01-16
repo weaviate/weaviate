@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/elastic/go-elasticsearch/v5"
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
@@ -203,19 +202,19 @@ func testEsVectorCache(t *testing.T) {
 	t.Run("fully resolving the place before we have cache", func(t *testing.T) {
 		expectedSchema := map[string]interface{}{
 			"InCity": []interface{}{
-				get.LocalRef{
+				search.LocalRef{
 					Class: "City",
 					Fields: map[string]interface{}{
 						"InCountry": []interface{}{
-							get.LocalRef{
+							search.LocalRef{
 								Class: "Country",
 								Fields: map[string]interface{}{
 									"OnContinent": []interface{}{
-										get.LocalRef{
+										search.LocalRef{
 											Class: "Continent",
 											Fields: map[string]interface{}{
 												"OnPlanet": []interface{}{
-													get.LocalRef{
+													search.LocalRef{
 														Class: "Planet",
 														Fields: map[string]interface{}{
 															"name": "Earth",
@@ -258,7 +257,7 @@ func testEsVectorCache(t *testing.T) {
 	t.Run("partially resolving the place before we have cache", func(t *testing.T) {
 		expectedSchema := map[string]interface{}{
 			"InCity": []interface{}{
-				get.LocalRef{
+				search.LocalRef{
 					Class: "City",
 					Fields: map[string]interface{}{
 						"name": "San Francisco",
@@ -388,7 +387,7 @@ func testEsVectorCache(t *testing.T) {
 			partiallyNestedSelectProperties(), false)
 		expectedSchema := map[string]interface{}{
 			"InCity": []interface{}{
-				get.LocalRef{
+				search.LocalRef{
 					Class: "City",
 					Fields: map[string]interface{}{
 						"name": "San Francisco",
