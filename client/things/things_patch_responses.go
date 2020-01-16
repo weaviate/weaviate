@@ -37,49 +37,42 @@ type ThingsPatchReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *ThingsPatchReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 204:
 		result := NewThingsPatchNoContent()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	case 400:
 		result := NewThingsPatchBadRequest()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 401:
 		result := NewThingsPatchUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 403:
 		result := NewThingsPatchForbidden()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 404:
 		result := NewThingsPatchNotFound()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 422:
 		result := NewThingsPatchUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 500:
 		result := NewThingsPatchInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -172,6 +165,10 @@ func (o *ThingsPatchForbidden) Error() string {
 	return fmt.Sprintf("[PATCH /things/{id}][%d] thingsPatchForbidden  %+v", 403, o.Payload)
 }
 
+func (o *ThingsPatchForbidden) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *ThingsPatchForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -222,6 +219,10 @@ func (o *ThingsPatchUnprocessableEntity) Error() string {
 	return fmt.Sprintf("[PATCH /things/{id}][%d] thingsPatchUnprocessableEntity  %+v", 422, o.Payload)
 }
 
+func (o *ThingsPatchUnprocessableEntity) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *ThingsPatchUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -249,6 +250,10 @@ type ThingsPatchInternalServerError struct {
 
 func (o *ThingsPatchInternalServerError) Error() string {
 	return fmt.Sprintf("[PATCH /things/{id}][%d] thingsPatchInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *ThingsPatchInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *ThingsPatchInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

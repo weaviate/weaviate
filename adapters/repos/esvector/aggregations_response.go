@@ -165,7 +165,7 @@ func parseAggBucketsPayload(input map[string]interface{}, groupedValue interface
 			switch aggregator {
 			case "boolean":
 				err = addBooleanAggregationsToBucket(&bucket, value, outsideCount)
-			case string(traverser.TopOccurrencesAggregator):
+			case traverser.NewTopOccurrencesAggregator(nil).String():
 				err = addTextAggregationsToBucket(&bucket, value, outsideCount)
 			default:
 				// numerical
@@ -215,7 +215,7 @@ func addNumericalAggregationsToBucket(bucket *aggregationBucket, aggregator stri
 		return err
 	}
 
-	if outsideCount == nil && aggregator == string(traverser.CountAggregator) {
+	if outsideCount == nil && aggregator == traverser.CountAggregator.String() {
 		// this would be the case in an ungrouped aggregation, we need to
 		// extract the count manually
 		bucket.count = int(av.value.(float64))
@@ -232,9 +232,9 @@ func extractNumericalAggregatorAndValue(aggregator string, value interface{}) (a
 	)
 
 	switch aggregator {
-	case string(traverser.ModeAggregator):
+	case traverser.ModeAggregator.String():
 		parsed, err = parseAggBucketPropertyValueAsMode(value)
-	case string(traverser.MedianAggregator):
+	case traverser.MedianAggregator.String():
 		parsed, err = parseAggBucketPropertyValueAsMedian(value)
 	default:
 		parsed, err = parseAggBucketPropertyValue(value)
@@ -423,40 +423,49 @@ func addTextAggregationsToBucket(bucket *aggregationBucket, value interface{}, o
 func parseAggBucketPropertyValueAsTO(input interface{}) (aggregation.Text, error) {
 	asMap, ok := input.(map[string]interface{})
 	if !ok {
-		return nil, fmt.Errorf("boolean: expected value to be a map, but was %T", input)
+		return aggregation.Text{}, fmt.Errorf("text occurrences: expected value to be a map, but was %T", input)
 	}
 
 	buckets, ok := asMap["buckets"]
 	if !ok {
-		return nil, fmt.Errorf("boolean: expected map to have key 'buckets', but got %v", asMap)
+		return aggregation.Text{}, fmt.Errorf("text occurrences: expected map to have key 'buckets', but got %v", asMap)
 	}
 
-	return parseTextOccurrences(buckets.([]interface{}))
+	sumOther, ok := asMap["sum_other_doc_count"]
+	if !ok {
+		return aggregation.Text{}, fmt.Errorf("text occurrences: expected map to have key 'sum_other_doc_count', but got %v", asMap)
+	}
+
+	return parseTextOccurrences(buckets.([]interface{}), sumOther.(float64))
 }
 
-func parseTextOccurrences(buckets []interface{}) (aggregation.Text, error) {
-	out := make(aggregation.Text, len(buckets), len(buckets))
+func parseTextOccurrences(buckets []interface{}, sum float64) (aggregation.Text, error) {
+	list := make([]aggregation.TextOccurrence, len(buckets), len(buckets))
 
 	for i, bucket := range buckets {
 		asMap, ok := bucket.(map[string]interface{})
 		if !ok {
-			return nil, fmt.Errorf("bucket %d: expected bucket to be a map, but got %#v", i, bucket)
+			return aggregation.Text{}, fmt.Errorf("bucket %d: expected bucket to be a map, but got %#v", i, bucket)
 		}
 
 		value, ok := asMap["key"]
 		if !ok {
-			return nil, fmt.Errorf("bucket %d: expected bucket have key 'key_as_string', but got %#v", i, bucket)
+			return aggregation.Text{}, fmt.Errorf("bucket %d: expected bucket have key 'key_as_string', but got %#v", i, bucket)
 		}
 
 		count, ok := asMap["doc_count"]
 		if !ok {
-			return nil, fmt.Errorf("bucket %d: expected bucket have key 'doc_count', but got %#v", i, bucket)
+			return aggregation.Text{}, fmt.Errorf("bucket %d: expected bucket have key 'doc_count', but got %#v", i, bucket)
 		}
 
-		out[i] = aggregation.TextOccurrence{Value: value.(string), Occurs: int(count.(float64))}
+		list[i] = aggregation.TextOccurrence{Value: value.(string), Occurs: int(count.(float64))}
+		sum += count.(float64)
 	}
 
-	return out, nil
+	return aggregation.Text{
+		Items: list,
+		Count: int(sum),
+	}, nil
 }
 
 func parseAggBucketPropertyValueAsMedian(input interface{}) (interface{}, error) {

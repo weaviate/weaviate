@@ -23,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+	testhelper "github.com/semi-technologies/weaviate/test/helper"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -61,7 +62,7 @@ func actionReferences(t *testing.T) {
 			return updatedSchema["testReferences"] != nil
 		}
 
-		helper.AssertEventuallyEqual(t, true, checkThunk)
+		testhelper.AssertEventuallyEqual(t, true, checkThunk)
 	})
 
 	t.Run("can replace all properties", func(t *testing.T) {
@@ -105,7 +106,7 @@ func actionReferences(t *testing.T) {
 			return updatedSchema["testReferences"] != nil
 		}
 
-		helper.AssertEventuallyEqual(t, true, checkThunk)
+		testhelper.AssertEventuallyEqual(t, true, checkThunk)
 	})
 
 	t.Run("remove property individually", func(t *testing.T) {
@@ -161,6 +162,6 @@ func actionReferences(t *testing.T) {
 			return false
 		}
 
-		helper.AssertEventuallyEqual(t, true, checkThunk)
+		testhelper.AssertEventuallyEqual(t, true, checkThunk)
 	})
 }

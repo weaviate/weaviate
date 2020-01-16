@@ -37,6 +37,7 @@ import (
 
 	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/client/batching"
 	operations_apiclient "github.com/semi-technologies/weaviate/client/operations"
 )
 
@@ -53,5 +54,21 @@ func OperationsClient(t *testing.T) *operations_apiclient.Client {
 	}
 
 	client := operations_apiclient.New(transport, strfmt.Default)
+	return client
+}
+
+// Create a client that logs with t.Logf, if a *testing.T is provided.
+// If there is no test case at hand, pass in nil to disable logging.
+func BatchingClient(t *testing.T) *batching.Client {
+	transport := httptransport.New(fmt.Sprintf("%s:%s", ServerHost, ServerPort), "/v1", []string{ServerScheme})
+
+	// If a test case is provided, and we want to dump HTTP trafic,
+	// create a simple logger that logs HTTP trafic to the test case.
+	if t != nil && DebugHTTP {
+		transport.SetDebug(true)
+		transport.SetLogger(&testLogger{t: t})
+	}
+
+	client := batching.New(transport, strfmt.Default)
 	return client
 }

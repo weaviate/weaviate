@@ -240,10 +240,9 @@ func stringPropertyFields(class *models.Class,
 			Name:        fmt.Sprintf("%s%sCount", prefix, class.Class),
 			Description: descriptions.AggregatePropertyCount,
 			Type:        graphql.Int,
-			// Resolve: textResolver(func(text aggregation.Text) (interface{}, error) {
-			// 	// TODO: support count for text props
-			// 	return nil, nil
-			// }),
+			Resolve: textResolver(func(text aggregation.Text) (interface{}, error) {
+				return text.Count, nil
+			}),
 		},
 		"type": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sType", prefix, class.Class, property.Name),
@@ -263,20 +262,16 @@ func stringPropertyFields(class *models.Class,
 			Description: descriptions.AggregatePropertyTopOccurrences,
 			Type:        graphql.NewList(stringTopOccurrences(class, property, prefix)),
 			Resolve: textResolver(func(text aggregation.Text) (interface{}, error) {
-				list := make([]interface{}, len(text), len(text))
-				for i, to := range text {
+				list := make([]interface{}, len(text.Items), len(text.Items))
+				for i, to := range text.Items {
 					list[i] = to
 				}
 
 				return list, nil
 			}),
 			Args: graphql.FieldConfigArgument{
-				"first": &graphql.ArgumentConfig{
+				"limit": &graphql.ArgumentConfig{
 					Description: descriptions.First,
-					Type:        graphql.Int,
-				},
-				"after": &graphql.ArgumentConfig{
-					Description: descriptions.After,
 					Type:        graphql.Int,
 				},
 			},
@@ -348,11 +343,18 @@ func textOccurrenceResolver(extractor textOccurrenceExtractorFunc) func(p graphq
 func extractTextAggregation(source interface{}) (aggregation.Text, error) {
 	property, ok := source.(aggregation.Property)
 	if !ok {
-		return nil, fmt.Errorf("expected aggregation.Property, got %T", source)
+		return aggregation.Text{}, fmt.Errorf("expected aggregation.Property, got %T", source)
+	}
+
+	if property.Type == aggregation.PropertyTypeNumerical {
+		// in this case we can only use count
+		return aggregation.Text{
+			Count: int(property.NumericalAggregations["count"]),
+		}, nil
 	}
 
 	if property.Type != aggregation.PropertyTypeText {
-		return nil, fmt.Errorf("expected property to be of type text, got %s (%#v)", property.Type, property)
+		return aggregation.Text{}, fmt.Errorf("expected property to be of type text, got %s (%#v)", property.Type, property)
 	}
 
 	return property.TextAggregation, nil

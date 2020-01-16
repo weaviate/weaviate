@@ -64,7 +64,8 @@ func deleteThingClass(t *testing.T, class string) {
 
 func addTestSchema(t *testing.T) {
 	createThingClass(t, &models.Class{
-		Class: "Country",
+		Class:              "Country",
+		VectorizeClassName: ptBool(true),
 		Properties: []*models.Property{
 			&models.Property{
 				Name:     "name",
@@ -74,7 +75,8 @@ func addTestSchema(t *testing.T) {
 	})
 
 	createThingClass(t, &models.Class{
-		Class: "City",
+		Class:              "City",
+		VectorizeClassName: ptBool(true),
 		Properties: []*models.Property{
 			&models.Property{
 				Name:     "name",
@@ -96,7 +98,8 @@ func addTestSchema(t *testing.T) {
 	})
 
 	createThingClass(t, &models.Class{
-		Class: "Airport",
+		Class:              "Airport",
+		VectorizeClassName: ptBool(true),
 		Properties: []*models.Property{
 			&models.Property{
 				Name:     "code",
@@ -319,4 +322,8 @@ func addTestDataCompanies(t *testing.T) {
 	}
 
 	assertGetThingEventually(t, companies[len(companies)-1].id)
+}
+
+func ptBool(in bool) *bool {
+	return &in
 }

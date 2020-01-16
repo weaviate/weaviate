@@ -128,12 +128,8 @@ func classField(k kind.Kind, class *models.Class, description string,
 		Type:        graphql.NewList(fieldsObject),
 		Description: description,
 		Args: graphql.FieldConfigArgument{
-			"first": &graphql.ArgumentConfig{
+			"limit": &graphql.ArgumentConfig{
 				Description: descriptions.First,
-				Type:        graphql.Int,
-			},
-			"after": &graphql.ArgumentConfig{
-				Description: descriptions.After,
 				Type:        graphql.Int,
 			},
 			"where": &graphql.ArgumentConfig{

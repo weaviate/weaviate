@@ -37,28 +37,24 @@ type SchemaThingsPropertiesDeleteReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *SchemaThingsPropertiesDeleteReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 200:
 		result := NewSchemaThingsPropertiesDeleteOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	case 401:
 		result := NewSchemaThingsPropertiesDeleteUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 403:
 		result := NewSchemaThingsPropertiesDeleteForbidden()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 500:
 		result := NewSchemaThingsPropertiesDeleteInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -130,6 +126,10 @@ func (o *SchemaThingsPropertiesDeleteForbidden) Error() string {
 	return fmt.Sprintf("[DELETE /schema/things/{className}/properties/{propertyName}][%d] schemaThingsPropertiesDeleteForbidden  %+v", 403, o.Payload)
 }
 
+func (o *SchemaThingsPropertiesDeleteForbidden) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *SchemaThingsPropertiesDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -157,6 +157,10 @@ type SchemaThingsPropertiesDeleteInternalServerError struct {
 
 func (o *SchemaThingsPropertiesDeleteInternalServerError) Error() string {
 	return fmt.Sprintf("[DELETE /schema/things/{className}/properties/{propertyName}][%d] schemaThingsPropertiesDeleteInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *SchemaThingsPropertiesDeleteInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *SchemaThingsPropertiesDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

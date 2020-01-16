@@ -17,6 +17,7 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
+	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/batching"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
@@ -28,20 +29,20 @@ type batchKindHandlers struct {
 	requestsLog *telemetry.RequestsLog
 }
 
-func (h *batchKindHandlers) addThings(params operations.BatchingThingsCreateParams,
+func (h *batchKindHandlers) addThings(params batching.BatchingThingsCreateParams,
 	principal *models.Principal) middleware.Responder {
 	things, err := h.manager.AddThings(params.HTTPRequest.Context(), principal,
 		params.Body.Things, params.Body.Fields)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return operations.NewBatchingThingsCreateForbidden().
+			return batching.NewBatchingThingsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
-			return operations.NewBatchingThingsCreateUnprocessableEntity().
+			return batching.NewBatchingThingsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return operations.NewBatchingThingsCreateInternalServerError().
+			return batching.NewBatchingThingsCreateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
@@ -49,7 +50,7 @@ func (h *batchKindHandlers) addThings(params operations.BatchingThingsCreatePara
 	for range params.Body.Things {
 		h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalAdd)
 	}
-	return operations.NewBatchingThingsCreateOK().
+	return batching.NewBatchingThingsCreateOK().
 		WithPayload(h.thingsResponse(things))
 }
 
@@ -73,20 +74,20 @@ func (h *batchKindHandlers) thingsResponse(input kinds.BatchThings) []*models.Th
 	return response
 }
 
-func (h *batchKindHandlers) addActions(params operations.BatchingActionsCreateParams,
+func (h *batchKindHandlers) addActions(params batching.BatchingActionsCreateParams,
 	principal *models.Principal) middleware.Responder {
 	actions, err := h.manager.AddActions(params.HTTPRequest.Context(), principal,
 		params.Body.Actions, params.Body.Fields)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return operations.NewBatchingActionsCreateForbidden().
+			return batching.NewBatchingActionsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
-			return operations.NewBatchingActionsCreateUnprocessableEntity().
+			return batching.NewBatchingActionsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return operations.NewBatchingActionsCreateInternalServerError().
+			return batching.NewBatchingActionsCreateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
@@ -94,7 +95,7 @@ func (h *batchKindHandlers) addActions(params operations.BatchingActionsCreatePa
 	for range params.Body.Actions {
 		h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalAdd)
 	}
-	return operations.NewBatchingActionsCreateOK().
+	return batching.NewBatchingActionsCreateOK().
 		WithPayload(h.actionsResponse(actions))
 }
 
@@ -118,19 +119,19 @@ func (h *batchKindHandlers) actionsResponse(input kinds.BatchActions) []*models.
 	return response
 }
 
-func (h *batchKindHandlers) addReferences(params operations.BatchingReferencesCreateParams,
+func (h *batchKindHandlers) addReferences(params batching.BatchingReferencesCreateParams,
 	principal *models.Principal) middleware.Responder {
 	references, err := h.manager.AddReferences(params.HTTPRequest.Context(), principal, params.Body)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return operations.NewBatchingReferencesCreateForbidden().
+			return batching.NewBatchingReferencesCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
-			return operations.NewBatchingReferencesCreateUnprocessableEntity().
+			return batching.NewBatchingReferencesCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return operations.NewBatchingReferencesCreateInternalServerError().
+			return batching.NewBatchingReferencesCreateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
@@ -138,7 +139,7 @@ func (h *batchKindHandlers) addReferences(params operations.BatchingReferencesCr
 	for range params.Body {
 		h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
 	}
-	return operations.NewBatchingReferencesCreateOK().
+	return batching.NewBatchingReferencesCreateOK().
 		WithPayload(h.referencesResponse(references))
 }
 
@@ -172,11 +173,11 @@ func (h *batchKindHandlers) referencesResponse(input kinds.BatchReferences) []*m
 func setupKindBatchHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog, manager *kinds.BatchManager) {
 	h := &batchKindHandlers{manager, requestsLog}
 
-	api.BatchingThingsCreateHandler = operations.
+	api.BatchingBatchingThingsCreateHandler = batching.
 		BatchingThingsCreateHandlerFunc(h.addThings)
-	api.BatchingActionsCreateHandler = operations.
+	api.BatchingBatchingActionsCreateHandler = batching.
 		BatchingActionsCreateHandlerFunc(h.addActions)
-	api.BatchingReferencesCreateHandler = operations.
+	api.BatchingBatchingReferencesCreateHandler = batching.
 		BatchingReferencesCreateHandlerFunc(h.addReferences)
 }
 

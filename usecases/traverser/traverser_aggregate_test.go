@@ -47,7 +47,7 @@ func Test_Traverser_Aggregate(t *testing.T) {
 			Properties: []AggregateProperty{
 				AggregateProperty{
 					Name:        "label",
-					Aggregators: []Aggregator{TopOccurrencesAggregator},
+					Aggregators: []Aggregator{NewTopOccurrencesAggregator(nil)},
 				},
 				AggregateProperty{
 					Name:        "number",
@@ -59,7 +59,7 @@ func Test_Traverser_Aggregate(t *testing.T) {
 				},
 				AggregateProperty{
 					Name:        "date",
-					Aggregators: []Aggregator{TopOccurrencesAggregator},
+					Aggregators: []Aggregator{NewTopOccurrencesAggregator(nil)},
 				},
 			},
 		}
@@ -69,19 +69,23 @@ func Test_Traverser_Aggregate(t *testing.T) {
 				aggregation.Group{
 					Properties: map[string]aggregation.Property{
 						"label": aggregation.Property{
-							TextAggregation: []aggregation.TextOccurrence{
-								aggregation.TextOccurrence{
-									Value:  "Foo",
-									Occurs: 200,
+							TextAggregation: aggregation.Text{
+								Items: []aggregation.TextOccurrence{
+									aggregation.TextOccurrence{
+										Value:  "Foo",
+										Occurs: 200,
+									},
 								},
 							},
 							Type: aggregation.PropertyTypeText,
 						},
 						"date": aggregation.Property{
-							TextAggregation: []aggregation.TextOccurrence{
-								aggregation.TextOccurrence{
-									Value:  "Bar",
-									Occurs: 100,
+							TextAggregation: aggregation.Text{
+								Items: []aggregation.TextOccurrence{
+									aggregation.TextOccurrence{
+										Value:  "Bar",
+										Occurs: 100,
+									},
 								},
 							},
 							Type: aggregation.PropertyTypeText,
@@ -128,7 +132,7 @@ func Test_Traverser_Aggregate(t *testing.T) {
 			Properties: []AggregateProperty{
 				AggregateProperty{
 					Name:        "label",
-					Aggregators: []Aggregator{TypeAggregator, TopOccurrencesAggregator},
+					Aggregators: []Aggregator{TypeAggregator, NewTopOccurrencesAggregator(nil)},
 				},
 				AggregateProperty{
 					Name:        "number",
@@ -140,7 +144,7 @@ func Test_Traverser_Aggregate(t *testing.T) {
 				},
 				AggregateProperty{
 					Name:        "date",
-					Aggregators: []Aggregator{TypeAggregator, TopOccurrencesAggregator},
+					Aggregators: []Aggregator{TypeAggregator, NewTopOccurrencesAggregator(nil)},
 				},
 				AggregateProperty{
 					Name:        "a ref",
@@ -154,19 +158,23 @@ func Test_Traverser_Aggregate(t *testing.T) {
 				aggregation.Group{
 					Properties: map[string]aggregation.Property{
 						"label": aggregation.Property{
-							TextAggregation: []aggregation.TextOccurrence{
-								aggregation.TextOccurrence{
-									Value:  "Foo",
-									Occurs: 200,
+							TextAggregation: aggregation.Text{
+								Items: []aggregation.TextOccurrence{
+									aggregation.TextOccurrence{
+										Value:  "Foo",
+										Occurs: 200,
+									},
 								},
 							},
 							Type: aggregation.PropertyTypeText,
 						},
 						"date": aggregation.Property{
-							TextAggregation: []aggregation.TextOccurrence{
-								aggregation.TextOccurrence{
-									Value:  "Bar",
-									Occurs: 100,
+							TextAggregation: aggregation.Text{
+								Items: []aggregation.TextOccurrence{
+									aggregation.TextOccurrence{
+										Value:  "Bar",
+										Occurs: 100,
+									},
 								},
 							},
 							Type: aggregation.PropertyTypeText,
@@ -193,20 +201,24 @@ func Test_Traverser_Aggregate(t *testing.T) {
 				aggregation.Group{
 					Properties: map[string]aggregation.Property{
 						"label": aggregation.Property{
-							TextAggregation: []aggregation.TextOccurrence{
-								aggregation.TextOccurrence{
-									Value:  "Foo",
-									Occurs: 200,
+							TextAggregation: aggregation.Text{
+								Items: []aggregation.TextOccurrence{
+									aggregation.TextOccurrence{
+										Value:  "Foo",
+										Occurs: 200,
+									},
 								},
 							},
 							Type:       aggregation.PropertyTypeText,
 							SchemaType: string(schema.DataTypeString),
 						},
 						"date": aggregation.Property{
-							TextAggregation: []aggregation.TextOccurrence{
-								aggregation.TextOccurrence{
-									Value:  "Bar",
-									Occurs: 100,
+							TextAggregation: aggregation.Text{
+								Items: []aggregation.TextOccurrence{
+									aggregation.TextOccurrence{
+										Value:  "Bar",
+										Occurs: 100,
+									},
 								},
 							},
 							SchemaType: string(schema.DataTypeDate),

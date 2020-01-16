@@ -37,35 +37,30 @@ type GraphqlBatchReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *GraphqlBatchReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 200:
 		result := NewGraphqlBatchOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	case 401:
 		result := NewGraphqlBatchUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 403:
 		result := NewGraphqlBatchForbidden()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 422:
 		result := NewGraphqlBatchUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 500:
 		result := NewGraphqlBatchInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -93,6 +88,10 @@ type GraphqlBatchOK struct {
 
 func (o *GraphqlBatchOK) Error() string {
 	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchOK  %+v", 200, o.Payload)
+}
+
+func (o *GraphqlBatchOK) GetPayload() models.GraphQLResponses {
+	return o.Payload
 }
 
 func (o *GraphqlBatchOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -143,6 +142,10 @@ func (o *GraphqlBatchForbidden) Error() string {
 	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchForbidden  %+v", 403, o.Payload)
 }
 
+func (o *GraphqlBatchForbidden) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *GraphqlBatchForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -172,6 +175,10 @@ func (o *GraphqlBatchUnprocessableEntity) Error() string {
 	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchUnprocessableEntity  %+v", 422, o.Payload)
 }
 
+func (o *GraphqlBatchUnprocessableEntity) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *GraphqlBatchUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -199,6 +206,10 @@ type GraphqlBatchInternalServerError struct {
 
 func (o *GraphqlBatchInternalServerError) Error() string {
 	return fmt.Sprintf("[POST /graphql/batch][%d] graphqlBatchInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *GraphqlBatchInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *GraphqlBatchInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

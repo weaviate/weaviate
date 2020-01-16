@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/client/schema"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+	testhelper "github.com/semi-technologies/weaviate/test/helper"
 )
 
 // See https://github.com/semi-technologies/weaviate/issues/980
@@ -90,7 +91,7 @@ func Test_AddingReferenceWithoutWaiting_UsingPostThings(t *testing.T) {
 		return city.Schema
 	}
 	t.Log("7. verify first cross ref was added")
-	helper.AssertEventuallyEqual(t, map[string]interface{}{
+	testhelper.AssertEventuallyEqual(t, map[string]interface{}{
 		"name": "My City",
 		"hasPlace": []interface{}{
 			map[string]interface{}{

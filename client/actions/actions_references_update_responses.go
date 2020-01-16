@@ -37,35 +37,30 @@ type ActionsReferencesUpdateReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *ActionsReferencesUpdateReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 200:
 		result := NewActionsReferencesUpdateOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	case 401:
 		result := NewActionsReferencesUpdateUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 403:
 		result := NewActionsReferencesUpdateForbidden()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 422:
 		result := NewActionsReferencesUpdateUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 500:
 		result := NewActionsReferencesUpdateInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -137,6 +132,10 @@ func (o *ActionsReferencesUpdateForbidden) Error() string {
 	return fmt.Sprintf("[PUT /actions/{id}/references/{propertyName}][%d] actionsReferencesUpdateForbidden  %+v", 403, o.Payload)
 }
 
+func (o *ActionsReferencesUpdateForbidden) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *ActionsReferencesUpdateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -166,6 +165,10 @@ func (o *ActionsReferencesUpdateUnprocessableEntity) Error() string {
 	return fmt.Sprintf("[PUT /actions/{id}/references/{propertyName}][%d] actionsReferencesUpdateUnprocessableEntity  %+v", 422, o.Payload)
 }
 
+func (o *ActionsReferencesUpdateUnprocessableEntity) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *ActionsReferencesUpdateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -193,6 +196,10 @@ type ActionsReferencesUpdateInternalServerError struct {
 
 func (o *ActionsReferencesUpdateInternalServerError) Error() string {
 	return fmt.Sprintf("[PUT /actions/{id}/references/{propertyName}][%d] actionsReferencesUpdateInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *ActionsReferencesUpdateInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *ActionsReferencesUpdateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

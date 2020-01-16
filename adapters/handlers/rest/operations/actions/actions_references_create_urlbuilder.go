@@ -62,14 +62,14 @@ func (o *ActionsReferencesCreateURL) Build() (*url.URL, error) {
 	if id != "" {
 		_path = strings.Replace(_path, "{id}", id, -1)
 	} else {
-		return nil, errors.New("ID is required on ActionsReferencesCreateURL")
+		return nil, errors.New("id is required on ActionsReferencesCreateURL")
 	}
 
 	propertyName := o.PropertyName
 	if propertyName != "" {
 		_path = strings.Replace(_path, "{propertyName}", propertyName, -1)
 	} else {
-		return nil, errors.New("PropertyName is required on ActionsReferencesCreateURL")
+		return nil, errors.New("propertyName is required on ActionsReferencesCreateURL")
 	}
 
 	_basePath := o._basePath

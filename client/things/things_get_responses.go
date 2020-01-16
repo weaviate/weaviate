@@ -37,35 +37,30 @@ type ThingsGetReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *ThingsGetReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 200:
 		result := NewThingsGetOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	case 401:
 		result := NewThingsGetUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 403:
 		result := NewThingsGetForbidden()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 404:
 		result := NewThingsGetNotFound()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 500:
 		result := NewThingsGetInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -93,6 +88,10 @@ type ThingsGetOK struct {
 
 func (o *ThingsGetOK) Error() string {
 	return fmt.Sprintf("[GET /things/{id}][%d] thingsGetOK  %+v", 200, o.Payload)
+}
+
+func (o *ThingsGetOK) GetPayload() *models.Thing {
+	return o.Payload
 }
 
 func (o *ThingsGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -145,6 +144,10 @@ func (o *ThingsGetForbidden) Error() string {
 	return fmt.Sprintf("[GET /things/{id}][%d] thingsGetForbidden  %+v", 403, o.Payload)
 }
 
+func (o *ThingsGetForbidden) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *ThingsGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -193,6 +196,10 @@ type ThingsGetInternalServerError struct {
 
 func (o *ThingsGetInternalServerError) Error() string {
 	return fmt.Sprintf("[GET /things/{id}][%d] thingsGetInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *ThingsGetInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *ThingsGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

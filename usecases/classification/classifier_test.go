@@ -22,7 +22,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/test/acceptance/helper"
+	testhelper "github.com/semi-technologies/weaviate/test/helper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -372,7 +372,7 @@ func checkRef(t *testing.T, repo genericFakeRepo, source, propName, target strin
 }
 
 func waitForStatusToNoLongerBeRunning(t *testing.T, classifier *Classifier, id strfmt.UUID) {
-	helper.AssertEventuallyEqual(t, true, func() interface{} {
+	testhelper.AssertEventuallyEqual(t, true, func() interface{} {
 		class, err := classifier.Get(context.Background(), nil, id)
 		require.Nil(t, err)
 		require.NotNil(t, class)

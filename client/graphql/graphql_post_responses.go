@@ -37,35 +37,30 @@ type GraphqlPostReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *GraphqlPostReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 200:
 		result := NewGraphqlPostOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	case 401:
 		result := NewGraphqlPostUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 403:
 		result := NewGraphqlPostForbidden()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 422:
 		result := NewGraphqlPostUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 500:
 		result := NewGraphqlPostInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -93,6 +88,10 @@ type GraphqlPostOK struct {
 
 func (o *GraphqlPostOK) Error() string {
 	return fmt.Sprintf("[POST /graphql][%d] graphqlPostOK  %+v", 200, o.Payload)
+}
+
+func (o *GraphqlPostOK) GetPayload() *models.GraphQLResponse {
+	return o.Payload
 }
 
 func (o *GraphqlPostOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -145,6 +144,10 @@ func (o *GraphqlPostForbidden) Error() string {
 	return fmt.Sprintf("[POST /graphql][%d] graphqlPostForbidden  %+v", 403, o.Payload)
 }
 
+func (o *GraphqlPostForbidden) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *GraphqlPostForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -174,6 +177,10 @@ func (o *GraphqlPostUnprocessableEntity) Error() string {
 	return fmt.Sprintf("[POST /graphql][%d] graphqlPostUnprocessableEntity  %+v", 422, o.Payload)
 }
 
+func (o *GraphqlPostUnprocessableEntity) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
 func (o *GraphqlPostUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
@@ -201,6 +208,10 @@ type GraphqlPostInternalServerError struct {
 
 func (o *GraphqlPostInternalServerError) Error() string {
 	return fmt.Sprintf("[POST /graphql][%d] graphqlPostInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *GraphqlPostInternalServerError) GetPayload() *models.ErrorResponse {
+	return o.Payload
 }
 
 func (o *GraphqlPostInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
