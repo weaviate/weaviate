@@ -20,6 +20,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -55,7 +56,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		vectorizer := &fakeVectorizer{}
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer())
+		log, _ := test.NewNullLogger()
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
 		search.
@@ -107,8 +109,9 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		vectorizer := &fakeVectorizer{}
+		log, _ := test.NewNullLogger()
 
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer())
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
 		search.
@@ -154,7 +157,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		vectorizer := &fakeVectorizer{}
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer())
+		log, _ := test.NewNullLogger()
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		search.

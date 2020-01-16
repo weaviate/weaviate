@@ -103,7 +103,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	vectorRepo = repo
 	migrator = vectorMigrator
 	vectorizer = libvectorizer.New(appState.Contextionary, nil)
-	explorer = traverser.NewExplorer(repo, vectorizer, libvectorizer.NormalizedDistance)
+	explorer = traverser.NewExplorer(repo, vectorizer, libvectorizer.NormalizedDistance, appState.Logger)
 
 	schemaRepo := etcd.NewSchemaRepo(etcdClient)
 	classifierRepo := etcd.NewClassificationRepo(etcdClient)
