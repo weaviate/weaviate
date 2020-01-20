@@ -21,6 +21,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 )
 
+// new from 0.22.0: queryFromFilter can error with SubQueryNoResultsErr, it is
+// up to the caller to decide how to handle this.
 func (r *Repo) queryFromFilter(f *filters.LocalFilter) (map[string]interface{}, error) {
 	if f == nil {
 		return map[string]interface{}{
@@ -65,7 +67,14 @@ func (r *Repo) filterFromClause(clause *filters.Clause) (map[string]interface{},
 		sqb := newSubQueryBuilder(r)
 		res, err := sqb.fromClause(clause)
 		if err != nil {
-			return nil, fmt.Errorf("sub query: %v", err)
+			switch err.(type) {
+			case SubQueryNoResultsErr:
+				return nil, err // don't annotate, so we can inspect it down the line
+
+			default:
+				return nil, fmt.Errorf("sub query: %v", err)
+
+			}
 		}
 
 		x := storageIdentifiersToBeaconBoolFilter(res, clause.On.Property.String())
@@ -182,6 +191,10 @@ func (r *Repo) compoundQueryFromClause(clause *filters.Clause) (map[string]inter
 	for i, operand := range clause.Operands {
 		filter, err := r.queryFromClause(&operand)
 		if err != nil {
+			if _, ok := err.(SubQueryNoResultsErr); ok {
+				// don't annotate so we can catch this one down the line
+				return nil, err
+			}
 			return nil, fmt.Errorf("compund query at pos %d: %v", i, err)
 		}
 		filters[i] = filter

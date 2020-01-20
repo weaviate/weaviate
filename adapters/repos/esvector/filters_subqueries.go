@@ -13,6 +13,12 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
+type SubQueryNoResultsErr struct{}
+
+func (e SubQueryNoResultsErr) Error() string {
+	return "sub-query found no results"
+}
+
 type storageIdentifier struct {
 	id        string
 	kind      kind.Kind
@@ -76,6 +82,9 @@ func (s *subQueryBuilder) fromClause(clause *filters.Clause) ([]storageIdentifie
 
 	results, err := s.extractStorageIdentifierFromResults(res)
 	if err != nil {
+		if _, ok := err.(SubQueryNoResultsErr); ok {
+			return nil, err
+		}
 		return nil, fmt.Errorf("subquery result extraction: %v", err)
 	}
 
@@ -92,6 +101,10 @@ func (s subQueryBuilder) extractStorageIdentifierFromResults(res *esapi.Response
 	err := json.NewDecoder(res.Body).Decode(&sr)
 	if err != nil {
 		return nil, fmt.Errorf("decode json: %v", err)
+	}
+
+	if len(sr.Hits.Hits) == 0 {
+		return nil, SubQueryNoResultsErr{}
 	}
 
 	out := make([]storageIdentifier, len(sr.Hits.Hits), len(sr.Hits.Hits))
