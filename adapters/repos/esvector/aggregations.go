@@ -29,7 +29,7 @@ func (r *Repo) Aggregate(ctx context.Context, params traverser.AggregateParams) 
 		return nil, fmt.Errorf("grouping by cross-refs not supported yet")
 	}
 
-	query, err := r.queryFromFilter(params.Filters)
+	query, err := r.queryFromFilter(ctx, params.Filters)
 	if err != nil {
 		return nil, err
 	}

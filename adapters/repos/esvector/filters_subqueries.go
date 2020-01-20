@@ -34,7 +34,7 @@ func newSubQueryBuilder(r *Repo) *subQueryBuilder {
 	return &subQueryBuilder{r}
 }
 
-func (s *subQueryBuilder) fromClause(clause *filters.Clause) ([]storageIdentifier, error) {
+func (s *subQueryBuilder) fromClause(ctx context.Context, clause *filters.Clause) ([]storageIdentifier, error) {
 
 	innerFilter := &filters.LocalFilter{
 		Root: &filters.Clause{
@@ -44,7 +44,7 @@ func (s *subQueryBuilder) fromClause(clause *filters.Clause) ([]storageIdentifie
 		},
 	}
 
-	filterQuery, err := s.repo.queryFromFilter(innerFilter)
+	filterQuery, err := s.repo.queryFromFilter(ctx, innerFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +72,7 @@ func (s *subQueryBuilder) fromClause(clause *filters.Clause) ([]storageIdentifie
 		return nil, fmt.Errorf("subquery: encode json: %v", err)
 	}
 	res, err := s.repo.client.Search(
-		s.repo.client.Search.WithContext(context.Background()), // TODO: use actual context
+		s.repo.client.Search.WithContext(ctx),
 		s.repo.client.Search.WithIndex(index),
 		s.repo.client.Search.WithBody(&buf),
 	)
