@@ -166,6 +166,11 @@ func (r *Repo) search(ctx context.Context, index string,
 
 	query, err := r.queryFromFilter(filters)
 	if err != nil {
+		if _, ok := err.(SubQueryNoResultsErr); ok {
+			// a sub-query error'd with no results, that's not an error case to us,
+			// this simply means, we return no results to the user
+			return nil, nil
+		}
 		return nil, err
 	}
 

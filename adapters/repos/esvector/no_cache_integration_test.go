@@ -217,15 +217,15 @@ func TestNoCache(t *testing.T) {
 				require.Len(t, res, 2)
 			})
 
-			// t.Run("ref name doesn't match", func(t *testing.T) {
-			// 	filter := filterCarParkedAtGarage(schema.DataTypeString,
-			// 		"name", filters.OperatorEqual, "There is no parking garage with this name")
-			// 	params := getParamsWithFilter("MultiRefCar", filter)
+			t.Run("ref name doesn't match", func(t *testing.T) {
+				filter := filterCarParkedAtGarage(schema.DataTypeString,
+					"name", filters.OperatorEqual, "There is no parking garage with this name")
+				params := getParamsWithFilter("MultiRefCar", filter)
 
-			// 	res, err := repo.ClassSearch(context.Background(), params)
-			// 	require.Nil(t, err)
-			// 	require.Len(t, res, 0)
-			// })
+				res, err := repo.ClassSearch(context.Background(), params)
+				require.Nil(t, err)
+				require.Len(t, res, 0)
+			})
 
 			t.Run("within geo range", func(t *testing.T) {
 				filter := filterCarParkedAtGarage(schema.DataTypeGeoCoordinates,
