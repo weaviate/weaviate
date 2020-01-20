@@ -22,6 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	"github.com/semi-technologies/weaviate/usecases/network/crossrefs"
 )
@@ -29,14 +30,6 @@ import (
 // NetworkRef is a WIP, it will most likely change
 type NetworkRef struct {
 	crossrefs.NetworkKind
-}
-
-// LocalRef to be filled by the database connector to indicate that the
-// particular reference field is a local ref and does not require further
-// resolving, as opposed to a NetworkRef.
-type LocalRef struct {
-	Class  string
-	Fields map[string]interface{}
 }
 
 func (b *classBuilder) referenceField(propertyType schema.PropertyDataType,
@@ -139,7 +132,7 @@ func makeResolveRefField(peers peers.Peers) graphql.FieldResolveFn {
 		results := make([]interface{}, len(items), len(items))
 		for i, item := range items {
 			switch v := item.(type) {
-			case LocalRef:
+			case search.LocalRef:
 				// inject some meta data so the ResolveType can determine the type
 				localRef := v.Fields
 				localRef["__refClassType"] = "local"
@@ -168,7 +161,7 @@ func makeResolveRefField(peers peers.Peers) graphql.FieldResolveFn {
 				results[i] = networkRef
 
 			default:
-				return nil, fmt.Errorf("unsupported type, expeced LocalRef or NetworkRef, got %T", v)
+				return nil, fmt.Errorf("unsupported type, expeced search.LocalRef or NetworkRef, got %T", v)
 			}
 		}
 		return results, nil

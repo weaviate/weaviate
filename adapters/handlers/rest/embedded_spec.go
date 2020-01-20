@@ -50,7 +50,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "0.21.9"
+    "version": "0.21.12"
   },
   "basePath": "/v1",
   "paths": {
@@ -2946,6 +2946,11 @@ func init() {
           "items": {
             "$ref": "#/definitions/Property"
           }
+        },
+        "vectorizeClassName": {
+          "description": "Set this to true if the object vector should include the class name in calculating the overall vector position",
+          "type": "boolean",
+          "x-nullable": true
         }
       }
     },
@@ -3431,6 +3436,10 @@ func init() {
         "name": {
           "description": "Name of the property as URI relative to the schema URL.",
           "type": "string"
+        },
+        "vectorizePropertyName": {
+          "description": "Set this to true if the object vector should include this property's name in calculating the overall vector position. If set to false (default), only the property value will be used.",
+          "type": "boolean"
         }
       }
     },
@@ -3786,7 +3795,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "0.21.9"
+    "version": "0.21.12"
   },
   "basePath": "/v1",
   "paths": {
@@ -6696,6 +6705,11 @@ func init() {
           "items": {
             "$ref": "#/definitions/Property"
           }
+        },
+        "vectorizeClassName": {
+          "description": "Set this to true if the object vector should include the class name in calculating the overall vector position",
+          "type": "boolean",
+          "x-nullable": true
         }
       }
     },
@@ -7181,6 +7195,10 @@ func init() {
         "name": {
           "description": "Name of the property as URI relative to the schema URL.",
           "type": "string"
+        },
+        "vectorizePropertyName": {
+          "description": "Set this to true if the object vector should include this property's name in calculating the overall vector position. If set to false (default), only the property value will be used.",
+          "type": "boolean"
         }
       }
     },

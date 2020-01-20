@@ -3,7 +3,7 @@ services:
     environment:
       OCCURRENCE_WEIGHT_LINEAR_FACTOR: 0.75
       SCHEMA_PROVIDER_URL: etcd:2379
-    image: semitechnologies/contextionary:en0.10.0-v0.4.4
+    image: semitechnologies/contextionary:en0.10.0-v0.4.6
     ports:
     - 9999:9999
   esvector:
@@ -51,7 +51,7 @@ services:
     - config.yaml
     depends_on:
     - esvector
-    image: semitechnologies/weaviate:0.21.9
+    image: semitechnologies/weaviate:0.21.12
     ports:
     - 8080:8080
     restart: on-failure:0

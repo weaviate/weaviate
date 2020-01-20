@@ -29,6 +29,8 @@ func TestVectorizingThings(t *testing.T) {
 		input              *models.Thing
 		expectedClientCall []string
 		noindex            string
+		excludedProperty   string // to simulate a schema where property names aren't vectorized
+		excludedClass      string // to simulate a schema where class names aren't vectorized
 	}
 
 	tests := []testCase{
@@ -88,6 +90,47 @@ func TestVectorizingThings(t *testing.T) {
 		},
 
 		testCase{
+			name:          "with the class name not vectorized",
+			excludedClass: "Car",
+			input: &models.Thing{
+				Class: "Car",
+				Schema: map[string]interface{}{
+					"brand":  "best brand",
+					"power":  300,
+					"review": "a very great car",
+				},
+			},
+			expectedClientCall: []string{"brand best brand review a very great car"},
+		},
+
+		testCase{
+			name:             "with a property name not vectorized",
+			excludedProperty: "review",
+			input: &models.Thing{
+				Class: "Car",
+				Schema: map[string]interface{}{
+					"brand":  "best brand",
+					"power":  300,
+					"review": "a very great car",
+				},
+			},
+			expectedClientCall: []string{"car brand best brand a very great car"},
+		},
+
+		testCase{
+			name:             "with no schema labels vectorized",
+			excludedProperty: "review",
+			excludedClass:    "Car",
+			input: &models.Thing{
+				Class: "Car",
+				Schema: map[string]interface{}{
+					"review": "a very great car",
+				},
+			},
+			expectedClientCall: []string{"a very great car"},
+		},
+
+		testCase{
 			name: "with compound class and prop names",
 			input: &models.Thing{
 				Class: "SuperCar",
@@ -104,7 +147,7 @@ func TestVectorizingThings(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			client := &fakeClient{}
-			indexer := &propertyIndexer{test.noindex}
+			indexer := &propertyIndexer{test.noindex, test.excludedClass, test.excludedProperty}
 
 			v := New(client, indexer)
 
@@ -121,7 +164,9 @@ func TestVectorizingThings(t *testing.T) {
 }
 
 type propertyIndexer struct {
-	noIndex string
+	noIndex          string
+	excludedClass    string
+	excludedProperty string
 }
 
 func (p *propertyIndexer) Indexed(className, property string) bool {
@@ -132,12 +177,22 @@ func (p *propertyIndexer) Indexed(className, property string) bool {
 	return true
 }
 
+func (p *propertyIndexer) VectorizeClassName(class string) bool {
+	return p.excludedClass != class
+}
+
+func (p *propertyIndexer) VectorizePropertyName(class, prop string) bool {
+	return p.excludedProperty != prop
+}
+
 func TestVectorizingActions(t *testing.T) {
 	type testCase struct {
 		name               string
 		input              *models.Action
 		expectedClientCall []string
 		noindex            string
+		excludedProperty   string // to simulate a schema where property names aren't vectorized
+		excludedClass      string // to simulate a schema where class names aren't vectorized
 	}
 
 	tests := []testCase{
@@ -187,7 +242,7 @@ func TestVectorizingActions(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			client := &fakeClient{}
-			indexer := &propertyIndexer{test.noindex}
+			indexer := &propertyIndexer{test.noindex, test.excludedClass, test.excludedProperty}
 			v := New(client, indexer)
 
 			res, err := v.Action(context.Background(), test.input)
@@ -237,7 +292,7 @@ func TestVectorizingSearchTerms(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			client := &fakeClient{}
-			indexer := &propertyIndexer{test.noindex}
+			indexer := &propertyIndexer{test.noindex, "", ""}
 			v := New(client, indexer)
 
 			res, err := v.Corpi(context.Background(), test.input)
