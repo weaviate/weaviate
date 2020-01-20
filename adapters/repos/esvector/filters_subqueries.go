@@ -9,6 +9,7 @@ import (
 	"github.com/elastic/go-elasticsearch/v5/esapi"
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
@@ -48,9 +49,8 @@ func (s *subQueryBuilder) fromClause(clause *filters.Clause) ([]storageIdentifie
 		return nil, err
 	}
 
-	// TODO: Don't hard-code thing class
-	index := classIndexFromClassName(kind.Thing, clause.On.Child.Class.String())
-	// TODO: Don't hard-code thing class
+	k := s.kindOfClass(clause.On.Child.Class.String())
+	index := classIndexFromClassName(k, clause.On.Child.Class.String())
 
 	s.repo.logger.
 		WithField("action", "esvector_filter_subquery").
@@ -122,6 +122,12 @@ func (s subQueryBuilder) extractStorageIdentifierFromResults(res *esapi.Response
 	}
 
 	return out, nil
+}
+
+func (s *subQueryBuilder) kindOfClass(className string) kind.Kind {
+	sch := s.repo.schemaGetter.GetSchemaSkipAuth()
+	kind, _ := sch.GetKindOfClass(schema.ClassName(className))
+	return kind
 }
 
 func storageIdentifiersToBeaconBoolFilter(in []storageIdentifier, propName string) map[string]interface{} {
