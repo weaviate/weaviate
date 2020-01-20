@@ -35,7 +35,6 @@ func newSubQueryBuilder(r *Repo) *subQueryBuilder {
 }
 
 func (s *subQueryBuilder) fromClause(ctx context.Context, clause *filters.Clause) ([]storageIdentifier, error) {
-
 	innerFilter := &filters.LocalFilter{
 		Root: &filters.Clause{
 			Operator: clause.Operator,
@@ -51,33 +50,11 @@ func (s *subQueryBuilder) fromClause(ctx context.Context, clause *filters.Clause
 
 	k := s.kindOfClass(clause.On.Child.Class.String())
 	index := classIndexFromClassName(k, clause.On.Child.Class.String())
+	s.logRequest(index, innerFilter)
 
-	s.repo.logger.
-		WithField("action", "esvector_filter_subquery").
-		WithField("index", index).
-		WithField("filters", innerFilter).
-		Debug("starting subquery to build search query to esvector")
-
-	s.repo.requestCounter.Inc()
-
-	body := map[string]interface{}{
-		"query":   filterQuery,
-		"size":    10000,
-		"_source": []string{keyKind.String(), keyClassName.String()},
-	}
-
-	var buf bytes.Buffer
-	err = json.NewEncoder(&buf).Encode(body)
+	res, err := s.buildBodyAndDoRequest(ctx, filterQuery, k, index)
 	if err != nil {
-		return nil, fmt.Errorf("subquery: encode json: %v", err)
-	}
-	res, err := s.repo.client.Search(
-		s.repo.client.Search.WithContext(ctx),
-		s.repo.client.Search.WithIndex(index),
-		s.repo.client.Search.WithBody(&buf),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("subquery search: %v", err)
+		return nil, fmt.Errorf("subquery: %v", err)
 	}
 
 	results, err := s.extractStorageIdentifierFromResults(res)
@@ -89,6 +66,27 @@ func (s *subQueryBuilder) fromClause(ctx context.Context, clause *filters.Clause
 	}
 
 	return results, nil
+}
+
+func (s *subQueryBuilder) buildBodyAndDoRequest(ctx context.Context,
+	filterQuery map[string]interface{}, k kind.Kind, index string) (*esapi.Response, error) {
+
+	body := map[string]interface{}{
+		"query":   filterQuery,
+		"size":    10000,
+		"_source": []string{keyKind.String(), keyClassName.String()},
+	}
+
+	var buf bytes.Buffer
+	err := json.NewEncoder(&buf).Encode(body)
+	if err != nil {
+		return nil, fmt.Errorf("encode json: %v", err)
+	}
+	return s.repo.client.Search(
+		s.repo.client.Search.WithContext(ctx),
+		s.repo.client.Search.WithIndex(index),
+		s.repo.client.Search.WithBody(&buf),
+	)
 }
 
 func (s subQueryBuilder) extractStorageIdentifierFromResults(res *esapi.Response) ([]storageIdentifier, error) {
@@ -145,4 +143,14 @@ func storageIdentifiersToBeaconBoolFilter(in []storageIdentifier, propName strin
 			"should": shoulds,
 		},
 	}
+}
+
+func (s *subQueryBuilder) logRequest(index string, innerFilter *filters.LocalFilter) {
+	s.repo.logger.
+		WithField("action", "esvector_filter_subquery").
+		WithField("index", index).
+		WithField("filters", innerFilter).
+		Debug("starting subquery to build search query to esvector")
+
+	s.repo.requestCounter.Inc()
 }
