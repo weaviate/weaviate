@@ -50,6 +50,9 @@ type Property struct {
 
 	// Name of the property as URI relative to the schema URL.
 	Name string `json:"name,omitempty"`
+
+	// Set this to true if the object vector should include this property's name in calculating the overall vector position. If set to false (default), only the property value will be used.
+	VectorizePropertyName bool `json:"vectorizePropertyName,omitempty"`
 }
 
 // Validate validates this property

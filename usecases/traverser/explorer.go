@@ -21,6 +21,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/traverser/grouper"
+	"github.com/sirupsen/logrus"
 )
 
 // Explorer is a helper construct to perform vector-based searches. It does not
@@ -30,6 +32,7 @@ type Explorer struct {
 	search     vectorClassSearch
 	vectorizer CorpiVectorizer
 	distancer  distancer
+	logger     logrus.FieldLogger
 }
 
 type distancer func(a, b []float32) (float32, error)
@@ -47,8 +50,9 @@ type explorerRepo interface {
 }
 
 // NewExplorer with search and connector repo
-func NewExplorer(search vectorClassSearch, vectorizer CorpiVectorizer, distancer distancer) *Explorer {
-	return &Explorer{search, vectorizer, distancer}
+func NewExplorer(search vectorClassSearch, vectorizer CorpiVectorizer,
+	distancer distancer, logger logrus.FieldLogger) *Explorer {
+	return &Explorer{search, vectorizer, distancer, logger}
 }
 
 // GetClass from search and connector repo
@@ -82,6 +86,15 @@ func (e *Explorer) getClassExploration(ctx context.Context,
 		return nil, fmt.Errorf("explorer: get class: vector search: %v", err)
 	}
 
+	if params.Group != nil {
+		grouped, err := grouper.New(e.logger).Group(res, params.Group.Strategy, params.Group.Force)
+		if err != nil {
+			return nil, fmt.Errorf("grouper: %v", err)
+		}
+
+		res = grouped
+	}
+
 	return e.searchResultsToGetResponse(ctx, res, params.Explore.Certainty, searchVector)
 }
 
@@ -91,6 +104,15 @@ func (e *Explorer) getClassList(ctx context.Context,
 	res, err := e.search.ClassSearch(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("explorer: get class: search: %v", err)
+	}
+
+	if params.Group != nil {
+		grouped, err := grouper.New(e.logger).Group(res, params.Group.Strategy, params.Group.Force)
+		if err != nil {
+			return nil, fmt.Errorf("grouper: %v", err)
+		}
+
+		res = grouped
 	}
 
 	return e.searchResultsToGetResponse(ctx, res, 0, nil)
