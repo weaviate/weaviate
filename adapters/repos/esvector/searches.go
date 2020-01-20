@@ -164,7 +164,7 @@ func (r *Repo) search(ctx context.Context, index string,
 
 	var buf bytes.Buffer
 
-	query, err := r.queryFromFilter(filters)
+	query, err := r.queryFromFilter(ctx, filters)
 	if err != nil {
 		if _, ok := err.(SubQueryNoResultsErr); ok {
 			// a sub-query error'd with no results, that's not an error case to us,

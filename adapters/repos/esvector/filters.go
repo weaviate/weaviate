@@ -14,6 +14,7 @@
 package esvector
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -23,27 +24,27 @@ import (
 
 // new from 0.22.0: queryFromFilter can error with SubQueryNoResultsErr, it is
 // up to the caller to decide how to handle this.
-func (r *Repo) queryFromFilter(f *filters.LocalFilter) (map[string]interface{}, error) {
+func (r *Repo) queryFromFilter(ctx context.Context, f *filters.LocalFilter) (map[string]interface{}, error) {
 	if f == nil {
 		return map[string]interface{}{
 			"match_all": map[string]interface{}{},
 		}, nil
 	}
 
-	return r.queryFromClause(f.Root)
+	return r.queryFromClause(ctx, f.Root)
 }
 
-func (r *Repo) queryFromClause(clause *filters.Clause) (map[string]interface{}, error) {
+func (r *Repo) queryFromClause(ctx context.Context, clause *filters.Clause) (map[string]interface{}, error) {
 	switch clause.Operator {
 	case filters.OperatorAnd, filters.OperatorOr, filters.OperatorNot:
-		return r.compoundQueryFromClause(clause)
+		return r.compoundQueryFromClause(ctx, clause)
 	default:
-		return r.singleQueryFromClause(clause)
+		return r.singleQueryFromClause(ctx, clause)
 	}
 }
 
-func (r *Repo) singleQueryFromClause(clause *filters.Clause) (map[string]interface{}, error) {
-	filter, err := r.filterFromClause(clause)
+func (r *Repo) singleQueryFromClause(ctx context.Context, clause *filters.Clause) (map[string]interface{}, error) {
+	filter, err := r.filterFromClause(ctx, clause)
 	if err != nil {
 		return nil, err
 	}
@@ -61,11 +62,11 @@ func (r *Repo) singleQueryFromClause(clause *filters.Clause) (map[string]interfa
 	return q, nil
 }
 
-func (r *Repo) filterFromClause(clause *filters.Clause) (map[string]interface{}, error) {
+func (r *Repo) filterFromClause(ctx context.Context, clause *filters.Clause) (map[string]interface{}, error) {
 
 	if clause.On.Child != nil {
 		sqb := newSubQueryBuilder(r)
-		res, err := sqb.fromClause(clause)
+		res, err := sqb.fromClause(ctx, clause)
 		if err != nil {
 			switch err.(type) {
 			case SubQueryNoResultsErr:
@@ -186,10 +187,10 @@ func refGeoFilterFromClause(clause *filters.Clause) (map[string]interface{}, err
 	}, nil
 }
 
-func (r *Repo) compoundQueryFromClause(clause *filters.Clause) (map[string]interface{}, error) {
+func (r *Repo) compoundQueryFromClause(ctx context.Context, clause *filters.Clause) (map[string]interface{}, error) {
 	filters := make([]map[string]interface{}, len(clause.Operands), len(clause.Operands))
 	for i, operand := range clause.Operands {
-		filter, err := r.queryFromClause(&operand)
+		filter, err := r.queryFromClause(ctx, &operand)
 		if err != nil {
 			if _, ok := err.(SubQueryNoResultsErr); ok {
 				// don't annotate so we can catch this one down the line
