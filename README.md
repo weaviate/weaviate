@@ -8,7 +8,7 @@
 ## Documentation
 
 - [Documentation](https://semi.technology/documentation/weaviate/current/).
-- [Getting Started Guide](https://semi.technology/documentation/weaviate/current/getting_started.html)
+- [Getting Started Guide](https://semi.technology/documentation/weaviate/current/getting_started.html).
 
 ## Support
 
@@ -18,6 +18,10 @@
 ## Commercial use
 
 - [Commercial Use](https://semi.technology/products/weaviate.html).
+
+## Contributing
+
+- [How to Contribute](CONTRIBUTE.md).
 
 ## Build Status
 
