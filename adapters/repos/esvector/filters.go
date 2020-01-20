@@ -127,44 +127,46 @@ func primitiveFilterFromClause(clause *filters.Clause) (map[string]interface{}, 
 
 func refFilterFromClause(clause *filters.Clause) (map[string]interface{}, error) {
 
-	// we only need to reference type nested once for the outermost nesting, es
-	// will automatically discover further nested queries
-	outerPath := outerPath(clause.On)
+	return nil, fmt.Errorf("legacy function called")
 
-	// no matter how deep, by using the inner path as field name we can match any
-	// nested object
-	innerPath := innerPath(clause.On)
+	// // we only need to reference type nested once for the outermost nesting, es
+	// // will automatically discover further nested queries
+	// outerPath := outerPath(clause.On)
 
-	innerQuery := map[string]interface{}{}
-	if clause.Operator == filters.OperatorWithinGeoRange {
-		q, err := refGeoFilterFromClause(clause)
-		if err != nil {
-			return nil, err
-		}
+	// // no matter how deep, by using the inner path as field name we can match any
+	// // nested object
+	// innerPath := innerPath(clause.On)
 
-		innerQuery = q
-	} else {
-		m, err := matcherFromOperator(clause.Operator)
-		if err != nil {
-			return nil, err
-		}
+	// innerQuery := map[string]interface{}{}
+	// if clause.Operator == filters.OperatorWithinGeoRange {
+	// 	q, err := refGeoFilterFromClause(clause)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
 
-		innerQuery = map[string]interface{}{
-			m.queryType: map[string]interface{}{
-				innerPath: map[string]interface{}{
-					m.operator: clause.Value.Value,
-				},
-			},
-		}
-	}
+	// 	innerQuery = q
+	// } else {
+	// 	m, err := matcherFromOperator(clause.Operator)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
 
-	return map[string]interface{}{
-		"nested": map[string]interface{}{
-			"path":            outerPath,
-			"ignore_unmapped": true,
-			"query":           innerQuery,
-		},
-	}, nil
+	// 	innerQuery = map[string]interface{}{
+	// 		m.queryType: map[string]interface{}{
+	// 			innerPath: map[string]interface{}{
+	// 				m.operator: clause.Value.Value,
+	// 			},
+	// 		},
+	// 	}
+	// }
+
+	// return map[string]interface{}{
+	// 	"nested": map[string]interface{}{
+	// 		"path":            outerPath,
+	// 		"ignore_unmapped": true,
+	// 		"query":           innerQuery,
+	// 	},
+	// }, nil
 
 }
 
