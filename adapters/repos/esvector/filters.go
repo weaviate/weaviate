@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/semi-technologies/weaviate/entities/filters"
 )
 
@@ -79,7 +78,6 @@ func (r *Repo) filterFromClause(ctx context.Context, clause *filters.Clause) (ma
 		}
 
 		x := storageIdentifiersToBeaconBoolFilter(res, clause.On.Property.String())
-		spew.Dump(x)
 		return x, nil
 	}
 
