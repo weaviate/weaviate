@@ -164,7 +164,7 @@ func (r *Repo) search(ctx context.Context, index string,
 
 	var buf bytes.Buffer
 
-	query, err := queryFromFilter(filters)
+	query, err := r.queryFromFilter(filters)
 	if err != nil {
 		return nil, err
 	}
