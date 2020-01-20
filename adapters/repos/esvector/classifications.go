@@ -50,7 +50,7 @@ func (r *Repo) GetUnclassified(ctx context.Context, kind kind.Kind,
 			},
 		}
 	} else {
-		subquery, err := queryFromFilter(filter)
+		subquery, err := r.queryFromFilter(filter)
 		if err != nil {
 			return nil, fmt.Errorf("build filter: %v", err)
 		}
@@ -158,7 +158,7 @@ func (r *Repo) AggregateNeighbors(ctx context.Context, vector []float32,
 
 	if filter != nil {
 		// query = map[string]interface{}{
-		subquery, err := queryFromFilter(filter)
+		subquery, err := r.queryFromFilter(filter)
 		if err != nil {
 			return nil, err
 		}

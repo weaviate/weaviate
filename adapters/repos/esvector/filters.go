@@ -17,30 +17,31 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/semi-technologies/weaviate/entities/filters"
 )
 
-func queryFromFilter(f *filters.LocalFilter) (map[string]interface{}, error) {
+func (r *Repo) queryFromFilter(f *filters.LocalFilter) (map[string]interface{}, error) {
 	if f == nil {
 		return map[string]interface{}{
 			"match_all": map[string]interface{}{},
 		}, nil
 	}
 
-	return queryFromClause(f.Root)
+	return r.queryFromClause(f.Root)
 }
 
-func queryFromClause(clause *filters.Clause) (map[string]interface{}, error) {
+func (r *Repo) queryFromClause(clause *filters.Clause) (map[string]interface{}, error) {
 	switch clause.Operator {
 	case filters.OperatorAnd, filters.OperatorOr, filters.OperatorNot:
-		return compoundQueryFromClause(clause)
+		return r.compoundQueryFromClause(clause)
 	default:
-		return singleQueryFromClause(clause)
+		return r.singleQueryFromClause(clause)
 	}
 }
 
-func singleQueryFromClause(clause *filters.Clause) (map[string]interface{}, error) {
-	filter, err := filterFromClause(clause)
+func (r *Repo) singleQueryFromClause(clause *filters.Clause) (map[string]interface{}, error) {
+	filter, err := r.filterFromClause(clause)
 	if err != nil {
 		return nil, err
 	}
@@ -58,9 +59,18 @@ func singleQueryFromClause(clause *filters.Clause) (map[string]interface{}, erro
 	return q, nil
 }
 
-func filterFromClause(clause *filters.Clause) (map[string]interface{}, error) {
+func (r *Repo) filterFromClause(clause *filters.Clause) (map[string]interface{}, error) {
+
 	if clause.On.Child != nil {
-		return refFilterFromClause(clause)
+		sqb := newSubQueryBuilder(r)
+		res, err := sqb.fromClause(clause)
+		if err != nil {
+			return nil, fmt.Errorf("sub query: %v", err)
+		}
+
+		x := storageIdentifiersToBeaconBoolFilter(res, clause.On.Property.String())
+		spew.Dump(x)
+		return x, nil
 	}
 
 	if clause.Operator == filters.OperatorWithinGeoRange {
@@ -167,10 +177,10 @@ func refGeoFilterFromClause(clause *filters.Clause) (map[string]interface{}, err
 	}, nil
 }
 
-func compoundQueryFromClause(clause *filters.Clause) (map[string]interface{}, error) {
+func (r *Repo) compoundQueryFromClause(clause *filters.Clause) (map[string]interface{}, error) {
 	filters := make([]map[string]interface{}, len(clause.Operands), len(clause.Operands))
 	for i, operand := range clause.Operands {
-		filter, err := queryFromClause(&operand)
+		filter, err := r.queryFromClause(&operand)
 		if err != nil {
 			return nil, fmt.Errorf("compund query at pos %d: %v", i, err)
 		}
