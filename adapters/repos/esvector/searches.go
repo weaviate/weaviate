@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/elastic/go-elasticsearch/v5/esapi"
 	"github.com/go-openapi/strfmt"
@@ -130,10 +131,35 @@ func (r *Repo) searchByID(ctx context.Context, index string, id strfmt.UUID,
 	}
 }
 
+type counterImpl struct {
+	sync.Mutex
+	count int
+}
+
+func (c *counterImpl) Inc() {
+	c.Lock()
+	defer c.Unlock()
+
+	c.count++
+}
+
+func (c *counterImpl) Get() int {
+	c.Lock()
+	defer c.Unlock()
+
+	return c.count
+}
+
 // ClassSearch searches for classes with optional filters without vector scoring
 func (r *Repo) ClassSearch(ctx context.Context, params traverser.GetParams) ([]search.Result, error) {
+	r.requestCounter = &counterImpl{}
 	index := classIndexFromClassName(params.Kind, params.ClassName)
-	return r.search(ctx, index, nil, params.Pagination.Limit, params.Filters, params, false)
+	res, err := r.search(ctx, index, nil, params.Pagination.Limit, params.Filters, params, false)
+	count := r.requestCounter.(*counterImpl).Get()
+
+	fmt.Printf("\n\n\nRequest Count: %d\n\n\n", count)
+
+	return res, err
 }
 
 // VectorClassSearch limits the vector search to a specific class (and kind)
@@ -269,6 +295,19 @@ func (sr searchResponse) toResults(r *Repo, properties traverser.SelectPropertie
 	meta bool) ([]search.Result, error) {
 	hits := sr.Hits.Hits
 	output := make([]search.Result, len(hits), len(hits))
+
+	requestCacher := newCacher(r)
+	err := requestCacher.findJobsFromResponse(sr, properties)
+	if err != nil {
+		return nil, fmt.Errorf("build request cache: %v", err)
+	}
+
+	requestCacher.dedupJobList()
+	err = requestCacher.fetchJobs()
+	if err != nil {
+		return nil, fmt.Errorf("build request cache: %v", err)
+	}
+
 	for i, hit := range hits {
 		k, err := kind.Parse(hit.Source[keyKind.String()].(string))
 		if err != nil {
@@ -281,7 +320,7 @@ func (sr searchResponse) toResults(r *Repo, properties traverser.SelectPropertie
 		}
 
 		cache := r.extractCache(hit.Source)
-		schema, err := r.parseSchema(hit.Source, properties, meta, cache, 0)
+		schema, err := r.parseSchema(hit.Source, properties, meta, cache, 0, requestCacher)
 		if err != nil {
 			return nil, fmt.Errorf("vector search: result %d: %v", i, err)
 		}
