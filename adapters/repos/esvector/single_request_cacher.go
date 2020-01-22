@@ -39,7 +39,7 @@ type cacher struct {
 	store  map[storageIdentifier]search.Result
 }
 
-func (c *cacher) get(si storageIdentifier, props traverser.SelectProperties) (search.Result, bool) {
+func (c *cacher) get(si storageIdentifier) (search.Result, bool) {
 	sr, ok := c.store[si]
 	return sr, ok
 }
@@ -117,6 +117,13 @@ func (c *cacher) findJobsFromResponse(sr searchResponse, properties traverser.Se
 
 func (c *cacher) replaceInitialPropertiesWithSpecific(hit hit,
 	properties traverser.SelectProperties) (traverser.SelectProperties, error) {
+
+	if properties != nil {
+		// don't overwrite the properties if the caller has explicitly set them,
+		// this can only mean they're at the root level
+		return properties, nil
+	}
+
 	// this is a nested level, we cannot rely on global initialSelectProperties
 	// anymore, instead we need to find the selectProperties for exactly this
 	// ID
