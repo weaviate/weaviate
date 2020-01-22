@@ -10,6 +10,7 @@ import (
 
 	"github.com/elastic/go-elasticsearch/v5/esapi"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
+	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
@@ -45,8 +46,31 @@ func (c *cacher) get(si storageIdentifier) (search.Result, bool) {
 	return sr, ok
 }
 
+// TODO: don't ignore meta
+func (c *cacher) buildFromRootLevel(sr searchResponse, properties traverser.SelectProperties, meta bool) error {
+	err := c.findJobsFromResponse(sr, properties)
+	if err != nil {
+		return fmt.Errorf("build request cache: %v", err)
+	}
+
+	c.dedupJobList()
+	err = c.fetchJobs()
+	if err != nil {
+		return fmt.Errorf("build request cache: %v", err)
+	}
+
+	return nil
+}
+
 func (c *cacher) findJobsFromResponse(sr searchResponse, properties traverser.SelectProperties) error {
 	for _, hit := range sr.Hits.Hits {
+
+		var err error
+		properties, err = c.replaceInitialPropertiesWithSpecific(hit, properties)
+		if err != nil {
+			return err
+		}
+
 		for key, value := range hit.Source {
 			if isInternal(key) {
 				continue
@@ -92,11 +116,42 @@ func (c *cacher) findJobsFromResponse(sr searchResponse, properties traverser.Se
 	return nil
 }
 
+func (c *cacher) replaceInitialPropertiesWithSpecific(hit hit,
+	properties traverser.SelectProperties) (traverser.SelectProperties, error) {
+	// this is a nested level, we cannot rely on global initialSelectProperties
+	// anymore, instead we need to find the selectProperties for exactly this
+	// ID
+	id := hit.ID
+	k, err := kind.Parse(hit.Source[keyKind.String()].(string))
+	if err != nil {
+		return nil, err
+	}
+
+	className := hit.Source[keyClassName.String()].(string)
+	job, ok := c.findJob(storageIdentifier{id, k, className})
+	if ok {
+		return job.props, nil
+	}
+
+	return properties, nil
+}
+
 func (c *cacher) addJob(si storageIdentifier, props traverser.SelectProperties) {
 	c.Lock()
 	defer c.Unlock()
 
 	c.jobs = append(c.jobs, cacherJob{si, props, false})
+}
+
+func (c *cacher) findJob(si storageIdentifier) (cacherJob, bool) {
+	for _, job := range c.jobs {
+		if job.si == si {
+			return job, true
+
+		}
+	}
+
+	return cacherJob{}, false
 }
 
 func (c *cacher) incompleteJobs() []cacherJob {
@@ -183,6 +238,8 @@ func (c *cacher) fetchJobs() error {
 	}
 	body := mgetBody{docs}
 
+	c.repo.requestCounter.Inc()
+
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(body); err != nil {
 		return err
@@ -234,15 +291,26 @@ func (c *cacher) parseAndStore(res *esapi.Response) error {
 
 	sr := mgetResToSearchResponse(mgetRes)
 
-	// // TODO: don't let this spawn a nested cacher (use global cacher per request)
-	// // TODO: don't hardcode selectprops as nil, as we'll never get recursion
-	// // TODO: don't hardcode meta==false
-	asResults, err := sr.toResults(c.repo, nil, false)
+	// this is our exit condition for the recursion
+	c.markAllJobsAsDone()
+
+	// TODO: don't ignore meta
+	err = c.buildFromRootLevel(sr, nil, false)
+	if err != nil {
+		return fmt.Errorf("build nested cache: %v", err)
+	}
+
+	asResults, err := sr.toResults(c.repo, nil, false, c)
 	if err != nil {
 		return err
 	}
 
-	return c.storeResults(asResults)
+	err = c.storeResults(asResults)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // remaps from x.docs to x.hits.hits, so we can use existing infrastructure to
@@ -272,4 +340,13 @@ func (c *cacher) storeResults(res search.Results) error {
 	}
 
 	return nil
+}
+
+func (c *cacher) markAllJobsAsDone() {
+	c.Lock()
+	defer c.Unlock()
+
+	for i := range c.jobs {
+		c.jobs[i].complete = true
+	}
 }
