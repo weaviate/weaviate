@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/elastic/go-elasticsearch/v5/esapi"
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -38,16 +39,14 @@ type cacher struct {
 	store  map[storageIdentifier]search.Result
 }
 
-func (c *cacher) get(si storageIdentifier) (search.Result, bool) {
-	c.Lock()
-	defer c.Unlock()
-
+func (c *cacher) get(si storageIdentifier, props traverser.SelectProperties) (search.Result, bool) {
 	sr, ok := c.store[si]
 	return sr, ok
 }
 
 // TODO: don't ignore meta
 func (c *cacher) buildFromRootLevel(sr searchResponse, properties traverser.SelectProperties, meta bool) error {
+
 	err := c.findJobsFromResponse(sr, properties)
 	if err != nil {
 		return fmt.Errorf("build request cache: %v", err)
@@ -122,6 +121,7 @@ func (c *cacher) replaceInitialPropertiesWithSpecific(hit hit,
 	// anymore, instead we need to find the selectProperties for exactly this
 	// ID
 	id := hit.ID
+
 	k, err := kind.Parse(hit.Source[keyKind.String()].(string))
 	if err != nil {
 		return nil, err
@@ -137,8 +137,6 @@ func (c *cacher) replaceInitialPropertiesWithSpecific(hit hit,
 }
 
 func (c *cacher) addJob(si storageIdentifier, props traverser.SelectProperties) {
-	c.Lock()
-	defer c.Unlock()
 
 	c.jobs = append(c.jobs, cacherJob{si, props, false})
 }
@@ -155,8 +153,6 @@ func (c *cacher) findJob(si storageIdentifier) (cacherJob, bool) {
 }
 
 func (c *cacher) incompleteJobs() []cacherJob {
-	c.Lock()
-	defer c.Unlock()
 
 	out := make([]cacherJob, len(c.jobs))
 	n := 0
@@ -170,22 +166,38 @@ func (c *cacher) incompleteJobs() []cacherJob {
 	return out[:n]
 }
 
-func (c *cacher) dedupJobList() {
-	c.Lock()
-	defer c.Unlock()
+func (c *cacher) completeJobs() []cacherJob {
 
-	before := len(c.jobs)
+	out := make([]cacherJob, len(c.jobs))
+	n := 0
+	for _, job := range c.jobs {
+		if job.complete == true {
+			out[n] = job
+			n++
+		}
+	}
+
+	return out[:n]
+}
+
+func (c *cacher) dedupJobList() {
+	incompleteJobs := c.incompleteJobs()
+	before := len(incompleteJobs)
+	if before == 0 {
+		// nothing to do
+		return
+	}
 	c.logger.
 		WithFields(logrus.Fields{
 			"action": "request_cacher_dedup_joblist_start",
 			"jobs":   before,
 		}).
 		Debug("starting job list deduplication")
-	deduped := make([]cacherJob, len(c.jobs))
+	deduped := make([]cacherJob, len(incompleteJobs))
 	found := map[string]struct{}{}
 
 	n := 0
-	for _, job := range c.jobs {
+	for _, job := range incompleteJobs {
 		if _, ok := found[job.si.id]; ok {
 			continue
 		}
@@ -195,7 +207,7 @@ func (c *cacher) dedupJobList() {
 		n++
 	}
 
-	c.jobs = deduped[:n]
+	c.jobs = append(c.completeJobs(), deduped[:n]...)
 
 	c.logger.
 		WithFields(logrus.Fields{
@@ -320,15 +332,26 @@ func mgetResToSearchResponse(in mgetResponse) searchResponse {
 		Hits: struct {
 			Hits []hit `json:"hits"`
 		}{
-			Hits: in.Docs,
+			Hits: removeEmptyResults(in.Docs),
 		},
 	}
+}
 
+func removeEmptyResults(in []hit) []hit {
+
+	out := make([]hit, len(in))
+	n := 0
+	for _, hit := range in {
+		if hit.Source != nil {
+			out[n] = hit
+			n++
+		}
+	}
+
+	return out[0:n]
 }
 
 func (c *cacher) storeResults(res search.Results) error {
-	c.Lock()
-	defer c.Unlock()
 
 	for _, item := range res {
 		c.store[storageIdentifier{
@@ -336,17 +359,43 @@ func (c *cacher) storeResults(res search.Results) error {
 			kind:      item.Kind,
 			className: item.ClassName,
 		}] = item
-
 	}
 
 	return nil
 }
 
 func (c *cacher) markAllJobsAsDone() {
-	c.Lock()
-	defer c.Unlock()
 
 	for i := range c.jobs {
 		c.jobs[i].complete = true
 	}
+}
+
+func (c *cacher) recursiveBackupStrategy(si storageIdentifier, props traverser.SelectProperties) *search.Result {
+	c.logger.WithField("action", "request_cacher_recursive_backup_stragey_required").
+		WithField("id", si.id).
+		WithField("kind", si.kind).
+		Debug("need recursive backup due to caching conflict")
+
+	ctx := context.Background() // TODO: don't spawn new context
+	var res *search.Result
+	var err error
+
+	switch si.kind {
+	case kind.Thing:
+		res, err = c.repo.ThingByID(ctx, strfmt.UUID(si.id), props, false)
+	case kind.Action:
+		res, err = c.repo.ActionByID(ctx, strfmt.UUID(si.id), props, false)
+	default:
+		panic("impossible kind")
+	}
+
+	if err != nil {
+		c.logger.WithField("action", "request_cacher_recursive_backup_strategy_error").
+			WithError(err).Error("recursive backup failed")
+
+		return nil
+	}
+
+	return res
 }
