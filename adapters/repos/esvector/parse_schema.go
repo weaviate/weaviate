@@ -236,7 +236,7 @@ func (r *Repo) resolveRefWithoutCache(item interface{}, desiredClass string,
 		className: desiredClass,
 		kind:      ref.Kind,
 	}
-	res, ok := requestCacher.get(si, innerProperties)
+	res, ok := requestCacher.get(si)
 	if !ok {
 		// silently ignore, could have been deleted in the meantime, or we're
 		// asking for a non-matching selectProperty, for eaxmple if we ask for
