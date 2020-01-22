@@ -236,9 +236,19 @@ func (r *Repo) resolveRefWithoutCache(item interface{}, desiredClass string,
 		className: desiredClass,
 		kind:      ref.Kind,
 	}
-	res, ok := requestCacher.get(si)
+	res, ok := requestCacher.get(si, innerProperties)
 	if !ok {
-		return nil, fmt.Errorf("not found: %#v", si)
+		// silently ignore, could have been deleted in the meantime, or we're
+		// asking for a non-matching selectProperty, for eaxmple if we ask for
+		// Article { published { ... on { Magazine { name } ... on { Journal { name } }
+		// we don't know at resolve time if this ID will point to a Magazine or a
+		// Journal, so we will get a few empty responses when trying both for any
+		// given ID.
+		//
+		// In turn this means we need to validate through automated and explorative
+		// tests, that we never skip results that should be contained, as we
+		// wouldn't throw an error, so the user would never notice
+		return nil, nil
 	}
 
 	out.Class = res.ClassName

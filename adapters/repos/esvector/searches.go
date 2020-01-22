@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/elastic/go-elasticsearch/v5/esapi"
 	"github.com/go-openapi/strfmt"
@@ -27,6 +28,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/sirupsen/logrus"
 )
 
 // ThingSearch searches for all things with optional filters without vector scoring
@@ -152,20 +154,34 @@ func (c *counterImpl) Get() int {
 
 // ClassSearch searches for classes with optional filters without vector scoring
 func (r *Repo) ClassSearch(ctx context.Context, params traverser.GetParams) ([]search.Result, error) {
+	start := time.Now()
 	r.requestCounter = &counterImpl{}
 	index := classIndexFromClassName(params.Kind, params.ClassName)
 	res, err := r.search(ctx, index, nil, params.Pagination.Limit, params.Filters, params, false)
 	count := r.requestCounter.(*counterImpl).Get()
-
-	fmt.Printf("\n\n\nRequest Count: %d\n\n\n", count)
+	r.logger.WithFields(logrus.Fields{
+		"action":        "esvector_class_search",
+		"request_count": count,
+		"took":          time.Since(start),
+	}).Debug("completed class search")
 
 	return res, err
 }
 
 // VectorClassSearch limits the vector search to a specific class (and kind)
 func (r *Repo) VectorClassSearch(ctx context.Context, params traverser.GetParams) ([]search.Result, error) {
+	start := time.Now()
+	r.requestCounter = &counterImpl{}
 	index := classIndexFromClassName(params.Kind, params.ClassName)
-	return r.search(ctx, index, params.SearchVector, params.Pagination.Limit, params.Filters, params, false)
+	res, err := r.search(ctx, index, params.SearchVector, params.Pagination.Limit, params.Filters, params, false)
+	count := r.requestCounter.(*counterImpl).Get()
+	r.logger.WithFields(logrus.Fields{
+		"action":        "esvector_vector_class_search",
+		"request_count": count,
+		"took":          time.Since(start),
+	}).Debug("completed class search")
+
+	return res, err
 }
 
 // VectorSearch retrives the closest concepts by vector distance
