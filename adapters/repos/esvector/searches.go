@@ -288,27 +288,27 @@ func (r *Repo) searchResponse(res *esapi.Response, properties traverser.SelectPr
 		return nil, fmt.Errorf("vector search: decode json: %v", err)
 	}
 
-	return sr.toResults(r, properties, meta)
+	requestCacher := newCacher(r)
+	err = requestCacher.buildFromRootLevel(sr, properties, meta)
+	if err != nil {
+		return nil, fmt.Errorf("build request cache: %v", err)
+	}
+
+	return sr.toResults(r, properties, meta, requestCacher)
 }
 
 func (sr searchResponse) toResults(r *Repo, properties traverser.SelectProperties,
-	meta bool) ([]search.Result, error) {
+	meta bool, requestCacher *cacher) ([]search.Result, error) {
 	hits := sr.Hits.Hits
 	output := make([]search.Result, len(hits), len(hits))
 
-	requestCacher := newCacher(r)
-	err := requestCacher.findJobsFromResponse(sr, properties)
-	if err != nil {
-		return nil, fmt.Errorf("build request cache: %v", err)
-	}
-
-	requestCacher.dedupJobList()
-	err = requestCacher.fetchJobs()
-	if err != nil {
-		return nil, fmt.Errorf("build request cache: %v", err)
-	}
-
 	for i, hit := range hits {
+		var err error
+		properties, err = requestCacher.replaceInitialPropertiesWithSpecific(hit, properties)
+		if err != nil {
+			return nil, err
+		}
+
 		k, err := kind.Parse(hit.Source[keyKind.String()].(string))
 		if err != nil {
 			return nil, fmt.Errorf("vector search: result %d: %v", i, err)

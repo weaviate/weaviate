@@ -114,7 +114,13 @@ func (r *Repo) unclassifiedSearchResponse(res *esapi.Response, properties traver
 		return nil, err
 	}
 
-	return sr.toResults(r, properties, false)
+	requestCacher := newCacher(r)
+	err = requestCacher.buildFromRootLevel(sr, properties, false)
+	if err != nil {
+		return nil, fmt.Errorf("build request cache: %v", err)
+	}
+
+	return sr.toResults(r, properties, false, requestCacher)
 }
 
 func checkClassificationCount(res map[string]interface{}) error {
