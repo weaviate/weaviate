@@ -50,7 +50,7 @@ func (r *Repo) GetUnclassified(ctx context.Context, kind kind.Kind,
 			},
 		}
 	} else {
-		subquery, err := queryFromFilter(filter)
+		subquery, err := r.queryFromFilter(ctx, filter)
 		if err != nil {
 			return nil, fmt.Errorf("build filter: %v", err)
 		}
@@ -94,10 +94,11 @@ func (r *Repo) GetUnclassified(ctx context.Context, kind kind.Kind,
 		return nil, fmt.Errorf("vector search: %v", err)
 	}
 
-	return r.unclassifiedSearchResponse(res, nil)
+	return r.unclassifiedSearchResponse(ctx, res, nil)
 }
 
-func (r *Repo) unclassifiedSearchResponse(res *esapi.Response, properties traverser.SelectProperties) ([]search.Result,
+func (r *Repo) unclassifiedSearchResponse(ctx context.Context, res *esapi.Response,
+	properties traverser.SelectProperties) ([]search.Result,
 	error) {
 	if err := errorResToErr(res, r.logger); err != nil {
 		return nil, fmt.Errorf("vector search: %v", err)
@@ -114,7 +115,13 @@ func (r *Repo) unclassifiedSearchResponse(res *esapi.Response, properties traver
 		return nil, err
 	}
 
-	return sr.toResults(r, properties, false)
+	requestCacher := newCacher(r)
+	err = requestCacher.build(ctx, sr, properties, false)
+	if err != nil {
+		return nil, fmt.Errorf("build request cache: %v", err)
+	}
+
+	return sr.toResults(r, properties, false, requestCacher)
 }
 
 func checkClassificationCount(res map[string]interface{}) error {
@@ -158,7 +165,7 @@ func (r *Repo) AggregateNeighbors(ctx context.Context, vector []float32,
 
 	if filter != nil {
 		// query = map[string]interface{}{
-		subquery, err := queryFromFilter(filter)
+		subquery, err := r.queryFromFilter(ctx, filter)
 		if err != nil {
 			return nil, err
 		}

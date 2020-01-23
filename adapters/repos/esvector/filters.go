@@ -14,33 +14,36 @@
 package esvector
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	"github.com/semi-technologies/weaviate/entities/filters"
 )
 
-func queryFromFilter(f *filters.LocalFilter) (map[string]interface{}, error) {
+// new from 0.22.0: queryFromFilter can error with SubQueryNoResultsErr, it is
+// up to the caller to decide how to handle this.
+func (r *Repo) queryFromFilter(ctx context.Context, f *filters.LocalFilter) (map[string]interface{}, error) {
 	if f == nil {
 		return map[string]interface{}{
 			"match_all": map[string]interface{}{},
 		}, nil
 	}
 
-	return queryFromClause(f.Root)
+	return r.queryFromClause(ctx, f.Root)
 }
 
-func queryFromClause(clause *filters.Clause) (map[string]interface{}, error) {
+func (r *Repo) queryFromClause(ctx context.Context, clause *filters.Clause) (map[string]interface{}, error) {
 	switch clause.Operator {
 	case filters.OperatorAnd, filters.OperatorOr, filters.OperatorNot:
-		return compoundQueryFromClause(clause)
+		return r.compoundQueryFromClause(ctx, clause)
 	default:
-		return singleQueryFromClause(clause)
+		return r.singleQueryFromClause(ctx, clause)
 	}
 }
 
-func singleQueryFromClause(clause *filters.Clause) (map[string]interface{}, error) {
-	filter, err := filterFromClause(clause)
+func (r *Repo) singleQueryFromClause(ctx context.Context, clause *filters.Clause) (map[string]interface{}, error) {
+	filter, err := r.filterFromClause(ctx, clause)
 	if err != nil {
 		return nil, err
 	}
@@ -58,9 +61,24 @@ func singleQueryFromClause(clause *filters.Clause) (map[string]interface{}, erro
 	return q, nil
 }
 
-func filterFromClause(clause *filters.Clause) (map[string]interface{}, error) {
+func (r *Repo) filterFromClause(ctx context.Context, clause *filters.Clause) (map[string]interface{}, error) {
+
 	if clause.On.Child != nil {
-		return refFilterFromClause(clause)
+		sqb := newSubQueryBuilder(r)
+		res, err := sqb.fromClause(ctx, clause)
+		if err != nil {
+			switch err.(type) {
+			case SubQueryNoResultsErr:
+				return nil, err // don't annotate, so we can inspect it down the line
+
+			default:
+				return nil, fmt.Errorf("sub query: %v", err)
+
+			}
+		}
+
+		x := storageIdentifiersToBeaconBoolFilter(res, clause.On.Property.String())
+		return x, nil
 	}
 
 	if clause.Operator == filters.OperatorWithinGeoRange {
@@ -107,49 +125,6 @@ func primitiveFilterFromClause(clause *filters.Clause) (map[string]interface{}, 
 
 }
 
-func refFilterFromClause(clause *filters.Clause) (map[string]interface{}, error) {
-
-	// we only need to reference type nested once for the outermost nesting, es
-	// will automatically discover further nested queries
-	outerPath := outerPath(clause.On)
-
-	// no matter how deep, by using the inner path as field name we can match any
-	// nested object
-	innerPath := innerPath(clause.On)
-
-	innerQuery := map[string]interface{}{}
-	if clause.Operator == filters.OperatorWithinGeoRange {
-		q, err := refGeoFilterFromClause(clause)
-		if err != nil {
-			return nil, err
-		}
-
-		innerQuery = q
-	} else {
-		m, err := matcherFromOperator(clause.Operator)
-		if err != nil {
-			return nil, err
-		}
-
-		innerQuery = map[string]interface{}{
-			m.queryType: map[string]interface{}{
-				innerPath: map[string]interface{}{
-					m.operator: clause.Value.Value,
-				},
-			},
-		}
-	}
-
-	return map[string]interface{}{
-		"nested": map[string]interface{}{
-			"path":            outerPath,
-			"ignore_unmapped": true,
-			"query":           innerQuery,
-		},
-	}, nil
-
-}
-
 func refGeoFilterFromClause(clause *filters.Clause) (map[string]interface{}, error) {
 	geoRange, ok := clause.Value.Value.(filters.GeoRange)
 	if !ok {
@@ -167,11 +142,15 @@ func refGeoFilterFromClause(clause *filters.Clause) (map[string]interface{}, err
 	}, nil
 }
 
-func compoundQueryFromClause(clause *filters.Clause) (map[string]interface{}, error) {
+func (r *Repo) compoundQueryFromClause(ctx context.Context, clause *filters.Clause) (map[string]interface{}, error) {
 	filters := make([]map[string]interface{}, len(clause.Operands), len(clause.Operands))
 	for i, operand := range clause.Operands {
-		filter, err := queryFromClause(&operand)
+		filter, err := r.queryFromClause(ctx, &operand)
 		if err != nil {
+			if _, ok := err.(SubQueryNoResultsErr); ok {
+				// don't annotate so we can catch this one down the line
+				return nil, err
+			}
 			return nil, fmt.Errorf("compund query at pos %d: %v", i, err)
 		}
 		filters[i] = filter
@@ -245,12 +224,6 @@ func negateFilter(f map[string]interface{}) map[string]interface{} {
 	}
 }
 
-func outerPath(p *filters.Path) string {
-	slice := p.SliceNonTitleized()
-	slice = slice[:len(slice)-1]
-	return keyCache.String() + "." + strings.Join(slice, ".")
-}
-
 func innerPath(p *filters.Path) string {
-	return keyCache.String() + "." + strings.Join(p.SliceNonTitleized(), ".")
+	return strings.Join(p.SliceNonTitleized(), ".")
 }
