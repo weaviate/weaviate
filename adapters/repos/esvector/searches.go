@@ -18,6 +18,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/elastic/go-elasticsearch/v5/esapi"
 	"github.com/go-openapi/strfmt"
@@ -26,6 +28,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/sirupsen/logrus"
 )
 
 // ThingSearch searches for all things with optional filters without vector scoring
@@ -130,16 +133,61 @@ func (r *Repo) searchByID(ctx context.Context, index string, id strfmt.UUID,
 	}
 }
 
+type counterImpl struct {
+	sync.Mutex
+	count int
+}
+
+func (c *counterImpl) Inc() {
+	c.Lock()
+	defer c.Unlock()
+
+	c.count++
+}
+
+func (c *counterImpl) Get() int {
+	c.Lock()
+	defer c.Unlock()
+
+	return c.count
+}
+
 // ClassSearch searches for classes with optional filters without vector scoring
 func (r *Repo) ClassSearch(ctx context.Context, params traverser.GetParams) ([]search.Result, error) {
+	ctx, cancel := limitUnlimitedContext(ctx)
+	defer cancel()
+
+	start := time.Now()
+	r.requestCounter = &counterImpl{}
 	index := classIndexFromClassName(params.Kind, params.ClassName)
-	return r.search(ctx, index, nil, params.Pagination.Limit, params.Filters, params, false)
+	res, err := r.search(ctx, index, nil, params.Pagination.Limit, params.Filters, params, false)
+	count := r.requestCounter.(*counterImpl).Get()
+	r.logger.WithFields(logrus.Fields{
+		"action":        "esvector_class_search",
+		"request_count": count,
+		"took":          time.Since(start),
+	}).Debug("completed class search")
+
+	return res, err
 }
 
 // VectorClassSearch limits the vector search to a specific class (and kind)
 func (r *Repo) VectorClassSearch(ctx context.Context, params traverser.GetParams) ([]search.Result, error) {
+	ctx, cancel := limitUnlimitedContext(ctx)
+	defer cancel()
+
+	start := time.Now()
+	r.requestCounter = &counterImpl{}
 	index := classIndexFromClassName(params.Kind, params.ClassName)
-	return r.search(ctx, index, params.SearchVector, params.Pagination.Limit, params.Filters, params, false)
+	res, err := r.search(ctx, index, params.SearchVector, params.Pagination.Limit, params.Filters, params, false)
+	count := r.requestCounter.(*counterImpl).Get()
+	r.logger.WithFields(logrus.Fields{
+		"action":        "esvector_vector_class_search",
+		"request_count": count,
+		"took":          time.Since(start),
+	}).Debug("completed class search")
+
+	return res, err
 }
 
 // VectorSearch retrives the closest concepts by vector distance
@@ -164,8 +212,13 @@ func (r *Repo) search(ctx context.Context, index string,
 
 	var buf bytes.Buffer
 
-	query, err := queryFromFilter(filters)
+	query, err := r.queryFromFilter(ctx, filters)
 	if err != nil {
+		if _, ok := err.(SubQueryNoResultsErr); ok {
+			// a sub-query error'd with no results, that's not an error case to us,
+			// this simply means, we return no results to the user
+			return nil, nil
+		}
 		return nil, err
 	}
 
@@ -185,7 +238,7 @@ func (r *Repo) search(ctx context.Context, index string,
 		return nil, fmt.Errorf("vector search: %v", err)
 	}
 
-	return r.searchResponse(res, params.Properties, meta)
+	return r.searchResponse(ctx, res, params.Properties, meta)
 }
 
 func (r *Repo) buildSearchBody(filterQuery map[string]interface{}, vector []float32, limit int) map[string]interface{} {
@@ -243,9 +296,8 @@ type hit struct {
 	Index  string                 `json:"_index"`
 }
 
-func (r *Repo) searchResponse(res *esapi.Response, properties traverser.SelectProperties,
-	meta bool) ([]search.Result,
-	error) {
+func (r *Repo) searchResponse(ctx context.Context, res *esapi.Response,
+	properties traverser.SelectProperties, meta bool) ([]search.Result, error) {
 	if err := errorResToErr(res, r.logger); err != nil {
 		return nil, fmt.Errorf("vector search: %v", err)
 	}
@@ -257,14 +309,27 @@ func (r *Repo) searchResponse(res *esapi.Response, properties traverser.SelectPr
 		return nil, fmt.Errorf("vector search: decode json: %v", err)
 	}
 
-	return sr.toResults(r, properties, meta)
+	requestCacher := newCacher(r)
+	err = requestCacher.build(ctx, sr, properties, meta)
+	if err != nil {
+		return nil, fmt.Errorf("build request cache: %v", err)
+	}
+
+	return sr.toResults(r, properties, meta, requestCacher)
 }
 
 func (sr searchResponse) toResults(r *Repo, properties traverser.SelectProperties,
-	meta bool) ([]search.Result, error) {
+	meta bool, requestCacher *cacher) ([]search.Result, error) {
 	hits := sr.Hits.Hits
 	output := make([]search.Result, len(hits), len(hits))
+
 	for i, hit := range hits {
+		var err error
+		properties, err = requestCacher.replaceInitialPropertiesWithSpecific(hit, properties)
+		if err != nil {
+			return nil, err
+		}
+
 		k, err := kind.Parse(hit.Source[keyKind.String()].(string))
 		if err != nil {
 			return nil, fmt.Errorf("vector search: result %d: %v", i, err)
@@ -275,27 +340,23 @@ func (sr searchResponse) toResults(r *Repo, properties traverser.SelectPropertie
 			return nil, fmt.Errorf("vector search: result %d: %v", i, err)
 		}
 
-		cache := r.extractCache(hit.Source)
-		schema, err := r.parseSchema(hit.Source, properties, meta, cache, 0)
+		schema, err := r.parseSchema(hit.Source, properties, meta, requestCacher)
 		if err != nil {
 			return nil, fmt.Errorf("vector search: result %d: %v", i, err)
 		}
 
 		created := parseFloat64(hit.Source, keyCreated.String())
 		updated := parseFloat64(hit.Source, keyUpdated.String())
-		cacheHot := parseCacheHot(hit.Source)
 
 		output[i] = search.Result{
-			ClassName:   hit.Source[keyClassName.String()].(string),
-			ID:          strfmt.UUID(hit.ID),
-			Kind:        k,
-			Score:       hit.Score,
-			Vector:      vector,
-			Schema:      schema,
-			Created:     int64(created),
-			Updated:     int64(updated),
-			CacheHot:    cacheHot,
-			CacheSchema: cache.schema,
+			ClassName: hit.Source[keyClassName.String()].(string),
+			ID:        strfmt.UUID(hit.ID),
+			Kind:      k,
+			Score:     hit.Score,
+			Vector:    vector,
+			Schema:    schema,
+			Created:   int64(created),
+			Updated:   int64(updated),
 		}
 		if meta {
 			output[i].Meta = r.extractMeta(hit.Source)
@@ -314,21 +375,10 @@ func parseFloat64(source map[string]interface{}, key string) float64 {
 	return 0
 }
 
-func parseCacheHot(source map[string]interface{}) bool {
-	untyped := source[keyCache.String()]
-	m, ok := untyped.(map[string]interface{})
-	if !ok {
-		return false
+func limitUnlimitedContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if _, ok := ctx.Deadline(); ok {
+		return context.WithCancel(ctx)
 	}
 
-	hotUntyped, ok := m[keyCacheHot.String()]
-	if !ok {
-		return false
-	}
-
-	if v, ok := hotUntyped.(bool); ok {
-		return v
-	}
-
-	return false
+	return context.WithTimeout(ctx, 15*time.Second)
 }

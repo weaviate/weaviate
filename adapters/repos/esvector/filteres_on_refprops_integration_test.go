@@ -17,23 +17,187 @@ package esvector
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
+	"github.com/elastic/go-elasticsearch/v5"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// this test suite actually runs as part of the
-// cache_multiple_reftypes_integration_test.go test suite
+func TestNoCache(t *testing.T) {
+	client, err := elasticsearch.NewClient(elasticsearch.Config{
+		Addresses: []string{"http://localhost:9201"},
+	})
+	require.Nil(t, err)
+	schemaGetter := &fakeSchemaGetter{schema: parkingGaragesSchema()}
+	logger := logrus.New()
+	repo := NewRepo(client, logger, schemaGetter, 2, 100, 1, "0-1")
+	waitForEsToBeReady(t, repo)
+	requestCounter := &testCounter{}
+	repo.requestCounter = requestCounter
+	migrator := NewMigrator(repo)
 
-func testFilteringOnRefProps(repo *Repo) func(t *testing.T) {
-	return func(t *testing.T) {
+	t.Run("adding all classes to the schema", func(t *testing.T) {
+		for _, class := range parkingGaragesSchema().Things.Classes {
+			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
+				err := migrator.AddClass(context.Background(), kind.Thing, class)
+				require.Nil(t, err)
+			})
+		}
+	})
+
+	t.Run("importing with various combinations of props", func(t *testing.T) {
+		objects := []models.Thing{
+			models.Thing{
+				Class: "MultiRefParkingGarage",
+				Schema: map[string]interface{}{
+					"name": "Luxury Parking Garage",
+					"location": &models.GeoCoordinates{
+						Latitude:  48.864716,
+						Longitude: 2.349014,
+					},
+				},
+				ID:               "a7e10b55-1ac4-464f-80df-82508eea1951",
+				CreationTimeUnix: 1566469890,
+			},
+			models.Thing{
+				Class: "MultiRefParkingGarage",
+				Schema: map[string]interface{}{
+					"name": "Crappy Parking Garage",
+					"location": &models.GeoCoordinates{
+						Latitude:  42.331429,
+						Longitude: -83.045753,
+					},
+				},
+				ID:               "ba2232cf-bb0e-413d-b986-6aa996d34d2e",
+				CreationTimeUnix: 1566469892,
+			},
+			models.Thing{
+				Class: "MultiRefParkingLot",
+				Schema: map[string]interface{}{
+					"name": "Fancy Parking Lot",
+				},
+				ID:               "1023967b-9512-475b-8ef9-673a110b695d",
+				CreationTimeUnix: 1566469894,
+			},
+			models.Thing{
+				Class: "MultiRefParkingLot",
+				Schema: map[string]interface{}{
+					"name": "The worst parking lot youve ever seen",
+				},
+				ID:               "901859d8-69bf-444c-bf43-498963d798d2",
+				CreationTimeUnix: 1566469897,
+			},
+			models.Thing{
+				Class: "MultiRefCar",
+				Schema: map[string]interface{}{
+					"name": "Car which is parked no where",
+				},
+				ID:               "329c306b-c912-4ec7-9b1d-55e5e0ca8dea",
+				CreationTimeUnix: 1566469899,
+			},
+			models.Thing{
+				Class: "MultiRefCar",
+				Schema: map[string]interface{}{
+					"name": "Car which is parked in a garage",
+					"parkedAt": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: "weaviate://localhost/things/a7e10b55-1ac4-464f-80df-82508eea1951",
+						},
+					},
+				},
+				ID:               "fe3ca25d-8734-4ede-9a81-bc1ed8c3ea43",
+				CreationTimeUnix: 1566469902,
+			},
+			models.Thing{
+				Class: "MultiRefCar",
+				Schema: map[string]interface{}{
+					"name": "Car which is parked in a lot",
+					"parkedAt": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: "weaviate://localhost/things/1023967b-9512-475b-8ef9-673a110b695d",
+						},
+					},
+				},
+				ID:               "21ab5130-627a-4268-baef-1a516bd6cad4",
+				CreationTimeUnix: 1566469906,
+			},
+			models.Thing{
+				Class: "MultiRefCar",
+				Schema: map[string]interface{}{
+					"name": "Car which is parked in two places at the same time (magic!)",
+					"parkedAt": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: "weaviate://localhost/things/a7e10b55-1ac4-464f-80df-82508eea1951",
+						},
+						&models.SingleRef{
+							Beacon: "weaviate://localhost/things/1023967b-9512-475b-8ef9-673a110b695d",
+						},
+					},
+				},
+				ID:               "533673a7-2a5c-4e1c-b35d-a3809deabace",
+				CreationTimeUnix: 1566469909,
+			},
+			models.Thing{
+				Class: "MultiRefDriver",
+				Schema: map[string]interface{}{
+					"name": "Johny Drivemuch",
+					"drives": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: "weaviate://localhost/things/533673a7-2a5c-4e1c-b35d-a3809deabace",
+						},
+					},
+				},
+				ID:               "9653ab38-c16b-4561-80df-7a7e19300dd0",
+				CreationTimeUnix: 1566469912,
+			},
+			models.Thing{
+				Class: "MultiRefPerson",
+				Schema: map[string]interface{}{
+					"name": "Jane Doughnut",
+					"friendsWith": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: "weaviate://localhost/things/9653ab38-c16b-4561-80df-7a7e19300dd0",
+						},
+					},
+				},
+				ID:               "91ad23a3-07ba-4d4c-9836-76c57094f734",
+				CreationTimeUnix: 1566469915,
+			},
+			models.Thing{
+				Class: "MultiRefSociety",
+				Schema: map[string]interface{}{
+					"name": "Cool People",
+					"hasMembers": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: "weaviate://localhost/things/91ad23a3-07ba-4d4c-9836-76c57094f734",
+						},
+					},
+				},
+				ID:               "5cd9afa6-f3df-4f57-a204-840d6b256dba",
+				CreationTimeUnix: 1566469918,
+			},
+		}
+
+		for _, thing := range objects {
+			t.Run(fmt.Sprintf("add %s", thing.ID), func(t *testing.T) {
+				err := repo.PutThing(context.Background(), &thing, []float32{1, 2, 3, 4, 5, 6, 7})
+				require.Nil(t, err)
+			})
+		}
+	})
+
+	refreshAll(t, repo.client)
+
+	t.Run("filtering", func(t *testing.T) {
 		t.Run("one level deep", func(t *testing.T) {
 			t.Run("ref name matches", func(t *testing.T) {
 				filter := filterCarParkedAtGarage(schema.DataTypeString,
@@ -208,6 +372,109 @@ func testFilteringOnRefProps(repo *Repo) func(t *testing.T) {
 			})
 
 		})
+	})
+}
+
+func parkingGaragesSchema() schema.Schema {
+	return schema.Schema{
+		Things: &models.Schema{
+			Classes: []*models.Class{
+				&models.Class{
+					Class: "MultiRefParkingGarage",
+					Properties: []*models.Property{
+						&models.Property{
+							Name:     "name",
+							DataType: []string{string(schema.DataTypeString)},
+						},
+						&models.Property{
+							Name:     "location",
+							DataType: []string{string(schema.DataTypeGeoCoordinates)},
+						},
+					},
+				},
+				&models.Class{
+					Class: "MultiRefParkingLot",
+					Properties: []*models.Property{
+						&models.Property{
+							Name:     "name",
+							DataType: []string{string(schema.DataTypeString)},
+						},
+					},
+				},
+				&models.Class{
+					Class: "MultiRefCar",
+					Properties: []*models.Property{
+						&models.Property{
+							Name:     "name",
+							DataType: []string{string(schema.DataTypeString)},
+						},
+						&models.Property{
+							Name:     "parkedAt",
+							DataType: []string{"MultiRefParkingGarage", "MultiRefParkingLot"},
+						},
+					},
+				},
+				&models.Class{
+					Class: "MultiRefDriver",
+					Properties: []*models.Property{
+						&models.Property{
+							Name:     "name",
+							DataType: []string{string(schema.DataTypeString)},
+						},
+						&models.Property{
+							Name:     "drives",
+							DataType: []string{"MultiRefCar"},
+						},
+					},
+				},
+				&models.Class{
+					Class: "MultiRefPerson",
+					Properties: []*models.Property{
+						&models.Property{
+							Name:     "name",
+							DataType: []string{string(schema.DataTypeString)},
+						},
+						&models.Property{
+							Name:     "friendsWith",
+							DataType: []string{"MultiRefDriver"},
+						},
+					},
+				},
+				&models.Class{
+					Class: "MultiRefSociety",
+					Properties: []*models.Property{
+						&models.Property{
+							Name:     "name",
+							DataType: []string{string(schema.DataTypeString)},
+						},
+						&models.Property{
+							Name:     "hasMembers",
+							DataType: []string{"MultiRefPerson"},
+						},
+					},
+				},
+
+				// for classifications test
+				&models.Class{
+					Class: "ExactCategory",
+					Properties: []*models.Property{
+						&models.Property{
+							Name:     "name",
+							DataType: []string{string(schema.DataTypeString)},
+						},
+					},
+				},
+				&models.Class{
+					Class: "MainCategory",
+					Properties: []*models.Property{
+						&models.Property{
+							Name:     "name",
+							DataType: []string{string(schema.DataTypeString)},
+						},
+					},
+				},
+			},
+		},
 	}
 }
 

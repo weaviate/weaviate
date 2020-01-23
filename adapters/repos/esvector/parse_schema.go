@@ -14,25 +14,22 @@
 package esvector
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 // parseSchema lightly parses the schema, while most fields stay untyped, those
 // with special meaning, such as GeoCoordinates are marshalled into their
-// required types
+// required types. It also retrieves refs from the provided cacher
 func (r *Repo) parseSchema(input map[string]interface{}, properties traverser.SelectProperties,
-	meta bool, cache cache,
-	currentDepth int) (map[string]interface{}, error) {
+	meta bool, requestCacher *cacher) (map[string]interface{}, error) {
+
 	output := map[string]interface{}{}
 
 	for key, value := range input {
@@ -83,7 +80,7 @@ func (r *Repo) parseSchema(input map[string]interface{}, properties traverser.Se
 				continue
 			}
 
-			parsed, err := r.parseRefs(typed, key, cache, currentDepth, *selectProp)
+			parsed, err := r.parseRefs(typed, key, *selectProp, requestCacher)
 			if err != nil {
 				return output, fmt.Errorf("prop '%s': %v", key, err)
 			}
@@ -167,40 +164,25 @@ func parseGeoProp(lat interface{}, lon interface{}) (*models.GeoCoordinates, err
 	return &models.GeoCoordinates{Latitude: float32(latFloat), Longitude: float32(lonFloat)}, nil
 }
 
-// parseRef is only called on the outer layer
-func (r *Repo) parseRefs(input []interface{}, prop string, cache cache, depth int,
-	selectProp traverser.SelectProperty) ([]interface{}, error) {
-
-	if cache.hot && len(input) <= r.superNodeThreshold {
-		// start with depth=1, parseRefs was called on the outermost class
-		// (depth=0), so the first ref is depth=1
-		refs, err := r.parseCacheSchemaToRefs(cache.schema, prop, 1, selectProp)
+func (r *Repo) parseRefs(input []interface{}, prop string, selectProp traverser.SelectProperty, requestCacher *cacher) ([]interface{}, error) {
+	var refs []interface{}
+	for _, selectPropRef := range selectProp.Refs {
+		innerProperties := selectPropRef.RefProperties
+		perClass, err := r.resolveRefs(input, selectPropRef.ClassName, innerProperties, requestCacher)
 		if err != nil {
-			return nil, fmt.Errorf("parse cache: %v", err)
+			return nil, fmt.Errorf("resolve ref: %v", err)
 		}
 
-		return refs, nil
-	} else {
-		var refs []interface{}
-		for _, selectPropRef := range selectProp.Refs {
-			innerProperties := selectPropRef.RefProperties
-			perClass, err := r.resolveRefsWithoutCache(input, selectPropRef.ClassName, innerProperties)
-			if err != nil {
-				return nil, fmt.Errorf("resolve without cache: %v", err)
-			}
-
-			refs = append(refs, perClass...)
-		}
-		return refs, nil
+		refs = append(refs, perClass...)
 	}
-
+	return refs, nil
 }
 
-func (r *Repo) resolveRefsWithoutCache(input []interface{},
-	desiredClass string, innerProperties traverser.SelectProperties) ([]interface{}, error) {
+func (r *Repo) resolveRefs(input []interface{},
+	desiredClass string, innerProperties traverser.SelectProperties, requestCacher *cacher) ([]interface{}, error) {
 	var output []interface{}
 	for i, item := range input {
-		resolved, err := r.resolveRefWithoutCache(item, desiredClass, innerProperties)
+		resolved, err := r.resolveRef(item, desiredClass, innerProperties, requestCacher)
 		if err != nil {
 			return nil, fmt.Errorf("at position %d: %v", i, err)
 		}
@@ -215,8 +197,8 @@ func (r *Repo) resolveRefsWithoutCache(input []interface{},
 	return output, nil
 }
 
-func (r *Repo) resolveRefWithoutCache(item interface{}, desiredClass string,
-	innerProperties traverser.SelectProperties) (*search.LocalRef, error) {
+func (r *Repo) resolveRef(item interface{}, desiredClass string,
+	innerProperties traverser.SelectProperties, requestCacher *cacher) (*search.LocalRef, error) {
 	var out search.LocalRef
 
 	refMap, ok := item.(map[string]interface{})
@@ -234,72 +216,29 @@ func (r *Repo) resolveRefWithoutCache(item interface{}, desiredClass string,
 		return nil, err
 	}
 
-	switch ref.Kind {
-	case kind.Thing:
-		res, err := r.ThingByID(context.TODO(), ref.TargetID, innerProperties, false)
-		if err != nil {
-			return nil, err
-		}
-
-		if res.ClassName != desiredClass {
-			return nil, nil
-		}
-
-		out.Class = res.ClassName
-		out.Fields = res.Schema.(map[string]interface{})
-		return &out, nil
-	case kind.Action:
-		res, err := r.ActionByID(context.TODO(), ref.TargetID, innerProperties, false)
-		if err != nil {
-			return nil, err
-		}
-
-		if res.ClassName != desiredClass {
-			return nil, nil
-		}
-
-		out.Class = res.ClassName
-		out.Fields = res.Schema.(map[string]interface{})
-		return &out, nil
-	default:
-		return nil, fmt.Errorf("impossible kind: %v", ref.Kind)
+	si := storageIdentifier{
+		id:        ref.TargetID.String(),
+		className: desiredClass,
+		kind:      ref.Kind,
 	}
-}
-
-type cache struct {
-	hot    bool
-	schema map[string]interface{}
-}
-
-func (r *Repo) extractCache(in map[string]interface{}) cache {
-	cacheField, ok := in[keyCache.String()]
+	res, ok := requestCacher.get(si)
 	if !ok {
-		return cache{}
+		// silently ignore, could have been deleted in the meantime, or we're
+		// asking for a non-matching selectProperty, for eaxmple if we ask for
+		// Article { published { ... on { Magazine { name } ... on { Journal { name } }
+		// we don't know at resolve time if this ID will point to a Magazine or a
+		// Journal, so we will get a few empty responses when trying both for any
+		// given ID.
+		//
+		// In turn this means we need to validate through automated and explorative
+		// tests, that we never skip results that should be contained, as we
+		// wouldn't throw an error, so the user would never notice
+		return nil, nil
 	}
 
-	cacheMap, ok := cacheField.(map[string]interface{})
-	if !ok {
-		return cache{}
-	}
-
-	hot, ok := cacheMap[keyCacheHot.String()]
-	if !ok {
-		return cache{}
-	}
-
-	schema := map[string]interface{}{}
-	for key, value := range cacheMap {
-		if key == keyCacheHot.String() {
-			continue
-		}
-
-		schema[key] = value
-	}
-
-	return cache{
-		hot:    hot.(bool),
-		schema: schema,
-	}
+	out.Class = res.ClassName
+	out.Fields = res.Schema.(map[string]interface{})
+	return &out, nil
 }
 
 func (r *Repo) extractMeta(in map[string]interface{}) *models.ObjectMeta {
@@ -356,130 +295,4 @@ func uppercaseFirstLetter(in string) string {
 	rest := string(in[1:])
 
 	return strings.ToUpper(first) + rest
-}
-
-func (r *Repo) parseCacheSchemaToRefs(in map[string]interface{}, prop string, depth int,
-	selectProp traverser.SelectProperty) ([]interface{}, error) {
-
-	// TODO: investigate why sometimes prop is nil, but sometmes slice of len 0
-	// See test schema with Plane OfAirline
-	if in[prop] == nil {
-		return nil, nil
-	}
-
-	var out []interface{}
-	refClassesMap, ok := in[prop].(map[string]interface{})
-	if !ok {
-		// not a ref
-		return nil, fmt.Errorf("prop %s: not a map: %#v", prop, in[prop])
-	}
-
-	for className, refs := range refClassesMap {
-
-		// did the user specify this prop?
-		ok, _ := (traverser.SelectProperties{selectProp}).ShouldResolve([]string{uppercaseFirstLetter(prop), className})
-		if !ok {
-			// no, then there's nothing to do here
-			continue
-		}
-
-		refsSlice, ok := refs.([]interface{})
-		if !ok {
-			return nil, fmt.Errorf("prop %s: expected refs to be slice, but got %#v", prop, refs)
-		}
-
-		for _, ref := range refsSlice {
-			refMap, ok := ref.(map[string]interface{})
-			if !ok {
-				return nil, fmt.Errorf("prop %s: expected ref item to be map, but got %#v", prop, refs)
-			}
-
-			selectClass := selectProp.FindSelectClass(schema.ClassName(className))
-			//selectClass can never be nil, because we already verified that this
-			//combination is present, otherwise we would have skiped the loop
-			//iteration
-
-			parsed, err := r.parseInnerRefFromCache(refMap, depth+1, *selectClass)
-			if err != nil {
-				return nil, err
-			}
-
-			out = append(out, search.LocalRef{
-				Class:  className,
-				Fields: parsed,
-			})
-		}
-	}
-
-	return out, nil
-}
-
-func (r *Repo) parseInnerRefFromCache(in map[string]interface{}, depth int,
-	selectClass traverser.SelectClass) (map[string]interface{}, error) {
-	out := map[string]interface{}{}
-
-	for prop, value := range in {
-
-		if m, ok := value.(map[string]interface{}); ok {
-			mp, err := parseMapProp(m)
-			if err == nil {
-				// this was probably a geo prop
-				out[prop] = mp
-				continue
-			}
-			innerSelectProp := selectClass.RefProperties.FindProperty(uppercaseFirstLetter(prop))
-			if innerSelectProp == nil {
-				// the user is not interested in this prop
-				continue
-			}
-
-			// we have a map that could not be parsed into a known map prop, such as
-			// a geo prop, therefore it must be the structure of an already cached
-			// ref
-
-			parsed, err := r.parseCacheSchemaToRefs(in, prop, depth, *innerSelectProp)
-			if err != nil {
-				return nil, err
-			}
-
-			if len(parsed) > 0 {
-				out[uppercaseFirstLetter(prop)] = parsed
-			}
-			continue
-		}
-
-		if list, ok := value.([]interface{}); ok {
-			// a list is an indication of unresolved refs which we need to resolve at
-			// runtime if they user is interested in them
-			innerSelectProp := selectClass.RefProperties.FindProperty(uppercaseFirstLetter(prop))
-			if innerSelectProp == nil {
-				// the user is not interested in this prop
-				continue
-			}
-
-			if len(innerSelectProp.Refs) == 0 {
-				continue
-			}
-
-			var resolved []interface{}
-			for _, selectPropRef := range innerSelectProp.Refs {
-				innerProperties := selectPropRef.RefProperties
-				perClass, err := r.resolveRefsWithoutCache(list, selectPropRef.ClassName, innerProperties)
-				if err != nil {
-					return nil, fmt.Errorf("resolve without cache, because cache boundary is crossed: %v", err)
-				}
-
-				resolved = append(resolved, perClass...)
-			}
-
-			if len(resolved) > 0 {
-				out[uppercaseFirstLetter(prop)] = resolved
-			}
-			continue
-		}
-
-		out[prop] = value
-	}
-
-	return out, nil
 }

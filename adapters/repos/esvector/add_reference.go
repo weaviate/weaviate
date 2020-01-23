@@ -52,9 +52,6 @@ func (r *Repo) upsertReferenceBucket(refProp string, ref *models.SingleRef) map[
 	return map[string]interface{}{
 		"upsert": map[string]interface{}{
 			refProp: []interface{}{},
-			keyCache.String(): map[string]interface{}{
-				keyCacheHot.String(): false,
-			},
 		},
 		"script": map[string]interface{}{
 			"source": fmt.Sprintf(`
@@ -63,12 +60,7 @@ func (r *Repo) upsertReferenceBucket(refProp string, ref *models.SingleRef) map[
 				} else { 
 					ctx._source.%s = [params.refs]
 				} 
-				if (ctx._source.containsKey("%s")) { 
-					ctx._source.%s.%s = false
-				} else {
-					ctx._source.%s = [ "%s": false ]
-				}
-			`, refProp, refProp, refProp, keyCache, keyCache, keyCacheHot, keyCache, keyCacheHot),
+			`, refProp, refProp, refProp),
 			"lang": "painless",
 			"params": map[string]interface{}{
 				"refs": ref,
@@ -119,8 +111,6 @@ func (r *Repo) AddReference(ctx context.Context, k kind.Kind, source strfmt.UUID
 
 		return fmt.Errorf("update refererence request: %v", err)
 	}
-
-	go r.invalidateCache(className, source.String())
 
 	return nil
 }
