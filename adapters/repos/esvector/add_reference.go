@@ -120,7 +120,5 @@ func (r *Repo) AddReference(ctx context.Context, k kind.Kind, source strfmt.UUID
 		return fmt.Errorf("update refererence request: %v", err)
 	}
 
-	go r.invalidateCache(className, source.String())
-
 	return nil
 }

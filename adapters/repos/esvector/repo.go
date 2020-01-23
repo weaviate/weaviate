@@ -69,7 +69,6 @@ type Repo struct {
 	denormalizationDepthLimit int
 	superNodeThreshold        int
 	requestCounter            counter
-	cacheIndexer              *cacheIndexer
 	schemaRefFinder           schemaRefFinder
 	numberOfShards            int
 	autoExpandReplicas        string
@@ -103,7 +102,6 @@ func NewRepo(client *elasticsearch.Client, logger logrus.FieldLogger,
 		denormalizationDepthLimit: denormalizationLimit,
 		superNodeThreshold:        superNodeThreshold,
 		requestCounter:            &noopCounter{},
-		cacheIndexer:              nil,
 		schemaRefFinder:           &noopSchemaRefFinder{},
 		numberOfShards:            numberOfShards,
 		autoExpandReplicas:        autoExpandReplicas,
@@ -224,8 +222,6 @@ func (r *Repo) putObject(ctx context.Context,
 
 		return fmt.Errorf("index request: %v", err)
 	}
-
-	go r.invalidateCache(className, id)
 
 	return nil
 }
