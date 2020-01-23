@@ -44,7 +44,8 @@ func (c *cacher) get(si storageIdentifier) (search.Result, bool) {
 	return sr, ok
 }
 
-func (c *cacher) buildFromRootLevel(sr searchResponse, properties traverser.SelectProperties, meta bool) error {
+func (c *cacher) build(ctx context.Context, sr searchResponse,
+	properties traverser.SelectProperties, meta bool) error {
 	if c.meta == nil {
 		// store meta prop if we haven't yet
 		c.meta = &meta
@@ -56,7 +57,7 @@ func (c *cacher) buildFromRootLevel(sr searchResponse, properties traverser.Sele
 	}
 
 	c.dedupJobList()
-	err = c.fetchJobs()
+	err = c.fetchJobs(ctx)
 	if err != nil {
 		return fmt.Errorf("build request cache: %v", err)
 	}
@@ -237,7 +238,7 @@ type mgetDoc struct {
 	ID    string `json:"_id"`
 }
 
-func (c *cacher) fetchJobs() error {
+func (c *cacher) fetchJobs(ctx context.Context) error {
 	before := time.Now()
 	jobs := c.incompleteJobs()
 	if len(jobs) == 0 {
@@ -271,8 +272,7 @@ func (c *cacher) fetchJobs() error {
 		Body: &buf,
 	}
 
-	ctx := context.Background()
-	res, err := req.Do(ctx, c.repo.client) // TODO: don't spawn new context
+	res, err := req.Do(ctx, c.repo.client)
 	if err != nil {
 		return err
 	}
@@ -292,14 +292,14 @@ func (c *cacher) fetchJobs() error {
 			}).
 		Debug("fetch jobs complete")
 
-	return c.parseAndStore(res)
+	return c.parseAndStore(ctx, res)
 }
 
 type mgetResponse struct {
 	Docs []hit `json:"docs"`
 }
 
-func (c *cacher) parseAndStore(res *esapi.Response) error {
+func (c *cacher) parseAndStore(ctx context.Context, res *esapi.Response) error {
 	if err := errorResToErr(res, c.logger); err != nil {
 		return err
 	}
@@ -316,7 +316,7 @@ func (c *cacher) parseAndStore(res *esapi.Response) error {
 	// this is our exit condition for the recursion
 	c.markAllJobsAsDone()
 
-	err = c.buildFromRootLevel(sr, nil, *c.meta)
+	err = c.build(ctx, sr, nil, *c.meta)
 	if err != nil {
 		return fmt.Errorf("build nested cache: %v", err)
 	}
