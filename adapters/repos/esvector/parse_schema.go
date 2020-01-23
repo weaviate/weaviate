@@ -30,6 +30,7 @@ import (
 func (r *Repo) parseSchema(input map[string]interface{}, properties traverser.SelectProperties,
 	meta bool, cache cache,
 	currentDepth int, requestCacher *cacher) (map[string]interface{}, error) {
+
 	output := map[string]interface{}{}
 
 	for key, value := range input {
@@ -181,7 +182,7 @@ func (r *Repo) parseRefs(input []interface{}, prop string, cache cache, depth in
 	var refs []interface{}
 	for _, selectPropRef := range selectProp.Refs {
 		innerProperties := selectPropRef.RefProperties
-		perClass, err := r.resolveRefsWithoutCache(input, selectPropRef.ClassName, innerProperties, requestCacher)
+		perClass, err := r.resolveRefs(input, selectPropRef.ClassName, innerProperties, requestCacher)
 		if err != nil {
 			return nil, fmt.Errorf("resolve without cache: %v", err)
 		}
@@ -193,11 +194,11 @@ func (r *Repo) parseRefs(input []interface{}, prop string, cache cache, depth in
 
 }
 
-func (r *Repo) resolveRefsWithoutCache(input []interface{},
+func (r *Repo) resolveRefs(input []interface{},
 	desiredClass string, innerProperties traverser.SelectProperties, requestCacher *cacher) ([]interface{}, error) {
 	var output []interface{}
 	for i, item := range input {
-		resolved, err := r.resolveRefWithoutCache(item, desiredClass, innerProperties, requestCacher)
+		resolved, err := r.resolveRef(item, desiredClass, innerProperties, requestCacher)
 		if err != nil {
 			return nil, fmt.Errorf("at position %d: %v", i, err)
 		}
@@ -212,7 +213,7 @@ func (r *Repo) resolveRefsWithoutCache(input []interface{},
 	return output, nil
 }
 
-func (r *Repo) resolveRefWithoutCache(item interface{}, desiredClass string,
+func (r *Repo) resolveRef(item interface{}, desiredClass string,
 	innerProperties traverser.SelectProperties, requestCacher *cacher) (*search.LocalRef, error) {
 	var out search.LocalRef
 
@@ -485,7 +486,7 @@ func uppercaseFirstLetter(in string) string {
 // 			var resolved []interface{}
 // 			for _, selectPropRef := range innerSelectProp.Refs {
 // 				innerProperties := selectPropRef.RefProperties
-// 				perClass, err := r.resolveRefsWithoutCache(list, selectPropRef.ClassName, innerProperties)
+// 				perClass, err := r.resolveRefs(list, selectPropRef.ClassName, innerProperties)
 // 				if err != nil {
 // 					return nil, fmt.Errorf("resolve without cache, because cache boundary is crossed: %v", err)
 // 				}
