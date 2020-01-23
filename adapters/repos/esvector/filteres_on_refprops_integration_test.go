@@ -25,6 +25,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -474,4 +476,66 @@ func parkingGaragesSchema() schema.Schema {
 			},
 		},
 	}
+}
+
+func filterCarParkedAtGarage(dataType schema.DataType,
+	prop string, operator filters.Operator, value interface{}) *filters.LocalFilter {
+	return &filters.LocalFilter{
+		Root: &filters.Clause{
+			Operator: operator,
+			On: &filters.Path{
+				Class:    schema.ClassName("MultiRefCar"),
+				Property: schema.PropertyName("parkedAt"),
+				Child: &filters.Path{
+					Class:    schema.ClassName("MultiRefParkingGarage"),
+					Property: schema.PropertyName(prop),
+				},
+			},
+			Value: &filters.Value{
+				Value: value,
+				Type:  dataType,
+			},
+		},
+	}
+}
+
+func filterDrivesCarParkedAtGarage(dataType schema.DataType,
+	prop string, operator filters.Operator, value interface{}) *filters.LocalFilter {
+	return &filters.LocalFilter{
+		Root: &filters.Clause{
+			Operator: operator,
+			On: &filters.Path{
+				Class:    schema.ClassName("MultiRefDriver"),
+				Property: schema.PropertyName("drives"),
+				Child:    filterCarParkedAtGarage(dataType, prop, operator, value).Root.On,
+			},
+			Value: &filters.Value{
+				Value: value,
+				Type:  dataType,
+			},
+		},
+	}
+}
+
+func getParamsWithFilter(className string, filter *filters.LocalFilter) traverser.GetParams {
+	return traverser.GetParams{
+		Filters: filter,
+		// we don't care about actually resolving the ref as long as filtering
+		// on it worked
+		Properties: nil,
+		Pagination: &filters.Pagination{
+			Limit: 10,
+		},
+		ClassName: className,
+		Kind:      kind.Thing,
+	}
+}
+
+func extractNames(in []search.Result) []string {
+	out := make([]string, len(in), len(in))
+	for i, res := range in {
+		out[i] = res.Schema.(map[string]interface{})["name"].(string)
+	}
+
+	return out
 }

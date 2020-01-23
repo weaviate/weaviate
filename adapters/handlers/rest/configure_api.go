@@ -57,7 +57,6 @@ type vectorRepo interface {
 	traverser.VectorSearcher
 	classification.VectorRepo
 	SetSchemaGetter(schemaUC.SchemaGetter)
-	InitCacheIndexing(int, time.Duration, time.Duration)
 	WaitForStartup(time.Duration) error
 }
 
