@@ -58,7 +58,7 @@ require (
 	golang.org/x/tools v0.0.0-20200119215504-eb0d8dd85bcc // indirect
 	google.golang.org/grpc v1.24.0
 	gopkg.in/square/go-jose.v2 v2.3.1 // indirect
-	gopkg.in/yaml.v2 v2.2.7
+	gopkg.in/yaml.v2 v2.2.8
 	sigs.k8s.io/yaml v1.1.0 // indirect
 )
 

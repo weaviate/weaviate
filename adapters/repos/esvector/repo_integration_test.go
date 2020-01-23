@@ -372,3 +372,7 @@ func waitForEsToBeReady(t *testing.T, repo *Repo) {
 		t.Errorf("didn't start up: %v", err)
 	}
 }
+
+func ctx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), 10*time.Second)
+}
