@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/elastic/go-elasticsearch/v5/esapi"
-	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -37,6 +36,7 @@ type cacher struct {
 	logger logrus.FieldLogger
 	repo   *Repo
 	store  map[storageIdentifier]search.Result
+	meta   *bool // meta is immutable for the lifetime of the request cacher, so we can safely store it
 }
 
 func (c *cacher) get(si storageIdentifier) (search.Result, bool) {
@@ -44,8 +44,11 @@ func (c *cacher) get(si storageIdentifier) (search.Result, bool) {
 	return sr, ok
 }
 
-// TODO: don't ignore meta
 func (c *cacher) buildFromRootLevel(sr searchResponse, properties traverser.SelectProperties, meta bool) error {
+	if c.meta != nil {
+		// store meta prop if we haven't yet
+		c.meta = &meta
+	}
 
 	err := c.findJobsFromResponse(sr, properties)
 	if err != nil {
@@ -313,8 +316,7 @@ func (c *cacher) parseAndStore(res *esapi.Response) error {
 	// this is our exit condition for the recursion
 	c.markAllJobsAsDone()
 
-	// TODO: don't ignore meta
-	err = c.buildFromRootLevel(sr, nil, false)
+	err = c.buildFromRootLevel(sr, nil, *c.meta)
 	if err != nil {
 		return fmt.Errorf("build nested cache: %v", err)
 	}
@@ -376,33 +378,4 @@ func (c *cacher) markAllJobsAsDone() {
 	for i := range c.jobs {
 		c.jobs[i].complete = true
 	}
-}
-
-func (c *cacher) recursiveBackupStrategy(si storageIdentifier, props traverser.SelectProperties) *search.Result {
-	c.logger.WithField("action", "request_cacher_recursive_backup_stragey_required").
-		WithField("id", si.id).
-		WithField("kind", si.kind).
-		Debug("need recursive backup due to caching conflict")
-
-	ctx := context.Background() // TODO: don't spawn new context
-	var res *search.Result
-	var err error
-
-	switch si.kind {
-	case kind.Thing:
-		res, err = c.repo.ThingByID(ctx, strfmt.UUID(si.id), props, false)
-	case kind.Action:
-		res, err = c.repo.ActionByID(ctx, strfmt.UUID(si.id), props, false)
-	default:
-		panic("impossible kind")
-	}
-
-	if err != nil {
-		c.logger.WithField("action", "request_cacher_recursive_backup_strategy_error").
-			WithError(err).Error("recursive backup failed")
-
-		return nil
-	}
-
-	return res
 }
