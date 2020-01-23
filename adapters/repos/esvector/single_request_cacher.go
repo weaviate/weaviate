@@ -44,6 +44,25 @@ func (c *cacher) get(si storageIdentifier) (search.Result, bool) {
 	return sr, ok
 }
 
+// build builds the lookup cache recursive and tries to be smart about it. This
+// means that it aims to send only a single request (mget) to elasticsearch per
+// level. the recursion exit condition is jobs marked as done. At some point
+// the cacher will realise that for every nested prop there is already a
+// complete job, so it it stop the recursion.
+//
+// build is called on a "level" i.e. the raw schema before parse. After working
+// on the job list for the first time if the resolved items still contain
+// references and the user set the SelectProperty to indicate they want to
+// resolve them, build is called again on all the results (plural!) from the
+// previous run. We thus end up with one request to the backend per level
+// regardless of the amount of lookups per level.
+//
+// This keeps request times to a minimum even on deeply nested requests.
+//
+// parseSchema which will be called on the root element subsequently does not
+// do any more lookups against the backend on its own, it only asks the cacher.
+// Thus it is important that a cacher.build() runs before the first parseSchema
+// is started.
 func (c *cacher) build(ctx context.Context, sr searchResponse,
 	properties traverser.SelectProperties, meta bool) error {
 	if c.meta == nil {
@@ -65,58 +84,89 @@ func (c *cacher) build(ctx context.Context, sr searchResponse,
 	return nil
 }
 
+// a response is a raw (unparsed) search response from elasticsearch.
+// findJobsFromResponse will traverse through it and  check if there are
+// references. In a recursive lookup this can both be done on the rootlevel to
+// start the first lookup as well as recursively on the results of a lookup to
+// further look if a next-level call is required.
 func (c *cacher) findJobsFromResponse(sr searchResponse, properties traverser.SelectProperties) error {
 	for _, hit := range sr.Hits.Hits {
-
 		var err error
+
+		// we can only set SelectProperties on the rootlevel since this is the only
+		// place where we have a singel root class. In nested lookups we need to
+		// first identify the correct path in the SelectProperties graph which
+		// correspends with the path we're currently traversing through. Thus we
+		// always cache the original SelectProps with the job. This call goes
+		// thorough the job history and looks up the correct SelectProperties
+		// subpath to use in this place.
+		// tl;dr: On root level (root=base) take props from the outside, on a
+		// nested level lookup the SelectProps matching the current base element
 		properties, err = c.replaceInitialPropertiesWithSpecific(hit, properties)
 		if err != nil {
 			return err
 		}
 
 		for key, value := range hit.Source {
-			if isInternal(key) {
-				continue
-			}
-
-			asSlice, ok := value.([]interface{})
-			if !ok {
-				// not a slice, can't be ref, not interested
-				continue
-			}
-
 			refKey := uppercaseFirstLetter(key)
 			selectProp := properties.FindProperty(refKey)
-			if selectProp == nil {
-				// user is not interested in this prop
+
+			skip, propSlice := c.skipProperty(key, value, selectProp)
+			if skip {
 				continue
 			}
 
 			for _, selectPropRef := range selectProp.Refs {
 				innerProperties := selectPropRef.RefProperties
 
-				for _, item := range asSlice {
-					refMap, ok := item.(map[string]interface{})
-					if !ok {
-						return fmt.Errorf("expected ref item to be a map, but got %T", item)
-					}
-
-					beacon, ok := refMap["beacon"]
-					if !ok {
-						return fmt.Errorf("expected ref object to have field beacon, but got %#v", refMap)
-					}
-
-					ref, err := crossref.Parse(beacon.(string))
+				for _, item := range propSlice {
+					ref, err := c.extractAndParseBeacon(item)
 					if err != nil {
 						return err
 					}
-					c.addJob(storageIdentifier{ref.TargetID.String(), ref.Kind, selectPropRef.ClassName}, innerProperties)
+					c.addJob(storageIdentifier{
+						id:        ref.TargetID.String(),
+						kind:      ref.Kind,
+						className: selectPropRef.ClassName}, innerProperties)
 				}
 			}
 		}
 	}
 
 	return nil
+}
+
+func (c *cacher) skipProperty(key string, value interface{}, selectProp *traverser.SelectProperty) (bool, []interface{}) {
+	if isInternal(key) {
+		return true, nil
+	}
+
+	asSlice, ok := value.([]interface{})
+	if !ok {
+		// not a slice, can't be ref, not interested
+		return true, nil
+	}
+
+	if selectProp == nil {
+		// user is not interested in this prop
+		return true, nil
+	}
+
+	return false, asSlice
+}
+
+func (c *cacher) extractAndParseBeacon(item interface{}) (*crossref.Ref, error) {
+	refMap, ok := item.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("expected ref item to be a map, but got %T", item)
+	}
+
+	beacon, ok := refMap["beacon"]
+	if !ok {
+		return nil, fmt.Errorf("expected ref object to have field beacon, but got %#v", refMap)
+	}
+
+	return crossref.Parse(beacon.(string))
 }
 
 func (c *cacher) replaceInitialPropertiesWithSpecific(hit hit,
@@ -148,7 +198,6 @@ func (c *cacher) replaceInitialPropertiesWithSpecific(hit hit,
 }
 
 func (c *cacher) addJob(si storageIdentifier, props traverser.SelectProperties) {
-
 	c.jobs = append(c.jobs, cacherJob{si, props, false})
 }
 
@@ -163,8 +212,8 @@ func (c *cacher) findJob(si storageIdentifier) (cacherJob, bool) {
 	return cacherJob{}, false
 }
 
+// finds incompleteJobs without altering the original job list
 func (c *cacher) incompleteJobs() []cacherJob {
-
 	out := make([]cacherJob, len(c.jobs))
 	n := 0
 	for _, job := range c.jobs {
@@ -177,8 +226,8 @@ func (c *cacher) incompleteJobs() []cacherJob {
 	return out[:n]
 }
 
+// finds complete jobs  without altering the original job list
 func (c *cacher) completeJobs() []cacherJob {
-
 	out := make([]cacherJob, len(c.jobs))
 	n := 0
 	for _, job := range c.jobs {
@@ -191,6 +240,14 @@ func (c *cacher) completeJobs() []cacherJob {
 	return out[:n]
 }
 
+// alters the list, removes duplicates. Ignores complete jobs, as a job could
+// already marked as complete, but not yet stored since the completion is the
+// exit condition for the recursion. However, the storage can only happen once
+// the schema was parsed. If the schema contains more refs to an item that is
+// already in the joblist we are in a catch-22. To resolve that, we allow
+// duplicates with already complete jobs since retrieving the required item
+// again (with different SelectProperties) comes at minimal cost and is the
+// only way out of that deadlock situation.
 func (c *cacher) dedupJobList() {
 	incompleteJobs := c.incompleteJobs()
 	before := len(incompleteJobs)
@@ -242,26 +299,12 @@ func (c *cacher) fetchJobs(ctx context.Context) error {
 	before := time.Now()
 	jobs := c.incompleteJobs()
 	if len(jobs) == 0 {
-		c.logger.
-			WithFields(
-				logrus.Fields{
-					"action": "request_cacher_fetch_jobs_skip",
-				}).
-			Debug("skip fetch jobs, have no incomplete jobs")
+		c.logSkipFetchJobs()
 		return nil
 	}
 
-	docs := make([]mgetDoc, len(jobs))
-	for i, job := range jobs {
-		docs[i] = mgetDoc{
-			Index: classIndexFromClassName(job.si.kind, job.si.className),
-			ID:    job.si.id,
-		}
-
-	}
-	body := mgetBody{docs}
-
 	c.repo.requestCounter.Inc()
+	body := jobListToMgetBody(jobs)
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(body); err != nil {
@@ -281,18 +324,30 @@ func (c *cacher) fetchJobs(ctx context.Context) error {
 		return err
 	}
 
-	took := time.Since(before)
+	c.logCompleteFetchJobs(before, len(jobs))
+	return c.parseAndStore(ctx, res)
+}
+
+func (c *cacher) logSkipFetchJobs() {
+	c.logger.
+		WithFields(
+			logrus.Fields{
+				"action": "request_cacher_fetch_jobs_skip",
+			}).
+		Debug("skip fetch jobs, have no incomplete jobs")
+}
+
+func (c *cacher) logCompleteFetchJobs(start time.Time, amount int) {
+	took := time.Since(start)
 
 	c.logger.
 		WithFields(
 			logrus.Fields{
 				"action": "request_cacher_fetch_jobs_complete",
 				"took":   took,
-				"jobs":   len(jobs),
+				"jobs":   amount,
 			}).
 		Debug("fetch jobs complete")
-
-	return c.parseAndStore(ctx, res)
 }
 
 type mgetResponse struct {
@@ -361,7 +416,6 @@ func removeEmptyResults(in []hit) []hit {
 }
 
 func (c *cacher) storeResults(res search.Results) error {
-
 	for _, item := range res {
 		c.store[storageIdentifier{
 			id:        item.ID.String(),
@@ -374,8 +428,20 @@ func (c *cacher) storeResults(res search.Results) error {
 }
 
 func (c *cacher) markAllJobsAsDone() {
-
 	for i := range c.jobs {
 		c.jobs[i].complete = true
 	}
+}
+
+func jobListToMgetBody(jobs []cacherJob) mgetBody {
+	docs := make([]mgetDoc, len(jobs))
+	for i, job := range jobs {
+		docs[i] = mgetDoc{
+			Index: classIndexFromClassName(job.si.kind, job.si.className),
+			ID:    job.si.id,
+		}
+
+	}
+
+	return mgetBody{docs}
 }
