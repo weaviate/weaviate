@@ -201,15 +201,15 @@ func (c *cacher) dedupJobList() {
 		}).
 		Debug("starting job list deduplication")
 	deduped := make([]cacherJob, len(incompleteJobs))
-	found := map[string]struct{}{}
+	found := map[storageIdentifier]struct{}{}
 
 	n := 0
 	for _, job := range incompleteJobs {
-		if _, ok := found[job.si.id]; ok {
+		if _, ok := found[job.si]; ok {
 			continue
 		}
 
-		found[job.si.id] = struct{}{}
+		found[job.si] = struct{}{}
 		deduped[n] = job
 		n++
 	}
