@@ -125,51 +125,6 @@ func primitiveFilterFromClause(clause *filters.Clause) (map[string]interface{}, 
 
 }
 
-func refFilterFromClause(clause *filters.Clause) (map[string]interface{}, error) {
-
-	return nil, fmt.Errorf("legacy function called")
-
-	// // we only need to reference type nested once for the outermost nesting, es
-	// // will automatically discover further nested queries
-	// outerPath := outerPath(clause.On)
-
-	// // no matter how deep, by using the inner path as field name we can match any
-	// // nested object
-	// innerPath := innerPath(clause.On)
-
-	// innerQuery := map[string]interface{}{}
-	// if clause.Operator == filters.OperatorWithinGeoRange {
-	// 	q, err := refGeoFilterFromClause(clause)
-	// 	if err != nil {
-	// 		return nil, err
-	// 	}
-
-	// 	innerQuery = q
-	// } else {
-	// 	m, err := matcherFromOperator(clause.Operator)
-	// 	if err != nil {
-	// 		return nil, err
-	// 	}
-
-	// 	innerQuery = map[string]interface{}{
-	// 		m.queryType: map[string]interface{}{
-	// 			innerPath: map[string]interface{}{
-	// 				m.operator: clause.Value.Value,
-	// 			},
-	// 		},
-	// 	}
-	// }
-
-	// return map[string]interface{}{
-	// 	"nested": map[string]interface{}{
-	// 		"path":            outerPath,
-	// 		"ignore_unmapped": true,
-	// 		"query":           innerQuery,
-	// 	},
-	// }, nil
-
-}
-
 func refGeoFilterFromClause(clause *filters.Clause) (map[string]interface{}, error) {
 	geoRange, ok := clause.Value.Value.(filters.GeoRange)
 	if !ok {
@@ -269,12 +224,6 @@ func negateFilter(f map[string]interface{}) map[string]interface{} {
 	}
 }
 
-func outerPath(p *filters.Path) string {
-	slice := p.SliceNonTitleized()
-	slice = slice[:len(slice)-1]
-	return keyCache.String() + "." + strings.Join(slice, ".")
-}
-
 func innerPath(p *filters.Path) string {
-	return keyCache.String() + "." + strings.Join(p.SliceNonTitleized(), ".")
+	return strings.Join(p.SliceNonTitleized(), ".")
 }
