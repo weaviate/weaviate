@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/elastic/go-elasticsearch/v5"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -33,7 +32,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func testEsVectorCache(t *testing.T) {
+func TestNestedReferences(t *testing.T) {
 	client, err := elasticsearch.NewClient(elasticsearch.Config{
 		Addresses: []string{"http://localhost:9201"},
 	})
@@ -197,8 +196,6 @@ func testEsVectorCache(t *testing.T) {
 
 	refreshAll(t, client)
 
-	var before *search.Result
-	_ = before
 	t.Run("fully resolving the place before we have cache", func(t *testing.T) {
 		expectedSchema := map[string]interface{}{
 			"InCity": []interface{}{
@@ -251,10 +248,9 @@ func testEsVectorCache(t *testing.T) {
 		// yet. Quering the initial places is a single request, each nested level
 		// is another request; 1+4=5
 		assert.Equal(t, 5, requestCounter.count)
-		before = res
 	})
 
-	t.Run("partially resolving the place before we have cache", func(t *testing.T) {
+	t.Run("partially resolving the place", func(t *testing.T) {
 		expectedSchema := map[string]interface{}{
 			"InCity": []interface{}{
 				search.LocalRef{
@@ -292,77 +288,6 @@ func testEsVectorCache(t *testing.T) {
 		assert.Equal(t, 2, requestCounter.count)
 	})
 
-	t.Run("init caching state machine", func(t *testing.T) {
-		repo.InitCacheIndexing(50, 200*time.Millisecond, 200*time.Millisecond)
-	})
-
-	// wait for both es indexing as well as esvector caching to be complete
-	time.Sleep(2000 * time.Millisecond)
-
-	t.Run("all 3 (outer) things must now have a hot cache", func(t *testing.T) {
-		res, err := repo.ThingByID(context.Background(), "18c80a16-346a-477d-849d-9d92e5040ac9",
-			traverser.SelectProperties{}, false)
-		require.Nil(t, err)
-		assert.Equal(t, true, res.CacheHot)
-
-		res, err = repo.ThingByID(context.Background(), "18c80a16-346a-477d-849d-9d92e5040ac9",
-			traverser.SelectProperties{}, false)
-		require.Nil(t, err)
-		assert.Equal(t, true, res.CacheHot)
-
-		res, err = repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-			traverser.SelectProperties{}, false)
-		require.Nil(t, err)
-		assert.Equal(t, true, res.CacheHot)
-	})
-
-	t.Run("inspecting the cache for the place to make sure caching stopped at the configured boundary",
-		func(t *testing.T) {
-			requestCounter.reset()
-			res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-				traverser.SelectProperties{}, false)
-			require.Nil(t, err)
-			// we didn't specify any selectProperties, so there shouldn't be any
-			// additional requests at all, only the initial request to get the place
-			assert.Equal(t, 1, requestCounter.count)
-
-			// our desired depth is 2, this means 2 refs should be fully
-			// resolved, whereas the 3rd one is merely referenced by a beacon.
-			// This means we should see fully resolved
-			// inCity/City->inCountry/Country->, the next level
-			// (onContinent/continent) should merely be referenced by an unresolved beacon
-
-			inCity := res.CacheSchema["inCity"].(map[string]interface{})
-			city := inCity["City"].([]interface{})[0].(map[string]interface{})
-			inCountry := city["inCountry"].(map[string]interface{})
-			country := inCountry["Country"].([]interface{})[0].(map[string]interface{})
-
-			refs, ok := country["onContinent"].([]interface{})
-			// if onPlanet were resolved it would be a map. The fact that it's a
-			// slice is the first indication that it was unresolved
-			assert.True(t, ok)
-			require.Len(t, refs, 1)
-
-			firstRef, ok := refs[0].(map[string]interface{})
-			assert.True(t, ok)
-
-			beacon, ok := firstRef["beacon"]
-			assert.True(t, ok)
-			assert.Equal(t, "weaviate://localhost/things/4aad8154-e7f3-45b8-81a6-725171419e55", beacon)
-		})
-
-	t.Run("fully resolving the place after cache is hot", func(t *testing.T) {
-		requestCounter.reset()
-		res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-			fullyNestedSelectProperties(), false)
-		// we are crossing the cache boundary, so we are expecting an additional request
-		assert.Equal(t, 2, requestCounter.count)
-
-		require.Nil(t, err)
-
-		assert.Equal(t, before.Schema, res.Schema, "result without a cache and with a cache should look the same")
-	})
-
 	t.Run("resolving without any refs", func(t *testing.T) {
 		res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
 			traverser.SelectProperties{}, false)
@@ -380,28 +305,6 @@ func testEsVectorCache(t *testing.T) {
 		require.Nil(t, err)
 
 		assert.Equal(t, expectedSchema, res.Schema, "does not contain any resolved refs")
-	})
-
-	t.Run("partially resolving the place after cache is hot", func(t *testing.T) {
-		res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-			partiallyNestedSelectProperties(), false)
-		expectedSchema := map[string]interface{}{
-			"InCity": []interface{}{
-				search.LocalRef{
-					Class: "City",
-					Fields: map[string]interface{}{
-						"name": "San Francisco",
-						"uuid": "2297e094-6218-43d4-85b1-3d20af752f23",
-					},
-				},
-			},
-			"name": "Tim Apple's Fruit Bar",
-			"uuid": "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-		}
-
-		require.Nil(t, err)
-
-		assert.Equal(t, expectedSchema, res.Schema, "result without a cache and with a cache should look the same")
 	})
 
 	t.Run("adding a new place to verify idnexing is constantly happening in the background", func(t *testing.T) {
@@ -424,51 +327,6 @@ func testEsVectorCache(t *testing.T) {
 	})
 	refreshAll(t, client)
 
-	// wait for both es indexing as well as esvector caching to be complete
-	time.Sleep(2000 * time.Millisecond)
-
-	t.Run("the newly added place must have a hot cache by now", func(t *testing.T) {
-		res, err := repo.ThingByID(context.Background(), "0f02d525-902d-4dc0-8052-647cb420c1a6", traverser.SelectProperties{},
-			false)
-		require.Nil(t, err)
-		assert.Equal(t, true, res.CacheHot)
-	})
-
-	t.Run("the newly added place respects cache boundaries", func(t *testing.T) {
-		requestCounter.reset()
-		res, err := repo.ThingByID(context.Background(), "0f02d525-902d-4dc0-8052-647cb420c1a6",
-			traverser.SelectProperties{}, false)
-		require.Nil(t, err)
-		// we didn't specify any selectProperties, so there shouldn't be any
-		// additional requests at all, only the initial request to get the place
-		assert.Equal(t, 1, requestCounter.count)
-
-		// our desired depth is 2, this means 2 refs should be fully
-		// resolved, whereas the 3rd one is merely referenced by a beacon.
-		// This means we should see fully resolved
-		// inCity/City->inCountry/Country->, the next level
-		// (onContinent/continent) should merely be referenced by an unresolved beacon
-
-		inCity := res.CacheSchema["inCity"].(map[string]interface{})
-		city := inCity["City"].([]interface{})[0].(map[string]interface{})
-		inCountry := city["inCountry"].(map[string]interface{})
-		country := inCountry["Country"].([]interface{})[0].(map[string]interface{})
-
-		refs, ok := country["onContinent"].([]interface{})
-		// if onPlanet were resolved it would be a map. The fact that it's a
-		// slice is the first indication that it was unresolved
-		require.True(t, ok, fmt.Sprintf("should be a slice, got %#v", country["onContinent"]))
-		require.Len(t, refs, 1)
-
-		firstRef, ok := refs[0].(map[string]interface{})
-		assert.True(t, ok)
-
-		beacon, ok := firstRef["beacon"]
-		assert.True(t, ok)
-		assert.Equal(t, "weaviate://localhost/things/4aad8154-e7f3-45b8-81a6-725171419e55", beacon)
-	})
-
-	repo.StopCacheIndexing()
 }
 
 func fullyNestedSelectProperties() traverser.SelectProperties {
