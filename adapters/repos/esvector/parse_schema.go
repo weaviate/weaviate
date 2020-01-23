@@ -28,8 +28,7 @@ import (
 // with special meaning, such as GeoCoordinates are marshalled into their
 // required types
 func (r *Repo) parseSchema(input map[string]interface{}, properties traverser.SelectProperties,
-	meta bool, cache cache,
-	currentDepth int, requestCacher *cacher) (map[string]interface{}, error) {
+	meta bool, requestCacher *cacher) (map[string]interface{}, error) {
 
 	output := map[string]interface{}{}
 
@@ -81,7 +80,7 @@ func (r *Repo) parseSchema(input map[string]interface{}, properties traverser.Se
 				continue
 			}
 
-			parsed, err := r.parseRefs(typed, key, cache, currentDepth, *selectProp, requestCacher)
+			parsed, err := r.parseRefs(typed, key, *selectProp, requestCacher)
 			if err != nil {
 				return output, fmt.Errorf("prop '%s': %v", key, err)
 			}
@@ -165,20 +164,7 @@ func parseGeoProp(lat interface{}, lon interface{}) (*models.GeoCoordinates, err
 	return &models.GeoCoordinates{Latitude: float32(latFloat), Longitude: float32(lonFloat)}, nil
 }
 
-// parseRef is only called on the outer layer
-func (r *Repo) parseRefs(input []interface{}, prop string, cache cache, depth int,
-	selectProp traverser.SelectProperty, requestCacher *cacher) ([]interface{}, error) {
-
-	// if cache.hot && len(input) <= r.superNodeThreshold {
-	// 	// start with depth=1, parseRefs was called on the outermost class
-	// 	// (depth=0), so the first ref is depth=1
-	// 	refs, err := r.parseCacheSchemaToRefs(cache.schema, prop, 1, selectProp)
-	// 	if err != nil {
-	// 		return nil, fmt.Errorf("parse cache: %v", err)
-	// 	}
-
-	// 	return refs, nil
-	// } else {
+func (r *Repo) parseRefs(input []interface{}, prop string, selectProp traverser.SelectProperty, requestCacher *cacher) ([]interface{}, error) {
 	var refs []interface{}
 	for _, selectPropRef := range selectProp.Refs {
 		innerProperties := selectPropRef.RefProperties
@@ -190,8 +176,6 @@ func (r *Repo) parseRefs(input []interface{}, prop string, cache cache, depth in
 		refs = append(refs, perClass...)
 	}
 	return refs, nil
-	// }
-
 }
 
 func (r *Repo) resolveRefs(input []interface{},
@@ -291,37 +275,6 @@ func (r *Repo) resolveRef(item interface{}, desiredClass string,
 type cache struct {
 	hot    bool
 	schema map[string]interface{}
-}
-
-func (r *Repo) extractCache(in map[string]interface{}) cache {
-	cacheField, ok := in[keyCache.String()]
-	if !ok {
-		return cache{}
-	}
-
-	cacheMap, ok := cacheField.(map[string]interface{})
-	if !ok {
-		return cache{}
-	}
-
-	hot, ok := cacheMap[keyCacheHot.String()]
-	if !ok {
-		return cache{}
-	}
-
-	schema := map[string]interface{}{}
-	for key, value := range cacheMap {
-		if key == keyCacheHot.String() {
-			continue
-		}
-
-		schema[key] = value
-	}
-
-	return cache{
-		hot:    hot.(bool),
-		schema: schema,
-	}
 }
 
 func (r *Repo) extractMeta(in map[string]interface{}) *models.ObjectMeta {

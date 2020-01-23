@@ -242,7 +242,6 @@ func TestNestedReferences(t *testing.T) {
 		res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
 			fullyNestedSelectProperties(), false)
 		require.Nil(t, err)
-		assert.Equal(t, false, res.CacheHot)
 		assert.Equal(t, expectedSchema, res.Schema)
 		// we are expecting 5 request to be made for this, since cache is not hot
 		// yet. Quering the initial places is a single request, each nested level
@@ -282,7 +281,6 @@ func TestNestedReferences(t *testing.T) {
 		res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
 			partiallyNestedSelectProperties(), false)
 		require.Nil(t, err)
-		assert.Equal(t, false, res.CacheHot)
 		assert.Equal(t, expectedSchema, res.Schema)
 		// 2 Requests: Place + (inCity->City)
 		assert.Equal(t, 2, requestCounter.count)

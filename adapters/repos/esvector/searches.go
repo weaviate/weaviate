@@ -334,27 +334,23 @@ func (sr searchResponse) toResults(r *Repo, properties traverser.SelectPropertie
 			return nil, fmt.Errorf("vector search: result %d: %v", i, err)
 		}
 
-		cache := r.extractCache(hit.Source)
-		schema, err := r.parseSchema(hit.Source, properties, meta, cache, 0, requestCacher)
+		schema, err := r.parseSchema(hit.Source, properties, meta, requestCacher)
 		if err != nil {
 			return nil, fmt.Errorf("vector search: result %d: %v", i, err)
 		}
 
 		created := parseFloat64(hit.Source, keyCreated.String())
 		updated := parseFloat64(hit.Source, keyUpdated.String())
-		cacheHot := parseCacheHot(hit.Source)
 
 		output[i] = search.Result{
-			ClassName:   hit.Source[keyClassName.String()].(string),
-			ID:          strfmt.UUID(hit.ID),
-			Kind:        k,
-			Score:       hit.Score,
-			Vector:      vector,
-			Schema:      schema,
-			Created:     int64(created),
-			Updated:     int64(updated),
-			CacheHot:    cacheHot,
-			CacheSchema: cache.schema,
+			ClassName: hit.Source[keyClassName.String()].(string),
+			ID:        strfmt.UUID(hit.ID),
+			Kind:      k,
+			Score:     hit.Score,
+			Vector:    vector,
+			Schema:    schema,
+			Created:   int64(created),
+			Updated:   int64(updated),
 		}
 		if meta {
 			output[i].Meta = r.extractMeta(hit.Source)
@@ -371,23 +367,4 @@ func parseFloat64(source map[string]interface{}, key string) float64 {
 	}
 
 	return 0
-}
-
-func parseCacheHot(source map[string]interface{}) bool {
-	untyped := source[keyCache.String()]
-	m, ok := untyped.(map[string]interface{})
-	if !ok {
-		return false
-	}
-
-	hotUntyped, ok := m[keyCacheHot.String()]
-	if !ok {
-		return false
-	}
-
-	if v, ok := hotUntyped.(bool); ok {
-		return v
-	}
-
-	return false
 }
