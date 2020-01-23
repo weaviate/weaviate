@@ -57,7 +57,6 @@ type vectorRepo interface {
 	traverser.VectorSearcher
 	classification.VectorRepo
 	SetSchemaGetter(schemaUC.SchemaGetter)
-	InitCacheIndexing(int, time.Duration, time.Duration)
 	WaitForStartup(time.Duration) error
 }
 
@@ -128,11 +127,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			Fatal("esvector didn't start up")
 		os.Exit(1)
 	}
-	vectorRepo.InitCacheIndexing(
-		appState.ServerConfig.Config.VectorIndex.CacheCycleBulkSize,
-		time.Duration(appState.ServerConfig.Config.VectorIndex.CacheCycleIdleWaitTime)*time.Millisecond,
-		time.Duration(appState.ServerConfig.Config.VectorIndex.CacheCycleBusyWaitTime)*time.Millisecond,
-	)
+	// vectorRepo.InitCacheIndexing(
+	// 	appState.ServerConfig.Config.VectorIndex.CacheCycleBulkSize,
+	// 	time.Duration(appState.ServerConfig.Config.VectorIndex.CacheCycleIdleWaitTime)*time.Millisecond,
+	// 	time.Duration(appState.ServerConfig.Config.VectorIndex.CacheCycleBusyWaitTime)*time.Millisecond,
+	// )
 
 	kindsManager := kinds.NewManager(appState.Locks,
 		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,

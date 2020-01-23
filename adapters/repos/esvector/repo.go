@@ -48,8 +48,6 @@ const (
 	keyClassName internalKey = "_class_name"
 	keyCreated   internalKey = "_created"
 	keyUpdated   internalKey = "_updated"
-	keyCache     internalKey = "_cache"
-	keyCacheHot  internalKey = "_hot"
 
 	// meta in references
 	keyMeta                              internalKey = "meta"
@@ -69,7 +67,6 @@ type Repo struct {
 	denormalizationDepthLimit int
 	superNodeThreshold        int
 	requestCounter            counter
-	cacheIndexer              *cacheIndexer
 	schemaRefFinder           schemaRefFinder
 	numberOfShards            int
 	autoExpandReplicas        string
@@ -103,7 +100,6 @@ func NewRepo(client *elasticsearch.Client, logger logrus.FieldLogger,
 		denormalizationDepthLimit: denormalizationLimit,
 		superNodeThreshold:        superNodeThreshold,
 		requestCounter:            &noopCounter{},
-		cacheIndexer:              nil,
 		schemaRefFinder:           &noopSchemaRefFinder{},
 		numberOfShards:            numberOfShards,
 		autoExpandReplicas:        autoExpandReplicas,
@@ -225,8 +221,6 @@ func (r *Repo) putObject(ctx context.Context,
 		return fmt.Errorf("index request: %v", err)
 	}
 
-	go r.invalidateCache(className, id)
-
 	return nil
 }
 
@@ -271,8 +265,6 @@ func (r *Repo) addPropsToBucket(bucket map[string]interface{}, props models.Prop
 		return bucket
 	}
 
-	hasRefs := false
-
 	propsMap := props.(map[string]interface{})
 	for key, value := range propsMap {
 		if gc, ok := value.(*models.GeoCoordinates); ok {
@@ -282,19 +274,9 @@ func (r *Repo) addPropsToBucket(bucket map[string]interface{}, props models.Prop
 			}
 		}
 
-		if _, ok := value.(models.MultipleRef); ok {
-			hasRefs = true
-		}
-
 		bucket[key] = value
 	}
 
-	bucket[keyCache.String()] = map[string]interface{}{
-		// if a prop has Refs, it requires caching, therefore the intial state of
-		// the cache is cold. However, if there are no ref props set,no caching is
-		// required making the cache state hot
-		keyCacheHot.String(): !hasRefs,
-	}
 	return bucket
 }
 
