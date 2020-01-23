@@ -232,7 +232,7 @@ func (r *Repo) search(ctx context.Context, index string,
 		return nil, fmt.Errorf("vector search: %v", err)
 	}
 
-	return r.searchResponse(res, params.Properties, meta)
+	return r.searchResponse(ctx, res, params.Properties, meta)
 }
 
 func (r *Repo) buildSearchBody(filterQuery map[string]interface{}, vector []float32, limit int) map[string]interface{} {
@@ -290,9 +290,8 @@ type hit struct {
 	Index  string                 `json:"_index"`
 }
 
-func (r *Repo) searchResponse(res *esapi.Response, properties traverser.SelectProperties,
-	meta bool) ([]search.Result,
-	error) {
+func (r *Repo) searchResponse(ctx context.Context, res *esapi.Response,
+	properties traverser.SelectProperties, meta bool) ([]search.Result, error) {
 	if err := errorResToErr(res, r.logger); err != nil {
 		return nil, fmt.Errorf("vector search: %v", err)
 	}
@@ -305,7 +304,7 @@ func (r *Repo) searchResponse(res *esapi.Response, properties traverser.SelectPr
 	}
 
 	requestCacher := newCacher(r)
-	err = requestCacher.buildFromRootLevel(sr, properties, meta)
+	err = requestCacher.build(ctx, sr, properties, meta)
 	if err != nil {
 		return nil, fmt.Errorf("build request cache: %v", err)
 	}
