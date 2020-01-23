@@ -45,7 +45,7 @@ func (c *cacher) get(si storageIdentifier) (search.Result, bool) {
 }
 
 func (c *cacher) buildFromRootLevel(sr searchResponse, properties traverser.SelectProperties, meta bool) error {
-	if c.meta != nil {
+	if c.meta == nil {
 		// store meta prop if we haven't yet
 		c.meta = &meta
 	}
