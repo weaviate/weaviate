@@ -26,7 +26,7 @@ import (
 
 // parseSchema lightly parses the schema, while most fields stay untyped, those
 // with special meaning, such as GeoCoordinates are marshalled into their
-// required types
+// required types. It also retrieves refs from the provided cacher
 func (r *Repo) parseSchema(input map[string]interface{}, properties traverser.SelectProperties,
 	meta bool, requestCacher *cacher) (map[string]interface{}, error) {
 
@@ -170,7 +170,7 @@ func (r *Repo) parseRefs(input []interface{}, prop string, selectProp traverser.
 		innerProperties := selectPropRef.RefProperties
 		perClass, err := r.resolveRefs(input, selectPropRef.ClassName, innerProperties, requestCacher)
 		if err != nil {
-			return nil, fmt.Errorf("resolve without cache: %v", err)
+			return nil, fmt.Errorf("resolve ref: %v", err)
 		}
 
 		refs = append(refs, perClass...)
@@ -239,42 +239,6 @@ func (r *Repo) resolveRef(item interface{}, desiredClass string,
 	out.Class = res.ClassName
 	out.Fields = res.Schema.(map[string]interface{})
 	return &out, nil
-
-	// switch ref.Kind {
-	// case kind.Thing:
-	// 	res, err := r.ThingByID(context.TODO(), ref.TargetID, innerProperties, false)
-	// 	if err != nil {
-	// 		return nil, err
-	// 	}
-
-	// 	if res.ClassName != desiredClass {
-	// 		return nil, nil
-	// 	}
-
-	// 	out.Class = res.ClassName
-	// 	out.Fields = res.Schema.(map[string]interface{})
-	// 	return &out, nil
-	// case kind.Action:
-	// 	res, err := r.ActionByID(context.TODO(), ref.TargetID, innerProperties, false)
-	// 	if err != nil {
-	// 		return nil, err
-	// 	}
-
-	// 	if res.ClassName != desiredClass {
-	// 		return nil, nil
-	// 	}
-
-	// 	out.Class = res.ClassName
-	// 	out.Fields = res.Schema.(map[string]interface{})
-	// 	return &out, nil
-	// default:
-	// 	return nil, fmt.Errorf("impossible kind: %v", ref.Kind)
-	// }
-}
-
-type cache struct {
-	hot    bool
-	schema map[string]interface{}
 }
 
 func (r *Repo) extractMeta(in map[string]interface{}) *models.ObjectMeta {

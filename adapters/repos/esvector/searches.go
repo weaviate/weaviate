@@ -154,6 +154,9 @@ func (c *counterImpl) Get() int {
 
 // ClassSearch searches for classes with optional filters without vector scoring
 func (r *Repo) ClassSearch(ctx context.Context, params traverser.GetParams) ([]search.Result, error) {
+	ctx, cancel := limitUnlimitedContext(ctx)
+	defer cancel()
+
 	start := time.Now()
 	r.requestCounter = &counterImpl{}
 	index := classIndexFromClassName(params.Kind, params.ClassName)
@@ -170,6 +173,9 @@ func (r *Repo) ClassSearch(ctx context.Context, params traverser.GetParams) ([]s
 
 // VectorClassSearch limits the vector search to a specific class (and kind)
 func (r *Repo) VectorClassSearch(ctx context.Context, params traverser.GetParams) ([]search.Result, error) {
+	ctx, cancel := limitUnlimitedContext(ctx)
+	defer cancel()
+
 	start := time.Now()
 	r.requestCounter = &counterImpl{}
 	index := classIndexFromClassName(params.Kind, params.ClassName)
@@ -367,4 +373,12 @@ func parseFloat64(source map[string]interface{}, key string) float64 {
 	}
 
 	return 0
+}
+
+func limitUnlimitedContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if _, ok := ctx.Deadline(); ok {
+		return context.WithCancel(ctx)
+	}
+
+	return context.WithTimeout(ctx, 15*time.Second)
 }
