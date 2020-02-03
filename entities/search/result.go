@@ -23,17 +23,18 @@ import (
 // additional info the ID can be used to retrieve the full concept from the
 // connector storage
 type Result struct {
-	ID        strfmt.UUID
-	Kind      kind.Kind
-	ClassName string
-	Score     float32
-	Vector    []float32
-	Beacon    string
-	Certainty float32
-	Schema    models.PropertySchema
-	Created   int64
-	Updated   int64
-	Meta      *models.ObjectMeta
+	ID            strfmt.UUID
+	Kind          kind.Kind
+	ClassName     string
+	Score         float32
+	Vector        []float32
+	Beacon        string
+	Certainty     float32
+	Schema        models.PropertySchema
+	Created       int64
+	Updated       int64
+	Meta          *models.ObjectMeta
+	VectorWeights map[string]string
 }
 
 type Results []Result
@@ -51,6 +52,7 @@ func (r Result) Thing() *models.Thing {
 		CreationTimeUnix:   r.Created,
 		LastUpdateTimeUnix: r.Updated,
 		Meta:               r.Meta,
+		VectorWeights:      r.VectorWeights,
 	}
 
 	return t
@@ -69,6 +71,7 @@ func (r Result) Action() *models.Action {
 		CreationTimeUnix:   r.Created,
 		LastUpdateTimeUnix: r.Updated,
 		Meta:               r.Meta,
+		VectorWeights:      r.VectorWeights,
 	}
 
 	return t
