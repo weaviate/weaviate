@@ -17,10 +17,10 @@ require (
 	github.com/fatih/color v1.7.0 // indirect
 	github.com/go-openapi/errors v0.19.3
 	github.com/go-openapi/loads v0.19.3
-	github.com/go-openapi/runtime v0.19.9
+	github.com/go-openapi/runtime v0.19.11
 	github.com/go-openapi/spec v0.19.3
 	github.com/go-openapi/strfmt v0.19.4
-	github.com/go-openapi/swag v0.19.6
+	github.com/go-openapi/swag v0.19.7
 	github.com/go-openapi/validate v0.19.3
 	github.com/golang/groupcache v0.0.0-20191027212112-611e8accdfc9 // indirect
 	github.com/golang/snappy v0.0.1 // indirect
@@ -55,7 +55,7 @@ require (
 	go.uber.org/zap v1.13.0 // indirect
 	golang.org/x/net v0.0.0-20191002035440-2ec189313ef0
 	golang.org/x/time v0.0.0-20191024005414-555d28b269f0 // indirect
-	golang.org/x/tools v0.0.0-20200123022218-593de606220b // indirect
+	golang.org/x/tools v0.0.0-20200203023011-6f24f261dadb // indirect
 	google.golang.org/grpc v1.24.0
 	gopkg.in/square/go-jose.v2 v2.3.1 // indirect
 	gopkg.in/yaml.v2 v2.2.8
