@@ -42,13 +42,17 @@ const (
 
 func (v *Validator) properties(ctx context.Context, k kind.Kind, object interface{}) error {
 	var isp interface{}
+	var vectorWeights interface{}
+
 	var className string
 	if k == kind.Action {
 		className = object.(*models.Action).Class
 		isp = object.(*models.Action).Schema
+		vectorWeights = object.(*models.Action).VectorWeights
 	} else if k == kind.Thing {
 		className = object.(*models.Thing).Class
 		isp = object.(*models.Thing).Schema
+		vectorWeights = object.(*models.Thing).VectorWeights
 	} else {
 		return fmt.Errorf(schema.ErrorInvalidRefType)
 	}
@@ -56,6 +60,15 @@ func (v *Validator) properties(ctx context.Context, k kind.Kind, object interfac
 	class := v.schema.GetClass(k, schema.ClassName(className))
 	if class == nil {
 		return fmt.Errorf("class '%s' not present in schema", className)
+	}
+
+	if vectorWeights != nil {
+		res, err := v.validateVectorWeights(vectorWeights)
+		if err != nil {
+			return fmt.Errorf("vector weights: %v", err)
+		}
+
+		vectorWeights = res
 	}
 
 	if isp == nil {
@@ -82,8 +95,10 @@ func (v *Validator) properties(ctx context.Context, k kind.Kind, object interfac
 
 	if k == kind.Action {
 		object.(*models.Action).Schema = returnSchema
+		object.(*models.Action).VectorWeights = vectorWeights
 	} else if k == kind.Thing {
 		object.(*models.Thing).Schema = returnSchema
+		object.(*models.Thing).VectorWeights = vectorWeights
 	} else {
 		return fmt.Errorf(schema.ErrorInvalidRefType)
 	}
@@ -346,4 +361,31 @@ func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName 
 
 	// Validate whether reference exists based on given Type
 	return ref.SingleRef(), nil
+}
+
+// vectorWeights are passed as a non-typed interface{}, this is due to a
+// limition in go-swagger which itself is coming from swagger 2.0 which does
+// not have support for arbitrary key/value objects
+//
+// we must thus validate that it's a map and they keys are strings
+// NOTE: We are not validating the semantic correctness of the equations
+// themselves, as they are in the contextinoary's resopnsibility
+func (v *Validator) validateVectorWeights(in interface{}) (map[string]string, error) {
+
+	asMap, ok := in.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("must be key/value object with strings as keys and values, got %#v", in)
+	}
+
+	out := make(map[string]string, len(asMap))
+	for key, value := range asMap {
+		asString, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf("key '%s': incorrect datatype: must be string, got %T", key, value)
+		}
+
+		out[key] = asString
+	}
+
+	return out, nil
 }
