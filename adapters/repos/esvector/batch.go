@@ -86,8 +86,12 @@ func (r Repo) encodeBatchActions(enc *json.Encoder, batch kinds.BatchActions) er
 		}
 
 		a := single.Action
+		var vectorWeights map[string]string
+		if a.VectorWeights != nil {
+			vectorWeights = a.VectorWeights.(map[string]string)
+		}
 		bucket := r.objectBucket(kind.Action, a.ID.String(), a.Class, a.Schema,
-			nil, single.Vector, a.CreationTimeUnix, a.LastUpdateTimeUnix)
+			nil, vectorWeights, single.Vector, a.CreationTimeUnix, a.LastUpdateTimeUnix)
 
 		index := classIndexFromClassName(kind.Action, a.Class)
 		control := r.bulkIndexControlObject(index, a.ID.String())
@@ -171,8 +175,12 @@ func (r Repo) encodeBatchThings(enc *json.Encoder, batch kinds.BatchThings) erro
 		}
 
 		t := single.Thing
+		var vectorWeights map[string]string
+		if t.VectorWeights != nil {
+			vectorWeights = t.VectorWeights.(map[string]string)
+		}
 		bucket := r.objectBucket(kind.Thing, t.ID.String(), t.Class, t.Schema,
-			nil, single.Vector, t.CreationTimeUnix, t.LastUpdateTimeUnix)
+			nil, vectorWeights, single.Vector, t.CreationTimeUnix, t.LastUpdateTimeUnix)
 
 		index := classIndexFromClassName(kind.Thing, t.Class)
 		control := r.bulkIndexControlObject(index, t.ID.String())
