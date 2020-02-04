@@ -332,31 +332,37 @@ func (sr searchResponse) toResults(r *Repo, properties traverser.SelectPropertie
 
 		k, err := kind.Parse(hit.Source[keyKind.String()].(string))
 		if err != nil {
-			return nil, fmt.Errorf("vector search: result %d: %v", i, err)
+			return nil, fmt.Errorf("vector search: result %d: parse Kind: %v", i, err)
 		}
 
 		vector, err := base64ToVector(hit.Source[keyVector.String()].(string))
 		if err != nil {
-			return nil, fmt.Errorf("vector search: result %d: %v", i, err)
+			return nil, fmt.Errorf("vector search: result %d: parse vector: %v", i, err)
 		}
 
 		schema, err := r.parseSchema(hit.Source, properties, meta, requestCacher)
 		if err != nil {
-			return nil, fmt.Errorf("vector search: result %d: %v", i, err)
+			return nil, fmt.Errorf("vector search: result %d: parse schema: %v", i, err)
+		}
+
+		weights, err := parseVectorWeights(hit.Source[keyVectorWeights.String()])
+		if err != nil {
+			return nil, fmt.Errorf("vector search: result %d: parse weights: %v", i, err)
 		}
 
 		created := parseFloat64(hit.Source, keyCreated.String())
 		updated := parseFloat64(hit.Source, keyUpdated.String())
 
 		output[i] = search.Result{
-			ClassName: hit.Source[keyClassName.String()].(string),
-			ID:        strfmt.UUID(hit.ID),
-			Kind:      k,
-			Score:     hit.Score,
-			Vector:    vector,
-			Schema:    schema,
-			Created:   int64(created),
-			Updated:   int64(updated),
+			ClassName:     hit.Source[keyClassName.String()].(string),
+			ID:            strfmt.UUID(hit.ID),
+			Kind:          k,
+			Score:         hit.Score,
+			Vector:        vector,
+			Schema:        schema,
+			Created:       int64(created),
+			Updated:       int64(updated),
+			VectorWeights: weights,
 		}
 		if meta {
 			output[i].Meta = r.extractMeta(hit.Source)
@@ -381,4 +387,27 @@ func limitUnlimitedContext(ctx context.Context) (context.Context, context.Cancel
 	}
 
 	return context.WithTimeout(ctx, 15*time.Second)
+}
+
+func parseVectorWeights(in interface{}) (map[string]string, error) {
+	if in == nil {
+		return nil, nil
+	}
+
+	asMap, ok := in.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("expected map, got %T", asMap)
+	}
+
+	out := make(map[string]string, len(asMap))
+	for key, value := range asMap {
+		asString, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf("key '%s': expected string, got %T", key, value)
+		}
+
+		out[key] = asString
+	}
+
+	return out, nil
 }
