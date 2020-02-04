@@ -308,7 +308,7 @@ type fakeClient struct {
 	lastInput []string
 }
 
-func (c *fakeClient) VectorForCorpi(ctx context.Context, corpi []string) ([]float32, error) {
+func (c *fakeClient) VectorForCorpi(ctx context.Context, corpi []string, overrides map[string]string) ([]float32, error) {
 	c.lastInput = corpi
 	return []float32{0, 1, 2, 3}, nil
 }
