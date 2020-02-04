@@ -192,8 +192,9 @@ func vectorFromProto(in []*pb.VectorEntry) []float32 {
 	return output
 }
 
-func (c *Client) VectorForCorpi(ctx context.Context, corpi []string) ([]float32, error) {
-	res, err := c.grpcClient.VectorForCorpi(ctx, &pb.Corpi{Corpi: corpi})
+func (c *Client) VectorForCorpi(ctx context.Context, corpi []string, overridesMap map[string]string) ([]float32, error) {
+	overrides := overridesFromMap(overridesMap)
+	res, err := c.grpcClient.VectorForCorpi(ctx, &pb.Corpi{Corpi: corpi, Overrides: overrides})
 	if err != nil {
 		st, ok := status.FromError(err)
 		if !ok || st.Code() != codes.InvalidArgument {
@@ -256,4 +257,22 @@ func vectorToProto(in []float32) *pb.Vector {
 	}
 
 	return &pb.Vector{Entries: output}
+}
+
+func overridesFromMap(in map[string]string) []*pb.Override {
+	if in == nil {
+		return nil
+	}
+
+	out := make([]*pb.Override, len(in))
+	i := 0
+	for key, value := range in {
+		out[i] = &pb.Override{
+			Word:       key,
+			Expression: value,
+		}
+		i++
+	}
+
+	return out
 }

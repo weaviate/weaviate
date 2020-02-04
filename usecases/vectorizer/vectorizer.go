@@ -41,7 +41,8 @@ func NewErrNoUsableWordsf(pattern string, args ...interface{}) ErrNoUsableWords 
 }
 
 type client interface {
-	VectorForCorpi(ctx context.Context, corpi []string) ([]float32, error)
+	VectorForCorpi(ctx context.Context, corpi []string,
+		overrides map[string]string) ([]float32, error)
 }
 
 // IndexCheck returns whether a property of a class should be indexed
@@ -62,17 +63,26 @@ func (v *Vectorizer) SetIndexChecker(ic IndexCheck) {
 
 // Thing object to vector
 func (v *Vectorizer) Thing(ctx context.Context, object *models.Thing) ([]float32, error) {
-	return v.object(ctx, object.Class, object.Schema)
+	var overrides map[string]string
+	if object.VectorWeights != nil {
+		overrides = object.VectorWeights.(map[string]string)
+	}
+
+	return v.object(ctx, object.Class, object.Schema, overrides)
 }
 
 // Action object to vector
 func (v *Vectorizer) Action(ctx context.Context, object *models.Action) ([]float32, error) {
+	var overrides map[string]string
+	if object.VectorWeights != nil {
+		overrides = object.VectorWeights.(map[string]string)
+	}
 
-	return v.object(ctx, object.Class, object.Schema)
+	return v.object(ctx, object.Class, object.Schema, overrides)
 }
 
 func (v *Vectorizer) object(ctx context.Context, className string,
-	schema interface{}) ([]float32, error) {
+	schema interface{}, overrides map[string]string) ([]float32, error) {
 	var corpi []string
 
 	if v.indexCheck.VectorizeClassName(className) {
@@ -103,7 +113,7 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 		corpi = append(corpi, camelCaseToLower(className))
 	}
 
-	vector, err := v.client.VectorForCorpi(ctx, []string{strings.Join(corpi, " ")})
+	vector, err := v.client.VectorForCorpi(ctx, []string{strings.Join(corpi, " ")}, overrides)
 	if err != nil {
 		switch err.(type) {
 		case ErrNoUsableWords:
@@ -145,7 +155,7 @@ func (v *Vectorizer) Corpi(ctx context.Context, corpi []string,
 		corpi[i] = camelCaseToLower(corpus)
 	}
 
-	vector, err := v.client.VectorForCorpi(ctx, corpi)
+	vector, err := v.client.VectorForCorpi(ctx, corpi, nil)
 	if err != nil {
 		return nil, fmt.Errorf("vectorizing corpus '%+v': %v", corpi, err)
 	}
