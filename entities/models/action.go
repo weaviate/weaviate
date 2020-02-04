@@ -48,6 +48,9 @@ type Action struct {
 
 	// schema
 	Schema PropertySchema `json:"schema,omitempty"`
+
+	// vector weights
+	VectorWeights VectorWeights `json:"vectorWeights,omitempty"`
 }
 
 // Validate validates this action
