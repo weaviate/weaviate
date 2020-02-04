@@ -36,7 +36,6 @@ require (
 	github.com/ugorji/go/codec v0.0.0-20190309163734-c4a1c341dc93
 	go.mongodb.org/mongo-driver v1.2.1 // indirect
 	golang.org/x/net v0.0.0-20191002035440-2ec189313ef0
-	golang.org/x/tools v0.0.0-20200123022218-593de606220b // indirect
 	google.golang.org/grpc v1.24.0
 	gopkg.in/yaml.v2 v2.2.8
 	sigs.k8s.io/yaml v1.1.0 // indirect
