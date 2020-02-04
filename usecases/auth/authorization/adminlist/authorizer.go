@@ -18,6 +18,8 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
 )
 
+const AnonymousPrinicpalUsername = "anonymous"
+
 // Authorizer provides either full (admin) or no access
 type Authorizer struct {
 	adminUsers    map[string]int
@@ -35,6 +37,10 @@ func New(cfg Config) *Authorizer {
 // Authorize will give full access (to any resource!) if the user is part of
 // the admin list or no access at all if they are not
 func (a *Authorizer) Authorize(principal *models.Principal, verb, resource string) error {
+	if principal == nil {
+		principal = newAnonymousPrincipal()
+	}
+
 	if _, ok := a.adminUsers[principal.Username]; ok {
 		return nil
 	}
@@ -67,5 +73,11 @@ func (a *Authorizer) addReadOnlyUserList(users []string) {
 
 	for _, user := range users {
 		a.readOnlyUsers[user] = 1
+	}
+}
+
+func newAnonymousPrincipal() *models.Principal {
+	return &models.Principal{
+		Username: AnonymousPrinicpalUsername,
 	}
 }

@@ -38,6 +38,18 @@ func Test_AdminList_Authorizor(t *testing.T) {
 				"should have the correct err msg")
 		})
 
+		t.Run("with a nil principal", func(t *testing.T) {
+			cfg := Config{
+				Enabled: true,
+				Users:   []string{},
+			}
+
+			principal := (*models.Principal)(nil)
+			err := New(cfg).Authorize(principal, "get", "things")
+			assert.Equal(t, errors.NewForbidden(newAnonymousPrincipal(), "get", "things"), err,
+				"should have the correct err msg")
+		})
+
 		t.Run("with a non-configured user, it denies the request", func(t *testing.T) {
 			cfg := Config{
 				Enabled: true,
@@ -88,9 +100,34 @@ func Test_AdminList_Authorizor(t *testing.T) {
 			err := New(cfg).Authorize(principal, "get", "things")
 			assert.Nil(t, err)
 		})
+
+		t.Run("with anonymous as read-only user and no principal, it allows the request", func(t *testing.T) {
+			cfg := Config{
+				Enabled: true,
+				ReadOnlyUsers: []string{
+					"anonymous",
+				},
+			}
+
+			principal := (*models.Principal)(nil)
+			err := New(cfg).Authorize(principal, "get", "things")
+			assert.Nil(t, err)
+		})
 	})
 
 	t.Run("with write/delete requests", func(t *testing.T) {
+		t.Run("with a nil principal", func(t *testing.T) {
+			cfg := Config{
+				Enabled: true,
+				Users:   []string{},
+			}
+
+			principal := (*models.Principal)(nil)
+			err := New(cfg).Authorize(principal, "create", "things")
+			assert.Equal(t, errors.NewForbidden(newAnonymousPrincipal(), "create", "things"), err,
+				"should have the correct err msg")
+		})
+
 		t.Run("with no users configured at all", func(t *testing.T) {
 			cfg := Config{
 				Enabled: true,
@@ -155,6 +192,21 @@ func Test_AdminList_Authorizor(t *testing.T) {
 
 			err := New(cfg).Authorize(principal, "create", "things")
 			assert.Equal(t, errors.NewForbidden(principal, "create", "things"), err,
+				"should have the correct err msg")
+		})
+
+		t.Run("with anonymous on the read-only list and a nil principal", func(t *testing.T) {
+			cfg := Config{
+				Enabled: true,
+				Users:   []string{},
+				ReadOnlyUsers: []string{
+					"anonymous",
+				},
+			}
+
+			principal := (*models.Principal)(nil)
+			err := New(cfg).Authorize(principal, "create", "things")
+			assert.Equal(t, errors.NewForbidden(newAnonymousPrincipal(), "create", "things"), err,
 				"should have the correct err msg")
 		})
 	})
