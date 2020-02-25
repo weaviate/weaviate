@@ -111,6 +111,10 @@ func creatingThings(t *testing.T) {
 		thingTestBoolean := true
 		thingTestNumber := 1.337
 		thingTestDate := "2017-10-06T08:15:30+01:00"
+		thingTestPhoneNumber := map[string]interface{}{
+			"input":          "0171 11122233",
+			"defaultCountry": "DE",
+		}
 
 		params := things.NewThingsCreateParams().WithBody(
 			&models.Thing{
@@ -121,6 +125,7 @@ func creatingThings(t *testing.T) {
 					"testTrueFalse":   thingTestBoolean,
 					"testNumber":      thingTestNumber,
 					"testDateTime":    thingTestDate,
+					"testPhoneNumber": thingTestPhoneNumber,
 				},
 			})
 

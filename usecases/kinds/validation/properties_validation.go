@@ -154,8 +154,14 @@ func (v *Validator) extractAndValidateProperty(ctx context.Context, propertyName
 		if err != nil {
 			return nil, fmt.Errorf("invalid geoCoordinates property '%s' on class '%s': %s", propertyName, className, err)
 		}
+	case schema.DataTypePhoneNumber:
+		data, err = phoneNumber(pv)
+		if err != nil {
+			return nil, fmt.Errorf("invalid phoneNumber property '%s' on class '%s': %s", propertyName, className, err)
+		}
+
 	default:
-		return nil, fmt.Errorf("unrecoginzed data type '%s'", *dataType)
+		return nil, fmt.Errorf("unrecognized data type '%s'", *dataType)
 	}
 
 	return data, nil
@@ -311,6 +317,36 @@ func geoCoordinates(input interface{}) (*models.GeoCoordinates, error) {
 		Longitude: float32(lonFloat),
 		Latitude:  float32(latFloat),
 	}, nil
+}
+
+func phoneNumber(data interface{}) (*models.PhoneNumber, error) {
+	dataMap, ok := data.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("phoneNumber must be a map, but got: %T", data)
+	}
+
+	input, ok := dataMap["input"]
+	if !ok {
+		return nil, fmt.Errorf("phoneNumber is missing required field 'input'")
+	}
+
+	inputString, ok := input.(string)
+	if !ok {
+		return nil, fmt.Errorf("phoneNumber.input must be a string")
+	}
+
+	var defaultCountryString string
+	defaultCountry, ok := dataMap["defaultCountry"]
+	if !ok {
+		defaultCountryString = ""
+	} else {
+		defaultCountryString, ok = defaultCountry.(string)
+		if !ok {
+			return nil, fmt.Errorf("phoneNumber.defaultCountry must be a string")
+		}
+	}
+
+	return parsePhoneNumber(inputString, defaultCountryString)
 }
 
 func parseCoordinate(raw interface{}) (float64, error) {

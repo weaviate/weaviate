@@ -47,6 +47,10 @@ func Test_Things(t *testing.T) {
 					Name:     "testTrueFalse",
 					DataType: []string{"boolean"},
 				},
+				&models.Property{
+					Name:     "testPhoneNumber",
+					DataType: []string{"phoneNumber"},
+				},
 			},
 		})
 	})
