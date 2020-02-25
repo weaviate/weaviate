@@ -161,6 +161,8 @@ func (m *Migrator) esPropsFromClassProps(props []*models.Property, depth int) (m
 			esProperties[prop.Name] = typeMap(Date, index)
 		case string(schema.DataTypeGeoCoordinates):
 			esProperties[prop.Name] = typeMap(GeoPoint, index)
+		case string(schema.DataTypePhoneNumber):
+			// esProperties[prop.Name] = nil
 		default:
 			// must be a ref
 
