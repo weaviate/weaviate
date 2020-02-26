@@ -2,12 +2,14 @@ package validation
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/nyaruka/phonenumbers"
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 func parsePhoneNumber(input, defaultCountry string) (*models.PhoneNumber, error) {
+	defaultCountry = strings.ToUpper(defaultCountry)
 	num, err := phonenumbers.Parse(input, defaultCountry)
 	if err != nil {
 		return nil, fmt.Errorf("invalid phone number: %v", err)
@@ -20,5 +22,6 @@ func parsePhoneNumber(input, defaultCountry string) (*models.PhoneNumber, error)
 		CountryCode:            uint64(num.GetCountryCode()),
 		DefaultCountry:         defaultCountry,
 		Input:                  input,
+		Valid:                  phonenumbers.IsValidNumber(num),
 	}, nil
 }
