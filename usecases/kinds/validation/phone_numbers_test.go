@@ -3,6 +3,7 @@ package validation
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -35,6 +36,23 @@ func TestPropertyOfTypePhoneNumberValidation(t *testing.T) {
 				"phoneNumber is missing required field 'input'"),
 		},
 		test{
+			name: "input is not a string",
+			phone: map[string]interface{}{
+				"input": 1234,
+			},
+			expectedErr: errors.New("invalid phoneNumber property 'phone' on class 'Person': " +
+				"phoneNumber.input must be a string"),
+		},
+		test{
+			name: "default country is not a string",
+			phone: map[string]interface{}{
+				"input":          "1234",
+				"defaultCountry": 7,
+			},
+			expectedErr: errors.New("invalid phoneNumber property 'phone' on class 'Person': " +
+				"phoneNumber.defaultCountry must be a string"),
+		},
+		test{
 			name: "with only input set",
 			phone: map[string]interface{}{
 				"input": "+491711234567",
@@ -65,6 +83,16 @@ func TestPropertyOfTypePhoneNumberValidation(t *testing.T) {
 				National:               1711234567,
 				NationalFormatted:      "0171 1234567",
 			},
+		},
+		test{
+			name: "with national number, but missing defaultCountry",
+			phone: map[string]interface{}{
+				"input": "01711234567",
+			},
+			expectedErr: fmt.Errorf("invalid phoneNumber property 'phone' on class 'Person': " +
+				"invalid phone number: invalid or missing defaultCountry - " +
+				"this field is optional if the specified number is in the international format, " +
+				"but required if the number is in national format, use ISO 3166-1 alpha-2"),
 		},
 		test{
 			name: "with national number and country uppercased",
