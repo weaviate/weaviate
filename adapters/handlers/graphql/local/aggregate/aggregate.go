@@ -261,6 +261,9 @@ func classPropertyField(dataType schema.DataType, class *models.Class, property 
 	case schema.DataTypeGeoCoordinates:
 		// simply skip for now, see gh-729
 		return nil, nil
+	case schema.DataTypePhoneNumber:
+		// skipping for now, see gh-1088 where it was outscoped
+		return nil, nil
 	default:
 		return nil, fmt.Errorf(schema.ErrorNoSuchDatatype+": %s", dataType)
 	}
