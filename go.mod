@@ -45,4 +45,4 @@ require (
 
 replace github.com/coreos/go-systemd => github.com/coreos/go-systemd/v22 v22.0.0
 
-go 1.13
+go 1.14
