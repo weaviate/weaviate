@@ -128,6 +128,154 @@ func TestExtractPhoneNumberField(t *testing.T) {
 				},
 			},
 		},
+		test{
+			name:  "with only internationalFormatted requested",
+			query: "{ Get { Actions { SomeAction { phone { internationalFormatted } } } } }",
+			expectedParams: traverser.GetParams{
+				Kind:       kind.Action,
+				ClassName:  "SomeAction",
+				Properties: []traverser.SelectProperty{{Name: "phone", IsPrimitive: true}},
+			},
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"phone": &models.PhoneNumber{InternationalFormatted: "+49 171 1234567"},
+				},
+			},
+			expectedResult: map[string]interface{}{
+				"phone": map[string]interface{}{
+					"internationalFormatted": "+49 171 1234567",
+				},
+			},
+		},
+		test{
+			name:  "with only nationalFormatted requested",
+			query: "{ Get { Actions { SomeAction { phone { nationalFormatted } } } } }",
+			expectedParams: traverser.GetParams{
+				Kind:       kind.Action,
+				ClassName:  "SomeAction",
+				Properties: []traverser.SelectProperty{{Name: "phone", IsPrimitive: true}},
+			},
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"phone": &models.PhoneNumber{NationalFormatted: "0171 1234567"},
+				},
+			},
+			expectedResult: map[string]interface{}{
+				"phone": map[string]interface{}{
+					"nationalFormatted": "0171 1234567",
+				},
+			},
+		},
+		test{
+			name:  "with only national requested",
+			query: "{ Get { Actions { SomeAction { phone { national } } } } }",
+			expectedParams: traverser.GetParams{
+				Kind:       kind.Action,
+				ClassName:  "SomeAction",
+				Properties: []traverser.SelectProperty{{Name: "phone", IsPrimitive: true}},
+			},
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"phone": &models.PhoneNumber{National: 01711234567},
+				},
+			},
+			expectedResult: map[string]interface{}{
+				"phone": map[string]interface{}{
+					"national": 01711234567,
+				},
+			},
+		},
+		test{
+			name:  "with only valid requested",
+			query: "{ Get { Actions { SomeAction { phone { valid } } } } }",
+			expectedParams: traverser.GetParams{
+				Kind:       kind.Action,
+				ClassName:  "SomeAction",
+				Properties: []traverser.SelectProperty{{Name: "phone", IsPrimitive: true}},
+			},
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"phone": &models.PhoneNumber{Valid: true},
+				},
+			},
+			expectedResult: map[string]interface{}{
+				"phone": map[string]interface{}{
+					"valid": true,
+				},
+			},
+		},
+		test{
+			name:  "with only countryCode requested",
+			query: "{ Get { Actions { SomeAction { phone { countryCode } } } } }",
+			expectedParams: traverser.GetParams{
+				Kind:       kind.Action,
+				ClassName:  "SomeAction",
+				Properties: []traverser.SelectProperty{{Name: "phone", IsPrimitive: true}},
+			},
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"phone": &models.PhoneNumber{CountryCode: 49},
+				},
+			},
+			expectedResult: map[string]interface{}{
+				"phone": map[string]interface{}{
+					"countryCode": 49,
+				},
+			},
+		},
+		test{
+			name:  "with only defaultCountry requested",
+			query: "{ Get { Actions { SomeAction { phone { defaultCountry } } } } }",
+			expectedParams: traverser.GetParams{
+				Kind:       kind.Action,
+				ClassName:  "SomeAction",
+				Properties: []traverser.SelectProperty{{Name: "phone", IsPrimitive: true}},
+			},
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"phone": &models.PhoneNumber{DefaultCountry: "DE"},
+				},
+			},
+			expectedResult: map[string]interface{}{
+				"phone": map[string]interface{}{
+					"defaultCountry": "DE",
+				},
+			},
+		},
+		test{
+			name: "with multiple fields set",
+			query: "{ Get { Actions { SomeAction { phone { input internationalFormatted " +
+				"nationalFormatted defaultCountry national countryCode valid } } } } }",
+			expectedParams: traverser.GetParams{
+				Kind:       kind.Action,
+				ClassName:  "SomeAction",
+				Properties: []traverser.SelectProperty{{Name: "phone", IsPrimitive: true}},
+			},
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"phone": &models.PhoneNumber{
+						DefaultCountry:         "DE",
+						CountryCode:            49,
+						NationalFormatted:      "0171 123456",
+						InternationalFormatted: "+49 171 123456",
+						National:               171123456,
+						Input:                  "0171123456",
+						Valid:                  true,
+					},
+				},
+			},
+			expectedResult: map[string]interface{}{
+				"phone": map[string]interface{}{
+					"defaultCountry":         "DE",
+					"countryCode":            49,
+					"nationalFormatted":      "0171 123456",
+					"internationalFormatted": "+49 171 123456",
+					"national":               171123456,
+					"input":                  "0171123456",
+					"valid":                  true,
+				},
+			},
+		},
 	}
 
 	for _, test := range tests {
