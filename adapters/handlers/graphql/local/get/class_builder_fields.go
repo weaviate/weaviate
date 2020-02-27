@@ -127,6 +127,36 @@ func newPhoneNumberObject(className string, propertyName string) *graphql.Object
 				Description: "The raw phone number as put in by the user prior to parsing",
 				Type:        graphql.String,
 			},
+			"internationalFormatted": &graphql.Field{
+				Name:        "Input",
+				Description: "The parsed phone number in the international format",
+				Type:        graphql.String,
+			},
+			"nationalFormatted": &graphql.Field{
+				Name:        "Input",
+				Description: "The parsed phone number in the national format",
+				Type:        graphql.String,
+			},
+			"national": &graphql.Field{
+				Name:        "Input",
+				Description: "The parsed phone number in the national format",
+				Type:        graphql.Int,
+			},
+			"valid": &graphql.Field{
+				Name:        "Input",
+				Description: "Whether the phone number could be successfully parsed and was considered valid by the parser",
+				Type:        graphql.Boolean,
+			},
+			"countryCode": &graphql.Field{
+				Name:        "Input",
+				Description: "The parsed country code, i.e. the leading numbers identifing the country in an international format",
+				Type:        graphql.Int,
+			},
+			"defaultCountry": &graphql.Field{
+				Name:        "Input",
+				Description: "The defaultCountry as put in by the user. (This is used to help parse national numbers into an international format)",
+				Type:        graphql.String,
+			},
 		},
 	})
 }
@@ -179,7 +209,13 @@ func resolvePhoneNumber(p graphql.ResolveParams) (interface{}, error) {
 	}
 
 	return map[string]interface{}{
-		"input": phone.Input,
+		"input":                  phone.Input,
+		"internationalFormatted": phone.InternationalFormatted,
+		"nationalFormatted":      phone.NationalFormatted,
+		"national":               phone.National,
+		"valid":                  phone.Valid,
+		"countryCode":            phone.CountryCode,
+		"defaultCountry":         phone.DefaultCountry,
 	}, nil
 }
 
@@ -310,7 +346,8 @@ func fieldNameIsOfObjectButNonReferenceType(field string) bool {
 	case "latitude", "longitude":
 		// must be a geo prop
 		return true
-	case "input":
+	case "input", "internationalFormatted", "nationalFormatted", "national",
+		"valid", "countryCode", "defaultCountry":
 		// must be a phone number
 		return true
 	default:
