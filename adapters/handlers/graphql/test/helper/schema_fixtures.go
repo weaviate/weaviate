@@ -52,6 +52,10 @@ var SimpleSchema = schema.Schema{
 						DataType: []string{"geoCoordinates"},
 					},
 					&models.Property{
+						Name:     "phone",
+						DataType: []string{"phoneNumber"},
+					},
+					&models.Property{
 						Name:     "hasAction",
 						DataType: []string{"SomeAction"},
 					},
