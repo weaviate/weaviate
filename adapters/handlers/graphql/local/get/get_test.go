@@ -92,6 +92,54 @@ func TestExtractGeoCoordinatesField(t *testing.T) {
 	assert.Equal(t, expectedLocation, result.Get("Get", "Actions", "SomeAction").Result.([]interface{})[0])
 }
 
+func TestExtractPhoneNumberField(t *testing.T) {
+	// We need to explicitly test all cases of asking for just one sub-property
+	// at a time, because the AST-parsing uses known fields of known props to
+	// distinguish a complex primitive prop from a reference prop
+	//
+	// See "isPrimitive()" and "fieldNameIsOfObjectButNonReferenceType" in
+	// class_builder_fields.go for more details
+
+	type test struct {
+		name           string
+		query          string
+		expectedParams traverser.GetParams
+		resolverReturn interface{}
+		expectedResult interface{}
+	}
+
+	tests := []test{
+		test{
+			name:  "with only input requested",
+			query: "{ Get { Actions { SomeAction { phone { input } } } } }",
+			expectedParams: traverser.GetParams{
+				Kind:       kind.Action,
+				ClassName:  "SomeAction",
+				Properties: []traverser.SelectProperty{{Name: "phone", IsPrimitive: true}},
+			},
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"phone": &models.PhoneNumber{Input: "+49 171 1234567"},
+				},
+			},
+			expectedResult: map[string]interface{}{
+				"phone": map[string]interface{}{
+					"input": "+49 171 1234567",
+				},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		resolver := newMockResolver(emptyPeers())
+
+		resolver.On("GetClass", test.expectedParams).
+			Return(test.resolverReturn, nil).Once()
+		result := resolver.AssertResolve(t, test.query)
+		assert.Equal(t, test.expectedResult, result.Get("Get", "Actions", "SomeAction").Result.([]interface{})[0])
+	}
+}
+
 func TestExploreRanker(t *testing.T) {
 	t.Parallel()
 
