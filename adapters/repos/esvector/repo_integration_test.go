@@ -58,6 +58,10 @@ func TestEsVectorRepo(t *testing.T) {
 					Name:     "location",
 					DataType: []string{string(schema.DataTypeGeoCoordinates)},
 				},
+				&models.Property{
+					Name:     "phone",
+					DataType: []string{string(schema.DataTypePhoneNumber)},
+				},
 			},
 		}
 
@@ -89,6 +93,15 @@ func TestEsVectorRepo(t *testing.T) {
 			Class:              "TheBestThingClass",
 			Schema: map[string]interface{}{
 				"stringProp": "some value",
+				"phone": &models.PhoneNumber{
+					CountryCode:            49,
+					DefaultCountry:         "DE",
+					Input:                  "0171 1234567",
+					Valid:                  true,
+					InternationalFormatted: "+49 171 1234567",
+					National:               1234567,
+					NationalFormatted:      "0171 1234567",
+				},
 				"location": &models.GeoCoordinates{
 					Latitude:  1,
 					Longitude: 2,
@@ -182,6 +195,15 @@ func TestEsVectorRepo(t *testing.T) {
 		schema := res[0].Schema.(map[string]interface{})
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
 		assert.Equal(t, &models.GeoCoordinates{1, 2}, schema["location"], "has correct geo prop")
+		assert.Equal(t, &models.PhoneNumber{
+			CountryCode:            49,
+			DefaultCountry:         "DE",
+			Input:                  "0171 1234567",
+			Valid:                  true,
+			InternationalFormatted: "+49 171 1234567",
+			National:               1234567,
+			NationalFormatted:      "0171 1234567",
+		}, schema["phone"], "has correct phone prop")
 		assert.Equal(t, thingID.String(), schema["uuid"], "has id in schema as uuid field")
 		assert.Nil(t, res[0].Meta, "not meta information should be included unless explicitly asked for")
 	})

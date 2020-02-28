@@ -32,6 +32,9 @@ const (
 	// Float indexes a float64
 	Float FieldType = "float"
 
+	// Long indexes a long (which can be used for uint64)
+	Long FieldType = "long"
+
 	// Boolean indexes a boolean
 	Boolean FieldType = "boolean"
 
