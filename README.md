@@ -8,7 +8,7 @@
 ## Documentation
 
 - [Documentation](https://semi.technology/documentation/weaviate/current/).
-- [Getting Started Guide](https://semi.technology/documentation/weaviate/current/getting_started.html).
+- [Getting Started Guide](https://www.semi.technology/documentation/weaviate/current/get-started/quick_start.html).
 
 ## Support
 
