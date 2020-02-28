@@ -144,12 +144,23 @@ func creatingThings(t *testing.T) {
 			testWholeNumber, _ := schema["testWholeNumber"].(json.Number).Int64()
 			testNumber, _ := schema["testNumber"].(json.Number).Float64()
 
+			expectedParsedPhoneNumber := map[string]interface{}{
+				"input":                  "0171 11122233",
+				"defaultCountry":         "DE",
+				"countryCode":            json.Number("49"),
+				"internationalFormatted": "+49 171 11122233",
+				"national":               json.Number("17111122233"),
+				"nationalFormatted":      "0171 11122233",
+				"valid":                  true,
+			}
+
 			// Check whether the returned information is the same as the data added
 			assert.Equal(t, thingTestString, schema["testString"])
 			assert.Equal(t, thingTestInt, int(testWholeNumber))
 			assert.Equal(t, thingTestBoolean, schema["testTrueFalse"])
 			assert.Equal(t, thingTestNumber, testNumber)
 			assert.Equal(t, thingTestDate, schema["testDateTime"])
+			assert.Equal(t, expectedParsedPhoneNumber, schema["testPhoneNumber"])
 		})
 	})
 
