@@ -125,4 +125,40 @@ func gettingObjectsWithFilters(t *testing.T) {
 
 		assert.Equal(t, expected, cityMeta)
 	})
+
+	t.Run("with filters and ref showing a phone number", func(t *testing.T) {
+		// this is the journey test for gh-1088
+
+		query := `
+			{
+					Get {
+						Things {
+							Airport(where:{
+								valueString:"Amsterdam",
+								operator:Equal,
+								path:["inCity", "City", "name"]
+							}) {
+							  phone {
+								  internationalFormatted
+									countryCode
+									nationalFormatted
+								}
+							}
+						}
+					}
+			}
+		`
+		result := AssertGraphQL(t, helper.RootAuth, query)
+		airport := result.Get("Get", "Things", "Airport").AsSlice()[0]
+
+		expected := map[string]interface{}{
+			"phone": map[string]interface{}{
+				"internationalFormatted": "+31 1234567",
+				"countryCode":            json.Number("31"),
+				"nationalFormatted":      "1234567",
+			},
+		}
+
+		assert.Equal(t, expected, airport)
+	})
 }

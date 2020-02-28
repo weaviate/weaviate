@@ -39,9 +39,11 @@ const (
 	// DataTypeGeoCoordinates is used to represent geo coordintaes, i.e. latitude
 	// and longitude pairs of locations on earth
 	DataTypeGeoCoordinates DataType = "geoCoordinates"
+	// DataTypePhoneNumber represents a parsed/to-be-parsed phone number
+	DataTypePhoneNumber DataType = "phoneNumber"
 )
 
-var PrimitiveDataTypes []DataType = []DataType{DataTypeString, DataTypeText, DataTypeInt, DataTypeNumber, DataTypeBoolean, DataTypeDate, DataTypeGeoCoordinates}
+var PrimitiveDataTypes []DataType = []DataType{DataTypeString, DataTypeText, DataTypeInt, DataTypeNumber, DataTypeBoolean, DataTypeDate, DataTypeGeoCoordinates, DataTypePhoneNumber}
 
 type PropertyKind int
 
@@ -123,7 +125,8 @@ func (s *Schema) FindPropertyDataType(dataType []string) (PropertyDataType, erro
 			switch someDataType {
 			case string(DataTypeString), string(DataTypeText),
 				string(DataTypeInt), string(DataTypeNumber),
-				string(DataTypeBoolean), string(DataTypeDate), string(DataTypeGeoCoordinates):
+				string(DataTypeBoolean), string(DataTypeDate), string(DataTypeGeoCoordinates),
+				string(DataTypePhoneNumber):
 				return &propertyDataType{
 					kind:          PropertyKindPrimitive,
 					primitiveType: DataType(someDataType),

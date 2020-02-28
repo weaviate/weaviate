@@ -161,6 +161,8 @@ func (m *Migrator) esPropsFromClassProps(props []*models.Property, depth int) (m
 			esProperties[prop.Name] = typeMap(Date, index)
 		case string(schema.DataTypeGeoCoordinates):
 			esProperties[prop.Name] = typeMap(GeoPoint, index)
+		case string(schema.DataTypePhoneNumber):
+			esProperties[prop.Name] = typeMapPhoneNumber(index)
 		default:
 			// must be a ref
 
@@ -201,6 +203,20 @@ func typeMap(ft FieldType, index bool) map[string]interface{} {
 	return map[string]interface{}{
 		"type":  ft,
 		"index": index,
+	}
+}
+
+func typeMapPhoneNumber(index bool) map[string]interface{} {
+	return map[string]interface{}{
+		"properties": map[string]interface{}{
+			"countryCode":            typeMap(Long, index),
+			"defaultCountry":         typeMap(Keyword, index),
+			"input":                  typeMap(Keyword, index),
+			"internationalFormatted": typeMap(Keyword, index),
+			"national":               typeMap(Long, index),
+			"nationalFormatted":      typeMap(Keyword, index),
+			"valid":                  typeMap(Boolean, index),
+		},
 	}
 }
 
