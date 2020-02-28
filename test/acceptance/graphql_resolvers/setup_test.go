@@ -106,6 +106,10 @@ func addTestSchema(t *testing.T) {
 				DataType: []string{"string"},
 			},
 			&models.Property{
+				Name:     "phone",
+				DataType: []string{"phoneNumber"},
+			},
+			&models.Property{
 				Name:        "inCity",
 				DataType:    []string{"City"},
 				Cardinality: ptString("many"),
@@ -230,6 +234,9 @@ func addTestDataCityAirport(t *testing.T) {
 		ID:    airport1,
 		Schema: map[string]interface{}{
 			"code": "10000",
+			"phone": map[string]interface{}{
+				"input": "+311234567",
+			},
 			"inCity": []interface{}{
 				map[string]interface{}{
 					"beacon": crossref.New("localhost", amsterdam, kind.Thing).String(),
