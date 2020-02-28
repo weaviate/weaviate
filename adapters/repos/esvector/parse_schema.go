@@ -141,13 +141,19 @@ func isInternal(key string) bool {
 func parseMapProp(input map[string]interface{}) (interface{}, error) {
 	lat, latOK := input["lat"]
 	lon, lonOK := input["lon"]
+	_, phoneInputOK := input["input"]
 
 	if latOK && lonOK {
 		// this is a geoCoordinates prop
 		return parseGeoProp(lat, lon)
 	}
 
-	return nil, fmt.Errorf("unknown map prop which is not a geo prop: %v", input)
+	if phoneInputOK {
+		// this is a phone number
+		return parsePhoneNumber(input)
+	}
+
+	return nil, fmt.Errorf("unknown map prop which is not a geo prop or phone: %v", input)
 }
 
 func parseGeoProp(lat interface{}, lon interface{}) (*models.GeoCoordinates, error) {
@@ -162,6 +168,93 @@ func parseGeoProp(lat interface{}, lon interface{}) (*models.GeoCoordinates, err
 	}
 
 	return &models.GeoCoordinates{Latitude: float32(latFloat), Longitude: float32(lonFloat)}, nil
+}
+
+func parsePhoneNumber(input map[string]interface{}) (*models.PhoneNumber, error) {
+	out := &models.PhoneNumber{}
+
+	phoneInput, err := extractStringFromMap(input, "input")
+	if err != nil {
+		return nil, err
+	}
+	out.Input = phoneInput
+
+	international, err := extractStringFromMap(input, "internationalFormatted")
+	if err != nil {
+		return nil, err
+	}
+	out.InternationalFormatted = international
+
+	nationalFormatted, err := extractStringFromMap(input, "nationalFormatted")
+	if err != nil {
+		return nil, err
+	}
+	out.NationalFormatted = nationalFormatted
+
+	national, err := extractNumberFromMap(input, "national")
+	if err != nil {
+		return nil, err
+	}
+	out.National = uint64(national)
+
+	countryCode, err := extractNumberFromMap(input, "countryCode")
+	if err != nil {
+		return nil, err
+	}
+	out.CountryCode = uint64(countryCode)
+
+	defaultCountry, err := extractStringFromMap(input, "defaultCountry")
+	if err != nil {
+		return nil, err
+	}
+	out.DefaultCountry = defaultCountry
+
+	valid, err := extractBoolFromMap(input, "valid")
+	if err != nil {
+		return nil, err
+	}
+	out.Valid = valid
+
+	return out, nil
+}
+
+func extractNumberFromMap(input map[string]interface{}, key string) (float64, error) {
+	field, ok := input[key]
+	if ok {
+		asFloat, ok := field.(float64)
+		if !ok {
+			return 0, fmt.Errorf("expected '%s' to be float64, but is %T", key, field)
+		}
+
+		return asFloat, nil
+	}
+	return 0, nil
+}
+
+func extractStringFromMap(input map[string]interface{}, key string) (string, error) {
+	field, ok := input[key]
+	if ok {
+		asString, ok := field.(string)
+		if !ok {
+			return "", fmt.Errorf("expected '%s' to be string, but is %T", key, field)
+		}
+
+		return asString, nil
+	}
+	return "", nil
+}
+
+func extractBoolFromMap(input map[string]interface{}, key string) (bool, error) {
+	field, ok := input[key]
+	if ok {
+		asBool, ok := field.(bool)
+		if !ok {
+			return false, fmt.Errorf("expected '%s' to be bool, but is %T", key, field)
+		}
+
+		return asBool, nil
+	}
+	return false, nil
 }
 
 func (r *Repo) parseRefs(input []interface{}, prop string, selectProp traverser.SelectProperty, requestCacher *cacher) ([]interface{}, error) {

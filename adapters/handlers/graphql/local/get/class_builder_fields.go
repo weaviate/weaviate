@@ -83,6 +83,15 @@ func (b *classBuilder) primitiveField(propertyType schema.PropertyDataType,
 			Type:        obj,
 			Resolve:     resolveGeoCoordinates,
 		}
+	case schema.DataTypePhoneNumber:
+		obj := newPhoneNumberObject(className, property.Name)
+
+		return &graphql.Field{
+			Description: property.Description,
+			Name:        property.Name,
+			Type:        obj,
+			Resolve:     resolvePhoneNumber,
+		}
 	default:
 		panic(fmt.Sprintf("buildGetClass: unknown primitive type for %s.%s.%s; %s",
 			kindName, className, property.Name, propertyType.AsPrimitive()))
@@ -103,6 +112,50 @@ func newGeoCoordinatesObject(className string, propertyName string) *graphql.Obj
 				Name:        "Longitude",
 				Description: "The Longitude of the point in decimal form.",
 				Type:        graphql.Float,
+			},
+		},
+	})
+}
+
+func newPhoneNumberObject(className string, propertyName string) *graphql.Object {
+	return graphql.NewObject(graphql.ObjectConfig{
+		Description: "PhoneNumber in various parsed formats",
+		Name:        fmt.Sprintf("%s%sPhoneNumberObj", className, propertyName),
+		Fields: graphql.Fields{
+			"input": &graphql.Field{
+				Name:        "Input",
+				Description: "The raw phone number as put in by the user prior to parsing",
+				Type:        graphql.String,
+			},
+			"internationalFormatted": &graphql.Field{
+				Name:        "Input",
+				Description: "The parsed phone number in the international format",
+				Type:        graphql.String,
+			},
+			"nationalFormatted": &graphql.Field{
+				Name:        "Input",
+				Description: "The parsed phone number in the national format",
+				Type:        graphql.String,
+			},
+			"national": &graphql.Field{
+				Name:        "Input",
+				Description: "The parsed phone number in the national format",
+				Type:        graphql.Int,
+			},
+			"valid": &graphql.Field{
+				Name:        "Input",
+				Description: "Whether the phone number could be successfully parsed and was considered valid by the parser",
+				Type:        graphql.Boolean,
+			},
+			"countryCode": &graphql.Field{
+				Name:        "Input",
+				Description: "The parsed country code, i.e. the leading numbers identifing the country in an international format",
+				Type:        graphql.Int,
+			},
+			"defaultCountry": &graphql.Field{
+				Name:        "Input",
+				Description: "The defaultCountry as put in by the user. (This is used to help parse national numbers into an international format)",
+				Type:        graphql.String,
 			},
 		},
 	})
@@ -141,6 +194,28 @@ func resolveGeoCoordinates(p graphql.ResolveParams) (interface{}, error) {
 	return map[string]interface{}{
 		"latitude":  geo.Latitude,
 		"longitude": geo.Longitude,
+	}, nil
+}
+
+func resolvePhoneNumber(p graphql.ResolveParams) (interface{}, error) {
+	field := p.Source.(map[string]interface{})[p.Info.FieldName]
+	if field == nil {
+		return nil, nil
+	}
+
+	phone, ok := field.(*models.PhoneNumber)
+	if !ok {
+		return nil, fmt.Errorf("expected a *models.PhoneNumber, but got: %T", field)
+	}
+
+	return map[string]interface{}{
+		"input":                  phone.Input,
+		"internationalFormatted": phone.InternationalFormatted,
+		"nationalFormatted":      phone.NationalFormatted,
+		"national":               phone.National,
+		"valid":                  phone.Valid,
+		"countryCode":            phone.CountryCode,
+		"defaultCountry":         phone.DefaultCountry,
 	}, nil
 }
 
@@ -253,11 +328,10 @@ func isPrimitive(selectionSet *ast.SelectionSet) bool {
 	}
 
 	// if there is a selection set it could either be a cross-ref or a map-type
-	// field like GeoCoordinates
-
+	// field like GeoCoordinates or PhoneNumber
 	for _, subSelection := range selectionSet.Selections {
 		if subsectionField, ok := subSelection.(*ast.Field); ok {
-			if subsectionField.Name.Value == "latitude" || subsectionField.Name.Value == "longitude" {
+			if fieldNameIsOfObjectButNonReferenceType(subsectionField.Name.Value) {
 				return true
 			}
 		}
@@ -265,6 +339,20 @@ func isPrimitive(selectionSet *ast.SelectionSet) bool {
 
 	// must be a ref field
 	return false
+}
+
+func fieldNameIsOfObjectButNonReferenceType(field string) bool {
+	switch field {
+	case "latitude", "longitude":
+		// must be a geo prop
+		return true
+	case "input", "internationalFormatted", "nationalFormatted", "national",
+		"valid", "countryCode", "defaultCountry":
+		// must be a phone number
+		return true
+	default:
+		return false
+	}
 }
 
 func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.Definition) ([]traverser.SelectProperty, error) {

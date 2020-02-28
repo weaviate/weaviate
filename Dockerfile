@@ -5,7 +5,7 @@
 
 ###############################################################################
 # Base build image
-FROM golang:1.13-alpine AS build_base
+FROM golang:1.14-alpine AS build_base
 RUN apk add bash ca-certificates git gcc g++ libc-dev
 WORKDIR /go/src/github.com/semi-technologies/weaviate
 ENV GO111MODULE=on
