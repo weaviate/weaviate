@@ -31,6 +31,9 @@ type ObjectMeta struct {
 
 	// If this object was subject of a classificiation, additional meta info about this classification is available here
 	Classification *ObjectMetaClassification `json:"classification,omitempty"`
+
+	// This object's position in the Contextionary vector space
+	Vector C11yVector `json:"vector,omitempty"`
 }
 
 // Validate validates this object meta
@@ -38,6 +41,10 @@ func (m *ObjectMeta) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateClassification(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateVector(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -60,6 +67,22 @@ func (m *ObjectMeta) validateClassification(formats strfmt.Registry) error {
 			}
 			return err
 		}
+	}
+
+	return nil
+}
+
+func (m *ObjectMeta) validateVector(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Vector) { // not required
+		return nil
+	}
+
+	if err := m.Vector.Validate(formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("vector")
+		}
+		return err
 	}
 
 	return nil

@@ -16,7 +16,6 @@ package vectorizer
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -64,12 +63,14 @@ func (i *Inspector) GetWords(ctx context.Context, words string) (*models.C11yWor
 
 func (i *Inspector) validateAndSplit(words string) ([]string, error) {
 	// set first character to lowercase
-	firstChar := []rune(words)
-	firstChar[0] = unicode.ToLower(firstChar[0])
-	words = string(firstChar)
+	wordChars := []rune(words)
+	wordChars[0] = unicode.ToLower(wordChars[0])
+	words = string(wordChars)
 
-	if ok, _ := regexp.MatchString("^[a-zA-Z]+$", words); !ok {
-		return nil, fmt.Errorf("invalid word input: words must match ^[a-zA-Z]+$")
+	for _, r := range words {
+		if !unicode.IsLetter(r) && !unicode.IsNumber(r) {
+			return nil, fmt.Errorf("invalid word input: words must only contain unicode letters and digits")
+		}
 	}
 
 	return split(words), nil
@@ -218,7 +219,7 @@ func split(src string) (entries []string) {
 		case unicode.IsUpper(r):
 			class = 2
 		case unicode.IsDigit(r):
-			class = 3
+			class = 1
 		default:
 			class = 4
 		}
