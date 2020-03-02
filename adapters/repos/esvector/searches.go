@@ -24,6 +24,7 @@ import (
 	"github.com/elastic/go-elasticsearch/v5/esapi"
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -33,14 +34,14 @@ import (
 
 // ThingSearch searches for all things with optional filters without vector scoring
 func (r *Repo) ThingSearch(ctx context.Context, limit int,
-	filters *filters.LocalFilter) (search.Results, error) {
-	return r.search(ctx, allThingIndices, nil, limit, filters, traverser.GetParams{}, false)
+	filters *filters.LocalFilter, meta bool) (search.Results, error) {
+	return r.search(ctx, allThingIndices, nil, limit, filters, traverser.GetParams{}, meta)
 }
 
 // ActionSearch searches for all things with optional filters without vector scoring
 func (r *Repo) ActionSearch(ctx context.Context, limit int,
-	filters *filters.LocalFilter) (search.Results, error) {
-	return r.search(ctx, allActionIndices, nil, limit, filters, traverser.GetParams{}, false)
+	filters *filters.LocalFilter, meta bool) (search.Results, error) {
+	return r.search(ctx, allActionIndices, nil, limit, filters, traverser.GetParams{}, meta)
 }
 
 // ThingByID extracts the one result matching the ID. Returns nil on no results
@@ -365,7 +366,16 @@ func (sr searchResponse) toResults(r *Repo, properties traverser.SelectPropertie
 			VectorWeights: weights,
 		}
 		if meta {
-			output[i].Meta = r.extractMeta(hit.Source)
+			objectMeta := r.extractMeta(hit.Source)
+			if objectMeta == nil {
+				// meta could be nil as we have no meta data other than the vector, in
+				// this case, we instantiate a new ObjectMeta object, so adding the
+				// vector doesn't panic with a nil-pointer deref
+				objectMeta = &models.ObjectMeta{}
+			}
+
+			objectMeta.Vector = vector
+			output[i].Meta = objectMeta
 		}
 	}
 

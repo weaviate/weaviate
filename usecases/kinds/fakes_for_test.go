@@ -147,12 +147,12 @@ func (f *fakeVectorRepo) ActionByID(ctx context.Context,
 }
 
 func (f *fakeVectorRepo) ThingSearch(ctx context.Context, limit int,
-	filters *filters.LocalFilter) (search.Results, error) {
+	filters *filters.LocalFilter, meta bool) (search.Results, error) {
 	return nil, nil
 }
 
 func (f *fakeVectorRepo) ActionSearch(ctx context.Context, limit int,
-	filters *filters.LocalFilter) (search.Results, error) {
+	filters *filters.LocalFilter, meta bool) (search.Results, error) {
 	return nil, nil
 }
 
