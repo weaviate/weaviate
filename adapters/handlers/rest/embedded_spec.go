@@ -124,6 +124,9 @@ func init() {
         "parameters": [
           {
             "$ref": "#/parameters/CommonLimitParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonMetaParameterQuery"
           }
         ],
         "responses": {
@@ -2104,6 +2107,9 @@ func init() {
         "parameters": [
           {
             "$ref": "#/parameters/CommonLimitParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonMetaParameterQuery"
           }
         ],
         "responses": {
@@ -3920,6 +3926,12 @@ func init() {
             "format": "int64",
             "description": "The maximum number of items to be returned per page. Default value is set in Weaviate config.",
             "name": "limit",
+            "in": "query"
+          },
+          {
+            "type": "boolean",
+            "description": "Should additional meta information (e.g. about classified properties) be included? Defaults to false.",
+            "name": "meta",
             "in": "query"
           }
         ],
@@ -5907,6 +5919,12 @@ func init() {
             "format": "int64",
             "description": "The maximum number of items to be returned per page. Default value is set in Weaviate config.",
             "name": "limit",
+            "in": "query"
+          },
+          {
+            "type": "boolean",
+            "description": "Should additional meta information (e.g. about classified properties) be included? Defaults to false.",
+            "name": "meta",
             "in": "query"
           }
         ],

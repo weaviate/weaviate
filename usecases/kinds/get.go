@@ -55,7 +55,8 @@ func (m *Manager) GetThing(ctx context.Context, principal *models.Principal,
 }
 
 // GetThings Class from the connected DB
-func (m *Manager) GetThings(ctx context.Context, principal *models.Principal, limit *int64) ([]*models.Thing, error) {
+func (m *Manager) GetThings(ctx context.Context, principal *models.Principal,
+	limit *int64, meta bool) ([]*models.Thing, error) {
 	err := m.authorizer.Authorize(principal, "list", "things")
 	if err != nil {
 		return nil, err
@@ -67,12 +68,12 @@ func (m *Manager) GetThings(ctx context.Context, principal *models.Principal, li
 	}
 	defer unlock()
 
-	return m.getThingsFromRepo(ctx, limit)
+	return m.getThingsFromRepo(ctx, limit, meta)
 }
 
 // GetAction Class from connected DB
-func (m *Manager) GetAction(ctx context.Context, principal *models.Principal, id strfmt.UUID,
-	meta bool) (*models.Action, error) {
+func (m *Manager) GetAction(ctx context.Context, principal *models.Principal,
+	id strfmt.UUID, meta bool) (*models.Action, error) {
 	err := m.authorizer.Authorize(principal, "get", fmt.Sprintf("actions/%s", id.String()))
 	if err != nil {
 		return nil, err
@@ -93,7 +94,8 @@ func (m *Manager) GetAction(ctx context.Context, principal *models.Principal, id
 }
 
 // GetActions Class from connected DB
-func (m *Manager) GetActions(ctx context.Context, principal *models.Principal, limit *int64) ([]*models.Action, error) {
+func (m *Manager) GetActions(ctx context.Context, principal *models.Principal,
+	limit *int64, meta bool) ([]*models.Action, error) {
 	err := m.authorizer.Authorize(principal, "list", "actions")
 	if err != nil {
 		return nil, err
@@ -105,7 +107,7 @@ func (m *Manager) GetActions(ctx context.Context, principal *models.Principal, l
 	}
 	defer unlock()
 
-	return m.getActionsFromRepo(ctx, limit)
+	return m.getActionsFromRepo(ctx, limit, meta)
 }
 
 func (m *Manager) getThingFromRepo(ctx context.Context, id strfmt.UUID, meta bool) (*search.Result, error) {
@@ -121,10 +123,10 @@ func (m *Manager) getThingFromRepo(ctx context.Context, id strfmt.UUID, meta boo
 	return res, nil
 }
 
-func (m *Manager) getThingsFromRepo(ctx context.Context, limit *int64) ([]*models.Thing, error) {
+func (m *Manager) getThingsFromRepo(ctx context.Context, limit *int64, meta bool) ([]*models.Thing, error) {
 	smartLimit := m.localLimitOrGlobalLimit(limit)
 
-	res, err := m.vectorRepo.ThingSearch(ctx, smartLimit, nil)
+	res, err := m.vectorRepo.ThingSearch(ctx, smartLimit, nil, meta)
 	if err != nil {
 		return nil, NewErrInternal("list things: %v", err)
 	}
@@ -145,10 +147,10 @@ func (m *Manager) getActionFromRepo(ctx context.Context, id strfmt.UUID, meta bo
 	return res, nil
 }
 
-func (m *Manager) getActionsFromRepo(ctx context.Context, limit *int64) ([]*models.Action, error) {
+func (m *Manager) getActionsFromRepo(ctx context.Context, limit *int64, meta bool) ([]*models.Action, error) {
 	smartLimit := m.localLimitOrGlobalLimit(limit)
 
-	res, err := m.vectorRepo.ActionSearch(ctx, smartLimit, nil)
+	res, err := m.vectorRepo.ActionSearch(ctx, smartLimit, nil, meta)
 	if err != nil {
 		return nil, NewErrInternal("list actions: %v", err)
 	}

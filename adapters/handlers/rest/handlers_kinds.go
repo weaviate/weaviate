@@ -117,11 +117,7 @@ func (h *kindHandlers) validateAction(params actions.ActionsValidateParams,
 
 func (h *kindHandlers) getThing(params things.ThingsGetParams,
 	principal *models.Principal) middleware.Responder {
-	var includeMeta bool
-	if params.Meta != nil && *params.Meta {
-		includeMeta = true
-	}
-	thing, err := h.manager.GetThing(params.HTTPRequest.Context(), principal, params.ID, includeMeta)
+	thing, err := h.manager.GetThing(params.HTTPRequest.Context(), principal, params.ID, derefBool(params.Meta))
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -141,11 +137,7 @@ func (h *kindHandlers) getThing(params things.ThingsGetParams,
 
 func (h *kindHandlers) getAction(params actions.ActionsGetParams,
 	principal *models.Principal) middleware.Responder {
-	var includeMeta bool
-	if params.Meta != nil && *params.Meta {
-		includeMeta = true
-	}
-	action, err := h.manager.GetAction(params.HTTPRequest.Context(), principal, params.ID, includeMeta)
+	action, err := h.manager.GetAction(params.HTTPRequest.Context(), principal, params.ID, derefBool(params.Meta))
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -165,7 +157,7 @@ func (h *kindHandlers) getAction(params actions.ActionsGetParams,
 
 func (h *kindHandlers) getThings(params things.ThingsListParams,
 	principal *models.Principal) middleware.Responder {
-	list, err := h.manager.GetThings(params.HTTPRequest.Context(), principal, params.Limit)
+	list, err := h.manager.GetThings(params.HTTPRequest.Context(), principal, params.Limit, derefBool(params.Meta))
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -187,7 +179,7 @@ func (h *kindHandlers) getThings(params things.ThingsListParams,
 
 func (h *kindHandlers) getActions(params actions.ActionsListParams,
 	principal *models.Principal) middleware.Responder {
-	list, err := h.manager.GetActions(params.HTTPRequest.Context(), principal, params.Limit)
+	list, err := h.manager.GetActions(params.HTTPRequest.Context(), principal, params.Limit, derefBool(params.Meta))
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -509,4 +501,12 @@ func (h *kindHandlers) telemetryLogAsync(requestType, identifier string) {
 	go func() {
 		h.requestsLog.Register(requestType, identifier)
 	}()
+}
+
+func derefBool(in *bool) bool {
+	if in == nil {
+		return false
+	}
+
+	return *in
 }
