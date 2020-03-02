@@ -80,6 +80,11 @@ type ThingsListParams struct {
 
 	*/
 	Limit *int64
+	/*Meta
+	  Should additional meta information (e.g. about classified properties) be included? Defaults to false.
+
+	*/
+	Meta *bool
 
 	timeout    time.Duration
 	Context    context.Context
@@ -130,6 +135,17 @@ func (o *ThingsListParams) SetLimit(limit *int64) {
 	o.Limit = limit
 }
 
+// WithMeta adds the meta to the things list params
+func (o *ThingsListParams) WithMeta(meta *bool) *ThingsListParams {
+	o.SetMeta(meta)
+	return o
+}
+
+// SetMeta adds the meta to the things list params
+func (o *ThingsListParams) SetMeta(meta *bool) {
+	o.Meta = meta
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *ThingsListParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -148,6 +164,22 @@ func (o *ThingsListParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Re
 		qLimit := swag.FormatInt64(qrLimit)
 		if qLimit != "" {
 			if err := r.SetQueryParam("limit", qLimit); err != nil {
+				return err
+			}
+		}
+
+	}
+
+	if o.Meta != nil {
+
+		// query param meta
+		var qrMeta bool
+		if o.Meta != nil {
+			qrMeta = *o.Meta
+		}
+		qMeta := swag.FormatBool(qrMeta)
+		if qMeta != "" {
+			if err := r.SetQueryParam("meta", qMeta); err != nil {
 				return err
 			}
 		}
