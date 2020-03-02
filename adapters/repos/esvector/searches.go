@@ -34,14 +34,14 @@ import (
 
 // ThingSearch searches for all things with optional filters without vector scoring
 func (r *Repo) ThingSearch(ctx context.Context, limit int,
-	filters *filters.LocalFilter) (search.Results, error) {
-	return r.search(ctx, allThingIndices, nil, limit, filters, traverser.GetParams{}, false)
+	filters *filters.LocalFilter, meta bool) (search.Results, error) {
+	return r.search(ctx, allThingIndices, nil, limit, filters, traverser.GetParams{}, meta)
 }
 
 // ActionSearch searches for all things with optional filters without vector scoring
 func (r *Repo) ActionSearch(ctx context.Context, limit int,
-	filters *filters.LocalFilter) (search.Results, error) {
-	return r.search(ctx, allActionIndices, nil, limit, filters, traverser.GetParams{}, false)
+	filters *filters.LocalFilter, meta bool) (search.Results, error) {
+	return r.search(ctx, allActionIndices, nil, limit, filters, traverser.GetParams{}, meta)
 }
 
 // ThingByID extracts the one result matching the ID. Returns nil on no results
