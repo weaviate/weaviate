@@ -118,13 +118,13 @@ func Test_Kinds_Authorization(t *testing.T) {
 		// list kinds
 		testCase{
 			methodName:       "GetThings",
-			additionalArgs:   []interface{}{(*int64)(nil)},
+			additionalArgs:   []interface{}{(*int64)(nil), false},
 			expectedVerb:     "list",
 			expectedResource: "things",
 		},
 		testCase{
 			methodName:       "GetActions",
-			additionalArgs:   []interface{}{(*int64)(nil)},
+			additionalArgs:   []interface{}{(*int64)(nil), false},
 			expectedVerb:     "list",
 			expectedResource: "actions",
 		},

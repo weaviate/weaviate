@@ -49,6 +49,10 @@ type ThingsListParams struct {
 	  In: query
 	*/
 	Limit *int64
+	/*Should additional meta information (e.g. about classified properties) be included? Defaults to false.
+	  In: query
+	*/
+	Meta *bool
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -64,6 +68,11 @@ func (o *ThingsListParams) BindRequest(r *http.Request, route *middleware.Matche
 
 	qLimit, qhkLimit, _ := qs.GetOK("limit")
 	if err := o.bindLimit(qLimit, qhkLimit, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	qMeta, qhkMeta, _ := qs.GetOK("meta")
+	if err := o.bindMeta(qMeta, qhkMeta, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -91,6 +100,28 @@ func (o *ThingsListParams) bindLimit(rawData []string, hasKey bool, formats strf
 		return errors.InvalidType("limit", "query", "int64", raw)
 	}
 	o.Limit = &value
+
+	return nil
+}
+
+// bindMeta binds and validates parameter Meta from query.
+func (o *ThingsListParams) bindMeta(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+
+	value, err := swag.ConvertBool(raw)
+	if err != nil {
+		return errors.InvalidType("meta", "query", "bool", raw)
+	}
+	o.Meta = &value
 
 	return nil
 }
