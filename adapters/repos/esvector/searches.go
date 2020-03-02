@@ -24,6 +24,7 @@ import (
 	"github.com/elastic/go-elasticsearch/v5/esapi"
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -365,7 +366,16 @@ func (sr searchResponse) toResults(r *Repo, properties traverser.SelectPropertie
 			VectorWeights: weights,
 		}
 		if meta {
-			output[i].Meta = r.extractMeta(hit.Source)
+			objectMeta := r.extractMeta(hit.Source)
+			if objectMeta == nil {
+				// meta could be nil as we have no meta data other than the vector, in
+				// this case, we instantiate a new ObjectMeta object, so adding the
+				// vector doesn't panic with a nil-pointer deref
+				objectMeta = &models.ObjectMeta{}
+			}
+
+			objectMeta.Vector = vector
+			output[i].Meta = objectMeta
 		}
 	}
 

@@ -3249,6 +3249,10 @@ func init() {
         "classification": {
           "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
           "$ref": "#/definitions/ObjectMetaClassification"
+        },
+        "vector": {
+          "description": "This object's position in the Contextionary vector space",
+          "$ref": "#/definitions/C11yVector"
         }
       }
     },
@@ -7052,6 +7056,10 @@ func init() {
         "classification": {
           "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
           "$ref": "#/definitions/ObjectMetaClassification"
+        },
+        "vector": {
+          "description": "This object's position in the Contextionary vector space",
+          "$ref": "#/definitions/C11yVector"
         }
       }
     },
