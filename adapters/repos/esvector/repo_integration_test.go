@@ -290,6 +290,7 @@ func TestEsVectorRepo(t *testing.T) {
 				ClassifiedFields: []string{"field1", "field2"},
 				Completed:        timeMust(strfmt.ParseDateTime("2006-01-02T15:04:05.000Z")),
 			},
+			Vector: []float32{3, 1, 0.3, 12},
 		}, item.Meta, "it should include the object meta as it was explicitly specified")
 	})
 
