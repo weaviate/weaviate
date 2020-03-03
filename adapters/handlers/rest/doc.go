@@ -22,7 +22,7 @@ Open Source Knowledge Graph (GraphQL/RESTful/P2P)
       https
     Host: localhost
     BasePath: /v1
-    Version: 0.22.2
+    Version: 0.22.3
     Contact: Weaviate<hello@semi.technology> https://github.com/semi-technologies
 
     Consumes:
