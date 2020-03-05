@@ -1,0 +1,19 @@
+---
+authentication:
+  anonymous_access:
+    enabled: true
+configuration_storage:
+  type: etcd
+  url: http://etcd:2379
+contextionary:
+  url: contextionary:9999
+limit: 100
+debug: false
+telemetry:
+  disabled: true
+query_defaults:
+  limit: 25
+vector_index:
+  enabled: true
+  url: http://esvector:9200
+  denormalizationDepth: 2

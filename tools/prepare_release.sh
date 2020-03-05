@@ -3,7 +3,7 @@
 set -euo pipefail
 
 VERSION=$(jq -r '.info.version' openapi-specs/schema.json)
-LANGUAGES="en nl"
+LANGUAGES="en nl de cs it"
 IMAGE_BASE="semitechnologies/weaviate:"
 MSG=${1:""}
 REQUIRED_TOOLS="jq yaml2json json2yaml git"
@@ -35,7 +35,7 @@ echo "You can use the following template for the release notes, copy/paste below
 echo "----------------------------"
 cat <<EOM
 Docker image/tag: \`semitechnologies/weaviate:$VERSION\`
-See also: example docker compose files in [english](https://github.com/semi-technologies/weaviate/tree/$VERSION/docker-compose/runtime/en) and [dutch](https://github.com/semi-technologies/weaviate/tree/$VERSION/docker-compose/runtime/nl).
+See also: example docker compose files in [English](https://github.com/semi-technologies/weaviate/tree/$VERSION/docker-compose/runtime/en), [German](https://github.com/semi-technologies/weaviate/tree/$VERSION/docker-compose/runtime/de), [Dutch](https://github.com/semi-technologies/weaviate/tree/$VERSION/docker-compose/runtime/nl), [Italian](https://github.com/semi-technologies/weaviate/tree/$VERSION/docker-compose/runtime/it) and [Czech](https://github.com/semi-technologies/weaviate/tree/$VERSION/docker-compose/runtime/cs).
 
 ## Breaking Changes
 
