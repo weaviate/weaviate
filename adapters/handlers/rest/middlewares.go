@@ -41,6 +41,20 @@ func makeSetupMiddlewares(appState *state.State) func(http.Handler) http.Handler
 
 }
 
+func addHandleRoot(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.String() == "/" {
+			w.Header().Add("Location", "/v1")
+			w.WriteHeader(http.StatusMovedPermanently)
+			w.Write([]byte(`{"links":{"href":"/v1","name":"api v1","documentationHref":` +
+				`"https://www.semi.technology/documentation/weaviate/current/"}}`))
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 // The middleware configuration happens before anything, this middleware also applies to serving the swagger.json document.
 // So this is a good place to plug in a panic handling middleware, logging and metrics
 // Contains "x-api-key", "x-api-token" for legacy reasons, older interfaces might need these headers.
@@ -55,6 +69,7 @@ func makeSetupGlobalMiddleware(appState *state.State) func(http.Handler) http.Ha
 		handler = makeAddLogging(appState.Logger)(handler)
 		handler = addPreflight(handler)
 		handler = addLiveAndReadyness(handler)
+		handler = addHandleRoot(handler)
 
 		return handler
 	}

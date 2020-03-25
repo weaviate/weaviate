@@ -2,6 +2,27 @@
   "basePath": "/v1",
   "consumes": ["application/yaml", "application/json"],
   "definitions": {
+    "Link": {
+      "type": "object",
+      "properties": {
+        "href": {
+          "type": "string",
+          "description": "target of the link"
+        },
+        "rel": {
+          "type": "string",
+          "description": "relationship if both resources are related, e.g. 'next', 'previous', 'parent', etc."
+        },
+        "name": {
+          "type":"string",
+          "description": "human readable name of the resource group"
+        },
+        "documentationHref": {
+          "type": "string",
+          "description": "weaviate documentation about this resource group"
+        }
+      }
+    },
     "Principal": {
       "type": "object",
       "properties": {
@@ -1066,6 +1087,28 @@
     }
   },
   "paths": {
+     "/": {
+       "get": {
+         "description": "Home. Discover the REST API",
+         "operationId": "weaviate.root",
+         "responses": {
+           "200": {
+             "description": "Weaviate is alive and ready to serve content",
+             "schema": {
+               "type": "object",
+               "properties": {
+                 "links": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/definitions/Link"
+                    }
+                 }
+               }
+             }
+           }
+         }
+       }
+     },
      "/.well-known/live": {
       "get": {
         "description": "Determines whether the application is alive. Can be used for kubernetes liveness probe",

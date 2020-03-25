@@ -54,6 +54,28 @@ func init() {
   },
   "basePath": "/v1",
   "paths": {
+    "/": {
+      "get": {
+        "description": "Home. Discover the REST API",
+        "operationId": "weaviate.root",
+        "responses": {
+          "200": {
+            "description": "Weaviate is alive and ready to serve content",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "links": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/Link"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/.well-known/live": {
       "get": {
         "description": "Determines whether the application is alive. Can be used for kubernetes liveness probe",
@@ -3215,6 +3237,27 @@ func init() {
             "type": "number",
             "format": "float"
           }
+        }
+      }
+    },
+    "Link": {
+      "type": "object",
+      "properties": {
+        "documentationHref": {
+          "description": "weaviate documentation about this resource group",
+          "type": "string"
+        },
+        "href": {
+          "description": "target of the link",
+          "type": "string"
+        },
+        "name": {
+          "description": "human readable name of the resource group",
+          "type": "string"
+        },
+        "rel": {
+          "description": "relationship if both resources are related, e.g. 'next', 'previous', 'parent', etc.",
+          "type": "string"
         }
       }
     },
@@ -3853,6 +3896,28 @@ func init() {
   },
   "basePath": "/v1",
   "paths": {
+    "/": {
+      "get": {
+        "description": "Home. Discover the REST API",
+        "operationId": "weaviate.root",
+        "responses": {
+          "200": {
+            "description": "Weaviate is alive and ready to serve content",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "links": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/Link"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/.well-known/live": {
       "get": {
         "description": "Determines whether the application is alive. Can be used for kubernetes liveness probe",
@@ -7034,6 +7099,27 @@ func init() {
             "type": "number",
             "format": "float"
           }
+        }
+      }
+    },
+    "Link": {
+      "type": "object",
+      "properties": {
+        "documentationHref": {
+          "description": "weaviate documentation about this resource group",
+          "type": "string"
+        },
+        "href": {
+          "description": "target of the link",
+          "type": "string"
+        },
+        "name": {
+          "description": "human readable name of the resource group",
+          "type": "string"
+        },
+        "rel": {
+          "description": "relationship if both resources are related, e.g. 'next', 'previous', 'parent', etc.",
+          "type": "string"
         }
       }
     },
