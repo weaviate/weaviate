@@ -128,4 +128,59 @@ func setupMiscHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Reque
 
 			return well_known.NewGetWellKnownOpenidConfigurationOK().WithPayload(body)
 		})
+
+	api.WeaviateRootHandler = operations.WeaviateRootHandlerFunc(
+		func(params operations.WeaviateRootParams, principal *models.Principal) middleware.Responder {
+			var origin string // if the user has not configured the origin, we are serving relative links instead
+			body := &operations.WeaviateRootOKBody{
+				Links: []*models.Link{
+					&models.Link{
+						Name: "Meta information about this instance/cluster",
+						Href: fmt.Sprintf("%s/v1/meta", origin),
+					},
+					&models.Link{
+						Name:              "view complete schema",
+						Href:              fmt.Sprintf("%s/v1/schema", origin),
+						DocumentationHref: "https://www.semi.technology/documentation/weaviate/current/add-data/define_schema.html",
+					},
+					&models.Link{
+						Name:              "CRUD things schema",
+						Href:              fmt.Sprintf("%s/v1/schema/things{/:className}", origin),
+						DocumentationHref: "https://www.semi.technology/documentation/weaviate/current/add-data/define_schema.html",
+					},
+					&models.Link{
+						Name:              "CRUD actions schema",
+						Href:              fmt.Sprintf("%s/v1/schema/actions{/:className}", origin),
+						DocumentationHref: "https://www.semi.technology/documentation/weaviate/current/add-data/define_schema.html",
+					},
+					&models.Link{
+						Name:              "CRUD things",
+						Href:              fmt.Sprintf("%s/v1/things{/:id}", origin),
+						DocumentationHref: "https://www.semi.technology/documentation/weaviate/current/add-data/add_and_modify.html",
+					},
+					&models.Link{
+						Name:              "CRUD actions",
+						Href:              fmt.Sprintf("%s/v1/actions{/:id}", origin),
+						DocumentationHref: "https://www.semi.technology/documentation/weaviate/current/add-data/add_and_modify.html",
+					},
+					&models.Link{
+						Name:              "trigger and view status of classifications",
+						Href:              fmt.Sprintf("%s/v1/classifications{/:id}", origin),
+						DocumentationHref: "https://www.semi.technology/documentation/weaviate/current/features/contextual-classification.html,https://www.semi.technology/documentation/weaviate/current/features/knn-classification.html",
+					},
+					&models.Link{
+						Name:              "search contextionary for concepts",
+						Href:              fmt.Sprintf("%s/v1/c11y/concepts/:concept", origin),
+						DocumentationHref: "https://www.semi.technology/documentation/weaviate/current/features/adding-synonyms.html",
+					},
+					&models.Link{
+						Name:              "extend contextionary with custom extensions",
+						Href:              fmt.Sprintf("%s/v1/c11y/extensions", origin),
+						DocumentationHref: "https://www.semi.technology/documentation/weaviate/current/features/adding-synonyms.html",
+					},
+				},
+			}
+
+			return operations.NewWeaviateRootOK().WithPayload(body)
+		})
 }
