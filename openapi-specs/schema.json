@@ -606,6 +606,11 @@
           "format": "uri",
           "type": "string"
         },
+        "href": {
+          "description": "If using a direct reference, this read-only fields provides a link to the refernced resource. If 'origin' is globally configured, an absolute URI is shown - a relative URI otherwise.",
+          "format": "uri",
+          "type": "string"
+        },
         "meta": {
           "description": "Additional Meta information about this particular reference. Only shown if meta==true.",
           "$ref": "#/definitions/ReferenceMeta"

@@ -27,6 +27,39 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 				thing:          &models.Thing{Class: "Foo", Schema: nil},
 				expectedResult: &models.Thing{Class: "Foo", Schema: nil},
 			},
+			test{
+				name: "without ref props - nothing changes",
+				thing: &models.Thing{Class: "Foo", Schema: map[string]interface{}{
+					"name":           "hello world",
+					"numericalField": 134,
+				}},
+				expectedResult: &models.Thing{Class: "Foo", Schema: map[string]interface{}{
+					"name":           "hello world",
+					"numericalField": 134,
+				}},
+			},
+			test{
+				name: "with a ref prop - no origin configured",
+				thing: &models.Thing{Class: "Foo", Schema: map[string]interface{}{
+					"name":           "hello world",
+					"numericalField": 134,
+					"someRef": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: "weaviate://localhost/things/85f78e29-5937-4390-a121-5379f262b4e5",
+						},
+					},
+				}},
+				expectedResult: &models.Thing{Class: "Foo", Schema: map[string]interface{}{
+					"name":           "hello world",
+					"numericalField": 134,
+					"someRef": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: "weaviate://localhost/things/85f78e29-5937-4390-a121-5379f262b4e5",
+							Href:   "/v1/things/85f78e29-5937-4390-a121-5379f262b4e5",
+						},
+					},
+				}},
+			},
 		}
 
 		for _, test := range tests {
