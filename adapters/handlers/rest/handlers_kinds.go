@@ -14,7 +14,10 @@
 package rest
 
 import (
+	"context"
+
 	middleware "github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/actions"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/things"
@@ -25,8 +28,35 @@ import (
 )
 
 type kindHandlers struct {
-	manager     *kinds.Manager
-	requestsLog *telemetry.RequestsLog
+	manager     kindsManager
+	requestsLog requestLog
+}
+
+type requestLog interface {
+	Register(string, string)
+}
+
+type kindsManager interface {
+	AddThing(context.Context, *models.Principal, *models.Thing) (*models.Thing, error)
+	AddAction(context.Context, *models.Principal, *models.Action) (*models.Action, error)
+	ValidateThing(context.Context, *models.Principal, *models.Thing) error
+	ValidateAction(context.Context, *models.Principal, *models.Action) error
+	GetThing(context.Context, *models.Principal, strfmt.UUID, bool) (*models.Thing, error)
+	GetAction(context.Context, *models.Principal, strfmt.UUID, bool) (*models.Action, error)
+	GetThings(context.Context, *models.Principal, *int64, bool) ([]*models.Thing, error)
+	GetActions(context.Context, *models.Principal, *int64, bool) ([]*models.Action, error)
+	UpdateThing(context.Context, *models.Principal, strfmt.UUID, *models.Thing) (*models.Thing, error)
+	UpdateAction(context.Context, *models.Principal, strfmt.UUID, *models.Action) (*models.Action, error)
+	MergeThing(context.Context, *models.Principal, strfmt.UUID, *models.Thing) error
+	MergeAction(context.Context, *models.Principal, strfmt.UUID, *models.Action) error
+	DeleteThing(context.Context, *models.Principal, strfmt.UUID) error
+	DeleteAction(context.Context, *models.Principal, strfmt.UUID) error
+	AddThingReference(context.Context, *models.Principal, strfmt.UUID, string, *models.SingleRef) error
+	AddActionReference(context.Context, *models.Principal, strfmt.UUID, string, *models.SingleRef) error
+	UpdateThingReferences(context.Context, *models.Principal, strfmt.UUID, string, models.MultipleRef) error
+	UpdateActionReferences(context.Context, *models.Principal, strfmt.UUID, string, models.MultipleRef) error
+	DeleteThingReference(context.Context, *models.Principal, strfmt.UUID, string, *models.SingleRef) error
+	DeleteActionReference(context.Context, *models.Principal, strfmt.UUID, string, *models.SingleRef) error
 }
 
 func (h *kindHandlers) addThing(params things.ThingsCreateParams,
