@@ -131,7 +131,7 @@ func setupMiscHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Reque
 
 	api.WeaviateRootHandler = operations.WeaviateRootHandlerFunc(
 		func(params operations.WeaviateRootParams, principal *models.Principal) middleware.Responder {
-			var origin string // if the user has not configured the origin, we are serving relative links instead
+			origin := serverConfig.Config.Origin
 			body := &operations.WeaviateRootOKBody{
 				Links: []*models.Link{
 					&models.Link{
