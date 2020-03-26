@@ -15,6 +15,7 @@ package rest
 
 import (
 	"context"
+	"fmt"
 
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
@@ -22,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/actions"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/things"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
@@ -159,6 +161,11 @@ func (h *kindHandlers) getThing(params things.ThingsGetParams,
 			return things.NewThingsGetInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
+	}
+
+	schemaMap, ok := thing.Schema.(map[string]interface{})
+	if ok {
+		thing.Schema = h.extendSchemaWithAPILinks(schemaMap)
 	}
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalQuery)
@@ -539,4 +546,40 @@ func derefBool(in *bool) bool {
 	}
 
 	return *in
+}
+
+func (h *kindHandlers) extendSchemaWithAPILinks(schema map[string]interface{}) map[string]interface{} {
+	if schema == nil {
+		return schema
+	}
+
+	for key, value := range schema {
+		asMultiRef, ok := value.(models.MultipleRef)
+		if !ok {
+			continue
+		}
+
+		schema[key] = h.extendReferencesWithAPILinks(asMultiRef)
+	}
+	return schema
+}
+
+func (h *kindHandlers) extendReferencesWithAPILinks(refs models.MultipleRef) models.MultipleRef {
+	for i, ref := range refs {
+		refs[i] = h.extendReferenceWithAPILink(ref)
+	}
+
+	return refs
+}
+
+func (h *kindHandlers) extendReferenceWithAPILink(ref *models.SingleRef) *models.SingleRef {
+
+	parsed, err := crossref.Parse(ref.Beacon.String())
+	if err != nil {
+		// ignore return unchanged
+		return ref
+	}
+
+	ref.Href = strfmt.URI(fmt.Sprintf("%s/v1/%ss/%s", "", parsed.Kind.Name(), parsed.TargetID))
+	return ref
 }

@@ -38,6 +38,10 @@ type SingleRef struct {
 	// Format: uri
 	Class strfmt.URI `json:"class,omitempty"`
 
+	// If using a direct reference, this read-only fields provides a link to the refernced resource. If 'origin' is globally configured, an absolute URI is shown - a relative URI otherwise.
+	// Format: uri
+	Href strfmt.URI `json:"href,omitempty"`
+
 	// Additional Meta information about this particular reference. Only shown if meta==true.
 	Meta *ReferenceMeta `json:"meta,omitempty"`
 
@@ -54,6 +58,10 @@ func (m *SingleRef) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateClass(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateHref(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -87,6 +95,19 @@ func (m *SingleRef) validateClass(formats strfmt.Registry) error {
 	}
 
 	if err := validate.FormatOf("class", "body", "uri", m.Class.String(), formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *SingleRef) validateHref(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Href) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("href", "body", "uri", m.Href.String(), formats); err != nil {
 		return err
 	}
 
