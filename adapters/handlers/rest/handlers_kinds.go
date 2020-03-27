@@ -78,6 +78,11 @@ func (h *kindHandlers) addThing(params things.ThingsCreateParams,
 		}
 	}
 
+	schemaMap, ok := thing.Schema.(map[string]interface{})
+	if ok {
+		thing.Schema = h.extendSchemaWithAPILinks(schemaMap)
+	}
+
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalAdd)
 	return things.NewThingsCreateOK().WithPayload(thing)
 }
@@ -119,6 +124,11 @@ func (h *kindHandlers) addAction(params actions.ActionsCreateParams,
 			return actions.NewActionsCreateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
+	}
+
+	schemaMap, ok := action.Schema.(map[string]interface{})
+	if ok {
+		action.Schema = h.extendSchemaWithAPILinks(schemaMap)
 	}
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalAdd)
@@ -272,6 +282,11 @@ func (h *kindHandlers) updateThing(params things.ThingsUpdateParams,
 		}
 	}
 
+	schemaMap, ok := thing.Schema.(map[string]interface{})
+	if ok {
+		thing.Schema = h.extendSchemaWithAPILinks(schemaMap)
+	}
+
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
 	return things.NewThingsUpdateOK().WithPayload(thing)
 }
@@ -291,6 +306,11 @@ func (h *kindHandlers) updateAction(params actions.ActionsUpdateParams,
 			return actions.NewActionsUpdateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
+	}
+
+	schemaMap, ok := action.Schema.(map[string]interface{})
+	if ok {
+		action.Schema = h.extendSchemaWithAPILinks(schemaMap)
 	}
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
