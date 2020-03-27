@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/actions"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/things"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/stretchr/testify/assert"
@@ -14,7 +15,6 @@ import (
 
 func TestEnrichObjectsWithLinks(t *testing.T) {
 	t.Run("get thing", func(t *testing.T) {
-
 		type test struct {
 			name           string
 			thing          *models.Thing
@@ -76,13 +76,77 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 				assert.Equal(t, test.expectedResult, parsed.Payload)
 			})
 		}
+	})
 
+	t.Run("get action", func(t *testing.T) {
+		type test struct {
+			name           string
+			action         *models.Action
+			expectedResult *models.Action
+		}
+
+		tests := []test{
+			test{
+				name:           "without props - noaction changes",
+				action:         &models.Action{Class: "Foo", Schema: nil},
+				expectedResult: &models.Action{Class: "Foo", Schema: nil},
+			},
+			test{
+				name: "without ref props - noaction changes",
+				action: &models.Action{Class: "Foo", Schema: map[string]interface{}{
+					"name":           "hello world",
+					"numericalField": 134,
+				}},
+				expectedResult: &models.Action{Class: "Foo", Schema: map[string]interface{}{
+					"name":           "hello world",
+					"numericalField": 134,
+				}},
+			},
+			test{
+				name: "with a ref prop - no origin configured",
+				action: &models.Action{Class: "Foo", Schema: map[string]interface{}{
+					"name":           "hello world",
+					"numericalField": 134,
+					"someRef": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: "weaviate://localhost/actions/85f78e29-5937-4390-a121-5379f262b4e5",
+						},
+					},
+				}},
+				expectedResult: &models.Action{Class: "Foo", Schema: map[string]interface{}{
+					"name":           "hello world",
+					"numericalField": 134,
+					"someRef": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: "weaviate://localhost/actions/85f78e29-5937-4390-a121-5379f262b4e5",
+							Href:   "/v1/actions/85f78e29-5937-4390-a121-5379f262b4e5",
+						},
+					},
+				}},
+			},
+		}
+
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+
+				fakeManager := &fakeManager{
+					getActionReturn: test.action,
+				}
+				fakeRequestLog := &fakeRequestLog{}
+				h := &kindHandlers{manager: fakeManager, requestsLog: fakeRequestLog}
+				res := h.getAction(actions.ActionsGetParams{HTTPRequest: httptest.NewRequest("GET", "/v1/actions", nil)}, nil)
+				parsed, ok := res.(*actions.ActionsGetOK)
+				require.True(t, ok)
+				assert.Equal(t, test.expectedResult, parsed.Payload)
+			})
+		}
 	})
 
 }
 
 type fakeManager struct {
-	getThingReturn *models.Thing
+	getThingReturn  *models.Thing
+	getActionReturn *models.Action
 }
 
 func (f *fakeManager) AddThing(_ context.Context, _ *models.Principal, _ *models.Thing) (*models.Thing, error) {
@@ -106,7 +170,7 @@ func (f *fakeManager) GetThing(_ context.Context, _ *models.Principal, _ strfmt.
 }
 
 func (f *fakeManager) GetAction(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ bool) (*models.Action, error) {
-	panic("not implemented") // TODO: Implement
+	return f.getActionReturn, nil
 }
 
 func (f *fakeManager) GetThings(_ context.Context, _ *models.Principal, _ *int64, _ bool) ([]*models.Thing, error) {

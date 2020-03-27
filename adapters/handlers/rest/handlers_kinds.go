@@ -188,6 +188,11 @@ func (h *kindHandlers) getAction(params actions.ActionsGetParams,
 		}
 	}
 
+	schemaMap, ok := action.Schema.(map[string]interface{})
+	if ok {
+		action.Schema = h.extendSchemaWithAPILinks(schemaMap)
+	}
+
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalQuery)
 	return actions.NewActionsGetOK().WithPayload(action)
 }
