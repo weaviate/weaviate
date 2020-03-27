@@ -211,6 +211,13 @@ func (h *kindHandlers) getThings(params things.ThingsListParams,
 		}
 	}
 
+	for i, thing := range list {
+		schemaMap, ok := thing.Schema.(map[string]interface{})
+		if ok {
+			list[i].Schema = h.extendSchemaWithAPILinks(schemaMap)
+		}
+	}
+
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalQuery)
 	return things.NewThingsListOK().
 		WithPayload(&models.ThingsListResponse{
@@ -230,6 +237,13 @@ func (h *kindHandlers) getActions(params actions.ActionsListParams,
 		default:
 			return actions.NewActionsListInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	for i, action := range list {
+		schemaMap, ok := action.Schema.(map[string]interface{})
+		if ok {
+			list[i].Schema = h.extendSchemaWithAPILinks(schemaMap)
 		}
 	}
 
