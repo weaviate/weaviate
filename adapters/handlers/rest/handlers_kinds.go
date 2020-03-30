@@ -14,19 +14,53 @@
 package rest
 
 import (
+	"context"
+	"fmt"
+
 	middleware "github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/actions"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/things"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
 )
 
 type kindHandlers struct {
-	manager     *kinds.Manager
-	requestsLog *telemetry.RequestsLog
+	manager     kindsManager
+	requestsLog requestLog
+	config      config.Config
+}
+
+type requestLog interface {
+	Register(string, string)
+}
+
+type kindsManager interface {
+	AddThing(context.Context, *models.Principal, *models.Thing) (*models.Thing, error)
+	AddAction(context.Context, *models.Principal, *models.Action) (*models.Action, error)
+	ValidateThing(context.Context, *models.Principal, *models.Thing) error
+	ValidateAction(context.Context, *models.Principal, *models.Action) error
+	GetThing(context.Context, *models.Principal, strfmt.UUID, bool) (*models.Thing, error)
+	GetAction(context.Context, *models.Principal, strfmt.UUID, bool) (*models.Action, error)
+	GetThings(context.Context, *models.Principal, *int64, bool) ([]*models.Thing, error)
+	GetActions(context.Context, *models.Principal, *int64, bool) ([]*models.Action, error)
+	UpdateThing(context.Context, *models.Principal, strfmt.UUID, *models.Thing) (*models.Thing, error)
+	UpdateAction(context.Context, *models.Principal, strfmt.UUID, *models.Action) (*models.Action, error)
+	MergeThing(context.Context, *models.Principal, strfmt.UUID, *models.Thing) error
+	MergeAction(context.Context, *models.Principal, strfmt.UUID, *models.Action) error
+	DeleteThing(context.Context, *models.Principal, strfmt.UUID) error
+	DeleteAction(context.Context, *models.Principal, strfmt.UUID) error
+	AddThingReference(context.Context, *models.Principal, strfmt.UUID, string, *models.SingleRef) error
+	AddActionReference(context.Context, *models.Principal, strfmt.UUID, string, *models.SingleRef) error
+	UpdateThingReferences(context.Context, *models.Principal, strfmt.UUID, string, models.MultipleRef) error
+	UpdateActionReferences(context.Context, *models.Principal, strfmt.UUID, string, models.MultipleRef) error
+	DeleteThingReference(context.Context, *models.Principal, strfmt.UUID, string, *models.SingleRef) error
+	DeleteActionReference(context.Context, *models.Principal, strfmt.UUID, string, *models.SingleRef) error
 }
 
 func (h *kindHandlers) addThing(params things.ThingsCreateParams,
@@ -44,6 +78,11 @@ func (h *kindHandlers) addThing(params things.ThingsCreateParams,
 			return things.NewThingsCreateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
+	}
+
+	schemaMap, ok := thing.Schema.(map[string]interface{})
+	if ok {
+		thing.Schema = h.extendSchemaWithAPILinks(schemaMap)
 	}
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalAdd)
@@ -89,6 +128,11 @@ func (h *kindHandlers) addAction(params actions.ActionsCreateParams,
 		}
 	}
 
+	schemaMap, ok := action.Schema.(map[string]interface{})
+	if ok {
+		action.Schema = h.extendSchemaWithAPILinks(schemaMap)
+	}
+
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalAdd)
 	return actions.NewActionsCreateOK().WithPayload(action)
 }
@@ -131,6 +175,11 @@ func (h *kindHandlers) getThing(params things.ThingsGetParams,
 		}
 	}
 
+	schemaMap, ok := thing.Schema.(map[string]interface{})
+	if ok {
+		thing.Schema = h.extendSchemaWithAPILinks(schemaMap)
+	}
+
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalQuery)
 	return things.NewThingsGetOK().WithPayload(thing)
 }
@@ -151,6 +200,11 @@ func (h *kindHandlers) getAction(params actions.ActionsGetParams,
 		}
 	}
 
+	schemaMap, ok := action.Schema.(map[string]interface{})
+	if ok {
+		action.Schema = h.extendSchemaWithAPILinks(schemaMap)
+	}
+
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalQuery)
 	return actions.NewActionsGetOK().WithPayload(action)
 }
@@ -166,6 +220,13 @@ func (h *kindHandlers) getThings(params things.ThingsListParams,
 		default:
 			return things.NewThingsListInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	for i, thing := range list {
+		schemaMap, ok := thing.Schema.(map[string]interface{})
+		if ok {
+			list[i].Schema = h.extendSchemaWithAPILinks(schemaMap)
 		}
 	}
 
@@ -188,6 +249,13 @@ func (h *kindHandlers) getActions(params actions.ActionsListParams,
 		default:
 			return actions.NewActionsListInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	for i, action := range list {
+		schemaMap, ok := action.Schema.(map[string]interface{})
+		if ok {
+			list[i].Schema = h.extendSchemaWithAPILinks(schemaMap)
 		}
 	}
 
@@ -216,6 +284,11 @@ func (h *kindHandlers) updateThing(params things.ThingsUpdateParams,
 		}
 	}
 
+	schemaMap, ok := thing.Schema.(map[string]interface{})
+	if ok {
+		thing.Schema = h.extendSchemaWithAPILinks(schemaMap)
+	}
+
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
 	return things.NewThingsUpdateOK().WithPayload(thing)
 }
@@ -235,6 +308,11 @@ func (h *kindHandlers) updateAction(params actions.ActionsUpdateParams,
 			return actions.NewActionsUpdateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
+	}
+
+	schemaMap, ok := action.Schema.(map[string]interface{})
+	if ok {
+		action.Schema = h.extendSchemaWithAPILinks(schemaMap)
 	}
 
 	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
@@ -450,8 +528,9 @@ func (h *kindHandlers) deleteThingReference(params things.ThingsReferencesDelete
 	return things.NewThingsReferencesDeleteNoContent()
 }
 
-func setupKindHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog, manager *kinds.Manager) {
-	h := &kindHandlers{manager, requestsLog}
+func setupKindHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog,
+	manager *kinds.Manager, config config.Config) {
+	h := &kindHandlers{manager, requestsLog, config}
 
 	api.ThingsThingsCreateHandler = things.
 		ThingsCreateHandlerFunc(h.addThing)
@@ -509,4 +588,40 @@ func derefBool(in *bool) bool {
 	}
 
 	return *in
+}
+
+func (h *kindHandlers) extendSchemaWithAPILinks(schema map[string]interface{}) map[string]interface{} {
+	if schema == nil {
+		return schema
+	}
+
+	for key, value := range schema {
+		asMultiRef, ok := value.(models.MultipleRef)
+		if !ok {
+			continue
+		}
+
+		schema[key] = h.extendReferencesWithAPILinks(asMultiRef)
+	}
+	return schema
+}
+
+func (h *kindHandlers) extendReferencesWithAPILinks(refs models.MultipleRef) models.MultipleRef {
+	for i, ref := range refs {
+		refs[i] = h.extendReferenceWithAPILink(ref)
+	}
+
+	return refs
+}
+
+func (h *kindHandlers) extendReferenceWithAPILink(ref *models.SingleRef) *models.SingleRef {
+
+	parsed, err := crossref.Parse(ref.Beacon.String())
+	if err != nil {
+		// ignore return unchanged
+		return ref
+	}
+
+	ref.Href = strfmt.URI(fmt.Sprintf("%s/v1/%ss/%s", h.config.Origin, parsed.Kind.Name(), parsed.TargetID))
+	return ref
 }
