@@ -3609,6 +3609,11 @@ func init() {
           "type": "string",
           "format": "uri"
         },
+        "href": {
+          "description": "If using a direct reference, this read-only fields provides a link to the refernced resource. If 'origin' is globally configured, an absolute URI is shown - a relative URI otherwise.",
+          "type": "string",
+          "format": "uri"
+        },
         "meta": {
           "description": "Additional Meta information about this particular reference. Only shown if meta==true.",
           "$ref": "#/definitions/ReferenceMeta"
@@ -7468,6 +7473,11 @@ func init() {
         },
         "class": {
           "description": "If using a concept reference (rather than a direct reference), specify the desired class name here",
+          "type": "string",
+          "format": "uri"
+        },
+        "href": {
+          "description": "If using a direct reference, this read-only fields provides a link to the refernced resource. If 'origin' is globally configured, an absolute URI is shown - a relative URI otherwise.",
           "type": "string",
           "format": "uri"
         },
