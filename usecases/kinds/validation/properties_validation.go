@@ -367,6 +367,11 @@ func parseCoordinate(raw interface{}) (float64, error) {
 func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName string,
 	pvcr map[string]interface{}, className string) (*models.SingleRef, error) {
 
+	if _, ok := pvcr["href"]; ok {
+		// delete read only field href
+		delete(pvcr, "href")
+	}
+
 	// Return different types of errors for cref input
 	if len(pvcr) != 1 {
 		// Give an error if the cref is not filled with correct number of properties
