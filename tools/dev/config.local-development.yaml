@@ -27,3 +27,4 @@ logging:
 #   peer_name: bestWeaviate
 telemetry:
   disabled: true
+origin: http://localhost:8080

@@ -11,12 +11,12 @@ require (
 	github.com/elastic/go-elasticsearch/v5 v5.6.0
 	github.com/fatih/camelcase v1.0.0
 	github.com/fatih/color v1.7.0 // indirect
-	github.com/go-openapi/errors v0.19.3
+	github.com/go-openapi/errors v0.19.4
 	github.com/go-openapi/loads v0.19.3
-	github.com/go-openapi/runtime v0.19.11
+	github.com/go-openapi/runtime v0.19.14
 	github.com/go-openapi/spec v0.19.3
-	github.com/go-openapi/strfmt v0.19.4
-	github.com/go-openapi/swag v0.19.7
+	github.com/go-openapi/strfmt v0.19.5
+	github.com/go-openapi/swag v0.19.8
 	github.com/go-openapi/validate v0.19.3
 	github.com/gorilla/mux v1.7.0
 	github.com/graphql-go/graphql v0.7.7
@@ -26,6 +26,7 @@ require (
 	github.com/mailru/easyjson v0.7.1 // indirect
 	github.com/mattn/go-colorable v0.1.4 // indirect
 	github.com/mattn/go-isatty v0.0.11 // indirect
+	github.com/mitchellh/mapstructure v1.2.2 // indirect
 	github.com/modern-go/reflect2 v1.0.1 // indirect
 	github.com/nyaruka/phonenumbers v1.0.54
 	github.com/rs/cors v1.5.0
@@ -37,7 +38,7 @@ require (
 	github.com/ugorji/go/codec v0.0.0-20190309163734-c4a1c341dc93
 	go.mongodb.org/mongo-driver v1.3.1 // indirect
 	golang.org/x/net v0.0.0-20200226121028-0de0cce0169b
-	golang.org/x/tools v0.0.0-20200305140159-d7d444866696 // indirect
+	golang.org/x/tools v0.0.0-20200325203130-f53864d0dba1 // indirect
 	google.golang.org/grpc v1.24.0
 	gopkg.in/yaml.v2 v2.2.8
 	sigs.k8s.io/yaml v1.1.0 // indirect
