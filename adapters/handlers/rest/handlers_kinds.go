@@ -25,6 +25,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
 )
@@ -32,6 +33,7 @@ import (
 type kindHandlers struct {
 	manager     kindsManager
 	requestsLog requestLog
+	config      config.Config
 }
 
 type requestLog interface {
@@ -526,8 +528,9 @@ func (h *kindHandlers) deleteThingReference(params things.ThingsReferencesDelete
 	return things.NewThingsReferencesDeleteNoContent()
 }
 
-func setupKindHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog, manager *kinds.Manager) {
-	h := &kindHandlers{manager, requestsLog}
+func setupKindHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog,
+	manager *kinds.Manager, config config.Config) {
+	h := &kindHandlers{manager, requestsLog, config}
 
 	api.ThingsThingsCreateHandler = things.
 		ThingsCreateHandlerFunc(h.addThing)
@@ -619,6 +622,6 @@ func (h *kindHandlers) extendReferenceWithAPILink(ref *models.SingleRef) *models
 		return ref
 	}
 
-	ref.Href = strfmt.URI(fmt.Sprintf("%s/v1/%ss/%s", "", parsed.Kind.Name(), parsed.TargetID))
+	ref.Href = strfmt.URI(fmt.Sprintf("%s/v1/%ss/%s", h.config.Origin, parsed.Kind.Name(), parsed.TargetID))
 	return ref
 }

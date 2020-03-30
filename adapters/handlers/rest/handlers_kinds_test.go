@@ -9,6 +9,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/actions"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/things"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -70,6 +71,76 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 				}
 				fakeRequestLog := &fakeRequestLog{}
 				h := &kindHandlers{manager: fakeManager, requestsLog: fakeRequestLog}
+				res := h.addThing(things.ThingsCreateParams{
+					HTTPRequest: httptest.NewRequest("POST", "/v1/things", nil),
+					Body:        test.thing,
+				}, nil)
+				parsed, ok := res.(*things.ThingsCreateOK)
+				require.True(t, ok)
+				assert.Equal(t, test.expectedResult, parsed.Payload)
+			})
+		}
+	})
+
+	// This test "with an origin conifgured" is not repeated for every handler,
+	// as testing this feature once was deemed sufficient
+	t.Run("add thing - with an origin configured", func(t *testing.T) {
+		type test struct {
+			name           string
+			thing          *models.Thing
+			expectedResult *models.Thing
+		}
+
+		tests := []test{
+			test{
+				name:           "without props - nothing changes",
+				thing:          &models.Thing{Class: "Foo", Schema: nil},
+				expectedResult: &models.Thing{Class: "Foo", Schema: nil},
+			},
+			test{
+				name: "without ref props - nothing changes",
+				thing: &models.Thing{Class: "Foo", Schema: map[string]interface{}{
+					"name":           "hello world",
+					"numericalField": 134,
+				}},
+				expectedResult: &models.Thing{Class: "Foo", Schema: map[string]interface{}{
+					"name":           "hello world",
+					"numericalField": 134,
+				}},
+			},
+			test{
+				name: "with a ref prop - no origin configured",
+				thing: &models.Thing{Class: "Foo", Schema: map[string]interface{}{
+					"name":           "hello world",
+					"numericalField": 134,
+					"someRef": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: "weaviate://localhost/things/85f78e29-5937-4390-a121-5379f262b4e5",
+						},
+					},
+				}},
+				expectedResult: &models.Thing{Class: "Foo", Schema: map[string]interface{}{
+					"name":           "hello world",
+					"numericalField": 134,
+					"someRef": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: "weaviate://localhost/things/85f78e29-5937-4390-a121-5379f262b4e5",
+							Href:   "https://awesomehost.com/v1/things/85f78e29-5937-4390-a121-5379f262b4e5",
+						},
+					},
+				}},
+			},
+		}
+
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+
+				fakeManager := &fakeManager{
+					addThingReturn: test.thing,
+				}
+				fakeRequestLog := &fakeRequestLog{}
+				config := config.Config{Origin: "https://awesomehost.com"}
+				h := &kindHandlers{manager: fakeManager, requestsLog: fakeRequestLog, config: config}
 				res := h.addThing(things.ThingsCreateParams{
 					HTTPRequest: httptest.NewRequest("POST", "/v1/things", nil),
 					Body:        test.thing,
