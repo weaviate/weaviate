@@ -209,6 +209,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		ThingsThingsValidateHandler: things.ThingsValidateHandlerFunc(func(params things.ThingsValidateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation ThingsThingsValidate has not yet been implemented")
 		}),
+		WeaviateRootHandler: WeaviateRootHandlerFunc(func(params WeaviateRootParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation WeaviateRoot has not yet been implemented")
+		}),
 		WeaviateWellknownLivenessHandler: WeaviateWellknownLivenessHandlerFunc(func(params WeaviateWellknownLivenessParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation WeaviateWellknownLiveness has not yet been implemented")
 		}),
@@ -358,6 +361,8 @@ type WeaviateAPI struct {
 	ThingsThingsUpdateHandler things.ThingsUpdateHandler
 	// ThingsThingsValidateHandler sets the operation handler for the things validate operation
 	ThingsThingsValidateHandler things.ThingsValidateHandler
+	// WeaviateRootHandler sets the operation handler for the weaviate root operation
+	WeaviateRootHandler WeaviateRootHandler
 	// WeaviateWellknownLivenessHandler sets the operation handler for the weaviate wellknown liveness operation
 	WeaviateWellknownLivenessHandler WeaviateWellknownLivenessHandler
 	// WeaviateWellknownReadinessHandler sets the operation handler for the weaviate wellknown readiness operation
@@ -623,6 +628,10 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.ThingsThingsValidateHandler == nil {
 		unregistered = append(unregistered, "things.ThingsValidateHandler")
+	}
+
+	if o.WeaviateRootHandler == nil {
+		unregistered = append(unregistered, "WeaviateRootHandler")
 	}
 
 	if o.WeaviateWellknownLivenessHandler == nil {
@@ -985,6 +994,11 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/things/validate"] = things.NewThingsValidate(o.context, o.ThingsThingsValidateHandler)
+
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"][""] = NewWeaviateRoot(o.context, o.WeaviateRootHandler)
 
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
