@@ -1070,7 +1070,7 @@
       "name": "Weaviate",
       "url": "https://github.com/semi-technologies"
     },
-    "description": "Open Source Knowledge Graph (GraphQL/RESTful/P2P)",
+    "description": "Open Source Smart Graph (GraphQL/RESTful/P2P)",
     "title": "Weaviate",
     "version": "0.22.5"
   },
