@@ -16,7 +16,6 @@ package test
 import (
 	"testing"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/client/schema"
 	"github.com/semi-technologies/weaviate/client/things"
@@ -95,8 +94,6 @@ func Test_UnindexedProperty(t *testing.T) {
 
 		result := AssertGraphQL(t, helper.RootAuth, query)
 		objects := result.Get("Get", "Things", className).AsSlice()
-
-		spew.Dump(objects)
 
 		expected := []interface{}{
 			map[string]interface{}{"name": "elephant", "hiddenName": "zebra"},
