@@ -43,7 +43,7 @@ func init() {
   ],
   "swagger": "2.0",
   "info": {
-    "description": "Open Source Knowledge Graph (GraphQL/RESTful/P2P)",
+    "description": "Open Source Smart Graph (GraphQL/RESTful/P2P)",
     "title": "Weaviate",
     "contact": {
       "name": "Weaviate",
@@ -3890,7 +3890,7 @@ func init() {
   ],
   "swagger": "2.0",
   "info": {
-    "description": "Open Source Knowledge Graph (GraphQL/RESTful/P2P)",
+    "description": "Open Source Smart Graph (GraphQL/RESTful/P2P)",
     "title": "Weaviate",
     "contact": {
       "name": "Weaviate",
