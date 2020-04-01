@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
 // new from 0.22.0: queryFromFilter can error with SubQueryNoResultsErr, it is
@@ -85,7 +86,27 @@ func (r *Repo) filterFromClause(ctx context.Context, clause *filters.Clause) (ma
 		return geoFilterFromClause(clause)
 	}
 
+	if r.propertyOfClauseIsReference(clause.On) {
+		return referenceCountFilterFromClause(clause)
+	}
+
 	return primitiveFilterFromClause(clause)
+}
+
+func (r *Repo) propertyOfClauseIsReference(on *filters.Path) bool {
+	sch := r.schemaGetter.GetSchemaSkipAuth()
+	class := sch.FindClassByName(on.Class)
+	prop, err := schema.GetPropertyByName(class, on.Property.String())
+	if err != nil {
+		return false
+	}
+
+	dt, err := sch.FindPropertyDataType(prop.DataType)
+	if err != nil {
+		return false
+	}
+
+	return dt.IsReference()
 }
 
 func geoFilterFromClause(clause *filters.Clause) (map[string]interface{}, error) {
@@ -140,6 +161,10 @@ func refGeoFilterFromClause(clause *filters.Clause) (map[string]interface{}, err
 			},
 		},
 	}, nil
+}
+
+func referenceCountFilterFromClause(clause *filters.Clause) (map[string]interface{}, error) {
+	return nil, fmt.Errorf("ref count not supported yet")
 }
 
 func (r *Repo) compoundQueryFromClause(ctx context.Context, clause *filters.Clause) (map[string]interface{}, error) {
