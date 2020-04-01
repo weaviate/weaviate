@@ -13,7 +13,7 @@ require (
 	github.com/fatih/color v1.7.0 // indirect
 	github.com/go-openapi/errors v0.19.4
 	github.com/go-openapi/loads v0.19.3
-	github.com/go-openapi/runtime v0.19.14
+	github.com/go-openapi/runtime v0.19.15
 	github.com/go-openapi/spec v0.19.3
 	github.com/go-openapi/strfmt v0.19.5
 	github.com/go-openapi/swag v0.19.8
@@ -38,7 +38,7 @@ require (
 	github.com/ugorji/go/codec v0.0.0-20190309163734-c4a1c341dc93
 	go.mongodb.org/mongo-driver v1.3.1 // indirect
 	golang.org/x/net v0.0.0-20200226121028-0de0cce0169b
-	golang.org/x/tools v0.0.0-20200330040139-fa3cc9eebcfe // indirect
+	golang.org/x/tools v0.0.0-20200331202046-9d5940d49312 // indirect
 	google.golang.org/grpc v1.24.0
 	gopkg.in/yaml.v2 v2.2.8
 	sigs.k8s.io/yaml v1.1.0 // indirect
