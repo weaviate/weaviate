@@ -15,7 +15,7 @@
 
 /*
 Package rest Weaviate
-Open Source Knowledge Graph (GraphQL/RESTful/P2P)
+Open Source Smart Graph (GraphQL/RESTful/P2P)
 
 
     Schemes:
