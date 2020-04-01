@@ -41,7 +41,7 @@ func main() {
 
 	parser := flags.NewParser(server, flags.Default)
 	parser.ShortDescription = "Weaviate"
-	parser.LongDescription = "Open Source Knowledge Graph (GraphQL/RESTful/P2P)"
+	parser.LongDescription = "Open Source Smart Graph (GraphQL/RESTful/P2P)"
 
 	server.ConfigureFlags()
 	for _, optsGroup := range api.CommandLineOptionsGroups {
