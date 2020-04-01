@@ -372,6 +372,16 @@ func TestNoCache(t *testing.T) {
 			})
 
 		})
+
+		t.Run("by reference count", func(t *testing.T) {
+			t.Run("ref name matches", func(t *testing.T) {
+				filter := filterCarParkedCount(filters.OperatorEqual, 0)
+				params := getParamsWithFilter("MultiRefCar", filter)
+				res, err := repo.ClassSearch(context.Background(), params)
+				require.Nil(t, err)
+				require.Len(t, res, 1000)
+			})
+		})
 	})
 }
 
@@ -494,6 +504,22 @@ func filterCarParkedAtGarage(dataType schema.DataType,
 			Value: &filters.Value{
 				Value: value,
 				Type:  dataType,
+			},
+		},
+	}
+}
+
+func filterCarParkedCount(operator filters.Operator, value int) *filters.LocalFilter {
+	return &filters.LocalFilter{
+		Root: &filters.Clause{
+			Operator: operator,
+			On: &filters.Path{
+				Class:    schema.ClassName("MultiRefCar"),
+				Property: schema.PropertyName("parkedAt"),
+			},
+			Value: &filters.Value{
+				Value: value,
+				Type:  schema.DataTypeInt,
 			},
 		},
 	}
