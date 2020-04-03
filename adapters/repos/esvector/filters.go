@@ -96,6 +96,10 @@ func (r *Repo) filterFromClause(ctx context.Context, clause *filters.Clause) (ma
 func (r *Repo) propertyOfClauseIsReference(on *filters.Path) bool {
 	sch := r.schemaGetter.GetSchemaSkipAuth()
 	class := sch.FindClassByName(on.Class)
+	if class == nil {
+		return false
+	}
+
 	prop, err := schema.GetPropertyByName(class, on.Property.String())
 	if err != nil {
 		return false
@@ -164,7 +168,27 @@ func refGeoFilterFromClause(clause *filters.Clause) (map[string]interface{}, err
 }
 
 func referenceCountFilterFromClause(clause *filters.Clause) (map[string]interface{}, error) {
-	return nil, fmt.Errorf("ref count not supported yet")
+	var op string
+	switch clause.Operator {
+	case filters.OperatorEqual:
+		op = "=="
+	case filters.OperatorGreaterThan:
+		op = ">"
+	case filters.OperatorGreaterThanEqual:
+		op = ">="
+	case filters.OperatorLessThan:
+		op = "<"
+	case filters.OperatorLessThanEqual:
+		op = "<="
+	default:
+		return nil, fmt.Errorf("unsupported operator %s in ref count query", clause.Operator.Name())
+	}
+
+	return map[string]interface{}{
+		"script": map[string]interface{}{
+			"script": fmt.Sprintf("doc['%s.beacon'].length %s %d", clause.On.Property, op, clause.Value.Value.(int)),
+		},
+	}, nil
 }
 
 func (r *Repo) compoundQueryFromClause(ctx context.Context, clause *filters.Clause) (map[string]interface{}, error) {
