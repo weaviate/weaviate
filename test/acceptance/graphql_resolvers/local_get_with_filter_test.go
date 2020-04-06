@@ -15,10 +15,12 @@ package test
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func gettingObjectsWithFilters(t *testing.T) {
@@ -160,5 +162,52 @@ func gettingObjectsWithFilters(t *testing.T) {
 		}
 
 		assert.Equal(t, expected, airport)
+	})
+
+	t.Run("filtering for ref counts", func(t *testing.T) {
+		// this is the journey test for gh-1101
+
+		query := func(op string, count int) string {
+			return fmt.Sprintf(`
+			{
+					Get {
+						Things {
+							Person(where:{
+								valueInt: %d
+								operator:%s,
+								path:["livesIn"]
+							}) {
+							  name
+							}
+						}
+					}
+			}
+		`, count, op)
+		}
+
+		t.Run("no refs", func(t *testing.T) {
+			result := AssertGraphQL(t, helper.RootAuth, query("Equal", 0))
+			// Alice should be the only person that has zero places she lives in
+			require.Len(t, result.Get("Get", "Things", "Person").AsSlice(), 1)
+			name := result.Get("Get", "Things", "Person").AsSlice()[0].(map[string]interface{})["name"]
+			assert.Equal(t, "Alice", name)
+		})
+
+		t.Run("exactly one", func(t *testing.T) {
+			result := AssertGraphQL(t, helper.RootAuth, query("Equal", 1))
+			// bob should be the only person that has zero places she lives in
+			require.Len(t, result.Get("Get", "Things", "Person").AsSlice(), 1)
+			name := result.Get("Get", "Things", "Person").AsSlice()[0].(map[string]interface{})["name"]
+			assert.Equal(t, "Bob", name)
+		})
+
+		t.Run("2 or more", func(t *testing.T) {
+			result := AssertGraphQL(t, helper.RootAuth, query("GreaterThanEqual", 2))
+			// both john(2) and petra(3) should match
+			require.Len(t, result.Get("Get", "Things", "Person").AsSlice(), 2)
+			name1 := result.Get("Get", "Things", "Person").AsSlice()[0].(map[string]interface{})["name"]
+			name2 := result.Get("Get", "Things", "Person").AsSlice()[1].(map[string]interface{})["name"]
+			assert.ElementsMatch(t, []string{"John", "Petra"}, []string{name1.(string), name2.(string)})
+		})
 	})
 }
