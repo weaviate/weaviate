@@ -168,6 +168,11 @@ func refGeoFilterFromClause(clause *filters.Clause) (map[string]interface{}, err
 }
 
 func referenceCountFilterFromClause(clause *filters.Clause) (map[string]interface{}, error) {
+	if clause.Value.Type != schema.DataTypeInt {
+		return nil,
+			fmt.Errorf("reference count filters require a value of type int, got: %v", clause.Value.Type)
+	}
+
 	var op string
 	switch clause.Operator {
 	case filters.OperatorEqual:

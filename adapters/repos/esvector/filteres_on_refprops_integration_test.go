@@ -442,6 +442,25 @@ func TestNoCache(t *testing.T) {
 				}
 				assert.ElementsMatch(t, expectedNames, extractNames(res))
 			})
+
+			t.Run("with an incorrect data type", func(t *testing.T) {
+				filter := &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorLessThanEqual,
+						On: &filters.Path{
+							Class:    schema.ClassName("MultiRefCar"),
+							Property: schema.PropertyName("parkedAt"),
+						},
+						Value: &filters.Value{
+							Value: "some string",
+							Type:  schema.DataTypeString,
+						},
+					},
+				}
+				params := getParamsWithFilter("MultiRefCar", filter)
+				_, err := repo.ClassSearch(context.Background(), params)
+				assert.Equal(t, fmt.Errorf("reference count filters require a value of type int, got: string"), err)
+			})
 		})
 	})
 }
