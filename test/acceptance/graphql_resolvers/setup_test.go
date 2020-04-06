@@ -30,6 +30,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("setup test schema", addTestSchema)
 	t.Run("import test data (city, country, airport)", addTestDataCityAirport)
 	t.Run("import test data (companies)", addTestDataCompanies)
+	t.Run("import test data (person)", addTestDataPersons)
 
 	// tests
 	t.Run("getting objects", gettingObjects)
@@ -38,6 +39,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("getting objects with grouping", gettingObjectsWithGrouping)
 
 	// tear down
+	deleteThingClass(t, "Person")
 	deleteThingClass(t, "Country")
 	deleteThingClass(t, "City")
 	deleteThingClass(t, "Airport")
@@ -130,6 +132,24 @@ func addTestSchema(t *testing.T) {
 				Name:                  "inCity",
 				DataType:              []string{"City"},
 				VectorizePropertyName: false,
+			},
+		},
+	})
+
+	createThingClass(t, &models.Class{
+		Class:              "Person",
+		VectorizeClassName: ptBool(false),
+		Properties: []*models.Property{
+			&models.Property{
+				Name:                  "name",
+				DataType:              []string{"string"},
+				VectorizePropertyName: false,
+			},
+			&models.Property{
+				Name:                  "livesIn",
+				DataType:              []string{"City"},
+				VectorizePropertyName: false,
+				Cardinality:           ptString("many"),
 			},
 		},
 	})
@@ -339,6 +359,51 @@ func addTestDataCompanies(t *testing.T) {
 			Schema: map[string]interface{}{
 				"inCity": inCity,
 				"name":   company.name,
+			},
+		})
+	}
+
+	assertGetThingEventually(t, companies[len(companies)-1].id)
+}
+
+func addTestDataPersons(t *testing.T) {
+	var (
+		alice strfmt.UUID = "5d0fa6ee-21c4-4b46-a735-f0208717837d"
+		bob   strfmt.UUID = "8615585a-2960-482d-b19d-8bee98ade52c"
+		john  strfmt.UUID = "3ef44474-b5e5-455d-91dc-d917b5b76165"
+		petra strfmt.UUID = "15d222c9-8c36-464b-bedb-113faa1c1e4c"
+	)
+
+	type personTemplate struct {
+		id      strfmt.UUID
+		name    string
+		livesIn []strfmt.UUID
+	}
+
+	companies := []personTemplate{
+		personTemplate{id: alice, name: "Alice", livesIn: []strfmt.UUID{}},
+		personTemplate{id: bob, name: "Bob", livesIn: []strfmt.UUID{amsterdam}},
+		personTemplate{id: john, name: "John", livesIn: []strfmt.UUID{amsterdam, berlin}},
+		personTemplate{id: petra, name: "Petra", livesIn: []strfmt.UUID{amsterdam, berlin, dusseldorf}},
+	}
+
+	// companies
+	for _, person := range companies {
+
+		livesIn := []interface{}{}
+		for _, c := range person.livesIn {
+			livesIn = append(livesIn,
+				map[string]interface{}{
+					"beacon": crossref.New("localhost", c, kind.Thing).String(),
+				})
+		}
+
+		createThing(t, &models.Thing{
+			Class: "Person",
+			ID:    person.id,
+			Schema: map[string]interface{}{
+				"livesIn": livesIn,
+				"name":    person.name,
 			},
 		})
 	}
