@@ -57,10 +57,4 @@ services:
     restart: on-failure:0
     volumes:
     - ./config.yaml:/config.yaml
-  weaviate-playground:
-    depends_on:
-    - weaviate
-    image: semitechnologies/weaviate-playground:latest
-    ports:
-    - 80:80
 version: '3.4'
