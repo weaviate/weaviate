@@ -93,8 +93,8 @@ func TestGrouper_ModeMerge(t *testing.T) {
 				"count":   10.0,
 				"illegal": true,
 				"location": &models.GeoCoordinates{
-					Latitude:  20,
-					Longitude: 20,
+					Latitude:  ptFloat32(20),
+					Longitude: ptFloat32(20),
 				},
 				"relatedTo": []interface{}{
 					search.LocalRef{
@@ -146,8 +146,8 @@ func TestGrouper_ModeMerge(t *testing.T) {
 				"count":   12.0,
 				"illegal": false,
 				"location": &models.GeoCoordinates{
-					Latitude:  22,
-					Longitude: 18,
+					Latitude:  ptFloat32(22),
+					Longitude: ptFloat32(18),
 				},
 				"relatedTo": []interface{}{
 					search.LocalRef{
@@ -188,8 +188,8 @@ func TestGrouper_ModeMerge(t *testing.T) {
 				"count":   11.0,          // mean of all inputs
 				"illegal": true,          // the most common input value, with a bias towards true on equal count
 				"location": &models.GeoCoordinates{
-					Latitude:  21,
-					Longitude: 19,
+					Latitude:  ptFloat32(21),
+					Longitude: ptFloat32(19),
 				},
 				"relatedTo": []interface{}{
 					search.LocalRef{

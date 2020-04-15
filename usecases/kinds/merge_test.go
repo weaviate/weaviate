@@ -117,8 +117,8 @@ func Test_MergeAction(t *testing.T) {
 					"area":      3.222,
 					"employees": int64(70),
 					"located": &models.GeoCoordinates{
-						Latitude:  30.2,
-						Longitude: 60.2,
+						Latitude:  ptFloat32(30.2),
+						Longitude: ptFloat32(60.2),
 					},
 					"foundedIn": timeMustParse(time.RFC3339, "2002-10-02T15:00:00Z"),
 				},
@@ -134,8 +134,8 @@ func Test_MergeAction(t *testing.T) {
 					"area":      3.222,
 					"employees": int64(70),
 					"located": &models.GeoCoordinates{
-						Latitude:  30.2,
-						Longitude: 60.2,
+						Latitude:  ptFloat32(30.2),
+						Longitude: ptFloat32(60.2),
 					},
 					"foundedIn": timeMustParse(time.RFC3339, "2002-10-02T15:00:00Z"),
 				},
@@ -316,8 +316,8 @@ func Test_MergeThing(t *testing.T) {
 					"area":      3.222,
 					"employees": int64(70),
 					"located": &models.GeoCoordinates{
-						Latitude:  30.2,
-						Longitude: 60.2,
+						Latitude:  ptFloat32(30.2),
+						Longitude: ptFloat32(60.2),
 					},
 					"foundedIn": timeMustParse(time.RFC3339, "2002-10-02T15:00:00Z"),
 				},
@@ -333,8 +333,8 @@ func Test_MergeThing(t *testing.T) {
 					"area":      3.222,
 					"employees": int64(70),
 					"located": &models.GeoCoordinates{
-						Latitude:  30.2,
-						Longitude: 60.2,
+						Latitude:  ptFloat32(30.2),
+						Longitude: ptFloat32(60.2),
 					},
 					"foundedIn": timeMustParse(time.RFC3339, "2002-10-02T15:00:00Z"),
 				},
@@ -459,4 +459,8 @@ type fakeTimeSource struct{}
 
 func (f fakeTimeSource) Now() int64 {
 	return 12345
+}
+
+func ptFloat32(in float32) *float32 {
+	return &in
 }

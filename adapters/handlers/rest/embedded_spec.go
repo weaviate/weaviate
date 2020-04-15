@@ -3130,12 +3130,14 @@ func init() {
         "latitude": {
           "description": "The latitude of the point on earth in decimal form",
           "type": "number",
-          "format": "float"
+          "format": "float",
+          "x-nullable": true
         },
         "longitude": {
           "description": "The longitude of the point on earth in decimal form",
           "type": "number",
-          "format": "float"
+          "format": "float",
+          "x-nullable": true
         }
       }
     },
@@ -3810,6 +3812,7 @@ func init() {
           }
         },
         "geoCoordinates": {
+          "x-nullable": false,
           "$ref": "#/definitions/GeoCoordinates"
         }
       }
@@ -6997,12 +7000,14 @@ func init() {
         "latitude": {
           "description": "The latitude of the point on earth in decimal form",
           "type": "number",
-          "format": "float"
+          "format": "float",
+          "x-nullable": true
         },
         "longitude": {
           "description": "The longitude of the point on earth in decimal form",
           "type": "number",
-          "format": "float"
+          "format": "float",
+          "x-nullable": true
         }
       }
     },
@@ -7677,6 +7682,7 @@ func init() {
           }
         },
         "geoCoordinates": {
+          "x-nullable": false,
           "$ref": "#/definitions/GeoCoordinates"
         }
       }

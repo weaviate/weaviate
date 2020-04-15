@@ -317,8 +317,8 @@ var valueExtractors [](func(args map[string]interface{}) (*filters.Value, error)
 			Type: schema.DataTypeGeoCoordinates,
 			Value: filters.GeoRange{
 				GeoCoordinates: &models.GeoCoordinates{
-					Latitude:  float32(lat),
-					Longitude: float32(lon),
+					Latitude:  ptFloat32(float32(lat)),
+					Longitude: ptFloat32(float32(lon)),
 				},
 				Distance: float32(maxDist),
 			},
@@ -347,6 +347,10 @@ var valueExtractors [](func(args map[string]interface{}) (*filters.Value, error)
 			Value: date,
 		}, nil
 	},
+}
+
+func ptFloat32(in float32) *float32 {
+	return &in
 }
 
 // Small utility function used in printing error messages.

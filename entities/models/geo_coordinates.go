@@ -29,10 +29,10 @@ import (
 type GeoCoordinates struct {
 
 	// The latitude of the point on earth in decimal form
-	Latitude float32 `json:"latitude,omitempty"`
+	Latitude *float32 `json:"latitude,omitempty"`
 
 	// The longitude of the point on earth in decimal form
-	Longitude float32 `json:"longitude,omitempty"`
+	Longitude *float32 `json:"longitude,omitempty"`
 }
 
 // Validate validates this geo coordinates

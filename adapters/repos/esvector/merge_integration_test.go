@@ -153,8 +153,8 @@ func Test_MergingObjects(t *testing.T) {
 				"number": 7.0,
 				"int":    9,
 				"geo": &models.GeoCoordinates{
-					Latitude:  30.2,
-					Longitude: 60.2,
+					Latitude:  ptFloat32(30.2),
+					Longitude: ptFloat32(60.2),
 				},
 				"text": "some text",
 			},
@@ -179,8 +179,8 @@ func Test_MergingObjects(t *testing.T) {
 			"number": 7.0,
 			"int":    float64(9),
 			"geo": &models.GeoCoordinates{
-				Latitude:  30.2,
-				Longitude: 60.2,
+				Latitude:  ptFloat32(30.2),
+				Longitude: ptFloat32(60.2),
 			},
 			"text": "some text",
 		}
@@ -231,8 +231,8 @@ func Test_MergingObjects(t *testing.T) {
 			"number": 7.0,
 			"int":    float64(9),
 			"geo": &models.GeoCoordinates{
-				Latitude:  30.2,
-				Longitude: 60.2,
+				Latitude:  ptFloat32(30.2),
+				Longitude: ptFloat32(60.2),
 			},
 			"text": "some text",
 			"toTarget": models.MultipleRef{

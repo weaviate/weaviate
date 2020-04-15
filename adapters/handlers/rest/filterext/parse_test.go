@@ -168,8 +168,8 @@ func Test_ExtractFlatFilters(t *testing.T) {
 					Value: &filters.Value{
 						Value: filters.GeoRange{
 							GeoCoordinates: &models.GeoCoordinates{
-								Latitude:  0.5,
-								Longitude: 0.6,
+								Latitude:  ptFloat32(0.5),
+								Longitude: ptFloat32(0.6),
 							},
 							Distance: 2.0,
 						},
@@ -210,8 +210,8 @@ func Test_ExtractFlatFilters(t *testing.T) {
 					Operator: "WithinGeoRange",
 					ValueGeoRange: &models.WhereFilterGeoRange{
 						GeoCoordinates: &models.GeoCoordinates{
-							Latitude:  4.5,
-							Longitude: 3.7,
+							Latitude:  ptFloat32(4.5),
+							Longitude: ptFloat32(3.7),
 						},
 					},
 					Path: []string{"geoField"},
@@ -225,8 +225,8 @@ func Test_ExtractFlatFilters(t *testing.T) {
 					Operator: "WithinGeoRange",
 					ValueGeoRange: &models.WhereFilterGeoRange{
 						GeoCoordinates: &models.GeoCoordinates{
-							Latitude:  4.5,
-							Longitude: 3.7,
+							Latitude:  ptFloat32(4.5),
+							Longitude: ptFloat32(3.7),
 						},
 						Distance: &models.WhereFilterGeoRangeDistance{
 							Max: -20.0,
@@ -508,8 +508,12 @@ func inputGeoRangeFilter(lat, lon, max float64) *models.WhereFilterGeoRange {
 			Max: max,
 		},
 		GeoCoordinates: &models.GeoCoordinates{
-			Latitude:  float32(lat),
-			Longitude: float32(lon),
+			Latitude:  ptFloat32(float32(lat)),
+			Longitude: ptFloat32(float32(lon)),
 		},
 	}
+}
+
+func ptFloat32(in float32) *float32 {
+	return &in
 }

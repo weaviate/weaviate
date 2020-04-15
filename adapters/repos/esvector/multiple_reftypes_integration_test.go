@@ -61,8 +61,8 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 				Schema: map[string]interface{}{
 					"name": "Luxury Parking Garage",
 					"location": &models.GeoCoordinates{
-						Latitude:  48.864716,
-						Longitude: 2.349014,
+						Latitude:  ptFloat32(48.864716),
+						Longitude: ptFloat32(2.349014),
 					},
 				},
 				ID:               "a7e10b55-1ac4-464f-80df-82508eea1951",
@@ -73,8 +73,8 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 				Schema: map[string]interface{}{
 					"name": "Crappy Parking Garage",
 					"location": &models.GeoCoordinates{
-						Latitude:  42.331429,
-						Longitude: -83.045753,
+						Latitude:  ptFloat32(42.331429),
+						Longitude: ptFloat32(-83.045753),
 					},
 				},
 				ID:               "ba2232cf-bb0e-413d-b986-6aa996d34d2e",
@@ -269,8 +269,8 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 					Fields: map[string]interface{}{
 						"name": "Luxury Parking Garage",
 						"location": &models.GeoCoordinates{
-							Latitude:  48.864716,
-							Longitude: 2.349014,
+							Latitude:  ptFloat32(48.864716),
+							Longitude: ptFloat32(2.349014),
 						},
 						"uuid": "a7e10b55-1ac4-464f-80df-82508eea1951",
 					},
@@ -424,8 +424,8 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 					Fields: map[string]interface{}{
 						"name": "Luxury Parking Garage",
 						"location": &models.GeoCoordinates{
-							Latitude:  48.864716,
-							Longitude: 2.349014,
+							Latitude:  ptFloat32(48.864716),
+							Longitude: ptFloat32(2.349014),
 						},
 						"uuid": "a7e10b55-1ac4-464f-80df-82508eea1951",
 					},
@@ -448,8 +448,8 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 					Fields: map[string]interface{}{
 						"name": "Luxury Parking Garage",
 						"location": &models.GeoCoordinates{
-							Latitude:  48.864716,
-							Longitude: 2.349014,
+							Latitude:  ptFloat32(48.864716),
+							Longitude: ptFloat32(2.349014),
 						},
 						"uuid": "a7e10b55-1ac4-464f-80df-82508eea1951",
 					},
@@ -714,8 +714,8 @@ func refToBothGarages() []interface{} {
 				"name": "Luxury Parking Garage",
 				"uuid": "a7e10b55-1ac4-464f-80df-82508eea1951",
 				"location": &models.GeoCoordinates{
-					Latitude:  48.864716,
-					Longitude: 2.349014,
+					Latitude:  ptFloat32(48.864716),
+					Longitude: ptFloat32(2.349014),
 				},
 			},
 		},
