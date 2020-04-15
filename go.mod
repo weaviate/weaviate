@@ -16,7 +16,7 @@ require (
 	github.com/go-openapi/runtime v0.19.15
 	github.com/go-openapi/spec v0.19.3
 	github.com/go-openapi/strfmt v0.19.5
-	github.com/go-openapi/swag v0.19.8
+	github.com/go-openapi/swag v0.19.9
 	github.com/go-openapi/validate v0.19.3
 	github.com/gorilla/mux v1.7.0
 	github.com/graphql-go/graphql v0.7.7
@@ -36,9 +36,9 @@ require (
 	github.com/square/go-jose v2.3.0+incompatible
 	github.com/stretchr/testify v1.4.0
 	github.com/ugorji/go/codec v0.0.0-20190309163734-c4a1c341dc93
-	go.mongodb.org/mongo-driver v1.3.1 // indirect
+	go.mongodb.org/mongo-driver v1.3.2 // indirect
 	golang.org/x/net v0.0.0-20200226121028-0de0cce0169b
-	golang.org/x/tools v0.0.0-20200403190813-44a64ad78b9b // indirect
+	golang.org/x/tools v0.0.0-20200415034506-5d8e1897c761 // indirect
 	google.golang.org/grpc v1.24.0
 	gopkg.in/yaml.v2 v2.2.8
 	sigs.k8s.io/yaml v1.1.0 // indirect
