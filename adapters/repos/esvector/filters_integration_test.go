@@ -206,8 +206,8 @@ func testPrmitiveProps(repo *Repo,
 				name: "within 600km of San Francisco",
 				filter: buildFilter("parkedAt", filters.GeoRange{
 					GeoCoordinates: &models.GeoCoordinates{
-						Latitude:  37.733795,
-						Longitude: -122.446747,
+						Latitude:  ptFloat32(37.733795),
+						Longitude: ptFloat32(-122.446747),
 					},
 					Distance: 600000,
 				}, wgr, dtGeoCoordinates),

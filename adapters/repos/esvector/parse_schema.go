@@ -167,7 +167,14 @@ func parseGeoProp(lat interface{}, lon interface{}) (*models.GeoCoordinates, err
 		return nil, fmt.Errorf("explected lon to be float64, but is %T", lon)
 	}
 
-	return &models.GeoCoordinates{Latitude: float32(latFloat), Longitude: float32(lonFloat)}, nil
+	return &models.GeoCoordinates{
+		Latitude:  ptFloat32(float32(latFloat)),
+		Longitude: ptFloat32(float32(lonFloat)),
+	}, nil
+}
+
+func ptFloat32(in float32) *float32 {
+	return &in
 }
 
 func parsePhoneNumber(input map[string]interface{}) (*models.PhoneNumber, error) {

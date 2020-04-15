@@ -235,14 +235,22 @@ func mergeGeoProps(in []interface{}) (*models.GeoCoordinates, error) {
 			return nil, fmt.Errorf("element %d: expected geo element to be *models.GeoCoordinates, but got %T", i, elem)
 		}
 
-		sumLat += asGeo.Latitude
-		sumLon += asGeo.Longitude
+		if asGeo.Latitude != nil {
+			sumLat += *asGeo.Latitude
+		}
+		if asGeo.Longitude != nil {
+			sumLon += *asGeo.Longitude
+		}
 	}
 
 	return &models.GeoCoordinates{
-		Latitude:  sumLat / float32(len(in)),
-		Longitude: sumLon / float32(len(in)),
+		Latitude:  ptFloat32(sumLat / float32(len(in))),
+		Longitude: ptFloat32(sumLon / float32(len(in))),
 	}, nil
+}
+
+func ptFloat32(in float32) *float32 {
+	return &in
 }
 
 func mergeReferenceProps(in []interface{}) ([]interface{}, error) {

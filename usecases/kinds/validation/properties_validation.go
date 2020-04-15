@@ -314,9 +314,13 @@ func geoCoordinates(input interface{}) (*models.GeoCoordinates, error) {
 	}
 
 	return &models.GeoCoordinates{
-		Longitude: float32(lonFloat),
-		Latitude:  float32(latFloat),
+		Longitude: ptFloat32(float32(lonFloat)),
+		Latitude:  ptFloat32(float32(latFloat)),
 	}, nil
+}
+
+func ptFloat32(in float32) *float32 {
+	return &in
 }
 
 func phoneNumber(data interface{}) (*models.PhoneNumber, error) {
