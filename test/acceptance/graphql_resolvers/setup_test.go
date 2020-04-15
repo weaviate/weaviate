@@ -162,6 +162,7 @@ const (
 	rotterdam   strfmt.UUID = "660db307-a163-41d2-8182-560782cd018f"
 	berlin      strfmt.UUID = "9b9cbea5-e87e-4cd0-89af-e2f424fd52d6"
 	dusseldorf  strfmt.UUID = "6ffb03f8-a853-4ec5-a5d8-302e45aaaf13"
+	nullisland  strfmt.UUID = "823abeca-eef3-41c7-b587-7a6977b08003"
 	airport1    strfmt.UUID = "4770bb19-20fd-406e-ac64-9dac54c27a0f"
 	airport2    strfmt.UUID = "cad6ab9b-5bb9-4388-a933-a5bdfd23db37"
 	airport3    strfmt.UUID = "55a4dbbb-e2af-4b2a-901d-98146d1eeca7"
@@ -244,6 +245,19 @@ func addTestDataCityAirport(t *testing.T) {
 			"location": map[string]interface{}{
 				"latitude":  51.225556,
 				"longitude": 6.782778,
+			},
+		},
+	})
+
+	createThing(t, &models.Thing{
+		Class: "City",
+		ID:    nullisland,
+		Schema: map[string]interface{}{
+			"name":       "Null Island",
+			"population": 0,
+			"location": map[string]interface{}{
+				"latitude":  0,
+				"longitude": 0,
 			},
 		},
 	})
