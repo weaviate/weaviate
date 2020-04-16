@@ -100,4 +100,41 @@ func gettingObjectsWithGeoFilters(t *testing.T) {
 
 		assert.ElementsMatch(t, expectedResults, cities)
 	})
+
+	// This test prevents a regression on gh-825
+	t.Run("Null island is displayed correctly", func(t *testing.T) {
+		query := `
+		{
+			Get {
+				Things {
+					City(where:{
+						operator: WithinGeoRange
+						path: ["location"]
+						valueGeoRange: { geoCoordinates: {latitude: 0, longitude: 0} distance: { max: 20 } }
+					}){
+						name
+						location {
+							latitude
+							longitude
+						}
+					}
+				}
+			}
+		}
+		`
+		result := AssertGraphQL(t, helper.RootAuth, query)
+		cities := result.Get("Get", "Things", "City").AsSlice()
+
+		expectedResults := []interface{}{
+			map[string]interface{}{
+				"name": "Null Island",
+				"location": map[string]interface{}{
+					"latitude":  json.Number("0"),
+					"longitude": json.Number("0"),
+				},
+			},
+		}
+
+		assert.ElementsMatch(t, expectedResults, cities)
+	})
 }

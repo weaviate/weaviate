@@ -61,8 +61,8 @@ func TestNoCache(t *testing.T) {
 				Schema: map[string]interface{}{
 					"name": "Luxury Parking Garage",
 					"location": &models.GeoCoordinates{
-						Latitude:  48.864716,
-						Longitude: 2.349014,
+						Latitude:  ptFloat32(48.864716),
+						Longitude: ptFloat32(2.349014),
 					},
 				},
 				ID:               "a7e10b55-1ac4-464f-80df-82508eea1951",
@@ -73,8 +73,8 @@ func TestNoCache(t *testing.T) {
 				Schema: map[string]interface{}{
 					"name": "Crappy Parking Garage",
 					"location": &models.GeoCoordinates{
-						Latitude:  42.331429,
-						Longitude: -83.045753,
+						Latitude:  ptFloat32(42.331429),
+						Longitude: ptFloat32(-83.045753),
 					},
 				},
 				ID:               "ba2232cf-bb0e-413d-b986-6aa996d34d2e",
@@ -233,8 +233,8 @@ func TestNoCache(t *testing.T) {
 				filter := filterCarParkedAtGarage(schema.DataTypeGeoCoordinates,
 					"location", filters.OperatorWithinGeoRange, filters.GeoRange{
 						GeoCoordinates: &models.GeoCoordinates{
-							Latitude:  48.801407,
-							Longitude: 2.130122,
+							Latitude:  ptFloat32(48.801407),
+							Longitude: ptFloat32(2.130122),
 						},
 						Distance: 100000,
 					})
@@ -257,8 +257,8 @@ func TestNoCache(t *testing.T) {
 				filter := filterCarParkedAtGarage(schema.DataTypeGeoCoordinates,
 					"location", filters.OperatorWithinGeoRange, filters.GeoRange{
 						GeoCoordinates: &models.GeoCoordinates{
-							Latitude:  42.279594,
-							Longitude: -83.732124,
+							Latitude:  ptFloat32(42.279594),
+							Longitude: ptFloat32(-83.732124),
 						},
 						Distance: 100000,
 					})
@@ -273,8 +273,8 @@ func TestNoCache(t *testing.T) {
 				parkedAtFilter := filterCarParkedAtGarage(schema.DataTypeGeoCoordinates,
 					"location", filters.OperatorWithinGeoRange, filters.GeoRange{
 						GeoCoordinates: &models.GeoCoordinates{
-							Latitude:  48.801407,
-							Longitude: 2.130122,
+							Latitude:  ptFloat32(48.801407),
+							Longitude: ptFloat32(2.130122),
 						},
 						Distance: 100000,
 					})
@@ -341,8 +341,8 @@ func TestNoCache(t *testing.T) {
 				filter := filterDrivesCarParkedAtGarage(schema.DataTypeGeoCoordinates,
 					"location", filters.OperatorWithinGeoRange, filters.GeoRange{
 						GeoCoordinates: &models.GeoCoordinates{
-							Latitude:  48.801407,
-							Longitude: 2.130122,
+							Latitude:  ptFloat32(48.801407),
+							Longitude: ptFloat32(2.130122),
 						},
 						Distance: 100000,
 					})
@@ -359,8 +359,8 @@ func TestNoCache(t *testing.T) {
 				filter := filterDrivesCarParkedAtGarage(schema.DataTypeGeoCoordinates,
 					"location", filters.OperatorWithinGeoRange, filters.GeoRange{
 						GeoCoordinates: &models.GeoCoordinates{
-							Latitude:  42.279594,
-							Longitude: -83.732124,
+							Latitude:  ptFloat32(42.279594),
+							Longitude: ptFloat32(-83.732124),
 						},
 						Distance: 100000,
 					})

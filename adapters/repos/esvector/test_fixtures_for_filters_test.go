@@ -71,8 +71,8 @@ var cars = []models.Thing{
 			"weight":     "3499.90",
 			"released":   "1995-08-17T12:47:00+02:00",
 			"parkedAt": &models.GeoCoordinates{
-				Latitude:  34.052235,
-				Longitude: -118.243683,
+				Latitude:  ptFloat32(34.052235),
+				Longitude: ptFloat32(-118.243683),
 			},
 			"contact":     "john@heavycars.example.com",
 			"description": "This car resembles a large van that can still be driven with a regular license. Contact john@heavycars.example.com for details",
@@ -87,8 +87,8 @@ var cars = []models.Thing{
 			"weight":     "2069.5",
 			"released":   "2017-02-17T09:47:00+02:00",
 			"parkedAt": &models.GeoCoordinates{
-				Latitude:  40.730610,
-				Longitude: -73.935242,
+				Latitude:  ptFloat32(40.730610),
+				Longitude: ptFloat32(-73.935242),
 			},
 			"contact":     "jessica@fastcars.example.com",
 			"description": "This car has a huge motor, but it's also not exactly lightweight.",

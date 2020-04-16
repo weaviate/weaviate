@@ -121,8 +121,8 @@ func TestExtractFilterGeoLocation(t *testing.T) {
 			Value: &filters.Value{
 				Value: filters.GeoRange{
 					GeoCoordinates: &models.GeoCoordinates{
-						Latitude:  0.5,
-						Longitude: 0.6,
+						Latitude:  ptFloat32(0.5),
+						Longitude: ptFloat32(0.6),
 					},
 					Distance: 2.0,
 				},
@@ -152,8 +152,8 @@ func TestExtractFilterGeoLocation(t *testing.T) {
 			Value: &filters.Value{
 				Value: filters.GeoRange{
 					GeoCoordinates: &models.GeoCoordinates{
-						Latitude:  0.5,
-						Longitude: 0.6,
+						Latitude:  ptFloat32(0.5),
+						Longitude: ptFloat32(0.6),
 					},
 					Distance: 2.0,
 				},

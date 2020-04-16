@@ -325,8 +325,8 @@ func TestEsVectorMigrator_ImportingConcepts(t *testing.T) {
 			Schema: map[string]interface{}{
 				"name": "bar",
 				"location": &models.GeoCoordinates{
-					Latitude:  1,
-					Longitude: 2,
+					Latitude:  ptFloat32(1),
+					Longitude: ptFloat32(2),
 				},
 			},
 		}

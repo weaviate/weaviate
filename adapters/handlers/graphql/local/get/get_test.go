@@ -72,7 +72,7 @@ func TestExtractGeoCoordinatesField(t *testing.T) {
 
 	resolverReturn := []interface{}{
 		map[string]interface{}{
-			"location": &models.GeoCoordinates{Latitude: 0.5, Longitude: 0.6},
+			"location": &models.GeoCoordinates{Latitude: ptFloat32(0.5), Longitude: ptFloat32(0.6)},
 		},
 	}
 
@@ -543,4 +543,8 @@ func TestGetRelation(t *testing.T) {
 			{ Get { Actions { SomeAction { HasAction { ...actionFragment } } } } }`
 		resolver.AssertResolve(t, query)
 	})
+}
+
+func ptFloat32(in float32) *float32 {
+	return &in
 }
