@@ -103,8 +103,8 @@ func TestEsVectorRepo(t *testing.T) {
 					NationalFormatted:      "0171 1234567",
 				},
 				"location": &models.GeoCoordinates{
-					Latitude:  1,
-					Longitude: 2,
+					Latitude:  ptFloat32(1),
+					Longitude: ptFloat32(2),
 				},
 			},
 		}
@@ -194,7 +194,7 @@ func TestEsVectorRepo(t *testing.T) {
 		assert.Equal(t, "TheBestThingClass", res[0].ClassName, "matches the class name")
 		schema := res[0].Schema.(map[string]interface{})
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
-		assert.Equal(t, &models.GeoCoordinates{1, 2}, schema["location"], "has correct geo prop")
+		assert.Equal(t, &models.GeoCoordinates{ptFloat32(1), ptFloat32(2)}, schema["location"], "has correct geo prop")
 		assert.Equal(t, &models.PhoneNumber{
 			CountryCode:            49,
 			DefaultCountry:         "DE",
@@ -225,7 +225,7 @@ func TestEsVectorRepo(t *testing.T) {
 		assert.Equal(t, "TheBestThingClass", res[0].ClassName, "matches the class name")
 		schema := res[0].Schema.(map[string]interface{})
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
-		assert.Equal(t, &models.GeoCoordinates{1, 2}, schema["location"], "has correct geo prop")
+		assert.Equal(t, &models.GeoCoordinates{ptFloat32(1), ptFloat32(2)}, schema["location"], "has correct geo prop")
 		assert.Equal(t, thingID.String(), schema["uuid"], "has id in schema as uuid field")
 	})
 
@@ -242,7 +242,7 @@ func TestEsVectorRepo(t *testing.T) {
 		assert.Equal(t, "TheBestThingClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
-		assert.Equal(t, &models.GeoCoordinates{1, 2}, schema["location"], "has correct geo prop")
+		assert.Equal(t, &models.GeoCoordinates{ptFloat32(1), ptFloat32(2)}, schema["location"], "has correct geo prop")
 		assert.Equal(t, thingID.String(), schema["uuid"], "has id in schema as uuid field")
 	})
 
@@ -256,7 +256,7 @@ func TestEsVectorRepo(t *testing.T) {
 		assert.Equal(t, "TheBestThingClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
-		assert.Equal(t, &models.GeoCoordinates{1, 2}, schema["location"], "has correct geo prop")
+		assert.Equal(t, &models.GeoCoordinates{ptFloat32(1), ptFloat32(2)}, schema["location"], "has correct geo prop")
 		assert.Equal(t, thingID.String(), schema["uuid"], "has id in schema as uuid field")
 	})
 

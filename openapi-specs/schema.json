@@ -739,12 +739,14 @@
         "latitude": {
           "description": "The latitude of the point on earth in decimal form",
           "format": "float",
-          "type": "number"
+          "type": "number",
+          "x-nullable": true
         },
         "longitude": {
           "description": "The longitude of the point on earth in decimal form",
           "format": "float",
-          "type": "number"
+          "type": "number",
+          "x-nullable": true
         }
       }
     },
@@ -1047,7 +1049,8 @@
       "description": "filter within a distance of a georange",
       "properties": {
         "geoCoordinates": { 
-          "$ref": "#/definitions/GeoCoordinates"
+          "$ref": "#/definitions/GeoCoordinates",
+          "x-nullable": false
         },
         "distance": {
           "type": "object",
