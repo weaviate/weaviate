@@ -36,23 +36,28 @@ type contextualItemClassifier struct {
 	filters    filters
 }
 
-func (c *Classifier) classifyItemContextual(item search.Result, kind kind.Kind, params models.Classification, filters filters) error {
-	schema := c.schemaGetter.GetSchemaSkipAuth()
-	run := &contextualItemClassifier{
-		item:       item,
-		kind:       kind,
-		params:     params,
-		classifier: c,
-		schema:     schema,
-		filters:    filters,
-	}
+// makeClassifyItemContextual is a higher-order function to produce the actual
+// classify function, but additionally allows us to inject data which is valid
+// for the entire run, such as tf-idf data and target vectors
+func (c *Classifier) makeClassifyItemContextual(injectedData interface{}) func(search.Result, kind.Kind, models.Classification, filters) error {
+	return func(item search.Result, kind kind.Kind, params models.Classification, filters filters) error {
+		schema := c.schemaGetter.GetSchemaSkipAuth()
+		run := &contextualItemClassifier{
+			item:       item,
+			kind:       kind,
+			params:     params,
+			classifier: c,
+			schema:     schema,
+			filters:    filters,
+		}
 
-	err := run.do()
-	if err != nil {
-		return fmt.Errorf("contextual: %v", err)
-	}
+		err := run.do()
+		if err != nil {
+			return fmt.Errorf("contextual: %v", err)
+		}
 
-	return nil
+		return nil
+	}
 }
 
 func (c *contextualItemClassifier) do() error {

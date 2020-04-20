@@ -61,7 +61,10 @@ func (c *Classifier) run(params models.Classification, kind kind.Kind,
 	case "knn":
 		classifyItem = c.classifyItemUsingKNN
 	case "contextual":
-		classifyItem = c.classifyItemContextual
+		// 1. do preparation here once
+
+		// 2. use higher order function to inject preparation data so it is then present for each single run
+		classifyItem = c.makeClassifyItemContextual(nil)
 	default:
 		c.failRunWithError(params,
 			fmt.Errorf("unsupported type '%s', have no classify item fn for this", *params.Type))
