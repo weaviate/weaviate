@@ -48,11 +48,20 @@ type Classification struct {
 	// Format: uuid
 	ID strfmt.UUID `json:"id,omitempty"`
 
+	// Only available on type=contextual. All words in a source corpus are ranked by their information gain against the possible target objects. A cutoff percentile of 40 implies that the top 40% are used and the bottom 60% are cut-off.
+	InformationGainCutoffPercentile *int32 `json:"informationGainCutoffPercentile,omitempty"`
+
+	// Only available on type=contextual. Words in a corpus will receive an additional boost based on how high they are ranked according to information gain. Setting this value to 3 implies that the top-ranked word will be ranked 3 times as high as the bottom ranked word. The curve in between is logarithmic. A maximum boost of 1 implies that no boosting occurs.
+	InformationGainMaximumBoost *int32 `json:"informationGainMaximumBoost,omitempty"`
+
 	// k-value when using k-Neareast-Neighbor
 	K *int32 `json:"k,omitempty"`
 
 	// additional meta information about the classification
 	Meta *ClassificationMeta `json:"meta,omitempty"`
+
+	// Only available on type=contextual. Both IG and tf-idf are mechanisms to remove words from the corpora. However, on very short corpora this could lead to a removal of all words, or all but a single word. This value guarantees that - regardless of tf-idf and IG score - always at least n words are used.
+	MinimumUsableWords *int32 `json:"minimumUsableWords,omitempty"`
 
 	// limit the objects to be classified
 	SourceWhere *WhereFilter `json:"sourceWhere,omitempty"`
@@ -63,6 +72,9 @@ type Classification struct {
 
 	// Limit the possible sources when using an algorithm which doesn't really on trainig data, e.g. 'contextual'. When using an algorithm with a training set, such as 'knn', limit the training set instead
 	TargetWhere *WhereFilter `json:"targetWhere,omitempty"`
+
+	// Only available on type=contextual. All words in a corpus are ranked by their tf-idf score. A cutoff percentile of 80 implies that the top 80% are used and the bottom 20% are cut-off. This is very effective to remove words that occur in almost all objects, such as filler and stop words.
+	TfidfCutoffPercentile *int32 `json:"tfidfCutoffPercentile,omitempty"`
 
 	// Limit the training objects to be considered during the classification. Can only be used on types with explicit training sets, such as 'knn'
 	TrainingSetWhere *WhereFilter `json:"trainingSetWhere,omitempty"`
