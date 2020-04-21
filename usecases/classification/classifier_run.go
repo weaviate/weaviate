@@ -62,9 +62,14 @@ func (c *Classifier) run(params models.Classification, kind kind.Kind,
 		classifyItem = c.classifyItemUsingKNN
 	case "contextual":
 		// 1. do preparation here once
+		preparedContext, err := c.prepareContextualClassification(kind, params, filters, unclassifiedItems)
+		if err != nil {
+			c.failRunWithError(params, fmt.Errorf("prepare context for contexual classification: %v", err))
+			return
+		}
 
 		// 2. use higher order function to inject preparation data so it is then present for each single run
-		classifyItem = c.makeClassifyItemContextual(nil)
+		classifyItem = c.makeClassifyItemContextual(preparedContext)
 	default:
 		c.failRunWithError(params,
 			fmt.Errorf("unsupported type '%s', have no classify item fn for this", *params.Type))
