@@ -1,6 +1,7 @@
 package classification
 
 import (
+	"fmt"
 	"math"
 	"sort"
 	"strings"
@@ -27,12 +28,14 @@ func NewTfIdfCalculator(size int) *TfIdfCalculator {
 	}
 }
 
-func (c *TfIdfCalculator) AddDoc(doc string) {
+func (c *TfIdfCalculator) AddDoc(doc string) error {
 	if c.docPointer > c.size {
-		panic("doc size exceeded")
+		return fmt.Errorf("doc size exceeded")
 	}
+
 	c.documents[c.docPointer] = doc
 	c.docPointer++
+	return nil
 }
 
 func (c *TfIdfCalculator) Calculate() {
