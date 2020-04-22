@@ -187,7 +187,7 @@ func (c *Client) VectorForWord(ctx context.Context, word string) ([]float32, err
 
 // TODO: gh-1125 this must be moved to the c11y, otherwise we still send n
 // requests which is a lot of overhead that isn't required
-func (c *Client) MultiVectorForWords(ctx context.Context, words []string) ([][]float32, error) {
+func (c *Client) MultiVectorForWord(ctx context.Context, words []string) ([][]float32, error) {
 	lock := &sync.Mutex{}
 	out := make([][]float32, len(words))
 
@@ -206,11 +206,18 @@ func (c *Client) MultiVectorForWords(ctx context.Context, words []string) ([][]f
 			go func(i, j int, elem string) {
 
 				word := strings.ToLower(elem)
-				vec, err := c.VectorForWord(ctx, word)
+				var vec []float32
+				protovec, err := c.grpcClient.VectorForWord(ctx, &pb.Word{Word: word})
 				if err != nil {
-					// TODO: fix
-					// this should break as soon as a word's not in the c11y
-					panic(fmt.Sprintf("word '%s': %v", word, err))
+					st, ok := status.FromError(err)
+					if !ok || st.Code() != codes.NotFound {
+						// TODO: handle properly
+						panic(err)
+					}
+
+					// do nothing, i.e. pass a nil vector
+				} else {
+					vec = vectorFromProto(protovec.Entries)
 				}
 
 				lock.Lock()

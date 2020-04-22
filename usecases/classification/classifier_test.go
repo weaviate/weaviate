@@ -30,7 +30,7 @@ import (
 func Test_Classifier_KNN(t *testing.T) {
 	t.Run("with invalid data", func(t *testing.T) {
 		sg := &fakeSchemaGetter{testSchema()}
-		_, err := New(sg, nil, nil, &fakeAuthorizer{}).Schedule(context.Background(), nil, models.Classification{})
+		_, err := New(sg, nil, nil, &fakeAuthorizer{}, nil).Schedule(context.Background(), nil, models.Classification{})
 		assert.NotNil(t, err, "should error with invalid user input")
 	})
 
@@ -42,7 +42,7 @@ func Test_Classifier_KNN(t *testing.T) {
 		repo := newFakeClassificationRepo()
 		authorizer := &fakeAuthorizer{}
 		vectorRepo := newFakeVectorRepoKNN(testDataToBeClassified(), testDataAlreadyClassified())
-		classifier := New(sg, repo, vectorRepo, authorizer)
+		classifier := New(sg, repo, vectorRepo, authorizer, nil)
 
 		k := int32(1)
 		params := models.Classification{
@@ -115,7 +115,7 @@ func Test_Classifier_KNN(t *testing.T) {
 		authorizer := &fakeAuthorizer{}
 		vectorRepo := newFakeVectorRepoKNN(testDataToBeClassified(), testDataAlreadyClassified())
 		vectorRepo.errorOnAggregate = errors.New("something went wrong")
-		classifier := New(sg, repo, vectorRepo, authorizer)
+		classifier := New(sg, repo, vectorRepo, authorizer, nil)
 
 		k := int32(1)
 		params := models.Classification{
@@ -158,7 +158,7 @@ func Test_Classifier_KNN(t *testing.T) {
 		repo := newFakeClassificationRepo()
 		authorizer := &fakeAuthorizer{}
 		vectorRepo := newFakeVectorRepoKNN(nil, testDataAlreadyClassified())
-		classifier := New(sg, repo, vectorRepo, authorizer)
+		classifier := New(sg, repo, vectorRepo, authorizer, nil)
 
 		k := int32(1)
 		params := models.Classification{

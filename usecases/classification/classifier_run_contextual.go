@@ -15,13 +15,14 @@ package classification
 
 import (
 	"fmt"
+	"math"
+	"sort"
 	"time"
 
-	"github.com/go-openapi/strfmt"
+	"github.com/davecgh/go-spew/spew"
 	libfilters "github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -34,12 +35,14 @@ type contextualItemClassifier struct {
 	classifier *Classifier
 	schema     schema.Schema
 	filters    filters
+	context    contextualPreparationContext
+	vectorizer vectorizer
 }
 
 // makeClassifyItemContextual is a higher-order function to produce the actual
 // classify function, but additionally allows us to inject data which is valid
 // for the entire run, such as tf-idf data and target vectors
-func (c *Classifier) makeClassifyItemContextual(injectedData interface{}) func(search.Result, kind.Kind, models.Classification, filters) error {
+func (c *Classifier) makeClassifyItemContextual(preparedContext contextualPreparationContext) func(search.Result, kind.Kind, models.Classification, filters) error {
 	return func(item search.Result, kind kind.Kind, params models.Classification, filters filters) error {
 		schema := c.schemaGetter.GetSchemaSkipAuth()
 		run := &contextualItemClassifier{
@@ -49,6 +52,8 @@ func (c *Classifier) makeClassifyItemContextual(injectedData interface{}) func(s
 			classifier: c,
 			schema:     schema,
 			filters:    filters,
+			context:    preparedContext,
+			vectorizer: c.vectorizer,
 		}
 
 		err := run.do()
@@ -83,34 +88,185 @@ func (c *contextualItemClassifier) do() error {
 }
 
 func (c *contextualItemClassifier) property(propName string) (string, error) {
-	targetClass, targetKind, err := c.classAndKindOfTarget(propName)
-	if err != nil {
-		return "", fmt.Errorf("inspect target: %v", err)
+	targets, ok := c.context.targets[propName]
+	if !ok || len(targets) == 0 {
+		return "", fmt.Errorf("have no potential targets for property '%s'", propName)
 	}
 
-	res, err := c.findTarget(targetClass, targetKind)
-	if err != nil {
-		return "", fmt.Errorf("find target: %v", err)
+	schemaMap, ok := c.item.Schema.(map[string]interface{})
+	if !ok {
+		return "", fmt.Errorf("no or incorrect schema map present on source c.object '%s': %T", c.item.ID, c.item.Schema)
 	}
 
-	distance, err := c.distance(res.Vector)
-	if err != nil {
-		return "", fmt.Errorf("calculate distance: %v", err)
+	// Limitation for now, basedOnProperty is always 0
+	basedOnName := c.params.BasedOnProperties[0]
+	basedOn, ok := schemaMap[basedOnName]
+	if !ok {
+		return "", fmt.Errorf("property '%s' not found on source c.object '%s': %T", propName, c.item.ID, c.item.Schema)
 	}
 
-	targetBeacon := crossref.New("localhost", res.ID, res.Kind).String()
-	c.item.Schema.(map[string]interface{})[propName] = models.MultipleRef{
-		&models.SingleRef{
-			Beacon: strfmt.URI(targetBeacon),
-			Meta: &models.ReferenceMeta{
-				Classification: &models.ReferenceMetaClassification{
-					WinningDistance: distance,
-				},
-			},
-		},
+	basedOnString, ok := basedOn.(string)
+	if !ok {
+		return "", fmt.Errorf("property '%s' present on %s, but of unexpected type: want string, got %T",
+			basedOnName, c.item.ID, basedOn)
 	}
+
+	words := newSplitter().Split(basedOnString)
+
+	ctx, cancel := contextWithTimeout(10 * time.Second)
+	defer cancel()
+
+	vectors, err := c.vectorizer.MultiVectorForWord(ctx, words)
+	if !ok {
+		return "", fmt.Errorf("vectorize individual words: %v", err)
+	}
+
+	scoredWords, err := c.scoreWords(words, vectors, propName)
+	if err != nil {
+		return "", fmt.Errorf("score words: %v", err)
+	}
+	spew.Dump(scoredWords)
+
+	ranked := c.rankAndDedup(scoredWords)
+
+	_ = ranked
+
+	// targetClass, targetKind, err := c.classAndKindOfTarget(propName)
+	// if err != nil {
+	// 	return "", fmt.Errorf("inspect target: %v", err)
+	// }
+
+	// res, err := c.findTarget(targetClass, targetKind)
+	// if err != nil {
+	// 	return "", fmt.Errorf("find target: %v", err)
+	// }
+
+	// distance, err := c.distance(res.Vector)
+	// if err != nil {
+	// 	return "", fmt.Errorf("calculate distance: %v", err)
+	// }
+
+	// targetBeacon := crossref.New("localhost", res.ID, res.Kind).String()
+	// c.item.Schema.(map[string]interface{})[propName] = models.MultipleRef{
+	// 	&models.SingleRef{
+	// 		Beacon: strfmt.URI(targetBeacon),
+	// 		Meta: &models.ReferenceMeta{
+	// 			Classification: &models.ReferenceMetaClassification{
+	// 				WinningDistance: distance,
+	// 			},
+	// 		},
+	// 	},
+	// }
 
 	return propName, nil
+}
+
+type scoredWord struct {
+	word            string
+	distance        float32
+	informationGain float32
+}
+
+func (c *contextualItemClassifier) rankAndDedup(in []*scoredWord) []scoredWord {
+	return c.dedup(c.rank(in))
+}
+
+func (c *contextualItemClassifier) dedup(in []scoredWord) []scoredWord {
+	// simple dedup since it's already ordered, we only need to check the previous element
+	indexOut := 0
+	out := make([]scoredWord, len(in))
+	for i, elem := range in {
+		if i == 0 {
+			out[indexOut] = elem
+			indexOut++
+			continue
+		}
+
+		if elem.word == out[indexOut-1].word {
+			continue
+		}
+
+		out[indexOut] = elem
+		indexOut++
+	}
+
+	return out[:indexOut]
+}
+
+func (c *contextualItemClassifier) rank(in []*scoredWord) []scoredWord {
+	i := 0
+	filtered := make([]scoredWord, len(in))
+	for _, w := range in {
+		if w == nil {
+			continue
+		}
+
+		filtered[i] = *w
+		i++
+	}
+	out := filtered[:i]
+	sort.Slice(out, func(a, b int) bool { return out[a].informationGain > out[b].informationGain })
+	return out
+}
+
+func (c *contextualItemClassifier) scoreWords(words []string, vectors [][]float32,
+	targetProp string) ([]*scoredWord, error) {
+	if len(words) != len(vectors) {
+		return nil, fmt.Errorf("fatal: word list (l=%d) and vector list (l=%d) have different lengths",
+			len(words), len(vectors))
+	}
+
+	out := make([]*scoredWord, len(words))
+	for i := range words {
+		sw, err := c.scoreWord(words[i], vectors[i], targetProp)
+		if err != nil {
+			return nil, fmt.Errorf("score word '%s': %v", words[i], err)
+		}
+
+		// accept nil-entries for now, they will be removed in ranking/deduping
+		out[i] = sw
+	}
+
+	return out, nil
+}
+
+func (c *contextualItemClassifier) scoreWord(word string, vector []float32,
+	targetProp string) (*scoredWord, error) {
+	var all []float32
+	minimum := float32(1000000.00)
+
+	if vector == nil {
+		return nil, nil
+	}
+
+	targets, ok := c.context.targets[targetProp]
+	if !ok {
+		return nil, fmt.Errorf("fatal: targets for prop '%s' not found", targetProp)
+	}
+
+	for _, target := range targets {
+		dist, err := cosineDist(vector, target.Vector)
+		if err != nil {
+			return nil, fmt.Errorf("calculate cosine distance: %v", err)
+		}
+
+		all = append(all, dist)
+
+		if dist < minimum {
+			minimum = dist
+		}
+	}
+
+	return &scoredWord{word: word, distance: minimum, informationGain: avg(all) - minimum}, nil
+}
+
+func avg(in []float32) float32 {
+	var sum float32
+	for _, curr := range in {
+		sum += curr
+	}
+
+	return sum / float32(len(in))
 }
 
 func (c *contextualItemClassifier) classAndKindOfTarget(propName string) (schema.ClassName, kind.Kind, error) {
@@ -166,4 +322,33 @@ func (c *contextualItemClassifier) findTarget(targetClass schema.ClassName, targ
 func (c *contextualItemClassifier) distance(target []float32) (float64, error) {
 	dist, err := c.classifier.distancer(c.item.Vector, target)
 	return float64(dist), err
+}
+
+func cosineSim(a, b []float32) (float32, error) {
+	if len(a) != len(b) {
+		return 0, fmt.Errorf("vectors have different dimensions")
+	}
+
+	var (
+		sumProduct float64
+		sumASquare float64
+		sumBSquare float64
+	)
+
+	for i := range a {
+		sumProduct += float64(a[i] * b[i])
+		sumASquare += float64(a[i] * a[i])
+		sumBSquare += float64(b[i] * b[i])
+	}
+
+	return float32(sumProduct / (math.Sqrt(sumASquare) * math.Sqrt(sumBSquare))), nil
+}
+
+func cosineDist(a, b []float32) (float32, error) {
+	sim, err := cosineSim(a, b)
+	if err != nil {
+		return 0, err
+	}
+
+	return 1 - sim, nil
 }
