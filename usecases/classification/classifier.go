@@ -43,22 +43,23 @@ type Classifier struct {
 }
 
 type vectorizer interface {
-	// MultiVectorForWords must keep order, if an item cannot be vectorized, the
+	// MultiVectorForWord must keep order, if an item cannot be vectorized, the
 	// element should be explicit nil, not skipped
-	MultiVectorForWords(ctx context.Context, words []string) ([][]float32, error)
+	MultiVectorForWord(ctx context.Context, words []string) ([][]float32, error)
 }
 
 type authorizer interface {
 	Authorize(principal *models.Principal, verb, resource string) error
 }
 
-func New(sg schemaUC.SchemaGetter, cr Repo, vr vectorRepo, authorizer authorizer) *Classifier {
+func New(sg schemaUC.SchemaGetter, cr Repo, vr vectorRepo, authorizer authorizer, vectorizer vectorizer) *Classifier {
 	return &Classifier{
 		schemaGetter: sg,
 		repo:         cr,
 		vectorRepo:   vr,
 		authorizer:   authorizer,
 		distancer:    libvectorizer.NormalizedDistance,
+		vectorizer:   vectorizer,
 	}
 }
 
