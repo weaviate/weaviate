@@ -17,7 +17,7 @@ type tfidfScorer interface {
 }
 
 type contextualPreparationContext struct {
-	tfidf   tfidfScorer
+	tfidf   map[string]tfidfScorer    // map[basedOnProp]scorer
 	targets map[string]search.Results // map[classifyProp]targets
 }
 
@@ -46,46 +46,75 @@ type contextualPreparer struct {
 }
 
 func (p *contextualPreparer) do() (contextualPreparationContext, error) {
-	pctx := contextualPreparationContext{
-		targets: map[string]search.Results{},
+	pctx := contextualPreparationContext{}
+
+	targets, err := p.findTargetsForProps()
+	if err != nil {
+		return pctx, err
 	}
 
-	for _, targetProp := range p.params.ClassifyProperties {
-		class, kind, err := p.classAndKindOfTarget(targetProp)
-		if err != nil {
-			return pctx, fmt.Errorf("target prop '%s': find target class and kind: %v", targetProp, err)
-		}
+	pctx.targets = targets
 
-		targets, err := p.findTargets(class, kind)
-		if err != nil {
-			return pctx, fmt.Errorf("target prop '%s': find targets: %v", targetProp, err)
-		}
-
-		pctx.targets[targetProp] = targets
+	tfidf, err := p.calculateTfidfForProps()
+	if err != nil {
+		return pctx, err
 	}
+
+	pctx.tfidf = tfidf
 
 	return pctx, nil
 }
 
-func (p *contextualPreparer) classAndKindOfTarget(propName string) (schema.ClassName, kind.Kind, error) {
-	prop, err := p.schema.GetProperty(p.kind, schema.ClassName(p.params.Class), schema.PropertyName(propName))
-	if err != nil {
-		return "", "", fmt.Errorf("get target prop '%s': %v", propName, err)
+func (p *contextualPreparer) calculateTfidfForProps() (map[string]tfidfScorer, error) {
+	props := map[string]tfidfScorer{}
+
+	for _, basedOnName := range p.params.BasedOnProperties {
+		calc := NewTfIdfCalculator(len(p.inputItems))
+		for _, obj := range p.inputItems {
+			schemaMap, ok := obj.Schema.(map[string]interface{})
+			if !ok {
+				return nil, fmt.Errorf("no or incorrect schema map present on source object '%s': %T", obj.ID, obj.Schema)
+			}
+
+			var docCorpus string
+			if basedOn, ok := schemaMap[basedOnName]; ok {
+				basedOnString, ok := basedOn.(string)
+				if !ok {
+					return nil, fmt.Errorf("property '%s' present on %s, but of unexpected type: want string, got %T",
+						basedOnName, obj.ID, basedOn)
+				}
+
+				docCorpus = basedOnString
+			}
+
+			calc.AddDoc(docCorpus)
+		}
+
+		calc.Calculate()
+		props[basedOnName] = calc
 	}
 
-	dataType, err := p.schema.FindPropertyDataType(prop.DataType)
-	if err != nil {
-		return "", "", fmt.Errorf("extract dataType of prop '%s': %v", propName, err)
+	return props, nil
+}
+
+func (p *contextualPreparer) findTargetsForProps() (map[string]search.Results, error) {
+	targetsMap := map[string]search.Results{}
+
+	for _, targetProp := range p.params.ClassifyProperties {
+		class, kind, err := p.classAndKindOfTarget(targetProp)
+		if err != nil {
+			return nil, fmt.Errorf("target prop '%s': find target class and kind: %v", targetProp, err)
+		}
+
+		targets, err := p.findTargets(class, kind)
+		if err != nil {
+			return nil, fmt.Errorf("target prop '%s': find targets: %v", targetProp, err)
+		}
+
+		targetsMap[targetProp] = targets
 	}
 
-	// we have passed validation, so it is safe to assume that this is a ref prop
-	targetClasses := dataType.Classes()
-
-	// len=1 is guaranteed from validation
-	targetClass := targetClasses[0]
-	targetKind, _ := p.schema.GetKindOfClass(targetClass)
-
-	return targetClass, targetKind, nil
+	return targetsMap, nil
 }
 
 func (p *contextualPreparer) findTargets(class schema.ClassName, kind kind.Kind) (search.Results, error) {
@@ -114,4 +143,25 @@ func (p *contextualPreparer) findTargets(class schema.ClassName, kind kind.Kind)
 	}
 
 	return res, nil
+}
+
+func (p *contextualPreparer) classAndKindOfTarget(propName string) (schema.ClassName, kind.Kind, error) {
+	prop, err := p.schema.GetProperty(p.kind, schema.ClassName(p.params.Class), schema.PropertyName(propName))
+	if err != nil {
+		return "", "", fmt.Errorf("get target prop '%s': %v", propName, err)
+	}
+
+	dataType, err := p.schema.FindPropertyDataType(prop.DataType)
+	if err != nil {
+		return "", "", fmt.Errorf("extract dataType of prop '%s': %v", propName, err)
+	}
+
+	// we have passed validation, so it is safe to assume that this is a ref prop
+	targetClasses := dataType.Classes()
+
+	// len=1 is guaranteed from validation
+	targetClass := targetClasses[0]
+	targetKind, _ := p.schema.GetKindOfClass(targetClass)
+
+	return targetClass, targetKind, nil
 }
