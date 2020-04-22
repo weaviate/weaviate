@@ -39,6 +39,13 @@ type Classifier struct {
 	vectorRepo   vectorRepo
 	authorizer   authorizer
 	distancer    distancer
+	vectorizer   vectorizer
+}
+
+type vectorizer interface {
+	// MultiVectorForWords must keep order, if an item cannot be vectorized, the
+	// element should be explicit nil, not skipped
+	MultiVectorForWords(ctx context.Context, words []string) ([][]float32, error)
 }
 
 type authorizer interface {

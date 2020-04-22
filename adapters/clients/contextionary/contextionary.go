@@ -16,6 +16,8 @@ package contextionary
 import (
 	"context"
 	"fmt"
+	"strings"
+	"sync"
 
 	pb "github.com/semi-technologies/contextionary/contextionary"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -181,6 +183,48 @@ func (c *Client) VectorForWord(ctx context.Context, word string) ([]float32, err
 		return nil, fmt.Errorf("could not get vector from remote: %v", err)
 	}
 	return vectorFromProto(res.Entries), nil
+}
+
+// TODO: gh-1125 this must be moved to the c11y, otherwise we still send n
+// requests which is a lot of overhead that isn't required
+func (c *Client) MultiVectorForWords(ctx context.Context, words []string) ([][]float32, error) {
+	lock := &sync.Mutex{}
+	out := make([][]float32, len(words))
+
+	concurrent := 20
+	for i := 0; i < len(words); i += concurrent {
+		end := i + concurrent
+		if end > len(words) {
+			end = len(words)
+		}
+
+		batch := words[i:end]
+
+		var wg = &sync.WaitGroup{}
+		for j, elem := range batch {
+			wg.Add(1)
+			go func(i, j int, elem string) {
+
+				word := strings.ToLower(elem)
+				vec, err := c.VectorForWord(ctx, word)
+				if err != nil {
+					// TODO: fix
+					// this should break as soon as a word's not in the c11y
+					panic(fmt.Sprintf("word '%s': %v", word, err))
+				}
+
+				lock.Lock()
+				out[i+j] = vec
+				lock.Unlock()
+
+				wg.Done()
+			}(i, j, elem)
+		}
+
+		wg.Wait()
+	}
+
+	return out, nil
 }
 
 func vectorFromProto(in []*pb.VectorEntry) []float32 {
