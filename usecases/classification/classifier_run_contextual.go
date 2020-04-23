@@ -210,25 +210,23 @@ func (c *contextualItemClassifier) buildBoostedCorpus(targetProp string) (string
 		word = strings.ToLower(word)
 
 		tfscores := c.context.tfidf[c.params.BasedOnProperties[0]].GetAllTerms(c.itemIndex)
-		// TODO: ig cutoff percentile
-		// TODO: tfidf cutoff percentile
-		if c.isInIgPercentile(10, word, targetProp) && c.isInTfPercentile(tfscores, 80, word) {
+		// dereferencing these optional parameters is safe, as defaults are
+		// explicility set in classifier.Schedule()
+		if c.isInIgPercentile(int(*c.params.InformationGainCutoffPercentile), word, targetProp) &&
+			c.isInTfPercentile(tfscores, int(*c.params.TfidfCutoffPercentile), word) {
 			corpus = append(corpus, word)
 		}
 	}
 
 	// use minimum words if len is currently less
-	// TODO: use actual parameters
-	limit := 3
+	limit := int(*c.params.MinimumUsableWords)
 	if len(corpus) < limit {
 		corpus = c.getTopNWords(targetProp, limit)
 	}
 
 	corpusStr := strings.ToLower(strings.Join(corpus, " "))
-	// TODO: ig cutfoff percentile
-	// TODO: max boost
-	boosts := c.boostByInformationGain(targetProp, 10, 3)
-	// TODO: add overrides
+	boosts := c.boostByInformationGain(targetProp, int(*c.params.InformationGainCutoffPercentile),
+		float32(*c.params.InformationGainMaximumBoost))
 	return corpusStr, boosts, nil
 }
 
