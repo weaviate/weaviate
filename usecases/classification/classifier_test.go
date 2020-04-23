@@ -23,14 +23,22 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	testhelper "github.com/semi-technologies/weaviate/test/helper"
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+func newNullLogger() *logrus.Logger {
+	log, _ := test.NewNullLogger()
+	return log
+}
+
 func Test_Classifier_KNN(t *testing.T) {
 	t.Run("with invalid data", func(t *testing.T) {
 		sg := &fakeSchemaGetter{testSchema()}
-		_, err := New(sg, nil, nil, &fakeAuthorizer{}, nil).Schedule(context.Background(), nil, models.Classification{})
+		_, err := New(sg, nil, nil, &fakeAuthorizer{}, nil, newNullLogger()).
+			Schedule(context.Background(), nil, models.Classification{})
 		assert.NotNil(t, err, "should error with invalid user input")
 	})
 
@@ -42,7 +50,7 @@ func Test_Classifier_KNN(t *testing.T) {
 		repo := newFakeClassificationRepo()
 		authorizer := &fakeAuthorizer{}
 		vectorRepo := newFakeVectorRepoKNN(testDataToBeClassified(), testDataAlreadyClassified())
-		classifier := New(sg, repo, vectorRepo, authorizer, nil)
+		classifier := New(sg, repo, vectorRepo, authorizer, nil, newNullLogger())
 
 		k := int32(1)
 		params := models.Classification{
@@ -115,7 +123,7 @@ func Test_Classifier_KNN(t *testing.T) {
 		authorizer := &fakeAuthorizer{}
 		vectorRepo := newFakeVectorRepoKNN(testDataToBeClassified(), testDataAlreadyClassified())
 		vectorRepo.errorOnAggregate = errors.New("something went wrong")
-		classifier := New(sg, repo, vectorRepo, authorizer, nil)
+		classifier := New(sg, repo, vectorRepo, authorizer, nil, newNullLogger())
 
 		k := int32(1)
 		params := models.Classification{
@@ -158,7 +166,7 @@ func Test_Classifier_KNN(t *testing.T) {
 		repo := newFakeClassificationRepo()
 		authorizer := &fakeAuthorizer{}
 		vectorRepo := newFakeVectorRepoKNN(nil, testDataAlreadyClassified())
-		classifier := New(sg, repo, vectorRepo, authorizer, nil)
+		classifier := New(sg, repo, vectorRepo, authorizer, nil, newNullLogger())
 
 		k := int32(1)
 		params := models.Classification{
