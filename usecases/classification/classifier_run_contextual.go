@@ -225,8 +225,28 @@ func (c *contextualItemClassifier) buildBoostedCorpus(targetProp string) (string
 	}
 
 	corpusStr := strings.ToLower(strings.Join(corpus, " "))
+	// TODO: ig cutfoff percentile
+	// TODO: max boost
+	boosts := c.boostByInformationGain(targetProp, 10, 3)
 	// TODO: add overrides
-	return corpusStr, nil, nil
+	return corpusStr, boosts, nil
+}
+
+func (c *contextualItemClassifier) boostByInformationGain(targetProp string, percentile int,
+	maxBoost float32) map[string]string {
+	cutoff := int(float32(percentile) / float32(100) * float32(len(c.rankedWords[targetProp])))
+	out := make(map[string]string, cutoff)
+
+	for i, word := range c.rankedWords[targetProp][:cutoff] {
+		boost := 1 - float32(math.Log(float64(i)/float64(cutoff)))*float32(1)
+		if math.IsInf(float64(boost), 1) || boost > maxBoost {
+			boost = maxBoost
+		}
+
+		out[word.word] = fmt.Sprintf("%f * w", boost)
+	}
+
+	return out
 }
 
 type scoredWord struct {
