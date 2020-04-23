@@ -29,6 +29,7 @@ import (
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	libvectorizer "github.com/semi-technologies/weaviate/usecases/vectorizer"
+	"github.com/sirupsen/logrus"
 )
 
 type distancer func(a, b []float32) (float32, error)
@@ -40,20 +41,25 @@ type Classifier struct {
 	authorizer   authorizer
 	distancer    distancer
 	vectorizer   vectorizer
+	logger       logrus.FieldLogger
 }
 
 type vectorizer interface {
 	// MultiVectorForWord must keep order, if an item cannot be vectorized, the
 	// element should be explicit nil, not skipped
 	MultiVectorForWord(ctx context.Context, words []string) ([][]float32, error)
+
+	VectorForCorpi(ctx context.Context, corpi []string, overrides map[string]string) ([]float32, error)
 }
 
 type authorizer interface {
 	Authorize(principal *models.Principal, verb, resource string) error
 }
 
-func New(sg schemaUC.SchemaGetter, cr Repo, vr vectorRepo, authorizer authorizer, vectorizer vectorizer) *Classifier {
+func New(sg schemaUC.SchemaGetter, cr Repo, vr vectorRepo, authorizer authorizer,
+	vectorizer vectorizer, logger logrus.FieldLogger) *Classifier {
 	return &Classifier{
+		logger:       logger,
 		schemaGetter: sg,
 		repo:         cr,
 		vectorRepo:   vr,

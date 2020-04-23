@@ -140,7 +140,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Logger, appState.Authorizer, vectorizer,
 		vectorRepo, explorer, schemaManager)
 
-	classifier := classification.New(schemaManager, classifierRepo, vectorRepo, appState.Authorizer, appState.Contextionary)
+	classifier := classification.New(schemaManager, classifierRepo, vectorRepo, appState.Authorizer,
+		appState.Contextionary, appState.Logger)
 
 	updateSchemaCallback := makeUpdateSchemaCall(appState.Logger, appState, kindsTraverser)
 	schemaManager.RegisterSchemaUpdateCallback(updateSchemaCallback)

@@ -17,43 +17,51 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
+	"github.com/go-openapi/strfmt"
 	libfilters "github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type contextualItemClassifier struct {
-	item       search.Result
-	kind       kind.Kind
-	params     models.Classification
-	classifier *Classifier
-	schema     schema.Schema
-	filters    filters
-	context    contextualPreparationContext
-	vectorizer vectorizer
+	item        search.Result
+	itemIndex   int
+	kind        kind.Kind
+	params      models.Classification
+	classifier  *Classifier
+	schema      schema.Schema
+	filters     filters
+	context     contextualPreparationContext
+	vectorizer  vectorizer
+	words       []string
+	rankedWords map[string][]scoredWord // map[targetProp]words as scoring/ranking is per target
 }
 
 // makeClassifyItemContextual is a higher-order function to produce the actual
 // classify function, but additionally allows us to inject data which is valid
 // for the entire run, such as tf-idf data and target vectors
-func (c *Classifier) makeClassifyItemContextual(preparedContext contextualPreparationContext) func(search.Result, kind.Kind, models.Classification, filters) error {
-	return func(item search.Result, kind kind.Kind, params models.Classification, filters filters) error {
+func (c *Classifier) makeClassifyItemContextual(preparedContext contextualPreparationContext) func(search.Result,
+	int, kind.Kind, models.Classification, filters) error {
+	return func(item search.Result, itemIndex int, kind kind.Kind, params models.Classification, filters filters) error {
 		schema := c.schemaGetter.GetSchemaSkipAuth()
 		run := &contextualItemClassifier{
-			item:       item,
-			kind:       kind,
-			params:     params,
-			classifier: c,
-			schema:     schema,
-			filters:    filters,
-			context:    preparedContext,
-			vectorizer: c.vectorizer,
+			item:        item,
+			itemIndex:   itemIndex,
+			kind:        kind,
+			params:      params,
+			classifier:  c,
+			schema:      schema,
+			filters:     filters,
+			context:     preparedContext,
+			vectorizer:  c.vectorizer,
+			rankedWords: map[string][]scoredWord{},
 		}
 
 		err := run.do()
@@ -112,6 +120,7 @@ func (c *contextualItemClassifier) property(propName string) (string, error) {
 	}
 
 	words := newSplitter().Split(basedOnString)
+	c.words = words
 
 	ctx, cancel := contextWithTimeout(10 * time.Second)
 	defer cancel()
@@ -125,11 +134,25 @@ func (c *contextualItemClassifier) property(propName string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("score words: %v", err)
 	}
-	spew.Dump(scoredWords)
 
-	ranked := c.rankAndDedup(scoredWords)
+	c.rankedWords[propName] = c.rankAndDedup(scoredWords)
 
-	_ = ranked
+	corpus, boosts, err := c.buildBoostedCorpus(propName)
+	if err != nil {
+		return "", fmt.Errorf("build corpus: %v", err)
+	}
+
+	ctx, cancel = contextWithTimeout(10 * time.Second)
+	defer cancel()
+	vector, err := c.vectorizer.VectorForCorpi(ctx, []string{corpus}, boosts)
+	if err != nil {
+		return "", fmt.Errorf("vectorize corpus: %v", err)
+	}
+
+	target, distance, err := c.findClosestTarget(vector, propName)
+	if err != nil {
+		return "", fmt.Errorf("find closest target: %v", err)
+	}
 
 	// targetClass, targetKind, err := c.classAndKindOfTarget(propName)
 	// if err != nil {
@@ -146,25 +169,85 @@ func (c *contextualItemClassifier) property(propName string) (string, error) {
 	// 	return "", fmt.Errorf("calculate distance: %v", err)
 	// }
 
-	// targetBeacon := crossref.New("localhost", res.ID, res.Kind).String()
-	// c.item.Schema.(map[string]interface{})[propName] = models.MultipleRef{
-	// 	&models.SingleRef{
-	// 		Beacon: strfmt.URI(targetBeacon),
-	// 		Meta: &models.ReferenceMeta{
-	// 			Classification: &models.ReferenceMetaClassification{
-	// 				WinningDistance: distance,
-	// 			},
-	// 		},
-	// 	},
-	// }
+	targetBeacon := crossref.New("localhost", target.ID, target.Kind).String()
+	c.item.Schema.(map[string]interface{})[propName] = models.MultipleRef{
+		&models.SingleRef{
+			Beacon: strfmt.URI(targetBeacon),
+			Meta: &models.ReferenceMeta{
+				Classification: &models.ReferenceMetaClassification{
+					WinningDistance: float64(distance),
+				},
+			},
+		},
+	}
 
 	return propName, nil
+}
+
+func (c *contextualItemClassifier) findClosestTarget(query []float32, targetProp string) (*search.Result, float32, error) {
+	var minimum = float32(100000)
+	var prediction search.Result
+
+	for _, item := range c.context.targets[targetProp] {
+		dist, err := cosineDist(query, item.Vector)
+		if err != nil {
+			return nil, -1, fmt.Errorf("calculate distance: %v", err)
+		}
+
+		if dist < minimum {
+			minimum = dist
+			prediction = item
+		}
+	}
+
+	return &prediction, minimum, nil
+}
+
+func (c *contextualItemClassifier) buildBoostedCorpus(targetProp string) (string, map[string]string, error) {
+	var corpus []string
+
+	for _, word := range c.words {
+		word = strings.ToLower(word)
+
+		tfscores := c.context.tfidf[c.params.BasedOnProperties[0]].GetAllTerms(c.itemIndex)
+		// TODO: ig cutoff percentile
+		// TODO: tfidf cutoff percentile
+		if c.isInIgPercentile(10, word, targetProp) && c.isInTfPercentile(tfscores, 80, word) {
+			corpus = append(corpus, word)
+		}
+	}
+
+	// use minimum words if len is currently less
+	// TODO: use actual parameters
+	limit := 3
+	if len(corpus) < limit {
+		corpus = c.getTopNWords(targetProp, limit)
+	}
+
+	corpusStr := strings.ToLower(strings.Join(corpus, " "))
+	// TODO: add overrides
+	return corpusStr, nil, nil
 }
 
 type scoredWord struct {
 	word            string
 	distance        float32
 	informationGain float32
+}
+
+func (c *contextualItemClassifier) getTopNWords(targetProp string, limit int) []string {
+	words := c.rankedWords[targetProp]
+
+	if len(words) < limit {
+		limit = len(words)
+	}
+
+	out := make([]string, limit+1)
+	for i := 0; i < limit; i++ {
+		out[i] = words[i].word
+	}
+
+	return out
 }
 
 func (c *contextualItemClassifier) rankAndDedup(in []*scoredWord) []scoredWord {
@@ -218,9 +301,10 @@ func (c *contextualItemClassifier) scoreWords(words []string, vectors [][]float3
 
 	out := make([]*scoredWord, len(words))
 	for i := range words {
-		sw, err := c.scoreWord(words[i], vectors[i], targetProp)
+		word := strings.ToLower(words[i])
+		sw, err := c.scoreWord(word, vectors[i], targetProp)
 		if err != nil {
-			return nil, fmt.Errorf("score word '%s': %v", words[i], err)
+			return nil, fmt.Errorf("score word '%s': %v", word, err)
 		}
 
 		// accept nil-entries for now, they will be removed in ranking/deduping
@@ -322,6 +406,34 @@ func (c *contextualItemClassifier) findTarget(targetClass schema.ClassName, targ
 func (c *contextualItemClassifier) distance(target []float32) (float64, error) {
 	dist, err := c.classifier.distancer(c.item.Vector, target)
 	return float64(dist), err
+}
+
+func (c *contextualItemClassifier) isInIgPercentile(percentage int, needle string, target string) bool {
+	cutoff := int(float32(percentage) / float32(100) * float32(len(c.rankedWords[target])))
+
+	// no need to check if key exists, guaranteed from run
+	selection := c.rankedWords[target][:cutoff]
+
+	for _, hay := range selection {
+		if needle == hay.word {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (c *contextualItemClassifier) isInTfPercentile(tf []TermWithTfIdf, percentage int, needle string) bool {
+	cutoff := int(float32(percentage) / float32(100) * float32(len(tf)))
+	selection := tf[:cutoff]
+
+	for _, hay := range selection {
+		if needle == hay.Term {
+			return true
+		}
+	}
+
+	return false
 }
 
 func cosineSim(a, b []float32) (float32, error) {

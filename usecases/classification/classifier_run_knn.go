@@ -22,7 +22,8 @@ import (
 	"github.com/semi-technologies/weaviate/entities/search"
 )
 
-func (c *Classifier) classifyItemUsingKNN(item search.Result, kind kind.Kind, params models.Classification, filters filters) error {
+func (c *Classifier) classifyItemUsingKNN(item search.Result, itemIndex int, kind kind.Kind,
+	params models.Classification, filters filters) error {
 	ctx, cancel := contextWithTimeout(2 * time.Second)
 	defer cancel()
 
