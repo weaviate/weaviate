@@ -223,5 +223,24 @@ func (c *Classifier) setDefaultsForKNN(params *models.Classification) {
 }
 
 func (c *Classifier) setDefaultsForContextual(params *models.Classification) {
-	// none at the moment
+	if params.MinimumUsableWords == nil {
+		defaultParam := int32(3)
+		params.MinimumUsableWords = &defaultParam
+	}
+
+	if params.InformationGainCutoffPercentile == nil {
+		defaultParam := int32(50)
+		params.InformationGainCutoffPercentile = &defaultParam
+	}
+
+	if params.InformationGainMaximumBoost == nil {
+		defaultParam := int32(3)
+		params.InformationGainMaximumBoost = &defaultParam
+	}
+
+	if params.TfidfCutoffPercentile == nil {
+		defaultParam := int32(80)
+		params.TfidfCutoffPercentile = &defaultParam
+	}
+
 }
