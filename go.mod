@@ -31,7 +31,7 @@ require (
 	github.com/nyaruka/phonenumbers v1.0.54
 	github.com/rs/cors v1.5.0
 	github.com/satori/go.uuid v0.0.0-20180103174451-36e9d2ebbde5
-	github.com/semi-technologies/contextionary v0.0.0-20200131144445-074b13178761
+	github.com/semi-technologies/contextionary v0.0.0-20200424084255-29fe88e56c12
 	github.com/sirupsen/logrus v1.4.2
 	github.com/square/go-jose v2.3.0+incompatible
 	github.com/stretchr/testify v1.4.0

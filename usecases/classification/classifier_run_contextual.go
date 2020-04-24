@@ -126,7 +126,7 @@ func (c *contextualItemClassifier) property(propName string) (string, error) {
 	defer cancel()
 
 	vectors, err := c.vectorizer.MultiVectorForWord(ctx, words)
-	if !ok {
+	if err != nil {
 		return "", fmt.Errorf("vectorize individual words: %v", err)
 	}
 
