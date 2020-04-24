@@ -16,8 +16,6 @@ package contextionary
 import (
 	"context"
 	"fmt"
-	"strings"
-	"sync"
 
 	pb "github.com/semi-technologies/contextionary/contextionary"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -36,7 +34,7 @@ type Client struct {
 
 // NewClient from gRPC discovery url to connect to a remote contextionary service
 func NewClient(uri string) (*Client, error) {
-	conn, err := grpc.Dial(uri, grpc.WithInsecure())
+	conn, err := grpc.Dial(uri, grpc.WithInsecure(), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(1024*1024*48)))
 	if err != nil {
 		return nil, fmt.Errorf("couldn't connect to remote contextionary gRPC server: %s", err)
 	}
@@ -188,47 +186,25 @@ func (c *Client) VectorForWord(ctx context.Context, word string) ([]float32, err
 // TODO: gh-1125 this must be moved to the c11y, otherwise we still send n
 // requests which is a lot of overhead that isn't required
 func (c *Client) MultiVectorForWord(ctx context.Context, words []string) ([][]float32, error) {
-	lock := &sync.Mutex{}
 	out := make([][]float32, len(words))
+	wordParams := make([]*pb.Word, len(words))
 
-	concurrent := 20
-	for i := 0; i < len(words); i += concurrent {
-		end := i + concurrent
-		if end > len(words) {
-			end = len(words)
+	for i, word := range words {
+		wordParams[i] = &pb.Word{Word: word}
+	}
+
+	res, err := c.grpcClient.MultiVectorForWord(ctx, &pb.WordList{Words: wordParams})
+	if err != nil {
+		return nil, err
+	}
+
+	for i, elem := range res.Vectors {
+		if len(elem.Entries) == 0 {
+			// indicates word not found
+			continue
 		}
 
-		batch := words[i:end]
-
-		var wg = &sync.WaitGroup{}
-		for j, elem := range batch {
-			wg.Add(1)
-			go func(i, j int, elem string) {
-
-				word := strings.ToLower(elem)
-				var vec []float32
-				protovec, err := c.grpcClient.VectorForWord(ctx, &pb.Word{Word: word})
-				if err != nil {
-					st, ok := status.FromError(err)
-					if !ok || st.Code() != codes.NotFound {
-						// TODO: handle properly
-						panic(err)
-					}
-
-					// do nothing, i.e. pass a nil vector
-				} else {
-					vec = vectorFromProto(protovec.Entries)
-				}
-
-				lock.Lock()
-				out[i+j] = vec
-				lock.Unlock()
-
-				wg.Done()
-			}(i, j, elem)
-		}
-
-		wg.Wait()
+		out[i] = vectorFromProto(elem.Entries)
 	}
 
 	return out, nil
