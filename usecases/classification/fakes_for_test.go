@@ -231,6 +231,11 @@ func (f *fakeVectorRepoContextual) PutAction(ctx context.Context, thing *models.
 
 func (f *fakeVectorRepoContextual) VectorClassSearch(ctx context.Context,
 	params traverser.GetParams) ([]search.Result, error) {
+	if params.SearchVector == nil {
+		filteredTargets := matchClassName(f.targets, params.ClassName)
+		return filteredTargets, nil
+	}
+
 	// simulate that this takes some time
 	time.Sleep(5 * time.Millisecond)
 

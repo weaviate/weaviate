@@ -154,21 +154,6 @@ func (c *contextualItemClassifier) property(propName string) (string, error) {
 		return "", fmt.Errorf("find closest target: %v", err)
 	}
 
-	// targetClass, targetKind, err := c.classAndKindOfTarget(propName)
-	// if err != nil {
-	// 	return "", fmt.Errorf("inspect target: %v", err)
-	// }
-
-	// res, err := c.findTarget(targetClass, targetKind)
-	// if err != nil {
-	// 	return "", fmt.Errorf("find target: %v", err)
-	// }
-
-	// distance, err := c.distance(res.Vector)
-	// if err != nil {
-	// 	return "", fmt.Errorf("calculate distance: %v", err)
-	// }
-
 	targetBeacon := crossref.New("localhost", target.ID, target.Kind).String()
 	c.item.Schema.(map[string]interface{})[propName] = models.MultipleRef{
 		&models.SingleRef{
@@ -260,7 +245,7 @@ func (c *contextualItemClassifier) getTopNWords(targetProp string, limit int) []
 		limit = len(words)
 	}
 
-	out := make([]string, limit+1)
+	out := make([]string, limit)
 	for i := 0; i < limit; i++ {
 		out[i] = words[i].word
 	}
