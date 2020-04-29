@@ -3026,6 +3026,20 @@ func init() {
           "format": "uuid",
           "example": "ee722219-b8ec-4db1-8f8d-5150bb1a9e0c"
         },
+        "informationGainCutoffPercentile": {
+          "description": "Only available on type=contextual. All words in a source corpus are ranked by their information gain against the possible target objects. A cutoff percentile of 40 implies that the top 40% are used and the bottom 60% are cut-off.",
+          "type": "integer",
+          "format": "int32",
+          "default": 30,
+          "example": 30
+        },
+        "informationGainMaximumBoost": {
+          "description": "Only available on type=contextual. Words in a corpus will receive an additional boost based on how high they are ranked according to information gain. Setting this value to 3 implies that the top-ranked word will be ranked 3 times as high as the bottom ranked word. The curve in between is logarithmic. A maximum boost of 1 implies that no boosting occurs.",
+          "type": "integer",
+          "format": "int32",
+          "default": 3,
+          "example": 3
+        },
         "k": {
           "description": "k-value when using k-Neareast-Neighbor",
           "type": "integer",
@@ -3037,6 +3051,13 @@ func init() {
           "description": "additional meta information about the classification",
           "type": "object",
           "$ref": "#/definitions/ClassificationMeta"
+        },
+        "minimumUsableWords": {
+          "description": "Only available on type=contextual. Both IG and tf-idf are mechanisms to remove words from the corpora. However, on very short corpora this could lead to a removal of all words, or all but a single word. This value guarantees that - regardless of tf-idf and IG score - always at least n words are used.",
+          "type": "integer",
+          "format": "int32",
+          "default": 3,
+          "example": 3
         },
         "sourceWhere": {
           "description": "limit the objects to be classified",
@@ -3057,6 +3078,13 @@ func init() {
           "description": "Limit the possible sources when using an algorithm which doesn't really on trainig data, e.g. 'contextual'. When using an algorithm with a training set, such as 'knn', limit the training set instead",
           "type": "object",
           "$ref": "#/definitions/WhereFilter"
+        },
+        "tfidfCutoffPercentile": {
+          "description": "Only available on type=contextual. All words in a corpus are ranked by their tf-idf score. A cutoff percentile of 80 implies that the top 80% are used and the bottom 20% are cut-off. This is very effective to remove words that occur in almost all objects, such as filler and stop words.",
+          "type": "integer",
+          "format": "int32",
+          "default": 80,
+          "example": 80
         },
         "trainingSetWhere": {
           "description": "Limit the training objects to be considered during the classification. Can only be used on types with explicit training sets, such as 'knn'",
@@ -6896,6 +6924,20 @@ func init() {
           "format": "uuid",
           "example": "ee722219-b8ec-4db1-8f8d-5150bb1a9e0c"
         },
+        "informationGainCutoffPercentile": {
+          "description": "Only available on type=contextual. All words in a source corpus are ranked by their information gain against the possible target objects. A cutoff percentile of 40 implies that the top 40% are used and the bottom 60% are cut-off.",
+          "type": "integer",
+          "format": "int32",
+          "default": 30,
+          "example": 30
+        },
+        "informationGainMaximumBoost": {
+          "description": "Only available on type=contextual. Words in a corpus will receive an additional boost based on how high they are ranked according to information gain. Setting this value to 3 implies that the top-ranked word will be ranked 3 times as high as the bottom ranked word. The curve in between is logarithmic. A maximum boost of 1 implies that no boosting occurs.",
+          "type": "integer",
+          "format": "int32",
+          "default": 3,
+          "example": 3
+        },
         "k": {
           "description": "k-value when using k-Neareast-Neighbor",
           "type": "integer",
@@ -6907,6 +6949,13 @@ func init() {
           "description": "additional meta information about the classification",
           "type": "object",
           "$ref": "#/definitions/ClassificationMeta"
+        },
+        "minimumUsableWords": {
+          "description": "Only available on type=contextual. Both IG and tf-idf are mechanisms to remove words from the corpora. However, on very short corpora this could lead to a removal of all words, or all but a single word. This value guarantees that - regardless of tf-idf and IG score - always at least n words are used.",
+          "type": "integer",
+          "format": "int32",
+          "default": 3,
+          "example": 3
         },
         "sourceWhere": {
           "description": "limit the objects to be classified",
@@ -6927,6 +6976,13 @@ func init() {
           "description": "Limit the possible sources when using an algorithm which doesn't really on trainig data, e.g. 'contextual'. When using an algorithm with a training set, such as 'knn', limit the training set instead",
           "type": "object",
           "$ref": "#/definitions/WhereFilter"
+        },
+        "tfidfCutoffPercentile": {
+          "description": "Only available on type=contextual. All words in a corpus are ranked by their tf-idf score. A cutoff percentile of 80 implies that the top 80% are used and the bottom 20% are cut-off. This is very effective to remove words that occur in almost all objects, such as filler and stop words.",
+          "type": "integer",
+          "format": "int32",
+          "default": 80,
+          "example": 80
         },
         "trainingSetWhere": {
           "description": "Limit the training objects to be considered during the classification. Can only be used on types with explicit training sets, such as 'knn'",
