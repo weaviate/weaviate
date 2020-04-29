@@ -16,7 +16,6 @@ package classification
 import (
 	"context"
 	"fmt"
-	"math"
 	"sort"
 	"sync"
 	"time"
@@ -172,26 +171,6 @@ func (f *fakeVectorRepoKNN) get(id strfmt.UUID) (*models.Thing, bool) {
 	return t, ok
 }
 
-func cosineSim(a, b []float32) (float32, error) {
-	if len(a) != len(b) {
-		return 0, fmt.Errorf("vectors have different dimensions")
-	}
-
-	var (
-		sumProduct float64
-		sumASquare float64
-		sumBSquare float64
-	)
-
-	for i := range a {
-		sumProduct += float64(a[i] * b[i])
-		sumASquare += float64(a[i] * a[i])
-		sumBSquare += float64(b[i] * b[i])
-	}
-
-	return float32(sumProduct / (math.Sqrt(sumASquare) * math.Sqrt(sumBSquare))), nil
-}
-
 type fakeAuthorizer struct{}
 
 func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {
@@ -252,6 +231,11 @@ func (f *fakeVectorRepoContextual) PutAction(ctx context.Context, thing *models.
 
 func (f *fakeVectorRepoContextual) VectorClassSearch(ctx context.Context,
 	params traverser.GetParams) ([]search.Result, error) {
+	if params.SearchVector == nil {
+		filteredTargets := matchClassName(f.targets, params.ClassName)
+		return filteredTargets, nil
+	}
+
 	// simulate that this takes some time
 	time.Sleep(5 * time.Millisecond)
 

@@ -17,20 +17,29 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	testhelper "github.com/semi-technologies/weaviate/test/helper"
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+func newNullLogger() *logrus.Logger {
+	log, _ := test.NewNullLogger()
+	return log
+}
+
 func Test_Classifier_KNN(t *testing.T) {
 	t.Run("with invalid data", func(t *testing.T) {
 		sg := &fakeSchemaGetter{testSchema()}
-		_, err := New(sg, nil, nil, &fakeAuthorizer{}).Schedule(context.Background(), nil, models.Classification{})
+		_, err := New(sg, nil, nil, &fakeAuthorizer{}, nil, newNullLogger()).
+			Schedule(context.Background(), nil, models.Classification{})
 		assert.NotNil(t, err, "should error with invalid user input")
 	})
 
@@ -42,7 +51,7 @@ func Test_Classifier_KNN(t *testing.T) {
 		repo := newFakeClassificationRepo()
 		authorizer := &fakeAuthorizer{}
 		vectorRepo := newFakeVectorRepoKNN(testDataToBeClassified(), testDataAlreadyClassified())
-		classifier := New(sg, repo, vectorRepo, authorizer)
+		classifier := New(sg, repo, vectorRepo, authorizer, nil, newNullLogger())
 
 		k := int32(1)
 		params := models.Classification{
@@ -115,7 +124,7 @@ func Test_Classifier_KNN(t *testing.T) {
 		authorizer := &fakeAuthorizer{}
 		vectorRepo := newFakeVectorRepoKNN(testDataToBeClassified(), testDataAlreadyClassified())
 		vectorRepo.errorOnAggregate = errors.New("something went wrong")
-		classifier := New(sg, repo, vectorRepo, authorizer)
+		classifier := New(sg, repo, vectorRepo, authorizer, nil, newNullLogger())
 
 		k := int32(1)
 		params := models.Classification{
@@ -158,7 +167,7 @@ func Test_Classifier_KNN(t *testing.T) {
 		repo := newFakeClassificationRepo()
 		authorizer := &fakeAuthorizer{}
 		vectorRepo := newFakeVectorRepoKNN(nil, testDataAlreadyClassified())
-		classifier := New(sg, repo, vectorRepo, authorizer)
+		classifier := New(sg, repo, vectorRepo, authorizer, nil, newNullLogger())
 
 		k := int32(1)
 		params := models.Classification{
@@ -201,7 +210,9 @@ func Test_Classifier_Contextual(t *testing.T) {
 		repo := newFakeClassificationRepo()
 		authorizer := &fakeAuthorizer{}
 		vectorRepo := newFakeVectorRepoContextual(testDataToBeClassified(), testDataPossibleTargets())
-		classifier := New(sg, repo, vectorRepo, authorizer)
+		logger, _ := test.NewNullLogger()
+		vectorizer := &fakeVectorizer{words: testDataVectors()}
+		classifier := New(sg, repo, vectorRepo, authorizer, vectorizer, logger)
 
 		contextual := "contextual"
 		params := models.Classification{
@@ -267,87 +278,89 @@ func Test_Classifier_Contextual(t *testing.T) {
 		})
 	})
 
-	// t.Run("when errors occur during classification", func(t *testing.T) {
-	// 	sg := &fakeSchemaGetter{testSchema()}
-	// 	repo := newFakeClassificationRepo()
-	// 	authorizer := &fakeAuthorizer{}
-	// 	vectorRepo := newFakeVectorRepoKNN(testDataToBeClassified(), testDataAlreadyClassified())
-	// 	vectorRepo.errorOnAggregate = errors.New("something went wrong")
-	// 	classifier := New(sg, repo, vectorRepo, authorizer)
+	t.Run("when errors occur during classification", func(t *testing.T) {
+		sg := &fakeSchemaGetter{testSchema()}
+		repo := newFakeClassificationRepo()
+		authorizer := &fakeAuthorizer{}
+		vectorRepo := newFakeVectorRepoKNN(testDataToBeClassified(), testDataAlreadyClassified())
+		vectorRepo.errorOnAggregate = errors.New("something went wrong")
+		logger, _ := test.NewNullLogger()
+		classifier := New(sg, repo, vectorRepo, authorizer, nil, logger)
 
-	// 	k := int32(1)
-	// 	params := models.Classification{
-	// 		Class:              "Article",
-	// 		BasedOnProperties:  []string{"description"},
-	// 		ClassifyProperties: []string{"exactCategory", "mainCategory"},
-	// 		K:                  &k,
-	// 	}
+		k := int32(1)
+		params := models.Classification{
+			Class:              "Article",
+			BasedOnProperties:  []string{"description"},
+			ClassifyProperties: []string{"exactCategory", "mainCategory"},
+			K:                  &k,
+		}
 
-	// 	t.Run("scheduling a classification", func(t *testing.T) {
-	// 		class, err := classifier.Schedule(context.Background(), nil, params)
-	// 		require.Nil(t, err, "should not error")
-	// 		require.NotNil(t, class)
+		t.Run("scheduling a classification", func(t *testing.T) {
+			class, err := classifier.Schedule(context.Background(), nil, params)
+			require.Nil(t, err, "should not error")
+			require.NotNil(t, class)
 
-	// 		assert.Len(t, class.ID, 36, "an id was assigned")
-	// 		id = class.ID
+			assert.Len(t, class.ID, 36, "an id was assigned")
+			id = class.ID
 
-	// 	})
+		})
 
-	// 	waitForStatusToNoLongerBeRunning(t, classifier, id)
+		waitForStatusToNoLongerBeRunning(t, classifier, id)
 
-	// 	t.Run("status is now failed", func(t *testing.T) {
-	// 		class, err := classifier.Get(context.Background(), nil, id)
-	// 		require.Nil(t, err)
-	// 		require.NotNil(t, class)
-	// 		assert.Equal(t, models.ClassificationStatusFailed, class.Status)
-	// 		expectedErr := "classification failed: " +
-	// 			"classify Article/75ba35af-6a08-40ae-b442-3bec69b355f9: something went wrong, " +
-	// 			"classify Article/f850439a-d3cd-4f17-8fbf-5a64405645cd: something went wrong, " +
-	// 			"classify Article/a2bbcbdc-76e1-477d-9e72-a6d2cfb50109: something went wrong, " +
-	// 			"classify Article/069410c3-4b9e-4f68-8034-32a066cb7997: something went wrong, " +
-	// 			"classify Article/06a1e824-889c-4649-97f9-1ed3fa401d8e: something went wrong, " +
-	// 			"classify Article/6402e649-b1e0-40ea-b192-a64eab0d5e56: something went wrong"
-	// 		assert.Equal(t, expectedErr, class.Error)
-	// 	})
-	// })
+		t.Run("status is now failed", func(t *testing.T) {
+			class, err := classifier.Get(context.Background(), nil, id)
+			require.Nil(t, err)
+			require.NotNil(t, class)
+			assert.Equal(t, models.ClassificationStatusFailed, class.Status)
+			expectedErr := "classification failed: " +
+				"classify Article/75ba35af-6a08-40ae-b442-3bec69b355f9: something went wrong, " +
+				"classify Article/f850439a-d3cd-4f17-8fbf-5a64405645cd: something went wrong, " +
+				"classify Article/a2bbcbdc-76e1-477d-9e72-a6d2cfb50109: something went wrong, " +
+				"classify Article/069410c3-4b9e-4f68-8034-32a066cb7997: something went wrong, " +
+				"classify Article/06a1e824-889c-4649-97f9-1ed3fa401d8e: something went wrong, " +
+				"classify Article/6402e649-b1e0-40ea-b192-a64eab0d5e56: something went wrong"
+			assert.Equal(t, expectedErr, class.Error)
+		})
+	})
 
-	// t.Run("when there is nothing to be classified", func(t *testing.T) {
-	// 	sg := &fakeSchemaGetter{testSchema()}
-	// 	repo := newFakeClassificationRepo()
-	// 	authorizer := &fakeAuthorizer{}
-	// 	vectorRepo := newFakeVectorRepoKNN(nil, testDataAlreadyClassified())
-	// 	classifier := New(sg, repo, vectorRepo, authorizer)
+	t.Run("when there is nothing to be classified", func(t *testing.T) {
+		sg := &fakeSchemaGetter{testSchema()}
+		repo := newFakeClassificationRepo()
+		authorizer := &fakeAuthorizer{}
+		vectorRepo := newFakeVectorRepoKNN(nil, testDataAlreadyClassified())
+		logger, _ := test.NewNullLogger()
+		classifier := New(sg, repo, vectorRepo, authorizer, nil, logger)
 
-	// 	k := int32(1)
-	// 	params := models.Classification{
-	// 		Class:              "Article",
-	// 		BasedOnProperties:  []string{"description"},
-	// 		ClassifyProperties: []string{"exactCategory", "mainCategory"},
-	// 		K:                  &k,
-	// 	}
+		k := int32(1)
+		params := models.Classification{
+			Class:              "Article",
+			BasedOnProperties:  []string{"description"},
+			ClassifyProperties: []string{"exactCategory", "mainCategory"},
+			K:                  &k,
+		}
 
-	// 	t.Run("scheduling a classification", func(t *testing.T) {
-	// 		class, err := classifier.Schedule(context.Background(), nil, params)
-	// 		require.Nil(t, err, "should not error")
-	// 		require.NotNil(t, class)
+		t.Run("scheduling a classification", func(t *testing.T) {
+			class, err := classifier.Schedule(context.Background(), nil, params)
+			require.Nil(t, err, "should not error")
+			require.NotNil(t, class)
 
-	// 		assert.Len(t, class.ID, 36, "an id was assigned")
-	// 		id = class.ID
+			assert.Len(t, class.ID, 36, "an id was assigned")
+			id = class.ID
 
-	// 	})
+		})
 
-	// 	waitForStatusToNoLongerBeRunning(t, classifier, id)
+		waitForStatusToNoLongerBeRunning(t, classifier, id)
 
-	// 	t.Run("status is now failed", func(t *testing.T) {
-	// 		class, err := classifier.Get(context.Background(), nil, id)
-	// 		require.Nil(t, err)
-	// 		require.NotNil(t, class)
-	// 		assert.Equal(t, models.ClassificationStatusFailed, class.Status)
-	// 		expectedErr := "classification failed: " +
-	// 			"no classes to be classified - did you run a previous classification already?"
-	// 		assert.Equal(t, expectedErr, class.Error)
-	// 	})
-	// })
+		t.Run("status is now failed", func(t *testing.T) {
+			class, err := classifier.Get(context.Background(), nil, id)
+			require.Nil(t, err)
+			require.NotNil(t, class)
+			assert.Equal(t, models.ClassificationStatusFailed, class.Status)
+			expectedErr := "classification failed: " +
+				"no classes to be classified - did you run a previous classification already?"
+			assert.Equal(t, expectedErr, class.Error)
+		})
+	})
 }
 
 type genericFakeRepo interface {
@@ -379,4 +392,68 @@ func waitForStatusToNoLongerBeRunning(t *testing.T, classifier *Classifier, id s
 
 		return class.Status != models.ClassificationStatusRunning
 	}, "wait until status in no longer running")
+}
+
+type fakeVectorizer struct {
+	words map[string][]float32
+}
+
+func (f *fakeVectorizer) MultiVectorForWord(ctx context.Context, words []string) ([][]float32, error) {
+	out := make([][]float32, len(words))
+	for i, word := range words {
+		vector, ok := f.words[strings.ToLower(word)]
+		if !ok {
+			continue
+		}
+		out[i] = vector
+	}
+	return out, nil
+}
+
+func (f *fakeVectorizer) VectorForCorpi(ctx context.Context, corpi []string,
+	overrides map[string]string) ([]float32, error) {
+	words := strings.Split(corpi[0], " ")
+	if len(words) == 0 {
+		return nil, fmt.Errorf("vector for corpi called without words")
+	}
+
+	vectors, _ := f.MultiVectorForWord(ctx, words)
+
+	return f.centroid(vectors, words)
+}
+
+func (f *fakeVectorizer) centroid(in [][]float32, words []string) ([]float32, error) {
+	withoutNilVectors := make([][]float32, len(in))
+	if len(in) == 0 {
+		return nil, fmt.Errorf("got nil vector list for words: %v", words)
+	}
+
+	i := 0
+	for _, vec := range in {
+		if vec == nil {
+			continue
+		}
+
+		withoutNilVectors[i] = vec
+		i++
+	}
+	withoutNilVectors = withoutNilVectors[:i]
+	if i == 0 {
+		return nil, fmt.Errorf("no usable words: %v", words)
+	}
+
+	// take the first vector assuming all have the same length
+	out := make([]float32, len(withoutNilVectors[0]))
+
+	for _, vec := range withoutNilVectors {
+		for i, dim := range vec {
+			out[i] = out[i] + dim
+		}
+	}
+
+	for i, sum := range out {
+		out[i] = sum / float32(len(withoutNilVectors))
+	}
+
+	return out, nil
 }

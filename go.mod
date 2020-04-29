@@ -2,7 +2,7 @@ module github.com/semi-technologies/weaviate
 
 require (
 	github.com/TylerBrock/colorjson v0.0.0-20180527164720-95ec53f28296
-	github.com/asaskevich/govalidator v0.0.0-20200108200545-475eaeb16496 // indirect
+	github.com/asaskevich/govalidator v0.0.0-20200428143746-21a406dcc535 // indirect
 	github.com/bmatcuk/doublestar v1.1.3
 	github.com/coreos/etcd v3.3.18+incompatible
 	github.com/coreos/go-oidc v2.0.0+incompatible
@@ -26,12 +26,12 @@ require (
 	github.com/mailru/easyjson v0.7.1 // indirect
 	github.com/mattn/go-colorable v0.1.4 // indirect
 	github.com/mattn/go-isatty v0.0.11 // indirect
-	github.com/mitchellh/mapstructure v1.2.2 // indirect
+	github.com/mitchellh/mapstructure v1.3.0 // indirect
 	github.com/modern-go/reflect2 v1.0.1 // indirect
 	github.com/nyaruka/phonenumbers v1.0.54
 	github.com/rs/cors v1.5.0
 	github.com/satori/go.uuid v0.0.0-20180103174451-36e9d2ebbde5
-	github.com/semi-technologies/contextionary v0.0.0-20200131144445-074b13178761
+	github.com/semi-technologies/contextionary v0.0.0-20200424084255-29fe88e56c12
 	github.com/sirupsen/logrus v1.4.2
 	github.com/square/go-jose v2.3.0+incompatible
 	github.com/stretchr/testify v1.4.0
