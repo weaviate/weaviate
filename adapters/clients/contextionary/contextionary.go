@@ -34,7 +34,7 @@ type Client struct {
 
 // NewClient from gRPC discovery url to connect to a remote contextionary service
 func NewClient(uri string) (*Client, error) {
-	conn, err := grpc.Dial(uri, grpc.WithInsecure())
+	conn, err := grpc.Dial(uri, grpc.WithInsecure(), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(1024*1024*48)))
 	if err != nil {
 		return nil, fmt.Errorf("couldn't connect to remote contextionary gRPC server: %s", err)
 	}
@@ -181,6 +181,33 @@ func (c *Client) VectorForWord(ctx context.Context, word string) ([]float32, err
 		return nil, fmt.Errorf("could not get vector from remote: %v", err)
 	}
 	return vectorFromProto(res.Entries), nil
+}
+
+// TODO: gh-1125 this must be moved to the c11y, otherwise we still send n
+// requests which is a lot of overhead that isn't required
+func (c *Client) MultiVectorForWord(ctx context.Context, words []string) ([][]float32, error) {
+	out := make([][]float32, len(words))
+	wordParams := make([]*pb.Word, len(words))
+
+	for i, word := range words {
+		wordParams[i] = &pb.Word{Word: word}
+	}
+
+	res, err := c.grpcClient.MultiVectorForWord(ctx, &pb.WordList{Words: wordParams})
+	if err != nil {
+		return nil, err
+	}
+
+	for i, elem := range res.Vectors {
+		if len(elem.Entries) == 0 {
+			// indicates word not found
+			continue
+		}
+
+		out[i] = vectorFromProto(elem.Entries)
+	}
+
+	return out, nil
 }
 
 func vectorFromProto(in []*pb.VectorEntry) []float32 {

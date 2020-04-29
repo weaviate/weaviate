@@ -129,6 +129,25 @@ func testDataToBeClassified() search.Results {
 	}
 }
 
+func testDataVectors() map[string][]float32 {
+	return map[string][]float32{
+		"barack":   {0.7, 0, 0},
+		"michelle": {0.7, 0, 0},
+		"obama":    {1.0, 0, 0},
+		"us":       {0.6, 0.5, 0.4},
+		"depp":     {0.1, 0.8, 0.2},
+		"actor":    {0.1, 0.9, 0.0},
+		"brad":     {0.1, 0.8, 0.2},
+		"starred":  {0.1, 0.9, 0.0},
+		"ice":      {0, 0.1, 0.9},
+		"cream":    {0, 0.1, 0.8},
+		"sugar":    {0.3, 0.2, 0.9},
+		"french":   {0.5, 0.5, 0.4},
+		"fries":    {0, 0.1, 0.95},
+		"belgium":  {0.3, 0.3, 0.2},
+	}
+}
+
 const (
 	idMainCategoryPoliticsAndSociety = "39c6abe3-4bbe-4c4e-9e60-ca5e99ec6b4e"
 	idMainCategoryFoodAndDrink       = "5a3d909a-4f0d-4168-8f5c-cd3074d1e79a"

@@ -22,19 +22,22 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/sirupsen/logrus"
 )
 
 // the contents of this file deal with anything about a classification run
 // which is generic, whereas the individual classify_item fns can be found in
 // the respective files such as classifier_run_knn.go
 
-type classifyItemFn func(item search.Result, kind kind.Kind, params models.Classification, filters filters) error
+type classifyItemFn func(item search.Result, itemIndex int, kind kind.Kind,
+	params models.Classification, filters filters) error
 
 func (c *Classifier) run(params models.Classification, kind kind.Kind,
 	filters filters) {
 	ctx, cancel := contextWithTimeout(30 * time.Second)
 	defer cancel()
 
+	c.logBegin(params, filters)
 	unclassifiedItems, err := c.vectorRepo.GetUnclassified(ctx,
 		kind, params.Class, params.ClassifyProperties, filters.source)
 	if err != nil {
@@ -47,6 +50,7 @@ func (c *Classifier) run(params models.Classification, kind kind.Kind,
 			fmt.Errorf("no classes to be classified - did you run a previous classification already?"))
 		return
 	}
+	c.logItemsFetched(params, unclassifiedItems)
 
 	var (
 		successCount int64
@@ -55,31 +59,40 @@ func (c *Classifier) run(params models.Classification, kind kind.Kind,
 
 	var classifyItem classifyItemFn
 
+	c.logBeginPreparation(params)
 	// safe to deref as we have passed validation at this point and or setting of
 	// default values
 	switch *params.Type {
 	case "knn":
 		classifyItem = c.classifyItemUsingKNN
 	case "contextual":
-		classifyItem = c.classifyItemContextual
+		// 1. do preparation here once
+		preparedContext, err := c.prepareContextualClassification(kind, params, filters, unclassifiedItems)
+		if err != nil {
+			c.failRunWithError(params, fmt.Errorf("prepare context for contexual classification: %v", err))
+			return
+		}
+
+		// 2. use higher order function to inject preparation data so it is then present for each single run
+		classifyItem = c.makeClassifyItemContextual(preparedContext)
 	default:
 		c.failRunWithError(params,
 			fmt.Errorf("unsupported type '%s', have no classify item fn for this", *params.Type))
 		return
 	}
+	c.logFinishPreparation(params)
 
 	errors := &errorCompounder{}
-	for _, item := range unclassifiedItems {
-		err := classifyItem(item, kind, params, filters)
+	for i, item := range unclassifiedItems {
+		c.logBeginClassifyItem(params, item)
+		err := classifyItem(item, i, kind, params, filters)
 		if err != nil {
 			errors.add(err)
 			errorCount++
 		} else {
 			successCount++
 		}
-
-		time.Sleep(10 * time.Millisecond)
-
+		c.logFinishClassifyItem(params, item)
 	}
 
 	params.Meta.Completed = strfmt.DateTime(time.Now())
@@ -102,9 +115,9 @@ func (c *Classifier) succeedRun(params models.Classification) {
 	defer cancel()
 	err := c.repo.Put(ctx, params)
 	if err != nil {
-		// TODO: log
-
+		c.logExecutionError("store succeded run", err, params)
 	}
+	c.logFinish(params)
 }
 
 func (c *Classifier) failRunWithError(params models.Classification, err error) {
@@ -112,9 +125,10 @@ func (c *Classifier) failRunWithError(params models.Classification, err error) {
 	params.Error = fmt.Sprintf("classification failed: %v", err)
 	err = c.repo.Put(context.Background(), params)
 	if err != nil {
-		// TODO: log
+		c.logExecutionError("store failed run", err, params)
 
 	}
+	c.logFinish(params)
 }
 
 func (c *Classifier) store(item search.Result) error {
@@ -147,4 +161,59 @@ func (c *Classifier) extendItemWithObjectMeta(item *search.Result,
 
 func contextWithTimeout(d time.Duration) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), d)
+}
+
+// Logging helper methods
+func (c *Classifier) logBase(params models.Classification, event string) *logrus.Entry {
+	return c.logger.WithField("action", "classification_run").
+		WithField("event", event).
+		WithField("params", params).
+		WithField("classification_type", params.Type)
+}
+
+func (c *Classifier) logBegin(params models.Classification, filters filters) {
+	c.logBase(params, "classification_begin").
+		WithField("filters", filters).
+		Debug("classification started")
+}
+
+func (c *Classifier) logFinish(params models.Classification) {
+	c.logBase(params, "classification_finish").
+		WithField("status", params.Status).
+		Debug("classification finished")
+}
+
+func (c *Classifier) logItemsFetched(params models.Classification, items search.Results) {
+	c.logBase(params, "classification_items_fetched").
+		WithField("status", params.Status).
+		WithField("item_count", len(items)).
+		Debug("fetched source items")
+}
+
+func (c *Classifier) logBeginClassifyItem(params models.Classification, item search.Result) {
+	c.logBase(params, "classification_item_begin").
+		WithField("uuid", item.ID).
+		Debug("begin classifiy item")
+}
+
+func (c *Classifier) logFinishClassifyItem(params models.Classification, item search.Result) {
+	c.logBase(params, "classification_item_finish").
+		WithField("uuid", item.ID).
+		Debug("finish classifiy item")
+}
+
+func (c *Classifier) logBeginPreparation(params models.Classification) {
+	c.logBase(params, "classification_preparation_begin").
+		Debug("begin run preparation")
+}
+
+func (c *Classifier) logFinishPreparation(params models.Classification) {
+	c.logBase(params, "classification_preparation_finish").
+		Debug("finish run preparation")
+}
+
+func (c *Classifier) logExecutionError(event string, err error, params models.Classification) {
+	c.logBase(params, event).
+		WithError(err).
+		Error("classification execution failure")
 }
