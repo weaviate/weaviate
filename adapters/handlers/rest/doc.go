@@ -22,7 +22,7 @@ Open Source Smart Graph (GraphQL/RESTful/P2P)
       https
     Host: localhost
     BasePath: /v1
-    Version: 0.22.6
+    Version: 0.22.7
     Contact: Weaviate<hello@semi.technology> https://github.com/semi-technologies
 
     Consumes:
