@@ -127,11 +127,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			Fatal("esvector didn't start up")
 		os.Exit(1)
 	}
-	// vectorRepo.InitCacheIndexing(
-	// 	appState.ServerConfig.Config.VectorIndex.CacheCycleBulkSize,
-	// 	time.Duration(appState.ServerConfig.Config.VectorIndex.CacheCycleIdleWaitTime)*time.Millisecond,
-	// 	time.Duration(appState.ServerConfig.Config.VectorIndex.CacheCycleBusyWaitTime)*time.Millisecond,
-	// )
 
 	kindsManager := kinds.NewManager(appState.Locks,
 		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,
@@ -145,7 +140,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Logger, appState.Authorizer, vectorizer,
 		vectorRepo, explorer, schemaManager)
 
-	classifier := classification.New(schemaManager, classifierRepo, vectorRepo, appState.Authorizer)
+	classifier := classification.New(schemaManager, classifierRepo, vectorRepo, appState.Authorizer,
+		appState.Contextionary, appState.Logger)
 
 	updateSchemaCallback := makeUpdateSchemaCall(appState.Logger, appState, kindsTraverser)
 	schemaManager.RegisterSchemaUpdateCallback(updateSchemaCallback)

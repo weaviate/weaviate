@@ -20,6 +20,8 @@ github.com/asaskevich/govalidator v0.0.0-20190424111038-f61b66f89f4a h1:idn718Q4
 github.com/asaskevich/govalidator v0.0.0-20190424111038-f61b66f89f4a/go.mod h1:lB+ZfQJz7igIIfQNfa7Ml4HSf2uFQQRzpGGRXenZAgY=
 github.com/asaskevich/govalidator v0.0.0-20200108200545-475eaeb16496 h1:zV3ejI06GQ59hwDQAvmK1qxOQGB3WuVTRoY0okPTAv0=
 github.com/asaskevich/govalidator v0.0.0-20200108200545-475eaeb16496/go.mod h1:oGkLhpf+kjZl6xBf758TQhh5XrAeiJv/7FRz/2spLIg=
+github.com/asaskevich/govalidator v0.0.0-20200428143746-21a406dcc535 h1:4daAzAu0S6Vi7/lbWECcX0j45yZReDZ56BQsrVBOEEY=
+github.com/asaskevich/govalidator v0.0.0-20200428143746-21a406dcc535/go.mod h1:oGkLhpf+kjZl6xBf758TQhh5XrAeiJv/7FRz/2spLIg=
 github.com/beorn7/perks v0.0.0-20180321164747-3a771d992973 h1:xJ4a3vCFaGF/jqvzLMYoU8P317H5OQ+Via4RmuPwCS0=
 github.com/beorn7/perks v0.0.0-20180321164747-3a771d992973/go.mod h1:Dwedo/Wpr24TaqPxmxbtue+5NUziq4I4S80YR8gNf3Q=
 github.com/bmatcuk/doublestar v1.1.3 h1:S4Ka/fLvUtm+5TqKuByWyuGenBjTP8w+Z/GpQIWB9Yg=
@@ -265,6 +267,8 @@ github.com/mitchellh/mapstructure v1.1.2 h1:fmNYVwqnSfB9mZU6OS2O6GsXM+wcskZDuKQz
 github.com/mitchellh/mapstructure v1.1.2/go.mod h1:FVVH3fgwuzCH5S8UJGiWEs2h04kUh9fWfEaFds41c1Y=
 github.com/mitchellh/mapstructure v1.2.2 h1:dxe5oCinTXiTIcfgmZecdCzPmAJKd46KsCWc35r0TV4=
 github.com/mitchellh/mapstructure v1.2.2/go.mod h1:bFUtVrKA4DC2yAKiSyO/QUcy7e+RRV2QTWOzhPopBRo=
+github.com/mitchellh/mapstructure v1.3.0 h1:iDwIio/3gk2QtLLEsqU5lInaMzos0hDTz8a6lazSFVw=
+github.com/mitchellh/mapstructure v1.3.0/go.mod h1:bFUtVrKA4DC2yAKiSyO/QUcy7e+RRV2QTWOzhPopBRo=
 github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421 h1:ZqeYNhU3OHLH3mGKHDcjJRFFRrJa6eAM5H+CtDdOsPc=
 github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=
 github.com/modern-go/reflect2 v0.0.0-20180701023420-4b7aa43c6742/go.mod h1:bx2lNnkwVCuqBIxFjflWJWanXIb3RllmbCylyMrvgv0=
@@ -310,6 +314,8 @@ github.com/semi-technologies/contextionary v0.0.0-20191217102943-101dfb9e85c3/go
 github.com/semi-technologies/contextionary v0.0.0-20200109141512-84416979fbfb h1:UIOg2kP6SPMPRzE/IGSPKOv0ev+olznvyYyupajq0Qg=
 github.com/semi-technologies/contextionary v0.0.0-20200131144445-074b13178761 h1:brcltEp11RpGsZNgmjlED+FBu+C3bmIoWAWcMED2s+o=
 github.com/semi-technologies/contextionary v0.0.0-20200131144445-074b13178761/go.mod h1:4EhKX7fTVJDYO/5GomMwgWj7g0lbH4VVpBLSSrwb0pU=
+github.com/semi-technologies/contextionary v0.0.0-20200424084255-29fe88e56c12 h1:3MuEVFTfhHKS+QELH85n6PV0BdKorYn7c/JiqHQoylI=
+github.com/semi-technologies/contextionary v0.0.0-20200424084255-29fe88e56c12/go.mod h1:4EhKX7fTVJDYO/5GomMwgWj7g0lbH4VVpBLSSrwb0pU=
 github.com/semi-technologies/weaviate v0.0.0-20191217103051-f205b052ea98/go.mod h1:L9tpP5SUOPX1GneTSNtAcEqIB4UyEF5kjirQlNintoM=
 github.com/sirupsen/logrus v1.2.0 h1:juTguoYk5qI21pwyTXY3B3Y5cOTH3ZUyZCg1v/mihuo=
 github.com/sirupsen/logrus v1.2.0/go.mod h1:LxeOpSwHxABJmUn/MG1IvRgCAasNZTLOkJPxbbu5VWo=

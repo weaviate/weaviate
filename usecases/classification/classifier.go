@@ -29,6 +29,7 @@ import (
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	libvectorizer "github.com/semi-technologies/weaviate/usecases/vectorizer"
+	"github.com/sirupsen/logrus"
 )
 
 type distancer func(a, b []float32) (float32, error)
@@ -39,19 +40,32 @@ type Classifier struct {
 	vectorRepo   vectorRepo
 	authorizer   authorizer
 	distancer    distancer
+	vectorizer   vectorizer
+	logger       logrus.FieldLogger
+}
+
+type vectorizer interface {
+	// MultiVectorForWord must keep order, if an item cannot be vectorized, the
+	// element should be explicit nil, not skipped
+	MultiVectorForWord(ctx context.Context, words []string) ([][]float32, error)
+
+	VectorForCorpi(ctx context.Context, corpi []string, overrides map[string]string) ([]float32, error)
 }
 
 type authorizer interface {
 	Authorize(principal *models.Principal, verb, resource string) error
 }
 
-func New(sg schemaUC.SchemaGetter, cr Repo, vr vectorRepo, authorizer authorizer) *Classifier {
+func New(sg schemaUC.SchemaGetter, cr Repo, vr vectorRepo, authorizer authorizer,
+	vectorizer vectorizer, logger logrus.FieldLogger) *Classifier {
 	return &Classifier{
+		logger:       logger,
 		schemaGetter: sg,
 		repo:         cr,
 		vectorRepo:   vr,
 		authorizer:   authorizer,
 		distancer:    libvectorizer.NormalizedDistance,
+		vectorizer:   vectorizer,
 	}
 }
 
@@ -209,5 +223,24 @@ func (c *Classifier) setDefaultsForKNN(params *models.Classification) {
 }
 
 func (c *Classifier) setDefaultsForContextual(params *models.Classification) {
-	// none at the moment
+	if params.MinimumUsableWords == nil {
+		defaultParam := int32(3)
+		params.MinimumUsableWords = &defaultParam
+	}
+
+	if params.InformationGainCutoffPercentile == nil {
+		defaultParam := int32(50)
+		params.InformationGainCutoffPercentile = &defaultParam
+	}
+
+	if params.InformationGainMaximumBoost == nil {
+		defaultParam := int32(3)
+		params.InformationGainMaximumBoost = &defaultParam
+	}
+
+	if params.TfidfCutoffPercentile == nil {
+		defaultParam := int32(80)
+		params.TfidfCutoffPercentile = &defaultParam
+	}
+
 }
