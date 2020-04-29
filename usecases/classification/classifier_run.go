@@ -115,8 +115,7 @@ func (c *Classifier) succeedRun(params models.Classification) {
 	defer cancel()
 	err := c.repo.Put(ctx, params)
 	if err != nil {
-		// TODO: log
-
+		c.logExecutionError("store succeded run", err, params)
 	}
 	c.logFinish(params)
 }
@@ -126,7 +125,7 @@ func (c *Classifier) failRunWithError(params models.Classification, err error) {
 	params.Error = fmt.Sprintf("classification failed: %v", err)
 	err = c.repo.Put(context.Background(), params)
 	if err != nil {
-		// TODO: log
+		c.logExecutionError("store failed run", err, params)
 
 	}
 	c.logFinish(params)
@@ -211,4 +210,10 @@ func (c *Classifier) logBeginPreparation(params models.Classification) {
 func (c *Classifier) logFinishPreparation(params models.Classification) {
 	c.logBase(params, "classification_preparation_finish").
 		Debug("finish run preparation")
+}
+
+func (c *Classifier) logExecutionError(event string, err error, params models.Classification) {
+	c.logBase(params, event).
+		WithError(err).
+		Error("classification execution failure")
 }
