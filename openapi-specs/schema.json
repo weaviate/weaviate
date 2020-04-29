@@ -1103,7 +1103,7 @@
     },
     "description": "Open Source Smart Graph (GraphQL/RESTful/P2P)",
     "title": "Weaviate",
-    "version": "0.22.6"
+    "version": "0.22.7"
   },
   "parameters": {
     "CommonLimitParameterQuery": {
