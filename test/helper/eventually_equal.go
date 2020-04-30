@@ -58,8 +58,8 @@ func AssertEventuallyEqual(t *testing.T, expected interface{}, actualThunk func(
 	t.Errorf("waiting for %s, but never succeeded:\n\n%s", elapsed, fakeT.lastError)
 }
 
-func AssertEventuallyEqualWithFrequencyAndTimeout(t *testing.T, expected interface{}, actualThunk func() interface{}, msg ...interface{},
-	interval time.Duration, timeout time.Duration) {
+func AssertEventuallyEqualWithFrequencyAndTimeout(t *testing.T, expected interface{}, actualThunk func() interface{},
+	interval time.Duration, timeout time.Duration, msg ...interface{}) {
 	elapsed := 0 * time.Millisecond
 	fakeT := &fakeT{}
 
