@@ -15,6 +15,7 @@ package test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/client/classifications"
@@ -40,13 +41,13 @@ func contextualClassification(t *testing.T) {
 	id = res.Payload.ID
 
 	// wait for classification to be completed
-	testhelper.AssertEventuallyEqual(t, "completed", func() interface{} {
+	testhelper.AssertEventuallyEqualWithFrequencyAndTimeout(t, "completed", func() interface{} {
 		res, err := helper.Client(t).Classifications.ClassificationsGet(classifications.NewClassificationsGetParams().
 			WithID(id.String()), nil)
 
 		require.Nil(t, err)
 		return res.Payload.Status
-	})
+	}, 300*time.Millisecond, 15*time.Second)
 
 	// wait for latest changes to be indexed / wait for consistency
 	testhelper.AssertEventuallyEqual(t, true, func() interface{} {
