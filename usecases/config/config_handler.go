@@ -55,6 +55,7 @@ type Config struct {
 	Telemetry            Telemetry       `json:"telemetry" yaml:"telemetry"`
 	VectorIndex          VectorIndex     `json:"vector_index" yaml:"vector_index"`
 	EsvectorOnly         bool            `json:"esvectorOnly" yaml:"esvectorOnly"`
+	CustomDB             bool            `json:"customdb" yaml:"customdb"`
 	Origin               string          `json:"origin" yaml:"origin"`
 }
 
