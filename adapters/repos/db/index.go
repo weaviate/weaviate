@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -18,7 +19,7 @@ type Index struct {
 }
 
 func (i Index) ID() string {
-	return strings.ToLower(fmt.Sprintf("%s_%s", i.Config.Kind, i.Config.ClassName))
+	return indexID(i.Config.Kind, i.Config.ClassName)
 }
 
 // NewIndex - for now - always creates a single-shard index
@@ -43,4 +44,27 @@ type IndexConfig struct {
 	RootPath  string
 	Kind      kind.Kind
 	ClassName schema.ClassName
+}
+
+func indexID(kind kind.Kind, class schema.ClassName) string {
+	return strings.ToLower(fmt.Sprintf("%s_%s", kind, class))
+}
+
+func (i *Index) putObject(ctx context.Context, object *KindObject) error {
+	if i.Config.Kind != object.Kind() {
+		return fmt.Errorf("cannot import object of kind %s into index of kind %s", object.Kind(), i.Config.Kind)
+	}
+
+	if i.Config.ClassName != object.Class() {
+		return fmt.Errorf("cannot import object of class %s into index of class %s", object.Class(), i.Config.ClassName)
+	}
+
+	// TODO: pick the right shard instead of using the "single" shard
+	shard := i.Shards["single"]
+	err := shard.putObject(ctx, object)
+	if err != nil {
+		errors.Wrapf(err, "shard %s", shard.ID())
+	}
+
+	return nil
 }
