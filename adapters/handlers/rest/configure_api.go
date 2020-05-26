@@ -94,7 +94,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	var explorer explorer
 
 	if appState.ServerConfig.Config.CustomDB {
-		repo := db.New(appState.Logger)
+		repo := db.New(appState.Logger, db.Config{RootPath: "./data"}) // TODO: set through config
 		vectorMigrator = db.NewMigrator(repo)
 		vectorRepo = repo
 		migrator = vectorMigrator
@@ -134,7 +134,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Logger.
 			WithError(err).
 			WithField("action", "startup").WithError(err).
-			Fatal("esvector didn't start up")
+			Fatal("db didn't start up")
 		os.Exit(1)
 	}
 
