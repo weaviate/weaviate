@@ -16,8 +16,10 @@ package db
 import (
 	"context"
 
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
@@ -35,4 +37,43 @@ func (db *DB) VectorClassSearch(ctx context.Context, params traverser.GetParams)
 func (db *DB) VectorSearch(ctx context.Context, vector []float32, limit int,
 	filters *filters.LocalFilter) ([]search.Result, error) {
 	panic("not implemented")
+}
+
+func (d *DB) ThingSearch(ctx context.Context, limit int, filters *filters.LocalFilter, meta bool) (search.Results, error) {
+	return d.objectSearch(ctx, kind.Thing, limit, filters, meta)
+}
+
+func (d *DB) ActionSearch(ctx context.Context, limit int, filters *filters.LocalFilter, meta bool) (search.Results, error) {
+	return d.objectSearch(ctx, kind.Action, limit, filters, meta)
+}
+
+func (d *DB) objectSearch(ctx context.Context, kind kind.Kind, limit int, filters *filters.LocalFilter,
+	meta bool) (search.Results, error) {
+
+	var found search.Results
+
+	// TODO: Search in parallel, rather than sequentially or this will be
+	// painfully slow on large schemas
+	for _, index := range d.indices {
+		if index.Config.Kind != kind {
+			continue
+		}
+
+		res, err := index.objectSearch(ctx, limit, filters, meta)
+		if err != nil {
+			return nil, errors.Wrapf(err, "search index %s", index.ID())
+		}
+
+		found = append(found, objectsToSearchResults(res)...)
+		if len(found) >= limit {
+			// we are done
+			break
+		}
+	}
+
+	if len(found) > limit {
+		found = found[:limit]
+	}
+
+	return found, nil
 }
