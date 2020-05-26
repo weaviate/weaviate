@@ -1,9 +1,13 @@
 package db
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/boltdb/bolt"
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 )
 
@@ -60,5 +64,27 @@ func (s *Shard) initDBFile() error {
 	}
 
 	s.db = boltdb
+	return nil
+}
+
+func (s *Shard) putObject(ctx context.Context, object *KindObject) error {
+	buf := bytes.NewBuffer(nil)
+	// TODO: optimize storage. For example it makes no sense to store the vector
+	// as json (which is a string of floats), instead we could just store the raw
+	// vector and safe on space. Similarly we will want to add other relevant
+	// fields, such as the unique shard id, etc.
+	json.NewEncoder(buf).Encode(object)
+	idBytes, err := uuid.MustParse(object.ID().String()).MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	err = s.db.Batch(func(tx *bolt.Tx) error {
+		return tx.Bucket(ObjectsBucket).Put([]byte(idBytes), buf.Bytes())
+	})
+	if err != nil {
+		return errors.Wrap(err, "bolt batch tx")
+	}
+
 	return nil
 }
