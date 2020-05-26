@@ -15,8 +15,11 @@ package db
 
 import (
 	"context"
+	"fmt"
 
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
@@ -25,31 +28,42 @@ type Migrator struct {
 }
 
 func (m *Migrator) AddClass(ctx context.Context, kind kind.Kind, class *models.Class) error {
-	panic("not implemented") // TODO: Implement
+	idx, err := NewIndex(IndexConfig{
+		Kind:      kind,
+		ClassName: schema.ClassName(class.Class),
+		RootPath:  m.db.config.RootPath,
+	})
+
+	if err != nil {
+		return errors.Wrap(err, "create index")
+	}
+
+	m.db.indices[idx.ID()] = idx
+	return nil
 }
 
 func (m *Migrator) DropClass(ctx context.Context, kind kind.Kind, className string) error {
-	panic("not implemented") // TODO: Implement
+	return fmt.Errorf("dropping a class not (yet) supported")
 }
 
 func (m *Migrator) UpdateClass(ctx context.Context, kind kind.Kind, className string, newClassName *string, newKeywords *models.Keywords) error {
-	panic("not implemented") // TODO: Implement
+	return fmt.Errorf("updating a class not (yet) supported")
 }
 
 func (m *Migrator) AddProperty(ctx context.Context, kind kind.Kind, className string, prop *models.Property) error {
-	panic("not implemented") // TODO: Implement
+	return nil // ignore for now
 }
 
 func (m *Migrator) DropProperty(ctx context.Context, kind kind.Kind, className string, propertyName string) error {
-	panic("not implemented") // TODO: Implement
+	return fmt.Errorf("dropping a property not (yet) supported")
 }
 
 func (m *Migrator) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string, newKeywords *models.Keywords) error {
-	panic("not implemented") // TODO: Implement
+	return nil // ignore for now
 }
 
 func (m *Migrator) UpdatePropertyAddDataType(ctx context.Context, kind kind.Kind, className string, propName string, newDataType string) error {
-	panic("not implemented") // TODO: Implement
+	return nil // ignore for now
 }
 
 func NewMigrator(db *DB) *Migrator {
