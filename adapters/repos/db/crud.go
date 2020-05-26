@@ -23,9 +23,9 @@ func (d *DB) PutAction(ctx context.Context, object *models.Action, vector []floa
 }
 
 func (d *DB) putObject(ctx context.Context, object *KindObject) error {
-	idx := d.GetIndex(object.Kind(), object.Class())
+	idx := d.GetIndex(object.Kind, object.Class())
 	if idx == nil {
-		return fmt.Errorf("tried to import into non-existing index for %s/%s", object.kind, object.Class())
+		return fmt.Errorf("tried to import into non-existing index for %s/%s", object.Kind, object.Class())
 	}
 
 	err := idx.putObject(ctx, object)
@@ -46,11 +46,34 @@ func (d *DB) DeleteThing(ctx context.Context, className string, id strfmt.UUID) 
 }
 
 func (d *DB) ThingByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties, meta bool) (*search.Result, error) {
-	panic("not implemented") // TODO: Implement
+	return d.objectByID(ctx, kind.Thing, id, props, meta)
 }
 
 func (d *DB) ActionByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties, meta bool) (*search.Result, error) {
-	panic("not implemented") // TODO: Implement
+	return d.objectByID(ctx, kind.Thing, id, props, meta)
+}
+
+// objectByID checks every index of the particular kind for the ID
+func (d *DB) objectByID(ctx context.Context, kind kind.Kind, id strfmt.UUID, props traverser.SelectProperties, meta bool) (*search.Result, error) {
+
+	// TODO: Search in parallel, rather than sequentially or this will be
+	// painfully slow on large schemas
+	for _, index := range d.indices {
+		if index.Config.Kind != kind {
+			continue
+		}
+
+		res, err := index.objectByID(ctx, id, props, meta)
+		if err != nil {
+			return nil, errors.Wrapf(err, "search index %s", index.ID())
+		}
+
+		if res != nil {
+			return res.SearchResult(), nil
+		}
+	}
+
+	return nil, nil
 }
 
 func (d *DB) ThingSearch(ctx context.Context, limit int, filters *filters.LocalFilter, meta bool) (search.Results, error) {
