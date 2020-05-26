@@ -5,104 +5,117 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/entities/search"
 )
 
 type KindObject struct {
-	kind   kind.Kind      `json:"kind"`
-	thing  *models.Thing  `json:"thing"`
-	action *models.Action `json:"action"`
-	vector []float32      `json:"vector"`
+	Kind   kind.Kind      `json:"kind"`
+	Thing  *models.Thing  `json:"thing"`
+	Action *models.Action `json:"action"`
+	Vector []float32      `json:"vector"`
 }
 
 func NewKindObjectFromThing(thing *models.Thing, vector []float32) *KindObject {
 	return &KindObject{
-		kind:   kind.Thing,
-		thing:  thing,
-		vector: vector,
+		Kind:   kind.Thing,
+		Thing:  thing,
+		Vector: vector,
 	}
 }
 
 func NewKindObjectFromAction(action *models.Action, vector []float32) *KindObject {
 	return &KindObject{
-		kind:   kind.Action,
-		action: action,
-		vector: vector,
+		Kind:   kind.Action,
+		Action: action,
+		Vector: vector,
 	}
 }
 
 func (ko *KindObject) Class() schema.ClassName {
-	switch ko.kind {
+	switch ko.Kind {
 	case kind.Thing:
-		return schema.ClassName(ko.thing.Class)
+		return schema.ClassName(ko.Thing.Class)
 	case kind.Action:
-		return schema.ClassName(ko.action.Class)
+		return schema.ClassName(ko.Action.Class)
 	default:
 		panic("impossible kind")
 	}
 }
 func (ko *KindObject) CreationTimeUnix() int64 {
-	switch ko.kind {
+	switch ko.Kind {
 	case kind.Thing:
-		return ko.thing.CreationTimeUnix
+		return ko.Thing.CreationTimeUnix
 	case kind.Action:
-		return ko.action.CreationTimeUnix
+		return ko.Action.CreationTimeUnix
 	default:
 		panic("impossible kind")
 	}
 }
 func (ko *KindObject) ID() strfmt.UUID {
-	switch ko.kind {
+	switch ko.Kind {
 	case kind.Thing:
-		return ko.thing.ID
+		return ko.Thing.ID
 	case kind.Action:
-		return ko.action.ID
+		return ko.Action.ID
 	default:
 		panic("impossible kind")
 	}
 }
 func (ko *KindObject) LastUpdateTimeUnix() int64 {
-	switch ko.kind {
+	switch ko.Kind {
 	case kind.Thing:
-		return ko.thing.LastUpdateTimeUnix
+		return ko.Thing.LastUpdateTimeUnix
 	case kind.Action:
-		return ko.action.LastUpdateTimeUnix
+		return ko.Action.LastUpdateTimeUnix
 	default:
 		panic("impossible kind")
 	}
 }
 func (ko *KindObject) Meta() *models.ObjectMeta {
-	switch ko.kind {
+	switch ko.Kind {
 	case kind.Thing:
-		return ko.thing.Meta
+		return ko.Thing.Meta
 	case kind.Action:
-		return ko.action.Meta
+		return ko.Action.Meta
 	default:
 		panic("impossible kind")
 	}
 
 }
 func (ko *KindObject) Schema() models.PropertySchema {
-	switch ko.kind {
+	switch ko.Kind {
 	case kind.Thing:
-		return ko.thing.Schema
+		return ko.Thing.Schema
 	case kind.Action:
-		return ko.action.Schema
+		return ko.Action.Schema
 	default:
 		panic("impossible kind")
 	}
 
 }
 func (ko *KindObject) VectorWeights() models.VectorWeights {
-	switch ko.kind {
+	switch ko.Kind {
 	case kind.Thing:
-		return ko.thing.VectorWeights
+		return ko.Thing.VectorWeights
 	case kind.Action:
-		return ko.action.VectorWeights
+		return ko.Action.VectorWeights
 	default:
 		panic("impossible kind")
 	}
 }
 
-func (ko *KindObject) Kind() kind.Kind {
-	return ko.kind
+func (ko *KindObject) SearchResult() *search.Result {
+	return &search.Result{
+		Kind:      ko.Kind,
+		ID:        ko.ID(),
+		ClassName: ko.Class().String(),
+		Schema:    ko.Schema(),
+		Vector:    ko.Vector,
+		// VectorWeights: ko.VectorWeights(), // TODO: add vector weights
+		Created: ko.CreationTimeUnix(),
+		Updated: ko.LastUpdateTimeUnix(),
+		Meta:    ko.Meta(),
+		Score:   1, // TODO: actuallly score
+		// TODO: Beacon?
+	}
 }

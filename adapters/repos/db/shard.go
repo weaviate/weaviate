@@ -7,8 +7,10 @@ import (
 	"fmt"
 
 	"github.com/boltdb/bolt"
+	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 // Shard is the smallest completely-contained index unit. A shard mananages
@@ -87,4 +89,27 @@ func (s *Shard) putObject(ctx context.Context, object *KindObject) error {
 	}
 
 	return nil
+}
+
+func (s *Shard) objectByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties, meta bool) (*KindObject, error) {
+	var object KindObject
+
+	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.db.View(func(tx *bolt.Tx) error {
+		bytes := tx.Bucket(ObjectsBucket).Get(idBytes)
+		if bytes == nil {
+			return nil
+		}
+
+		return json.Unmarshal(bytes, &object)
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "bolt view tx")
+	}
+
+	return &object, nil
 }
