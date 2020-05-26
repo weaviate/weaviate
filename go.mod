@@ -4,6 +4,7 @@ require (
 	github.com/TylerBrock/colorjson v0.0.0-20180527164720-95ec53f28296
 	github.com/asaskevich/govalidator v0.0.0-20200428143746-21a406dcc535 // indirect
 	github.com/bmatcuk/doublestar v1.1.3
+	github.com/boltdb/bolt v1.3.1
 	github.com/coreos/etcd v3.3.18+incompatible
 	github.com/coreos/go-oidc v2.0.0+incompatible
 	github.com/davecgh/go-spew v1.1.1
