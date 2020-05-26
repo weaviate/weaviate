@@ -6,7 +6,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -50,7 +49,7 @@ func (d *DB) ThingByID(ctx context.Context, id strfmt.UUID, props traverser.Sele
 }
 
 func (d *DB) ActionByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties, meta bool) (*search.Result, error) {
-	return d.objectByID(ctx, kind.Thing, id, props, meta)
+	return d.objectByID(ctx, kind.Action, id, props, meta)
 }
 
 // objectByID checks every index of the particular kind for the ID
@@ -74,14 +73,6 @@ func (d *DB) objectByID(ctx context.Context, kind kind.Kind, id strfmt.UUID, pro
 	}
 
 	return nil, nil
-}
-
-func (d *DB) ThingSearch(ctx context.Context, limit int, filters *filters.LocalFilter, meta bool) (search.Results, error) {
-	panic("not implemented") // TODO: Implement
-}
-
-func (d *DB) ActionSearch(ctx context.Context, limit int, filters *filters.LocalFilter, meta bool) (search.Results, error) {
-	panic("not implemented") // TODO: Implement
 }
 
 func (d *DB) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {

@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -84,4 +85,18 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID, props traverser.
 	}
 
 	return obj, nil
+}
+
+func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
+	meta bool) ([]*KindObject, error) {
+	// TODO: don't ignore meta and filters
+	// TODO: search across all shards, rather than hard-coded "single" shard
+
+	shard := i.Shards["single"]
+	res, err := shard.objectSearch(ctx, limit, filters, meta)
+	if err != nil {
+		return nil, errors.Wrapf(err, "shard %s", shard.ID())
+	}
+
+	return res, nil
 }
