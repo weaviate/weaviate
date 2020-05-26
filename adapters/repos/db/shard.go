@@ -10,6 +10,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
@@ -112,4 +113,32 @@ func (s *Shard) objectByID(ctx context.Context, id strfmt.UUID, props traverser.
 	}
 
 	return &object, nil
+}
+
+func (s *Shard) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
+	meta bool) ([]*KindObject, error) {
+	out := make([]*KindObject, limit)
+
+	i := 0
+	err := s.db.View(func(tx *bolt.Tx) error {
+		cursor := tx.Bucket(ObjectsBucket).Cursor()
+
+		for k, v := cursor.First(); k != nil && i < limit; k, v = cursor.Next() {
+			var obj KindObject
+			err := json.Unmarshal(v, &obj)
+			if err != nil {
+				return errors.Wrapf(err, "unmarhsal item %d", i)
+			}
+
+			out[i] = &obj
+			i++
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "bolt view tx")
+	}
+
+	return out[:i], nil
 }
