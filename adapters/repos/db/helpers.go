@@ -119,3 +119,13 @@ func (ko *KindObject) SearchResult() *search.Result {
 		// TODO: Beacon?
 	}
 }
+
+func objectsToSearchResults(in []*KindObject) search.Results {
+	out := make(search.Results, len(in))
+
+	for i, elem := range in {
+		out[i] = *(elem.SearchResult())
+	}
+
+	return out
+}
