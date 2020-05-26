@@ -29,13 +29,18 @@ import (
 )
 
 type DB struct {
-	logger logrus.FieldLogger
+	logger       logrus.FieldLogger
+	schemaGetter schema.SchemaGetter
+	config       Config
+	indices      map[string]*Index
 }
 
-func (d *DB) SetSchemaGetter(sg schema.SchemaGetter) {}
+func (d *DB) SetSchemaGetter(sg schema.SchemaGetter) {
+	d.schemaGetter = sg
+}
 
 func (d *DB) WaitForStartup(time.Duration) error {
-	return nil
+	return d.init()
 }
 
 func (d *DB) PutThing(ctx context.Context, concept *models.Thing, vector []float32) error {
@@ -82,6 +87,14 @@ func (d *DB) Merge(ctx context.Context, merge kinds.MergeDocument) error {
 	panic("not implemented") // TODO: Implement
 }
 
-func New(logger logrus.FieldLogger) *DB {
-	return &DB{logger: logger}
+func New(logger logrus.FieldLogger, config Config) *DB {
+	return &DB{
+		logger:  logger,
+		config:  config,
+		indices: map[string]*Index{},
+	}
+}
+
+type Config struct {
+	RootPath string
 }
