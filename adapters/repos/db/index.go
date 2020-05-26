@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 // Index is the logical unit which contains all the data for one particular
@@ -51,8 +53,8 @@ func indexID(kind kind.Kind, class schema.ClassName) string {
 }
 
 func (i *Index) putObject(ctx context.Context, object *KindObject) error {
-	if i.Config.Kind != object.Kind() {
-		return fmt.Errorf("cannot import object of kind %s into index of kind %s", object.Kind(), i.Config.Kind)
+	if i.Config.Kind != object.Kind {
+		return fmt.Errorf("cannot import object of kind %s into index of kind %s", object.Kind, i.Config.Kind)
 	}
 
 	if i.Config.ClassName != object.Class() {
@@ -67,4 +69,19 @@ func (i *Index) putObject(ctx context.Context, object *KindObject) error {
 	}
 
 	return nil
+}
+
+func (i *Index) objectByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties, meta bool) (*KindObject, error) {
+	// TODO: don't ignore meta and props
+
+	// TODO: search across all shards, rather than hard-coded "single" shard
+	// TODO: can we improve this by hashing so we know the target shard?
+
+	shard := i.Shards["single"]
+	obj, err := shard.objectByID(ctx, id, props, meta)
+	if err != nil {
+		return nil, errors.Wrapf(err, "shard %s", shard.ID())
+	}
+
+	return obj, nil
 }
