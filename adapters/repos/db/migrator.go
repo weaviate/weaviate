@@ -33,9 +33,15 @@ func (m *Migrator) AddClass(ctx context.Context, kind kind.Kind, class *models.C
 		ClassName: schema.ClassName(class.Class),
 		RootPath:  m.db.config.RootPath,
 	})
-
 	if err != nil {
 		return errors.Wrap(err, "create index")
+	}
+
+	for _, prop := range class.Properties {
+		err := idx.addProperty(ctx, prop)
+		if err != nil {
+			return errors.Wrapf(err, "extend idx '%s' with property", idx.ID())
+		}
 	}
 
 	m.db.indices[idx.ID()] = idx
@@ -51,7 +57,13 @@ func (m *Migrator) UpdateClass(ctx context.Context, kind kind.Kind, className st
 }
 
 func (m *Migrator) AddProperty(ctx context.Context, kind kind.Kind, className string, prop *models.Property) error {
-	return nil // ignore for now
+	idx := m.db.GetIndex(kind, schema.ClassName(className))
+	if idx == nil {
+		return fmt.Errorf("cannot add property to a non-existing index for %s/%s",
+			kind.Name(), className)
+	}
+
+	return idx.addProperty(ctx, prop)
 }
 
 func (m *Migrator) DropProperty(ctx context.Context, kind kind.Kind, className string, propertyName string) error {
@@ -59,11 +71,11 @@ func (m *Migrator) DropProperty(ctx context.Context, kind kind.Kind, className s
 }
 
 func (m *Migrator) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string, newKeywords *models.Keywords) error {
-	return nil // ignore for now
+	return fmt.Errorf("changing a property not (yet) supported")
 }
 
 func (m *Migrator) UpdatePropertyAddDataType(ctx context.Context, kind kind.Kind, className string, propName string, newDataType string) error {
-	return nil // ignore for now
+	return fmt.Errorf("changing a property not (yet) supported")
 }
 
 func NewMigrator(db *DB) *Migrator {
