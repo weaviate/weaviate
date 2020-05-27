@@ -57,6 +57,7 @@ type Config struct {
 	EsvectorOnly         bool            `json:"esvectorOnly" yaml:"esvectorOnly"`
 	CustomDB             bool            `json:"customdb" yaml:"customdb"`
 	Origin               string          `json:"origin" yaml:"origin"`
+	Persistence          Persistence     `json:"persistence" yaml:"persistence"`
 }
 
 // QueryDefaults for optional parameters
@@ -78,6 +79,18 @@ type VectorIndex struct {
 	CacheCycleBulkSize     int     `json:"cacheCycleBulkSize" yaml:"cacheCycleBulkSize"`
 	NumberOfShards         *int    `json:"numberOfShards" yaml:"numberOfShards"`
 	AutoExpandReplicas     *string `json:"autoExpandReplicas" yaml:"autoExpandReplicas"`
+}
+
+type Persistence struct {
+	DataPath string `json:"dataPath" yaml:"dataPath"`
+}
+
+func (p Persistence) Validate() error {
+	if p.DataPath == "" {
+		return fmt.Errorf("persistence.dataPath must be set")
+	}
+
+	return nil
 }
 
 func (v *VectorIndex) SetDefaults() {
@@ -209,6 +222,13 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 	}
 
 	(&f.Config.VectorIndex).SetDefaults()
+
+	if f.Config.CustomDB {
+		if err := f.Config.Persistence.Validate(); err != nil {
+			return fmt.Errorf("invalid config: %v", err)
+		}
+
+	}
 
 	return nil
 }
