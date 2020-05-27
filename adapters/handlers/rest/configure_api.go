@@ -94,7 +94,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	var explorer explorer
 
 	if appState.ServerConfig.Config.CustomDB {
-		repo := db.New(appState.Logger, db.Config{RootPath: "./data"}) // TODO: set through config
+		repo := db.New(appState.Logger, db.Config{
+			RootPath: appState.ServerConfig.Config.Persistence.DataPath,
+		})
 		vectorMigrator = db.NewMigrator(repo)
 		vectorRepo = repo
 		migrator = vectorMigrator
