@@ -63,4 +63,26 @@ func TestAnalyzer(t *testing.T) {
 		})
 
 	})
+
+	t.Run("with string", func(t *testing.T) {
+		res := a.String("My email is john-thats-jay.ohh.age.n+alloneword@doe.com")
+		assert.ElementsMatch(t, res, []Countable{
+			{
+				Data:          []byte("john-thats-jay.ohh.age.n+alloneword@doe.com"),
+				TermFrequency: float32(1) / 4,
+			},
+			{
+				Data:          []byte("My"),
+				TermFrequency: float32(1) / 4,
+			},
+			{
+				Data:          []byte("email"),
+				TermFrequency: float32(1) / 4,
+			},
+			{
+				Data:          []byte("is"),
+				TermFrequency: float32(1) / 4,
+			},
+		})
+	})
 }
