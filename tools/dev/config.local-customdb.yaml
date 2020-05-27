@@ -8,6 +8,8 @@ vector_index:
 configuration_storage:
   type: etcd
   url: http://localhost:2379
+persistence:
+  dataPath: "./data"
 contextionary:
   url: localhost:9999
 query_defaults:
