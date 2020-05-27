@@ -4,6 +4,7 @@ require (
 	github.com/TylerBrock/colorjson v0.0.0-20180527164720-95ec53f28296
 	github.com/asaskevich/govalidator v0.0.0-20200428143746-21a406dcc535 // indirect
 	github.com/bmatcuk/doublestar v1.1.3
+	github.com/boltdb/bolt v1.3.1
 	github.com/coreos/etcd v3.3.18+incompatible
 	github.com/coreos/go-oidc v2.0.0+incompatible
 	github.com/davecgh/go-spew v1.1.1
@@ -18,6 +19,7 @@ require (
 	github.com/go-openapi/strfmt v0.19.5
 	github.com/go-openapi/swag v0.19.9
 	github.com/go-openapi/validate v0.19.3
+	github.com/google/uuid v1.1.1
 	github.com/gorilla/mux v1.7.0
 	github.com/graphql-go/graphql v0.7.7
 	github.com/hokaccha/go-prettyjson v0.0.0-20190818114111-108c894c2c0e // indirect
@@ -29,6 +31,7 @@ require (
 	github.com/mitchellh/mapstructure v1.3.1 // indirect
 	github.com/modern-go/reflect2 v1.0.1 // indirect
 	github.com/nyaruka/phonenumbers v1.0.54
+	github.com/pkg/errors v0.8.1
 	github.com/rs/cors v1.5.0
 	github.com/satori/go.uuid v0.0.0-20180103174451-36e9d2ebbde5
 	github.com/semi-technologies/contextionary v0.0.0-20200424084255-29fe88e56c12
