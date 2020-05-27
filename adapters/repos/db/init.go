@@ -16,35 +16,39 @@ func (d *DB) init() error {
 		return errors.Wrapf(err, "create root path directory at %s", d.config.RootPath)
 	}
 
-	things := d.schemaGetter.GetSchemaSkipAuth().Things.Classes
-	for _, class := range things {
-		idx, err := NewIndex(IndexConfig{
-			Kind:      kind.Thing,
-			ClassName: schema.ClassName(class.Class),
-			RootPath:  d.config.RootPath,
-		})
+	things := d.schemaGetter.GetSchemaSkipAuth().Things
+	if things != nil {
+		for _, class := range things.Classes {
+			idx, err := NewIndex(IndexConfig{
+				Kind:      kind.Thing,
+				ClassName: schema.ClassName(class.Class),
+				RootPath:  d.config.RootPath,
+			})
 
-		if err != nil {
-			return errors.Wrap(err, "create index")
+			if err != nil {
+				return errors.Wrap(err, "create index")
+			}
+
+			d.indices[idx.ID()] = idx
 		}
-
-		d.indices[idx.ID()] = idx
 	}
 
-	actions := d.schemaGetter.GetSchemaSkipAuth().Actions.Classes
-	for _, class := range actions {
-		idx, err := NewIndex(IndexConfig{
-			Kind:      kind.Action,
-			ClassName: schema.ClassName(class.Class),
-			RootPath:  d.config.RootPath,
-		})
+	actions := d.schemaGetter.GetSchemaSkipAuth().Actions
+	if actions != nil {
+		for _, class := range actions.Classes {
+			idx, err := NewIndex(IndexConfig{
+				Kind:      kind.Action,
+				ClassName: schema.ClassName(class.Class),
+				RootPath:  d.config.RootPath,
+			})
 
-		if err != nil {
-			return errors.Wrap(err, "create index")
+			if err != nil {
+				return errors.Wrap(err, "create index")
+			}
+
+			d.indices[idx.ID()] = idx
 		}
 
-		d.indices[idx.ID()] = idx
 	}
-
 	return nil
 }
