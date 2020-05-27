@@ -24,6 +24,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
@@ -81,6 +82,21 @@ func (s *Shard) initDBFile() error {
 
 	s.db = boltdb
 	return nil
+}
+
+func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
+	if err := s.db.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists(bucketFromPropName(prop.Name))
+		return err
+	}); err != nil {
+		return errors.Wrap(err, "bolt update tx")
+	}
+
+	return nil
+}
+
+func bucketFromPropName(propName string) []byte {
+	return []byte(fmt.Sprintf("property_%s", propName))
 }
 
 func (s *Shard) putObject(ctx context.Context, object *KindObject) error {
