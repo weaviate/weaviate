@@ -236,7 +236,6 @@ func Test_Classifier_Contextual(t *testing.T) {
 			require.Nil(t, err)
 			require.NotNil(t, class)
 			assert.Equal(t, id, class.ID)
-			assert.Equal(t, models.ClassificationStatusRunning, class.Status)
 		})
 
 		// TODO: improve by polling instead
