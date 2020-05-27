@@ -21,6 +21,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -54,6 +55,13 @@ func NewIndex(config IndexConfig) (*Index, error) {
 
 	index.Shards["single"] = singleShard
 	return index, nil
+}
+
+func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
+	// TODO: pick the right shard instead of using the "single" shard
+	shard := i.Shards["single"]
+
+	return shard.addProperty(ctx, prop)
 }
 
 type IndexConfig struct {
