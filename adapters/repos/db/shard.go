@@ -39,6 +39,7 @@ type Shard struct {
 
 var (
 	ObjectsBucket []byte = []byte("objects")
+	IndexIDBucket []byte = []byte("index_ids")
 )
 
 func NewShard(shardName string, index *Index) (*Shard, error) {
@@ -72,6 +73,10 @@ func (s *Shard) initDBFile() error {
 	err = boltdb.Update(func(tx *bolt.Tx) error {
 		if _, err := tx.CreateBucketIfNotExists(ObjectsBucket); err != nil {
 			return errors.Wrapf(err, "create objects bucket '%s'", string(ObjectsBucket))
+		}
+
+		if _, err := tx.CreateBucketIfNotExists(IndexIDBucket); err != nil {
+			return errors.Wrapf(err, "create indexID bucket '%s'", string(IndexIDBucket))
 		}
 
 		return nil
