@@ -88,3 +88,5 @@ docker-compose/runtime-unstable/data
 c.out
 
 esbackups/
+adapters/repos/db/testdata/
+
