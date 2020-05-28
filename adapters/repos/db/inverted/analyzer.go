@@ -10,7 +10,13 @@ type Countable struct {
 	TermFrequency float32
 }
 
-type Analyzer struct{}
+type Property struct {
+	Key   []byte
+	Items []Countable
+}
+
+type Analyzer struct {
+}
 
 // Text removes non alpha-numeric and splits into words, then aggregates
 // duplicates
