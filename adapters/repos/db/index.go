@@ -24,6 +24,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
@@ -31,8 +32,9 @@ import (
 // class. An index can be further broken up into self-contained units, called
 // Shards, to allow for easy distribution across Nodes
 type Index struct {
-	Shards map[string]*Shard
-	Config IndexConfig
+	Shards    map[string]*Shard
+	Config    IndexConfig
+	getSchema schemaUC.SchemaGetter
 }
 
 func (i Index) ID() string {
@@ -40,10 +42,11 @@ func (i Index) ID() string {
 }
 
 // NewIndex - for now - always creates a single-shard index
-func NewIndex(config IndexConfig) (*Index, error) {
+func NewIndex(config IndexConfig, sg schemaUC.SchemaGetter) (*Index, error) {
 	index := &Index{
-		Config: config,
-		Shards: map[string]*Shard{},
+		Config:    config,
+		Shards:    map[string]*Shard{},
+		getSchema: sg,
 	}
 
 	// use explicit shard name "single" to indicate it's currently the only
