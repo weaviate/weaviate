@@ -11,7 +11,7 @@ type Countable struct {
 }
 
 type Property struct {
-	Key   []byte
+	Name  string
 	Items []Countable
 }
 
