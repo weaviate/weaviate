@@ -30,35 +30,43 @@ func TestAnalyzeObject(t *testing.T) {
 		res, err := a.Object(schema, props)
 		require.Nil(t, err)
 
-		expected := []Property{
-			Property{
-				Key: "description",
-				Items: []Countable{
-					Countable{
-						Data:          []byte("i"),
-						TermFrequency: float32(1) / 3,
-					},
-					Countable{
-						Data:          []byte("am"),
-						TermFrequency: float32(1) / 3,
-					},
-					Countable{
-						Data:          []byte("great"),
-						TermFrequency: float32(1) / 3,
-					},
-				},
+		expectedDescription := []Countable{
+			Countable{
+				Data:          []byte("i"),
+				TermFrequency: float32(1) / 3,
 			},
-			Property{
-				Key: "email",
-				Items: []Countable{
-					Countable{
-						Data:          []byte("john@doe.com"),
-						TermFrequency: float32(1) / 1,
-					},
-				},
+			Countable{
+				Data:          []byte("am"),
+				TermFrequency: float32(1) / 3,
+			},
+			Countable{
+				Data:          []byte("great"),
+				TermFrequency: float32(1) / 3,
 			},
 		}
 
-		assert.ElementsMatch(t, expected, res)
+		expectedEmail := []Countable{
+			Countable{
+				Data:          []byte("john@doe.com"),
+				TermFrequency: float32(1) / 1,
+			},
+		}
+
+		require.Len(t, res, 2)
+		var actualDescription []Countable
+		var actualEmail []Countable
+
+		for _, elem := range res {
+			if elem.Name == "email" {
+				actualEmail = elem.Items
+			}
+
+			if elem.Name == "description" {
+				actualDescription = elem.Items
+			}
+		}
+
+		assert.ElementsMatch(t, expectedEmail, actualEmail, res)
+		assert.ElementsMatch(t, expectedDescription, actualDescription, res)
 	})
 }
