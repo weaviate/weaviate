@@ -14,6 +14,8 @@
 package db
 
 import (
+	"fmt"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -51,7 +53,7 @@ func (ko *KindObject) Class() schema.ClassName {
 	case kind.Action:
 		return schema.ClassName(ko.Action.Class)
 	default:
-		panic("impossible kind")
+		panic(fmt.Sprintf("impossible kind: %s", ko.Kind.Name()))
 	}
 }
 func (ko *KindObject) CreationTimeUnix() int64 {
