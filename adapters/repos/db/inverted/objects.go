@@ -23,7 +23,7 @@ func (a *Analyzer) Object(input map[string]interface{}, props []*models.Property
 		}
 
 		if len(prop.DataType) != 1 {
-			// must be a ref prop, skip
+			// must be a ref prop or something else is wrong, skip
 			continue
 		}
 
@@ -47,7 +47,7 @@ func (a *Analyzer) Object(input map[string]interface{}, props []*models.Property
 		}
 
 		out[i] = Property{
-			Key:   []byte(key),
+			Name:  key,
 			Items: items,
 		}
 		i++

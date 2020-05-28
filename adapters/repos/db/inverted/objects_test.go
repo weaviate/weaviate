@@ -32,7 +32,7 @@ func TestAnalyzeObject(t *testing.T) {
 
 		expected := []Property{
 			Property{
-				Key: []byte("description"),
+				Key: "description",
 				Items: []Countable{
 					Countable{
 						Data:          []byte("i"),
@@ -49,7 +49,7 @@ func TestAnalyzeObject(t *testing.T) {
 				},
 			},
 			Property{
-				Key: []byte("email"),
+				Key: "email",
 				Items: []Countable{
 					Countable{
 						Data:          []byte("john@doe.com"),

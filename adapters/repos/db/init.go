@@ -36,7 +36,7 @@ func (d *DB) init() error {
 				Kind:      kind.Thing,
 				ClassName: schema.ClassName(class.Class),
 				RootPath:  d.config.RootPath,
-			})
+			}, d.schemaGetter)
 
 			if err != nil {
 				return errors.Wrap(err, "create index")
@@ -53,7 +53,7 @@ func (d *DB) init() error {
 				Kind:      kind.Action,
 				ClassName: schema.ClassName(class.Class),
 				RootPath:  d.config.RootPath,
-			})
+			}, d.schemaGetter)
 
 			if err != nil {
 				return errors.Wrap(err, "create index")
