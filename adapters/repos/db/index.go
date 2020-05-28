@@ -90,7 +90,7 @@ func (i *Index) putObject(ctx context.Context, object *KindObject) error {
 	shard := i.Shards["single"]
 	err := shard.putObject(ctx, object)
 	if err != nil {
-		errors.Wrapf(err, "shard %s", shard.ID())
+		return errors.Wrapf(err, "shard %s", shard.ID())
 	}
 
 	return nil
