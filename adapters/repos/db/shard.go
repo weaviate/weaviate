@@ -144,6 +144,11 @@ func (s *Shard) putObject(ctx context.Context, object *KindObject) error {
 			return errors.Wrap(err, "put object data")
 		}
 
+		// build indexID->UUID lookup
+		if err := s.addIndexIDLookup(tx, idBytes, docID); err != nil {
+			return errors.Wrap(err, "put inverted indices props")
+		}
+
 		// insert inverted index props
 		if err := s.extendInvertedIndices(tx, invertProps, docID); err != nil {
 			return errors.Wrap(err, "put inverted indices props")
@@ -236,6 +241,23 @@ func (s *Shard) extendInvertedIndexItem(b *bolt.Bucket, item inverted.Countable,
 	err := b.Put(item.Data, combined)
 	if err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (s *Shard) addIndexIDLookup(tx *bolt.Tx, id []byte, docID uint32) error {
+	keyBuf := bytes.NewBuffer(make([]byte, 4))
+	binary.Write(keyBuf, binary.LittleEndian, &docID)
+	key := keyBuf.Bytes()
+
+	b := tx.Bucket(IndexIDBucket)
+	if b == nil {
+		return fmt.Errorf("no index id bucket found")
+	}
+
+	if err := b.Put(key, id); err != nil {
+		return errors.Wrap(err, "store uuid for index id")
 	}
 
 	return nil
