@@ -45,6 +45,32 @@ func TestCRUD(t *testing.T) {
 	}()
 
 	logger, _ := test.NewNullLogger()
+	thingclass := &models.Class{
+		Class: "TheBestThingClass",
+		Properties: []*models.Property{
+			&models.Property{
+				Name:     "stringProp",
+				DataType: []string{string(schema.DataTypeString)},
+			},
+			&models.Property{
+				Name:     "location",
+				DataType: []string{string(schema.DataTypeGeoCoordinates)},
+			},
+			&models.Property{
+				Name:     "phone",
+				DataType: []string{string(schema.DataTypePhoneNumber)},
+			},
+		},
+	}
+	actionclass := &models.Class{
+		Class: "TheBestActionClass",
+		Properties: []*models.Property{
+			&models.Property{
+				Name:     "stringProp",
+				DataType: []string{string(schema.DataTypeString)},
+			},
+		},
+	}
 	schemaGetter := &fakeSchemaGetter{}
 	repo := New(logger, Config{RootPath: dirName})
 	repo.SetSchemaGetter(schemaGetter)
@@ -53,42 +79,26 @@ func TestCRUD(t *testing.T) {
 	migrator := NewMigrator(repo)
 
 	t.Run("creating the thing class", func(t *testing.T) {
-		class := &models.Class{
-			Class: "TheBestThingClass",
-			Properties: []*models.Property{
-				&models.Property{
-					Name:     "stringProp",
-					DataType: []string{string(schema.DataTypeString)},
-				},
-				&models.Property{
-					Name:     "location",
-					DataType: []string{string(schema.DataTypeGeoCoordinates)},
-				},
-				&models.Property{
-					Name:     "phone",
-					DataType: []string{string(schema.DataTypePhoneNumber)},
-				},
-			},
-		}
 
 		require.Nil(t,
-			migrator.AddClass(context.Background(), kind.Thing, class))
+			migrator.AddClass(context.Background(), kind.Thing, thingclass))
 	})
 
 	t.Run("creating the action class", func(t *testing.T) {
-		class := &models.Class{
-			Class: "TheBestActionClass",
-			Properties: []*models.Property{
-				&models.Property{
-					Name:     "stringProp",
-					DataType: []string{string(schema.DataTypeString)},
-				},
-			},
-		}
 
 		require.Nil(t,
-			migrator.AddClass(context.Background(), kind.Action, class))
+			migrator.AddClass(context.Background(), kind.Action, actionclass))
 	})
+
+	// update schema getter so it's in sync with class
+	schemaGetter.schema = schema.Schema{
+		Actions: &models.Schema{
+			Classes: []*models.Class{actionclass},
+		},
+		Things: &models.Schema{
+			Classes: []*models.Class{thingclass},
+		},
+	}
 
 	thingID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
 	t.Run("adding a thing", func(t *testing.T) {
