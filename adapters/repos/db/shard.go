@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"io"
 
 	"github.com/boltdb/bolt"
 	"github.com/go-openapi/strfmt"
@@ -195,7 +196,7 @@ func (s *Shard) extendInvertedIndices(tx *bolt.Tx, props []inverted.Property, do
 		}
 
 		for _, item := range prop.Items {
-			if err := s.extendInvertedIndexItem(b, item, docID); err != nil {
+			if err := s.extendInvertedIndexItem(b, item, docID, item.TermFrequency); err != nil {
 				return errors.Wrapf(err, "extend index with item '%s'", string(item.Data))
 			}
 		}
@@ -214,7 +215,7 @@ func (s *Shard) extendInvertedIndices(tx *bolt.Tx, props []inverted.Property, do
 // ...
 // (n-7)..(n-4) | doc id of last doc
 // (n-3)..n     | term frequency of last
-func (s *Shard) extendInvertedIndexItem(b *bolt.Bucket, item inverted.Countable, docID uint32) error {
+func (s *Shard) extendInvertedIndexItem(b *bolt.Bucket, item inverted.Countable, docID uint32, freq float32) error {
 	data := b.Get(item.Data)
 	updated := bytes.NewBuffer(data)
 	if len(data) == 0 {
@@ -226,6 +227,7 @@ func (s *Shard) extendInvertedIndexItem(b *bolt.Bucket, item inverted.Countable,
 
 	// append current document
 	binary.Write(updated, binary.LittleEndian, &docID)
+	binary.Write(updated, binary.LittleEndian, &freq)
 	extended := updated.Bytes()
 
 	// read and increase doc count
@@ -233,7 +235,7 @@ func (s *Shard) extendInvertedIndexItem(b *bolt.Bucket, item inverted.Countable,
 	var docCount uint32
 	binary.Read(reader, binary.LittleEndian, &docCount)
 	docCount++
-	countBytes := bytes.NewBuffer(make([]byte, 4))
+	countBytes := bytes.NewBuffer(make([]byte, 0, 4))
 	binary.Write(countBytes, binary.LittleEndian, &docCount)
 
 	// combine back together and save
@@ -293,8 +295,17 @@ func (s *Shard) objectByID(ctx context.Context, id strfmt.UUID, props traverser.
 
 func (s *Shard) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
 	meta bool) ([]*storobj.Object, error) {
-	out := make([]*storobj.Object, limit)
 
+	if filters == nil {
+		return s.objectList(ctx, limit, meta)
+	}
+
+	return s.objectFilterSearch(ctx, limit, filters, meta)
+
+}
+
+func (s *Shard) objectList(ctx context.Context, limit int, meta bool) ([]*storobj.Object, error) {
+	out := make([]*storobj.Object, limit)
 	i := 0
 	err := s.db.View(func(tx *bolt.Tx) error {
 		cursor := tx.Bucket(ObjectsBucket).Cursor()
@@ -316,4 +327,123 @@ func (s *Shard) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	}
 
 	return out[:i], nil
+}
+
+func (s *Shard) objectFilterSearch(ctx context.Context, limit int, filter *filters.LocalFilter,
+	meta bool) ([]*storobj.Object, error) {
+
+	if filter.Root.Operands != nil {
+		return nil, fmt.Errorf("nested filteres not supported yet")
+	}
+
+	if filter.Root.Operator != filters.OperatorEqual {
+		return nil, fmt.Errorf("filters other than equal not supported yet")
+	}
+
+	if filter.Root.Value.Type != schema.DataTypeText {
+		return nil, fmt.Errorf("non text filters not supported yet")
+	}
+
+	value, ok := filter.Root.Value.Value.(string)
+	if !ok {
+		return nil, fmt.Errorf("expected value to be string, got %T", filter.Root.Value.Value)
+	}
+
+	props := filter.Root.On.Slice()
+	if len(props) != 1 {
+		return nil, fmt.Errorf("ref-filters not supported yet")
+	}
+
+	var out []*storobj.Object
+	if err := s.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bucketFromPropName(props[0]))
+		if b == nil {
+			return fmt.Errorf("bucket for prop %s not found - is it indexed?", props[0])
+		}
+
+		pointers, err := s.parseInvertedIndexRow(b.Get([]byte(value)), limit)
+		if err != nil {
+			return errors.Wrap(err, "parse inverted index row")
+		}
+
+		uuidKeys := make([][]byte, len(pointers.docIDs))
+		b = tx.Bucket(IndexIDBucket)
+		if b == nil {
+			return fmt.Errorf("index id bucket not found")
+		}
+
+		for i, pointer := range pointers.docIDs {
+			keyBuf := bytes.NewBuffer(make([]byte, 4))
+			binary.Write(keyBuf, binary.LittleEndian, &pointer.id)
+			key := keyBuf.Bytes()
+			uuidKeys[i] = b.Get(key)
+		}
+
+		out = make([]*storobj.Object, len(uuidKeys))
+		b = tx.Bucket(ObjectsBucket)
+		if b == nil {
+			return fmt.Errorf("index id bucket not found")
+		}
+		for i, uuid := range uuidKeys {
+			elem, err := storobj.FromBinary(b.Get(uuid))
+			if err != nil {
+				return errors.Wrap(err, "unmarshal data object")
+			}
+
+			out[i] = elem
+		}
+		return nil
+
+	}); err != nil {
+		return nil, errors.Wrap(err, "object filter search bolt view tx")
+	}
+
+	return out, nil
+}
+
+type docPointers struct {
+	count  uint32
+	docIDs []docPointer
+}
+
+type docPointer struct {
+	id        uint32
+	frequency float32
+}
+
+// TODO: stop reading if limit is reached
+func (s Shard) parseInvertedIndexRow(in []byte, limit int) (docPointers, error) {
+	out := docPointers{}
+	if len(in) == 0 {
+		return out, nil
+	}
+
+	var count uint32
+	r := bytes.NewReader(in)
+
+	if err := binary.Read(r, binary.LittleEndian, &count); err != nil {
+		return out, errors.Wrap(err, "read doc count")
+	}
+
+	for {
+		var docID uint32
+		if err := binary.Read(r, binary.LittleEndian, &docID); err != nil {
+			if err == io.EOF {
+				// we are done
+				break
+			}
+
+			return out, errors.Wrap(err, "read doc id")
+		}
+
+		var frequency float32
+		if err := binary.Read(r, binary.LittleEndian, &frequency); err != nil {
+			// EOF would be unexpected here, so any error including EOF is an error
+			return out, errors.Wrap(err, "read doc frequency")
+		}
+
+		out.docIDs = append(out.docIDs, docPointer{id: docID, frequency: frequency})
+	}
+
+	return out, nil
 }
