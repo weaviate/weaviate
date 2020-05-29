@@ -17,7 +17,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 
 	"github.com/boltdb/bolt"
@@ -117,12 +116,6 @@ func bucketFromPropName(propName string) []byte {
 }
 
 func (s *Shard) putObject(ctx context.Context, object *KindObject) error {
-	buf := bytes.NewBuffer(nil)
-	// TODO: optimize storage. For example it makes no sense to store the vector
-	// as json (which is a string of floats), instead we could just store the raw
-	// vector and safe on space. Similarly we will want to add other relevant
-	// fields, such as the unique shard id, etc.
-	json.NewEncoder(buf).Encode(object)
 	idBytes, err := uuid.MustParse(object.ID().String()).MarshalBinary()
 	if err != nil {
 		return err
@@ -132,6 +125,12 @@ func (s *Shard) putObject(ctx context.Context, object *KindObject) error {
 	if err != nil {
 		return errors.Wrap(err, "get new doc id from counter")
 	}
+	object.SetIndexID(docID)
+
+	data, err := object.MarshalBinary()
+	if err != nil {
+		return errors.Wrapf(err, "marshal object %s to binary", object.ID())
+	}
 
 	invertProps, err := s.analyzeObject(object)
 	if err != nil {
@@ -140,7 +139,7 @@ func (s *Shard) putObject(ctx context.Context, object *KindObject) error {
 
 	if err := s.db.Batch(func(tx *bolt.Tx) error {
 		// insert data object
-		if err := tx.Bucket(ObjectsBucket).Put([]byte(idBytes), buf.Bytes()); err != nil {
+		if err := tx.Bucket(ObjectsBucket).Put([]byte(idBytes), data); err != nil {
 			return errors.Wrap(err, "put object data")
 		}
 
@@ -277,7 +276,12 @@ func (s *Shard) objectByID(ctx context.Context, id strfmt.UUID, props traverser.
 			return nil
 		}
 
-		return json.Unmarshal(bytes, &object)
+		obj, err := NewKindObjectFromBinary(bytes)
+		if err != nil {
+			return errors.Wrap(err, "unmarshal kind object")
+		}
+		object = *obj
+		return nil
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "bolt view tx")
@@ -295,13 +299,12 @@ func (s *Shard) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		cursor := tx.Bucket(ObjectsBucket).Cursor()
 
 		for k, v := cursor.First(); k != nil && i < limit; k, v = cursor.Next() {
-			var obj KindObject
-			err := json.Unmarshal(v, &obj)
+			obj, err := NewKindObjectFromBinary(v)
 			if err != nil {
 				return errors.Wrapf(err, "unmarhsal item %d", i)
 			}
 
-			out[i] = &obj
+			out[i] = obj
 			i++
 		}
 
