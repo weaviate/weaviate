@@ -11,7 +11,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package db
+package storobj
 
 import (
 	"bytes"
@@ -29,7 +29,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/search"
 )
 
-type KindObject struct {
+type Object struct {
 	MarshallerVersion uint8
 	Kind              kind.Kind      `json:"kind"`
 	Thing             *models.Thing  `json:"thing"`
@@ -38,8 +38,8 @@ type KindObject struct {
 	indexID           uint32
 }
 
-func NewKindObjectFromThing(thing *models.Thing, vector []float32) *KindObject {
-	return &KindObject{
+func FromThing(thing *models.Thing, vector []float32) *Object {
+	return &Object{
 		Kind:              kind.Thing,
 		Thing:             thing,
 		Vector:            vector,
@@ -47,8 +47,8 @@ func NewKindObjectFromThing(thing *models.Thing, vector []float32) *KindObject {
 	}
 }
 
-func NewKindObjectFromAction(action *models.Action, vector []float32) *KindObject {
-	return &KindObject{
+func FromAction(action *models.Action, vector []float32) *Object {
+	return &Object{
 		Kind:              kind.Action,
 		Action:            action,
 		Vector:            vector,
@@ -56,8 +56,8 @@ func NewKindObjectFromAction(action *models.Action, vector []float32) *KindObjec
 	}
 }
 
-func NewKindObjectFromBinary(data []byte) (*KindObject, error) {
-	ko := &KindObject{}
+func FromBinary(data []byte) (*Object, error) {
+	ko := &Object{}
 	if err := ko.UnmarshalBinary(data); err != nil {
 		return nil, err
 	}
@@ -65,7 +65,7 @@ func NewKindObjectFromBinary(data []byte) (*KindObject, error) {
 	return ko, nil
 }
 
-func (ko *KindObject) Class() schema.ClassName {
+func (ko *Object) Class() schema.ClassName {
 	switch ko.Kind {
 	case kind.Thing:
 		return schema.ClassName(ko.Thing.Class)
@@ -76,11 +76,11 @@ func (ko *KindObject) Class() schema.ClassName {
 	}
 }
 
-func (ko *KindObject) SetIndexID(id uint32) {
+func (ko *Object) SetIndexID(id uint32) {
 	ko.indexID = id
 }
 
-func (ko *KindObject) CreationTimeUnix() int64 {
+func (ko *Object) CreationTimeUnix() int64 {
 	switch ko.Kind {
 	case kind.Thing:
 		return ko.Thing.CreationTimeUnix
@@ -90,7 +90,7 @@ func (ko *KindObject) CreationTimeUnix() int64 {
 		panic("impossible kind")
 	}
 }
-func (ko *KindObject) ID() strfmt.UUID {
+func (ko *Object) ID() strfmt.UUID {
 	switch ko.Kind {
 	case kind.Thing:
 		return ko.Thing.ID
@@ -100,7 +100,7 @@ func (ko *KindObject) ID() strfmt.UUID {
 		panic("impossible kind")
 	}
 }
-func (ko *KindObject) LastUpdateTimeUnix() int64 {
+func (ko *Object) LastUpdateTimeUnix() int64 {
 	switch ko.Kind {
 	case kind.Thing:
 		return ko.Thing.LastUpdateTimeUnix
@@ -110,7 +110,7 @@ func (ko *KindObject) LastUpdateTimeUnix() int64 {
 		panic("impossible kind")
 	}
 }
-func (ko *KindObject) Meta() *models.ObjectMeta {
+func (ko *Object) Meta() *models.ObjectMeta {
 	switch ko.Kind {
 	case kind.Thing:
 		return ko.Thing.Meta
@@ -121,7 +121,7 @@ func (ko *KindObject) Meta() *models.ObjectMeta {
 	}
 
 }
-func (ko *KindObject) Schema() models.PropertySchema {
+func (ko *Object) Schema() models.PropertySchema {
 	switch ko.Kind {
 	case kind.Thing:
 		return ko.Thing.Schema
@@ -132,7 +132,7 @@ func (ko *KindObject) Schema() models.PropertySchema {
 	}
 
 }
-func (ko *KindObject) VectorWeights() models.VectorWeights {
+func (ko *Object) VectorWeights() models.VectorWeights {
 	switch ko.Kind {
 	case kind.Thing:
 		return ko.Thing.VectorWeights
@@ -143,7 +143,7 @@ func (ko *KindObject) VectorWeights() models.VectorWeights {
 	}
 }
 
-func (ko *KindObject) SearchResult() *search.Result {
+func (ko *Object) SearchResult() *search.Result {
 	return &search.Result{
 		Kind:      ko.Kind,
 		ID:        ko.ID(),
@@ -159,7 +159,7 @@ func (ko *KindObject) SearchResult() *search.Result {
 	}
 }
 
-func objectsToSearchResults(in []*KindObject) search.Results {
+func SearchResults(in []*Object) search.Results {
 	out := make(search.Results, len(in))
 
 	for i, elem := range in {
@@ -192,7 +192,7 @@ func objectsToSearchResults(in []*KindObject) search.Results {
 // n          | []byte    | meta as json
 // 2          | uint32    | length of vectorweights json
 // n          | []byte    | vectorweights as json
-func (ko *KindObject) MarshalBinary() ([]byte, error) {
+func (ko *Object) MarshalBinary() ([]byte, error) {
 	if ko.MarshallerVersion != 1 {
 		return nil, fmt.Errorf("unsupported marshaller version %d", ko.MarshallerVersion)
 	}
@@ -259,7 +259,7 @@ func (ko *KindObject) MarshalBinary() ([]byte, error) {
 
 // UnmarshalBinary is the versioned way to unmarshal a kind object from binary,
 // see MarshalBinary for the exact contents of each version
-func (ko *KindObject) UnmarshalBinary(data []byte) error {
+func (ko *Object) UnmarshalBinary(data []byte) error {
 	var version uint8
 	r := bytes.NewReader(data)
 	le := binary.LittleEndian
@@ -338,7 +338,7 @@ func (ko *KindObject) UnmarshalBinary(data []byte) error {
 	)
 }
 
-func (ko *KindObject) parseKind(uuid strfmt.UUID, create, update int64, className string,
+func (ko *Object) parseKind(uuid strfmt.UUID, create, update int64, className string,
 	schemaB []byte, metaB []byte, vectorWeightsB []byte) error {
 
 	var schema map[string]interface{}
