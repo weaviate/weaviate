@@ -25,6 +25,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/indexcounter"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -115,7 +116,7 @@ func bucketFromPropName(propName string) []byte {
 	return []byte(fmt.Sprintf("property_%s", propName))
 }
 
-func (s *Shard) putObject(ctx context.Context, object *KindObject) error {
+func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 	idBytes, err := uuid.MustParse(object.ID().String()).MarshalBinary()
 	if err != nil {
 		return err
@@ -161,7 +162,7 @@ func (s *Shard) putObject(ctx context.Context, object *KindObject) error {
 	return nil
 }
 
-func (s *Shard) analyzeObject(object *KindObject) ([]inverted.Property, error) {
+func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, error) {
 	if object.Schema() == nil {
 		return nil, nil
 	}
@@ -262,8 +263,8 @@ func (s *Shard) addIndexIDLookup(tx *bolt.Tx, id []byte, docID uint32) error {
 	return nil
 }
 
-func (s *Shard) objectByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties, meta bool) (*KindObject, error) {
-	var object KindObject
+func (s *Shard) objectByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties, meta bool) (*storobj.Object, error) {
+	var object storobj.Object
 
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
@@ -276,7 +277,7 @@ func (s *Shard) objectByID(ctx context.Context, id strfmt.UUID, props traverser.
 			return nil
 		}
 
-		obj, err := NewKindObjectFromBinary(bytes)
+		obj, err := storobj.FromBinary(bytes)
 		if err != nil {
 			return errors.Wrap(err, "unmarshal kind object")
 		}
@@ -291,15 +292,15 @@ func (s *Shard) objectByID(ctx context.Context, id strfmt.UUID, props traverser.
 }
 
 func (s *Shard) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
-	meta bool) ([]*KindObject, error) {
-	out := make([]*KindObject, limit)
+	meta bool) ([]*storobj.Object, error) {
+	out := make([]*storobj.Object, limit)
 
 	i := 0
 	err := s.db.View(func(tx *bolt.Tx) error {
 		cursor := tx.Bucket(ObjectsBucket).Cursor()
 
 		for k, v := cursor.First(); k != nil && i < limit; k, v = cursor.Next() {
-			obj, err := NewKindObjectFromBinary(v)
+			obj, err := storobj.FromBinary(v)
 			if err != nil {
 				return errors.Wrapf(err, "unmarhsal item %d", i)
 			}

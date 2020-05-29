@@ -18,6 +18,7 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -43,7 +44,7 @@ func (db *DB) ClassSearch(ctx context.Context, params traverser.GetParams) ([]se
 
 	// TODO: Inject uuid at expected field
 
-	return objectsToSearchResults(res), nil
+	return storobj.SearchResults(res), nil
 }
 func (db *DB) VectorClassSearch(ctx context.Context, params traverser.GetParams) ([]search.Result, error) {
 	return nil, fmt.Errorf("vector-based search not implemented (yet)")
@@ -78,7 +79,7 @@ func (d *DB) objectSearch(ctx context.Context, kind kind.Kind, limit int, filter
 			return nil, errors.Wrapf(err, "search index %s", index.ID())
 		}
 
-		found = append(found, objectsToSearchResults(res)...)
+		found = append(found, storobj.SearchResults(res)...)
 		if len(found) >= limit {
 			// we are done
 			break
