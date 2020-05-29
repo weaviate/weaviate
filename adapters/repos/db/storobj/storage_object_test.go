@@ -1,4 +1,4 @@
-package db
+package storobj
 
 import (
 	"testing"
@@ -10,7 +10,7 @@ import (
 )
 
 func TestStorageObjectMarshalling(t *testing.T) {
-	before := NewKindObjectFromThing(
+	before := FromThing(
 		&models.Thing{
 			Class:              "MyFavoriteClass",
 			CreationTimeUnix:   123456,
@@ -32,7 +32,7 @@ func TestStorageObjectMarshalling(t *testing.T) {
 	asBinary, err := before.MarshalBinary()
 	require.Nil(t, err)
 
-	after, err := NewKindObjectFromBinary(asBinary)
+	after, err := FromBinary(asBinary)
 	require.Nil(t, err)
 
 	assert.Equal(t, before, after)

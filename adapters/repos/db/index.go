@@ -20,6 +20,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -77,7 +78,7 @@ func indexID(kind kind.Kind, class schema.ClassName) string {
 	return strings.ToLower(fmt.Sprintf("%s_%s", kind, class))
 }
 
-func (i *Index) putObject(ctx context.Context, object *KindObject) error {
+func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
 	if i.Config.Kind != object.Kind {
 		return fmt.Errorf("cannot import object of kind %s into index of kind %s", object.Kind, i.Config.Kind)
 	}
@@ -96,7 +97,7 @@ func (i *Index) putObject(ctx context.Context, object *KindObject) error {
 	return nil
 }
 
-func (i *Index) objectByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties, meta bool) (*KindObject, error) {
+func (i *Index) objectByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties, meta bool) (*storobj.Object, error) {
 	// TODO: don't ignore meta and props
 
 	// TODO: search across all shards, rather than hard-coded "single" shard
@@ -112,7 +113,7 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID, props traverser.
 }
 
 func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
-	meta bool) ([]*KindObject, error) {
+	meta bool) ([]*storobj.Object, error) {
 	// TODO: don't ignore meta and filters
 	// TODO: search across all shards, rather than hard-coded "single" shard
 
