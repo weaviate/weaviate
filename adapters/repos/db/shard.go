@@ -411,7 +411,6 @@ type docPointer struct {
 	frequency float32
 }
 
-// TODO: stop reading if limit is reached
 func (s Shard) parseInvertedIndexRow(in []byte, limit int) (docPointers, error) {
 	out := docPointers{}
 	if len(in) == 0 {
@@ -425,11 +424,17 @@ func (s Shard) parseInvertedIndexRow(in []byte, limit int) (docPointers, error) 
 		return out, errors.Wrap(err, "read doc count")
 	}
 
+	read := 0
 	for {
+		if read >= limit {
+			// we are done because the user specified limit is reached
+			break
+		}
+
 		var docID uint32
 		if err := binary.Read(r, binary.LittleEndian, &docID); err != nil {
 			if err == io.EOF {
-				// we are done
+				// we are done, because all entries are read
 				break
 			}
 
@@ -443,6 +448,7 @@ func (s Shard) parseInvertedIndexRow(in []byte, limit int) (docPointers, error) 
 		}
 
 		out.docIDs = append(out.docIDs, docPointer{id: docID, frequency: frequency})
+		read++
 	}
 
 	return out, nil
