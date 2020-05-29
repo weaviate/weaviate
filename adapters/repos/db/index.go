@@ -98,7 +98,7 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
 }
 
 func (i *Index) objectByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties, meta bool) (*storobj.Object, error) {
-	// TODO: don't ignore meta and props
+	// TODO: don't ignore meta
 
 	// TODO: search across all shards, rather than hard-coded "single" shard
 	// TODO: can we improve this by hashing so we know the target shard?
@@ -114,7 +114,7 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID, props traverser.
 
 func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
 	meta bool) ([]*storobj.Object, error) {
-	// TODO: don't ignore meta and filters
+	// TODO: don't ignore meta
 	// TODO: search across all shards, rather than hard-coded "single" shard
 
 	shard := i.Shards["single"]
