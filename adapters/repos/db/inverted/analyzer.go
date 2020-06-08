@@ -3,6 +3,7 @@ package inverted
 import (
 	"bytes"
 	"encoding/binary"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -85,34 +86,22 @@ func (a *Analyzer) String(in string) []Countable {
 }
 
 // Int requires no analysis, so it's actually just a simple conversion to a
-// little-endian ordered byte slice
+// string-formatted byte slice of the int
 func (a *Analyzer) Int(in int) ([]Countable, error) {
-	b := bytes.NewBuffer(nil)
-	asInt64 := int64(in)
-	err := binary.Write(b, binary.LittleEndian, &asInt64)
-	if err != nil {
-		return nil, err
-	}
 
 	return []Countable{
 		Countable{
-			Data: b.Bytes(),
+			Data: []byte(strconv.FormatInt(int64(in), 10)),
 		},
 	}, nil
 }
 
 // Float requires no analysis, so it's actually just a simple conversion to a
-// little-endian ordered byte slice
+// string-formatted byte slice of the float
 func (a *Analyzer) Float(in float64) ([]Countable, error) {
-	b := bytes.NewBuffer(nil)
-	err := binary.Write(b, binary.LittleEndian, &in)
-	if err != nil {
-		return nil, err
-	}
-
 	return []Countable{
 		Countable{
-			Data: b.Bytes(),
+			Data: []byte(strconv.FormatFloat(in, 'f', 8, 64)),
 		},
 	}, nil
 }
