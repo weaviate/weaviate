@@ -94,17 +94,29 @@ func (s *Shard) extendInvertedIndices(tx *bolt.Tx, props []inverted.Property, do
 			return fmt.Errorf("no bucket for prop '%s' found", prop.Name)
 		}
 
-		for _, item := range prop.Items {
-			if err := s.extendInvertedIndexItem(b, item, docID, item.TermFrequency); err != nil {
-				return errors.Wrapf(err, "extend index with item '%s'", string(item.Data))
+		if prop.HasFrequency {
+			for _, item := range prop.Items {
+				if err := s.extendInvertedIndexItemWithFrequency(b, item, docID, item.TermFrequency); err != nil {
+					return errors.Wrapf(err, "extend index with item '%s'", string(item.Data))
+				}
 			}
+		} else {
+			if len(prop.Items) != 1 {
+				return fmt.Errorf("prop %s has no frequency but %d items", prop.Name, len(prop.Items))
+			}
+
+			if err := s.extendInvertedIndexItem(b, prop.Items[0], docID); err != nil {
+				return errors.Wrapf(err, "extend index with item '%s'", string(prop.Items[0].Data))
+			}
+
 		}
+
 	}
 
 	return nil
 }
 
-// extendInvertedIndexItem maintains an inverted index row for one search term,
+// extendInvertedIndexItemWithFrequency maintains an inverted index row for one search term,
 // the structure is as follows:
 //
 // Bytes | Meaning
@@ -114,7 +126,7 @@ func (s *Shard) extendInvertedIndices(tx *bolt.Tx, props []inverted.Property, do
 // ...
 // (n-7)..(n-4) | doc id of last doc
 // (n-3)..n     | term frequency of last
-func (s *Shard) extendInvertedIndexItem(b *bolt.Bucket, item inverted.Countable, docID uint32, freq float32) error {
+func (s *Shard) extendInvertedIndexItemWithFrequency(b *bolt.Bucket, item inverted.Countable, docID uint32, freq float32) error {
 	data := b.Get(item.Data)
 	updated := bytes.NewBuffer(data)
 	if len(data) == 0 {
@@ -127,6 +139,46 @@ func (s *Shard) extendInvertedIndexItem(b *bolt.Bucket, item inverted.Countable,
 	// append current document
 	binary.Write(updated, binary.LittleEndian, &docID)
 	binary.Write(updated, binary.LittleEndian, &freq)
+	extended := updated.Bytes()
+
+	// read and increase doc count
+	reader := bytes.NewReader(extended)
+	var docCount uint32
+	binary.Read(reader, binary.LittleEndian, &docCount)
+	docCount++
+	countBytes := bytes.NewBuffer(make([]byte, 0, 4))
+	binary.Write(countBytes, binary.LittleEndian, &docCount)
+
+	// combine back together and save
+	combined := append(countBytes.Bytes(), extended[4:]...)
+	err := b.Put(item.Data, combined)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// extendInvertedIndexItem maintains an inverted index row for one search term,
+// the structure is as follows:
+//
+// Bytes | Meaning
+// 0..4   | count of matching documents as uint32 (little endian)
+// 5..7   | doc id of first matching doc as uint32 (little endian)
+// ...
+// (n-3)..n | doc id of last doc
+func (s *Shard) extendInvertedIndexItem(b *bolt.Bucket, item inverted.Countable, docID uint32) error {
+	data := b.Get(item.Data)
+	updated := bytes.NewBuffer(data)
+	if len(data) == 0 {
+		// this is the first time someones writing this row, initalize counter in
+		// beginning as zero
+		docCount := uint32(0)
+		binary.Write(updated, binary.LittleEndian, &docCount)
+	}
+
+	// append current document
+	binary.Write(updated, binary.LittleEndian, &docID)
 	extended := updated.Bytes()
 
 	// read and increase doc count
