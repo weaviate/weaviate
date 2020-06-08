@@ -3,6 +3,7 @@ package inverted
 import (
 	"fmt"
 
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
@@ -26,29 +27,58 @@ func (a *Analyzer) Object(input map[string]interface{}, props []*models.Property
 			// must be a ref prop or something else is wrong, skip
 			continue
 		}
+		var hasFrequency bool
 
 		var items []Countable
 		switch schema.DataType(prop.DataType[0]) {
 		case schema.DataTypeText:
+			hasFrequency = true
 			asString, ok := value.(string)
 			if !ok {
 				return nil, fmt.Errorf("expected property %s to be of type string, but got %T", key, value)
 			}
 			items = a.Text(asString)
 		case schema.DataTypeString:
+			hasFrequency = true
 			asString, ok := value.(string)
 			if !ok {
 				return nil, fmt.Errorf("expected property %s to be of type string, but got %T", key, value)
 			}
 			items = a.String(asString)
+		case schema.DataTypeInt:
+			hasFrequency = false
+			asFloat, ok := value.(float64) // after unmarshalling from json an untyped number is always a float
+			if !ok {
+				return nil, fmt.Errorf("expected property %s to be of type float64, but got %T", key, value)
+			}
+
+			var err error
+			items, err = a.Int(int(asFloat)) // convert to int before analyzing
+			if err != nil {
+				return nil, errors.Wrapf(err, "analyze property %s", key)
+			}
+		case schema.DataTypeNumber:
+			hasFrequency = false
+			asFloat, ok := value.(float64)
+			if !ok {
+				return nil, fmt.Errorf("expected property %s to be of type float64, but got %T", key, value)
+			}
+
+			var err error
+			items, err = a.Float(asFloat) // convert to int before analyzing
+			if err != nil {
+				return nil, errors.Wrapf(err, "analyze property %s", key)
+			}
+
 		default:
 			// ignore unsupported prop type
 			continue
 		}
 
 		out[i] = Property{
-			Name:  key,
-			Items: items,
+			Name:         key,
+			Items:        items,
+			HasFrequency: hasFrequency,
 		}
 		i++
 	}
