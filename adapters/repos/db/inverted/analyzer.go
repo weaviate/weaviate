@@ -117,6 +117,22 @@ func (a *Analyzer) Float(in float64) ([]Countable, error) {
 	}, nil
 }
 
+// Bool requires no analysis, so it's actually just a simple conversion to a
+// little-endian ordered byte slice
+func (a *Analyzer) Bool(in bool) ([]Countable, error) {
+	b := bytes.NewBuffer(nil)
+	err := binary.Write(b, binary.LittleEndian, &in)
+	if err != nil {
+		return nil, err
+	}
+
+	return []Countable{
+		Countable{
+			Data: b.Bytes(),
+		},
+	}, nil
+}
+
 func NewAnalyzer() *Analyzer {
 	return &Analyzer{}
 }
