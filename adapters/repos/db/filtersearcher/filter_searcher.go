@@ -54,9 +54,9 @@ func (f *FilterSearcher) Object(ctx context.Context, limit int, filter *filters.
 			return fmt.Errorf("bucket for prop %s not found - is it indexed?", pv[0].prop)
 		}
 
-		pointers, err := f.parseInvertedIndexRow(b.Get(pv[0].value), limit, pv[0].hasFrequency)
+		pointers, err := f.docPointers(pv[0].operator, b, pv[0].value, limit, pv[0].hasFrequency)
 		if err != nil {
-			return errors.Wrap(err, "parse inverted index row")
+			return err
 		}
 
 		uuidKeys := make([][]byte, len(pointers.docIDs))
@@ -143,10 +143,6 @@ func (fs *FilterSearcher) parseInvertedIndexRow(in []byte, limit int, hasFrequen
 func (fs *FilterSearcher) extractPropValuePairs(filter *filters.LocalFilter) ([]propValuePair, error) {
 	if filter.Root.Operands != nil {
 		return nil, fmt.Errorf("nested filteres not supported yet")
-	}
-
-	if filter.Root.Operator != filters.OperatorEqual {
-		return nil, fmt.Errorf("filters other than equal not supported yet")
 	}
 
 	var extractValueFn func(in interface{}) ([]byte, error)
