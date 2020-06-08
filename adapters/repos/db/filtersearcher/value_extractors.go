@@ -30,3 +30,19 @@ func (fs FilterSearcher) extractNumberValue(in interface{}) ([]byte, error) {
 
 	return buf.Bytes(), nil
 }
+
+// assumes an untyped int and stores as int64
+func (fs FilterSearcher) extractIntValue(in interface{}) ([]byte, error) {
+	value, ok := in.(int)
+	if !ok {
+		return nil, fmt.Errorf("expected value to be int, got %T", in)
+	}
+
+	asInt64 := int64(value)
+	buf := bytes.NewBuffer(nil)
+	if err := binary.Write(buf, binary.LittleEndian, asInt64); err != nil {
+		return nil, errors.Wrap(err, "encode int as binary")
+	}
+
+	return buf.Bytes(), nil
+}
