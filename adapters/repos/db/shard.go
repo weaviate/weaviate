@@ -19,6 +19,7 @@ import (
 
 	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/indexcounter"
 	"github.com/semi-technologies/weaviate/entities/models"
 )
@@ -32,11 +33,6 @@ type Shard struct {
 	db      *bolt.DB // one db file per shard, uses buckets for separation between data storage, index storage, etc.
 	counter *indexcounter.Counter
 }
-
-var (
-	ObjectsBucket []byte = []byte("objects")
-	IndexIDBucket []byte = []byte("index_ids")
-)
 
 func NewShard(shardName string, index *Index) (*Shard, error) {
 	s := &Shard{
@@ -73,12 +69,12 @@ func (s *Shard) initDBFile() error {
 	}
 
 	err = boltdb.Update(func(tx *bolt.Tx) error {
-		if _, err := tx.CreateBucketIfNotExists(ObjectsBucket); err != nil {
-			return errors.Wrapf(err, "create objects bucket '%s'", string(ObjectsBucket))
+		if _, err := tx.CreateBucketIfNotExists(helpers.ObjectsBucket); err != nil {
+			return errors.Wrapf(err, "create objects bucket '%s'", string(helpers.ObjectsBucket))
 		}
 
-		if _, err := tx.CreateBucketIfNotExists(IndexIDBucket); err != nil {
-			return errors.Wrapf(err, "create indexID bucket '%s'", string(IndexIDBucket))
+		if _, err := tx.CreateBucketIfNotExists(helpers.IndexIDBucket); err != nil {
+			return errors.Wrapf(err, "create indexID bucket '%s'", string(helpers.IndexIDBucket))
 		}
 
 		return nil
@@ -93,15 +89,11 @@ func (s *Shard) initDBFile() error {
 
 func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 	if err := s.db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists(bucketFromPropName(prop.Name))
+		_, err := tx.CreateBucketIfNotExists(helpers.BucketFromPropName(prop.Name))
 		return err
 	}); err != nil {
 		return errors.Wrap(err, "bolt update tx")
 	}
 
 	return nil
-}
-
-func bucketFromPropName(propName string) []byte {
-	return []byte(fmt.Sprintf("property_%s", propName))
 }

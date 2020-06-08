@@ -9,6 +9,7 @@ import (
 	"github.com/boltdb/bolt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -40,7 +41,7 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 
 	if err := s.db.Batch(func(tx *bolt.Tx) error {
 		// insert data object
-		if err := tx.Bucket(ObjectsBucket).Put([]byte(idBytes), data); err != nil {
+		if err := tx.Bucket(helpers.ObjectsBucket).Put([]byte(idBytes), data); err != nil {
 			return errors.Wrap(err, "put object data")
 		}
 
@@ -89,7 +90,7 @@ func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, erro
 
 func (s *Shard) extendInvertedIndices(tx *bolt.Tx, props []inverted.Property, docID uint32) error {
 	for _, prop := range props {
-		b := tx.Bucket(bucketFromPropName(prop.Name))
+		b := tx.Bucket(helpers.BucketFromPropName(prop.Name))
 		if b == nil {
 			return fmt.Errorf("no bucket for prop '%s' found", prop.Name)
 		}
@@ -204,7 +205,7 @@ func (s *Shard) addIndexIDLookup(tx *bolt.Tx, id []byte, docID uint32) error {
 	binary.Write(keyBuf, binary.LittleEndian, &docID)
 	key := keyBuf.Bytes()
 
-	b := tx.Bucket(IndexIDBucket)
+	b := tx.Bucket(helpers.IndexIDBucket)
 	if b == nil {
 		return fmt.Errorf("no index id bucket found")
 	}
