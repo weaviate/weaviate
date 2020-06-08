@@ -26,43 +26,35 @@ func New(db *bolt.DB) *FilterSearcher {
 }
 
 type propValuePair struct {
-	prop  []byte
-	value []byte
+	prop         string
+	value        []byte
+	operator     filters.Operator
+	hasFrequency bool
 }
 
 func (f *FilterSearcher) Object(ctx context.Context, limit int, filter *filters.LocalFilter,
 	meta bool) ([]*storobj.Object, error) {
+	// defer func() {
+	// 	if r := recover(); r != nil {
+	// 		fmt.Printf("%v at %s", r, debug.Stack())
+	// 	}
+	// }()
 
-	if filter.Root.Operands != nil {
-		return nil, fmt.Errorf("nested filteres not supported yet")
+	pv, err := f.extractPropValuePairs(filter)
+	if err != nil {
+		return nil, err
 	}
 
-	if filter.Root.Operator != filters.OperatorEqual {
-		return nil, fmt.Errorf("filters other than equal not supported yet")
-	}
-
-	if filter.Root.Value.Type != schema.DataTypeText {
-		return nil, fmt.Errorf("non text filters not supported yet")
-	}
-
-	value, ok := filter.Root.Value.Value.(string)
-	if !ok {
-		return nil, fmt.Errorf("expected value to be string, got %T", filter.Root.Value.Value)
-	}
-
-	props := filter.Root.On.Slice()
-	if len(props) != 1 {
-		return nil, fmt.Errorf("ref-filters not supported yet")
-	}
+	// TODO: support more than one pv pair
 
 	var out []*storobj.Object
 	if err := f.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(helpers.BucketFromPropName(props[0]))
+		b := tx.Bucket(helpers.BucketFromPropName(pv[0].prop))
 		if b == nil {
-			return fmt.Errorf("bucket for prop %s not found - is it indexed?", props[0])
+			return fmt.Errorf("bucket for prop %s not found - is it indexed?", pv[0].prop)
 		}
 
-		pointers, err := f.parseInvertedIndexRow(b.Get([]byte(value)), limit)
+		pointers, err := f.parseInvertedIndexRow(b.Get(pv[0].value), limit, pv[0].hasFrequency)
 		if err != nil {
 			return errors.Wrap(err, "parse inverted index row")
 		}
@@ -102,7 +94,7 @@ func (f *FilterSearcher) Object(ctx context.Context, limit int, filter *filters.
 	return out, nil
 }
 
-func (fs *FilterSearcher) parseInvertedIndexRow(in []byte, limit int) (docPointers, error) {
+func (fs *FilterSearcher) parseInvertedIndexRow(in []byte, limit int, hasFrequency bool) (docPointers, error) {
 	out := docPointers{}
 	if len(in) == 0 {
 		return out, nil
@@ -133,16 +125,64 @@ func (fs *FilterSearcher) parseInvertedIndexRow(in []byte, limit int) (docPointe
 		}
 
 		var frequency float32
-		if err := binary.Read(r, binary.LittleEndian, &frequency); err != nil {
-			// EOF would be unexpected here, so any error including EOF is an error
-			return out, errors.Wrap(err, "read doc frequency")
+
+		if hasFrequency {
+			if err := binary.Read(r, binary.LittleEndian, &frequency); err != nil {
+				// EOF would be unexpected here, so any error including EOF is an error
+				return out, errors.Wrap(err, "read doc frequency")
+			}
 		}
 
-		out.docIDs = append(out.docIDs, docPointer{id: docID, frequency: frequency})
+		out.docIDs = append(out.docIDs, docPointer{id: docID, frequency: &frequency})
 		read++
 	}
 
 	return out, nil
+}
+
+func (fs *FilterSearcher) extractPropValuePairs(filter *filters.LocalFilter) ([]propValuePair, error) {
+	if filter.Root.Operands != nil {
+		return nil, fmt.Errorf("nested filteres not supported yet")
+	}
+
+	if filter.Root.Operator != filters.OperatorEqual {
+		return nil, fmt.Errorf("filters other than equal not supported yet")
+	}
+
+	var extractValueFn func(in interface{}) ([]byte, error)
+	var hasFrequency bool
+	switch filter.Root.Value.Type {
+	case schema.DataTypeText:
+		extractValueFn = fs.extractTextValue
+		hasFrequency = true
+	// case schema.DataTypeInt:
+	// 	extractValueFn = fs.extractIntValue
+	case schema.DataTypeNumber:
+		extractValueFn = fs.extractNumberValue
+		hasFrequency = false
+	default:
+		return nil, fmt.Errorf("data type not supporte yet")
+	}
+
+	byteValue, err := extractValueFn(filter.Root.Value.Value)
+	if err != nil {
+		return nil, err
+	}
+
+	props := filter.Root.On.Slice()
+	if len(props) != 1 {
+		return nil, fmt.Errorf("ref-filters not supported yet")
+	}
+
+	// TODO: support more than one
+	return []propValuePair{
+		propValuePair{
+			prop:         props[0],
+			value:        byteValue,
+			operator:     filter.Root.Operator,
+			hasFrequency: hasFrequency,
+		},
+	}, nil
 }
 
 type docPointers struct {
@@ -152,5 +192,5 @@ type docPointers struct {
 
 type docPointer struct {
 	id        uint32
-	frequency float32
+	frequency *float32
 }
