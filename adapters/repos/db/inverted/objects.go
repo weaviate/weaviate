@@ -69,6 +69,18 @@ func (a *Analyzer) Object(input map[string]interface{}, props []*models.Property
 			if err != nil {
 				return nil, errors.Wrapf(err, "analyze property %s", key)
 			}
+		case schema.DataTypeBoolean:
+			hasFrequency = false
+			asBool, ok := value.(bool)
+			if !ok {
+				return nil, fmt.Errorf("expected property %s to be of type bool, but got %T", key, value)
+			}
+
+			var err error
+			items, err = a.Bool(asBool) // convert to int before analyzing
+			if err != nil {
+				return nil, errors.Wrapf(err, "analyze property %s", key)
+			}
 
 		default:
 			// ignore unsupported prop type

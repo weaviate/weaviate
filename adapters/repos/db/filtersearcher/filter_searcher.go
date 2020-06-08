@@ -155,6 +155,9 @@ func (fs *FilterSearcher) extractPropValuePairs(filter *filters.LocalFilter) ([]
 	case schema.DataTypeText:
 		extractValueFn = fs.extractTextValue
 		hasFrequency = true
+	case schema.DataTypeBoolean:
+		extractValueFn = fs.extractBoolValue
+		hasFrequency = false
 	case schema.DataTypeInt:
 		extractValueFn = fs.extractIntValue
 		hasFrequency = false
