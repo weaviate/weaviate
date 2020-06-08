@@ -1,6 +1,8 @@
 package inverted
 
 import (
+	"bytes"
+	"encoding/binary"
 	"strings"
 	"unicode"
 )
@@ -11,8 +13,9 @@ type Countable struct {
 }
 
 type Property struct {
-	Name  string
-	Items []Countable
+	Name         string
+	Items        []Countable
+	HasFrequency bool
 }
 
 type Analyzer struct {
@@ -79,6 +82,39 @@ func (a *Analyzer) String(in string) []Countable {
 	}
 
 	return out
+}
+
+// Int requires no analysis, so it's actually just a simple conversion to a
+// little-endian ordered byte slice
+func (a *Analyzer) Int(in int) ([]Countable, error) {
+	b := bytes.NewBuffer(nil)
+	asInt64 := int64(in)
+	err := binary.Write(b, binary.LittleEndian, &asInt64)
+	if err != nil {
+		return nil, err
+	}
+
+	return []Countable{
+		Countable{
+			Data: b.Bytes(),
+		},
+	}, nil
+}
+
+// Float requires no analysis, so it's actually just a simple conversion to a
+// little-endian ordered byte slice
+func (a *Analyzer) Float(in float64) ([]Countable, error) {
+	b := bytes.NewBuffer(nil)
+	err := binary.Write(b, binary.LittleEndian, &in)
+	if err != nil {
+		return nil, err
+	}
+
+	return []Countable{
+		Countable{
+			Data: b.Bytes(),
+		},
+	}, nil
 }
 
 func NewAnalyzer() *Analyzer {
