@@ -1,4 +1,4 @@
-package filtersearcher
+package inverted
 
 import (
 	"bytes"
@@ -8,10 +8,9 @@ import (
 	"unicode"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 )
 
-func (fs FilterSearcher) extractTextValue(in interface{}) ([]byte, error) {
+func (fs Searcher) extractTextValue(in interface{}) ([]byte, error) {
 	value, ok := in.(string)
 	if !ok {
 		return nil, fmt.Errorf("expected value to be string, got %T", in)
@@ -28,7 +27,7 @@ func (fs FilterSearcher) extractTextValue(in interface{}) ([]byte, error) {
 	return []byte(parts[0]), nil
 }
 
-func (fs FilterSearcher) extractStringValue(in interface{}) ([]byte, error) {
+func (fs Searcher) extractStringValue(in interface{}) ([]byte, error) {
 	value, ok := in.(string)
 	if !ok {
 		return nil, fmt.Errorf("expected value to be string, got %T", in)
@@ -46,27 +45,27 @@ func (fs FilterSearcher) extractStringValue(in interface{}) ([]byte, error) {
 	return []byte(parts[0]), nil
 }
 
-func (fs FilterSearcher) extractNumberValue(in interface{}) ([]byte, error) {
+func (fs Searcher) extractNumberValue(in interface{}) ([]byte, error) {
 	value, ok := in.(float64)
 	if !ok {
 		return nil, fmt.Errorf("expected value to be float64, got %T", in)
 	}
 
-	return inverted.LexicographicallySortableFloat64(value)
+	return LexicographicallySortableFloat64(value)
 }
 
 // assumes an untyped int and stores as string-formatted int64
-func (fs FilterSearcher) extractIntValue(in interface{}) ([]byte, error) {
+func (fs Searcher) extractIntValue(in interface{}) ([]byte, error) {
 	value, ok := in.(int)
 	if !ok {
 		return nil, fmt.Errorf("expected value to be int, got %T", in)
 	}
 
-	return inverted.LexicographicallySortableInt64(int64(value))
+	return LexicographicallySortableInt64(int64(value))
 }
 
 // assumes an untyped bool and stores as bool64
-func (fs FilterSearcher) extractBoolValue(in interface{}) ([]byte, error) {
+func (fs Searcher) extractBoolValue(in interface{}) ([]byte, error) {
 	value, ok := in.(bool)
 	if !ok {
 		return nil, fmt.Errorf("expected value to be bool, got %T", in)
