@@ -3,7 +3,6 @@ package inverted
 import (
 	"bytes"
 	"encoding/binary"
-	"strconv"
 	"strings"
 	"unicode"
 )
@@ -88,20 +87,29 @@ func (a *Analyzer) String(in string) []Countable {
 // Int requires no analysis, so it's actually just a simple conversion to a
 // string-formatted byte slice of the int
 func (a *Analyzer) Int(in int) ([]Countable, error) {
+	data, err := LexicographicallySortableInt64(int64(in))
+	if err != nil {
+		return nil, err
+	}
 
 	return []Countable{
 		Countable{
-			Data: []byte(strconv.FormatInt(int64(in), 10)),
+			Data: data,
 		},
 	}, nil
 }
 
 // Float requires no analysis, so it's actually just a simple conversion to a
-// string-formatted byte slice of the float
+// lexicographically sortable byte slice.
 func (a *Analyzer) Float(in float64) ([]Countable, error) {
+	data, err := LexicographicallySortableFloat64(in)
+	if err != nil {
+		return nil, err
+	}
+
 	return []Countable{
 		Countable{
-			Data: []byte(strconv.FormatFloat(in, 'f', 8, 64)),
+			Data: data,
 		},
 	}, nil
 }

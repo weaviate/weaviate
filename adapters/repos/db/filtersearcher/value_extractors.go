@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"strconv"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 )
 
 func (fs FilterSearcher) extractTextValue(in interface{}) ([]byte, error) {
@@ -24,7 +24,7 @@ func (fs FilterSearcher) extractNumberValue(in interface{}) ([]byte, error) {
 		return nil, fmt.Errorf("expected value to be float64, got %T", in)
 	}
 
-	return []byte(strconv.FormatFloat(value, 'f', 8, 64)), nil
+	return inverted.LexicographicallySortableFloat64(value)
 }
 
 // assumes an untyped int and stores as string-formatted int64
@@ -34,7 +34,7 @@ func (fs FilterSearcher) extractIntValue(in interface{}) ([]byte, error) {
 		return nil, fmt.Errorf("expected value to be int, got %T", in)
 	}
 
-	return []byte(strconv.FormatInt(int64(value), 10)), nil
+	return inverted.LexicographicallySortableInt64(int64(value))
 }
 
 // assumes an untyped bool and stores as bool64
