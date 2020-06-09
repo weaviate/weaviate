@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"strings"
+	"unicode"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
@@ -14,8 +16,34 @@ func (fs FilterSearcher) extractTextValue(in interface{}) ([]byte, error) {
 	if !ok {
 		return nil, fmt.Errorf("expected value to be string, got %T", in)
 	}
+	parts := strings.FieldsFunc(value, func(c rune) bool {
+		return !unicode.IsLetter(c) && !unicode.IsNumber(c)
+	})
 
-	return []byte(value), nil
+	// TODO: gh-1150 allow multi search term
+	if len(parts) > 1 {
+		return nil, fmt.Errorf("only single search term allowed at the moment, got: %v", parts)
+	}
+
+	return []byte(parts[0]), nil
+}
+
+func (fs FilterSearcher) extractStringValue(in interface{}) ([]byte, error) {
+	value, ok := in.(string)
+	if !ok {
+		return nil, fmt.Errorf("expected value to be string, got %T", in)
+	}
+
+	parts := strings.FieldsFunc(value, func(c rune) bool {
+		return unicode.IsSpace(c)
+	})
+
+	// TODO: gh-1150 allow multi search term
+	if len(parts) > 1 {
+		return nil, fmt.Errorf("only single search term allowed at the moment, got: %v", parts)
+	}
+
+	return []byte(parts[0]), nil
 }
 
 func (fs FilterSearcher) extractNumberValue(in interface{}) ([]byte, error) {
