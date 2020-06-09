@@ -100,10 +100,9 @@ func (fs *FilterSearcher) parseInvertedIndexRow(in []byte, limit int, hasFrequen
 		return out, nil
 	}
 
-	var count uint32
 	r := bytes.NewReader(in)
 
-	if err := binary.Read(r, binary.LittleEndian, &count); err != nil {
+	if err := binary.Read(r, binary.LittleEndian, &out.count); err != nil {
 		return out, errors.Wrap(err, "read doc count")
 	}
 

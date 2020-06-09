@@ -32,7 +32,6 @@ func (fs *FilterSearcher) docPointersEqual(b *bolt.Bucket, value []byte,
 	return fs.parseInvertedIndexRow(b.Get(value), limit, hasFrequency)
 }
 
-// TODO: gh-1150 respect limit
 func (fs *FilterSearcher) docPointersGreaterThan(b *bolt.Bucket, value []byte,
 	limit int, hasFrequency bool, allowEqual bool) (docPointers, error) {
 	c := b.Cursor()
@@ -49,12 +48,14 @@ func (fs *FilterSearcher) docPointersGreaterThan(b *bolt.Bucket, value []byte,
 
 		pointers.count += curr.count
 		pointers.docIDs = append(pointers.docIDs, curr.docIDs...)
+		if pointers.count >= uint32(limit) {
+			break
+		}
 	}
 
 	return pointers, nil
 }
 
-// TODO: gh-1150 respect limit
 func (fs *FilterSearcher) docPointersLessThan(b *bolt.Bucket, value []byte,
 	limit int, hasFrequency bool, allowEqual bool) (docPointers, error) {
 	c := b.Cursor()
@@ -71,6 +72,9 @@ func (fs *FilterSearcher) docPointersLessThan(b *bolt.Bucket, value []byte,
 
 		pointers.count += curr.count
 		pointers.docIDs = append(pointers.docIDs, curr.docIDs...)
+		if pointers.count >= uint32(limit) {
+			break
+		}
 	}
 
 	return pointers, nil
