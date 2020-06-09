@@ -1,4 +1,4 @@
-package filtersearcher
+package inverted
 
 import (
 	"bytes"
@@ -9,7 +9,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 )
 
-func (fs *FilterSearcher) docPointers(operator filters.Operator, b *bolt.Bucket, value []byte,
+func (fs *Searcher) docPointers(operator filters.Operator, b *bolt.Bucket, value []byte,
 	limit int, hasFrequency bool) (docPointers, error) {
 	switch operator {
 	case filters.OperatorEqual:
@@ -29,12 +29,12 @@ func (fs *FilterSearcher) docPointers(operator filters.Operator, b *bolt.Bucket,
 	}
 }
 
-func (fs *FilterSearcher) docPointersEqual(b *bolt.Bucket, value []byte,
+func (fs *Searcher) docPointersEqual(b *bolt.Bucket, value []byte,
 	limit int, hasFrequency bool) (docPointers, error) {
 	return fs.parseInvertedIndexRow(b.Get(value), limit, hasFrequency)
 }
 
-func (fs *FilterSearcher) docPointersGreaterThan(b *bolt.Bucket, value []byte,
+func (fs *Searcher) docPointersGreaterThan(b *bolt.Bucket, value []byte,
 	limit int, hasFrequency bool, allowEqual bool) (docPointers, error) {
 	c := b.Cursor()
 	var pointers docPointers
@@ -58,7 +58,7 @@ func (fs *FilterSearcher) docPointersGreaterThan(b *bolt.Bucket, value []byte,
 	return pointers, nil
 }
 
-func (fs *FilterSearcher) docPointersLessThan(b *bolt.Bucket, value []byte,
+func (fs *Searcher) docPointersLessThan(b *bolt.Bucket, value []byte,
 	limit int, hasFrequency bool, allowEqual bool) (docPointers, error) {
 	c := b.Cursor()
 	var pointers docPointers
@@ -82,7 +82,7 @@ func (fs *FilterSearcher) docPointersLessThan(b *bolt.Bucket, value []byte,
 	return pointers, nil
 }
 
-func (fs *FilterSearcher) docPointersNotEqual(b *bolt.Bucket, value []byte,
+func (fs *Searcher) docPointersNotEqual(b *bolt.Bucket, value []byte,
 	limit int, hasFrequency bool) (docPointers, error) {
 	c := b.Cursor()
 	var pointers docPointers

@@ -7,8 +7,8 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/filtersearcher"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -49,7 +49,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		return s.objectList(ctx, limit, meta)
 	}
 
-	return filtersearcher.New(s.db).Object(ctx, limit, filters, meta)
+	return inverted.NewSearcher(s.db).Object(ctx, limit, filters, meta)
 }
 
 func (s *Shard) objectList(ctx context.Context, limit int, meta bool) ([]*storobj.Object, error) {

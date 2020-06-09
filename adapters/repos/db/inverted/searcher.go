@@ -1,4 +1,4 @@
-package filtersearcher
+package inverted
 
 import (
 	"bytes"
@@ -15,12 +15,12 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
-type FilterSearcher struct {
+type Searcher struct {
 	db *bolt.DB
 }
 
-func New(db *bolt.DB) *FilterSearcher {
-	return &FilterSearcher{
+func NewSearcher(db *bolt.DB) *Searcher {
+	return &Searcher{
 		db: db,
 	}
 }
@@ -32,7 +32,7 @@ type propValuePair struct {
 	hasFrequency bool
 }
 
-func (f *FilterSearcher) Object(ctx context.Context, limit int, filter *filters.LocalFilter,
+func (f *Searcher) Object(ctx context.Context, limit int, filter *filters.LocalFilter,
 	meta bool) ([]*storobj.Object, error) {
 	// defer func() {
 	// 	if r := recover(); r != nil {
@@ -94,7 +94,7 @@ func (f *FilterSearcher) Object(ctx context.Context, limit int, filter *filters.
 	return out, nil
 }
 
-func (fs *FilterSearcher) parseInvertedIndexRow(in []byte, limit int, hasFrequency bool) (docPointers, error) {
+func (fs *Searcher) parseInvertedIndexRow(in []byte, limit int, hasFrequency bool) (docPointers, error) {
 	out := docPointers{}
 	if len(in) == 0 {
 		return out, nil
@@ -139,7 +139,7 @@ func (fs *FilterSearcher) parseInvertedIndexRow(in []byte, limit int, hasFrequen
 	return out, nil
 }
 
-func (fs *FilterSearcher) extractPropValuePairs(filter *filters.LocalFilter) ([]propValuePair, error) {
+func (fs *Searcher) extractPropValuePairs(filter *filters.LocalFilter) ([]propValuePair, error) {
 	if filter.Root.Operands != nil {
 		return nil, fmt.Errorf("nested filteres not supported yet")
 	}
