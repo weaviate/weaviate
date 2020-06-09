@@ -20,9 +20,12 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
@@ -30,8 +33,9 @@ import (
 // class. An index can be further broken up into self-contained units, called
 // Shards, to allow for easy distribution across Nodes
 type Index struct {
-	Shards map[string]*Shard
-	Config IndexConfig
+	Shards    map[string]*Shard
+	Config    IndexConfig
+	getSchema schemaUC.SchemaGetter
 }
 
 func (i Index) ID() string {
@@ -39,10 +43,11 @@ func (i Index) ID() string {
 }
 
 // NewIndex - for now - always creates a single-shard index
-func NewIndex(config IndexConfig) (*Index, error) {
+func NewIndex(config IndexConfig, sg schemaUC.SchemaGetter) (*Index, error) {
 	index := &Index{
-		Config: config,
-		Shards: map[string]*Shard{},
+		Config:    config,
+		Shards:    map[string]*Shard{},
+		getSchema: sg,
 	}
 
 	// use explicit shard name "single" to indicate it's currently the only
@@ -56,6 +61,13 @@ func NewIndex(config IndexConfig) (*Index, error) {
 	return index, nil
 }
 
+func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
+	// TODO: pick the right shard instead of using the "single" shard
+	shard := i.Shards["single"]
+
+	return shard.addProperty(ctx, prop)
+}
+
 type IndexConfig struct {
 	RootPath  string
 	Kind      kind.Kind
@@ -66,7 +78,7 @@ func indexID(kind kind.Kind, class schema.ClassName) string {
 	return strings.ToLower(fmt.Sprintf("%s_%s", kind, class))
 }
 
-func (i *Index) putObject(ctx context.Context, object *KindObject) error {
+func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
 	if i.Config.Kind != object.Kind {
 		return fmt.Errorf("cannot import object of kind %s into index of kind %s", object.Kind, i.Config.Kind)
 	}
@@ -79,14 +91,14 @@ func (i *Index) putObject(ctx context.Context, object *KindObject) error {
 	shard := i.Shards["single"]
 	err := shard.putObject(ctx, object)
 	if err != nil {
-		errors.Wrapf(err, "shard %s", shard.ID())
+		return errors.Wrapf(err, "shard %s", shard.ID())
 	}
 
 	return nil
 }
 
-func (i *Index) objectByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties, meta bool) (*KindObject, error) {
-	// TODO: don't ignore meta and props
+func (i *Index) objectByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties, meta bool) (*storobj.Object, error) {
+	// TODO: don't ignore meta
 
 	// TODO: search across all shards, rather than hard-coded "single" shard
 	// TODO: can we improve this by hashing so we know the target shard?
@@ -101,8 +113,8 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID, props traverser.
 }
 
 func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
-	meta bool) ([]*KindObject, error) {
-	// TODO: don't ignore meta and filters
+	meta bool) ([]*storobj.Object, error) {
+	// TODO: don't ignore meta
 	// TODO: search across all shards, rather than hard-coded "single" shard
 
 	shard := i.Shards["single"]

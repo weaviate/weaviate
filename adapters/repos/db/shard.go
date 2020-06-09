@@ -14,31 +14,25 @@
 package db
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/boltdb/bolt"
-	"github.com/go-openapi/strfmt"
-	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/indexcounter"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 // Shard is the smallest completely-contained index unit. A shard mananages
 // database files for all the objects it owns. How a shard is determined for a
 // target object (e.g. Murmur hash, etc.) is still open at this point
 type Shard struct {
-	index *Index // a reference to the underlying index, which in turn contains schema information
-	name  string
-	db    *bolt.DB // one db file per shard, uses buckets for separation between data storage, index storage, etc.
+	index   *Index // a reference to the underlying index, which in turn contains schema information
+	name    string
+	db      *bolt.DB // one db file per shard, uses buckets for separation between data storage, index storage, etc.
+	counter *indexcounter.Counter
 }
-
-var (
-	ObjectsBucket []byte = []byte("objects")
-)
 
 func NewShard(shardName string, index *Index) (*Shard, error) {
 	s := &Shard{
@@ -51,6 +45,12 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 		return nil, errors.Wrapf(err, "init shard %s", s.ID())
 	}
 
+	counter, err := indexcounter.New(s.ID(), index.Config.RootPath)
+	if err != nil {
+		return nil, errors.Wrapf(err, "init shard index counter %s", s.ID())
+	}
+
+	s.counter = counter
 	return s, nil
 }
 
@@ -69,8 +69,12 @@ func (s *Shard) initDBFile() error {
 	}
 
 	err = boltdb.Update(func(tx *bolt.Tx) error {
-		if _, err := tx.CreateBucketIfNotExists(ObjectsBucket); err != nil {
-			return errors.Wrapf(err, "create objects bucket '%s'", string(ObjectsBucket))
+		if _, err := tx.CreateBucketIfNotExists(helpers.ObjectsBucket); err != nil {
+			return errors.Wrapf(err, "create objects bucket '%s'", string(helpers.ObjectsBucket))
+		}
+
+		if _, err := tx.CreateBucketIfNotExists(helpers.IndexIDBucket); err != nil {
+			return errors.Wrapf(err, "create indexID bucket '%s'", string(helpers.IndexIDBucket))
 		}
 
 		return nil
@@ -83,75 +87,13 @@ func (s *Shard) initDBFile() error {
 	return nil
 }
 
-func (s *Shard) putObject(ctx context.Context, object *KindObject) error {
-	buf := bytes.NewBuffer(nil)
-	// TODO: optimize storage. For example it makes no sense to store the vector
-	// as json (which is a string of floats), instead we could just store the raw
-	// vector and safe on space. Similarly we will want to add other relevant
-	// fields, such as the unique shard id, etc.
-	json.NewEncoder(buf).Encode(object)
-	idBytes, err := uuid.MustParse(object.ID().String()).MarshalBinary()
-	if err != nil {
+func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
+	if err := s.db.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists(helpers.BucketFromPropName(prop.Name))
 		return err
-	}
-
-	err = s.db.Batch(func(tx *bolt.Tx) error {
-		return tx.Bucket(ObjectsBucket).Put([]byte(idBytes), buf.Bytes())
-	})
-	if err != nil {
-		return errors.Wrap(err, "bolt batch tx")
+	}); err != nil {
+		return errors.Wrap(err, "bolt update tx")
 	}
 
 	return nil
-}
-
-func (s *Shard) objectByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties, meta bool) (*KindObject, error) {
-	var object KindObject
-
-	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
-	if err != nil {
-		return nil, err
-	}
-
-	err = s.db.View(func(tx *bolt.Tx) error {
-		bytes := tx.Bucket(ObjectsBucket).Get(idBytes)
-		if bytes == nil {
-			return nil
-		}
-
-		return json.Unmarshal(bytes, &object)
-	})
-	if err != nil {
-		return nil, errors.Wrap(err, "bolt view tx")
-	}
-
-	return &object, nil
-}
-
-func (s *Shard) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
-	meta bool) ([]*KindObject, error) {
-	out := make([]*KindObject, limit)
-
-	i := 0
-	err := s.db.View(func(tx *bolt.Tx) error {
-		cursor := tx.Bucket(ObjectsBucket).Cursor()
-
-		for k, v := cursor.First(); k != nil && i < limit; k, v = cursor.Next() {
-			var obj KindObject
-			err := json.Unmarshal(v, &obj)
-			if err != nil {
-				return errors.Wrapf(err, "unmarhsal item %d", i)
-			}
-
-			out[i] = &obj
-			i++
-		}
-
-		return nil
-	})
-	if err != nil {
-		return nil, errors.Wrap(err, "bolt view tx")
-	}
-
-	return out[:i], nil
 }
