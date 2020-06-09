@@ -45,6 +45,32 @@ func TestCRUD(t *testing.T) {
 	}()
 
 	logger, _ := test.NewNullLogger()
+	thingclass := &models.Class{
+		Class: "TheBestThingClass",
+		Properties: []*models.Property{
+			&models.Property{
+				Name:     "stringProp",
+				DataType: []string{string(schema.DataTypeString)},
+			},
+			&models.Property{
+				Name:     "location",
+				DataType: []string{string(schema.DataTypeGeoCoordinates)},
+			},
+			&models.Property{
+				Name:     "phone",
+				DataType: []string{string(schema.DataTypePhoneNumber)},
+			},
+		},
+	}
+	actionclass := &models.Class{
+		Class: "TheBestActionClass",
+		Properties: []*models.Property{
+			&models.Property{
+				Name:     "stringProp",
+				DataType: []string{string(schema.DataTypeString)},
+			},
+		},
+	}
 	schemaGetter := &fakeSchemaGetter{}
 	repo := New(logger, Config{RootPath: dirName})
 	repo.SetSchemaGetter(schemaGetter)
@@ -53,42 +79,26 @@ func TestCRUD(t *testing.T) {
 	migrator := NewMigrator(repo)
 
 	t.Run("creating the thing class", func(t *testing.T) {
-		class := &models.Class{
-			Class: "TheBestThingClass",
-			Properties: []*models.Property{
-				&models.Property{
-					Name:     "stringProp",
-					DataType: []string{string(schema.DataTypeString)},
-				},
-				&models.Property{
-					Name:     "location",
-					DataType: []string{string(schema.DataTypeGeoCoordinates)},
-				},
-				&models.Property{
-					Name:     "phone",
-					DataType: []string{string(schema.DataTypePhoneNumber)},
-				},
-			},
-		}
 
 		require.Nil(t,
-			migrator.AddClass(context.Background(), kind.Thing, class))
+			migrator.AddClass(context.Background(), kind.Thing, thingclass))
 	})
 
 	t.Run("creating the action class", func(t *testing.T) {
-		class := &models.Class{
-			Class: "TheBestActionClass",
-			Properties: []*models.Property{
-				&models.Property{
-					Name:     "stringProp",
-					DataType: []string{string(schema.DataTypeString)},
-				},
-			},
-		}
 
 		require.Nil(t,
-			migrator.AddClass(context.Background(), kind.Action, class))
+			migrator.AddClass(context.Background(), kind.Action, actionclass))
 	})
+
+	// update schema getter so it's in sync with class
+	schemaGetter.schema = schema.Schema{
+		Actions: &models.Schema{
+			Classes: []*models.Class{actionclass},
+		},
+		Things: &models.Schema{
+			Classes: []*models.Class{thingclass},
+		},
+	}
 
 	thingID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
 	t.Run("adding a thing", func(t *testing.T) {
@@ -249,7 +259,7 @@ func TestCRUD(t *testing.T) {
 		assert.Equal(t, "TheBestThingClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
-		// TODO gh-1150
+		// TODO gh-1150 support geo coordinates
 		// assert.Equal(t, &models.GeoCoordinates{ptFloat32(1), ptFloat32(2)}, schema["location"], "has correct geo prop")
 		// assert.Equal(t, thingID.String(), schema["uuid"], "has id in schema as uuid field")
 	})
@@ -264,7 +274,7 @@ func TestCRUD(t *testing.T) {
 		assert.Equal(t, "TheBestThingClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
-		// TODO gh-1150
+		// TODO gh-1150 support geo coordinates
 		// assert.Equal(t, &models.GeoCoordinates{ptFloat32(1), ptFloat32(2)}, schema["location"], "has correct geo prop")
 		// assert.Equal(t, thingID.String(), schema["uuid"], "has id in schema as uuid field")
 	})
@@ -279,11 +289,11 @@ func TestCRUD(t *testing.T) {
 		assert.Equal(t, "TheBestActionClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some act-citing value", schema["stringProp"], "has correct string prop")
-		// TODO gh-1150
+		// TODO gh-1150 support meta
 		// assert.Nil(t, item.Meta, "not meta information should be included unless explicitly asked for")
 	})
 
-	// TODO gh-1150
+	// TODO gh-1150 support meta
 	// t.Run("searching an action by ID with meta==true", func(t *testing.T) {
 	// 	item, err := repo.ActionByID(context.Background(), actionID, traverser.SelectProperties{}, true)
 	// 	require.Nil(t, err)

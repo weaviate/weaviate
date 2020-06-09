@@ -19,6 +19,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -27,14 +28,14 @@ import (
 )
 
 func (d *DB) PutThing(ctx context.Context, object *models.Thing, vector []float32) error {
-	return d.putObject(ctx, NewKindObjectFromThing(object, vector))
+	return d.putObject(ctx, storobj.FromThing(object, vector))
 }
 
 func (d *DB) PutAction(ctx context.Context, object *models.Action, vector []float32) error {
-	return d.putObject(ctx, NewKindObjectFromAction(object, vector))
+	return d.putObject(ctx, storobj.FromAction(object, vector))
 }
 
-func (d *DB) putObject(ctx context.Context, object *KindObject) error {
+func (d *DB) putObject(ctx context.Context, object *storobj.Object) error {
 	idx := d.GetIndex(object.Kind, object.Class())
 	if idx == nil {
 		return fmt.Errorf("tried to import into non-existing index for %s/%s", object.Kind, object.Class())
