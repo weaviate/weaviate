@@ -14,6 +14,8 @@ func (fs *FilterSearcher) docPointers(operator filters.Operator, b *bolt.Bucket,
 	switch operator {
 	case filters.OperatorEqual:
 		return fs.docPointersEqual(b, value, limit, hasFrequency)
+	case filters.OperatorNotEqual:
+		return fs.docPointersNotEqual(b, value, limit, hasFrequency)
 	case filters.OperatorGreaterThan:
 		return fs.docPointersGreaterThan(b, value, limit, hasFrequency, false)
 	case filters.OperatorGreaterThanEqual:
@@ -67,7 +69,31 @@ func (fs *FilterSearcher) docPointersLessThan(b *bolt.Bucket, value []byte,
 
 		curr, err := fs.parseInvertedIndexRow(v, limit, hasFrequency)
 		if err != nil {
-			return pointers, errors.Wrap(err, "greater than: parse inverted index row")
+			return pointers, errors.Wrap(err, "less than: parse inverted index row")
+		}
+
+		pointers.count += curr.count
+		pointers.docIDs = append(pointers.docIDs, curr.docIDs...)
+		if pointers.count >= uint32(limit) {
+			break
+		}
+	}
+
+	return pointers, nil
+}
+
+func (fs *FilterSearcher) docPointersNotEqual(b *bolt.Bucket, value []byte,
+	limit int, hasFrequency bool) (docPointers, error) {
+	c := b.Cursor()
+	var pointers docPointers
+	for k, v := c.First(); k != nil; k, v = c.Next() {
+		if bytes.Equal(k, value) {
+			continue
+		}
+
+		curr, err := fs.parseInvertedIndexRow(v, limit, hasFrequency)
+		if err != nil {
+			return pointers, errors.Wrap(err, "not equal: parse inverted index row")
 		}
 
 		pointers.count += curr.count
