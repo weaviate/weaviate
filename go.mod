@@ -28,7 +28,7 @@ require (
 	github.com/mailru/easyjson v0.7.1 // indirect
 	github.com/mattn/go-colorable v0.1.4 // indirect
 	github.com/mattn/go-isatty v0.0.11 // indirect
-	github.com/mitchellh/mapstructure v1.3.1 // indirect
+	github.com/mitchellh/mapstructure v1.3.2 // indirect
 	github.com/modern-go/reflect2 v1.0.1 // indirect
 	github.com/nyaruka/phonenumbers v1.0.54
 	github.com/pkg/errors v0.8.1
@@ -39,9 +39,9 @@ require (
 	github.com/square/go-jose v2.3.0+incompatible
 	github.com/stretchr/testify v1.4.0
 	github.com/ugorji/go/codec v0.0.0-20190309163734-c4a1c341dc93
-	go.mongodb.org/mongo-driver v1.3.3 // indirect
+	go.mongodb.org/mongo-driver v1.3.4 // indirect
 	golang.org/x/net v0.0.0-20200226121028-0de0cce0169b
-	golang.org/x/tools v0.0.0-20200601175630-2caf76543d99 // indirect
+	golang.org/x/tools v0.0.0-20200609124132-5359b67ffbdf // indirect
 	google.golang.org/grpc v1.24.0
 	gopkg.in/yaml.v2 v2.3.0
 	sigs.k8s.io/yaml v1.1.0 // indirect
