@@ -31,23 +31,35 @@ func (fs *FilterSearcher) docPointersEqual(b *bolt.Bucket, value []byte,
 	limit int, hasFrequency bool) (docPointers, error) {
 	return fs.parseInvertedIndexRow(b.Get(value), limit, hasFrequency)
 }
+
+// TODO: gh-1150 respect limit
 func (fs *FilterSearcher) docPointersGreaterThan(b *bolt.Bucket, value []byte,
 	limit int, hasFrequency bool, allowEqual bool) (docPointers, error) {
 	c := b.Cursor()
-	return fs.docPointersCompare(b, c, c.Next, value, limit, hasFrequency, allowEqual)
+	var pointers docPointers
+	for k, v := c.Seek(value); k != nil; k, v = c.Next() {
+		if bytes.Equal(k, value) && !allowEqual {
+			continue
+		}
+
+		curr, err := fs.parseInvertedIndexRow(v, limit, hasFrequency)
+		if err != nil {
+			return pointers, errors.Wrap(err, "greater than: parse inverted index row")
+		}
+
+		pointers.count += curr.count
+		pointers.docIDs = append(pointers.docIDs, curr.docIDs...)
+	}
+
+	return pointers, nil
 }
 
+// TODO: gh-1150 respect limit
 func (fs *FilterSearcher) docPointersLessThan(b *bolt.Bucket, value []byte,
 	limit int, hasFrequency bool, allowEqual bool) (docPointers, error) {
 	c := b.Cursor()
-	return fs.docPointersCompare(b, c, c.Prev, value, limit, hasFrequency, allowEqual)
-}
-
-func (fs *FilterSearcher) docPointersCompare(b *bolt.Bucket, c *bolt.Cursor, cursorStep func() ([]byte, []byte),
-	value []byte, limit int, hasFrequency bool, allowEqual bool) (docPointers, error) {
-
 	var pointers docPointers
-	for k, v := c.Seek(value); k != nil; k, v = cursorStep() {
+	for k, v := c.First(); k != nil && bytes.Compare(k, value) != 1; k, v = c.Next() {
 		if bytes.Equal(k, value) && !allowEqual {
 			continue
 		}
