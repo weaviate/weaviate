@@ -55,11 +55,14 @@ func TestFilters(t *testing.T) {
 		prepareCarTestSchemaAndData(repo, migrator, schemaGetter))
 
 	t.Run("primitve props without nesting",
-		testPrmitiveProps(repo))
+		testPrimitiveProps(repo))
+
+	t.Run("primitve props with limit",
+		testPrimitivePropsWithLimit(repo))
 
 	// TODO: gh-1150 support chained filters
 	// t.Run("chained primitive props",
-	// 	testChainedPrmitiveProps(repo, migrator))
+	// 	testChainedPrimitiveProps(repo, migrator))
 
 }
 
@@ -105,12 +108,13 @@ func prepareCarTestSchemaAndData(repo *DB,
 	}
 }
 
-func testPrmitiveProps(repo *DB) func(t *testing.T) {
+func testPrimitiveProps(repo *DB) func(t *testing.T) {
 	return func(t *testing.T) {
 		type test struct {
 			name        string
 			filter      *filters.LocalFilter
 			expectedIDs []strfmt.UUID
+			limit       int
 		}
 
 		tests := []test{
@@ -238,11 +242,14 @@ func testPrmitiveProps(repo *DB) func(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
+				if test.limit == 0 {
+					test.limit = 100
+				}
 				params := traverser.GetParams{
 					SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
 					Kind:         kind.Thing,
 					ClassName:    carClass.Class,
-					Pagination:   &filters.Pagination{Limit: 100},
+					Pagination:   &filters.Pagination{Limit: test.limit},
 					Filters:      test.filter,
 				}
 				res, err := repo.ClassSearch(context.Background(), params)
@@ -259,8 +266,42 @@ func testPrmitiveProps(repo *DB) func(t *testing.T) {
 	}
 }
 
+func testPrimitivePropsWithLimit(repo *DB) func(t *testing.T) {
+	return func(t *testing.T) {
+		t.Run("greater than", func(t *testing.T) {
+			limit := 1
+
+			params := traverser.GetParams{
+				SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
+				Kind:         kind.Thing,
+				ClassName:    carClass.Class,
+				Pagination:   &filters.Pagination{Limit: limit},
+				Filters:      buildFilter("horsepower", 2, gt, dtInt), // would otherwise return 3 results
+			}
+			res, err := repo.ClassSearch(context.Background(), params)
+			require.Nil(t, err)
+			assert.Len(t, res, limit)
+		})
+
+		t.Run("less than", func(t *testing.T) {
+			limit := 1
+
+			params := traverser.GetParams{
+				SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
+				Kind:         kind.Thing,
+				ClassName:    carClass.Class,
+				Pagination:   &filters.Pagination{Limit: limit},
+				Filters:      buildFilter("horsepower", 20000, lt, dtInt), // would otherwise return 3 results
+			}
+			res, err := repo.ClassSearch(context.Background(), params)
+			require.Nil(t, err)
+			assert.Len(t, res, limit)
+		})
+	}
+}
+
 // TODO: gh-1150 supported chained filters
-// func testChainedPrmitiveProps(repo *DB,
+// func testChainedPrimitiveProps(repo *DB,
 // 	migrator *Migrator) func(t *testing.T) {
 // 	return func(t *testing.T) {
 // 		type test struct {
