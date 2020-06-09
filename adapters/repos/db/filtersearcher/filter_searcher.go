@@ -150,6 +150,9 @@ func (fs *FilterSearcher) extractPropValuePairs(filter *filters.LocalFilter) ([]
 	case schema.DataTypeText:
 		extractValueFn = fs.extractTextValue
 		hasFrequency = true
+	case schema.DataTypeString:
+		extractValueFn = fs.extractStringValue
+		hasFrequency = true
 	case schema.DataTypeBoolean:
 		extractValueFn = fs.extractBoolValue
 		hasFrequency = false
@@ -160,7 +163,7 @@ func (fs *FilterSearcher) extractPropValuePairs(filter *filters.LocalFilter) ([]
 		extractValueFn = fs.extractNumberValue
 		hasFrequency = false
 	default:
-		return nil, fmt.Errorf("data type not supporte yet")
+		return nil, fmt.Errorf("data type not supported yet")
 	}
 
 	byteValue, err := extractValueFn(filter.Root.Value.Value)

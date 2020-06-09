@@ -143,12 +143,11 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 				filter:      buildFilter("horsepower", 612, gte, dtInt),
 				expectedIDs: []strfmt.UUID{carE63sID},
 			},
-			// TODO:gh-1150 support string
-			// {
-			// 	name:        "modelName != sprinter",
-			// 	filter:      buildFilter("modelName", "sprinter", neq, dtString),
-			// 	expectedIDs: []strfmt.UUID{carE63sID, carPoloID},
-			// },
+			{
+				name:        "modelName != sprinter",
+				filter:      buildFilter("modelName", "sprinter", neq, dtString),
+				expectedIDs: []strfmt.UUID{carE63sID, carPoloID},
+			},
 			// TODO:gh-1150 support like operator
 			// {
 			// 	name:        "modelName = spr*er",
@@ -201,13 +200,11 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 			// 	filter:      buildFilter("released", "1995-08-17T12:47:00+02:00", gte, dtDate),
 			// 	expectedIDs: []strfmt.UUID{carSprinterID, carE63sID},
 			// },
-
-			// TODO gh-1150 support string
-			// {
-			// 	name:        "exactly matching a specific contact email",
-			// 	filter:      buildFilter("contact", "john@heavycars.example.com", eq, dtString),
-			// 	expectedIDs: []strfmt.UUID{carSprinterID},
-			// },
+			{
+				name:        "exactly matching a specific contact email",
+				filter:      buildFilter("contact", "john@heavycars.example.com", eq, dtString),
+				expectedIDs: []strfmt.UUID{carSprinterID},
+			},
 			// TODO: gh-1150 support multiple search terms
 			// {
 			// 	name:        "matching an email from within a text (not string) field",
@@ -232,7 +229,7 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 			// 	expectedIDs: []strfmt.UUID{carSprinterID},
 			// },
 
-			// TODO: gh-1150 support string
+			// TODO: gh-1150 support uuid filter
 			// {
 			// 	name:        "by id",
 			// 	filter:      buildFilter("uuid", carPoloID.String(), eq, dtString),
