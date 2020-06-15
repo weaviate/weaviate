@@ -22,12 +22,11 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/runtime"
-
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/strfmt"
 )
 
 // New creates a new contextionary api API client.
-func New(transport runtime.ClientTransport, formats strfmt.Registry) *Client {
+func New(transport runtime.ClientTransport, formats strfmt.Registry) ClientService {
 	return &Client{transport: transport, formats: formats}
 }
 
@@ -39,10 +38,23 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
-/*
-C11yConcepts checks if a concept is part of the contextionary
+// ClientService is the interface for Client methods
+type ClientService interface {
+	C11yConcepts(params *C11yConceptsParams, authInfo runtime.ClientAuthInfoWriter) (*C11yConceptsOK, error)
 
-Checks if a concept is part of the contextionary. Concepts should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase
+	C11yCorpusGet(params *C11yCorpusGetParams, authInfo runtime.ClientAuthInfoWriter) error
+
+	C11yExtensions(params *C11yExtensionsParams, authInfo runtime.ClientAuthInfoWriter) (*C11yExtensionsOK, error)
+
+	C11yWords(params *C11yWordsParams, authInfo runtime.ClientAuthInfoWriter) (*C11yWordsOK, error)
+
+	SetTransport(transport runtime.ClientTransport)
+}
+
+/*
+  C11yConcepts checks if a concept is part of the contextionary
+
+  Checks if a concept is part of the contextionary. Concepts should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase
 */
 func (a *Client) C11yConcepts(params *C11yConceptsParams, authInfo runtime.ClientAuthInfoWriter) (*C11yConceptsOK, error) {
 	// TODO: Validate the params before sending
@@ -77,9 +89,9 @@ func (a *Client) C11yConcepts(params *C11yConceptsParams, authInfo runtime.Clien
 }
 
 /*
-C11yCorpusGet checks if a word or word string is part of the contextionary
+  C11yCorpusGet checks if a word or word string is part of the contextionary
 
-Analyzes a sentence based on the contextionary
+  Analyzes a sentence based on the contextionary
 */
 func (a *Client) C11yCorpusGet(params *C11yCorpusGetParams, authInfo runtime.ClientAuthInfoWriter) error {
 	// TODO: Validate the params before sending
@@ -107,9 +119,9 @@ func (a *Client) C11yCorpusGet(params *C11yCorpusGetParams, authInfo runtime.Cli
 }
 
 /*
-C11yExtensions extends the contextionary with custom concepts
+  C11yExtensions extends the contextionary with custom concepts
 
-Extend the contextionary with your own custom concepts
+  Extend the contextionary with your own custom concepts
 */
 func (a *Client) C11yExtensions(params *C11yExtensionsParams, authInfo runtime.ClientAuthInfoWriter) (*C11yExtensionsOK, error) {
 	// TODO: Validate the params before sending
@@ -144,9 +156,9 @@ func (a *Client) C11yExtensions(params *C11yExtensionsParams, authInfo runtime.C
 }
 
 /*
-C11yWords checks if a word or word string is part of the contextionary
+  C11yWords checks if a word or word string is part of the contextionary
 
-Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase
+  Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase
 */
 func (a *Client) C11yWords(params *C11yWordsParams, authInfo runtime.ClientAuthInfoWriter) (*C11yWordsOK, error) {
 	// TODO: Validate the params before sending

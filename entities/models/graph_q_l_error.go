@@ -21,13 +21,13 @@ package models
 import (
 	"strconv"
 
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // GraphQLError An error response caused by a GraphQL query.
+//
 // swagger:model GraphQLError
 type GraphQLError struct {
 
@@ -99,6 +99,7 @@ func (m *GraphQLError) UnmarshalBinary(b []byte) error {
 }
 
 // GraphQLErrorLocationsItems0 graph q l error locations items0
+//
 // swagger:model GraphQLErrorLocationsItems0
 type GraphQLErrorLocationsItems0 struct {
 

@@ -22,14 +22,14 @@ import (
 	"encoding/json"
 	"strconv"
 
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
 )
 
 // Schema Definitions of semantic schemas (also see: https://github.com/semi-technologies/weaviate-semantic-schemas).
+//
 // swagger:model Schema
 type Schema struct {
 

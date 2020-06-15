@@ -315,7 +315,7 @@ func TestExtractUnderscoreFields(t *testing.T) {
 			},
 			resolverReturn: []interface{}{
 				map[string]interface{}{
-					"_classification": &models.ObjectMetaClassification{
+					"_classification": &models.UnderscorePropertiesClassification{
 						ID:               "12345",
 						BasedOn:          []string{"primitiveProp"},
 						Scope:            []string{"refprop1", "refprop2", "refprop3"},

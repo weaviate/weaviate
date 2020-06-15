@@ -19,14 +19,14 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
 )
 
 // Action action
+//
 // swagger:model Action
 type Action struct {
 
@@ -44,7 +44,7 @@ type Action struct {
 	LastUpdateTimeUnix int64 `json:"lastUpdateTimeUnix,omitempty"`
 
 	// meta
-	Meta *ObjectMeta `json:"meta,omitempty"`
+	Meta *UnderscoreProperties `json:"meta,omitempty"`
 
 	// schema
 	Schema PropertySchema `json:"schema,omitempty"`

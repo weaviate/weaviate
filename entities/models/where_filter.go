@@ -22,14 +22,14 @@ import (
 	"encoding/json"
 	"strconv"
 
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
 )
 
 // WhereFilter Filter search results using a where filter
+//
 // swagger:model WhereFilter
 type WhereFilter struct {
 

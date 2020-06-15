@@ -51,7 +51,7 @@
           "$ref": "#/definitions/PropertySchema"
         },
         "meta": {
-          "$ref": "#/definitions/ObjectMeta"
+          "$ref": "#/definitions/UnderscoreProperties"
         },
         "id": {
           "description": "ID of the Action.",
@@ -626,12 +626,12 @@
         }
       }
     },
-    "ObjectMeta": {
+    "UnderscoreProperties": {
       "description": "Additional Meta information about a single thing/action object.",
       "properties": {
         "classification": {
           "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
-          "$ref": "#/definitions/ObjectMetaClassification"
+          "$ref": "#/definitions/UnderscorePropertiesClassification"
         },
         "vector": {
           "description": "This object's position in the Contextionary vector space",
@@ -655,7 +655,7 @@
         }
       }
     },
-    "ObjectMetaClassification": {
+    "UnderscorePropertiesClassification": {
       "description": "This meta field contains additional info about the classification which affected this object",
       "properties": {
         "id": {
@@ -797,7 +797,7 @@
           "$ref": "#/definitions/PropertySchema"
         },
         "meta": {
-          "$ref": "#/definitions/ObjectMeta"
+          "$ref": "#/definitions/UnderscoreProperties"
         },
         "id": {
           "description": "ID of the Thing.",
