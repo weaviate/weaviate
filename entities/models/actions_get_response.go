@@ -21,14 +21,14 @@ package models
 import (
 	"encoding/json"
 
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
 )
 
 // ActionsGetResponse actions get response
+//
 // swagger:model ActionsGetResponse
 type ActionsGetResponse struct {
 	Action
@@ -68,7 +68,6 @@ func (m ActionsGetResponse) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	_parts = append(_parts, aO0)
-
 	var dataAO1 struct {
 		Result *ActionsGetResponseAO1Result `json:"result,omitempty"`
 	}
@@ -80,7 +79,6 @@ func (m ActionsGetResponse) MarshalJSON() ([]byte, error) {
 		return nil, errAO1
 	}
 	_parts = append(_parts, jsonDataAO1)
-
 	return swag.ConcatJSON(_parts...), nil
 }
 
@@ -140,6 +138,7 @@ func (m *ActionsGetResponse) UnmarshalBinary(b []byte) error {
 }
 
 // ActionsGetResponseAO1Result Results for this specific Action.
+//
 // swagger:model ActionsGetResponseAO1Result
 type ActionsGetResponseAO1Result struct {
 

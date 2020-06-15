@@ -149,8 +149,8 @@ func TestCRUD(t *testing.T) {
 			Schema: map[string]interface{}{
 				"stringProp": "some act-citing value",
 			},
-			Meta: &models.ObjectMeta{
-				Classification: &models.ObjectMetaClassification{
+			Meta: &models.UnderscoreProperties{
+				Classification: &models.UnderscorePropertiesClassification{
 					ID:               "foo",
 					Scope:            []string{"scope1", "scope2"},
 					ClassifiedFields: []string{"field1", "field2"},
@@ -248,7 +248,7 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("searching all things", func(t *testing.T) {
 		// as the test suits grow we might have to extend the limit
-		res, err := repo.ThingSearch(context.Background(), 100, nil, false)
+		res, err := repo.ThingSearch(context.Background(), 100, nil, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 
 		item, ok := findID(res, thingID)
@@ -265,7 +265,7 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("searching a thing by ID", func(t *testing.T) {
-		item, err := repo.ThingByID(context.Background(), thingID, traverser.SelectProperties{}, false)
+		item, err := repo.ThingByID(context.Background(), thingID, traverser.SelectProperties{}, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
@@ -280,7 +280,7 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("searching an action by ID without meta", func(t *testing.T) {
-		item, err := repo.ActionByID(context.Background(), actionID, traverser.SelectProperties{}, false)
+		item, err := repo.ActionByID(context.Background(), actionID, traverser.SelectProperties{}, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
@@ -316,7 +316,7 @@ func TestCRUD(t *testing.T) {
 	// })
 
 	t.Run("searching all actions", func(t *testing.T) {
-		res, err := repo.ActionSearch(context.Background(), 10, nil, false)
+		res, err := repo.ActionSearch(context.Background(), 10, nil, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 
 		item, ok := findID(res, actionID)

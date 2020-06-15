@@ -23,13 +23,13 @@ import (
 	"net/http"
 	"strconv"
 
-	errors "github.com/go-openapi/errors"
-	middleware "github.com/go-openapi/runtime/middleware"
-	strfmt "github.com/go-openapi/strfmt"
-	swag "github.com/go-openapi/swag"
-	validate "github.com/go-openapi/validate"
+	"github.com/go-openapi/errors"
+	"github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 
-	models "github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 // BatchingActionsCreateHandlerFunc turns a function with the right signature into a batching actions create handler
@@ -94,6 +94,7 @@ func (o *BatchingActionsCreate) ServeHTTP(rw http.ResponseWriter, r *http.Reques
 }
 
 // BatchingActionsCreateBody batching actions create body
+//
 // swagger:model BatchingActionsCreateBody
 type BatchingActionsCreateBody struct {
 

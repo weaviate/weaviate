@@ -110,12 +110,16 @@ func (ko *Object) LastUpdateTimeUnix() int64 {
 		panic("impossible kind")
 	}
 }
-func (ko *Object) Meta() *models.ObjectMeta {
+func (ko *Object) Meta() *models.UnderscoreProperties {
+	return ko.UnderscoreProperties()
+}
+
+func (ko *Object) UnderscoreProperties() *models.UnderscoreProperties {
 	switch ko.Kind {
 	case kind.Thing:
-		return ko.Thing.Meta
+		return ko.Thing.Meta // TODO: Deal with deprecation
 	case kind.Action:
-		return ko.Action.Meta
+		return ko.Action.Meta // TODO: Deal with deprecation
 	default:
 		panic("impossible kind")
 	}
@@ -151,10 +155,10 @@ func (ko *Object) SearchResult() *search.Result {
 		Schema:    ko.Schema(),
 		Vector:    ko.Vector,
 		// VectorWeights: ko.VectorWeights(), // TODO: add vector weights
-		Created: ko.CreationTimeUnix(),
-		Updated: ko.LastUpdateTimeUnix(),
-		Meta:    ko.Meta(),
-		Score:   1, // TODO: actuallly score
+		Created:              ko.CreationTimeUnix(),
+		Updated:              ko.LastUpdateTimeUnix(),
+		UnderscoreProperties: ko.UnderscoreProperties(),
+		Score:                1, // TODO: actuallly score
 		// TODO: Beacon?
 	}
 }
@@ -339,15 +343,15 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 }
 
 func (ko *Object) parseKind(uuid strfmt.UUID, create, update int64, className string,
-	schemaB []byte, metaB []byte, vectorWeightsB []byte) error {
+	schemaB []byte, underscoreB []byte, vectorWeightsB []byte) error {
 
 	var schema map[string]interface{}
 	if err := json.Unmarshal(schemaB, &schema); err != nil {
 		return err
 	}
 
-	var meta *models.ObjectMeta
-	if err := json.Unmarshal(metaB, &meta); err != nil {
+	var underscore *models.UnderscoreProperties
+	if err := json.Unmarshal(underscoreB, &underscore); err != nil {
 		return err
 	}
 
@@ -356,6 +360,7 @@ func (ko *Object) parseKind(uuid strfmt.UUID, create, update int64, className st
 		return err
 	}
 
+	// TODO: include all underscore props
 	if ko.Kind == kind.Thing {
 		ko.Thing = &models.Thing{
 			Class:              className,
@@ -363,7 +368,7 @@ func (ko *Object) parseKind(uuid strfmt.UUID, create, update int64, className st
 			LastUpdateTimeUnix: update,
 			ID:                 uuid,
 			Schema:             schema,
-			Meta:               meta,
+			Meta:               underscore,
 			VectorWeights:      vectorWeights,
 		}
 	} else if ko.Kind == kind.Action {
@@ -373,7 +378,7 @@ func (ko *Object) parseKind(uuid strfmt.UUID, create, update int64, className st
 			LastUpdateTimeUnix: update,
 			ID:                 uuid,
 			Schema:             schema,
-			Meta:               meta,
+			Meta:               underscore,
 			VectorWeights:      vectorWeights,
 		}
 	}

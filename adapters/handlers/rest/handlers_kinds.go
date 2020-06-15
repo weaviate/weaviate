@@ -28,6 +28,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type kindHandlers struct {
@@ -45,10 +46,10 @@ type kindsManager interface {
 	AddAction(context.Context, *models.Principal, *models.Action) (*models.Action, error)
 	ValidateThing(context.Context, *models.Principal, *models.Thing) error
 	ValidateAction(context.Context, *models.Principal, *models.Action) error
-	GetThing(context.Context, *models.Principal, strfmt.UUID, bool) (*models.Thing, error)
-	GetAction(context.Context, *models.Principal, strfmt.UUID, bool) (*models.Action, error)
-	GetThings(context.Context, *models.Principal, *int64, bool) ([]*models.Thing, error)
-	GetActions(context.Context, *models.Principal, *int64, bool) ([]*models.Action, error)
+	GetThing(context.Context, *models.Principal, strfmt.UUID, traverser.UnderscoreProperties) (*models.Thing, error)
+	GetAction(context.Context, *models.Principal, strfmt.UUID, traverser.UnderscoreProperties) (*models.Action, error)
+	GetThings(context.Context, *models.Principal, *int64, traverser.UnderscoreProperties) ([]*models.Thing, error)
+	GetActions(context.Context, *models.Principal, *int64, traverser.UnderscoreProperties) ([]*models.Action, error)
 	UpdateThing(context.Context, *models.Principal, strfmt.UUID, *models.Thing) (*models.Thing, error)
 	UpdateAction(context.Context, *models.Principal, strfmt.UUID, *models.Action) (*models.Action, error)
 	MergeThing(context.Context, *models.Principal, strfmt.UUID, *models.Thing) error
@@ -161,7 +162,14 @@ func (h *kindHandlers) validateAction(params actions.ActionsValidateParams,
 
 func (h *kindHandlers) getThing(params things.ThingsGetParams,
 	principal *models.Principal) middleware.Responder {
-	thing, err := h.manager.GetThing(params.HTTPRequest.Context(), principal, params.ID, derefBool(params.Meta))
+
+	underscores := traverser.UnderscoreProperties{}
+	if derefBool(params.Meta) {
+		// TODO: gh-1155 add deprecation warning
+		underscores.Classification = true
+	}
+
+	thing, err := h.manager.GetThing(params.HTTPRequest.Context(), principal, params.ID, underscores)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -186,7 +194,13 @@ func (h *kindHandlers) getThing(params things.ThingsGetParams,
 
 func (h *kindHandlers) getAction(params actions.ActionsGetParams,
 	principal *models.Principal) middleware.Responder {
-	action, err := h.manager.GetAction(params.HTTPRequest.Context(), principal, params.ID, derefBool(params.Meta))
+	underscores := traverser.UnderscoreProperties{}
+
+	if derefBool(params.Meta) {
+		// TODO: gh-1155 add deprecation warning
+		underscores.Classification = true
+	}
+	action, err := h.manager.GetAction(params.HTTPRequest.Context(), principal, params.ID, underscores)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -211,7 +225,14 @@ func (h *kindHandlers) getAction(params actions.ActionsGetParams,
 
 func (h *kindHandlers) getThings(params things.ThingsListParams,
 	principal *models.Principal) middleware.Responder {
-	list, err := h.manager.GetThings(params.HTTPRequest.Context(), principal, params.Limit, derefBool(params.Meta))
+	underscores := traverser.UnderscoreProperties{}
+
+	if derefBool(params.Meta) {
+		// TODO: gh-1155 add deprecation warning
+		underscores.Classification = true
+	}
+
+	list, err := h.manager.GetThings(params.HTTPRequest.Context(), principal, params.Limit, underscores)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -240,7 +261,12 @@ func (h *kindHandlers) getThings(params things.ThingsListParams,
 
 func (h *kindHandlers) getActions(params actions.ActionsListParams,
 	principal *models.Principal) middleware.Responder {
-	list, err := h.manager.GetActions(params.HTTPRequest.Context(), principal, params.Limit, derefBool(params.Meta))
+	underscores := traverser.UnderscoreProperties{}
+	if derefBool(params.Meta) {
+		// TODO: gh-1155 add deprecation warning
+		underscores.Classification = true
+	}
+	list, err := h.manager.GetActions(params.HTTPRequest.Context(), principal, params.Limit, underscores)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:

@@ -21,14 +21,14 @@ package models
 import (
 	"encoding/json"
 
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
 )
 
 // PatchDocumentAction Either a JSONPatch document as defined by RFC 6902 (from, op, path, value), or a merge document (RFC 7396).
+//
 // swagger:model PatchDocumentAction
 type PatchDocumentAction struct {
 

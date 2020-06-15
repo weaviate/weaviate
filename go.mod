@@ -12,13 +12,13 @@ require (
 	github.com/elastic/go-elasticsearch/v5 v5.6.0
 	github.com/fatih/camelcase v1.0.0
 	github.com/fatih/color v1.7.0 // indirect
-	github.com/go-openapi/errors v0.19.4
-	github.com/go-openapi/loads v0.19.3
-	github.com/go-openapi/runtime v0.19.15
-	github.com/go-openapi/spec v0.19.3
+	github.com/go-openapi/errors v0.19.6
+	github.com/go-openapi/loads v0.19.5
+	github.com/go-openapi/runtime v0.19.16
+	github.com/go-openapi/spec v0.19.8
 	github.com/go-openapi/strfmt v0.19.5
 	github.com/go-openapi/swag v0.19.9
-	github.com/go-openapi/validate v0.19.3
+	github.com/go-openapi/validate v0.19.10
 	github.com/google/uuid v1.1.1
 	github.com/gorilla/mux v1.7.0
 	github.com/graphql-go/graphql v0.7.7
@@ -37,10 +37,10 @@ require (
 	github.com/semi-technologies/contextionary v0.0.0-20200424084255-29fe88e56c12
 	github.com/sirupsen/logrus v1.4.2
 	github.com/square/go-jose v2.3.0+incompatible
-	github.com/stretchr/testify v1.4.0
+	github.com/stretchr/testify v1.6.1
 	github.com/ugorji/go/codec v0.0.0-20190309163734-c4a1c341dc93
 	go.mongodb.org/mongo-driver v1.3.4 // indirect
-	golang.org/x/net v0.0.0-20200226121028-0de0cce0169b
+	golang.org/x/net v0.0.0-20200602114024-627f9648deb9
 	golang.org/x/tools v0.0.0-20200609124132-5359b67ffbdf // indirect
 	google.golang.org/grpc v1.24.0
 	gopkg.in/yaml.v2 v2.3.0
@@ -48,5 +48,12 @@ require (
 )
 
 replace github.com/coreos/go-systemd => github.com/coreos/go-systemd/v22 v22.0.0
+
+// remove the next three when https://github.com/go-swagger/go-swagger/pull/2313 is merged/fixed
+replace (
+	github.com/go-openapi/errors v0.19.6 => github.com/go-openapi/errors v0.19.4
+	github.com/go-openapi/runtime v0.19.16 => github.com/go-openapi/runtime v0.19.15
+	github.com/go-openapi/validate v0.19.10 => github.com/go-openapi/validate v0.19.8
+)
 
 go 1.14

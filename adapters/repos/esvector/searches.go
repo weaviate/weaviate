@@ -34,28 +34,32 @@ import (
 
 // ThingSearch searches for all things with optional filters without vector scoring
 func (r *Repo) ThingSearch(ctx context.Context, limit int,
-	filters *filters.LocalFilter, meta bool) (search.Results, error) {
-	return r.search(ctx, allThingIndices, nil, limit, filters, traverser.GetParams{}, meta)
+	filters *filters.LocalFilter, underscore traverser.UnderscoreProperties) (search.Results, error) {
+	return r.search(ctx, allThingIndices, nil, limit, filters, traverser.GetParams{
+		UnderscoreProperties: underscore,
+	})
 }
 
 // ActionSearch searches for all things with optional filters without vector scoring
 func (r *Repo) ActionSearch(ctx context.Context, limit int,
-	filters *filters.LocalFilter, meta bool) (search.Results, error) {
-	return r.search(ctx, allActionIndices, nil, limit, filters, traverser.GetParams{}, meta)
+	filters *filters.LocalFilter, underscore traverser.UnderscoreProperties) (search.Results, error) {
+	return r.search(ctx, allActionIndices, nil, limit, filters, traverser.GetParams{
+		UnderscoreProperties: underscore,
+	})
 }
 
 // ThingByID extracts the one result matching the ID. Returns nil on no results
 // (without errors), but errors if it finds more than 1 results
 func (r *Repo) ThingByID(ctx context.Context, id strfmt.UUID,
-	params traverser.SelectProperties, meta bool) (*search.Result, error) {
-	return r.searchByID(ctx, allThingIndices, id, params, meta)
+	params traverser.SelectProperties, underscore traverser.UnderscoreProperties) (*search.Result, error) {
+	return r.searchByID(ctx, allThingIndices, id, params, underscore)
 }
 
 // ActionByID extracts the one result matching the ID. Returns nil on no results
 // (without errors), but errors if it finds more than 1 results
 func (r *Repo) ActionByID(ctx context.Context, id strfmt.UUID,
-	params traverser.SelectProperties, meta bool) (*search.Result, error) {
-	return r.searchByID(ctx, allActionIndices, id, params, meta)
+	params traverser.SelectProperties, underscore traverser.UnderscoreProperties) (*search.Result, error) {
+	return r.searchByID(ctx, allActionIndices, id, params, underscore)
 }
 
 // Exists checks if an object with the id exists, if not, it forces a refresh
@@ -84,7 +88,7 @@ func (r *Repo) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 }
 
 func (r *Repo) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
-	res, err := r.searchByID(ctx, allClassIndices, id, nil, false)
+	res, err := r.searchByID(ctx, allClassIndices, id, nil, traverser.UnderscoreProperties{})
 	return res != nil, err
 }
 
@@ -107,11 +111,11 @@ func (r *Repo) forceRefresh(ctx context.Context) error {
 
 func (r *Repo) byIndexAndID(ctx context.Context, index string, id strfmt.UUID,
 	params traverser.SelectProperties) (*search.Result, error) {
-	return r.searchByID(ctx, index, id, params, false)
+	return r.searchByID(ctx, index, id, params, traverser.UnderscoreProperties{})
 }
 
 func (r *Repo) searchByID(ctx context.Context, index string, id strfmt.UUID,
-	properties traverser.SelectProperties, meta bool) (*search.Result, error) {
+	properties traverser.SelectProperties, underscore traverser.UnderscoreProperties) (*search.Result, error) {
 	filters := &filters.LocalFilter{
 		Root: &filters.Clause{
 			On:       &filters.Path{Property: schema.PropertyName(keyID)},
@@ -119,7 +123,10 @@ func (r *Repo) searchByID(ctx context.Context, index string, id strfmt.UUID,
 			Operator: filters.OperatorEqual,
 		},
 	}
-	res, err := r.search(ctx, index, nil, 2, filters, traverser.GetParams{Properties: properties}, meta)
+	res, err := r.search(ctx, index, nil, 2, filters, traverser.GetParams{
+		Properties:           properties,
+		UnderscoreProperties: underscore,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +168,7 @@ func (r *Repo) ClassSearch(ctx context.Context, params traverser.GetParams) ([]s
 	start := time.Now()
 	r.requestCounter = &counterImpl{}
 	index := classIndexFromClassName(params.Kind, params.ClassName)
-	res, err := r.search(ctx, index, nil, params.Pagination.Limit, params.Filters, params, false)
+	res, err := r.search(ctx, index, nil, params.Pagination.Limit, params.Filters, params)
 	count := r.requestCounter.(*counterImpl).Get()
 	r.logger.WithFields(logrus.Fields{
 		"action":        "esvector_class_search",
@@ -180,7 +187,7 @@ func (r *Repo) VectorClassSearch(ctx context.Context, params traverser.GetParams
 	start := time.Now()
 	r.requestCounter = &counterImpl{}
 	index := classIndexFromClassName(params.Kind, params.ClassName)
-	res, err := r.search(ctx, index, params.SearchVector, params.Pagination.Limit, params.Filters, params, false)
+	res, err := r.search(ctx, index, params.SearchVector, params.Pagination.Limit, params.Filters, params)
 	count := r.requestCounter.(*counterImpl).Get()
 	r.logger.WithFields(logrus.Fields{
 		"action":        "esvector_vector_class_search",
@@ -194,12 +201,12 @@ func (r *Repo) VectorClassSearch(ctx context.Context, params traverser.GetParams
 // VectorSearch retrives the closest concepts by vector distance
 func (r *Repo) VectorSearch(ctx context.Context, vector []float32,
 	limit int, filters *filters.LocalFilter) ([]search.Result, error) {
-	return r.search(ctx, "*", vector, limit, filters, traverser.GetParams{}, false)
+	return r.search(ctx, "*", vector, limit, filters, traverser.GetParams{})
 }
 
 func (r *Repo) search(ctx context.Context, index string,
 	vector []float32, limit int,
-	filters *filters.LocalFilter, params traverser.GetParams, meta bool) ([]search.Result, error) {
+	filters *filters.LocalFilter, params traverser.GetParams) ([]search.Result, error) {
 
 	r.logger.
 		WithField("action", "esvector_search").
@@ -239,7 +246,7 @@ func (r *Repo) search(ctx context.Context, index string,
 		return nil, fmt.Errorf("vector search: %v", err)
 	}
 
-	return r.searchResponse(ctx, res, params.Properties, meta)
+	return r.searchResponse(ctx, res, params.Properties, params.UnderscoreProperties)
 }
 
 func (r *Repo) buildSearchBody(filterQuery map[string]interface{}, vector []float32, limit int) map[string]interface{} {
@@ -298,7 +305,7 @@ type hit struct {
 }
 
 func (r *Repo) searchResponse(ctx context.Context, res *esapi.Response,
-	properties traverser.SelectProperties, meta bool) ([]search.Result, error) {
+	properties traverser.SelectProperties, underscoreProps traverser.UnderscoreProperties) ([]search.Result, error) {
 	if err := errorResToErr(res, r.logger); err != nil {
 		return nil, fmt.Errorf("vector search: %v", err)
 	}
@@ -311,16 +318,16 @@ func (r *Repo) searchResponse(ctx context.Context, res *esapi.Response,
 	}
 
 	requestCacher := newCacher(r)
-	err = requestCacher.build(ctx, sr, properties, meta)
+	err = requestCacher.build(ctx, sr, properties, underscoreProps.RefMeta)
 	if err != nil {
 		return nil, fmt.Errorf("build request cache: %v", err)
 	}
 
-	return sr.toResults(r, properties, meta, requestCacher)
+	return sr.toResults(r, properties, underscoreProps, requestCacher)
 }
 
 func (sr searchResponse) toResults(r *Repo, properties traverser.SelectProperties,
-	meta bool, requestCacher *cacher) ([]search.Result, error) {
+	underscoreProps traverser.UnderscoreProperties, requestCacher *cacher) ([]search.Result, error) {
 	hits := sr.Hits.Hits
 	output := make([]search.Result, len(hits), len(hits))
 
@@ -341,7 +348,7 @@ func (sr searchResponse) toResults(r *Repo, properties traverser.SelectPropertie
 			return nil, fmt.Errorf("vector search: result %d: parse vector: %v", i, err)
 		}
 
-		schema, err := r.parseSchema(hit.Source, properties, meta, requestCacher)
+		schema, err := r.parseSchema(hit.Source, properties, underscoreProps, requestCacher)
 		if err != nil {
 			return nil, fmt.Errorf("vector search: result %d: parse schema: %v", i, err)
 		}
@@ -365,17 +372,17 @@ func (sr searchResponse) toResults(r *Repo, properties traverser.SelectPropertie
 			Updated:       int64(updated),
 			VectorWeights: weights,
 		}
-		if meta {
-			objectMeta := r.extractMeta(hit.Source)
-			if objectMeta == nil {
+		if underscoreProps.Classification { // TODO: add other reasons to extract here
+			underscores := r.extractUnderscoreProps(hit.Source)
+			if underscores == nil {
 				// meta could be nil as we have no meta data other than the vector, in
 				// this case, we instantiate a new ObjectMeta object, so adding the
 				// vector doesn't panic with a nil-pointer deref
-				objectMeta = &models.ObjectMeta{}
+				underscores = &models.UnderscoreProperties{}
 			}
 
-			objectMeta.Vector = vector
-			output[i].Meta = objectMeta
+			underscores.Vector = vector
+			output[i].UnderscoreProperties = underscores
 		}
 	}
 

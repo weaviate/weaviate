@@ -133,8 +133,8 @@ func TestEsVectorRepo(t *testing.T) {
 			Schema: map[string]interface{}{
 				"stringProp": "some act-citing value",
 			},
-			Meta: &models.ObjectMeta{
-				Classification: &models.ObjectMetaClassification{
+			Meta: &models.UnderscoreProperties{
+				Classification: &models.UnderscorePropertiesClassification{
 					ID:               "foo",
 					Scope:            []string{"scope1", "scope2"},
 					ClassifiedFields: []string{"field1", "field2"},
@@ -205,7 +205,7 @@ func TestEsVectorRepo(t *testing.T) {
 			NationalFormatted:      "0171 1234567",
 		}, schema["phone"], "has correct phone prop")
 		assert.Equal(t, thingID.String(), schema["uuid"], "has id in schema as uuid field")
-		assert.Nil(t, res[0].Meta, "not meta information should be included unless explicitly asked for")
+		assert.Nil(t, res[0].UnderscoreProperties, "not meta information should be included unless explicitly asked for")
 	})
 
 	t.Run("searching by class type", func(t *testing.T) {
@@ -231,7 +231,7 @@ func TestEsVectorRepo(t *testing.T) {
 
 	t.Run("searching all things", func(t *testing.T) {
 		// as the test suits grow we might have to extend the limit
-		res, err := repo.ThingSearch(context.Background(), 100, nil, false)
+		res, err := repo.ThingSearch(context.Background(), 100, nil, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 
 		item, ok := findID(res, thingID)
@@ -247,7 +247,7 @@ func TestEsVectorRepo(t *testing.T) {
 	})
 
 	t.Run("searching a thing by ID", func(t *testing.T) {
-		item, err := repo.ThingByID(context.Background(), thingID, traverser.SelectProperties{}, false)
+		item, err := repo.ThingByID(context.Background(), thingID, traverser.SelectProperties{}, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
@@ -261,7 +261,7 @@ func TestEsVectorRepo(t *testing.T) {
 	})
 
 	t.Run("searching an action by ID without meta", func(t *testing.T) {
-		item, err := repo.ActionByID(context.Background(), actionID, traverser.SelectProperties{}, false)
+		item, err := repo.ActionByID(context.Background(), actionID, traverser.SelectProperties{}, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
@@ -270,11 +270,11 @@ func TestEsVectorRepo(t *testing.T) {
 		assert.Equal(t, "TheBestActionClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some act-citing value", schema["stringProp"], "has correct string prop")
-		assert.Nil(t, item.Meta, "not meta information should be included unless explicitly asked for")
+		assert.Nil(t, item.UnderscoreProperties, "not meta information should be included unless explicitly asked for")
 	})
 
 	t.Run("searching an action by ID without meta", func(t *testing.T) {
-		item, err := repo.ActionByID(context.Background(), actionID, traverser.SelectProperties{}, true)
+		item, err := repo.ActionByID(context.Background(), actionID, traverser.SelectProperties{}, traverser.UnderscoreProperties{Classification: true})
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
@@ -283,19 +283,19 @@ func TestEsVectorRepo(t *testing.T) {
 		assert.Equal(t, "TheBestActionClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some act-citing value", schema["stringProp"], "has correct string prop")
-		assert.Equal(t, &models.ObjectMeta{
-			Classification: &models.ObjectMetaClassification{
+		assert.Equal(t, &models.UnderscoreProperties{
+			Classification: &models.UnderscorePropertiesClassification{
 				ID:               "foo",
 				Scope:            []string{"scope1", "scope2"},
 				ClassifiedFields: []string{"field1", "field2"},
 				Completed:        timeMust(strfmt.ParseDateTime("2006-01-02T15:04:05.000Z")),
 			},
 			Vector: []float32{3, 1, 0.3, 12},
-		}, item.Meta, "it should include the object meta as it was explicitly specified")
+		}, item.UnderscoreProperties, "it should include the object meta as it was explicitly specified")
 	})
 
 	t.Run("searching all actions", func(t *testing.T) {
-		res, err := repo.ActionSearch(context.Background(), 10, nil, false)
+		res, err := repo.ActionSearch(context.Background(), 10, nil, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 
 		item, ok := findID(res, actionID)

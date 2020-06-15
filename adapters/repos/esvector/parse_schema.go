@@ -3,7 +3,6 @@
 // \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
-//
 //  Copyright © 2016 - 2020 SeMI Holding B.V. (registered @ Dutch Chamber of Commerce no 75221632). All rights reserved.
 //  LICENSE WEAVIATE OPEN SOURCE: https://www.semi.technology/playbook/playbook/contract-weaviate-OSS.html
 //  LICENSE WEAVIATE ENTERPRISE: https://www.semi.technology/playbook/contract-weaviate-enterprise.html
@@ -28,7 +27,7 @@ import (
 // with special meaning, such as GeoCoordinates are marshalled into their
 // required types. It also retrieves refs from the provided cacher
 func (r *Repo) parseSchema(input map[string]interface{}, properties traverser.SelectProperties,
-	meta bool, requestCacher *cacher) (map[string]interface{}, error) {
+	underscore traverser.UnderscoreProperties, requestCacher *cacher) (map[string]interface{}, error) {
 
 	output := map[string]interface{}{}
 
@@ -62,7 +61,7 @@ func (r *Repo) parseSchema(input map[string]interface{}, properties traverser.Se
 						Beacon: strfmt.URI(refMap["beacon"].(string)),
 					}
 
-					if meta {
+					if underscore.RefMeta {
 						singleRef.Meta = parseRefMeta(refMap)
 					}
 					refs = append(refs, singleRef)
@@ -341,8 +340,8 @@ func (r *Repo) resolveRef(item interface{}, desiredClass string,
 	return &out, nil
 }
 
-func (r *Repo) extractMeta(in map[string]interface{}) *models.ObjectMeta {
-	objectMetaField, ok := in[keyObjectMeta.String()]
+func (r *Repo) extractUnderscoreProps(in map[string]interface{}) *models.UnderscoreProperties {
+	objectMetaField, ok := in[keyUnderscoreProperties.String()]
 	if !ok {
 		return nil
 	}
@@ -365,7 +364,7 @@ func (r *Repo) extractMeta(in map[string]interface{}) *models.ObjectMeta {
 		return nil
 	}
 
-	classification := &models.ObjectMetaClassification{}
+	classification := &models.UnderscorePropertiesClassification{}
 	if id, ok := classificationMap["id"]; ok {
 		classification.ID = strfmt.UUID(id.(string))
 	}
@@ -385,7 +384,7 @@ func (r *Repo) extractMeta(in map[string]interface{}) *models.ObjectMeta {
 		classification.ClassifiedFields = interfaceToStringSlice(classified.([]interface{}))
 	}
 
-	return &models.ObjectMeta{
+	return &models.UnderscoreProperties{
 		Classification: classification,
 	}
 }
