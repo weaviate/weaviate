@@ -23,14 +23,15 @@ import (
 )
 
 type GetParams struct {
-	Kind         kind.Kind
-	Filters      *filters.LocalFilter
-	ClassName    string
-	Pagination   *filters.Pagination
-	Properties   SelectProperties
-	Explore      *ExploreParams
-	SearchVector []float32
-	Group        *GroupParams
+	Kind                 kind.Kind
+	Filters              *filters.LocalFilter
+	ClassName            string
+	Pagination           *filters.Pagination
+	Properties           SelectProperties
+	Explore              *ExploreParams
+	SearchVector         []float32
+	Group                *GroupParams
+	UnderscoreProperties UnderscoreProperties
 }
 
 type SelectProperty struct {
@@ -136,4 +137,8 @@ func (sp SelectProperties) FindProperty(propName string) *SelectProperty {
 	}
 
 	return nil
+}
+
+type UnderscoreProperties struct {
+	Classification bool
 }
