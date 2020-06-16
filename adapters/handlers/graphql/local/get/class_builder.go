@@ -126,6 +126,8 @@ func (b *classBuilder) classObject(kindName string, class *models.Class) *graphq
 				Type:        graphql.String,
 			}
 
+			b.underscoreFields(classProperties, kindName, class)
+
 			for _, property := range class.Properties {
 				propertyType, err := b.schema.FindPropertyDataType(property.DataType)
 				if err != nil {
@@ -151,4 +153,24 @@ func (b *classBuilder) classObject(kindName string, class *models.Class) *graphq
 		}),
 		Description: class.Description,
 	})
+}
+
+func (b *classBuilder) underscoreFields(classProperties graphql.Fields, kindName string, class *models.Class) {
+	classProperties["_classification"] = b.underscoreClassificationField(kindName, class)
+
+}
+
+func (b *classBuilder) underscoreClassificationField(kindName string, class *models.Class) *graphql.Field {
+	return &graphql.Field{
+		Type: graphql.NewObject(graphql.ObjectConfig{
+			Name: fmt.Sprintf("%sUnderscoreClassification", class.Class),
+			Fields: graphql.Fields{
+				"id":               &graphql.Field{Type: graphql.String},
+				"basedOn":          &graphql.Field{Type: graphql.NewList(graphql.String)},
+				"scope":            &graphql.Field{Type: graphql.NewList(graphql.String)},
+				"classifiedFields": &graphql.Field{Type: graphql.NewList(graphql.String)},
+				"completed":        &graphql.Field{Type: graphql.String},
+			},
+		}),
+	}
 }

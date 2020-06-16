@@ -22,12 +22,11 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/runtime"
-
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/strfmt"
 )
 
 // New creates a new well known API client.
-func New(transport runtime.ClientTransport, formats strfmt.Registry) *Client {
+func New(transport runtime.ClientTransport, formats strfmt.Registry) ClientService {
 	return &Client{transport: transport, formats: formats}
 }
 
@@ -39,10 +38,17 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
-/*
-GetWellKnownOpenidConfiguration os ID c discovery information if o ID c auth is enabled
+// ClientService is the interface for Client methods
+type ClientService interface {
+	GetWellKnownOpenidConfiguration(params *GetWellKnownOpenidConfigurationParams, authInfo runtime.ClientAuthInfoWriter) (*GetWellKnownOpenidConfigurationOK, error)
 
-OIDC Discovery page, redirects to the token issuer if one is configured
+	SetTransport(transport runtime.ClientTransport)
+}
+
+/*
+  GetWellKnownOpenidConfiguration os ID c discovery information if o ID c auth is enabled
+
+  OIDC Discovery page, redirects to the token issuer if one is configured
 */
 func (a *Client) GetWellKnownOpenidConfiguration(params *GetWellKnownOpenidConfigurationParams, authInfo runtime.ClientAuthInfoWriter) (*GetWellKnownOpenidConfigurationOK, error) {
 	// TODO: Validate the params before sending
