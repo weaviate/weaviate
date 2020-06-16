@@ -85,8 +85,8 @@ func Test_MergeAction(t *testing.T) {
 				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
 				Vector:     []float32{1, 2, 3},
 				UnderscoreProperties: models.UnderscoreProperties{
-					VectorizationMeta: &models.VectorizationMeta{
-						Source: []*models.VectorizationMetaSource{},
+					Interpretation: &models.Interpretation{
+						Source: []*models.InterpretationSource{},
 					},
 				},
 				PrimitiveSchema: map[string]interface{}{
@@ -135,8 +135,8 @@ func Test_MergeAction(t *testing.T) {
 				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
 				Vector:     []float32{1, 2, 3},
 				UnderscoreProperties: models.UnderscoreProperties{
-					VectorizationMeta: &models.VectorizationMeta{
-						Source: []*models.VectorizationMetaSource{},
+					Interpretation: &models.Interpretation{
+						Source: []*models.InterpretationSource{},
 					},
 				},
 				PrimitiveSchema: map[string]interface{}{
@@ -186,8 +186,8 @@ func Test_MergeAction(t *testing.T) {
 				},
 				Vector: []float32{1, 2, 3},
 				UnderscoreProperties: models.UnderscoreProperties{
-					VectorizationMeta: &models.VectorizationMeta{
-						Source: []*models.VectorizationMetaSource{},
+					Interpretation: &models.Interpretation{
+						Source: []*models.InterpretationSource{},
 					},
 				},
 				References: BatchReferences{
@@ -299,8 +299,8 @@ func Test_MergeThing(t *testing.T) {
 				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
 				Vector:     []float32{1, 2, 3},
 				UnderscoreProperties: models.UnderscoreProperties{
-					VectorizationMeta: &models.VectorizationMeta{
-						Source: []*models.VectorizationMetaSource{},
+					Interpretation: &models.Interpretation{
+						Source: []*models.InterpretationSource{},
 					},
 				},
 				PrimitiveSchema: map[string]interface{}{
@@ -349,8 +349,8 @@ func Test_MergeThing(t *testing.T) {
 				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
 				Vector:     []float32{1, 2, 3},
 				UnderscoreProperties: models.UnderscoreProperties{
-					VectorizationMeta: &models.VectorizationMeta{
-						Source: []*models.VectorizationMetaSource{},
+					Interpretation: &models.Interpretation{
+						Source: []*models.InterpretationSource{},
 					},
 				},
 				PrimitiveSchema: map[string]interface{}{
@@ -400,8 +400,8 @@ func Test_MergeThing(t *testing.T) {
 				},
 				Vector: []float32{1, 2, 3},
 				UnderscoreProperties: models.UnderscoreProperties{
-					VectorizationMeta: &models.VectorizationMeta{
-						Source: []*models.VectorizationMetaSource{},
+					Interpretation: &models.Interpretation{
+						Source: []*models.InterpretationSource{},
 					},
 				},
 				References: BatchReferences{

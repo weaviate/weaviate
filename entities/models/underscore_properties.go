@@ -32,11 +32,11 @@ type UnderscoreProperties struct {
 	// If this object was subject of a classificiation, additional meta info about this classification is available here
 	Classification *UnderscorePropertiesClassification `json:"classification,omitempty"`
 
+	// Additional information about how the object was vectorized
+	Interpretation *Interpretation `json:"interpretation,omitempty"`
+
 	// This object's position in the Contextionary vector space
 	Vector C11yVector `json:"vector,omitempty"`
-
-	// Additional information about how the object was vectorized
-	VectorizationMeta *VectorizationMeta `json:"vectorizationMeta,omitempty"`
 }
 
 // Validate validates this underscore properties
@@ -47,11 +47,11 @@ func (m *UnderscoreProperties) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
-	if err := m.validateVector(formats); err != nil {
+	if err := m.validateInterpretation(formats); err != nil {
 		res = append(res, err)
 	}
 
-	if err := m.validateVectorizationMeta(formats); err != nil {
+	if err := m.validateVector(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -79,6 +79,24 @@ func (m *UnderscoreProperties) validateClassification(formats strfmt.Registry) e
 	return nil
 }
 
+func (m *UnderscoreProperties) validateInterpretation(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Interpretation) { // not required
+		return nil
+	}
+
+	if m.Interpretation != nil {
+		if err := m.Interpretation.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("interpretation")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (m *UnderscoreProperties) validateVector(formats strfmt.Registry) error {
 
 	if swag.IsZero(m.Vector) { // not required
@@ -90,24 +108,6 @@ func (m *UnderscoreProperties) validateVector(formats strfmt.Registry) error {
 			return ve.ValidateName("vector")
 		}
 		return err
-	}
-
-	return nil
-}
-
-func (m *UnderscoreProperties) validateVectorizationMeta(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.VectorizationMeta) { // not required
-		return nil
-	}
-
-	if m.VectorizationMeta != nil {
-		if err := m.VectorizationMeta.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("vectorizationMeta")
-			}
-			return err
-		}
 	}
 
 	return nil

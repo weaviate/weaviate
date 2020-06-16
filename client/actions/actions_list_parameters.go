@@ -75,7 +75,7 @@ for the actions list operation typically these are written to a http.Request
 type ActionsListParams struct {
 
 	/*Include
-	  Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector
+	  Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector, interpretation, _interpretation
 
 	*/
 	Include *string

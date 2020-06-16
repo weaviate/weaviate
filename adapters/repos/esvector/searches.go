@@ -374,7 +374,7 @@ func (sr searchResponse) toResults(r *Repo, properties traverser.SelectPropertie
 		}
 		if underscoreProps.Classification ||
 			underscoreProps.Vector ||
-			underscoreProps.VectorizationMeta {
+			underscoreProps.Interpretation {
 			var underscores = &models.UnderscoreProperties{}
 			storedUnderscores := r.extractUnderscoreProps(hit.Source)
 
@@ -386,8 +386,8 @@ func (sr searchResponse) toResults(r *Repo, properties traverser.SelectPropertie
 				underscores.Classification = storedUnderscores.Classification
 			}
 
-			if storedUnderscores != nil && underscoreProps.VectorizationMeta {
-				underscores.VectorizationMeta = storedUnderscores.VectorizationMeta
+			if storedUnderscores != nil && underscoreProps.Interpretation {
+				underscores.Interpretation = storedUnderscores.Interpretation
 			}
 
 			output[i].UnderscoreProperties = underscores
