@@ -66,7 +66,7 @@ func (m *Manager) MergeAction(ctx context.Context, principal *models.Principal,
 		Vector:          vector,
 		UpdateTime:      m.timeSource.Now(),
 		UnderscoreProperties: models.UnderscoreProperties{
-			VectorizationMeta: &models.VectorizationMeta{
+			Interpretation: &models.Interpretation{
 				Source: source,
 			},
 		},
@@ -109,7 +109,7 @@ func (m *Manager) retrievePreviousAndValidateMergeAction(ctx context.Context, pr
 }
 
 func (m *Manager) mergeActionSchemasAndVectorize(ctx context.Context, className string,
-	old interface{}, new map[string]interface{}) ([]float32, []*models.VectorizationMetaSource, error) {
+	old interface{}, new map[string]interface{}) ([]float32, []*models.InterpretationSource, error) {
 	var merged map[string]interface{}
 	if old == nil {
 		merged = new
@@ -163,7 +163,7 @@ func (m *Manager) MergeThing(ctx context.Context, principal *models.Principal,
 		Vector:          vector,
 		UpdateTime:      m.timeSource.Now(),
 		UnderscoreProperties: models.UnderscoreProperties{
-			VectorizationMeta: &models.VectorizationMeta{
+			Interpretation: &models.Interpretation{
 				Source: source,
 			},
 		},
@@ -206,7 +206,7 @@ func (m *Manager) retrievePreviousAndValidateMergeThing(ctx context.Context, pri
 }
 
 func (m *Manager) mergeThingSchemasAndVectorize(ctx context.Context, className string,
-	old interface{}, new map[string]interface{}) ([]float32, []*models.VectorizationMetaSource, error) {
+	old interface{}, new map[string]interface{}) ([]float32, []*models.InterpretationSource, error) {
 	var merged map[string]interface{}
 	if old == nil {
 		merged = new

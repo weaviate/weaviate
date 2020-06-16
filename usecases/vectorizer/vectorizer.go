@@ -181,7 +181,7 @@ func camelCaseToLower(in string) string {
 	return sb.String()
 }
 
-// TODO: replace with models.VectorizationMetaSource
+// TODO: replace with models.InterpretationSource
 type InputElement struct {
 	Concept    string
 	Weight     float32

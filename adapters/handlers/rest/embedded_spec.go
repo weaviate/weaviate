@@ -2732,11 +2732,15 @@ func init() {
       "type": "object",
       "properties": {
         "_classification": {
-          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
+          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/UnderscorePropertiesClassification"
         },
+        "_interpretation": {
+          "description": "Additional information about how this property was interpreted at vectorization. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
+          "$ref": "#/definitions/Interpretation"
+        },
         "_vector": {
-          "description": "This object's position in the Contextionary vector space",
+          "description": "This object's position in the Contextionary vector space. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/C11yVector"
         },
         "class": {
@@ -3366,6 +3370,34 @@ func init() {
         "$ref": "#/definitions/GraphQLResponse"
       }
     },
+    "Interpretation": {
+      "description": "This underscore property contains additional info about the how the class was vectorized",
+      "properties": {
+        "source": {
+          "description": "The input that was used to vectorize this object",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/InterpretationSource"
+          }
+        }
+      }
+    },
+    "InterpretationSource": {
+      "description": "This underscore property contains additional info about the how the class was vectorized",
+      "properties": {
+        "concept": {
+          "type": "string"
+        },
+        "occurrence": {
+          "type": "number",
+          "format": "uint64"
+        },
+        "weight": {
+          "type": "number",
+          "format": "float32"
+        }
+      }
+    },
     "JsonObject": {
       "description": "JSON object value.",
       "type": "object"
@@ -3725,11 +3757,15 @@ func init() {
       "type": "object",
       "properties": {
         "_classification": {
-          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
+          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/UnderscorePropertiesClassification"
         },
+        "_interpretation": {
+          "description": "Additional information about how this property was interpreted at vectorization. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
+          "$ref": "#/definitions/Interpretation"
+        },
         "_vector": {
-          "description": "This object's position in the Contextionary vector space",
+          "description": "This object's position in the Contextionary vector space. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/C11yVector"
         },
         "class": {
@@ -3833,13 +3869,13 @@ func init() {
           "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
           "$ref": "#/definitions/UnderscorePropertiesClassification"
         },
+        "interpretation": {
+          "description": "Additional information about how the object was vectorized",
+          "$ref": "#/definitions/Interpretation"
+        },
         "vector": {
           "description": "This object's position in the Contextionary vector space",
           "$ref": "#/definitions/C11yVector"
-        },
-        "vectorizationMeta": {
-          "description": "Additional information about how the object was vectorized",
-          "$ref": "#/definitions/VectorizationMeta"
         }
       }
     },
@@ -3882,34 +3918,6 @@ func init() {
     "VectorWeights": {
       "description": "Allow custom overrides of vector weights as math expressions. E.g. \"pancake\": \"7\" will set the weight for the word pancake to 7 in the vectorization, whereas \"w * 3\" would triple the originally calculated word. This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value (string/string) object.",
       "type": "object"
-    },
-    "VectorizationMeta": {
-      "description": "This underscore property contains additional info about the how the class was vectorized",
-      "properties": {
-        "source": {
-          "description": "The input that was used to vectorize this object",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/VectorizationMetaSource"
-          }
-        }
-      }
-    },
-    "VectorizationMetaSource": {
-      "description": "This underscore property contains additional info about the how the class was vectorized",
-      "properties": {
-        "concept": {
-          "type": "string"
-        },
-        "occurrence": {
-          "type": "number",
-          "format": "uint64"
-        },
-        "weight": {
-          "type": "number",
-          "format": "float32"
-        }
-      }
     },
     "WhereFilter": {
       "description": "Filter search results using a where filter",
@@ -4021,7 +4029,7 @@ func init() {
   "parameters": {
     "CommonIncludeParameterQuery": {
       "type": "string",
-      "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector",
+      "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector, interpretation, _interpretation",
       "name": "include",
       "in": "query"
     },
@@ -4215,7 +4223,7 @@ func init() {
           },
           {
             "type": "string",
-            "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector",
+            "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector, interpretation, _interpretation",
             "name": "include",
             "in": "query"
           }
@@ -4387,7 +4395,7 @@ func init() {
           },
           {
             "type": "string",
-            "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector",
+            "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector, interpretation, _interpretation",
             "name": "include",
             "in": "query"
           }
@@ -6232,7 +6240,7 @@ func init() {
           },
           {
             "type": "string",
-            "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector",
+            "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector, interpretation, _interpretation",
             "name": "include",
             "in": "query"
           }
@@ -6404,7 +6412,7 @@ func init() {
           },
           {
             "type": "string",
-            "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector",
+            "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector, interpretation, _interpretation",
             "name": "include",
             "in": "query"
           }
@@ -6820,11 +6828,15 @@ func init() {
       "type": "object",
       "properties": {
         "_classification": {
-          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
+          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/UnderscorePropertiesClassification"
         },
+        "_interpretation": {
+          "description": "Additional information about how this property was interpreted at vectorization. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
+          "$ref": "#/definitions/Interpretation"
+        },
         "_vector": {
-          "description": "This object's position in the Contextionary vector space",
+          "description": "This object's position in the Contextionary vector space. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/C11yVector"
         },
         "class": {
@@ -7540,6 +7552,34 @@ func init() {
         "$ref": "#/definitions/GraphQLResponse"
       }
     },
+    "Interpretation": {
+      "description": "This underscore property contains additional info about the how the class was vectorized",
+      "properties": {
+        "source": {
+          "description": "The input that was used to vectorize this object",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/InterpretationSource"
+          }
+        }
+      }
+    },
+    "InterpretationSource": {
+      "description": "This underscore property contains additional info about the how the class was vectorized",
+      "properties": {
+        "concept": {
+          "type": "string"
+        },
+        "occurrence": {
+          "type": "number",
+          "format": "uint64"
+        },
+        "weight": {
+          "type": "number",
+          "format": "float32"
+        }
+      }
+    },
     "JsonObject": {
       "description": "JSON object value.",
       "type": "object"
@@ -7902,11 +7942,15 @@ func init() {
       "type": "object",
       "properties": {
         "_classification": {
-          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
+          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/UnderscorePropertiesClassification"
         },
+        "_interpretation": {
+          "description": "Additional information about how this property was interpreted at vectorization. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
+          "$ref": "#/definitions/Interpretation"
+        },
         "_vector": {
-          "description": "This object's position in the Contextionary vector space",
+          "description": "This object's position in the Contextionary vector space. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/C11yVector"
         },
         "class": {
@@ -8028,13 +8072,13 @@ func init() {
           "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
           "$ref": "#/definitions/UnderscorePropertiesClassification"
         },
+        "interpretation": {
+          "description": "Additional information about how the object was vectorized",
+          "$ref": "#/definitions/Interpretation"
+        },
         "vector": {
           "description": "This object's position in the Contextionary vector space",
           "$ref": "#/definitions/C11yVector"
-        },
-        "vectorizationMeta": {
-          "description": "Additional information about how the object was vectorized",
-          "$ref": "#/definitions/VectorizationMeta"
         }
       }
     },
@@ -8077,34 +8121,6 @@ func init() {
     "VectorWeights": {
       "description": "Allow custom overrides of vector weights as math expressions. E.g. \"pancake\": \"7\" will set the weight for the word pancake to 7 in the vectorization, whereas \"w * 3\" would triple the originally calculated word. This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value (string/string) object.",
       "type": "object"
-    },
-    "VectorizationMeta": {
-      "description": "This underscore property contains additional info about the how the class was vectorized",
-      "properties": {
-        "source": {
-          "description": "The input that was used to vectorize this object",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/VectorizationMetaSource"
-          }
-        }
-      }
-    },
-    "VectorizationMetaSource": {
-      "description": "This underscore property contains additional info about the how the class was vectorized",
-      "properties": {
-        "concept": {
-          "type": "string"
-        },
-        "occurrence": {
-          "type": "number",
-          "format": "uint64"
-        },
-        "weight": {
-          "type": "number",
-          "format": "float32"
-        }
-      }
     },
     "WhereFilter": {
       "description": "Filter search results using a where filter",
@@ -8225,7 +8241,7 @@ func init() {
   "parameters": {
     "CommonIncludeParameterQuery": {
       "type": "string",
-      "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector",
+      "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector, interpretation, _interpretation",
       "name": "include",
       "in": "query"
     },

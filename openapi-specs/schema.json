@@ -69,12 +69,16 @@
           "type": "integer"
         },
         "_classification": {
-          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
+          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here. (Underscore properties are optional, include them using the ?include=_<propName> parameter)",
           "$ref": "#/definitions/UnderscorePropertiesClassification"
         },
         "_vector": {
-          "description": "This object's position in the Contextionary vector space",
+          "description": "This object's position in the Contextionary vector space. (Underscore properties are optional, include them using the ?include=_<propName> parameter)",
           "$ref": "#/definitions/C11yVector"
+        },
+        "_interpretation": {
+          "description": "Additional information about how this property was interpreted at vectorization. (Underscore properties are optional, include them using the ?include=_<propName> parameter)",
+          "$ref": "#/definitions/Interpretation"
         }
       },
       "type": "object"
@@ -717,9 +721,9 @@
           "description": "This object's position in the Contextionary vector space",
           "$ref": "#/definitions/C11yVector"
         },
-        "vectorizationMeta": {
+        "interpretation": {
           "description": "Additional information about how the object was vectorized",
-          "$ref": "#/definitions/VectorizationMeta"
+          "$ref": "#/definitions/Interpretation"
         }
 
       }
@@ -776,19 +780,19 @@
         }
       }
     },
-    "VectorizationMeta": {
+    "Interpretation": {
       "description": "This underscore property contains additional info about the how the class was vectorized",
       "properties": {
         "source": {
           "description": "The input that was used to vectorize this object",
           "type": "array",
           "items": {
-            "$ref": "#/definitions/VectorizationMetaSource"
+            "$ref": "#/definitions/InterpretationSource"
           }
         }
       }
     },
-    "VectorizationMetaSource": {
+    "InterpretationSource": {
       "description": "This underscore property contains additional info about the how the class was vectorized",
       "properties": {
         "concept": {
@@ -928,12 +932,16 @@
           "type": "integer"
         },
         "_classification": {
-          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
+          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here. (Underscore properties are optional, include them using the ?include=_<propName> parameter)",
           "$ref": "#/definitions/UnderscorePropertiesClassification"
         },
         "_vector": {
-          "description": "This object's position in the Contextionary vector space",
+          "description": "This object's position in the Contextionary vector space. (Underscore properties are optional, include them using the ?include=_<propName> parameter)",
           "$ref": "#/definitions/C11yVector"
+        },
+        "_interpretation": {
+          "description": "Additional information about how this property was interpreted at vectorization. (Underscore properties are optional, include them using the ?include=_<propName> parameter)",
+          "$ref": "#/definitions/Interpretation"
         }
       },
       "type": "object"
@@ -1259,7 +1267,7 @@
       "type": "boolean"
     },
     "CommonIncludeParameterQuery": {
-      "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector",
+      "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector, interpretation, _interpretation",
       "in": "query",
       "name": "include",
       "required": false,
