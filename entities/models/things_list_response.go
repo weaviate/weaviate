@@ -21,15 +21,18 @@ package models
 import (
 	"strconv"
 
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // ThingsListResponse List of Things.
+//
 // swagger:model ThingsListResponse
 type ThingsListResponse struct {
+
+	// deprecations
+	Deprecations []*Deprecation `json:"deprecations"`
 
 	// The actual list of Things.
 	Things []*Thing `json:"things"`
@@ -42,6 +45,10 @@ type ThingsListResponse struct {
 func (m *ThingsListResponse) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateDeprecations(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateThings(formats); err != nil {
 		res = append(res, err)
 	}
@@ -49,6 +56,31 @@ func (m *ThingsListResponse) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *ThingsListResponse) validateDeprecations(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Deprecations) { // not required
+		return nil
+	}
+
+	for i := 0; i < len(m.Deprecations); i++ {
+		if swag.IsZero(m.Deprecations[i]) { // not required
+			continue
+		}
+
+		if m.Deprecations[i] != nil {
+			if err := m.Deprecations[i].Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("deprecations" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
 	return nil
 }
 

@@ -23,7 +23,7 @@ import (
 
 	"github.com/go-openapi/runtime"
 
-	models "github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 // ThingsReferencesDeleteNoContentCode is the HTTP code returned for type ThingsReferencesDeleteNoContent
