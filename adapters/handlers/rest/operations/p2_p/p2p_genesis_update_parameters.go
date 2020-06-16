@@ -26,7 +26,7 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 
-	models "github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 // NewP2pGenesisUpdateParams creates a new P2pGenesisUpdateParams object
@@ -66,7 +66,7 @@ func (o *P2pGenesisUpdateParams) BindRequest(r *http.Request, route *middleware.
 		var body models.PeerUpdateList
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
-				res = append(res, errors.Required("peers", "body"))
+				res = append(res, errors.Required("peers", "body", ""))
 			} else {
 				res = append(res, errors.NewParseError("peers", "body", "", err))
 			}
@@ -81,7 +81,7 @@ func (o *P2pGenesisUpdateParams) BindRequest(r *http.Request, route *middleware.
 			}
 		}
 	} else {
-		res = append(res, errors.Required("peers", "body"))
+		res = append(res, errors.Required("peers", "body", ""))
 	}
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)

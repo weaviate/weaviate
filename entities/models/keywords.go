@@ -21,13 +21,13 @@ package models
 import (
 	"strconv"
 
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // Keywords Describes a class or property using multiple weighted words.
+//
 // swagger:model Keywords
 type Keywords []*KeywordsItems0
 
@@ -58,6 +58,7 @@ func (m Keywords) Validate(formats strfmt.Registry) error {
 }
 
 // KeywordsItems0 keywords items0
+//
 // swagger:model KeywordsItems0
 type KeywordsItems0 struct {
 

@@ -19,6 +19,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type deleteAndGetRepo interface {
@@ -49,7 +50,7 @@ func (m *Manager) DeleteAction(ctx context.Context, principal *models.Principal,
 }
 
 func (m *Manager) deleteActionFromRepo(ctx context.Context, id strfmt.UUID) error {
-	actionRes, err := m.getActionFromRepo(ctx, id, false)
+	actionRes, err := m.getActionFromRepo(ctx, id, traverser.UnderscoreProperties{})
 	if err != nil {
 		return err
 	}
@@ -81,7 +82,7 @@ func (m *Manager) DeleteThing(ctx context.Context, principal *models.Principal, 
 
 func (m *Manager) deleteThingFromRepo(ctx context.Context, id strfmt.UUID) error {
 
-	thingRes, err := m.getThingFromRepo(ctx, id, false)
+	thingRes, err := m.getThingFromRepo(ctx, id, traverser.UnderscoreProperties{})
 	if err != nil {
 		return err
 	}
