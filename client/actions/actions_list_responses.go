@@ -23,10 +23,9 @@ import (
 	"io"
 
 	"github.com/go-openapi/runtime"
+	"github.com/go-openapi/strfmt"
 
-	strfmt "github.com/go-openapi/strfmt"
-
-	models "github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 // ActionsListReader is a Reader for the ActionsList structure.
@@ -43,6 +42,12 @@ func (o *ActionsListReader) ReadResponse(response runtime.ClientResponse, consum
 			return nil, err
 		}
 		return result, nil
+	case 400:
+		result := NewActionsListBadRequest()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 401:
 		result := NewActionsListUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -97,6 +102,39 @@ func (o *ActionsListOK) GetPayload() *models.ActionsListResponse {
 func (o *ActionsListOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ActionsListResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewActionsListBadRequest creates a ActionsListBadRequest with default headers values
+func NewActionsListBadRequest() *ActionsListBadRequest {
+	return &ActionsListBadRequest{}
+}
+
+/*ActionsListBadRequest handles this case with default header values.
+
+Malformed request.
+*/
+type ActionsListBadRequest struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *ActionsListBadRequest) Error() string {
+	return fmt.Sprintf("[GET /actions][%d] actionsListBadRequest  %+v", 400, o.Payload)
+}
+
+func (o *ActionsListBadRequest) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *ActionsListBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
