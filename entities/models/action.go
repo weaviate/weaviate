@@ -19,16 +19,22 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
 )
 
 // Action action
+//
 // swagger:model Action
 type Action struct {
+
+	// If this object was subject of a classificiation, additional meta info about this classification is available here
+	Classification *UnderscorePropertiesClassification `json:"_classification,omitempty"`
+
+	// This object's position in the Contextionary vector space
+	Vector C11yVector `json:"_vector,omitempty"`
 
 	// Type of the Action, defined in the schema.
 	Class string `json:"class,omitempty"`
@@ -44,7 +50,7 @@ type Action struct {
 	LastUpdateTimeUnix int64 `json:"lastUpdateTimeUnix,omitempty"`
 
 	// meta
-	Meta *ObjectMeta `json:"meta,omitempty"`
+	Meta *UnderscoreProperties `json:"meta,omitempty"`
 
 	// schema
 	Schema PropertySchema `json:"schema,omitempty"`
@@ -57,6 +63,14 @@ type Action struct {
 func (m *Action) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateClassification(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateVector(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateID(formats); err != nil {
 		res = append(res, err)
 	}
@@ -68,6 +82,40 @@ func (m *Action) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *Action) validateClassification(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Classification) { // not required
+		return nil
+	}
+
+	if m.Classification != nil {
+		if err := m.Classification.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("_classification")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Action) validateVector(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Vector) { // not required
+		return nil
+	}
+
+	if err := m.Vector.Validate(formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("_vector")
+		}
+		return err
+	}
+
 	return nil
 }
 

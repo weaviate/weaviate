@@ -19,7 +19,7 @@ import (
 	"log"
 	"os"
 
-	loads "github.com/go-openapi/loads"
+	"github.com/go-openapi/loads"
 	flags "github.com/jessevdk/go-flags"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
@@ -42,7 +42,6 @@ func main() {
 	parser := flags.NewParser(server, flags.Default)
 	parser.ShortDescription = "Weaviate"
 	parser.LongDescription = "Open Source Search Graph (GraphQL/RESTful/P2P)"
-
 	server.ConfigureFlags()
 	for _, optsGroup := range api.CommandLineOptionsGroups {
 		_, err := parser.AddGroup(optsGroup.ShortDescription, optsGroup.LongDescription, optsGroup.Options)
