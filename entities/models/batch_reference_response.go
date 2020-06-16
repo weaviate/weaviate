@@ -21,14 +21,14 @@ package models
 import (
 	"encoding/json"
 
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
 )
 
 // BatchReferenceResponse batch reference response
+//
 // swagger:model BatchReferenceResponse
 type BatchReferenceResponse struct {
 	BatchReference
@@ -68,7 +68,6 @@ func (m BatchReferenceResponse) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	_parts = append(_parts, aO0)
-
 	var dataAO1 struct {
 		Result *BatchReferenceResponseAO1Result `json:"result,omitempty"`
 	}
@@ -80,7 +79,6 @@ func (m BatchReferenceResponse) MarshalJSON() ([]byte, error) {
 		return nil, errAO1
 	}
 	_parts = append(_parts, jsonDataAO1)
-
 	return swag.ConcatJSON(_parts...), nil
 }
 
@@ -140,6 +138,7 @@ func (m *BatchReferenceResponse) UnmarshalBinary(b []byte) error {
 }
 
 // BatchReferenceResponseAO1Result Results for this specific reference.
+//
 // swagger:model BatchReferenceResponseAO1Result
 type BatchReferenceResponseAO1Result struct {
 
@@ -213,7 +212,7 @@ const (
 
 // prop value enum
 func (m *BatchReferenceResponseAO1Result) validateStatusEnum(path, location string, value string) error {
-	if err := validate.Enum(path, location, value, batchReferenceResponseAO1ResultTypeStatusPropEnum); err != nil {
+	if err := validate.EnumCase(path, location, value, batchReferenceResponseAO1ResultTypeStatusPropEnum, true); err != nil {
 		return err
 	}
 	return nil

@@ -22,12 +22,11 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/runtime"
-
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/strfmt"
 )
 
 // New creates a new classifications API client.
-func New(transport runtime.ClientTransport, formats strfmt.Registry) *Client {
+func New(transport runtime.ClientTransport, formats strfmt.Registry) ClientService {
 	return &Client{transport: transport, formats: formats}
 }
 
@@ -39,10 +38,19 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
-/*
-ClassificationsGet views previously created classification
+// ClientService is the interface for Client methods
+type ClientService interface {
+	ClassificationsGet(params *ClassificationsGetParams, authInfo runtime.ClientAuthInfoWriter) (*ClassificationsGetOK, error)
 
-Get status, results and metadata of a previously created classification
+	ClassificationsPost(params *ClassificationsPostParams, authInfo runtime.ClientAuthInfoWriter) (*ClassificationsPostCreated, error)
+
+	SetTransport(transport runtime.ClientTransport)
+}
+
+/*
+  ClassificationsGet views previously created classification
+
+  Get status, results and metadata of a previously created classification
 */
 func (a *Client) ClassificationsGet(params *ClassificationsGetParams, authInfo runtime.ClientAuthInfoWriter) (*ClassificationsGetOK, error) {
 	// TODO: Validate the params before sending
@@ -77,9 +85,9 @@ func (a *Client) ClassificationsGet(params *ClassificationsGetParams, authInfo r
 }
 
 /*
-ClassificationsPost starts a classification
+  ClassificationsPost starts a classification
 
-Trigger a classification based on the specified params. Classifications will run in the background, use GET /classifications/<id> to retrieve the status of your classificaiton.
+  Trigger a classification based on the specified params. Classifications will run in the background, use GET /classifications/<id> to retrieve the status of your classificaiton.
 */
 func (a *Client) ClassificationsPost(params *ClassificationsPostParams, authInfo runtime.ClientAuthInfoWriter) (*ClassificationsPostCreated, error) {
 	// TODO: Validate the params before sending

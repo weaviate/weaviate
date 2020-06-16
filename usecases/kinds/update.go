@@ -20,6 +20,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type updateAndGetRepo interface {
@@ -61,7 +62,7 @@ func (m *Manager) updateActionToConnectorAndSchema(ctx context.Context, principa
 		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
 
-	originalAction, err := m.getActionFromRepo(ctx, id, false)
+	originalAction, err := m.getActionFromRepo(ctx, id, traverser.UnderscoreProperties{})
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +121,7 @@ func (m *Manager) updateThingToConnectorAndSchema(ctx context.Context, principal
 		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
 
-	originalThing, err := m.getThingFromRepo(ctx, id, false)
+	originalThing, err := m.getThingFromRepo(ctx, id, traverser.UnderscoreProperties{})
 	if err != nil {
 		return nil, err
 	}
