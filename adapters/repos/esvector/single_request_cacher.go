@@ -389,7 +389,7 @@ func (c *cacher) parseAndStore(ctx context.Context, res *esapi.Response) error {
 		return fmt.Errorf("build nested cache: %v", err)
 	}
 
-	asResults, err := sr.toResults(c.repo, nil, false, c)
+	asResults, err := sr.toResults(c.repo, nil, traverser.UnderscoreProperties{}, c)
 	if err != nil {
 		return err
 	}

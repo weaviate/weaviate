@@ -26,9 +26,8 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
-
-	strfmt "github.com/go-openapi/strfmt"
 )
 
 // NewActionsGetParams creates a new ActionsGetParams object
@@ -80,6 +79,11 @@ type ActionsGetParams struct {
 
 	*/
 	ID strfmt.UUID
+	/*Include
+	  Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector
+
+	*/
+	Include *string
 	/*Meta
 	  Should additional meta information (e.g. about classified properties) be included? Defaults to false.
 
@@ -135,6 +139,17 @@ func (o *ActionsGetParams) SetID(id strfmt.UUID) {
 	o.ID = id
 }
 
+// WithInclude adds the include to the actions get params
+func (o *ActionsGetParams) WithInclude(include *string) *ActionsGetParams {
+	o.SetInclude(include)
+	return o
+}
+
+// SetInclude adds the include to the actions get params
+func (o *ActionsGetParams) SetInclude(include *string) {
+	o.Include = include
+}
+
 // WithMeta adds the meta to the actions get params
 func (o *ActionsGetParams) WithMeta(meta *bool) *ActionsGetParams {
 	o.SetMeta(meta)
@@ -157,6 +172,22 @@ func (o *ActionsGetParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Re
 	// path param id
 	if err := r.SetPathParam("id", o.ID.String()); err != nil {
 		return err
+	}
+
+	if o.Include != nil {
+
+		// query param include
+		var qrInclude string
+		if o.Include != nil {
+			qrInclude = *o.Include
+		}
+		qInclude := qrInclude
+		if qInclude != "" {
+			if err := r.SetQueryParam("include", qInclude); err != nil {
+				return err
+			}
+		}
+
 	}
 
 	if o.Meta != nil {
