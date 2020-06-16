@@ -206,7 +206,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 
 		t.Run("asking for no refs", func(t *testing.T) {
 			repo.requestCounter.(*testCounter).reset()
-			res, err := repo.ThingByID(context.Background(), id, nil, false)
+			res, err := repo.ThingByID(context.Background(), id, nil, traverser.UnderscoreProperties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, 1, repo.requestCounter.(*testCounter).count)
@@ -215,7 +215,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 
 		t.Run("asking for refs of type garage", func(t *testing.T) {
 			repo.requestCounter.(*testCounter).reset()
-			res, err := repo.ThingByID(context.Background(), id, parkedAtGarage(), false)
+			res, err := repo.ThingByID(context.Background(), id, parkedAtGarage(), traverser.UnderscoreProperties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, 1, repo.requestCounter.(*testCounter).count)
@@ -224,7 +224,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 
 		t.Run("asking for refs of type lot", func(t *testing.T) {
 			repo.requestCounter.(*testCounter).reset()
-			res, err := repo.ThingByID(context.Background(), id, parkedAtLot(), false)
+			res, err := repo.ThingByID(context.Background(), id, parkedAtLot(), traverser.UnderscoreProperties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, 1, repo.requestCounter.(*testCounter).count)
@@ -233,7 +233,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 
 		t.Run("asking for refs of both types", func(t *testing.T) {
 			repo.requestCounter.(*testCounter).reset()
-			res, err := repo.ThingByID(context.Background(), id, parkedAtEither(), false)
+			res, err := repo.ThingByID(context.Background(), id, parkedAtEither(), traverser.UnderscoreProperties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, 1, repo.requestCounter.(*testCounter).count)
@@ -280,7 +280,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 
 		t.Run("asking for no refs", func(t *testing.T) {
 			repo.requestCounter.(*testCounter).reset()
-			res, err := repo.ThingByID(context.Background(), id, nil, false)
+			res, err := repo.ThingByID(context.Background(), id, nil, traverser.UnderscoreProperties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, 1, repo.requestCounter.(*testCounter).count)
@@ -290,7 +290,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 
 		t.Run("asking for refs of type garage", func(t *testing.T) {
 			repo.requestCounter.(*testCounter).reset()
-			res, err := repo.ThingByID(context.Background(), id, parkedAtGarage(), false)
+			res, err := repo.ThingByID(context.Background(), id, parkedAtGarage(), traverser.UnderscoreProperties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, 2, repo.requestCounter.(*testCounter).count)
@@ -299,7 +299,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 
 		t.Run("asking for refs of type lot", func(t *testing.T) {
 			repo.requestCounter.(*testCounter).reset()
-			res, err := repo.ThingByID(context.Background(), id, parkedAtLot(), false)
+			res, err := repo.ThingByID(context.Background(), id, parkedAtLot(), traverser.UnderscoreProperties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, 2, repo.requestCounter.(*testCounter).count)
@@ -308,7 +308,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 
 		t.Run("asking for refs of both types", func(t *testing.T) {
 			repo.requestCounter.(*testCounter).reset()
-			res, err := repo.ThingByID(context.Background(), id, parkedAtEither(), false)
+			res, err := repo.ThingByID(context.Background(), id, parkedAtEither(), traverser.UnderscoreProperties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, 2, repo.requestCounter.(*testCounter).count)
@@ -351,7 +351,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 
 		t.Run("asking for no refs", func(t *testing.T) {
 			repo.requestCounter.(*testCounter).reset()
-			res, err := repo.ThingByID(context.Background(), id, nil, false)
+			res, err := repo.ThingByID(context.Background(), id, nil, traverser.UnderscoreProperties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, 1, repo.requestCounter.(*testCounter).count)
@@ -360,7 +360,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 
 		t.Run("asking for refs of type garage", func(t *testing.T) {
 			repo.requestCounter.(*testCounter).reset()
-			res, err := repo.ThingByID(context.Background(), id, parkedAtGarage(), false)
+			res, err := repo.ThingByID(context.Background(), id, parkedAtGarage(), traverser.UnderscoreProperties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, 2, repo.requestCounter.(*testCounter).count)
@@ -369,7 +369,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 
 		t.Run("asking for refs of type lot", func(t *testing.T) {
 			repo.requestCounter.(*testCounter).reset()
-			res, err := repo.ThingByID(context.Background(), id, parkedAtLot(), false)
+			res, err := repo.ThingByID(context.Background(), id, parkedAtLot(), traverser.UnderscoreProperties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, 2, repo.requestCounter.(*testCounter).count)
@@ -378,7 +378,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 
 		t.Run("asking for refs of both types", func(t *testing.T) {
 			repo.requestCounter.(*testCounter).reset()
-			res, err := repo.ThingByID(context.Background(), id, parkedAtEither(), false)
+			res, err := repo.ThingByID(context.Background(), id, parkedAtEither(), traverser.UnderscoreProperties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, 2, repo.requestCounter.(*testCounter).count)
@@ -459,7 +459,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 
 		t.Run("asking for no refs", func(t *testing.T) {
 			repo.requestCounter.(*testCounter).reset()
-			res, err := repo.ThingByID(context.Background(), id, nil, false)
+			res, err := repo.ThingByID(context.Background(), id, nil, traverser.UnderscoreProperties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, 1, repo.requestCounter.(*testCounter).count)
@@ -468,7 +468,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 
 		t.Run("asking for refs of type garage", func(t *testing.T) {
 			repo.requestCounter.(*testCounter).reset()
-			res, err := repo.ThingByID(context.Background(), id, parkedAtGarage(), false)
+			res, err := repo.ThingByID(context.Background(), id, parkedAtGarage(), traverser.UnderscoreProperties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, 2, repo.requestCounter.(*testCounter).count)
@@ -477,7 +477,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 
 		t.Run("asking for refs of type lot", func(t *testing.T) {
 			repo.requestCounter.(*testCounter).reset()
-			res, err := repo.ThingByID(context.Background(), id, parkedAtLot(), false)
+			res, err := repo.ThingByID(context.Background(), id, parkedAtLot(), traverser.UnderscoreProperties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, 2, repo.requestCounter.(*testCounter).count)
@@ -486,7 +486,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 
 		t.Run("asking for refs of both types", func(t *testing.T) {
 			repo.requestCounter.(*testCounter).reset()
-			res, err := repo.ThingByID(context.Background(), id, parkedAtEither(), false)
+			res, err := repo.ThingByID(context.Background(), id, parkedAtEither(), traverser.UnderscoreProperties{})
 			require.Nil(t, err)
 
 			assert.Equal(t, 2, repo.requestCounter.(*testCounter).count)

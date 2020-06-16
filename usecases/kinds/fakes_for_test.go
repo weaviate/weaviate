@@ -135,24 +135,24 @@ func (f *fakeVectorRepo) Exists(ctx context.Context,
 }
 
 func (f *fakeVectorRepo) ThingByID(ctx context.Context,
-	id strfmt.UUID, props traverser.SelectProperties, meta bool) (*search.Result, error) {
-	args := f.Called(id, props, meta)
+	id strfmt.UUID, props traverser.SelectProperties, underscores traverser.UnderscoreProperties) (*search.Result, error) {
+	args := f.Called(id, props, underscores)
 	return args.Get(0).(*search.Result), args.Error(1)
 }
 
 func (f *fakeVectorRepo) ActionByID(ctx context.Context,
-	id strfmt.UUID, props traverser.SelectProperties, meta bool) (*search.Result, error) {
-	args := f.Called(id, props, meta)
+	id strfmt.UUID, props traverser.SelectProperties, underscores traverser.UnderscoreProperties) (*search.Result, error) {
+	args := f.Called(id, props, underscores)
 	return args.Get(0).(*search.Result), args.Error(1)
 }
 
 func (f *fakeVectorRepo) ThingSearch(ctx context.Context, limit int,
-	filters *filters.LocalFilter, meta bool) (search.Results, error) {
+	filters *filters.LocalFilter, underscores traverser.UnderscoreProperties) (search.Results, error) {
 	return nil, nil
 }
 
 func (f *fakeVectorRepo) ActionSearch(ctx context.Context, limit int,
-	filters *filters.LocalFilter, meta bool) (search.Results, error) {
+	filters *filters.LocalFilter, underscores traverser.UnderscoreProperties) (search.Results, error) {
 	return nil, nil
 }
 
