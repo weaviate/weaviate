@@ -36,9 +36,8 @@ require (
 	github.com/square/go-jose v2.3.0+incompatible
 	github.com/stretchr/testify v1.6.1
 	github.com/ugorji/go/codec v0.0.0-20190309163734-c4a1c341dc93
-	go.mongodb.org/mongo-driver v1.3.4 // indirect
 	golang.org/x/net v0.0.0-20200602114024-627f9648deb9
-	golang.org/x/tools v0.0.0-20200611032120-1fdcbd130028 // indirect
+	golang.org/x/tools v0.0.0-20200615222825-6aa8f57aacd9 // indirect
 	google.golang.org/grpc v1.24.0
 	gopkg.in/yaml.v2 v2.3.0
 	sigs.k8s.io/yaml v1.1.0 // indirect
