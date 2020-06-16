@@ -23,13 +23,13 @@ import (
 	"net/http"
 	"strings"
 
-	errors "github.com/go-openapi/errors"
-	loads "github.com/go-openapi/loads"
-	runtime "github.com/go-openapi/runtime"
-	middleware "github.com/go-openapi/runtime/middleware"
-	security "github.com/go-openapi/runtime/security"
-	spec "github.com/go-openapi/spec"
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/errors"
+	"github.com/go-openapi/loads"
+	"github.com/go-openapi/runtime"
+	"github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/runtime/security"
+	"github.com/go-openapi/spec"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
@@ -42,14 +42,18 @@ func NewWeaviateGenesisAPI(spec *loads.Document) *WeaviateGenesisAPI {
 		defaultProduces:     "application/json",
 		customConsumers:     make(map[string]runtime.Consumer),
 		customProducers:     make(map[string]runtime.Producer),
+		PreServerShutdown:   func() {},
 		ServerShutdown:      func() {},
 		spec:                spec,
 		ServeError:          errors.ServeError,
 		BasicAuthenticator:  security.BasicAuth,
 		APIKeyAuthenticator: security.APIKeyAuth,
 		BearerAuthenticator: security.BearerAuth,
-		JSONConsumer:        runtime.JSONConsumer(),
-		JSONProducer:        runtime.JSONProducer(),
+
+		JSONConsumer: runtime.JSONConsumer(),
+
+		JSONProducer: runtime.JSONProducer(),
+
 		GenesisPeersLeaveHandler: GenesisPeersLeaveHandlerFunc(func(params GenesisPeersLeaveParams) middleware.Responder {
 			return middleware.NotImplemented("operation GenesisPeersLeave has not yet been implemented")
 		}),
@@ -78,19 +82,21 @@ type WeaviateGenesisAPI struct {
 	Middleware      func(middleware.Builder) http.Handler
 
 	// BasicAuthenticator generates a runtime.Authenticator from the supplied basic auth function.
-	// It has a default implemention in the security package, however you can replace it for your particular usage.
+	// It has a default implementation in the security package, however you can replace it for your particular usage.
 	BasicAuthenticator func(security.UserPassAuthentication) runtime.Authenticator
 	// APIKeyAuthenticator generates a runtime.Authenticator from the supplied token auth function.
-	// It has a default implemention in the security package, however you can replace it for your particular usage.
+	// It has a default implementation in the security package, however you can replace it for your particular usage.
 	APIKeyAuthenticator func(string, string, security.TokenAuthentication) runtime.Authenticator
 	// BearerAuthenticator generates a runtime.Authenticator from the supplied bearer token auth function.
-	// It has a default implemention in the security package, however you can replace it for your particular usage.
+	// It has a default implementation in the security package, however you can replace it for your particular usage.
 	BearerAuthenticator func(string, security.ScopedTokenAuthentication) runtime.Authenticator
 
-	// JSONConsumer registers a consumer for a "application/json" mime type
+	// JSONConsumer registers a consumer for the following mime types:
+	//   - application/json
 	JSONConsumer runtime.Consumer
 
-	// JSONProducer registers a producer for a "application/json" mime type
+	// JSONProducer registers a producer for the following mime types:
+	//   - application/json
 	JSONProducer runtime.Producer
 
 	// GenesisPeersLeaveHandler sets the operation handler for the genesis peers leave operation
@@ -101,10 +107,13 @@ type WeaviateGenesisAPI struct {
 	GenesisPeersPingHandler GenesisPeersPingHandler
 	// GenesisPeersRegisterHandler sets the operation handler for the genesis peers register operation
 	GenesisPeersRegisterHandler GenesisPeersRegisterHandler
-
 	// ServeError is called when an error is received, there is a default handler
 	// but you can set your own with this
 	ServeError func(http.ResponseWriter, *http.Request, error)
+
+	// PreServerShutdown is called before the HTTP(S) server is shutdown
+	// This allows for custom functions to get executed before the HTTP(S) server stops accepting traffic
+	PreServerShutdown func()
 
 	// ServerShutdown is called when the HTTP(S) server is shut down and done
 	// handling all active connections and does not accept connections any more
@@ -167,15 +176,12 @@ func (o *WeaviateGenesisAPI) Validate() error {
 	if o.GenesisPeersLeaveHandler == nil {
 		unregistered = append(unregistered, "GenesisPeersLeaveHandler")
 	}
-
 	if o.GenesisPeersListHandler == nil {
 		unregistered = append(unregistered, "GenesisPeersListHandler")
 	}
-
 	if o.GenesisPeersPingHandler == nil {
 		unregistered = append(unregistered, "GenesisPeersPingHandler")
 	}
-
 	if o.GenesisPeersRegisterHandler == nil {
 		unregistered = append(unregistered, "GenesisPeersRegisterHandler")
 	}
@@ -194,28 +200,22 @@ func (o *WeaviateGenesisAPI) ServeErrorFor(operationID string) func(http.Respons
 
 // AuthenticatorsFor gets the authenticators for the specified security schemes
 func (o *WeaviateGenesisAPI) AuthenticatorsFor(schemes map[string]spec.SecurityScheme) map[string]runtime.Authenticator {
-
 	return nil
-
 }
 
 // Authorizer returns the registered authorizer
 func (o *WeaviateGenesisAPI) Authorizer() runtime.Authorizer {
-
 	return nil
-
 }
 
-// ConsumersFor gets the consumers for the specified media types
+// ConsumersFor gets the consumers for the specified media types.
+// MIME type parameters are ignored here.
 func (o *WeaviateGenesisAPI) ConsumersFor(mediaTypes []string) map[string]runtime.Consumer {
-
-	result := make(map[string]runtime.Consumer)
+	result := make(map[string]runtime.Consumer, len(mediaTypes))
 	for _, mt := range mediaTypes {
 		switch mt {
-
 		case "application/json":
 			result["application/json"] = o.JSONConsumer
-
 		}
 
 		if c, ok := o.customConsumers[mt]; ok {
@@ -223,19 +223,16 @@ func (o *WeaviateGenesisAPI) ConsumersFor(mediaTypes []string) map[string]runtim
 		}
 	}
 	return result
-
 }
 
-// ProducersFor gets the producers for the specified media types
+// ProducersFor gets the producers for the specified media types.
+// MIME type parameters are ignored here.
 func (o *WeaviateGenesisAPI) ProducersFor(mediaTypes []string) map[string]runtime.Producer {
-
-	result := make(map[string]runtime.Producer)
+	result := make(map[string]runtime.Producer, len(mediaTypes))
 	for _, mt := range mediaTypes {
 		switch mt {
-
 		case "application/json":
 			result["application/json"] = o.JSONProducer
-
 		}
 
 		if p, ok := o.customProducers[mt]; ok {
@@ -243,7 +240,6 @@ func (o *WeaviateGenesisAPI) ProducersFor(mediaTypes []string) map[string]runtim
 		}
 	}
 	return result
-
 }
 
 // HandlerFor gets a http.Handler for the provided operation method and path
@@ -273,7 +269,6 @@ func (o *WeaviateGenesisAPI) Context() *middleware.Context {
 
 func (o *WeaviateGenesisAPI) initHandlerCache() {
 	o.Context() // don't care about the result, just that the initialization happened
-
 	if o.handlers == nil {
 		o.handlers = make(map[string]map[string]http.Handler)
 	}
@@ -282,22 +277,18 @@ func (o *WeaviateGenesisAPI) initHandlerCache() {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
 	o.handlers["DELETE"]["/peers/{peerId}"] = NewGenesisPeersLeave(o.context, o.GenesisPeersLeaveHandler)
-
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/peers"] = NewGenesisPeersList(o.context, o.GenesisPeersListHandler)
-
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/peers/{peerId}/ping"] = NewGenesisPeersPing(o.context, o.GenesisPeersPingHandler)
-
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/peers/register"] = NewGenesisPeersRegister(o.context, o.GenesisPeersRegisterHandler)
-
 }
 
 // Serve creates a http handler to serve the API over HTTP
@@ -326,4 +317,16 @@ func (o *WeaviateGenesisAPI) RegisterConsumer(mediaType string, consumer runtime
 // RegisterProducer allows you to add (or override) a producer for a media type.
 func (o *WeaviateGenesisAPI) RegisterProducer(mediaType string, producer runtime.Producer) {
 	o.customProducers[mediaType] = producer
+}
+
+// AddMiddlewareFor adds a http middleware to existing handler
+func (o *WeaviateGenesisAPI) AddMiddlewareFor(method, path string, builder middleware.Builder) {
+	um := strings.ToUpper(method)
+	if path == "/" {
+		path = ""
+	}
+	o.Init()
+	if h, ok := o.handlers[um][path]; ok {
+		o.handlers[method][path] = builder(h)
+	}
 }

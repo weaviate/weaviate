@@ -29,8 +29,8 @@ func TestStorageObjectMarshalling(t *testing.T) {
 			CreationTimeUnix:   123456,
 			LastUpdateTimeUnix: 56789,
 			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
-			Meta: &models.ObjectMeta{
-				Classification: &models.ObjectMetaClassification{
+			Meta: &models.UnderscoreProperties{
+				Classification: &models.UnderscorePropertiesClassification{
 					BasedOn: []string{"some", "fields"},
 				},
 			},
