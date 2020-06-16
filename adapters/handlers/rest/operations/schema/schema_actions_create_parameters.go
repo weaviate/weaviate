@@ -26,7 +26,7 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 
-	models "github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 // NewSchemaActionsCreateParams creates a new SchemaActionsCreateParams object
@@ -66,7 +66,7 @@ func (o *SchemaActionsCreateParams) BindRequest(r *http.Request, route *middlewa
 		var body models.Class
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
-				res = append(res, errors.Required("actionClass", "body"))
+				res = append(res, errors.Required("actionClass", "body", ""))
 			} else {
 				res = append(res, errors.NewParseError("actionClass", "body", "", err))
 			}
@@ -81,7 +81,7 @@ func (o *SchemaActionsCreateParams) BindRequest(r *http.Request, route *middlewa
 			}
 		}
 	} else {
-		res = append(res, errors.Required("actionClass", "body"))
+		res = append(res, errors.Required("actionClass", "body", ""))
 	}
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)

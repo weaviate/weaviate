@@ -22,12 +22,11 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/runtime"
-
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/strfmt"
 )
 
 // New creates a new meta API client.
-func New(transport runtime.ClientTransport, formats strfmt.Registry) *Client {
+func New(transport runtime.ClientTransport, formats strfmt.Registry) ClientService {
 	return &Client{transport: transport, formats: formats}
 }
 
@@ -39,10 +38,17 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
-/*
-MetaGet returns meta information of the current weaviate instance
+// ClientService is the interface for Client methods
+type ClientService interface {
+	MetaGet(params *MetaGetParams, authInfo runtime.ClientAuthInfoWriter) (*MetaGetOK, error)
 
-Gives meta information about the server and can be used to provide information to another Weaviate instance that wants to interact with the current instance.
+	SetTransport(transport runtime.ClientTransport)
+}
+
+/*
+  MetaGet returns meta information of the current weaviate instance
+
+  Gives meta information about the server and can be used to provide information to another Weaviate instance that wants to interact with the current instance.
 */
 func (a *Client) MetaGet(params *MetaGetParams, authInfo runtime.ClientAuthInfoWriter) (*MetaGetOK, error) {
 	// TODO: Validate the params before sending

@@ -23,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type MergeDocument struct {
@@ -78,7 +79,7 @@ func (m *Manager) retrievePreviousAndValidateMergeAction(ctx context.Context, pr
 		return nil, fmt.Errorf("class is a required (and immutable) field")
 	}
 
-	action, err := m.vectorRepo.ActionByID(ctx, id, nil, false)
+	action, err := m.vectorRepo.ActionByID(ctx, id, nil, traverser.UnderscoreProperties{})
 	if err != nil {
 		return nil, err
 	}
@@ -165,7 +166,7 @@ func (m *Manager) retrievePreviousAndValidateMergeThing(ctx context.Context, pri
 		return nil, fmt.Errorf("class is a required (and immutable) field")
 	}
 
-	thing, err := m.vectorRepo.ThingByID(ctx, id, nil, false)
+	thing, err := m.vectorRepo.ThingByID(ctx, id, nil, traverser.UnderscoreProperties{})
 	if err != nil {
 		return nil, err
 	}

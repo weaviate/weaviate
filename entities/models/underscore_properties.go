@@ -19,25 +19,25 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
-// ObjectMeta Additional Meta information about a single thing/action object.
-// swagger:model ObjectMeta
-type ObjectMeta struct {
+// UnderscoreProperties Additional Meta information about a single thing/action object.
+//
+// swagger:model UnderscoreProperties
+type UnderscoreProperties struct {
 
 	// If this object was subject of a classificiation, additional meta info about this classification is available here
-	Classification *ObjectMetaClassification `json:"classification,omitempty"`
+	Classification *UnderscorePropertiesClassification `json:"classification,omitempty"`
 
 	// This object's position in the Contextionary vector space
 	Vector C11yVector `json:"vector,omitempty"`
 }
 
-// Validate validates this object meta
-func (m *ObjectMeta) Validate(formats strfmt.Registry) error {
+// Validate validates this underscore properties
+func (m *UnderscoreProperties) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateClassification(formats); err != nil {
@@ -54,7 +54,7 @@ func (m *ObjectMeta) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *ObjectMeta) validateClassification(formats strfmt.Registry) error {
+func (m *UnderscoreProperties) validateClassification(formats strfmt.Registry) error {
 
 	if swag.IsZero(m.Classification) { // not required
 		return nil
@@ -72,7 +72,7 @@ func (m *ObjectMeta) validateClassification(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *ObjectMeta) validateVector(formats strfmt.Registry) error {
+func (m *UnderscoreProperties) validateVector(formats strfmt.Registry) error {
 
 	if swag.IsZero(m.Vector) { // not required
 		return nil
@@ -89,7 +89,7 @@ func (m *ObjectMeta) validateVector(formats strfmt.Registry) error {
 }
 
 // MarshalBinary interface implementation
-func (m *ObjectMeta) MarshalBinary() ([]byte, error) {
+func (m *UnderscoreProperties) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -97,8 +97,8 @@ func (m *ObjectMeta) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *ObjectMeta) UnmarshalBinary(b []byte) error {
-	var res ObjectMeta
+func (m *UnderscoreProperties) UnmarshalBinary(b []byte) error {
+	var res UnderscoreProperties
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}
