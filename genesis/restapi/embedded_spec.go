@@ -421,6 +421,19 @@ func init() {
         }
       }
     },
+    "ContextionaryHash": {
+      "type": "object",
+      "properties": {
+        "algorithm": {
+          "description": "Hash algorithm",
+          "type": "string"
+        },
+        "value": {
+          "description": "The actual hash",
+          "type": "string"
+        }
+      }
+    },
     "Peer": {
       "type": "object",
       "allOf": [

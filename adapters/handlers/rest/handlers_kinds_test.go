@@ -23,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/things"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -699,19 +700,19 @@ func (f *fakeManager) ValidateAction(_ context.Context, _ *models.Principal, _ *
 	panic("not implemented") // TODO: Implement
 }
 
-func (f *fakeManager) GetThing(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ bool) (*models.Thing, error) {
+func (f *fakeManager) GetThing(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ traverser.UnderscoreProperties) (*models.Thing, error) {
 	return f.getThingReturn, nil
 }
 
-func (f *fakeManager) GetAction(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ bool) (*models.Action, error) {
+func (f *fakeManager) GetAction(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ traverser.UnderscoreProperties) (*models.Action, error) {
 	return f.getActionReturn, nil
 }
 
-func (f *fakeManager) GetThings(_ context.Context, _ *models.Principal, _ *int64, _ bool) ([]*models.Thing, error) {
+func (f *fakeManager) GetThings(_ context.Context, _ *models.Principal, _ *int64, _ traverser.UnderscoreProperties) ([]*models.Thing, error) {
 	return f.getThingsReturn, nil
 }
 
-func (f *fakeManager) GetActions(_ context.Context, _ *models.Principal, _ *int64, _ bool) ([]*models.Action, error) {
+func (f *fakeManager) GetActions(_ context.Context, _ *models.Principal, _ *int64, _ traverser.UnderscoreProperties) ([]*models.Action, error) {
 	return f.getActionsReturn, nil
 }
 

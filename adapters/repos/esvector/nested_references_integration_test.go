@@ -240,7 +240,7 @@ func TestNestedReferences(t *testing.T) {
 
 		requestCounter.reset()
 		res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-			fullyNestedSelectProperties(), false)
+			fullyNestedSelectProperties(), traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 		assert.Equal(t, expectedSchema, res.Schema)
 		// we are expecting 5 request to be made for this, since cache is not hot
@@ -279,7 +279,7 @@ func TestNestedReferences(t *testing.T) {
 
 		requestCounter.reset()
 		res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-			partiallyNestedSelectProperties(), false)
+			partiallyNestedSelectProperties(), traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 		assert.Equal(t, expectedSchema, res.Schema)
 		// 2 Requests: Place + (inCity->City)
@@ -288,7 +288,7 @@ func TestNestedReferences(t *testing.T) {
 
 	t.Run("resolving without any refs", func(t *testing.T) {
 		res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
-			traverser.SelectProperties{}, false)
+			traverser.SelectProperties{}, traverser.UnderscoreProperties{})
 
 		expectedSchema := map[string]interface{}{
 			"uuid": "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
