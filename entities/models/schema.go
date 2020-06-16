@@ -22,14 +22,14 @@ import (
 	"encoding/json"
 	"strconv"
 
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
 )
 
 // Schema Definitions of semantic schemas (also see: https://github.com/semi-technologies/weaviate-semantic-schemas).
+//
 // swagger:model Schema
 type Schema struct {
 
@@ -131,7 +131,7 @@ const (
 
 // prop value enum
 func (m *Schema) validateTypeEnum(path, location string, value string) error {
-	if err := validate.Enum(path, location, value, schemaTypeTypePropEnum); err != nil {
+	if err := validate.EnumCase(path, location, value, schemaTypeTypePropEnum, true); err != nil {
 		return err
 	}
 	return nil

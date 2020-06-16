@@ -201,14 +201,14 @@ func Test_MergeAction(t *testing.T) {
 			manager.timeSource = fakeTimeSource{}
 
 			if test.previous != nil {
-				vectorRepo.On("ActionByID", test.id, traverser.SelectProperties(nil), false).
+				vectorRepo.On("ActionByID", test.id, traverser.SelectProperties(nil), traverser.UnderscoreProperties{}).
 					Return(&search.Result{
 						Schema:    test.previous.Schema,
 						ClassName: test.previous.Class,
 						Kind:      kind.Action,
 					}, nil)
 			} else {
-				vectorRepo.On("ActionByID", test.id, traverser.SelectProperties(nil), false).
+				vectorRepo.On("ActionByID", test.id, traverser.SelectProperties(nil), traverser.UnderscoreProperties{}).
 					Return((*search.Result)(nil), nil)
 			}
 
@@ -400,14 +400,14 @@ func Test_MergeThing(t *testing.T) {
 			manager.timeSource = fakeTimeSource{}
 
 			if test.previous != nil {
-				vectorRepo.On("ThingByID", test.id, traverser.SelectProperties(nil), false).
+				vectorRepo.On("ThingByID", test.id, traverser.SelectProperties(nil), traverser.UnderscoreProperties{}).
 					Return(&search.Result{
 						Schema:    test.previous.Schema,
 						ClassName: test.previous.Class,
 						Kind:      kind.Thing,
 					}, nil)
 			} else {
-				vectorRepo.On("ThingByID", test.id, traverser.SelectProperties(nil), false).
+				vectorRepo.On("ThingByID", test.id, traverser.SelectProperties(nil), traverser.UnderscoreProperties{}).
 					Return((*search.Result)(nil), nil)
 			}
 

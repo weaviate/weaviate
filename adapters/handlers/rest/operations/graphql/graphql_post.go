@@ -21,9 +21,9 @@ package graphql
 import (
 	"net/http"
 
-	middleware "github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/runtime/middleware"
 
-	models "github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 // GraphqlPostHandlerFunc turns a function with the right signature into a graphql post handler

@@ -26,7 +26,7 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 
-	models "github.com/semi-technologies/weaviate/genesis/models"
+	"github.com/semi-technologies/weaviate/genesis/models"
 )
 
 // NewGenesisPeersRegisterParams creates a new GenesisPeersRegisterParams object
@@ -66,7 +66,7 @@ func (o *GenesisPeersRegisterParams) BindRequest(r *http.Request, route *middlew
 		var body models.PeerUpdate
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
-				res = append(res, errors.Required("body", "body"))
+				res = append(res, errors.Required("body", "body", ""))
 			} else {
 				res = append(res, errors.NewParseError("body", "body", "", err))
 			}
@@ -81,7 +81,7 @@ func (o *GenesisPeersRegisterParams) BindRequest(r *http.Request, route *middlew
 			}
 		}
 	} else {
-		res = append(res, errors.Required("body", "body"))
+		res = append(res, errors.Required("body", "body", ""))
 	}
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
