@@ -19,13 +19,14 @@ package operations
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	"github.com/go-openapi/runtime"
+	"fmt"
 
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/runtime"
+	"github.com/go-openapi/strfmt"
 )
 
 // New creates a new operations API client.
-func New(transport runtime.ClientTransport, formats strfmt.Registry) *Client {
+func New(transport runtime.ClientTransport, formats strfmt.Registry) ClientService {
 	return &Client{transport: transport, formats: formats}
 }
 
@@ -37,8 +38,21 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
+// ClientService is the interface for Client methods
+type ClientService interface {
+	GenesisPeersLeave(params *GenesisPeersLeaveParams) (*GenesisPeersLeaveNoContent, error)
+
+	GenesisPeersList(params *GenesisPeersListParams) (*GenesisPeersListOK, error)
+
+	GenesisPeersPing(params *GenesisPeersPingParams) (*GenesisPeersPingOK, error)
+
+	GenesisPeersRegister(params *GenesisPeersRegisterParams) (*GenesisPeersRegisterOK, error)
+
+	SetTransport(transport runtime.ClientTransport)
+}
+
 /*
-GenesisPeersLeave Leave the weaviate network
+  GenesisPeersLeave Leave the weaviate network
 */
 func (a *Client) GenesisPeersLeave(params *GenesisPeersLeaveParams) (*GenesisPeersLeaveNoContent, error) {
 	// TODO: Validate the params before sending
@@ -61,12 +75,18 @@ func (a *Client) GenesisPeersLeave(params *GenesisPeersLeaveParams) (*GenesisPee
 	if err != nil {
 		return nil, err
 	}
-	return result.(*GenesisPeersLeaveNoContent), nil
-
+	success, ok := result.(*GenesisPeersLeaveNoContent)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for genesis.peers.leave: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
-GenesisPeersList List the registered peers
+  GenesisPeersList List the registered peers
 */
 func (a *Client) GenesisPeersList(params *GenesisPeersListParams) (*GenesisPeersListOK, error) {
 	// TODO: Validate the params before sending
@@ -89,12 +109,18 @@ func (a *Client) GenesisPeersList(params *GenesisPeersListParams) (*GenesisPeers
 	if err != nil {
 		return nil, err
 	}
-	return result.(*GenesisPeersListOK), nil
-
+	success, ok := result.(*GenesisPeersListOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for genesis.peers.list: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
-GenesisPeersPing Ping the Genesis server, to make mark the peer as alive and udpate schema info
+  GenesisPeersPing Ping the Genesis server, to make mark the peer as alive and udpate schema info
 */
 func (a *Client) GenesisPeersPing(params *GenesisPeersPingParams) (*GenesisPeersPingOK, error) {
 	// TODO: Validate the params before sending
@@ -117,12 +143,18 @@ func (a *Client) GenesisPeersPing(params *GenesisPeersPingParams) (*GenesisPeers
 	if err != nil {
 		return nil, err
 	}
-	return result.(*GenesisPeersPingOK), nil
-
+	success, ok := result.(*GenesisPeersPingOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for genesis.peers.ping: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*
-GenesisPeersRegister Register a new Weaviate peer in the network
+  GenesisPeersRegister Register a new Weaviate peer in the network
 */
 func (a *Client) GenesisPeersRegister(params *GenesisPeersRegisterParams) (*GenesisPeersRegisterOK, error) {
 	// TODO: Validate the params before sending
@@ -145,8 +177,14 @@ func (a *Client) GenesisPeersRegister(params *GenesisPeersRegisterParams) (*Gene
 	if err != nil {
 		return nil, err
 	}
-	return result.(*GenesisPeersRegisterOK), nil
-
+	success, ok := result.(*GenesisPeersRegisterOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for genesis.peers.register: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 // SetTransport changes the transport on the client

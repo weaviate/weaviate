@@ -24,10 +24,9 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
-
-	strfmt "github.com/go-openapi/strfmt"
 )
 
 // NewThingsGetParams creates a new ThingsGetParams object
@@ -51,6 +50,10 @@ type ThingsGetParams struct {
 	  In: path
 	*/
 	ID strfmt.UUID
+	/*Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector
+	  In: query
+	*/
+	Include *string
 	/*Should additional meta information (e.g. about classified properties) be included? Defaults to false.
 	  In: query
 	*/
@@ -70,6 +73,11 @@ func (o *ThingsGetParams) BindRequest(r *http.Request, route *middleware.Matched
 
 	rID, rhkID, _ := route.Params.GetOK("id")
 	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	qInclude, qhkInclude, _ := qs.GetOK("include")
+	if err := o.bindInclude(qInclude, qhkInclude, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -114,6 +122,24 @@ func (o *ThingsGetParams) validateID(formats strfmt.Registry) error {
 	if err := validate.FormatOf("id", "path", "uuid", o.ID.String(), formats); err != nil {
 		return err
 	}
+	return nil
+}
+
+// bindInclude binds and validates parameter Include from query.
+func (o *ThingsGetParams) bindInclude(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+
+	o.Include = &raw
+
 	return nil
 }
 

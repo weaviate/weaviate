@@ -22,12 +22,11 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/runtime"
-
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/strfmt"
 )
 
 // New creates a new batching API client.
-func New(transport runtime.ClientTransport, formats strfmt.Registry) *Client {
+func New(transport runtime.ClientTransport, formats strfmt.Registry) ClientService {
 	return &Client{transport: transport, formats: formats}
 }
 
@@ -39,10 +38,21 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
-/*
-BatchingActionsCreate creates new actions based on an action template as a batch
+// ClientService is the interface for Client methods
+type ClientService interface {
+	BatchingActionsCreate(params *BatchingActionsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*BatchingActionsCreateOK, error)
 
-Register new Actions in bulk. Given meta-data and schema values are validated.
+	BatchingReferencesCreate(params *BatchingReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter) (*BatchingReferencesCreateOK, error)
+
+	BatchingThingsCreate(params *BatchingThingsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*BatchingThingsCreateOK, error)
+
+	SetTransport(transport runtime.ClientTransport)
+}
+
+/*
+  BatchingActionsCreate creates new actions based on an action template as a batch
+
+  Register new Actions in bulk. Given meta-data and schema values are validated.
 */
 func (a *Client) BatchingActionsCreate(params *BatchingActionsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*BatchingActionsCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -77,9 +87,9 @@ func (a *Client) BatchingActionsCreate(params *BatchingActionsCreateParams, auth
 }
 
 /*
-BatchingReferencesCreate creates new cross references between arbitrary classes in bulk
+  BatchingReferencesCreate creates new cross references between arbitrary classes in bulk
 
-Register cross-references between any class items (things or actions) in bulk.
+  Register cross-references between any class items (things or actions) in bulk.
 */
 func (a *Client) BatchingReferencesCreate(params *BatchingReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter) (*BatchingReferencesCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -114,9 +124,9 @@ func (a *Client) BatchingReferencesCreate(params *BatchingReferencesCreateParams
 }
 
 /*
-BatchingThingsCreate creates new things based on a thing template as a batch
+  BatchingThingsCreate creates new things based on a thing template as a batch
 
-Register new Things in bulk. Provided meta-data and schema values are validated.
+  Register new Things in bulk. Provided meta-data and schema values are validated.
 */
 func (a *Client) BatchingThingsCreate(params *BatchingThingsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*BatchingThingsCreateOK, error) {
 	// TODO: Validate the params before sending

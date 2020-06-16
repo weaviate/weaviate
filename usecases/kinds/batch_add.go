@@ -151,10 +151,10 @@ func (b *BatchManager) validateAction(ctx context.Context, principal *models.Pri
 func (b *BatchManager) exists(ctx context.Context, k kind.Kind, id strfmt.UUID) (bool, error) {
 	switch k {
 	case kind.Thing:
-		res, err := b.vectorRepo.ThingByID(ctx, id, traverser.SelectProperties{}, false)
+		res, err := b.vectorRepo.ThingByID(ctx, id, traverser.SelectProperties{}, traverser.UnderscoreProperties{})
 		return res != nil, err
 	case kind.Action:
-		res, err := b.vectorRepo.ActionByID(ctx, id, traverser.SelectProperties{}, false)
+		res, err := b.vectorRepo.ActionByID(ctx, id, traverser.SelectProperties{}, traverser.UnderscoreProperties{})
 		return res != nil, err
 	default:
 		panic("impossible kind")
