@@ -23,10 +23,9 @@ import (
 	"io"
 
 	"github.com/go-openapi/runtime"
+	"github.com/go-openapi/strfmt"
 
-	strfmt "github.com/go-openapi/strfmt"
-
-	models "github.com/semi-technologies/weaviate/genesis/models"
+	"github.com/semi-technologies/weaviate/genesis/models"
 )
 
 // GenesisPeersListReader is a Reader for the GenesisPeersList structure.
@@ -37,14 +36,12 @@ type GenesisPeersListReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *GenesisPeersListReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 200:
 		result := NewGenesisPeersListOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	case 500:
 		result := NewGenesisPeersListInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -72,6 +69,10 @@ type GenesisPeersListOK struct {
 
 func (o *GenesisPeersListOK) Error() string {
 	return fmt.Sprintf("[GET /peers][%d] genesisPeersListOK  %+v", 200, o.Payload)
+}
+
+func (o *GenesisPeersListOK) GetPayload() []*models.Peer {
+	return o.Payload
 }
 
 func (o *GenesisPeersListOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

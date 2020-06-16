@@ -21,14 +21,14 @@ package models
 import (
 	"encoding/json"
 
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
 )
 
 // PatchDocumentThing Either a JSONPatch document as defined by RFC 6902 (from, op, path, value), or a merge document (RFC 7396).
+//
 // swagger:model PatchDocumentThing
 type PatchDocumentThing struct {
 
@@ -126,7 +126,7 @@ const (
 
 // prop value enum
 func (m *PatchDocumentThing) validateOpEnum(path, location string, value string) error {
-	if err := validate.Enum(path, location, value, patchDocumentThingTypeOpPropEnum); err != nil {
+	if err := validate.EnumCase(path, location, value, patchDocumentThingTypeOpPropEnum, true); err != nil {
 		return err
 	}
 	return nil
