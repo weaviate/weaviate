@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -181,6 +182,75 @@ func Test_Explorer_GetClass(t *testing.T) {
 			assert.Equal(t,
 				map[string]interface{}{
 					"age": 200,
+				}, res[1])
+		})
+	})
+
+	t.Run("when the _classification prop is set", func(t *testing.T) {
+		params := GetParams{
+			Kind:       kind.Thing,
+			ClassName:  "BestClass",
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    nil,
+			UnderscoreProperties: UnderscoreProperties{
+				Classification: true,
+			},
+		}
+
+		searchResults := []search.Result{
+			{
+				Kind: kind.Thing,
+				ID:   "id1",
+				Schema: map[string]interface{}{
+					"name": "Foo",
+				},
+				UnderscoreProperties: &models.UnderscoreProperties{
+					Classification: nil,
+				},
+			},
+			{
+				Kind: kind.Action,
+				ID:   "id2",
+				Schema: map[string]interface{}{
+					"age": 200,
+				},
+				UnderscoreProperties: &models.UnderscoreProperties{
+					Classification: &models.UnderscorePropertiesClassification{
+						ID: "1234",
+					},
+				},
+			},
+		}
+
+		search := &fakeVectorSearcher{}
+		vectorizer := &fakeVectorizer{}
+		log, _ := test.NewNullLogger()
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log)
+		expectedParamsToSearch := params
+		expectedParamsToSearch.SearchVector = nil
+		search.
+			On("ClassSearch", expectedParamsToSearch).
+			Return(searchResults, nil)
+
+		res, err := explorer.GetClass(context.Background(), params)
+
+		t.Run("class search must be called with right params", func(t *testing.T) {
+			assert.Nil(t, err)
+			search.AssertExpectations(t)
+		})
+
+		t.Run("response must contain concepts", func(t *testing.T) {
+			require.Len(t, res, 2)
+			assert.Equal(t,
+				map[string]interface{}{
+					"name": "Foo",
+				}, res[0])
+			assert.Equal(t,
+				map[string]interface{}{
+					"age": 200,
+					"_classification": &models.UnderscorePropertiesClassification{
+						ID: "1234",
+					},
 				}, res[1])
 		})
 	})
