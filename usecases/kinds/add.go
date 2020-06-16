@@ -23,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/kinds/validation"
+	"github.com/semi-technologies/weaviate/usecases/vectorizer"
 )
 
 type addAndGetRepo interface {
@@ -111,9 +112,16 @@ func (m *Manager) addActionToConnectorAndSchema(ctx context.Context, principal *
 }
 
 func (m *Manager) vectorizeAndPutAction(ctx context.Context, class *models.Action) error {
-	v, err := m.vectorizer.Action(ctx, class)
+	v, source, err := m.vectorizer.Action(ctx, class)
 	if err != nil {
 		return fmt.Errorf("vectorize: %v", err)
+	}
+
+	if class.Meta == nil {
+		class.Meta = &models.UnderscoreProperties{}
+	}
+	class.Meta.VectorizationMeta = &models.VectorizationMeta{
+		Source: sourceFromInputElements(source),
 	}
 
 	err = m.vectorRepo.PutAction(ctx, class, v)
@@ -122,6 +130,19 @@ func (m *Manager) vectorizeAndPutAction(ctx context.Context, class *models.Actio
 	}
 
 	return nil
+}
+
+func sourceFromInputElements(in []vectorizer.InputElement) []*models.VectorizationMetaSource {
+	out := make([]*models.VectorizationMetaSource, len(in))
+	for i, elem := range in {
+		out[i] = &models.VectorizationMetaSource{
+			Concept:    elem.Concept,
+			Occurrence: elem.Occurrence,
+			Weight:     float64(elem.Weight),
+		}
+	}
+
+	return out
 }
 
 func (m *Manager) validateAction(ctx context.Context, principal *models.Principal, class *models.Action) error {
@@ -193,9 +214,16 @@ func (m *Manager) addThingToConnectorAndSchema(ctx context.Context, principal *m
 }
 
 func (m *Manager) vectorizeAndPutThing(ctx context.Context, class *models.Thing) error {
-	v, err := m.vectorizer.Thing(ctx, class)
+	v, source, err := m.vectorizer.Thing(ctx, class)
 	if err != nil {
 		return fmt.Errorf("vectorize: %v", err)
+	}
+
+	if class.Meta == nil {
+		class.Meta = &models.UnderscoreProperties{}
+	}
+	class.Meta.VectorizationMeta = &models.VectorizationMeta{
+		Source: sourceFromInputElements(source),
 	}
 
 	err = m.vectorRepo.PutThing(ctx, class, v)

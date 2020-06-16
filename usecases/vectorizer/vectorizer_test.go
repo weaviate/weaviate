@@ -151,7 +151,7 @@ func TestVectorizingThings(t *testing.T) {
 
 			v := New(client, indexer)
 
-			res, err := v.Thing(context.Background(), test.input)
+			res, _, err := v.Thing(context.Background(), test.input)
 
 			require.Nil(t, err)
 			assert.Equal(t, []float32{0, 1, 2, 3}, res)
@@ -245,7 +245,7 @@ func TestVectorizingActions(t *testing.T) {
 			indexer := &propertyIndexer{test.noindex, test.excludedClass, test.excludedProperty}
 			v := New(client, indexer)
 
-			res, err := v.Action(context.Background(), test.input)
+			res, _, err := v.Action(context.Background(), test.input)
 
 			require.Nil(t, err)
 			assert.Equal(t, []float32{0, 1, 2, 3}, res)

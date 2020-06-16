@@ -34,6 +34,9 @@ type UnderscoreProperties struct {
 
 	// This object's position in the Contextionary vector space
 	Vector C11yVector `json:"vector,omitempty"`
+
+	// Additional information about how the object was vectorized
+	VectorizationMeta *VectorizationMeta `json:"vectorizationMeta,omitempty"`
 }
 
 // Validate validates this underscore properties
@@ -45,6 +48,10 @@ func (m *UnderscoreProperties) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateVector(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateVectorizationMeta(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -83,6 +90,24 @@ func (m *UnderscoreProperties) validateVector(formats strfmt.Registry) error {
 			return ve.ValidateName("vector")
 		}
 		return err
+	}
+
+	return nil
+}
+
+func (m *UnderscoreProperties) validateVectorizationMeta(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.VectorizationMeta) { // not required
+		return nil
+	}
+
+	if m.VectorizationMeta != nil {
+		if err := m.VectorizationMeta.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("vectorizationMeta")
+			}
+			return err
+		}
 	}
 
 	return nil
