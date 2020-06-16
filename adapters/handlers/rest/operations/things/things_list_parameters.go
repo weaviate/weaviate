@@ -44,6 +44,10 @@ type ThingsListParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
+	/*Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector
+	  In: query
+	*/
+	Include *string
 	/*The maximum number of items to be returned per page. Default value is set in Weaviate config.
 	  In: query
 	*/
@@ -65,6 +69,11 @@ func (o *ThingsListParams) BindRequest(r *http.Request, route *middleware.Matche
 
 	qs := runtime.Values(r.URL.Query())
 
+	qInclude, qhkInclude, _ := qs.GetOK("include")
+	if err := o.bindInclude(qInclude, qhkInclude, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
 	qLimit, qhkLimit, _ := qs.GetOK("limit")
 	if err := o.bindLimit(qLimit, qhkLimit, route.Formats); err != nil {
 		res = append(res, err)
@@ -78,6 +87,24 @@ func (o *ThingsListParams) BindRequest(r *http.Request, route *middleware.Matche
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+// bindInclude binds and validates parameter Include from query.
+func (o *ThingsListParams) bindInclude(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+
+	o.Include = &raw
+
 	return nil
 }
 

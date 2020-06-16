@@ -74,6 +74,11 @@ for the actions list operation typically these are written to a http.Request
 */
 type ActionsListParams struct {
 
+	/*Include
+	  Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector
+
+	*/
+	Include *string
 	/*Limit
 	  The maximum number of items to be returned per page. Default value is set in Weaviate config.
 
@@ -123,6 +128,17 @@ func (o *ActionsListParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
+// WithInclude adds the include to the actions list params
+func (o *ActionsListParams) WithInclude(include *string) *ActionsListParams {
+	o.SetInclude(include)
+	return o
+}
+
+// SetInclude adds the include to the actions list params
+func (o *ActionsListParams) SetInclude(include *string) {
+	o.Include = include
+}
+
 // WithLimit adds the limit to the actions list params
 func (o *ActionsListParams) WithLimit(limit *int64) *ActionsListParams {
 	o.SetLimit(limit)
@@ -152,6 +168,22 @@ func (o *ActionsListParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.R
 		return err
 	}
 	var res []error
+
+	if o.Include != nil {
+
+		// query param include
+		var qrInclude string
+		if o.Include != nil {
+			qrInclude = *o.Include
+		}
+		qInclude := qrInclude
+		if qInclude != "" {
+			if err := r.SetQueryParam("include", qInclude); err != nil {
+				return err
+			}
+		}
+
+	}
 
 	if o.Limit != nil {
 

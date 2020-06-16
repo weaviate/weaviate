@@ -16,6 +16,7 @@ package rest
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
@@ -166,10 +167,16 @@ func (h *kindHandlers) validateAction(params actions.ActionsValidateParams,
 func (h *kindHandlers) getThing(params things.ThingsGetParams,
 	principal *models.Principal) middleware.Responder {
 
-	underscores := traverser.UnderscoreProperties{}
+	underscores, err := parseIncludeParam(params.Include)
+	if err != nil {
+		return things.NewThingsGetBadRequest().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
 	if derefBool(params.Meta) {
 		deprecations.Log(h.logger, "rest-meta-prop")
 		underscores.Classification = true
+		underscores.Vector = true
 	}
 
 	thing, err := h.manager.GetThing(params.HTTPRequest.Context(), principal, params.ID, underscores)
@@ -197,11 +204,16 @@ func (h *kindHandlers) getThing(params things.ThingsGetParams,
 
 func (h *kindHandlers) getAction(params actions.ActionsGetParams,
 	principal *models.Principal) middleware.Responder {
-	underscores := traverser.UnderscoreProperties{}
+	underscores, err := parseIncludeParam(params.Include)
+	if err != nil {
+		return actions.NewActionsGetBadRequest().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
 
 	if derefBool(params.Meta) {
-		underscores.Classification = true
 		deprecations.Log(h.logger, "rest-meta-prop")
+		underscores.Classification = true
+		underscores.Vector = true
 	}
 	action, err := h.manager.GetAction(params.HTTPRequest.Context(), principal, params.ID, underscores)
 	if err != nil {
@@ -228,7 +240,12 @@ func (h *kindHandlers) getAction(params actions.ActionsGetParams,
 
 func (h *kindHandlers) getThings(params things.ThingsListParams,
 	principal *models.Principal) middleware.Responder {
-	underscores := traverser.UnderscoreProperties{}
+	underscores, err := parseIncludeParam(params.Include)
+	if err != nil {
+		return things.NewThingsListBadRequest().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
 	var deprecationsRes []*models.Deprecation
 
 	if derefBool(params.Meta) {
@@ -236,6 +253,7 @@ func (h *kindHandlers) getThings(params things.ThingsListParams,
 		d := deprecations.ByID["rest-meta-prop"]
 		deprecationsRes = append(deprecationsRes, &d)
 		underscores.Classification = true
+		underscores.Vector = true
 	}
 
 	list, err := h.manager.GetThings(params.HTTPRequest.Context(), principal, params.Limit, underscores)
@@ -268,7 +286,12 @@ func (h *kindHandlers) getThings(params things.ThingsListParams,
 
 func (h *kindHandlers) getActions(params actions.ActionsListParams,
 	principal *models.Principal) middleware.Responder {
-	underscores := traverser.UnderscoreProperties{}
+	underscores, err := parseIncludeParam(params.Include)
+	if err != nil {
+		return actions.NewActionsListBadRequest().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
 	var deprecationsRes []*models.Deprecation
 
 	if derefBool(params.Meta) {
@@ -276,6 +299,7 @@ func (h *kindHandlers) getActions(params actions.ActionsListParams,
 		d := deprecations.ByID["rest-meta-prop"]
 		deprecationsRes = append(deprecationsRes, &d)
 		underscores.Classification = true
+		underscores.Vector = true
 	}
 	list, err := h.manager.GetActions(params.HTTPRequest.Context(), principal, params.Limit, underscores)
 	if err != nil {
@@ -662,4 +686,27 @@ func (h *kindHandlers) extendReferenceWithAPILink(ref *models.SingleRef) *models
 
 	ref.Href = strfmt.URI(fmt.Sprintf("%s/v1/%ss/%s", h.config.Origin, parsed.Kind.Name(), parsed.TargetID))
 	return ref
+}
+
+func parseIncludeParam(in *string) (traverser.UnderscoreProperties, error) {
+	out := traverser.UnderscoreProperties{}
+	if in == nil {
+		return out, nil
+	}
+
+	parts := strings.Split(*in, ",")
+
+	for _, prop := range parts {
+		switch prop {
+		case "_classification", "classification":
+			out.Classification = true
+		case "_vector", "vector":
+			out.Vector = true
+
+		default:
+			return out, fmt.Errorf("unrecognized property '%s' in ?include list", prop)
+		}
+	}
+
+	return out, nil
 }

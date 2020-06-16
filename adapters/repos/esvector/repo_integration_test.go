@@ -273,8 +273,9 @@ func TestEsVectorRepo(t *testing.T) {
 		assert.Nil(t, item.UnderscoreProperties, "not meta information should be included unless explicitly asked for")
 	})
 
-	t.Run("searching an action by ID without meta", func(t *testing.T) {
-		item, err := repo.ActionByID(context.Background(), actionID, traverser.SelectProperties{}, traverser.UnderscoreProperties{Classification: true})
+	t.Run("searching an action by ID with underscore props", func(t *testing.T) {
+		item, err := repo.ActionByID(context.Background(), actionID, traverser.SelectProperties{},
+			traverser.UnderscoreProperties{Classification: true, Vector: true})
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 

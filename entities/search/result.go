@@ -55,6 +55,11 @@ func (r Result) Thing() *models.Thing {
 		VectorWeights:      r.VectorWeights,
 	}
 
+	if r.UnderscoreProperties != nil {
+		t.Vector = r.UnderscoreProperties.Vector
+		t.Classification = r.UnderscoreProperties.Classification
+	}
+
 	return t
 }
 
@@ -72,6 +77,11 @@ func (r Result) Action() *models.Action {
 		LastUpdateTimeUnix: r.Updated,
 		Meta:               r.UnderscoreProperties,
 		VectorWeights:      r.VectorWeights,
+	}
+
+	if r.UnderscoreProperties != nil {
+		t.Vector = r.UnderscoreProperties.Vector
+		t.Classification = r.UnderscoreProperties.Classification
 	}
 
 	return t

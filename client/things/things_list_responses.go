@@ -42,6 +42,12 @@ func (o *ThingsListReader) ReadResponse(response runtime.ClientResponse, consume
 			return nil, err
 		}
 		return result, nil
+	case 400:
+		result := NewThingsListBadRequest()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 401:
 		result := NewThingsListUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -96,6 +102,39 @@ func (o *ThingsListOK) GetPayload() *models.ThingsListResponse {
 func (o *ThingsListOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ThingsListResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewThingsListBadRequest creates a ThingsListBadRequest with default headers values
+func NewThingsListBadRequest() *ThingsListBadRequest {
+	return &ThingsListBadRequest{}
+}
+
+/*ThingsListBadRequest handles this case with default header values.
+
+Malformed request.
+*/
+type ThingsListBadRequest struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *ThingsListBadRequest) Error() string {
+	return fmt.Sprintf("[GET /things][%d] thingsListBadRequest  %+v", 400, o.Payload)
+}
+
+func (o *ThingsListBadRequest) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *ThingsListBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {

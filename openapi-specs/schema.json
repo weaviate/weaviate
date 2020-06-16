@@ -67,6 +67,14 @@
           "description": "Timestamp of the last update made to the Action since epoch UTC.",
           "format": "int64",
           "type": "integer"
+        },
+        "_classification": {
+          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
+          "$ref": "#/definitions/UnderscorePropertiesClassification"
+        },
+        "_vector": {
+          "description": "This object's position in the Contextionary vector space",
+          "$ref": "#/definitions/C11yVector"
         }
       },
       "type": "object"
@@ -885,6 +893,14 @@
           "description": "Timestamp of the last Thing update in milliseconds since epoch UTC.",
           "format": "int64",
           "type": "integer"
+        },
+        "_classification": {
+          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
+          "$ref": "#/definitions/UnderscorePropertiesClassification"
+        },
+        "_vector": {
+          "description": "This object's position in the Contextionary vector space",
+          "$ref": "#/definitions/C11yVector"
         }
       },
       "type": "object"
@@ -1208,6 +1224,13 @@
       "name": "meta",
       "required": false,
       "type": "boolean"
+    },
+    "CommonIncludeParameterQuery": {
+      "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector",
+      "in": "query",
+      "name": "include",
+      "required": false,
+      "type": "string"
     }
   },
   "paths": {
@@ -1269,6 +1292,9 @@
           },
           {
             "$ref": "#/parameters/CommonMetaParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonIncludeParameterQuery"
           }
         ],
         "responses": {
@@ -1276,6 +1302,12 @@
             "description": "Successful response.",
             "schema": {
               "$ref": "#/definitions/ActionsListResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -1456,6 +1488,9 @@
           },
           {
             "$ref": "#/parameters/CommonMetaParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonIncludeParameterQuery"
           }
         ],
         "responses": {
@@ -1463,6 +1498,12 @@
             "description": "Successful response.",
             "schema": {
               "$ref": "#/definitions/Action"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -2813,6 +2854,9 @@
           },
           {
             "$ref": "#/parameters/CommonMetaParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonIncludeParameterQuery"
           }
         ],
         "responses": {
@@ -2820,6 +2864,12 @@
             "description": "Successful response.",
             "schema": {
               "$ref": "#/definitions/ThingsListResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -3000,6 +3050,9 @@
           },
           {
             "$ref": "#/parameters/CommonMetaParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonIncludeParameterQuery"
           }
         ],
         "responses": {
@@ -3007,6 +3060,12 @@
             "description": "Successful response.",
             "schema": {
               "$ref": "#/definitions/Thing"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {

@@ -372,16 +372,19 @@ func (sr searchResponse) toResults(r *Repo, properties traverser.SelectPropertie
 			Updated:       int64(updated),
 			VectorWeights: weights,
 		}
-		if underscoreProps.Classification { // TODO: add other reasons to extract here
-			underscores := r.extractUnderscoreProps(hit.Source)
-			if underscores == nil {
-				// meta could be nil as we have no meta data other than the vector, in
-				// this case, we instantiate a new ObjectMeta object, so adding the
-				// vector doesn't panic with a nil-pointer deref
-				underscores = &models.UnderscoreProperties{}
+		if underscoreProps.Classification ||
+			underscoreProps.Vector {
+			var underscores = &models.UnderscoreProperties{}
+			storedUnderscores := r.extractUnderscoreProps(hit.Source)
+
+			if underscoreProps.Vector {
+				underscores.Vector = vector
 			}
 
-			underscores.Vector = vector
+			if storedUnderscores != nil && underscoreProps.Classification {
+				underscores.Classification = storedUnderscores.Classification
+
+			}
 			output[i].UnderscoreProperties = underscores
 		}
 	}

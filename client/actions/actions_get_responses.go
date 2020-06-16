@@ -42,6 +42,12 @@ func (o *ActionsGetReader) ReadResponse(response runtime.ClientResponse, consume
 			return nil, err
 		}
 		return result, nil
+	case 400:
+		result := NewActionsGetBadRequest()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 401:
 		result := NewActionsGetUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -96,6 +102,39 @@ func (o *ActionsGetOK) GetPayload() *models.Action {
 func (o *ActionsGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.Action)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewActionsGetBadRequest creates a ActionsGetBadRequest with default headers values
+func NewActionsGetBadRequest() *ActionsGetBadRequest {
+	return &ActionsGetBadRequest{}
+}
+
+/*ActionsGetBadRequest handles this case with default header values.
+
+Malformed request.
+*/
+type ActionsGetBadRequest struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *ActionsGetBadRequest) Error() string {
+	return fmt.Sprintf("[GET /actions/{id}][%d] actionsGetBadRequest  %+v", 400, o.Payload)
+}
+
+func (o *ActionsGetBadRequest) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *ActionsGetBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {

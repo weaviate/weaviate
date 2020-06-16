@@ -149,6 +149,9 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonMetaParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonIncludeParameterQuery"
           }
         ],
         "responses": {
@@ -156,6 +159,12 @@ func init() {
             "description": "Successful response.",
             "schema": {
               "$ref": "#/definitions/ActionsListResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -306,6 +315,9 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonMetaParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonIncludeParameterQuery"
           }
         ],
         "responses": {
@@ -313,6 +325,12 @@ func init() {
             "description": "Successful response.",
             "schema": {
               "$ref": "#/definitions/Action"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -2132,6 +2150,9 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonMetaParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonIncludeParameterQuery"
           }
         ],
         "responses": {
@@ -2139,6 +2160,12 @@ func init() {
             "description": "Successful response.",
             "schema": {
               "$ref": "#/definitions/ThingsListResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -2289,6 +2316,9 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonMetaParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonIncludeParameterQuery"
           }
         ],
         "responses": {
@@ -2296,6 +2326,12 @@ func init() {
             "description": "Successful response.",
             "schema": {
               "$ref": "#/definitions/Thing"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -2695,6 +2731,14 @@ func init() {
     "Action": {
       "type": "object",
       "properties": {
+        "_classification": {
+          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
+          "$ref": "#/definitions/UnderscorePropertiesClassification"
+        },
+        "_vector": {
+          "description": "This object's position in the Contextionary vector space",
+          "$ref": "#/definitions/C11yVector"
+        },
         "class": {
           "description": "Type of the Action, defined in the schema.",
           "type": "string"
@@ -3680,6 +3724,14 @@ func init() {
     "Thing": {
       "type": "object",
       "properties": {
+        "_classification": {
+          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
+          "$ref": "#/definitions/UnderscorePropertiesClassification"
+        },
+        "_vector": {
+          "description": "This object's position in the Contextionary vector space",
+          "$ref": "#/definitions/C11yVector"
+        },
         "class": {
           "description": "Class of the Thing, defined in the schema.",
           "type": "string"
@@ -3935,6 +3987,12 @@ func init() {
     }
   },
   "parameters": {
+    "CommonIncludeParameterQuery": {
+      "type": "string",
+      "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector",
+      "name": "include",
+      "in": "query"
+    },
     "CommonLimitParameterQuery": {
       "type": "integer",
       "format": "int64",
@@ -4122,6 +4180,12 @@ func init() {
             "description": "Should additional meta information (e.g. about classified properties) be included? Defaults to false.",
             "name": "meta",
             "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector",
+            "name": "include",
+            "in": "query"
           }
         ],
         "responses": {
@@ -4129,6 +4193,12 @@ func init() {
             "description": "Successful response.",
             "schema": {
               "$ref": "#/definitions/ActionsListResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -4282,6 +4352,12 @@ func init() {
             "description": "Should additional meta information (e.g. about classified properties) be included? Defaults to false.",
             "name": "meta",
             "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector",
+            "name": "include",
+            "in": "query"
           }
         ],
         "responses": {
@@ -4289,6 +4365,12 @@ func init() {
             "description": "Successful response.",
             "schema": {
               "$ref": "#/definitions/Action"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -6115,6 +6197,12 @@ func init() {
             "description": "Should additional meta information (e.g. about classified properties) be included? Defaults to false.",
             "name": "meta",
             "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector",
+            "name": "include",
+            "in": "query"
           }
         ],
         "responses": {
@@ -6122,6 +6210,12 @@ func init() {
             "description": "Successful response.",
             "schema": {
               "$ref": "#/definitions/ThingsListResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -6275,6 +6369,12 @@ func init() {
             "description": "Should additional meta information (e.g. about classified properties) be included? Defaults to false.",
             "name": "meta",
             "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector",
+            "name": "include",
+            "in": "query"
           }
         ],
         "responses": {
@@ -6282,6 +6382,12 @@ func init() {
             "description": "Successful response.",
             "schema": {
               "$ref": "#/definitions/Thing"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -6681,6 +6787,14 @@ func init() {
     "Action": {
       "type": "object",
       "properties": {
+        "_classification": {
+          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
+          "$ref": "#/definitions/UnderscorePropertiesClassification"
+        },
+        "_vector": {
+          "description": "This object's position in the Contextionary vector space",
+          "$ref": "#/definitions/C11yVector"
+        },
         "class": {
           "description": "Type of the Action, defined in the schema.",
           "type": "string"
@@ -7755,6 +7869,14 @@ func init() {
     "Thing": {
       "type": "object",
       "properties": {
+        "_classification": {
+          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
+          "$ref": "#/definitions/UnderscorePropertiesClassification"
+        },
+        "_vector": {
+          "description": "This object's position in the Contextionary vector space",
+          "$ref": "#/definitions/C11yVector"
+        },
         "class": {
           "description": "Class of the Thing, defined in the schema.",
           "type": "string"
@@ -8037,6 +8159,12 @@ func init() {
     }
   },
   "parameters": {
+    "CommonIncludeParameterQuery": {
+      "type": "string",
+      "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector",
+      "name": "include",
+      "in": "query"
+    },
     "CommonLimitParameterQuery": {
       "type": "integer",
       "format": "int64",
