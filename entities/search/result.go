@@ -23,18 +23,18 @@ import (
 // additional info the ID can be used to retrieve the full concept from the
 // connector storage
 type Result struct {
-	ID            strfmt.UUID
-	Kind          kind.Kind
-	ClassName     string
-	Score         float32
-	Vector        []float32
-	Beacon        string
-	Certainty     float32
-	Schema        models.PropertySchema
-	Created       int64
-	Updated       int64
-	Meta          *models.ObjectMeta
-	VectorWeights map[string]string
+	ID                   strfmt.UUID
+	Kind                 kind.Kind
+	ClassName            string
+	Score                float32
+	Vector               []float32
+	Beacon               string
+	Certainty            float32
+	Schema               models.PropertySchema
+	Created              int64
+	Updated              int64
+	UnderscoreProperties *models.UnderscoreProperties
+	VectorWeights        map[string]string
 }
 
 type Results []Result
@@ -51,8 +51,13 @@ func (r Result) Thing() *models.Thing {
 		Schema:             schema,
 		CreationTimeUnix:   r.Created,
 		LastUpdateTimeUnix: r.Updated,
-		Meta:               r.Meta,
+		Meta:               r.UnderscoreProperties,
 		VectorWeights:      r.VectorWeights,
+	}
+
+	if r.UnderscoreProperties != nil {
+		t.Vector = r.UnderscoreProperties.Vector
+		t.Classification = r.UnderscoreProperties.Classification
 	}
 
 	return t
@@ -70,8 +75,13 @@ func (r Result) Action() *models.Action {
 		Schema:             schema,
 		CreationTimeUnix:   r.Created,
 		LastUpdateTimeUnix: r.Updated,
-		Meta:               r.Meta,
+		Meta:               r.UnderscoreProperties,
 		VectorWeights:      r.VectorWeights,
+	}
+
+	if r.UnderscoreProperties != nil {
+		t.Vector = r.UnderscoreProperties.Vector
+		t.Classification = r.UnderscoreProperties.Classification
 	}
 
 	return t

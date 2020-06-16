@@ -22,6 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/kinds/validation"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 // UpdateActionReferences Class Instance to the connected DB. If the class contains a network
@@ -52,7 +53,7 @@ func (m *Manager) updateActionReferenceToConnectorAndSchema(ctx context.Context,
 	id strfmt.UUID, propertyName string, refs models.MultipleRef) error {
 
 	// get action to see if it exists
-	actionRes, err := m.getActionFromRepo(ctx, id, false)
+	actionRes, err := m.getActionFromRepo(ctx, id, traverser.UnderscoreProperties{})
 	if err != nil {
 		return err
 	}
@@ -117,7 +118,7 @@ func (m *Manager) updateThingReferenceToConnectorAndSchema(ctx context.Context, 
 	id strfmt.UUID, propertyName string, refs models.MultipleRef) error {
 
 	// get thing to see if it exists
-	thingRes, err := m.getThingFromRepo(ctx, id, false)
+	thingRes, err := m.getThingFromRepo(ctx, id, traverser.UnderscoreProperties{})
 	if err != nil {
 		return err
 	}

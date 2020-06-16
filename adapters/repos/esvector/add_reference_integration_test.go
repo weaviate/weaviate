@@ -25,6 +25,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -128,7 +129,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 	refreshAll(t, client)
 
 	t.Run("check reference was added", func(t *testing.T) {
-		source, err := repo.ThingByID(context.Background(), sourceID, nil, false)
+		source, err := repo.ThingByID(context.Background(), sourceID, nil, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 
 		refs := source.Thing().Schema.(map[string]interface{})["toTarget"]
@@ -156,7 +157,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 	refreshAll(t, client)
 
 	t.Run("check both references are now present", func(t *testing.T) {
-		source, err := repo.ThingByID(context.Background(), sourceID, nil, false)
+		source, err := repo.ThingByID(context.Background(), sourceID, nil, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 
 		refs := source.Thing().Schema.(map[string]interface{})["toTarget"]
