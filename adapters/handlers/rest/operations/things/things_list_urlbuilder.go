@@ -28,8 +28,9 @@ import (
 
 // ThingsListURL generates an URL for the things list operation
 type ThingsListURL struct {
-	Limit *int64
-	Meta  *bool
+	Include *string
+	Limit   *int64
+	Meta    *bool
 
 	_basePath string
 	// avoid unkeyed usage
@@ -64,6 +65,14 @@ func (o *ThingsListURL) Build() (*url.URL, error) {
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
 
 	qs := make(url.Values)
+
+	var includeQ string
+	if o.Include != nil {
+		includeQ = *o.Include
+	}
+	if includeQ != "" {
+		qs.Set("include", includeQ)
+	}
 
 	var limitQ string
 	if o.Limit != nil {

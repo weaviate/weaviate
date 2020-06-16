@@ -23,6 +23,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/config"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -68,13 +69,13 @@ func Test_Kinds_Authorization(t *testing.T) {
 		},
 		testCase{
 			methodName:       "GetThing",
-			additionalArgs:   []interface{}{strfmt.UUID("foo"), false},
+			additionalArgs:   []interface{}{strfmt.UUID("foo"), traverser.UnderscoreProperties{}},
 			expectedVerb:     "get",
 			expectedResource: "things/foo",
 		},
 		testCase{
 			methodName:       "GetAction",
-			additionalArgs:   []interface{}{strfmt.UUID("foo"), false},
+			additionalArgs:   []interface{}{strfmt.UUID("foo"), traverser.UnderscoreProperties{}},
 			expectedVerb:     "get",
 			expectedResource: "actions/foo",
 		},
@@ -118,13 +119,13 @@ func Test_Kinds_Authorization(t *testing.T) {
 		// list kinds
 		testCase{
 			methodName:       "GetThings",
-			additionalArgs:   []interface{}{(*int64)(nil), false},
+			additionalArgs:   []interface{}{(*int64)(nil), traverser.UnderscoreProperties{}},
 			expectedVerb:     "list",
 			expectedResource: "things",
 		},
 		testCase{
 			methodName:       "GetActions",
-			additionalArgs:   []interface{}{(*int64)(nil), false},
+			additionalArgs:   []interface{}{(*int64)(nil), traverser.UnderscoreProperties{}},
 			expectedVerb:     "list",
 			expectedResource: "actions",
 		},

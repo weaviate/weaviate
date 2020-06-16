@@ -21,14 +21,14 @@ package models
 import (
 	"strconv"
 
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
 )
 
 // C11yVectorBasedQuestion Receive question based on array of classes, properties and values.
+//
 // swagger:model C11yVectorBasedQuestion
 type C11yVectorBasedQuestion []*C11yVectorBasedQuestionItems0
 
@@ -59,6 +59,7 @@ func (m C11yVectorBasedQuestion) Validate(formats strfmt.Registry) error {
 }
 
 // C11yVectorBasedQuestionItems0 c11y vector based question items0
+//
 // swagger:model C11yVectorBasedQuestionItems0
 type C11yVectorBasedQuestionItems0 struct {
 
@@ -164,6 +165,7 @@ func (m *C11yVectorBasedQuestionItems0) UnmarshalBinary(b []byte) error {
 }
 
 // C11yVectorBasedQuestionItems0ClassPropsItems0 c11y vector based question items0 class props items0
+//
 // swagger:model C11yVectorBasedQuestionItems0ClassPropsItems0
 type C11yVectorBasedQuestionItems0ClassPropsItems0 struct {
 

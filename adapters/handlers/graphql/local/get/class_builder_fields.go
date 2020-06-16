@@ -255,7 +255,7 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 		}
 
 		selectionsOfClass := p.Info.FieldASTs[0].SelectionSet
-		properties, err := extractProperties(selectionsOfClass, p.Info.Fragments)
+		properties, underscore, err := extractProperties(selectionsOfClass, p.Info.Fragments)
 		if err != nil {
 			return nil, err
 		}
@@ -274,13 +274,14 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 		group := extractGroup(p.Args)
 
 		params := traverser.GetParams{
-			Filters:    filters,
-			Kind:       k,
-			ClassName:  className,
-			Pagination: pagination,
-			Properties: properties,
-			Explore:    exploreParams,
-			Group:      group,
+			Filters:              filters,
+			Kind:                 k,
+			ClassName:            className,
+			Pagination:           pagination,
+			Properties:           properties,
+			Explore:              exploreParams,
+			Group:                group,
+			UnderscoreProperties: underscore,
 		}
 
 		// Log the request
@@ -341,6 +342,10 @@ func isPrimitive(selectionSet *ast.SelectionSet) bool {
 	return false
 }
 
+func isUnderscore(name string) bool {
+	return name[0] == '_'
+}
+
 func fieldNameIsOfObjectButNonReferenceType(field string) bool {
 	switch field {
 	case "latitude", "longitude":
@@ -355,15 +360,16 @@ func fieldNameIsOfObjectButNonReferenceType(field string) bool {
 	}
 }
 
-func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.Definition) ([]traverser.SelectProperty, error) {
+func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.Definition) ([]traverser.SelectProperty, traverser.UnderscoreProperties, error) {
 	var properties []traverser.SelectProperty
+	var underscoreProps traverser.UnderscoreProperties
 
 	for _, selection := range selections.Selections {
 		field := selection.(*ast.Field)
 		name := field.Name.Value
 		property := traverser.SelectProperty{Name: name}
 
-		property.IsPrimitive = isPrimitive(field.SelectionSet)
+		property.IsPrimitive = isPrimitive(field.SelectionSet) || isUnderscore(name)
 		if !property.IsPrimitive {
 			// We can interpret this property in different ways
 			for _, subSelection := range field.SelectionSet.Selections {
@@ -375,13 +381,13 @@ func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.De
 						property.IncludeTypeName = true
 						continue
 					} else {
-						return nil, fmt.Errorf("Expected a InlineFragment, not a '%s' field ", s.Name.Value)
+						return nil, underscoreProps, fmt.Errorf("Expected a InlineFragment, not a '%s' field ", s.Name.Value)
 					}
 
 				case *ast.FragmentSpread:
 					ref, err := extractFragmentSpread(s, fragments)
 					if err != nil {
-						return nil, err
+						return nil, underscoreProps, err
 					}
 
 					property.Refs = append(property.Refs, ref)
@@ -389,21 +395,28 @@ func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.De
 				case *ast.InlineFragment:
 					ref, err := extractInlineFragment(s, fragments)
 					if err != nil {
-						return nil, err
+						return nil, underscoreProps, err
 					}
 
 					property.Refs = append(property.Refs, ref)
 
 				default:
-					return nil, fmt.Errorf("unrecoginzed type in subs-selection: %T", subSelection)
+					return nil, underscoreProps, fmt.Errorf("unrecoginzed type in subs-selection: %T", subSelection)
 				}
 			}
 		}
 
-		properties = append(properties, property)
+		if isUnderscore(name) {
+			switch name {
+			case "_classification":
+				underscoreProps.Classification = true
+			}
+		} else {
+			properties = append(properties, property)
+		}
 	}
 
-	return properties, nil
+	return properties, underscoreProps, nil
 }
 
 func extractInlineFragment(fragment *ast.InlineFragment, fragments map[string]ast.Definition) (traverser.SelectClass, error) {
@@ -426,7 +439,7 @@ func extractInlineFragment(fragment *ast.InlineFragment, fragments map[string]as
 		return result, fmt.Errorf("retrieving cross-refs by beacon is not supported yet - coming soon!")
 	}
 
-	subProperties, err := extractProperties(fragment.SelectionSet, fragments)
+	subProperties, _, err := extractProperties(fragment.SelectionSet, fragments)
 	if err != nil {
 		return result, err
 	}
@@ -450,7 +463,7 @@ func extractFragmentSpread(spread *ast.FragmentSpread, fragments map[string]ast.
 		return result, err
 	}
 
-	subProperties, err := extractProperties(def.GetSelectionSet(), fragments)
+	subProperties, _, err := extractProperties(def.GetSelectionSet(), fragments)
 	if err != nil {
 		return result, err
 	}
