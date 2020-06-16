@@ -22,12 +22,11 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/runtime"
-
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/strfmt"
 )
 
 // New creates a new p2 p API client.
-func New(transport runtime.ClientTransport, formats strfmt.Registry) *Client {
+func New(transport runtime.ClientTransport, formats strfmt.Registry) ClientService {
 	return &Client{transport: transport, formats: formats}
 }
 
@@ -39,8 +38,17 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
+// ClientService is the interface for Client methods
+type ClientService interface {
+	P2pGenesisUpdate(params *P2pGenesisUpdateParams) (*P2pGenesisUpdateOK, error)
+
+	P2pHealth(params *P2pHealthParams) (*P2pHealthOK, error)
+
+	SetTransport(transport runtime.ClientTransport)
+}
+
 /*
-P2pGenesisUpdate Receive an update from the Genesis server.
+  P2pGenesisUpdate Receive an update from the Genesis server.
 */
 func (a *Client) P2pGenesisUpdate(params *P2pGenesisUpdateParams) (*P2pGenesisUpdateOK, error) {
 	// TODO: Validate the params before sending
@@ -74,9 +82,9 @@ func (a *Client) P2pGenesisUpdate(params *P2pGenesisUpdateParams) (*P2pGenesisUp
 }
 
 /*
-P2pHealth checks if a peer is alive
+  P2pHealth checks if a peer is alive
 
-Check if a peer is alive and healthy.
+  Check if a peer is alive and healthy.
 */
 func (a *Client) P2pHealth(params *P2pHealthParams) (*P2pHealthOK, error) {
 	// TODO: Validate the params before sending

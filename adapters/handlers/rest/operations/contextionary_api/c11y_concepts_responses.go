@@ -23,7 +23,7 @@ import (
 
 	"github.com/go-openapi/runtime"
 
-	models "github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 // C11yConceptsOKCode is the HTTP code returned for type C11yConceptsOK

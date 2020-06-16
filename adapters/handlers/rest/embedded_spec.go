@@ -149,6 +149,9 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonMetaParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonIncludeParameterQuery"
           }
         ],
         "responses": {
@@ -156,6 +159,12 @@ func init() {
             "description": "Successful response.",
             "schema": {
               "$ref": "#/definitions/ActionsListResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -306,6 +315,9 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonMetaParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonIncludeParameterQuery"
           }
         ],
         "responses": {
@@ -313,6 +325,12 @@ func init() {
             "description": "Successful response.",
             "schema": {
               "$ref": "#/definitions/Action"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -2132,6 +2150,9 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonMetaParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonIncludeParameterQuery"
           }
         ],
         "responses": {
@@ -2139,6 +2160,12 @@ func init() {
             "description": "Successful response.",
             "schema": {
               "$ref": "#/definitions/ThingsListResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -2289,6 +2316,9 @@ func init() {
           },
           {
             "$ref": "#/parameters/CommonMetaParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonIncludeParameterQuery"
           }
         ],
         "responses": {
@@ -2296,6 +2326,12 @@ func init() {
             "description": "Successful response.",
             "schema": {
               "$ref": "#/definitions/Thing"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -2695,6 +2731,14 @@ func init() {
     "Action": {
       "type": "object",
       "properties": {
+        "_classification": {
+          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
+          "$ref": "#/definitions/UnderscorePropertiesClassification"
+        },
+        "_vector": {
+          "description": "This object's position in the Contextionary vector space",
+          "$ref": "#/definitions/C11yVector"
+        },
         "class": {
           "description": "Type of the Action, defined in the schema.",
           "type": "string"
@@ -2715,7 +2759,7 @@ func init() {
           "format": "int64"
         },
         "meta": {
-          "$ref": "#/definitions/ObjectMeta"
+          "$ref": "#/definitions/UnderscoreProperties"
         },
         "schema": {
           "$ref": "#/definitions/PropertySchema"
@@ -2730,6 +2774,16 @@ func init() {
       "allOf": [
         {
           "$ref": "#/definitions/Action"
+        },
+        {
+          "properties": {
+            "deprecations": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Deprecation"
+              }
+            }
+          }
         },
         {
           "properties": {
@@ -2764,6 +2818,12 @@ func init() {
           "type": "array",
           "items": {
             "$ref": "#/definitions/Action"
+          }
+        },
+        "deprecations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Deprecation"
           }
         },
         "totalResults": {
@@ -3136,6 +3196,62 @@ func init() {
         }
       }
     },
+    "Deprecation": {
+      "type": "object",
+      "properties": {
+        "apiType": {
+          "description": "Describes which API is effected, usually one of: REST, GraphQL",
+          "type": "string"
+        },
+        "id": {
+          "description": "The id that uniquely identifies this particular deprecations (mostly used internally)",
+          "type": "string"
+        },
+        "locations": {
+          "description": "The locations within the specified API affected by this deprecation",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "mitigation": {
+          "description": "User-required action to not be affected by the (planned) removal",
+          "type": "string"
+        },
+        "msg": {
+          "description": "What this deprecation is about",
+          "type": "string"
+        },
+        "plannedRemovalVersion": {
+          "description": "A best-effort guess of which upcoming version will remove the feature entirely",
+          "type": "string"
+        },
+        "removedIn": {
+          "description": "If the feature has already been removed, it was removed in this version",
+          "type": "string",
+          "x-nullable": true
+        },
+        "removedTime": {
+          "description": "If the feature has already been removed, it was removed at this timestamp",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
+        "sinceTime": {
+          "description": "The deprecation was introduced in this version",
+          "type": "string",
+          "format": "date-time"
+        },
+        "sinceVersion": {
+          "description": "The deprecation was introduced in this version",
+          "type": "string"
+        },
+        "status": {
+          "description": "Whether the problematic API functionality is deprecated (planned to be removed) or already removed",
+          "type": "string"
+        }
+      }
+    },
     "ErrorResponse": {
       "description": "An error response given by Weaviate end-points.",
       "type": "object",
@@ -3320,55 +3436,6 @@ func init() {
       "type": "array",
       "items": {
         "$ref": "#/definitions/SingleRef"
-      }
-    },
-    "ObjectMeta": {
-      "description": "Additional Meta information about a single thing/action object.",
-      "properties": {
-        "classification": {
-          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
-          "$ref": "#/definitions/ObjectMetaClassification"
-        },
-        "vector": {
-          "description": "This object's position in the Contextionary vector space",
-          "$ref": "#/definitions/C11yVector"
-        }
-      }
-    },
-    "ObjectMetaClassification": {
-      "description": "This meta field contains additional info about the classification which affected this object",
-      "properties": {
-        "basedOn": {
-          "description": "The (primitive) field(s) which were used as a basis for classification. For example, if the type of classification is \"knn\" with k=3, the 3 nearest neighbors - based on these fields - were considered for the classification.",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "classifiedFields": {
-          "description": "The (reference) fields which were classified as part of this classification. Note that this might contain fewere entries than \"scope\", if one of the fields was already set prior to the classification, for example",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "completed": {
-          "description": "Timestamp when this particular object was classified. This is usually sooner than the overall completion time of the classification, as the overall completion time will only be set once every object has been classified.",
-          "type": "string",
-          "format": "date-time"
-        },
-        "id": {
-          "description": "unique identifier of the classification run",
-          "type": "string",
-          "format": "uuid"
-        },
-        "scope": {
-          "description": "The properties in scope of the classification. Note that this doesn't mean that these fields were necessarily classified, this only means that those fields were in scope of the classificiation. See \"classifiedFields\" for details.",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
       }
     },
     "PatchDocumentAction": {
@@ -3657,6 +3724,14 @@ func init() {
     "Thing": {
       "type": "object",
       "properties": {
+        "_classification": {
+          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
+          "$ref": "#/definitions/UnderscorePropertiesClassification"
+        },
+        "_vector": {
+          "description": "This object's position in the Contextionary vector space",
+          "$ref": "#/definitions/C11yVector"
+        },
         "class": {
           "description": "Class of the Thing, defined in the schema.",
           "type": "string"
@@ -3677,7 +3752,7 @@ func init() {
           "format": "int64"
         },
         "meta": {
-          "$ref": "#/definitions/ObjectMeta"
+          "$ref": "#/definitions/UnderscoreProperties"
         },
         "schema": {
           "$ref": "#/definitions/PropertySchema"
@@ -3692,6 +3767,16 @@ func init() {
       "allOf": [
         {
           "$ref": "#/definitions/Thing"
+        },
+        {
+          "properties": {
+            "deprecations": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Deprecation"
+              }
+            }
+          }
         },
         {
           "properties": {
@@ -3721,6 +3806,12 @@ func init() {
       "description": "List of Things.",
       "type": "object",
       "properties": {
+        "deprecations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Deprecation"
+          }
+        },
         "things": {
           "description": "The actual list of Things.",
           "type": "array",
@@ -3732,6 +3823,55 @@ func init() {
           "description": "The total number of Things for the query. The number of items in a response may be smaller due to paging.",
           "type": "integer",
           "format": "int64"
+        }
+      }
+    },
+    "UnderscoreProperties": {
+      "description": "Additional Meta information about a single thing/action object.",
+      "properties": {
+        "classification": {
+          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
+          "$ref": "#/definitions/UnderscorePropertiesClassification"
+        },
+        "vector": {
+          "description": "This object's position in the Contextionary vector space",
+          "$ref": "#/definitions/C11yVector"
+        }
+      }
+    },
+    "UnderscorePropertiesClassification": {
+      "description": "This meta field contains additional info about the classification which affected this object",
+      "properties": {
+        "basedOn": {
+          "description": "The (primitive) field(s) which were used as a basis for classification. For example, if the type of classification is \"knn\" with k=3, the 3 nearest neighbors - based on these fields - were considered for the classification.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "classifiedFields": {
+          "description": "The (reference) fields which were classified as part of this classification. Note that this might contain fewere entries than \"scope\", if one of the fields was already set prior to the classification, for example",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "completed": {
+          "description": "Timestamp when this particular object was classified. This is usually sooner than the overall completion time of the classification, as the overall completion time will only be set once every object has been classified.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "id": {
+          "description": "unique identifier of the classification run",
+          "type": "string",
+          "format": "uuid"
+        },
+        "scope": {
+          "description": "The properties in scope of the classification. Note that this doesn't mean that these fields were necessarily classified, this only means that those fields were in scope of the classificiation. See \"classifiedFields\" for details.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -3847,6 +3987,12 @@ func init() {
     }
   },
   "parameters": {
+    "CommonIncludeParameterQuery": {
+      "type": "string",
+      "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector",
+      "name": "include",
+      "in": "query"
+    },
     "CommonLimitParameterQuery": {
       "type": "integer",
       "format": "int64",
@@ -3910,8 +4056,8 @@ func init() {
 }`))
 	FlatSwaggerJSON = json.RawMessage([]byte(`{
   "consumes": [
-    "application/yaml",
-    "application/json"
+    "application/json",
+    "application/yaml"
   ],
   "produces": [
     "application/json"
@@ -4034,6 +4180,12 @@ func init() {
             "description": "Should additional meta information (e.g. about classified properties) be included? Defaults to false.",
             "name": "meta",
             "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector",
+            "name": "include",
+            "in": "query"
           }
         ],
         "responses": {
@@ -4041,6 +4193,12 @@ func init() {
             "description": "Successful response.",
             "schema": {
               "$ref": "#/definitions/ActionsListResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -4194,6 +4352,12 @@ func init() {
             "description": "Should additional meta information (e.g. about classified properties) be included? Defaults to false.",
             "name": "meta",
             "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector",
+            "name": "include",
+            "in": "query"
           }
         ],
         "responses": {
@@ -4201,6 +4365,12 @@ func init() {
             "description": "Successful response.",
             "schema": {
               "$ref": "#/definitions/Action"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -6027,6 +6197,12 @@ func init() {
             "description": "Should additional meta information (e.g. about classified properties) be included? Defaults to false.",
             "name": "meta",
             "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector",
+            "name": "include",
+            "in": "query"
           }
         ],
         "responses": {
@@ -6034,6 +6210,12 @@ func init() {
             "description": "Successful response.",
             "schema": {
               "$ref": "#/definitions/ThingsListResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -6187,6 +6369,12 @@ func init() {
             "description": "Should additional meta information (e.g. about classified properties) be included? Defaults to false.",
             "name": "meta",
             "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector",
+            "name": "include",
+            "in": "query"
           }
         ],
         "responses": {
@@ -6194,6 +6382,12 @@ func init() {
             "description": "Successful response.",
             "schema": {
               "$ref": "#/definitions/Thing"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -6593,6 +6787,14 @@ func init() {
     "Action": {
       "type": "object",
       "properties": {
+        "_classification": {
+          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
+          "$ref": "#/definitions/UnderscorePropertiesClassification"
+        },
+        "_vector": {
+          "description": "This object's position in the Contextionary vector space",
+          "$ref": "#/definitions/C11yVector"
+        },
         "class": {
           "description": "Type of the Action, defined in the schema.",
           "type": "string"
@@ -6613,7 +6815,7 @@ func init() {
           "format": "int64"
         },
         "meta": {
-          "$ref": "#/definitions/ObjectMeta"
+          "$ref": "#/definitions/UnderscoreProperties"
         },
         "schema": {
           "$ref": "#/definitions/PropertySchema"
@@ -6628,6 +6830,16 @@ func init() {
       "allOf": [
         {
           "$ref": "#/definitions/Action"
+        },
+        {
+          "properties": {
+            "deprecations": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Deprecation"
+              }
+            }
+          }
         },
         {
           "properties": {
@@ -6653,6 +6865,24 @@ func init() {
         }
       ]
     },
+    "ActionsGetResponseAO2Result": {
+      "description": "Results for this specific Action.",
+      "format": "object",
+      "properties": {
+        "errors": {
+          "$ref": "#/definitions/ErrorResponse"
+        },
+        "status": {
+          "type": "string",
+          "default": "SUCCESS",
+          "enum": [
+            "SUCCESS",
+            "PENDING",
+            "FAILED"
+          ]
+        }
+      }
+    },
     "ActionsListResponse": {
       "description": "List of Actions.",
       "type": "object",
@@ -6662,6 +6892,12 @@ func init() {
           "type": "array",
           "items": {
             "$ref": "#/definitions/Action"
+          }
+        },
+        "deprecations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Deprecation"
           }
         },
         "totalResults": {
@@ -6717,6 +6953,24 @@ func init() {
         }
       ]
     },
+    "BatchReferenceResponseAO1Result": {
+      "description": "Results for this specific reference.",
+      "format": "object",
+      "properties": {
+        "errors": {
+          "$ref": "#/definitions/ErrorResponse"
+        },
+        "status": {
+          "type": "string",
+          "default": "SUCCESS",
+          "enum": [
+            "SUCCESS",
+            "PENDING",
+            "FAILED"
+          ]
+        }
+      }
+    },
     "C11yExtension": {
       "description": "A resource describing an extension to the contextinoary, containing both the identifier and the definition of the extension",
       "properties": {
@@ -6740,15 +6994,18 @@ func init() {
       "description": "C11y function to show the nearest neighbors to a word.",
       "type": "array",
       "items": {
-        "type": "object",
-        "properties": {
-          "distance": {
-            "type": "number",
-            "format": "float"
-          },
-          "word": {
-            "type": "string"
-          }
+        "$ref": "#/definitions/C11yNearestNeighborsItems0"
+      }
+    },
+    "C11yNearestNeighborsItems0": {
+      "type": "object",
+      "properties": {
+        "distance": {
+          "type": "number",
+          "format": "float"
+        },
+        "word": {
+          "type": "string"
         }
       }
     },
@@ -6766,40 +7023,46 @@ func init() {
       "description": "Receive question based on array of classes, properties and values.",
       "type": "array",
       "items": {
-        "type": "object",
-        "properties": {
-          "classProps": {
-            "description": "Vectorized properties.",
-            "type": "array",
-            "maxItems": 300,
-            "minItems": 300,
-            "items": {
-              "type": "object",
-              "properties": {
-                "propsVectors": {
-                  "type": "array",
-                  "items": {
-                    "type": "number",
-                    "format": "float"
-                  }
-                },
-                "value": {
-                  "description": "String with valuename.",
-                  "type": "string"
-                }
-              }
-            }
-          },
-          "classVectors": {
-            "description": "Vectorized classname.",
-            "type": "array",
-            "maxItems": 300,
-            "minItems": 300,
-            "items": {
-              "type": "number",
-              "format": "float"
-            }
+        "$ref": "#/definitions/C11yVectorBasedQuestionItems0"
+      }
+    },
+    "C11yVectorBasedQuestionItems0": {
+      "type": "object",
+      "properties": {
+        "classProps": {
+          "description": "Vectorized properties.",
+          "type": "array",
+          "maxItems": 300,
+          "minItems": 300,
+          "items": {
+            "$ref": "#/definitions/C11yVectorBasedQuestionItems0ClassPropsItems0"
           }
+        },
+        "classVectors": {
+          "description": "Vectorized classname.",
+          "type": "array",
+          "maxItems": 300,
+          "minItems": 300,
+          "items": {
+            "type": "number",
+            "format": "float"
+          }
+        }
+      }
+    },
+    "C11yVectorBasedQuestionItems0ClassPropsItems0": {
+      "type": "object",
+      "properties": {
+        "propsVectors": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float"
+          }
+        },
+        "value": {
+          "description": "String with valuename.",
+          "type": "string"
         }
       }
     },
@@ -6831,27 +7094,62 @@ func init() {
           "description": "Weighted results for per individual word",
           "type": "array",
           "items": {
-            "type": "object",
-            "properties": {
-              "inC11y": {
-                "type": "boolean"
-              },
-              "info": {
-                "type": "object",
-                "properties": {
-                  "nearestNeighbors": {
-                    "$ref": "#/definitions/C11yNearestNeighbors"
-                  },
-                  "vector": {
-                    "$ref": "#/definitions/C11yVector"
-                  }
-                }
-              },
-              "word": {
-                "type": "string"
-              }
+            "$ref": "#/definitions/C11yWordsResponseIndividualWordsItems0"
+          }
+        }
+      }
+    },
+    "C11yWordsResponseConcatenatedWord": {
+      "description": "Weighted results for all words",
+      "type": "object",
+      "properties": {
+        "concatenatedNearestNeighbors": {
+          "$ref": "#/definitions/C11yNearestNeighbors"
+        },
+        "concatenatedVector": {
+          "$ref": "#/definitions/C11yVector"
+        },
+        "concatenatedWord": {
+          "type": "string"
+        },
+        "singleWords": {
+          "type": "array",
+          "items": {
+            "format": "string"
+          }
+        }
+      }
+    },
+    "C11yWordsResponseIndividualWordsItems0": {
+      "type": "object",
+      "properties": {
+        "inC11y": {
+          "type": "boolean"
+        },
+        "info": {
+          "type": "object",
+          "properties": {
+            "nearestNeighbors": {
+              "$ref": "#/definitions/C11yNearestNeighbors"
+            },
+            "vector": {
+              "$ref": "#/definitions/C11yVector"
             }
           }
+        },
+        "word": {
+          "type": "string"
+        }
+      }
+    },
+    "C11yWordsResponseIndividualWordsItems0Info": {
+      "type": "object",
+      "properties": {
+        "nearestNeighbors": {
+          "$ref": "#/definitions/C11yNearestNeighbors"
+        },
+        "vector": {
+          "$ref": "#/definitions/C11yVector"
         }
       }
     },
@@ -7034,6 +7332,62 @@ func init() {
         }
       }
     },
+    "Deprecation": {
+      "type": "object",
+      "properties": {
+        "apiType": {
+          "description": "Describes which API is effected, usually one of: REST, GraphQL",
+          "type": "string"
+        },
+        "id": {
+          "description": "The id that uniquely identifies this particular deprecations (mostly used internally)",
+          "type": "string"
+        },
+        "locations": {
+          "description": "The locations within the specified API affected by this deprecation",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "mitigation": {
+          "description": "User-required action to not be affected by the (planned) removal",
+          "type": "string"
+        },
+        "msg": {
+          "description": "What this deprecation is about",
+          "type": "string"
+        },
+        "plannedRemovalVersion": {
+          "description": "A best-effort guess of which upcoming version will remove the feature entirely",
+          "type": "string"
+        },
+        "removedIn": {
+          "description": "If the feature has already been removed, it was removed in this version",
+          "type": "string",
+          "x-nullable": true
+        },
+        "removedTime": {
+          "description": "If the feature has already been removed, it was removed at this timestamp",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
+        "sinceTime": {
+          "description": "The deprecation was introduced in this version",
+          "type": "string",
+          "format": "date-time"
+        },
+        "sinceVersion": {
+          "description": "The deprecation was introduced in this version",
+          "type": "string"
+        },
+        "status": {
+          "description": "Whether the problematic API functionality is deprecated (planned to be removed) or already removed",
+          "type": "string"
+        }
+      }
+    },
     "ErrorResponse": {
       "description": "An error response given by Weaviate end-points.",
       "type": "object",
@@ -7041,13 +7395,16 @@ func init() {
         "error": {
           "type": "array",
           "items": {
-            "type": "object",
-            "properties": {
-              "message": {
-                "type": "string"
-              }
-            }
+            "$ref": "#/definitions/ErrorResponseErrorItems0"
           }
+        }
+      }
+    },
+    "ErrorResponseErrorItems0": {
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string"
         }
       }
     },
@@ -7073,17 +7430,7 @@ func init() {
         "locations": {
           "type": "array",
           "items": {
-            "type": "object",
-            "properties": {
-              "column": {
-                "type": "integer",
-                "format": "int64"
-              },
-              "line": {
-                "type": "integer",
-                "format": "int64"
-              }
-            }
+            "$ref": "#/definitions/GraphQLErrorLocationsItems0"
           }
         },
         "message": {
@@ -7094,6 +7441,19 @@ func init() {
           "items": {
             "type": "string"
           }
+        }
+      }
+    },
+    "GraphQLErrorLocationsItems0": {
+      "type": "object",
+      "properties": {
+        "column": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "line": {
+          "type": "integer",
+          "format": "int64"
         }
       }
     },
@@ -7156,15 +7516,18 @@ func init() {
       "description": "Describes a class or property using multiple weighted words.",
       "type": "array",
       "items": {
-        "type": "object",
-        "properties": {
-          "keyword": {
-            "type": "string"
-          },
-          "weight": {
-            "type": "number",
-            "format": "float"
-          }
+        "$ref": "#/definitions/KeywordsItems0"
+      }
+    },
+    "KeywordsItems0": {
+      "type": "object",
+      "properties": {
+        "keyword": {
+          "type": "string"
+        },
+        "weight": {
+          "type": "number",
+          "format": "float"
         }
       }
     },
@@ -7218,55 +7581,6 @@ func init() {
       "type": "array",
       "items": {
         "$ref": "#/definitions/SingleRef"
-      }
-    },
-    "ObjectMeta": {
-      "description": "Additional Meta information about a single thing/action object.",
-      "properties": {
-        "classification": {
-          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
-          "$ref": "#/definitions/ObjectMetaClassification"
-        },
-        "vector": {
-          "description": "This object's position in the Contextionary vector space",
-          "$ref": "#/definitions/C11yVector"
-        }
-      }
-    },
-    "ObjectMetaClassification": {
-      "description": "This meta field contains additional info about the classification which affected this object",
-      "properties": {
-        "basedOn": {
-          "description": "The (primitive) field(s) which were used as a basis for classification. For example, if the type of classification is \"knn\" with k=3, the 3 nearest neighbors - based on these fields - were considered for the classification.",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "classifiedFields": {
-          "description": "The (reference) fields which were classified as part of this classification. Note that this might contain fewere entries than \"scope\", if one of the fields was already set prior to the classification, for example",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "completed": {
-          "description": "Timestamp when this particular object was classified. This is usually sooner than the overall completion time of the classification, as the overall completion time will only be set once every object has been classified.",
-          "type": "string",
-          "format": "date-time"
-        },
-        "id": {
-          "description": "unique identifier of the classification run",
-          "type": "string",
-          "format": "uuid"
-        },
-        "scope": {
-          "description": "The properties in scope of the classification. Note that this doesn't mean that these fields were necessarily classified, this only means that those fields were in scope of the classificiation. See \"classifiedFields\" for details.",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
       }
     },
     "PatchDocumentAction": {
@@ -7555,6 +7869,14 @@ func init() {
     "Thing": {
       "type": "object",
       "properties": {
+        "_classification": {
+          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
+          "$ref": "#/definitions/UnderscorePropertiesClassification"
+        },
+        "_vector": {
+          "description": "This object's position in the Contextionary vector space",
+          "$ref": "#/definitions/C11yVector"
+        },
         "class": {
           "description": "Class of the Thing, defined in the schema.",
           "type": "string"
@@ -7575,7 +7897,7 @@ func init() {
           "format": "int64"
         },
         "meta": {
-          "$ref": "#/definitions/ObjectMeta"
+          "$ref": "#/definitions/UnderscoreProperties"
         },
         "schema": {
           "$ref": "#/definitions/PropertySchema"
@@ -7590,6 +7912,16 @@ func init() {
       "allOf": [
         {
           "$ref": "#/definitions/Thing"
+        },
+        {
+          "properties": {
+            "deprecations": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Deprecation"
+              }
+            }
+          }
         },
         {
           "properties": {
@@ -7615,10 +7947,34 @@ func init() {
         }
       ]
     },
+    "ThingsGetResponseAO2Result": {
+      "description": "Results for this specific Thing.",
+      "format": "object",
+      "properties": {
+        "errors": {
+          "$ref": "#/definitions/ErrorResponse"
+        },
+        "status": {
+          "type": "string",
+          "default": "SUCCESS",
+          "enum": [
+            "SUCCESS",
+            "PENDING",
+            "FAILED"
+          ]
+        }
+      }
+    },
     "ThingsListResponse": {
       "description": "List of Things.",
       "type": "object",
       "properties": {
+        "deprecations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Deprecation"
+          }
+        },
         "things": {
           "description": "The actual list of Things.",
           "type": "array",
@@ -7630,6 +7986,55 @@ func init() {
           "description": "The total number of Things for the query. The number of items in a response may be smaller due to paging.",
           "type": "integer",
           "format": "int64"
+        }
+      }
+    },
+    "UnderscoreProperties": {
+      "description": "Additional Meta information about a single thing/action object.",
+      "properties": {
+        "classification": {
+          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
+          "$ref": "#/definitions/UnderscorePropertiesClassification"
+        },
+        "vector": {
+          "description": "This object's position in the Contextionary vector space",
+          "$ref": "#/definitions/C11yVector"
+        }
+      }
+    },
+    "UnderscorePropertiesClassification": {
+      "description": "This meta field contains additional info about the classification which affected this object",
+      "properties": {
+        "basedOn": {
+          "description": "The (primitive) field(s) which were used as a basis for classification. For example, if the type of classification is \"knn\" with k=3, the 3 nearest neighbors - based on these fields - were considered for the classification.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "classifiedFields": {
+          "description": "The (reference) fields which were classified as part of this classification. Note that this might contain fewere entries than \"scope\", if one of the fields was already set prior to the classification, for example",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "completed": {
+          "description": "Timestamp when this particular object was classified. This is usually sooner than the overall completion time of the classification, as the overall completion time will only be set once every object has been classified.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "id": {
+          "description": "unique identifier of the classification run",
+          "type": "string",
+          "format": "uuid"
+        },
+        "scope": {
+          "description": "The properties in scope of the classification. Note that this doesn't mean that these fields were necessarily classified, this only means that those fields were in scope of the classificiation. See \"classifiedFields\" for details.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -7742,9 +8147,24 @@ func init() {
           "$ref": "#/definitions/GeoCoordinates"
         }
       }
+    },
+    "WhereFilterGeoRangeDistance": {
+      "type": "object",
+      "properties": {
+        "max": {
+          "type": "number",
+          "format": "float64"
+        }
+      }
     }
   },
   "parameters": {
+    "CommonIncludeParameterQuery": {
+      "type": "string",
+      "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector",
+      "name": "include",
+      "in": "query"
+    },
     "CommonLimitParameterQuery": {
       "type": "integer",
       "format": "int64",

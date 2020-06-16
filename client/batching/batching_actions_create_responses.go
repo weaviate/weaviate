@@ -26,12 +26,11 @@ import (
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
 
-	strfmt "github.com/go-openapi/strfmt"
-
-	models "github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 // BatchingActionsCreateReader is a Reader for the BatchingActionsCreate structure.
@@ -297,7 +296,7 @@ func init() {
 }
 
 func (o *BatchingActionsCreateBody) validateFieldsItemsEnum(path, location string, value string) error {
-	if err := validate.Enum(path, location, value, batchingActionsCreateBodyFieldsItemsEnum); err != nil {
+	if err := validate.EnumCase(path, location, value, batchingActionsCreateBodyFieldsItemsEnum, true); err != nil {
 		return err
 	}
 	return nil

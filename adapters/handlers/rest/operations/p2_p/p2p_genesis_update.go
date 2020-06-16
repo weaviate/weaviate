@@ -21,7 +21,7 @@ package p2_p
 import (
 	"net/http"
 
-	middleware "github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/runtime/middleware"
 )
 
 // P2pGenesisUpdateHandlerFunc turns a function with the right signature into a p2p genesis update handler
