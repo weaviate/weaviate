@@ -22,6 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/actions"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/things"
+	"github.com/semi-technologies/weaviate/deprecations"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
@@ -29,10 +30,12 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/sirupsen/logrus"
 )
 
 type kindHandlers struct {
 	manager     kindsManager
+	logger      logrus.FieldLogger
 	requestsLog requestLog
 	config      config.Config
 }
@@ -165,7 +168,7 @@ func (h *kindHandlers) getThing(params things.ThingsGetParams,
 
 	underscores := traverser.UnderscoreProperties{}
 	if derefBool(params.Meta) {
-		// TODO: gh-1155 add deprecation warning
+		deprecations.Log(h.logger, "rest-meta-prop")
 		underscores.Classification = true
 	}
 
@@ -197,8 +200,8 @@ func (h *kindHandlers) getAction(params actions.ActionsGetParams,
 	underscores := traverser.UnderscoreProperties{}
 
 	if derefBool(params.Meta) {
-		// TODO: gh-1155 add deprecation warning
 		underscores.Classification = true
+		deprecations.Log(h.logger, "rest-meta-prop")
 	}
 	action, err := h.manager.GetAction(params.HTTPRequest.Context(), principal, params.ID, underscores)
 	if err != nil {
@@ -226,9 +229,12 @@ func (h *kindHandlers) getAction(params actions.ActionsGetParams,
 func (h *kindHandlers) getThings(params things.ThingsListParams,
 	principal *models.Principal) middleware.Responder {
 	underscores := traverser.UnderscoreProperties{}
+	var deprecationsRes []*models.Deprecation
 
 	if derefBool(params.Meta) {
-		// TODO: gh-1155 add deprecation warning
+		deprecations.Log(h.logger, "rest-meta-prop")
+		d := deprecations.ByID["rest-meta-prop"]
+		deprecationsRes = append(deprecationsRes, &d)
 		underscores.Classification = true
 	}
 
@@ -256,14 +262,19 @@ func (h *kindHandlers) getThings(params things.ThingsListParams,
 		WithPayload(&models.ThingsListResponse{
 			Things:       list,
 			TotalResults: int64(len(list)),
+			Deprecations: deprecationsRes,
 		})
 }
 
 func (h *kindHandlers) getActions(params actions.ActionsListParams,
 	principal *models.Principal) middleware.Responder {
 	underscores := traverser.UnderscoreProperties{}
+	var deprecationsRes []*models.Deprecation
+
 	if derefBool(params.Meta) {
-		// TODO: gh-1155 add deprecation warning
+		deprecations.Log(h.logger, "rest-meta-prop")
+		d := deprecations.ByID["rest-meta-prop"]
+		deprecationsRes = append(deprecationsRes, &d)
 		underscores.Classification = true
 	}
 	list, err := h.manager.GetActions(params.HTTPRequest.Context(), principal, params.Limit, underscores)
@@ -289,6 +300,7 @@ func (h *kindHandlers) getActions(params actions.ActionsListParams,
 	return actions.NewActionsListOK().
 		WithPayload(&models.ActionsListResponse{
 			Actions:      list,
+			Deprecations: deprecationsRes,
 			TotalResults: int64(len(list)),
 		})
 }
@@ -555,8 +567,8 @@ func (h *kindHandlers) deleteThingReference(params things.ThingsReferencesDelete
 }
 
 func setupKindHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog,
-	manager *kinds.Manager, config config.Config) {
-	h := &kindHandlers{manager, requestsLog, config}
+	manager *kinds.Manager, config config.Config, logger logrus.FieldLogger) {
+	h := &kindHandlers{manager, logger, requestsLog, config}
 
 	api.ThingsThingsCreateHandler = things.
 		ThingsCreateHandlerFunc(h.addThing)
