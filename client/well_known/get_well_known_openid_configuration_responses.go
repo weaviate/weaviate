@@ -23,9 +23,8 @@ import (
 	"io"
 
 	"github.com/go-openapi/runtime"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
-
-	strfmt "github.com/go-openapi/strfmt"
 )
 
 // GetWellKnownOpenidConfigurationReader is a Reader for the GetWellKnownOpenidConfiguration structure.

@@ -32,7 +32,8 @@ import (
 type ActionsGetURL struct {
 	ID strfmt.UUID
 
-	Meta *bool
+	Include *string
+	Meta    *bool
 
 	_basePath string
 	// avoid unkeyed usage
@@ -74,6 +75,14 @@ func (o *ActionsGetURL) Build() (*url.URL, error) {
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
 
 	qs := make(url.Values)
+
+	var includeQ string
+	if o.Include != nil {
+		includeQ = *o.Include
+	}
+	if includeQ != "" {
+		qs.Set("include", includeQ)
+	}
 
 	var metaQ string
 	if o.Meta != nil {

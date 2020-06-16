@@ -24,6 +24,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func (r *Repo) classNameFromID(ctx context.Context, k kind.Kind, id strfmt.UUID) (string, error) {
@@ -31,9 +32,9 @@ func (r *Repo) classNameFromID(ctx context.Context, k kind.Kind, id strfmt.UUID)
 	var err error
 	switch k {
 	case kind.Thing:
-		res, err = r.ThingByID(ctx, id, nil, false)
+		res, err = r.ThingByID(ctx, id, nil, traverser.UnderscoreProperties{})
 	case kind.Action:
-		res, err = r.ActionByID(ctx, id, nil, false)
+		res, err = r.ActionByID(ctx, id, nil, traverser.UnderscoreProperties{})
 	default:
 		return "", fmt.Errorf("impossible kind: %v", k)
 	}
