@@ -19,16 +19,16 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
 )
 
-// ObjectMetaClassification This meta field contains additional info about the classification which affected this object
-// swagger:model ObjectMetaClassification
-type ObjectMetaClassification struct {
+// UnderscorePropertiesClassification This meta field contains additional info about the classification which affected this object
+//
+// swagger:model UnderscorePropertiesClassification
+type UnderscorePropertiesClassification struct {
 
 	// The (primitive) field(s) which were used as a basis for classification. For example, if the type of classification is "knn" with k=3, the 3 nearest neighbors - based on these fields - were considered for the classification.
 	BasedOn []string `json:"basedOn"`
@@ -48,8 +48,8 @@ type ObjectMetaClassification struct {
 	Scope []string `json:"scope"`
 }
 
-// Validate validates this object meta classification
-func (m *ObjectMetaClassification) Validate(formats strfmt.Registry) error {
+// Validate validates this underscore properties classification
+func (m *UnderscorePropertiesClassification) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateCompleted(formats); err != nil {
@@ -66,7 +66,7 @@ func (m *ObjectMetaClassification) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *ObjectMetaClassification) validateCompleted(formats strfmt.Registry) error {
+func (m *UnderscorePropertiesClassification) validateCompleted(formats strfmt.Registry) error {
 
 	if swag.IsZero(m.Completed) { // not required
 		return nil
@@ -79,7 +79,7 @@ func (m *ObjectMetaClassification) validateCompleted(formats strfmt.Registry) er
 	return nil
 }
 
-func (m *ObjectMetaClassification) validateID(formats strfmt.Registry) error {
+func (m *UnderscorePropertiesClassification) validateID(formats strfmt.Registry) error {
 
 	if swag.IsZero(m.ID) { // not required
 		return nil
@@ -93,7 +93,7 @@ func (m *ObjectMetaClassification) validateID(formats strfmt.Registry) error {
 }
 
 // MarshalBinary interface implementation
-func (m *ObjectMetaClassification) MarshalBinary() ([]byte, error) {
+func (m *UnderscorePropertiesClassification) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -101,8 +101,8 @@ func (m *ObjectMetaClassification) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *ObjectMetaClassification) UnmarshalBinary(b []byte) error {
-	var res ObjectMetaClassification
+func (m *UnderscorePropertiesClassification) UnmarshalBinary(b []byte) error {
+	var res UnderscorePropertiesClassification
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}
