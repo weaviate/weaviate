@@ -20,6 +20,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 // DeleteActionReference from connected DB
@@ -48,7 +49,7 @@ func (m *Manager) deleteActionReferenceFromConnector(ctx context.Context, princi
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
 
 	// get action to see if it exists
-	actionRes, err := m.getActionFromRepo(ctx, id, false)
+	actionRes, err := m.getActionFromRepo(ctx, id, traverser.UnderscoreProperties{})
 	if err != nil {
 		return err
 	}
@@ -98,7 +99,7 @@ func (m *Manager) deleteThingReferenceFromConnector(ctx context.Context, princip
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
 
 	// get thing to see if it exists
-	thingRes, err := m.getThingFromRepo(ctx, id, false)
+	thingRes, err := m.getThingFromRepo(ctx, id, traverser.UnderscoreProperties{})
 	if err != nil {
 		return err
 	}

@@ -21,13 +21,13 @@ package models
 import (
 	"strconv"
 
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // MultipleRef Multiple instances of references to other objects.
+//
 // swagger:model MultipleRef
 type MultipleRef []*SingleRef
 

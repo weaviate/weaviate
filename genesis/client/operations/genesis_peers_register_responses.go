@@ -23,10 +23,9 @@ import (
 	"io"
 
 	"github.com/go-openapi/runtime"
+	"github.com/go-openapi/strfmt"
 
-	strfmt "github.com/go-openapi/strfmt"
-
-	models "github.com/semi-technologies/weaviate/genesis/models"
+	"github.com/semi-technologies/weaviate/genesis/models"
 )
 
 // GenesisPeersRegisterReader is a Reader for the GenesisPeersRegister structure.
@@ -37,21 +36,18 @@ type GenesisPeersRegisterReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *GenesisPeersRegisterReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 200:
 		result := NewGenesisPeersRegisterOK()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	case 400:
 		result := NewGenesisPeersRegisterBadRequest()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 403:
 		result := NewGenesisPeersRegisterForbidden()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -79,6 +75,10 @@ type GenesisPeersRegisterOK struct {
 
 func (o *GenesisPeersRegisterOK) Error() string {
 	return fmt.Sprintf("[POST /peers/register][%d] genesisPeersRegisterOK  %+v", 200, o.Payload)
+}
+
+func (o *GenesisPeersRegisterOK) GetPayload() *models.PeerRegistrationResponse {
+	return o.Payload
 }
 
 func (o *GenesisPeersRegisterOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
