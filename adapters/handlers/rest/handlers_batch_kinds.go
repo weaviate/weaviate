@@ -65,7 +65,7 @@ func (h *batchKindHandlers) thingsResponse(input kinds.BatchThings) []*models.Th
 		thing.Thing.ID = thing.UUID
 		response[i] = &models.ThingsGetResponse{
 			Thing: *thing.Thing,
-			Result: &models.ThingsGetResponseAO1Result{
+			Result: &models.ThingsGetResponseAO2Result{
 				Errors: errorResponse,
 			},
 		}
@@ -110,7 +110,7 @@ func (h *batchKindHandlers) actionsResponse(input kinds.BatchActions) []*models.
 		action.Action.ID = action.UUID
 		response[i] = &models.ActionsGetResponse{
 			Action: *action.Action,
-			Result: &models.ActionsGetResponseAO1Result{
+			Result: &models.ActionsGetResponseAO2Result{
 				Errors: errorResponse,
 			},
 		}

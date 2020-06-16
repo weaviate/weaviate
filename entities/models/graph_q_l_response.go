@@ -21,13 +21,13 @@ package models
 import (
 	"strconv"
 
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // GraphQLResponse GraphQL based response: http://facebook.github.io/graphql/.
+//
 // swagger:model GraphQLResponse
 type GraphQLResponse struct {
 

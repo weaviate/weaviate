@@ -22,6 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/kinds/validation"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 // AddActionReference Class Instance to the connected DB. If the class contains a network
@@ -48,7 +49,7 @@ func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, pr
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
 
 	// get action to see if it exists
-	actionRes, err := m.getActionFromRepo(ctx, id, false)
+	actionRes, err := m.getActionFromRepo(ctx, id, traverser.UnderscoreProperties{})
 	if err != nil {
 		return err
 	}
@@ -103,7 +104,7 @@ func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, pri
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
 
 	// get thing to see if it exists
-	thingRes, err := m.getThingFromRepo(ctx, id, false)
+	thingRes, err := m.getThingFromRepo(ctx, id, traverser.UnderscoreProperties{})
 	if err != nil {
 		return err
 	}
