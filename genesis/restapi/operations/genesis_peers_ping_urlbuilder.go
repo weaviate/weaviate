@@ -61,7 +61,7 @@ func (o *GenesisPeersPingURL) Build() (*url.URL, error) {
 	if peerID != "" {
 		_path = strings.Replace(_path, "{peerId}", peerID, -1)
 	} else {
-		return nil, errors.New("PeerID is required on GenesisPeersPingURL")
+		return nil, errors.New("peerId is required on GenesisPeersPingURL")
 	}
 
 	_basePath := o._basePath
