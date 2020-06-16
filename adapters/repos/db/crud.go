@@ -58,12 +58,14 @@ func (d *DB) DeleteThing(ctx context.Context, className string, id strfmt.UUID) 
 	panic("not implemented") // TODO: Implement
 }
 
-func (d *DB) ThingByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties, meta bool) (*search.Result, error) {
-	return d.objectByID(ctx, kind.Thing, id, props, meta)
+func (d *DB) ThingByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties,
+	underscore traverser.UnderscoreProperties) (*search.Result, error) {
+	return d.objectByID(ctx, kind.Thing, id, props, underscore.Classification) // TODO: deal with all underscore fields
 }
 
-func (d *DB) ActionByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties, meta bool) (*search.Result, error) {
-	return d.objectByID(ctx, kind.Action, id, props, meta)
+func (d *DB) ActionByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties,
+	underscore traverser.UnderscoreProperties) (*search.Result, error) {
+	return d.objectByID(ctx, kind.Action, id, props, underscore.Classification) // TODO: deal with all underscore fields
 }
 
 // objectByID checks every index of the particular kind for the ID

@@ -21,14 +21,14 @@ package models
 import (
 	"encoding/json"
 
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
 )
 
 // Classification Manage classifications, trigger them and view status of past classifications.
+//
 // swagger:model Classification
 type Classification struct {
 
@@ -197,7 +197,7 @@ const (
 
 // prop value enum
 func (m *Classification) validateStatusEnum(path, location string, value string) error {
-	if err := validate.Enum(path, location, value, classificationTypeStatusPropEnum); err != nil {
+	if err := validate.EnumCase(path, location, value, classificationTypeStatusPropEnum, true); err != nil {
 		return err
 	}
 	return nil
@@ -276,7 +276,7 @@ const (
 
 // prop value enum
 func (m *Classification) validateTypeEnum(path, location string, value string) error {
-	if err := validate.Enum(path, location, value, classificationTypeTypePropEnum); err != nil {
+	if err := validate.EnumCase(path, location, value, classificationTypeTypePropEnum, true); err != nil {
 		return err
 	}
 	return nil
