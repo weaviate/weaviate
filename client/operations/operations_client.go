@@ -22,12 +22,11 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/runtime"
-
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/strfmt"
 )
 
 // New creates a new operations API client.
-func New(transport runtime.ClientTransport, formats strfmt.Registry) *Client {
+func New(transport runtime.ClientTransport, formats strfmt.Registry) ClientService {
 	return &Client{transport: transport, formats: formats}
 }
 
@@ -39,8 +38,19 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
+// ClientService is the interface for Client methods
+type ClientService interface {
+	WeaviateRoot(params *WeaviateRootParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateRootOK, error)
+
+	WeaviateWellknownLiveness(params *WeaviateWellknownLivenessParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateWellknownLivenessOK, error)
+
+	WeaviateWellknownReadiness(params *WeaviateWellknownReadinessParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateWellknownReadinessOK, error)
+
+	SetTransport(transport runtime.ClientTransport)
+}
+
 /*
-WeaviateRoot Home. Discover the REST API
+  WeaviateRoot Home. Discover the REST API
 */
 func (a *Client) WeaviateRoot(params *WeaviateRootParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateRootOK, error) {
 	// TODO: Validate the params before sending
@@ -75,7 +85,7 @@ func (a *Client) WeaviateRoot(params *WeaviateRootParams, authInfo runtime.Clien
 }
 
 /*
-WeaviateWellknownLiveness Determines whether the application is alive. Can be used for kubernetes liveness probe
+  WeaviateWellknownLiveness Determines whether the application is alive. Can be used for kubernetes liveness probe
 */
 func (a *Client) WeaviateWellknownLiveness(params *WeaviateWellknownLivenessParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateWellknownLivenessOK, error) {
 	// TODO: Validate the params before sending
@@ -110,7 +120,7 @@ func (a *Client) WeaviateWellknownLiveness(params *WeaviateWellknownLivenessPara
 }
 
 /*
-WeaviateWellknownReadiness Determines whether the application is ready to receive traffic. Can be used for kubernetes readiness probe.
+  WeaviateWellknownReadiness Determines whether the application is ready to receive traffic. Can be used for kubernetes readiness probe.
 */
 func (a *Client) WeaviateWellknownReadiness(params *WeaviateWellknownReadinessParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateWellknownReadinessOK, error) {
 	// TODO: Validate the params before sending
