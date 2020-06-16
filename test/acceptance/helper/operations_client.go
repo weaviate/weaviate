@@ -43,7 +43,7 @@ import (
 
 // Create a client that logs with t.Logf, if a *testing.T is provided.
 // If there is no test case at hand, pass in nil to disable logging.
-func OperationsClient(t *testing.T) *operations_apiclient.Client {
+func OperationsClient(t *testing.T) operations_apiclient.ClientService {
 	transport := httptransport.New(fmt.Sprintf("%s:%s", ServerHost, ServerPort), "/v1", []string{ServerScheme})
 
 	// If a test case is provided, and we want to dump HTTP trafic,
@@ -59,7 +59,7 @@ func OperationsClient(t *testing.T) *operations_apiclient.Client {
 
 // Create a client that logs with t.Logf, if a *testing.T is provided.
 // If there is no test case at hand, pass in nil to disable logging.
-func BatchingClient(t *testing.T) *batching.Client {
+func BatchingClient(t *testing.T) batching.ClientService {
 	transport := httptransport.New(fmt.Sprintf("%s:%s", ServerHost, ServerPort), "/v1", []string{ServerScheme})
 
 	// If a test case is provided, and we want to dump HTTP trafic,

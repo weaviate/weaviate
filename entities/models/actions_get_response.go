@@ -20,21 +20,25 @@ package models
 
 import (
 	"encoding/json"
-
-	strfmt "github.com/go-openapi/strfmt"
+	"strconv"
 
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
 )
 
 // ActionsGetResponse actions get response
+//
 // swagger:model ActionsGetResponse
 type ActionsGetResponse struct {
 	Action
 
+	// deprecations
+	Deprecations []*Deprecation `json:"deprecations"`
+
 	// result
-	Result *ActionsGetResponseAO1Result `json:"result,omitempty"`
+	Result *ActionsGetResponseAO2Result `json:"result,omitempty"`
 }
 
 // UnmarshalJSON unmarshals this object from a JSON structure
@@ -48,39 +52,58 @@ func (m *ActionsGetResponse) UnmarshalJSON(raw []byte) error {
 
 	// AO1
 	var dataAO1 struct {
-		Result *ActionsGetResponseAO1Result `json:"result,omitempty"`
+		Deprecations []*Deprecation `json:"deprecations"`
 	}
 	if err := swag.ReadJSON(raw, &dataAO1); err != nil {
 		return err
 	}
 
-	m.Result = dataAO1.Result
+	m.Deprecations = dataAO1.Deprecations
+
+	// AO2
+	var dataAO2 struct {
+		Result *ActionsGetResponseAO2Result `json:"result,omitempty"`
+	}
+	if err := swag.ReadJSON(raw, &dataAO2); err != nil {
+		return err
+	}
+
+	m.Result = dataAO2.Result
 
 	return nil
 }
 
 // MarshalJSON marshals this object to a JSON structure
 func (m ActionsGetResponse) MarshalJSON() ([]byte, error) {
-	_parts := make([][]byte, 0, 2)
+	_parts := make([][]byte, 0, 3)
 
 	aO0, err := swag.WriteJSON(m.Action)
 	if err != nil {
 		return nil, err
 	}
 	_parts = append(_parts, aO0)
-
 	var dataAO1 struct {
-		Result *ActionsGetResponseAO1Result `json:"result,omitempty"`
+		Deprecations []*Deprecation `json:"deprecations"`
 	}
 
-	dataAO1.Result = m.Result
+	dataAO1.Deprecations = m.Deprecations
 
 	jsonDataAO1, errAO1 := swag.WriteJSON(dataAO1)
 	if errAO1 != nil {
 		return nil, errAO1
 	}
 	_parts = append(_parts, jsonDataAO1)
+	var dataAO2 struct {
+		Result *ActionsGetResponseAO2Result `json:"result,omitempty"`
+	}
 
+	dataAO2.Result = m.Result
+
+	jsonDataAO2, errAO2 := swag.WriteJSON(dataAO2)
+	if errAO2 != nil {
+		return nil, errAO2
+	}
+	_parts = append(_parts, jsonDataAO2)
 	return swag.ConcatJSON(_parts...), nil
 }
 
@@ -93,6 +116,10 @@ func (m *ActionsGetResponse) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validateDeprecations(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateResult(formats); err != nil {
 		res = append(res, err)
 	}
@@ -100,6 +127,31 @@ func (m *ActionsGetResponse) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *ActionsGetResponse) validateDeprecations(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Deprecations) { // not required
+		return nil
+	}
+
+	for i := 0; i < len(m.Deprecations); i++ {
+		if swag.IsZero(m.Deprecations[i]) { // not required
+			continue
+		}
+
+		if m.Deprecations[i] != nil {
+			if err := m.Deprecations[i].Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("deprecations" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
 	return nil
 }
 
@@ -139,9 +191,10 @@ func (m *ActionsGetResponse) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// ActionsGetResponseAO1Result Results for this specific Action.
-// swagger:model ActionsGetResponseAO1Result
-type ActionsGetResponseAO1Result struct {
+// ActionsGetResponseAO2Result Results for this specific Action.
+//
+// swagger:model ActionsGetResponseAO2Result
+type ActionsGetResponseAO2Result struct {
 
 	// errors
 	Errors *ErrorResponse `json:"errors,omitempty"`
@@ -151,8 +204,8 @@ type ActionsGetResponseAO1Result struct {
 	Status *string `json:"status,omitempty"`
 }
 
-// Validate validates this actions get response a o1 result
-func (m *ActionsGetResponseAO1Result) Validate(formats strfmt.Registry) error {
+// Validate validates this actions get response a o2 result
+func (m *ActionsGetResponseAO2Result) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateErrors(formats); err != nil {
@@ -169,7 +222,7 @@ func (m *ActionsGetResponseAO1Result) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *ActionsGetResponseAO1Result) validateErrors(formats strfmt.Registry) error {
+func (m *ActionsGetResponseAO2Result) validateErrors(formats strfmt.Registry) error {
 
 	if swag.IsZero(m.Errors) { // not required
 		return nil
@@ -187,7 +240,7 @@ func (m *ActionsGetResponseAO1Result) validateErrors(formats strfmt.Registry) er
 	return nil
 }
 
-var actionsGetResponseAO1ResultTypeStatusPropEnum []interface{}
+var actionsGetResponseAO2ResultTypeStatusPropEnum []interface{}
 
 func init() {
 	var res []string
@@ -195,31 +248,31 @@ func init() {
 		panic(err)
 	}
 	for _, v := range res {
-		actionsGetResponseAO1ResultTypeStatusPropEnum = append(actionsGetResponseAO1ResultTypeStatusPropEnum, v)
+		actionsGetResponseAO2ResultTypeStatusPropEnum = append(actionsGetResponseAO2ResultTypeStatusPropEnum, v)
 	}
 }
 
 const (
 
-	// ActionsGetResponseAO1ResultStatusSUCCESS captures enum value "SUCCESS"
-	ActionsGetResponseAO1ResultStatusSUCCESS string = "SUCCESS"
+	// ActionsGetResponseAO2ResultStatusSUCCESS captures enum value "SUCCESS"
+	ActionsGetResponseAO2ResultStatusSUCCESS string = "SUCCESS"
 
-	// ActionsGetResponseAO1ResultStatusPENDING captures enum value "PENDING"
-	ActionsGetResponseAO1ResultStatusPENDING string = "PENDING"
+	// ActionsGetResponseAO2ResultStatusPENDING captures enum value "PENDING"
+	ActionsGetResponseAO2ResultStatusPENDING string = "PENDING"
 
-	// ActionsGetResponseAO1ResultStatusFAILED captures enum value "FAILED"
-	ActionsGetResponseAO1ResultStatusFAILED string = "FAILED"
+	// ActionsGetResponseAO2ResultStatusFAILED captures enum value "FAILED"
+	ActionsGetResponseAO2ResultStatusFAILED string = "FAILED"
 )
 
 // prop value enum
-func (m *ActionsGetResponseAO1Result) validateStatusEnum(path, location string, value string) error {
-	if err := validate.Enum(path, location, value, actionsGetResponseAO1ResultTypeStatusPropEnum); err != nil {
+func (m *ActionsGetResponseAO2Result) validateStatusEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, actionsGetResponseAO2ResultTypeStatusPropEnum, true); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (m *ActionsGetResponseAO1Result) validateStatus(formats strfmt.Registry) error {
+func (m *ActionsGetResponseAO2Result) validateStatus(formats strfmt.Registry) error {
 
 	if swag.IsZero(m.Status) { // not required
 		return nil
@@ -234,7 +287,7 @@ func (m *ActionsGetResponseAO1Result) validateStatus(formats strfmt.Registry) er
 }
 
 // MarshalBinary interface implementation
-func (m *ActionsGetResponseAO1Result) MarshalBinary() ([]byte, error) {
+func (m *ActionsGetResponseAO2Result) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -242,8 +295,8 @@ func (m *ActionsGetResponseAO1Result) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *ActionsGetResponseAO1Result) UnmarshalBinary(b []byte) error {
-	var res ActionsGetResponseAO1Result
+func (m *ActionsGetResponseAO2Result) UnmarshalBinary(b []byte) error {
+	var res ActionsGetResponseAO2Result
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

@@ -54,16 +54,18 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, limit int,
 	return nil, fmt.Errorf("vector-based search not implemented (yet)")
 }
 
-func (d *DB) ThingSearch(ctx context.Context, limit int, filters *filters.LocalFilter, meta bool) (search.Results, error) {
-	return d.objectSearch(ctx, kind.Thing, limit, filters, meta)
+func (d *DB) ThingSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
+	underscore traverser.UnderscoreProperties) (search.Results, error) {
+	return d.objectSearch(ctx, kind.Thing, limit, filters, underscore)
 }
 
-func (d *DB) ActionSearch(ctx context.Context, limit int, filters *filters.LocalFilter, meta bool) (search.Results, error) {
-	return d.objectSearch(ctx, kind.Action, limit, filters, meta)
+func (d *DB) ActionSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
+	underscore traverser.UnderscoreProperties) (search.Results, error) {
+	return d.objectSearch(ctx, kind.Action, limit, filters, underscore)
 }
 
 func (d *DB) objectSearch(ctx context.Context, kind kind.Kind, limit int, filters *filters.LocalFilter,
-	meta bool) (search.Results, error) {
+	underscore traverser.UnderscoreProperties) (search.Results, error) {
 
 	var found search.Results
 
@@ -74,7 +76,7 @@ func (d *DB) objectSearch(ctx context.Context, kind kind.Kind, limit int, filter
 			continue
 		}
 
-		res, err := index.objectSearch(ctx, limit, filters, meta)
+		res, err := index.objectSearch(ctx, limit, filters, underscore.Classification) // TODO support all underscore props
 		if err != nil {
 			return nil, errors.Wrapf(err, "search index %s", index.ID())
 		}
