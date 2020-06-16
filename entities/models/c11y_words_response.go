@@ -21,13 +21,13 @@ package models
 import (
 	"strconv"
 
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // C11yWordsResponse An array of available words and contexts.
+//
 // swagger:model C11yWordsResponse
 type C11yWordsResponse struct {
 
@@ -118,6 +118,7 @@ func (m *C11yWordsResponse) UnmarshalBinary(b []byte) error {
 }
 
 // C11yWordsResponseConcatenatedWord Weighted results for all words
+//
 // swagger:model C11yWordsResponseConcatenatedWord
 type C11yWordsResponseConcatenatedWord struct {
 
@@ -203,6 +204,7 @@ func (m *C11yWordsResponseConcatenatedWord) UnmarshalBinary(b []byte) error {
 }
 
 // C11yWordsResponseIndividualWordsItems0 c11y words response individual words items0
+//
 // swagger:model C11yWordsResponseIndividualWordsItems0
 type C11yWordsResponseIndividualWordsItems0 struct {
 
@@ -267,6 +269,7 @@ func (m *C11yWordsResponseIndividualWordsItems0) UnmarshalBinary(b []byte) error
 }
 
 // C11yWordsResponseIndividualWordsItems0Info c11y words response individual words items0 info
+//
 // swagger:model C11yWordsResponseIndividualWordsItems0Info
 type C11yWordsResponseIndividualWordsItems0Info struct {
 

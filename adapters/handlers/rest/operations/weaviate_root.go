@@ -22,12 +22,12 @@ import (
 	"net/http"
 	"strconv"
 
-	errors "github.com/go-openapi/errors"
-	middleware "github.com/go-openapi/runtime/middleware"
-	strfmt "github.com/go-openapi/strfmt"
-	swag "github.com/go-openapi/swag"
+	"github.com/go-openapi/errors"
+	"github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 
-	models "github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 // WeaviateRootHandlerFunc turns a function with the right signature into a weaviate root handler
@@ -90,11 +90,12 @@ func (o *WeaviateRoot) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 }
 
 // WeaviateRootOKBody weaviate root o k body
+//
 // swagger:model WeaviateRootOKBody
 type WeaviateRootOKBody struct {
 
 	// links
-	Links []*models.Link `json:"links"`
+	Links []*models.Link `yaml:"links" foobar:"links"`
 }
 
 // Validate validates this weaviate root o k body

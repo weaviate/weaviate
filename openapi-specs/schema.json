@@ -51,7 +51,7 @@
           "$ref": "#/definitions/PropertySchema"
         },
         "meta": {
-          "$ref": "#/definitions/ObjectMeta"
+          "$ref": "#/definitions/UnderscoreProperties"
         },
         "id": {
           "description": "ID of the Action.",
@@ -67,6 +67,14 @@
           "description": "Timestamp of the last update made to the Action since epoch UTC.",
           "format": "int64",
           "type": "integer"
+        },
+        "_classification": {
+          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
+          "$ref": "#/definitions/UnderscorePropertiesClassification"
+        },
+        "_vector": {
+          "description": "This object's position in the Contextionary vector space",
+          "$ref": "#/definitions/C11yVector"
         }
       },
       "type": "object"
@@ -75,6 +83,16 @@
       "allOf": [
         {
           "$ref": "#/definitions/Action"
+        },
+        {
+          "properties": {
+            "deprecations": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Deprecation"
+              }
+            }
+          }
         },
         {
           "properties": {
@@ -106,6 +124,12 @@
             "$ref": "#/definitions/Action"
           },
           "type": "array"
+        },
+        "deprecations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Deprecation"
+          }
         },
         "totalResults": {
           "description": "The total number of Actions for the query. The number of items in a response may be smaller due to paging.",
@@ -249,6 +273,62 @@
             },
             "minItems": 300,
             "maxItems": 300
+          }
+        }
+      }
+    },
+    "Deprecation": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The id that uniquely identifies this particular deprecations (mostly used internally)"
+        },
+        "status": {
+          "type": "string",
+          "description": "Whether the problematic API functionality is deprecated (planned to be removed) or already removed"
+        },
+        "apiType": {
+          "type": "string",
+          "description": "Describes which API is effected, usually one of: REST, GraphQL"
+        },
+        "msg": {
+          "type": "string",
+          "description": "What this deprecation is about"
+        },
+        "mitigation": {
+          "type": "string",
+          "description": "User-required action to not be affected by the (planned) removal"
+        },
+        "sinceVersion": {
+          "type": "string",
+          "description": "The deprecation was introduced in this version"
+        },
+        "plannedRemovalVersion": {
+          "type": "string",
+          "description": "A best-effort guess of which upcoming version will remove the feature entirely"
+        },
+        "removedIn": {
+          "type": "string",
+          "description": "If the feature has already been removed, it was removed in this version",
+          "x-nullable": true
+        },
+        "removedTime": {
+          "type": "string",
+          "format": "date-time",
+          "description": "If the feature has already been removed, it was removed at this timestamp",
+          "x-nullable": true
+        },
+        "sinceTime": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The deprecation was introduced in this version"
+        },
+        "locations": {
+          "type": "array",
+          "description": "The locations within the specified API affected by this deprecation",
+          "items": {
+            "type": "string"
           }
         }
       }
@@ -626,12 +706,12 @@
         }
       }
     },
-    "ObjectMeta": {
+    "UnderscoreProperties": {
       "description": "Additional Meta information about a single thing/action object.",
       "properties": {
         "classification": {
           "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
-          "$ref": "#/definitions/ObjectMetaClassification"
+          "$ref": "#/definitions/UnderscorePropertiesClassification"
         },
         "vector": {
           "description": "This object's position in the Contextionary vector space",
@@ -655,7 +735,7 @@
         }
       }
     },
-    "ObjectMetaClassification": {
+    "UnderscorePropertiesClassification": {
       "description": "This meta field contains additional info about the classification which affected this object",
       "properties": {
         "id": {
@@ -797,7 +877,7 @@
           "$ref": "#/definitions/PropertySchema"
         },
         "meta": {
-          "$ref": "#/definitions/ObjectMeta"
+          "$ref": "#/definitions/UnderscoreProperties"
         },
         "id": {
           "description": "ID of the Thing.",
@@ -813,6 +893,14 @@
           "description": "Timestamp of the last Thing update in milliseconds since epoch UTC.",
           "format": "int64",
           "type": "integer"
+        },
+        "_classification": {
+          "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
+          "$ref": "#/definitions/UnderscorePropertiesClassification"
+        },
+        "_vector": {
+          "description": "This object's position in the Contextionary vector space",
+          "$ref": "#/definitions/C11yVector"
         }
       },
       "type": "object"
@@ -821,6 +909,16 @@
       "allOf": [
         {
           "$ref": "#/definitions/Thing"
+        },
+        {
+          "properties": {
+            "deprecations": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Deprecation"
+              }
+            }
+          }
         },
         {
           "properties": {
@@ -852,6 +950,12 @@
             "$ref": "#/definitions/Thing"
           },
           "type": "array"
+        },
+        "deprecations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Deprecation"
+          }
         },
         "totalResults": {
           "description": "The total number of Things for the query. The number of items in a response may be smaller due to paging.",
@@ -1120,6 +1224,13 @@
       "name": "meta",
       "required": false,
       "type": "boolean"
+    },
+    "CommonIncludeParameterQuery": {
+      "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector",
+      "in": "query",
+      "name": "include",
+      "required": false,
+      "type": "string"
     }
   },
   "paths": {
@@ -1181,6 +1292,9 @@
           },
           {
             "$ref": "#/parameters/CommonMetaParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonIncludeParameterQuery"
           }
         ],
         "responses": {
@@ -1188,6 +1302,12 @@
             "description": "Successful response.",
             "schema": {
               "$ref": "#/definitions/ActionsListResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -1368,6 +1488,9 @@
           },
           {
             "$ref": "#/parameters/CommonMetaParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonIncludeParameterQuery"
           }
         ],
         "responses": {
@@ -1375,6 +1498,12 @@
             "description": "Successful response.",
             "schema": {
               "$ref": "#/definitions/Action"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -2725,6 +2854,9 @@
           },
           {
             "$ref": "#/parameters/CommonMetaParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonIncludeParameterQuery"
           }
         ],
         "responses": {
@@ -2732,6 +2864,12 @@
             "description": "Successful response.",
             "schema": {
               "$ref": "#/definitions/ThingsListResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -2912,6 +3050,9 @@
           },
           {
             "$ref": "#/parameters/CommonMetaParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonIncludeParameterQuery"
           }
         ],
         "responses": {
@@ -2919,6 +3060,12 @@
             "description": "Successful response.",
             "schema": {
               "$ref": "#/definitions/Thing"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
