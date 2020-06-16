@@ -21,9 +21,9 @@ package things
 import (
 	"net/http"
 
-	middleware "github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/runtime/middleware"
 
-	models "github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 // ThingsReferencesUpdateHandlerFunc turns a function with the right signature into a things references update handler

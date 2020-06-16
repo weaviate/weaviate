@@ -23,14 +23,14 @@ import (
 	"net/http"
 	"strings"
 
-	errors "github.com/go-openapi/errors"
-	loads "github.com/go-openapi/loads"
-	runtime "github.com/go-openapi/runtime"
-	middleware "github.com/go-openapi/runtime/middleware"
-	security "github.com/go-openapi/runtime/security"
+	"github.com/go-openapi/errors"
+	"github.com/go-openapi/loads"
+	"github.com/go-openapi/runtime"
+	"github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/runtime/security"
 	"github.com/go-openapi/runtime/yamlpc"
-	spec "github.com/go-openapi/spec"
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/spec"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/actions"
@@ -43,8 +43,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/things"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/well_known"
-
-	models "github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 // NewWeaviateAPI creates a new Weaviate instance
@@ -56,158 +55,162 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		defaultProduces:     "application/json",
 		customConsumers:     make(map[string]runtime.Consumer),
 		customProducers:     make(map[string]runtime.Producer),
+		PreServerShutdown:   func() {},
 		ServerShutdown:      func() {},
 		spec:                spec,
 		ServeError:          errors.ServeError,
 		BasicAuthenticator:  security.BasicAuth,
 		APIKeyAuthenticator: security.APIKeyAuth,
 		BearerAuthenticator: security.BearerAuth,
-		JSONConsumer:        runtime.JSONConsumer(),
-		YamlConsumer:        yamlpc.YAMLConsumer(),
-		JSONProducer:        runtime.JSONProducer(),
+
+		JSONConsumer: runtime.JSONConsumer(),
+		YamlConsumer: yamlpc.YAMLConsumer(),
+
+		JSONProducer: runtime.JSONProducer(),
+
 		WellKnownGetWellKnownOpenidConfigurationHandler: well_known.GetWellKnownOpenidConfigurationHandlerFunc(func(params well_known.GetWellKnownOpenidConfigurationParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation WellKnownGetWellKnownOpenidConfiguration has not yet been implemented")
+			return middleware.NotImplemented("operation well_known.GetWellKnownOpenidConfiguration has not yet been implemented")
 		}),
 		ActionsActionsCreateHandler: actions.ActionsCreateHandlerFunc(func(params actions.ActionsCreateParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation ActionsActionsCreate has not yet been implemented")
+			return middleware.NotImplemented("operation actions.ActionsCreate has not yet been implemented")
 		}),
 		ActionsActionsDeleteHandler: actions.ActionsDeleteHandlerFunc(func(params actions.ActionsDeleteParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation ActionsActionsDelete has not yet been implemented")
+			return middleware.NotImplemented("operation actions.ActionsDelete has not yet been implemented")
 		}),
 		ActionsActionsGetHandler: actions.ActionsGetHandlerFunc(func(params actions.ActionsGetParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation ActionsActionsGet has not yet been implemented")
+			return middleware.NotImplemented("operation actions.ActionsGet has not yet been implemented")
 		}),
 		ActionsActionsListHandler: actions.ActionsListHandlerFunc(func(params actions.ActionsListParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation ActionsActionsList has not yet been implemented")
+			return middleware.NotImplemented("operation actions.ActionsList has not yet been implemented")
 		}),
 		ActionsActionsPatchHandler: actions.ActionsPatchHandlerFunc(func(params actions.ActionsPatchParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation ActionsActionsPatch has not yet been implemented")
+			return middleware.NotImplemented("operation actions.ActionsPatch has not yet been implemented")
 		}),
 		ActionsActionsReferencesCreateHandler: actions.ActionsReferencesCreateHandlerFunc(func(params actions.ActionsReferencesCreateParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation ActionsActionsReferencesCreate has not yet been implemented")
+			return middleware.NotImplemented("operation actions.ActionsReferencesCreate has not yet been implemented")
 		}),
 		ActionsActionsReferencesDeleteHandler: actions.ActionsReferencesDeleteHandlerFunc(func(params actions.ActionsReferencesDeleteParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation ActionsActionsReferencesDelete has not yet been implemented")
+			return middleware.NotImplemented("operation actions.ActionsReferencesDelete has not yet been implemented")
 		}),
 		ActionsActionsReferencesUpdateHandler: actions.ActionsReferencesUpdateHandlerFunc(func(params actions.ActionsReferencesUpdateParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation ActionsActionsReferencesUpdate has not yet been implemented")
+			return middleware.NotImplemented("operation actions.ActionsReferencesUpdate has not yet been implemented")
 		}),
 		ActionsActionsUpdateHandler: actions.ActionsUpdateHandlerFunc(func(params actions.ActionsUpdateParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation ActionsActionsUpdate has not yet been implemented")
+			return middleware.NotImplemented("operation actions.ActionsUpdate has not yet been implemented")
 		}),
 		ActionsActionsValidateHandler: actions.ActionsValidateHandlerFunc(func(params actions.ActionsValidateParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation ActionsActionsValidate has not yet been implemented")
+			return middleware.NotImplemented("operation actions.ActionsValidate has not yet been implemented")
 		}),
 		BatchingBatchingActionsCreateHandler: batching.BatchingActionsCreateHandlerFunc(func(params batching.BatchingActionsCreateParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation BatchingBatchingActionsCreate has not yet been implemented")
+			return middleware.NotImplemented("operation batching.BatchingActionsCreate has not yet been implemented")
 		}),
 		BatchingBatchingReferencesCreateHandler: batching.BatchingReferencesCreateHandlerFunc(func(params batching.BatchingReferencesCreateParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation BatchingBatchingReferencesCreate has not yet been implemented")
+			return middleware.NotImplemented("operation batching.BatchingReferencesCreate has not yet been implemented")
 		}),
 		BatchingBatchingThingsCreateHandler: batching.BatchingThingsCreateHandlerFunc(func(params batching.BatchingThingsCreateParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation BatchingBatchingThingsCreate has not yet been implemented")
+			return middleware.NotImplemented("operation batching.BatchingThingsCreate has not yet been implemented")
 		}),
 		ContextionaryAPIC11yConceptsHandler: contextionary_api.C11yConceptsHandlerFunc(func(params contextionary_api.C11yConceptsParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation ContextionaryAPIC11yConcepts has not yet been implemented")
+			return middleware.NotImplemented("operation contextionary_api.C11yConcepts has not yet been implemented")
 		}),
 		ContextionaryAPIC11yCorpusGetHandler: contextionary_api.C11yCorpusGetHandlerFunc(func(params contextionary_api.C11yCorpusGetParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation ContextionaryAPIC11yCorpusGet has not yet been implemented")
+			return middleware.NotImplemented("operation contextionary_api.C11yCorpusGet has not yet been implemented")
 		}),
 		ContextionaryAPIC11yExtensionsHandler: contextionary_api.C11yExtensionsHandlerFunc(func(params contextionary_api.C11yExtensionsParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation ContextionaryAPIC11yExtensions has not yet been implemented")
+			return middleware.NotImplemented("operation contextionary_api.C11yExtensions has not yet been implemented")
 		}),
 		ContextionaryAPIC11yWordsHandler: contextionary_api.C11yWordsHandlerFunc(func(params contextionary_api.C11yWordsParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation ContextionaryAPIC11yWords has not yet been implemented")
+			return middleware.NotImplemented("operation contextionary_api.C11yWords has not yet been implemented")
 		}),
 		ClassificationsClassificationsGetHandler: classifications.ClassificationsGetHandlerFunc(func(params classifications.ClassificationsGetParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation ClassificationsClassificationsGet has not yet been implemented")
+			return middleware.NotImplemented("operation classifications.ClassificationsGet has not yet been implemented")
 		}),
 		ClassificationsClassificationsPostHandler: classifications.ClassificationsPostHandlerFunc(func(params classifications.ClassificationsPostParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation ClassificationsClassificationsPost has not yet been implemented")
+			return middleware.NotImplemented("operation classifications.ClassificationsPost has not yet been implemented")
 		}),
 		GraphqlGraphqlBatchHandler: graphql.GraphqlBatchHandlerFunc(func(params graphql.GraphqlBatchParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation GraphqlGraphqlBatch has not yet been implemented")
+			return middleware.NotImplemented("operation graphql.GraphqlBatch has not yet been implemented")
 		}),
 		GraphqlGraphqlPostHandler: graphql.GraphqlPostHandlerFunc(func(params graphql.GraphqlPostParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation GraphqlGraphqlPost has not yet been implemented")
+			return middleware.NotImplemented("operation graphql.GraphqlPost has not yet been implemented")
 		}),
 		MetaMetaGetHandler: meta.MetaGetHandlerFunc(func(params meta.MetaGetParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation MetaMetaGet has not yet been implemented")
+			return middleware.NotImplemented("operation meta.MetaGet has not yet been implemented")
 		}),
 		P2pP2pGenesisUpdateHandler: p2_p.P2pGenesisUpdateHandlerFunc(func(params p2_p.P2pGenesisUpdateParams) middleware.Responder {
-			return middleware.NotImplemented("operation P2pP2pGenesisUpdate has not yet been implemented")
+			return middleware.NotImplemented("operation p2_p.P2pGenesisUpdate has not yet been implemented")
 		}),
 		P2pP2pHealthHandler: p2_p.P2pHealthHandlerFunc(func(params p2_p.P2pHealthParams) middleware.Responder {
-			return middleware.NotImplemented("operation P2pP2pHealth has not yet been implemented")
+			return middleware.NotImplemented("operation p2_p.P2pHealth has not yet been implemented")
 		}),
 		SchemaSchemaActionsCreateHandler: schema.SchemaActionsCreateHandlerFunc(func(params schema.SchemaActionsCreateParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation SchemaSchemaActionsCreate has not yet been implemented")
+			return middleware.NotImplemented("operation schema.SchemaActionsCreate has not yet been implemented")
 		}),
 		SchemaSchemaActionsDeleteHandler: schema.SchemaActionsDeleteHandlerFunc(func(params schema.SchemaActionsDeleteParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation SchemaSchemaActionsDelete has not yet been implemented")
+			return middleware.NotImplemented("operation schema.SchemaActionsDelete has not yet been implemented")
 		}),
 		SchemaSchemaActionsPropertiesAddHandler: schema.SchemaActionsPropertiesAddHandlerFunc(func(params schema.SchemaActionsPropertiesAddParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation SchemaSchemaActionsPropertiesAdd has not yet been implemented")
+			return middleware.NotImplemented("operation schema.SchemaActionsPropertiesAdd has not yet been implemented")
 		}),
 		SchemaSchemaActionsPropertiesDeleteHandler: schema.SchemaActionsPropertiesDeleteHandlerFunc(func(params schema.SchemaActionsPropertiesDeleteParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation SchemaSchemaActionsPropertiesDelete has not yet been implemented")
+			return middleware.NotImplemented("operation schema.SchemaActionsPropertiesDelete has not yet been implemented")
 		}),
 		SchemaSchemaActionsPropertiesUpdateHandler: schema.SchemaActionsPropertiesUpdateHandlerFunc(func(params schema.SchemaActionsPropertiesUpdateParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation SchemaSchemaActionsPropertiesUpdate has not yet been implemented")
+			return middleware.NotImplemented("operation schema.SchemaActionsPropertiesUpdate has not yet been implemented")
 		}),
 		SchemaSchemaActionsUpdateHandler: schema.SchemaActionsUpdateHandlerFunc(func(params schema.SchemaActionsUpdateParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation SchemaSchemaActionsUpdate has not yet been implemented")
+			return middleware.NotImplemented("operation schema.SchemaActionsUpdate has not yet been implemented")
 		}),
 		SchemaSchemaDumpHandler: schema.SchemaDumpHandlerFunc(func(params schema.SchemaDumpParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation SchemaSchemaDump has not yet been implemented")
+			return middleware.NotImplemented("operation schema.SchemaDump has not yet been implemented")
 		}),
 		SchemaSchemaThingsCreateHandler: schema.SchemaThingsCreateHandlerFunc(func(params schema.SchemaThingsCreateParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation SchemaSchemaThingsCreate has not yet been implemented")
+			return middleware.NotImplemented("operation schema.SchemaThingsCreate has not yet been implemented")
 		}),
 		SchemaSchemaThingsDeleteHandler: schema.SchemaThingsDeleteHandlerFunc(func(params schema.SchemaThingsDeleteParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation SchemaSchemaThingsDelete has not yet been implemented")
+			return middleware.NotImplemented("operation schema.SchemaThingsDelete has not yet been implemented")
 		}),
 		SchemaSchemaThingsPropertiesAddHandler: schema.SchemaThingsPropertiesAddHandlerFunc(func(params schema.SchemaThingsPropertiesAddParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation SchemaSchemaThingsPropertiesAdd has not yet been implemented")
+			return middleware.NotImplemented("operation schema.SchemaThingsPropertiesAdd has not yet been implemented")
 		}),
 		SchemaSchemaThingsPropertiesDeleteHandler: schema.SchemaThingsPropertiesDeleteHandlerFunc(func(params schema.SchemaThingsPropertiesDeleteParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation SchemaSchemaThingsPropertiesDelete has not yet been implemented")
+			return middleware.NotImplemented("operation schema.SchemaThingsPropertiesDelete has not yet been implemented")
 		}),
 		SchemaSchemaThingsPropertiesUpdateHandler: schema.SchemaThingsPropertiesUpdateHandlerFunc(func(params schema.SchemaThingsPropertiesUpdateParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation SchemaSchemaThingsPropertiesUpdate has not yet been implemented")
+			return middleware.NotImplemented("operation schema.SchemaThingsPropertiesUpdate has not yet been implemented")
 		}),
 		SchemaSchemaThingsUpdateHandler: schema.SchemaThingsUpdateHandlerFunc(func(params schema.SchemaThingsUpdateParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation SchemaSchemaThingsUpdate has not yet been implemented")
+			return middleware.NotImplemented("operation schema.SchemaThingsUpdate has not yet been implemented")
 		}),
 		ThingsThingsCreateHandler: things.ThingsCreateHandlerFunc(func(params things.ThingsCreateParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation ThingsThingsCreate has not yet been implemented")
+			return middleware.NotImplemented("operation things.ThingsCreate has not yet been implemented")
 		}),
 		ThingsThingsDeleteHandler: things.ThingsDeleteHandlerFunc(func(params things.ThingsDeleteParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation ThingsThingsDelete has not yet been implemented")
+			return middleware.NotImplemented("operation things.ThingsDelete has not yet been implemented")
 		}),
 		ThingsThingsGetHandler: things.ThingsGetHandlerFunc(func(params things.ThingsGetParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation ThingsThingsGet has not yet been implemented")
+			return middleware.NotImplemented("operation things.ThingsGet has not yet been implemented")
 		}),
 		ThingsThingsListHandler: things.ThingsListHandlerFunc(func(params things.ThingsListParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation ThingsThingsList has not yet been implemented")
+			return middleware.NotImplemented("operation things.ThingsList has not yet been implemented")
 		}),
 		ThingsThingsPatchHandler: things.ThingsPatchHandlerFunc(func(params things.ThingsPatchParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation ThingsThingsPatch has not yet been implemented")
+			return middleware.NotImplemented("operation things.ThingsPatch has not yet been implemented")
 		}),
 		ThingsThingsReferencesCreateHandler: things.ThingsReferencesCreateHandlerFunc(func(params things.ThingsReferencesCreateParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation ThingsThingsReferencesCreate has not yet been implemented")
+			return middleware.NotImplemented("operation things.ThingsReferencesCreate has not yet been implemented")
 		}),
 		ThingsThingsReferencesDeleteHandler: things.ThingsReferencesDeleteHandlerFunc(func(params things.ThingsReferencesDeleteParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation ThingsThingsReferencesDelete has not yet been implemented")
+			return middleware.NotImplemented("operation things.ThingsReferencesDelete has not yet been implemented")
 		}),
 		ThingsThingsReferencesUpdateHandler: things.ThingsReferencesUpdateHandlerFunc(func(params things.ThingsReferencesUpdateParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation ThingsThingsReferencesUpdate has not yet been implemented")
+			return middleware.NotImplemented("operation things.ThingsReferencesUpdate has not yet been implemented")
 		}),
 		ThingsThingsUpdateHandler: things.ThingsUpdateHandlerFunc(func(params things.ThingsUpdateParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation ThingsThingsUpdate has not yet been implemented")
+			return middleware.NotImplemented("operation things.ThingsUpdate has not yet been implemented")
 		}),
 		ThingsThingsValidateHandler: things.ThingsValidateHandlerFunc(func(params things.ThingsValidateParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation ThingsThingsValidate has not yet been implemented")
+			return middleware.NotImplemented("operation things.ThingsValidate has not yet been implemented")
 		}),
 		WeaviateRootHandler: WeaviateRootHandlerFunc(func(params WeaviateRootParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation WeaviateRoot has not yet been implemented")
@@ -222,7 +225,6 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		OidcAuth: func(token string, scopes []string) (*models.Principal, error) {
 			return nil, errors.NotImplemented("oauth2 bearer auth (oidc) has not yet been implemented")
 		},
-
 		// default authorizer is authorized meaning no requests are blocked
 		APIAuthorizer: security.Authorized(),
 	}
@@ -250,12 +252,15 @@ type WeaviateAPI struct {
 	// It has a default implementation in the security package, however you can replace it for your particular usage.
 	BearerAuthenticator func(string, security.ScopedTokenAuthentication) runtime.Authenticator
 
-	// JSONConsumer registers a consumer for a "application/json" mime type
+	// JSONConsumer registers a consumer for the following mime types:
+	//   - application/json
 	JSONConsumer runtime.Consumer
-	// YamlConsumer registers a consumer for a "application/yaml" mime type
+	// YamlConsumer registers a consumer for the following mime types:
+	//   - application/yaml
 	YamlConsumer runtime.Consumer
 
-	// JSONProducer registers a producer for a "application/json" mime type
+	// JSONProducer registers a producer for the following mime types:
+	//   - application/json
 	JSONProducer runtime.Producer
 
 	// OidcAuth registers a function that takes an access token and a collection of required scopes and returns a principal
@@ -367,10 +372,13 @@ type WeaviateAPI struct {
 	WeaviateWellknownLivenessHandler WeaviateWellknownLivenessHandler
 	// WeaviateWellknownReadinessHandler sets the operation handler for the weaviate wellknown readiness operation
 	WeaviateWellknownReadinessHandler WeaviateWellknownReadinessHandler
-
 	// ServeError is called when an error is received, there is a default handler
 	// but you can set your own with this
 	ServeError func(http.ResponseWriter, *http.Request, error)
+
+	// PreServerShutdown is called before the HTTP(S) server is shutdown
+	// This allows for custom functions to get executed before the HTTP(S) server stops accepting traffic
+	PreServerShutdown func()
 
 	// ServerShutdown is called when the HTTP(S) server is shut down and done
 	// handling all active connections and does not accept connections any more
@@ -425,7 +433,6 @@ func (o *WeaviateAPI) Validate() error {
 	if o.JSONConsumer == nil {
 		unregistered = append(unregistered, "JSONConsumer")
 	}
-
 	if o.YamlConsumer == nil {
 		unregistered = append(unregistered, "YamlConsumer")
 	}
@@ -441,203 +448,153 @@ func (o *WeaviateAPI) Validate() error {
 	if o.WellKnownGetWellKnownOpenidConfigurationHandler == nil {
 		unregistered = append(unregistered, "well_known.GetWellKnownOpenidConfigurationHandler")
 	}
-
 	if o.ActionsActionsCreateHandler == nil {
 		unregistered = append(unregistered, "actions.ActionsCreateHandler")
 	}
-
 	if o.ActionsActionsDeleteHandler == nil {
 		unregistered = append(unregistered, "actions.ActionsDeleteHandler")
 	}
-
 	if o.ActionsActionsGetHandler == nil {
 		unregistered = append(unregistered, "actions.ActionsGetHandler")
 	}
-
 	if o.ActionsActionsListHandler == nil {
 		unregistered = append(unregistered, "actions.ActionsListHandler")
 	}
-
 	if o.ActionsActionsPatchHandler == nil {
 		unregistered = append(unregistered, "actions.ActionsPatchHandler")
 	}
-
 	if o.ActionsActionsReferencesCreateHandler == nil {
 		unregistered = append(unregistered, "actions.ActionsReferencesCreateHandler")
 	}
-
 	if o.ActionsActionsReferencesDeleteHandler == nil {
 		unregistered = append(unregistered, "actions.ActionsReferencesDeleteHandler")
 	}
-
 	if o.ActionsActionsReferencesUpdateHandler == nil {
 		unregistered = append(unregistered, "actions.ActionsReferencesUpdateHandler")
 	}
-
 	if o.ActionsActionsUpdateHandler == nil {
 		unregistered = append(unregistered, "actions.ActionsUpdateHandler")
 	}
-
 	if o.ActionsActionsValidateHandler == nil {
 		unregistered = append(unregistered, "actions.ActionsValidateHandler")
 	}
-
 	if o.BatchingBatchingActionsCreateHandler == nil {
 		unregistered = append(unregistered, "batching.BatchingActionsCreateHandler")
 	}
-
 	if o.BatchingBatchingReferencesCreateHandler == nil {
 		unregistered = append(unregistered, "batching.BatchingReferencesCreateHandler")
 	}
-
 	if o.BatchingBatchingThingsCreateHandler == nil {
 		unregistered = append(unregistered, "batching.BatchingThingsCreateHandler")
 	}
-
 	if o.ContextionaryAPIC11yConceptsHandler == nil {
 		unregistered = append(unregistered, "contextionary_api.C11yConceptsHandler")
 	}
-
 	if o.ContextionaryAPIC11yCorpusGetHandler == nil {
 		unregistered = append(unregistered, "contextionary_api.C11yCorpusGetHandler")
 	}
-
 	if o.ContextionaryAPIC11yExtensionsHandler == nil {
 		unregistered = append(unregistered, "contextionary_api.C11yExtensionsHandler")
 	}
-
 	if o.ContextionaryAPIC11yWordsHandler == nil {
 		unregistered = append(unregistered, "contextionary_api.C11yWordsHandler")
 	}
-
 	if o.ClassificationsClassificationsGetHandler == nil {
 		unregistered = append(unregistered, "classifications.ClassificationsGetHandler")
 	}
-
 	if o.ClassificationsClassificationsPostHandler == nil {
 		unregistered = append(unregistered, "classifications.ClassificationsPostHandler")
 	}
-
 	if o.GraphqlGraphqlBatchHandler == nil {
 		unregistered = append(unregistered, "graphql.GraphqlBatchHandler")
 	}
-
 	if o.GraphqlGraphqlPostHandler == nil {
 		unregistered = append(unregistered, "graphql.GraphqlPostHandler")
 	}
-
 	if o.MetaMetaGetHandler == nil {
 		unregistered = append(unregistered, "meta.MetaGetHandler")
 	}
-
 	if o.P2pP2pGenesisUpdateHandler == nil {
 		unregistered = append(unregistered, "p2_p.P2pGenesisUpdateHandler")
 	}
-
 	if o.P2pP2pHealthHandler == nil {
 		unregistered = append(unregistered, "p2_p.P2pHealthHandler")
 	}
-
 	if o.SchemaSchemaActionsCreateHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaActionsCreateHandler")
 	}
-
 	if o.SchemaSchemaActionsDeleteHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaActionsDeleteHandler")
 	}
-
 	if o.SchemaSchemaActionsPropertiesAddHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaActionsPropertiesAddHandler")
 	}
-
 	if o.SchemaSchemaActionsPropertiesDeleteHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaActionsPropertiesDeleteHandler")
 	}
-
 	if o.SchemaSchemaActionsPropertiesUpdateHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaActionsPropertiesUpdateHandler")
 	}
-
 	if o.SchemaSchemaActionsUpdateHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaActionsUpdateHandler")
 	}
-
 	if o.SchemaSchemaDumpHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaDumpHandler")
 	}
-
 	if o.SchemaSchemaThingsCreateHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaThingsCreateHandler")
 	}
-
 	if o.SchemaSchemaThingsDeleteHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaThingsDeleteHandler")
 	}
-
 	if o.SchemaSchemaThingsPropertiesAddHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaThingsPropertiesAddHandler")
 	}
-
 	if o.SchemaSchemaThingsPropertiesDeleteHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaThingsPropertiesDeleteHandler")
 	}
-
 	if o.SchemaSchemaThingsPropertiesUpdateHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaThingsPropertiesUpdateHandler")
 	}
-
 	if o.SchemaSchemaThingsUpdateHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaThingsUpdateHandler")
 	}
-
 	if o.ThingsThingsCreateHandler == nil {
 		unregistered = append(unregistered, "things.ThingsCreateHandler")
 	}
-
 	if o.ThingsThingsDeleteHandler == nil {
 		unregistered = append(unregistered, "things.ThingsDeleteHandler")
 	}
-
 	if o.ThingsThingsGetHandler == nil {
 		unregistered = append(unregistered, "things.ThingsGetHandler")
 	}
-
 	if o.ThingsThingsListHandler == nil {
 		unregistered = append(unregistered, "things.ThingsListHandler")
 	}
-
 	if o.ThingsThingsPatchHandler == nil {
 		unregistered = append(unregistered, "things.ThingsPatchHandler")
 	}
-
 	if o.ThingsThingsReferencesCreateHandler == nil {
 		unregistered = append(unregistered, "things.ThingsReferencesCreateHandler")
 	}
-
 	if o.ThingsThingsReferencesDeleteHandler == nil {
 		unregistered = append(unregistered, "things.ThingsReferencesDeleteHandler")
 	}
-
 	if o.ThingsThingsReferencesUpdateHandler == nil {
 		unregistered = append(unregistered, "things.ThingsReferencesUpdateHandler")
 	}
-
 	if o.ThingsThingsUpdateHandler == nil {
 		unregistered = append(unregistered, "things.ThingsUpdateHandler")
 	}
-
 	if o.ThingsThingsValidateHandler == nil {
 		unregistered = append(unregistered, "things.ThingsValidateHandler")
 	}
-
 	if o.WeaviateRootHandler == nil {
 		unregistered = append(unregistered, "WeaviateRootHandler")
 	}
-
 	if o.WeaviateWellknownLivenessHandler == nil {
 		unregistered = append(unregistered, "WeaviateWellknownLivenessHandler")
 	}
-
 	if o.WeaviateWellknownReadinessHandler == nil {
 		unregistered = append(unregistered, "WeaviateWellknownReadinessHandler")
 	}
@@ -656,13 +613,10 @@ func (o *WeaviateAPI) ServeErrorFor(operationID string) func(http.ResponseWriter
 
 // AuthenticatorsFor gets the authenticators for the specified security schemes
 func (o *WeaviateAPI) AuthenticatorsFor(schemes map[string]spec.SecurityScheme) map[string]runtime.Authenticator {
-
 	result := make(map[string]runtime.Authenticator)
 	for name := range schemes {
 		switch name {
-
 		case "oidc":
-
 			result[name] = o.BearerAuthenticator(name, func(token string, scopes []string) (interface{}, error) {
 				return o.OidcAuth(token, scopes)
 			})
@@ -670,29 +624,23 @@ func (o *WeaviateAPI) AuthenticatorsFor(schemes map[string]spec.SecurityScheme) 
 		}
 	}
 	return result
-
 }
 
 // Authorizer returns the registered authorizer
 func (o *WeaviateAPI) Authorizer() runtime.Authorizer {
-
 	return o.APIAuthorizer
-
 }
 
-// ConsumersFor gets the consumers for the specified media types
+// ConsumersFor gets the consumers for the specified media types.
+// MIME type parameters are ignored here.
 func (o *WeaviateAPI) ConsumersFor(mediaTypes []string) map[string]runtime.Consumer {
-
-	result := make(map[string]runtime.Consumer)
+	result := make(map[string]runtime.Consumer, len(mediaTypes))
 	for _, mt := range mediaTypes {
 		switch mt {
-
 		case "application/json":
 			result["application/json"] = o.JSONConsumer
-
 		case "application/yaml":
 			result["application/yaml"] = o.YamlConsumer
-
 		}
 
 		if c, ok := o.customConsumers[mt]; ok {
@@ -700,19 +648,16 @@ func (o *WeaviateAPI) ConsumersFor(mediaTypes []string) map[string]runtime.Consu
 		}
 	}
 	return result
-
 }
 
-// ProducersFor gets the producers for the specified media types
+// ProducersFor gets the producers for the specified media types.
+// MIME type parameters are ignored here.
 func (o *WeaviateAPI) ProducersFor(mediaTypes []string) map[string]runtime.Producer {
-
-	result := make(map[string]runtime.Producer)
+	result := make(map[string]runtime.Producer, len(mediaTypes))
 	for _, mt := range mediaTypes {
 		switch mt {
-
 		case "application/json":
 			result["application/json"] = o.JSONProducer
-
 		}
 
 		if p, ok := o.customProducers[mt]; ok {
@@ -720,7 +665,6 @@ func (o *WeaviateAPI) ProducersFor(mediaTypes []string) map[string]runtime.Produ
 		}
 	}
 	return result
-
 }
 
 // HandlerFor gets a http.Handler for the provided operation method and path
@@ -750,7 +694,6 @@ func (o *WeaviateAPI) Context() *middleware.Context {
 
 func (o *WeaviateAPI) initHandlerCache() {
 	o.Context() // don't care about the result, just that the initialization happened
-
 	if o.handlers == nil {
 		o.handlers = make(map[string]map[string]http.Handler)
 	}
@@ -759,257 +702,206 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/.well-known/openid-configuration"] = well_known.NewGetWellKnownOpenidConfiguration(o.context, o.WellKnownGetWellKnownOpenidConfigurationHandler)
-
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/actions"] = actions.NewActionsCreate(o.context, o.ActionsActionsCreateHandler)
-
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
 	o.handlers["DELETE"]["/actions/{id}"] = actions.NewActionsDelete(o.context, o.ActionsActionsDeleteHandler)
-
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/actions/{id}"] = actions.NewActionsGet(o.context, o.ActionsActionsGetHandler)
-
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/actions"] = actions.NewActionsList(o.context, o.ActionsActionsListHandler)
-
 	if o.handlers["PATCH"] == nil {
 		o.handlers["PATCH"] = make(map[string]http.Handler)
 	}
 	o.handlers["PATCH"]["/actions/{id}"] = actions.NewActionsPatch(o.context, o.ActionsActionsPatchHandler)
-
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/actions/{id}/references/{propertyName}"] = actions.NewActionsReferencesCreate(o.context, o.ActionsActionsReferencesCreateHandler)
-
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
 	o.handlers["DELETE"]["/actions/{id}/references/{propertyName}"] = actions.NewActionsReferencesDelete(o.context, o.ActionsActionsReferencesDeleteHandler)
-
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
 	o.handlers["PUT"]["/actions/{id}/references/{propertyName}"] = actions.NewActionsReferencesUpdate(o.context, o.ActionsActionsReferencesUpdateHandler)
-
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
 	o.handlers["PUT"]["/actions/{id}"] = actions.NewActionsUpdate(o.context, o.ActionsActionsUpdateHandler)
-
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/actions/validate"] = actions.NewActionsValidate(o.context, o.ActionsActionsValidateHandler)
-
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/batching/actions"] = batching.NewBatchingActionsCreate(o.context, o.BatchingBatchingActionsCreateHandler)
-
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/batching/references"] = batching.NewBatchingReferencesCreate(o.context, o.BatchingBatchingReferencesCreateHandler)
-
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/batching/things"] = batching.NewBatchingThingsCreate(o.context, o.BatchingBatchingThingsCreateHandler)
-
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/c11y/concepts/{concept}"] = contextionary_api.NewC11yConcepts(o.context, o.ContextionaryAPIC11yConceptsHandler)
-
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/c11y/corpus"] = contextionary_api.NewC11yCorpusGet(o.context, o.ContextionaryAPIC11yCorpusGetHandler)
-
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/c11y/extensions"] = contextionary_api.NewC11yExtensions(o.context, o.ContextionaryAPIC11yExtensionsHandler)
-
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/c11y/words/{words}"] = contextionary_api.NewC11yWords(o.context, o.ContextionaryAPIC11yWordsHandler)
-
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/classifications/{id}"] = classifications.NewClassificationsGet(o.context, o.ClassificationsClassificationsGetHandler)
-
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/classifications"] = classifications.NewClassificationsPost(o.context, o.ClassificationsClassificationsPostHandler)
-
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/graphql/batch"] = graphql.NewGraphqlBatch(o.context, o.GraphqlGraphqlBatchHandler)
-
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/graphql"] = graphql.NewGraphqlPost(o.context, o.GraphqlGraphqlPostHandler)
-
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/meta"] = meta.NewMetaGet(o.context, o.MetaMetaGetHandler)
-
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
 	o.handlers["PUT"]["/p2p/genesis"] = p2_p.NewP2pGenesisUpdate(o.context, o.P2pP2pGenesisUpdateHandler)
-
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/p2p/health"] = p2_p.NewP2pHealth(o.context, o.P2pP2pHealthHandler)
-
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/schema/actions"] = schema.NewSchemaActionsCreate(o.context, o.SchemaSchemaActionsCreateHandler)
-
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
 	o.handlers["DELETE"]["/schema/actions/{className}"] = schema.NewSchemaActionsDelete(o.context, o.SchemaSchemaActionsDeleteHandler)
-
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/schema/actions/{className}/properties"] = schema.NewSchemaActionsPropertiesAdd(o.context, o.SchemaSchemaActionsPropertiesAddHandler)
-
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
 	o.handlers["DELETE"]["/schema/actions/{className}/properties/{propertyName}"] = schema.NewSchemaActionsPropertiesDelete(o.context, o.SchemaSchemaActionsPropertiesDeleteHandler)
-
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
 	o.handlers["PUT"]["/schema/actions/{className}/properties/{propertyName}"] = schema.NewSchemaActionsPropertiesUpdate(o.context, o.SchemaSchemaActionsPropertiesUpdateHandler)
-
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
 	o.handlers["PUT"]["/schema/actions/{className}"] = schema.NewSchemaActionsUpdate(o.context, o.SchemaSchemaActionsUpdateHandler)
-
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/schema"] = schema.NewSchemaDump(o.context, o.SchemaSchemaDumpHandler)
-
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/schema/things"] = schema.NewSchemaThingsCreate(o.context, o.SchemaSchemaThingsCreateHandler)
-
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
 	o.handlers["DELETE"]["/schema/things/{className}"] = schema.NewSchemaThingsDelete(o.context, o.SchemaSchemaThingsDeleteHandler)
-
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/schema/things/{className}/properties"] = schema.NewSchemaThingsPropertiesAdd(o.context, o.SchemaSchemaThingsPropertiesAddHandler)
-
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
 	o.handlers["DELETE"]["/schema/things/{className}/properties/{propertyName}"] = schema.NewSchemaThingsPropertiesDelete(o.context, o.SchemaSchemaThingsPropertiesDeleteHandler)
-
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
 	o.handlers["PUT"]["/schema/things/{className}/properties/{propertyName}"] = schema.NewSchemaThingsPropertiesUpdate(o.context, o.SchemaSchemaThingsPropertiesUpdateHandler)
-
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
 	o.handlers["PUT"]["/schema/things/{className}"] = schema.NewSchemaThingsUpdate(o.context, o.SchemaSchemaThingsUpdateHandler)
-
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/things"] = things.NewThingsCreate(o.context, o.ThingsThingsCreateHandler)
-
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
 	o.handlers["DELETE"]["/things/{id}"] = things.NewThingsDelete(o.context, o.ThingsThingsDeleteHandler)
-
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/things/{id}"] = things.NewThingsGet(o.context, o.ThingsThingsGetHandler)
-
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/things"] = things.NewThingsList(o.context, o.ThingsThingsListHandler)
-
 	if o.handlers["PATCH"] == nil {
 		o.handlers["PATCH"] = make(map[string]http.Handler)
 	}
 	o.handlers["PATCH"]["/things/{id}"] = things.NewThingsPatch(o.context, o.ThingsThingsPatchHandler)
-
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/things/{id}/references/{propertyName}"] = things.NewThingsReferencesCreate(o.context, o.ThingsThingsReferencesCreateHandler)
-
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
 	o.handlers["DELETE"]["/things/{id}/references/{propertyName}"] = things.NewThingsReferencesDelete(o.context, o.ThingsThingsReferencesDeleteHandler)
-
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
 	o.handlers["PUT"]["/things/{id}/references/{propertyName}"] = things.NewThingsReferencesUpdate(o.context, o.ThingsThingsReferencesUpdateHandler)
-
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
 	o.handlers["PUT"]["/things/{id}"] = things.NewThingsUpdate(o.context, o.ThingsThingsUpdateHandler)
-
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/things/validate"] = things.NewThingsValidate(o.context, o.ThingsThingsValidateHandler)
-
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"][""] = NewWeaviateRoot(o.context, o.WeaviateRootHandler)
-
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/.well-known/live"] = NewWeaviateWellknownLiveness(o.context, o.WeaviateWellknownLivenessHandler)
-
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/.well-known/ready"] = NewWeaviateWellknownReadiness(o.context, o.WeaviateWellknownReadinessHandler)
-
 }
 
 // Serve creates a http handler to serve the API over HTTP
@@ -1038,4 +930,16 @@ func (o *WeaviateAPI) RegisterConsumer(mediaType string, consumer runtime.Consum
 // RegisterProducer allows you to add (or override) a producer for a media type.
 func (o *WeaviateAPI) RegisterProducer(mediaType string, producer runtime.Producer) {
 	o.customProducers[mediaType] = producer
+}
+
+// AddMiddlewareFor adds a http middleware to existing handler
+func (o *WeaviateAPI) AddMiddlewareFor(method, path string, builder middleware.Builder) {
+	um := strings.ToUpper(method)
+	if path == "/" {
+		path = ""
+	}
+	o.Init()
+	if h, ok := o.handlers[um][path]; ok {
+		o.handlers[method][path] = builder(h)
+	}
 }
