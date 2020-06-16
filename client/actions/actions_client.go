@@ -22,12 +22,11 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/runtime"
-
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/strfmt"
 )
 
 // New creates a new actions API client.
-func New(transport runtime.ClientTransport, formats strfmt.Registry) *Client {
+func New(transport runtime.ClientTransport, formats strfmt.Registry) ClientService {
 	return &Client{transport: transport, formats: formats}
 }
 
@@ -39,10 +38,35 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
-/*
-ActionsCreate creates actions between two things object and subject
+// ClientService is the interface for Client methods
+type ClientService interface {
+	ActionsCreate(params *ActionsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsCreateOK, error)
 
-Registers a new Action. Provided meta-data and schema values are validated.
+	ActionsDelete(params *ActionsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsDeleteNoContent, error)
+
+	ActionsGet(params *ActionsGetParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsGetOK, error)
+
+	ActionsList(params *ActionsListParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsListOK, error)
+
+	ActionsPatch(params *ActionsPatchParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsPatchNoContent, error)
+
+	ActionsReferencesCreate(params *ActionsReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsReferencesCreateOK, error)
+
+	ActionsReferencesDelete(params *ActionsReferencesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsReferencesDeleteNoContent, error)
+
+	ActionsReferencesUpdate(params *ActionsReferencesUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsReferencesUpdateOK, error)
+
+	ActionsUpdate(params *ActionsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsUpdateOK, error)
+
+	ActionsValidate(params *ActionsValidateParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsValidateOK, error)
+
+	SetTransport(transport runtime.ClientTransport)
+}
+
+/*
+  ActionsCreate creates actions between two things object and subject
+
+  Registers a new Action. Provided meta-data and schema values are validated.
 */
 func (a *Client) ActionsCreate(params *ActionsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -77,9 +101,9 @@ func (a *Client) ActionsCreate(params *ActionsCreateParams, authInfo runtime.Cli
 }
 
 /*
-ActionsDelete deletes an action based on its UUID
+  ActionsDelete deletes an action based on its UUID
 
-Deletes an Action from the system.
+  Deletes an Action from the system.
 */
 func (a *Client) ActionsDelete(params *ActionsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsDeleteNoContent, error) {
 	// TODO: Validate the params before sending
@@ -114,9 +138,9 @@ func (a *Client) ActionsDelete(params *ActionsDeleteParams, authInfo runtime.Cli
 }
 
 /*
-ActionsGet gets a specific action based on its UUID and a thing UUID also available as websocket bus
+  ActionsGet gets a specific action based on its UUID and a thing UUID also available as websocket bus
 
-Lists Actions.
+  Lists Actions.
 */
 func (a *Client) ActionsGet(params *ActionsGetParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsGetOK, error) {
 	// TODO: Validate the params before sending
@@ -151,9 +175,9 @@ func (a *Client) ActionsGet(params *ActionsGetParams, authInfo runtime.ClientAut
 }
 
 /*
-ActionsList gets a list of actions
+  ActionsList gets a list of actions
 
-Lists all Actions in reverse order of creation, owned by the user that belongs to the used token.
+  Lists all Actions in reverse order of creation, owned by the user that belongs to the used token.
 */
 func (a *Client) ActionsList(params *ActionsListParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsListOK, error) {
 	// TODO: Validate the params before sending
@@ -188,9 +212,9 @@ func (a *Client) ActionsList(params *ActionsListParams, authInfo runtime.ClientA
 }
 
 /*
-ActionsPatch updates an action based on its UUID using patch semantics
+  ActionsPatch updates an action based on its UUID using patch semantics
 
-Updates an Action. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
+  Updates an Action. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
 func (a *Client) ActionsPatch(params *ActionsPatchParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsPatchNoContent, error) {
 	// TODO: Validate the params before sending
@@ -225,9 +249,9 @@ func (a *Client) ActionsPatch(params *ActionsPatchParams, authInfo runtime.Clien
 }
 
 /*
-ActionsReferencesCreate adds a single reference to a class property when cardinality is set to has many
+  ActionsReferencesCreate adds a single reference to a class property when cardinality is set to has many
 
-Add a single reference to a class-property when cardinality is set to 'hasMany'.
+  Add a single reference to a class-property when cardinality is set to 'hasMany'.
 */
 func (a *Client) ActionsReferencesCreate(params *ActionsReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsReferencesCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -262,9 +286,9 @@ func (a *Client) ActionsReferencesCreate(params *ActionsReferencesCreateParams, 
 }
 
 /*
-ActionsReferencesDelete deletes the single reference that is given in the body from the list of references that this property has
+  ActionsReferencesDelete deletes the single reference that is given in the body from the list of references that this property has
 
-Delete the single reference that is given in the body from the list of references that this property has.
+  Delete the single reference that is given in the body from the list of references that this property has.
 */
 func (a *Client) ActionsReferencesDelete(params *ActionsReferencesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsReferencesDeleteNoContent, error) {
 	// TODO: Validate the params before sending
@@ -299,9 +323,9 @@ func (a *Client) ActionsReferencesDelete(params *ActionsReferencesDeleteParams, 
 }
 
 /*
-ActionsReferencesUpdate replaces all references to a class property
+  ActionsReferencesUpdate replaces all references to a class property
 
-Replace all references to a class-property.
+  Replace all references to a class-property.
 */
 func (a *Client) ActionsReferencesUpdate(params *ActionsReferencesUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsReferencesUpdateOK, error) {
 	// TODO: Validate the params before sending
@@ -336,9 +360,9 @@ func (a *Client) ActionsReferencesUpdate(params *ActionsReferencesUpdateParams, 
 }
 
 /*
-ActionsUpdate updates an action based on its UUID
+  ActionsUpdate updates an action based on its UUID
 
-Updates an Action's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
+  Updates an Action's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
 func (a *Client) ActionsUpdate(params *ActionsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsUpdateOK, error) {
 	// TODO: Validate the params before sending
@@ -373,9 +397,9 @@ func (a *Client) ActionsUpdate(params *ActionsUpdateParams, authInfo runtime.Cli
 }
 
 /*
-ActionsValidate validates an action based on a schema
+  ActionsValidate validates an action based on a schema
 
-Validate an Action's schema and meta-data. It has to be based on a schema, which is related to the given Action to be accepted by this validation.
+  Validate an Action's schema and meta-data. It has to be based on a schema, which is related to the given Action to be accepted by this validation.
 */
 func (a *Client) ActionsValidate(params *ActionsValidateParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsValidateOK, error) {
 	// TODO: Validate the params before sending

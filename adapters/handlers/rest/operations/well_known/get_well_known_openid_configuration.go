@@ -21,11 +21,11 @@ package well_known
 import (
 	"net/http"
 
-	middleware "github.com/go-openapi/runtime/middleware"
-	strfmt "github.com/go-openapi/strfmt"
-	swag "github.com/go-openapi/swag"
+	"github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 
-	models "github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 // GetWellKnownOpenidConfigurationHandlerFunc turns a function with the right signature into a get well known openid configuration handler
@@ -90,14 +90,15 @@ func (o *GetWellKnownOpenidConfiguration) ServeHTTP(rw http.ResponseWriter, r *h
 }
 
 // GetWellKnownOpenidConfigurationOKBody get well known openid configuration o k body
+//
 // swagger:model GetWellKnownOpenidConfigurationOKBody
 type GetWellKnownOpenidConfigurationOKBody struct {
 
 	// OAuth Client ID
-	ClientID string `json:"clientId,omitempty"`
+	ClientID string `yaml:"clientId,omitempty" foobar:"clientId,omitempty"`
 
 	// The Location to redirect to
-	Href string `json:"href,omitempty"`
+	Href string `yaml:"href,omitempty" foobar:"href,omitempty"`
 }
 
 // Validate validates this get well known openid configuration o k body
