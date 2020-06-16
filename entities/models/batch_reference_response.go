@@ -212,7 +212,7 @@ const (
 
 // prop value enum
 func (m *BatchReferenceResponseAO1Result) validateStatusEnum(path, location string, value string) error {
-	if err := validate.Enum(path, location, value, batchReferenceResponseAO1ResultTypeStatusPropEnum); err != nil {
+	if err := validate.EnumCase(path, location, value, batchReferenceResponseAO1ResultTypeStatusPropEnum, true); err != nil {
 		return err
 	}
 	return nil

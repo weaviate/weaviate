@@ -99,10 +99,10 @@ func (o *BatchingThingsCreate) ServeHTTP(rw http.ResponseWriter, r *http.Request
 type BatchingThingsCreateBody struct {
 
 	// Define which fields need to be returned. Default value is ALL
-	Fields []*string `json:"fields"`
+	Fields []*string `yaml:"fields" foobar:"fields"`
 
 	// things
-	Things []*models.Thing `json:"things"`
+	Things []*models.Thing `yaml:"things" foobar:"things"`
 }
 
 // Validate validates this batching things create body
@@ -136,7 +136,7 @@ func init() {
 }
 
 func (o *BatchingThingsCreateBody) validateFieldsItemsEnum(path, location string, value string) error {
-	if err := validate.Enum(path, location, value, batchingThingsCreateBodyFieldsItemsEnum); err != nil {
+	if err := validate.EnumCase(path, location, value, batchingThingsCreateBodyFieldsItemsEnum, true); err != nil {
 		return err
 	}
 	return nil

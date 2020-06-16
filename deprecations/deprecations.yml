@@ -1,0 +1,16 @@
+deprecations:
+  - id: rest-meta-prop
+    status: deprecated # switch to removed once feature is completely removed
+    apiType: REST
+    locations: 
+    - GET /v1/thing/{id}
+    - GET /v1/things
+    - GET /v1/action/{id}
+    - GET /v1/actions
+    msg: "use of deprecated property ?meta=true/false"
+    mitigation: "use ?include=<propName>, e.g. ?include=_classification"
+    sinceVersion: "0.22.8"
+    sinceTime: "2020-06-15T16:18:06+00:00"
+    plannedRemovalVersion: "0.23.0"
+    removedIn: null
+    removedTime: null

@@ -66,7 +66,7 @@ func (o *BatchingReferencesCreateParams) BindRequest(r *http.Request, route *mid
 		var body []*models.BatchReference
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
-				res = append(res, errors.Required("body", "body"))
+				res = append(res, errors.Required("body", "body", ""))
 			} else {
 				res = append(res, errors.NewParseError("body", "body", "", err))
 			}
@@ -86,7 +86,7 @@ func (o *BatchingReferencesCreateParams) BindRequest(r *http.Request, route *mid
 			}
 		}
 	} else {
-		res = append(res, errors.Required("body", "body"))
+		res = append(res, errors.Required("body", "body", ""))
 	}
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)

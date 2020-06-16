@@ -95,7 +95,7 @@ func (o *C11yCorpusGet) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 type C11yCorpusGetBody struct {
 
 	// corpus
-	Corpus string `json:"corpus,omitempty"`
+	Corpus string `yaml:"corpus,omitempty" foobar:"corpus,omitempty"`
 }
 
 // Validate validates this c11y corpus get body

@@ -253,6 +253,62 @@
         }
       }
     },
+    "Deprecation": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The id that uniquely identifies this particular deprecations (mostly used internally)"
+        },
+        "status": {
+          "type": "string",
+          "description": "Whether the problematic API functionality is deprecated (planned to be removed) or already removed"
+        },
+        "apiType": {
+          "type": "string",
+          "description": "Describes which API is effected, usually one of: REST, GraphQL"
+        },
+        "msg": {
+          "type": "string",
+          "description": "What this deprecation is about"
+        },
+        "mitigation": {
+          "type": "string",
+          "description": "User-required action to not be affected by the (planned) removal"
+        },
+        "sinceVersion": {
+          "type": "string",
+          "description": "The deprecation was introduced in this version"
+        },
+        "plannedRemovalVersion": {
+          "type": "string",
+          "description": "A best-effort guess of which upcoming version will remove the feature entirely"
+        },
+        "removedIn": {
+          "type": "string",
+          "description": "If the feature has already been removed, it was removed in this version",
+          "x-nullable": true
+        },
+        "removedTime": {
+          "type": "string",
+          "format": "date-time",
+          "description": "If the feature has already been removed, it was removed at this timestamp",
+          "x-nullable": true
+        },
+        "sinceTime": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The deprecation was introduced in this version"
+        },
+        "locations": {
+          "type": "array",
+          "description": "The locations within the specified API affected by this deprecation",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "ErrorResponse": {
       "description": "An error response given by Weaviate end-points.",
       "properties": {

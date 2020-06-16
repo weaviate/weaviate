@@ -99,10 +99,10 @@ func (o *BatchingActionsCreate) ServeHTTP(rw http.ResponseWriter, r *http.Reques
 type BatchingActionsCreateBody struct {
 
 	// actions
-	Actions []*models.Action `json:"actions"`
+	Actions []*models.Action `yaml:"actions" foobar:"actions"`
 
 	// Define which fields need to be returned. Default value is ALL
-	Fields []*string `json:"fields"`
+	Fields []*string `yaml:"fields" foobar:"fields"`
 }
 
 // Validate validates this batching actions create body
@@ -161,7 +161,7 @@ func init() {
 }
 
 func (o *BatchingActionsCreateBody) validateFieldsItemsEnum(path, location string, value string) error {
-	if err := validate.Enum(path, location, value, batchingActionsCreateBodyFieldsItemsEnum); err != nil {
+	if err := validate.EnumCase(path, location, value, batchingActionsCreateBodyFieldsItemsEnum, true); err != nil {
 		return err
 	}
 	return nil

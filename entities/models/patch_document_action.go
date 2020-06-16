@@ -126,7 +126,7 @@ const (
 
 // prop value enum
 func (m *PatchDocumentAction) validateOpEnum(path, location string, value string) error {
-	if err := validate.Enum(path, location, value, patchDocumentActionTypeOpPropEnum); err != nil {
+	if err := validate.EnumCase(path, location, value, patchDocumentActionTypeOpPropEnum, true); err != nil {
 		return err
 	}
 	return nil
