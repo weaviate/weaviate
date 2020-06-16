@@ -23,7 +23,7 @@ import (
 
 	"github.com/go-openapi/runtime"
 
-	models "github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 // ThingsListOKCode is the HTTP code returned for type ThingsListOK
@@ -62,6 +62,50 @@ func (o *ThingsListOK) SetPayload(payload *models.ThingsListResponse) {
 func (o *ThingsListOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(200)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
+// ThingsListBadRequestCode is the HTTP code returned for type ThingsListBadRequest
+const ThingsListBadRequestCode int = 400
+
+/*ThingsListBadRequest Malformed request.
+
+swagger:response thingsListBadRequest
+*/
+type ThingsListBadRequest struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewThingsListBadRequest creates ThingsListBadRequest with default headers values
+func NewThingsListBadRequest() *ThingsListBadRequest {
+
+	return &ThingsListBadRequest{}
+}
+
+// WithPayload adds the payload to the things list bad request response
+func (o *ThingsListBadRequest) WithPayload(payload *models.ErrorResponse) *ThingsListBadRequest {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the things list bad request response
+func (o *ThingsListBadRequest) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ThingsListBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {
