@@ -25,10 +25,9 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/strfmt"
 
-	strfmt "github.com/go-openapi/strfmt"
-
-	models "github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 // NewSchemaActionsPropertiesUpdateParams creates a new SchemaActionsPropertiesUpdateParams object
@@ -78,7 +77,7 @@ func (o *SchemaActionsPropertiesUpdateParams) BindRequest(r *http.Request, route
 		var body models.Property
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
-				res = append(res, errors.Required("body", "body"))
+				res = append(res, errors.Required("body", "body", ""))
 			} else {
 				res = append(res, errors.NewParseError("body", "body", "", err))
 			}
@@ -93,7 +92,7 @@ func (o *SchemaActionsPropertiesUpdateParams) BindRequest(r *http.Request, route
 			}
 		}
 	} else {
-		res = append(res, errors.Required("body", "body"))
+		res = append(res, errors.Required("body", "body", ""))
 	}
 	rClassName, rhkClassName, _ := route.Params.GetOK("className")
 	if err := o.bindClassName(rClassName, rhkClassName, route.Formats); err != nil {

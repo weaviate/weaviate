@@ -27,6 +27,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -167,7 +168,7 @@ func Test_MergingObjects(t *testing.T) {
 	refreshAll(t, client)
 
 	t.Run("check that the object was successfully merged", func(t *testing.T) {
-		source, err := repo.ThingByID(context.Background(), sourceID, nil, false)
+		source, err := repo.ThingByID(context.Background(), sourceID, nil, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 
 		schema := source.Thing().Schema.(map[string]interface{})
@@ -219,7 +220,7 @@ func Test_MergingObjects(t *testing.T) {
 	refreshAll(t, client)
 
 	t.Run("check that the object was successfully merged", func(t *testing.T) {
-		source, err := repo.ThingByID(context.Background(), sourceID, nil, false)
+		source, err := repo.ThingByID(context.Background(), sourceID, nil, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 
 		ref, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/things/%s", target1))
@@ -272,7 +273,7 @@ func Test_MergingObjects(t *testing.T) {
 	refreshAll(t, client)
 
 	t.Run("check all references are now present", func(t *testing.T) {
-		source, err := repo.ThingByID(context.Background(), sourceID, nil, false)
+		source, err := repo.ThingByID(context.Background(), sourceID, nil, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 
 		refs := source.Thing().Schema.(map[string]interface{})["toTarget"]

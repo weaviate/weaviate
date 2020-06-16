@@ -21,9 +21,9 @@ package classifications
 import (
 	"net/http"
 
-	middleware "github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/runtime/middleware"
 
-	models "github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 // ClassificationsPostHandlerFunc turns a function with the right signature into a classifications post handler

@@ -21,13 +21,13 @@ package models
 import (
 	"strconv"
 
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // C11yNearestNeighbors C11y function to show the nearest neighbors to a word.
+//
 // swagger:model C11yNearestNeighbors
 type C11yNearestNeighbors []*C11yNearestNeighborsItems0
 
@@ -58,6 +58,7 @@ func (m C11yNearestNeighbors) Validate(formats strfmt.Registry) error {
 }
 
 // C11yNearestNeighborsItems0 c11y nearest neighbors items0
+//
 // swagger:model C11yNearestNeighborsItems0
 type C11yNearestNeighborsItems0 struct {
 

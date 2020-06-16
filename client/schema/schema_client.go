@@ -22,12 +22,11 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/runtime"
-
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/strfmt"
 )
 
 // New creates a new schema API client.
-func New(transport runtime.ClientTransport, formats strfmt.Registry) *Client {
+func New(transport runtime.ClientTransport, formats strfmt.Registry) ClientService {
 	return &Client{transport: transport, formats: formats}
 }
 
@@ -39,8 +38,39 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
+// ClientService is the interface for Client methods
+type ClientService interface {
+	SchemaActionsCreate(params *SchemaActionsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsCreateOK, error)
+
+	SchemaActionsDelete(params *SchemaActionsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsDeleteOK, error)
+
+	SchemaActionsPropertiesAdd(params *SchemaActionsPropertiesAddParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsPropertiesAddOK, error)
+
+	SchemaActionsPropertiesDelete(params *SchemaActionsPropertiesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsPropertiesDeleteOK, error)
+
+	SchemaActionsPropertiesUpdate(params *SchemaActionsPropertiesUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsPropertiesUpdateOK, error)
+
+	SchemaActionsUpdate(params *SchemaActionsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsUpdateOK, error)
+
+	SchemaDump(params *SchemaDumpParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaDumpOK, error)
+
+	SchemaThingsCreate(params *SchemaThingsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsCreateOK, error)
+
+	SchemaThingsDelete(params *SchemaThingsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsDeleteOK, error)
+
+	SchemaThingsPropertiesAdd(params *SchemaThingsPropertiesAddParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsPropertiesAddOK, error)
+
+	SchemaThingsPropertiesDelete(params *SchemaThingsPropertiesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsPropertiesDeleteOK, error)
+
+	SchemaThingsPropertiesUpdate(params *SchemaThingsPropertiesUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsPropertiesUpdateOK, error)
+
+	SchemaThingsUpdate(params *SchemaThingsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsUpdateOK, error)
+
+	SetTransport(transport runtime.ClientTransport)
+}
+
 /*
-SchemaActionsCreate creates a new action class in the ontology
+  SchemaActionsCreate creates a new action class in the ontology
 */
 func (a *Client) SchemaActionsCreate(params *SchemaActionsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -75,7 +105,7 @@ func (a *Client) SchemaActionsCreate(params *SchemaActionsCreateParams, authInfo
 }
 
 /*
-SchemaActionsDelete removes an action class and all data in the instances from the ontology
+  SchemaActionsDelete removes an action class and all data in the instances from the ontology
 */
 func (a *Client) SchemaActionsDelete(params *SchemaActionsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsDeleteOK, error) {
 	// TODO: Validate the params before sending
@@ -110,7 +140,7 @@ func (a *Client) SchemaActionsDelete(params *SchemaActionsDeleteParams, authInfo
 }
 
 /*
-SchemaActionsPropertiesAdd adds a property to an action class
+  SchemaActionsPropertiesAdd adds a property to an action class
 */
 func (a *Client) SchemaActionsPropertiesAdd(params *SchemaActionsPropertiesAddParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsPropertiesAddOK, error) {
 	// TODO: Validate the params before sending
@@ -145,7 +175,7 @@ func (a *Client) SchemaActionsPropertiesAdd(params *SchemaActionsPropertiesAddPa
 }
 
 /*
-SchemaActionsPropertiesDelete removes a property from an action class
+  SchemaActionsPropertiesDelete removes a property from an action class
 */
 func (a *Client) SchemaActionsPropertiesDelete(params *SchemaActionsPropertiesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsPropertiesDeleteOK, error) {
 	// TODO: Validate the params before sending
@@ -180,7 +210,7 @@ func (a *Client) SchemaActionsPropertiesDelete(params *SchemaActionsPropertiesDe
 }
 
 /*
-SchemaActionsPropertiesUpdate renames or replace the keywords of the property
+  SchemaActionsPropertiesUpdate renames or replace the keywords of the property
 */
 func (a *Client) SchemaActionsPropertiesUpdate(params *SchemaActionsPropertiesUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsPropertiesUpdateOK, error) {
 	// TODO: Validate the params before sending
@@ -215,7 +245,7 @@ func (a *Client) SchemaActionsPropertiesUpdate(params *SchemaActionsPropertiesUp
 }
 
 /*
-SchemaActionsUpdate renames or replace the keywords of the action
+  SchemaActionsUpdate renames or replace the keywords of the action
 */
 func (a *Client) SchemaActionsUpdate(params *SchemaActionsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsUpdateOK, error) {
 	// TODO: Validate the params before sending
@@ -250,7 +280,7 @@ func (a *Client) SchemaActionsUpdate(params *SchemaActionsUpdateParams, authInfo
 }
 
 /*
-SchemaDump dumps the current the database schema
+  SchemaDump dumps the current the database schema
 */
 func (a *Client) SchemaDump(params *SchemaDumpParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaDumpOK, error) {
 	// TODO: Validate the params before sending
@@ -285,7 +315,7 @@ func (a *Client) SchemaDump(params *SchemaDumpParams, authInfo runtime.ClientAut
 }
 
 /*
-SchemaThingsCreate creates a new thing class in the ontology
+  SchemaThingsCreate creates a new thing class in the ontology
 */
 func (a *Client) SchemaThingsCreate(params *SchemaThingsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -320,7 +350,7 @@ func (a *Client) SchemaThingsCreate(params *SchemaThingsCreateParams, authInfo r
 }
 
 /*
-SchemaThingsDelete removes a thing class and all data in the instances from the ontology
+  SchemaThingsDelete removes a thing class and all data in the instances from the ontology
 */
 func (a *Client) SchemaThingsDelete(params *SchemaThingsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsDeleteOK, error) {
 	// TODO: Validate the params before sending
@@ -355,7 +385,7 @@ func (a *Client) SchemaThingsDelete(params *SchemaThingsDeleteParams, authInfo r
 }
 
 /*
-SchemaThingsPropertiesAdd adds a property to a thing class
+  SchemaThingsPropertiesAdd adds a property to a thing class
 */
 func (a *Client) SchemaThingsPropertiesAdd(params *SchemaThingsPropertiesAddParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsPropertiesAddOK, error) {
 	// TODO: Validate the params before sending
@@ -390,7 +420,7 @@ func (a *Client) SchemaThingsPropertiesAdd(params *SchemaThingsPropertiesAddPara
 }
 
 /*
-SchemaThingsPropertiesDelete removes a property from a thing class
+  SchemaThingsPropertiesDelete removes a property from a thing class
 */
 func (a *Client) SchemaThingsPropertiesDelete(params *SchemaThingsPropertiesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsPropertiesDeleteOK, error) {
 	// TODO: Validate the params before sending
@@ -425,7 +455,7 @@ func (a *Client) SchemaThingsPropertiesDelete(params *SchemaThingsPropertiesDele
 }
 
 /*
-SchemaThingsPropertiesUpdate renames or replace the keywords of the property
+  SchemaThingsPropertiesUpdate renames or replace the keywords of the property
 */
 func (a *Client) SchemaThingsPropertiesUpdate(params *SchemaThingsPropertiesUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsPropertiesUpdateOK, error) {
 	// TODO: Validate the params before sending
@@ -460,7 +490,7 @@ func (a *Client) SchemaThingsPropertiesUpdate(params *SchemaThingsPropertiesUpda
 }
 
 /*
-SchemaThingsUpdate renames or replace the keywords of the thing
+  SchemaThingsUpdate renames or replace the keywords of the thing
 */
 func (a *Client) SchemaThingsUpdate(params *SchemaThingsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsUpdateOK, error) {
 	// TODO: Validate the params before sending

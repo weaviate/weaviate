@@ -19,13 +19,13 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // WhereFilterGeoRange filter within a distance of a georange
+//
 // swagger:model WhereFilterGeoRange
 type WhereFilterGeoRange struct {
 
@@ -109,6 +109,7 @@ func (m *WhereFilterGeoRange) UnmarshalBinary(b []byte) error {
 }
 
 // WhereFilterGeoRangeDistance where filter geo range distance
+//
 // swagger:model WhereFilterGeoRangeDistance
 type WhereFilterGeoRangeDistance struct {
 
