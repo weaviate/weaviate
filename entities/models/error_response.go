@@ -21,13 +21,13 @@ package models
 import (
 	"strconv"
 
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // ErrorResponse An error response given by Weaviate end-points.
+//
 // swagger:model ErrorResponse
 type ErrorResponse struct {
 
@@ -93,6 +93,7 @@ func (m *ErrorResponse) UnmarshalBinary(b []byte) error {
 }
 
 // ErrorResponseErrorItems0 error response error items0
+//
 // swagger:model ErrorResponseErrorItems0
 type ErrorResponseErrorItems0 struct {
 

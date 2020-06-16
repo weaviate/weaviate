@@ -26,7 +26,7 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 
-	models "github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 // NewC11yExtensionsParams creates a new C11yExtensionsParams object
@@ -66,7 +66,7 @@ func (o *C11yExtensionsParams) BindRequest(r *http.Request, route *middleware.Ma
 		var body models.C11yExtension
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
-				res = append(res, errors.Required("extension", "body"))
+				res = append(res, errors.Required("extension", "body", ""))
 			} else {
 				res = append(res, errors.NewParseError("extension", "body", "", err))
 			}
@@ -81,7 +81,7 @@ func (o *C11yExtensionsParams) BindRequest(r *http.Request, route *middleware.Ma
 			}
 		}
 	} else {
-		res = append(res, errors.Required("extension", "body"))
+		res = append(res, errors.Required("extension", "body", ""))
 	}
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)

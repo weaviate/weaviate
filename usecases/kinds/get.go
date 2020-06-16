@@ -34,7 +34,7 @@ type getRepo interface {
 
 // GetThing Class from the connected DB
 func (m *Manager) GetThing(ctx context.Context, principal *models.Principal,
-	id strfmt.UUID, meta bool) (*models.Thing, error) {
+	id strfmt.UUID, underscore traverser.UnderscoreProperties) (*models.Thing, error) {
 	err := m.authorizer.Authorize(principal, "get", fmt.Sprintf("things/%s", id.String()))
 	if err != nil {
 		return nil, err
@@ -46,7 +46,7 @@ func (m *Manager) GetThing(ctx context.Context, principal *models.Principal,
 	}
 	defer unlock()
 
-	res, err := m.getThingFromRepo(ctx, id, meta)
+	res, err := m.getThingFromRepo(ctx, id, underscore)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +56,7 @@ func (m *Manager) GetThing(ctx context.Context, principal *models.Principal,
 
 // GetThings Class from the connected DB
 func (m *Manager) GetThings(ctx context.Context, principal *models.Principal,
-	limit *int64, meta bool) ([]*models.Thing, error) {
+	limit *int64, underscore traverser.UnderscoreProperties) ([]*models.Thing, error) {
 	err := m.authorizer.Authorize(principal, "list", "things")
 	if err != nil {
 		return nil, err
@@ -68,12 +68,12 @@ func (m *Manager) GetThings(ctx context.Context, principal *models.Principal,
 	}
 	defer unlock()
 
-	return m.getThingsFromRepo(ctx, limit, meta)
+	return m.getThingsFromRepo(ctx, limit, underscore)
 }
 
 // GetAction Class from connected DB
 func (m *Manager) GetAction(ctx context.Context, principal *models.Principal,
-	id strfmt.UUID, meta bool) (*models.Action, error) {
+	id strfmt.UUID, underscore traverser.UnderscoreProperties) (*models.Action, error) {
 	err := m.authorizer.Authorize(principal, "get", fmt.Sprintf("actions/%s", id.String()))
 	if err != nil {
 		return nil, err
@@ -85,7 +85,7 @@ func (m *Manager) GetAction(ctx context.Context, principal *models.Principal,
 	}
 	defer unlock()
 
-	action, err := m.getActionFromRepo(ctx, id, meta)
+	action, err := m.getActionFromRepo(ctx, id, underscore)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +95,7 @@ func (m *Manager) GetAction(ctx context.Context, principal *models.Principal,
 
 // GetActions Class from connected DB
 func (m *Manager) GetActions(ctx context.Context, principal *models.Principal,
-	limit *int64, meta bool) ([]*models.Action, error) {
+	limit *int64, underscore traverser.UnderscoreProperties) ([]*models.Action, error) {
 	err := m.authorizer.Authorize(principal, "list", "actions")
 	if err != nil {
 		return nil, err
@@ -107,11 +107,12 @@ func (m *Manager) GetActions(ctx context.Context, principal *models.Principal,
 	}
 	defer unlock()
 
-	return m.getActionsFromRepo(ctx, limit, meta)
+	return m.getActionsFromRepo(ctx, limit, underscore)
 }
 
-func (m *Manager) getThingFromRepo(ctx context.Context, id strfmt.UUID, meta bool) (*search.Result, error) {
-	res, err := m.vectorRepo.ThingByID(ctx, id, traverser.SelectProperties{}, meta)
+func (m *Manager) getThingFromRepo(ctx context.Context, id strfmt.UUID,
+	underscore traverser.UnderscoreProperties) (*search.Result, error) {
+	res, err := m.vectorRepo.ThingByID(ctx, id, traverser.SelectProperties{}, underscore)
 	if err != nil {
 		return nil, NewErrInternal("repo: thing by id: %v", err)
 	}
@@ -123,10 +124,11 @@ func (m *Manager) getThingFromRepo(ctx context.Context, id strfmt.UUID, meta boo
 	return res, nil
 }
 
-func (m *Manager) getThingsFromRepo(ctx context.Context, limit *int64, meta bool) ([]*models.Thing, error) {
+func (m *Manager) getThingsFromRepo(ctx context.Context, limit *int64,
+	underscore traverser.UnderscoreProperties) ([]*models.Thing, error) {
 	smartLimit := m.localLimitOrGlobalLimit(limit)
 
-	res, err := m.vectorRepo.ThingSearch(ctx, smartLimit, nil, meta)
+	res, err := m.vectorRepo.ThingSearch(ctx, smartLimit, nil, underscore)
 	if err != nil {
 		return nil, NewErrInternal("list things: %v", err)
 	}
@@ -134,8 +136,9 @@ func (m *Manager) getThingsFromRepo(ctx context.Context, limit *int64, meta bool
 	return res.Things(), nil
 }
 
-func (m *Manager) getActionFromRepo(ctx context.Context, id strfmt.UUID, meta bool) (*search.Result, error) {
-	res, err := m.vectorRepo.ActionByID(ctx, id, traverser.SelectProperties{}, meta)
+func (m *Manager) getActionFromRepo(ctx context.Context, id strfmt.UUID,
+	underscore traverser.UnderscoreProperties) (*search.Result, error) {
+	res, err := m.vectorRepo.ActionByID(ctx, id, traverser.SelectProperties{}, underscore)
 	if err != nil {
 		return nil, NewErrInternal("repo: action by id: %v", err)
 	}
@@ -147,10 +150,11 @@ func (m *Manager) getActionFromRepo(ctx context.Context, id strfmt.UUID, meta bo
 	return res, nil
 }
 
-func (m *Manager) getActionsFromRepo(ctx context.Context, limit *int64, meta bool) ([]*models.Action, error) {
+func (m *Manager) getActionsFromRepo(ctx context.Context, limit *int64,
+	underscore traverser.UnderscoreProperties) ([]*models.Action, error) {
 	smartLimit := m.localLimitOrGlobalLimit(limit)
 
-	res, err := m.vectorRepo.ActionSearch(ctx, smartLimit, nil, meta)
+	res, err := m.vectorRepo.ActionSearch(ctx, smartLimit, nil, underscore)
 	if err != nil {
 		return nil, NewErrInternal("list actions: %v", err)
 	}

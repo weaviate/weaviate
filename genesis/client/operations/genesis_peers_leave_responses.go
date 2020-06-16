@@ -22,8 +22,7 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/runtime"
-
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/strfmt"
 )
 
 // GenesisPeersLeaveReader is a Reader for the GenesisPeersLeave structure.
@@ -34,28 +33,24 @@ type GenesisPeersLeaveReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *GenesisPeersLeaveReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-
 	case 204:
 		result := NewGenesisPeersLeaveNoContent()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return result, nil
-
 	case 401:
 		result := NewGenesisPeersLeaveUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 403:
 		result := NewGenesisPeersLeaveForbidden()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
-
 	case 404:
 		result := NewGenesisPeersLeaveNotFound()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {

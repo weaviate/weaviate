@@ -23,7 +23,7 @@ import (
 
 	"github.com/go-openapi/runtime"
 
-	models "github.com/semi-technologies/weaviate/genesis/models"
+	"github.com/semi-technologies/weaviate/genesis/models"
 )
 
 // GenesisPeersRegisterOKCode is the HTTP code returned for type GenesisPeersRegisterOK

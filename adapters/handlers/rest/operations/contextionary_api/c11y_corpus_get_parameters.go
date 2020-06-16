@@ -64,7 +64,7 @@ func (o *C11yCorpusGetParams) BindRequest(r *http.Request, route *middleware.Mat
 		var body C11yCorpusGetBody
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
-				res = append(res, errors.Required("corpus", "body"))
+				res = append(res, errors.Required("corpus", "body", ""))
 			} else {
 				res = append(res, errors.NewParseError("corpus", "body", "", err))
 			}
@@ -79,7 +79,7 @@ func (o *C11yCorpusGetParams) BindRequest(r *http.Request, route *middleware.Mat
 			}
 		}
 	} else {
-		res = append(res, errors.Required("corpus", "body"))
+		res = append(res, errors.Required("corpus", "body", ""))
 	}
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
