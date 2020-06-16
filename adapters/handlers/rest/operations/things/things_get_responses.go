@@ -70,6 +70,50 @@ func (o *ThingsGetOK) WriteResponse(rw http.ResponseWriter, producer runtime.Pro
 	}
 }
 
+// ThingsGetBadRequestCode is the HTTP code returned for type ThingsGetBadRequest
+const ThingsGetBadRequestCode int = 400
+
+/*ThingsGetBadRequest Malformed request.
+
+swagger:response thingsGetBadRequest
+*/
+type ThingsGetBadRequest struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewThingsGetBadRequest creates ThingsGetBadRequest with default headers values
+func NewThingsGetBadRequest() *ThingsGetBadRequest {
+
+	return &ThingsGetBadRequest{}
+}
+
+// WithPayload adds the payload to the things get bad request response
+func (o *ThingsGetBadRequest) WithPayload(payload *models.ErrorResponse) *ThingsGetBadRequest {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the things get bad request response
+func (o *ThingsGetBadRequest) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ThingsGetBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(400)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // ThingsGetUnauthorizedCode is the HTTP code returned for type ThingsGetUnauthorized
 const ThingsGetUnauthorizedCode int = 401
 

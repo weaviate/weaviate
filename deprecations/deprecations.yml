@@ -8,7 +8,7 @@ deprecations:
     - GET /v1/action/{id}
     - GET /v1/actions
     msg: "use of deprecated property ?meta=true/false"
-    mitigation: "use ?include=<propName>, e.g. ?include=_classification"
+    mitigation: "Use ?include=<propName>, e.g. ?include=_classification for classification meta or ?include=_vector to show the vector position or ?include=_classification,_vector for both. When consuming the response use the underscore fields such as _vector, as the meta object in the reponse, such as meta.vector will be removed."
     sinceVersion: "0.22.8"
     sinceTime: "2020-06-15T16:18:06+00:00"
     plannedRemovalVersion: "0.23.0"

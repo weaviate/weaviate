@@ -142,4 +142,5 @@ func (sp SelectProperties) FindProperty(propName string) *SelectProperty {
 type UnderscoreProperties struct {
 	Classification bool
 	RefMeta        bool
+	Vector         bool
 }

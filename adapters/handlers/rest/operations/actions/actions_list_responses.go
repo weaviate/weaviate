@@ -70,6 +70,50 @@ func (o *ActionsListOK) WriteResponse(rw http.ResponseWriter, producer runtime.P
 	}
 }
 
+// ActionsListBadRequestCode is the HTTP code returned for type ActionsListBadRequest
+const ActionsListBadRequestCode int = 400
+
+/*ActionsListBadRequest Malformed request.
+
+swagger:response actionsListBadRequest
+*/
+type ActionsListBadRequest struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewActionsListBadRequest creates ActionsListBadRequest with default headers values
+func NewActionsListBadRequest() *ActionsListBadRequest {
+
+	return &ActionsListBadRequest{}
+}
+
+// WithPayload adds the payload to the actions list bad request response
+func (o *ActionsListBadRequest) WithPayload(payload *models.ErrorResponse) *ActionsListBadRequest {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the actions list bad request response
+func (o *ActionsListBadRequest) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ActionsListBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(400)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // ActionsListUnauthorizedCode is the HTTP code returned for type ActionsListUnauthorized
 const ActionsListUnauthorizedCode int = 401
 
