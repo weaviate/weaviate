@@ -22,12 +22,11 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/runtime"
-
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/strfmt"
 )
 
 // New creates a new things API client.
-func New(transport runtime.ClientTransport, formats strfmt.Registry) *Client {
+func New(transport runtime.ClientTransport, formats strfmt.Registry) ClientService {
 	return &Client{transport: transport, formats: formats}
 }
 
@@ -39,10 +38,35 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
-/*
-ThingsCreate creates a new thing based on a thing template
+// ClientService is the interface for Client methods
+type ClientService interface {
+	ThingsCreate(params *ThingsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*ThingsCreateOK, error)
 
-Registers a new Thing. Given meta-data and schema values are validated.
+	ThingsDelete(params *ThingsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*ThingsDeleteNoContent, error)
+
+	ThingsGet(params *ThingsGetParams, authInfo runtime.ClientAuthInfoWriter) (*ThingsGetOK, error)
+
+	ThingsList(params *ThingsListParams, authInfo runtime.ClientAuthInfoWriter) (*ThingsListOK, error)
+
+	ThingsPatch(params *ThingsPatchParams, authInfo runtime.ClientAuthInfoWriter) (*ThingsPatchNoContent, error)
+
+	ThingsReferencesCreate(params *ThingsReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter) (*ThingsReferencesCreateOK, error)
+
+	ThingsReferencesDelete(params *ThingsReferencesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*ThingsReferencesDeleteNoContent, error)
+
+	ThingsReferencesUpdate(params *ThingsReferencesUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*ThingsReferencesUpdateOK, error)
+
+	ThingsUpdate(params *ThingsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*ThingsUpdateOK, error)
+
+	ThingsValidate(params *ThingsValidateParams, authInfo runtime.ClientAuthInfoWriter) (*ThingsValidateOK, error)
+
+	SetTransport(transport runtime.ClientTransport)
+}
+
+/*
+  ThingsCreate creates a new thing based on a thing template
+
+  Registers a new Thing. Given meta-data and schema values are validated.
 */
 func (a *Client) ThingsCreate(params *ThingsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*ThingsCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -77,9 +101,9 @@ func (a *Client) ThingsCreate(params *ThingsCreateParams, authInfo runtime.Clien
 }
 
 /*
-ThingsDelete deletes a thing based on its UUID
+  ThingsDelete deletes a thing based on its UUID
 
-Deletes a Thing from the system. All Actions pointing to this Thing, where the Thing is the object of the Action, are also being deleted.
+  Deletes a Thing from the system. All Actions pointing to this Thing, where the Thing is the object of the Action, are also being deleted.
 */
 func (a *Client) ThingsDelete(params *ThingsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*ThingsDeleteNoContent, error) {
 	// TODO: Validate the params before sending
@@ -114,9 +138,9 @@ func (a *Client) ThingsDelete(params *ThingsDeleteParams, authInfo runtime.Clien
 }
 
 /*
-ThingsGet gets a thing based on its UUID
+  ThingsGet gets a thing based on its UUID
 
-Returns a particular Thing data.
+  Returns a particular Thing data.
 */
 func (a *Client) ThingsGet(params *ThingsGetParams, authInfo runtime.ClientAuthInfoWriter) (*ThingsGetOK, error) {
 	// TODO: Validate the params before sending
@@ -151,9 +175,9 @@ func (a *Client) ThingsGet(params *ThingsGetParams, authInfo runtime.ClientAuthI
 }
 
 /*
-ThingsList gets a list of things
+  ThingsList gets a list of things
 
-Lists all Things in reverse order of creation, owned by the user that belongs to the used token.
+  Lists all Things in reverse order of creation, owned by the user that belongs to the used token.
 */
 func (a *Client) ThingsList(params *ThingsListParams, authInfo runtime.ClientAuthInfoWriter) (*ThingsListOK, error) {
 	// TODO: Validate the params before sending
@@ -188,9 +212,9 @@ func (a *Client) ThingsList(params *ThingsListParams, authInfo runtime.ClientAut
 }
 
 /*
-ThingsPatch updates a thing based on its UUID using patch semantics
+  ThingsPatch updates a thing based on its UUID using patch semantics
 
-Updates a Thing's data. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
+  Updates a Thing's data. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
 func (a *Client) ThingsPatch(params *ThingsPatchParams, authInfo runtime.ClientAuthInfoWriter) (*ThingsPatchNoContent, error) {
 	// TODO: Validate the params before sending
@@ -225,9 +249,9 @@ func (a *Client) ThingsPatch(params *ThingsPatchParams, authInfo runtime.ClientA
 }
 
 /*
-ThingsReferencesCreate adds a single reference to a class property when cardinality is set to has many
+  ThingsReferencesCreate adds a single reference to a class property when cardinality is set to has many
 
-Add a single reference to a class-property when cardinality is set to 'hasMany'.
+  Add a single reference to a class-property when cardinality is set to 'hasMany'.
 */
 func (a *Client) ThingsReferencesCreate(params *ThingsReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter) (*ThingsReferencesCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -262,9 +286,9 @@ func (a *Client) ThingsReferencesCreate(params *ThingsReferencesCreateParams, au
 }
 
 /*
-ThingsReferencesDelete deletes the single reference that is given in the body from the list of references that this property has
+  ThingsReferencesDelete deletes the single reference that is given in the body from the list of references that this property has
 
-Delete the single reference that is given in the body from the list of references that this property has.
+  Delete the single reference that is given in the body from the list of references that this property has.
 */
 func (a *Client) ThingsReferencesDelete(params *ThingsReferencesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*ThingsReferencesDeleteNoContent, error) {
 	// TODO: Validate the params before sending
@@ -299,9 +323,9 @@ func (a *Client) ThingsReferencesDelete(params *ThingsReferencesDeleteParams, au
 }
 
 /*
-ThingsReferencesUpdate replaces all references to a class property
+  ThingsReferencesUpdate replaces all references to a class property
 
-Replace all references to a class-property.
+  Replace all references to a class-property.
 */
 func (a *Client) ThingsReferencesUpdate(params *ThingsReferencesUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*ThingsReferencesUpdateOK, error) {
 	// TODO: Validate the params before sending
@@ -336,9 +360,9 @@ func (a *Client) ThingsReferencesUpdate(params *ThingsReferencesUpdateParams, au
 }
 
 /*
-ThingsUpdate updates a thing based on its UUID
+  ThingsUpdate updates a thing based on its UUID
 
-Updates a Thing's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
+  Updates a Thing's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
 func (a *Client) ThingsUpdate(params *ThingsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*ThingsUpdateOK, error) {
 	// TODO: Validate the params before sending
@@ -373,9 +397,9 @@ func (a *Client) ThingsUpdate(params *ThingsUpdateParams, authInfo runtime.Clien
 }
 
 /*
-ThingsValidate validates things schema
+  ThingsValidate validates things schema
 
-Validate a Thing's schema and meta-data. It has to be based on a schema, which is related to the given Thing to be accepted by this validation.
+  Validate a Thing's schema and meta-data. It has to be based on a schema, which is related to the given Thing to be accepted by this validation.
 */
 func (a *Client) ThingsValidate(params *ThingsValidateParams, authInfo runtime.ClientAuthInfoWriter) (*ThingsValidateOK, error) {
 	// TODO: Validate the params before sending
