@@ -18,6 +18,7 @@ package get
 import (
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	test_helper "github.com/semi-technologies/weaviate/adapters/handlers/graphql/test/helper"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -273,6 +274,63 @@ func TestExtractPhoneNumberField(t *testing.T) {
 					"national":               171123456,
 					"input":                  "0171123456",
 					"valid":                  true,
+				},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		resolver := newMockResolver(emptyPeers())
+
+		resolver.On("GetClass", test.expectedParams).
+			Return(test.resolverReturn, nil).Once()
+		result := resolver.AssertResolve(t, test.query)
+		assert.Equal(t, test.expectedResult, result.Get("Get", "Actions", "SomeAction").Result.([]interface{})[0])
+	}
+}
+
+func TestExtractUnderscoreFields(t *testing.T) {
+	// We don't need to explicilty test every subselection as we did on
+	// phoneNumber as these fields have fixed keys. So we can simply check for
+	// the prop
+
+	type test struct {
+		name           string
+		query          string
+		expectedParams traverser.GetParams
+		resolverReturn interface{}
+		expectedResult interface{}
+	}
+
+	tests := []test{
+		test{
+			name:  "with _classification",
+			query: "{ Get { Actions { SomeAction { _classification { id completed classifiedFields scope basedOn }  } } } }",
+			expectedParams: traverser.GetParams{
+				Kind:      kind.Action,
+				ClassName: "SomeAction",
+				UnderscoreProperties: traverser.UnderscoreProperties{
+					Classification: true,
+				},
+			},
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"_classification": &models.UnderscorePropertiesClassification{
+						ID:               "12345",
+						BasedOn:          []string{"primitiveProp"},
+						Scope:            []string{"refprop1", "refprop2", "refprop3"},
+						ClassifiedFields: []string{"refprop3"},
+						Completed:        timeMust(strfmt.ParseDateTime("2006-01-02T15:04:05.000Z")),
+					},
+				},
+			},
+			expectedResult: map[string]interface{}{
+				"_classification": map[string]interface{}{
+					"id":               "12345",
+					"basedOn":          []interface{}{"primitiveProp"},
+					"scope":            []interface{}{"refprop1", "refprop2", "refprop3"},
+					"classifiedFields": []interface{}{"refprop3"},
+					"completed":        "2006-01-02T15:04:05.000Z",
 				},
 			},
 		},
@@ -547,4 +605,12 @@ func TestGetRelation(t *testing.T) {
 
 func ptFloat32(in float32) *float32 {
 	return &in
+}
+
+func timeMust(t strfmt.DateTime, err error) strfmt.DateTime {
+	if err != nil {
+		panic(err)
+	}
+
+	return t
 }

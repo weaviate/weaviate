@@ -78,11 +78,15 @@ type VectorRepo interface {
 	DeleteAction(ctx context.Context, className string, id strfmt.UUID) error
 	DeleteThing(ctx context.Context, className string, id strfmt.UUID) error
 
-	ThingByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties, meta bool) (*search.Result, error)
-	ActionByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties, meta bool) (*search.Result, error)
+	ThingByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties,
+		underscore traverser.UnderscoreProperties) (*search.Result, error)
+	ActionByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties,
+		underscore traverser.UnderscoreProperties) (*search.Result, error)
 
-	ThingSearch(ctx context.Context, limit int, filters *filters.LocalFilter, meta bool) (search.Results, error)
-	ActionSearch(ctx context.Context, limit int, filters *filters.LocalFilter, meta bool) (search.Results, error)
+	ThingSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
+		underscore traverser.UnderscoreProperties) (search.Results, error)
+	ActionSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
+		underscore traverser.UnderscoreProperties) (search.Results, error)
 
 	Exists(ctx context.Context, id strfmt.UUID) (bool, error)
 

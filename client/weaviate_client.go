@@ -21,8 +21,7 @@ package client
 import (
 	"github.com/go-openapi/runtime"
 	httptransport "github.com/go-openapi/runtime/client"
-
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/strfmt"
 
 	"github.com/semi-technologies/weaviate/client/actions"
 	"github.com/semi-technologies/weaviate/client/batching"
@@ -79,29 +78,17 @@ func New(transport runtime.ClientTransport, formats strfmt.Registry) *Weaviate {
 
 	cli := new(Weaviate)
 	cli.Transport = transport
-
 	cli.Actions = actions.New(transport, formats)
-
 	cli.Batching = batching.New(transport, formats)
-
 	cli.Classifications = classifications.New(transport, formats)
-
 	cli.ContextionaryAPI = contextionary_api.New(transport, formats)
-
 	cli.Graphql = graphql.New(transport, formats)
-
 	cli.Meta = meta.New(transport, formats)
-
 	cli.Operations = operations.New(transport, formats)
-
 	cli.P2p = p2_p.New(transport, formats)
-
 	cli.Schema = schema.New(transport, formats)
-
 	cli.Things = things.New(transport, formats)
-
 	cli.WellKnown = well_known.New(transport, formats)
-
 	return cli
 }
 
@@ -146,27 +133,27 @@ func (cfg *TransportConfig) WithSchemes(schemes []string) *TransportConfig {
 
 // Weaviate is a client for weaviate
 type Weaviate struct {
-	Actions *actions.Client
+	Actions actions.ClientService
 
-	Batching *batching.Client
+	Batching batching.ClientService
 
-	Classifications *classifications.Client
+	Classifications classifications.ClientService
 
-	ContextionaryAPI *contextionary_api.Client
+	ContextionaryAPI contextionary_api.ClientService
 
-	Graphql *graphql.Client
+	Graphql graphql.ClientService
 
-	Meta *meta.Client
+	Meta meta.ClientService
 
-	Operations *operations.Client
+	Operations operations.ClientService
 
-	P2p *p2_p.Client
+	P2p p2_p.ClientService
 
-	Schema *schema.Client
+	Schema schema.ClientService
 
-	Things *things.Client
+	Things things.ClientService
 
-	WellKnown *well_known.Client
+	WellKnown well_known.ClientService
 
 	Transport runtime.ClientTransport
 }
@@ -174,27 +161,15 @@ type Weaviate struct {
 // SetTransport changes the transport on the client and all its subresources
 func (c *Weaviate) SetTransport(transport runtime.ClientTransport) {
 	c.Transport = transport
-
 	c.Actions.SetTransport(transport)
-
 	c.Batching.SetTransport(transport)
-
 	c.Classifications.SetTransport(transport)
-
 	c.ContextionaryAPI.SetTransport(transport)
-
 	c.Graphql.SetTransport(transport)
-
 	c.Meta.SetTransport(transport)
-
 	c.Operations.SetTransport(transport)
-
 	c.P2p.SetTransport(transport)
-
 	c.Schema.SetTransport(transport)
-
 	c.Things.SetTransport(transport)
-
 	c.WellKnown.SetTransport(transport)
-
 }

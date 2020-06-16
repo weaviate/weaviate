@@ -23,13 +23,13 @@ import (
 	"net/http"
 	"strconv"
 
-	errors "github.com/go-openapi/errors"
-	middleware "github.com/go-openapi/runtime/middleware"
-	strfmt "github.com/go-openapi/strfmt"
-	swag "github.com/go-openapi/swag"
-	validate "github.com/go-openapi/validate"
+	"github.com/go-openapi/errors"
+	"github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 
-	models "github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 // BatchingThingsCreateHandlerFunc turns a function with the right signature into a batching things create handler
@@ -94,14 +94,15 @@ func (o *BatchingThingsCreate) ServeHTTP(rw http.ResponseWriter, r *http.Request
 }
 
 // BatchingThingsCreateBody batching things create body
+//
 // swagger:model BatchingThingsCreateBody
 type BatchingThingsCreateBody struct {
 
 	// Define which fields need to be returned. Default value is ALL
-	Fields []*string `json:"fields"`
+	Fields []*string `yaml:"fields" foobar:"fields"`
 
 	// things
-	Things []*models.Thing `json:"things"`
+	Things []*models.Thing `yaml:"things" foobar:"things"`
 }
 
 // Validate validates this batching things create body
@@ -135,7 +136,7 @@ func init() {
 }
 
 func (o *BatchingThingsCreateBody) validateFieldsItemsEnum(path, location string, value string) error {
-	if err := validate.Enum(path, location, value, batchingThingsCreateBodyFieldsItemsEnum); err != nil {
+	if err := validate.EnumCase(path, location, value, batchingThingsCreateBodyFieldsItemsEnum, true); err != nil {
 		return err
 	}
 	return nil

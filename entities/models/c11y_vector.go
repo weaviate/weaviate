@@ -21,13 +21,13 @@ package models
 import (
 	"strconv"
 
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/validate"
 )
 
 // C11yVector A Vector in the Contextionary
+//
 // swagger:model C11yVector
 type C11yVector []float32
 
