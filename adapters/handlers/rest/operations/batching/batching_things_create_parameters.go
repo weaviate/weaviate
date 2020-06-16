@@ -64,7 +64,7 @@ func (o *BatchingThingsCreateParams) BindRequest(r *http.Request, route *middlew
 		var body BatchingThingsCreateBody
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
-				res = append(res, errors.Required("body", "body"))
+				res = append(res, errors.Required("body", "body", ""))
 			} else {
 				res = append(res, errors.NewParseError("body", "body", "", err))
 			}
@@ -79,7 +79,7 @@ func (o *BatchingThingsCreateParams) BindRequest(r *http.Request, route *middlew
 			}
 		}
 	} else {
-		res = append(res, errors.Required("body", "body"))
+		res = append(res, errors.Required("body", "body", ""))
 	}
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
