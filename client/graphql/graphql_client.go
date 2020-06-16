@@ -22,12 +22,11 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/runtime"
-
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/strfmt"
 )
 
 // New creates a new graphql API client.
-func New(transport runtime.ClientTransport, formats strfmt.Registry) *Client {
+func New(transport runtime.ClientTransport, formats strfmt.Registry) ClientService {
 	return &Client{transport: transport, formats: formats}
 }
 
@@ -39,10 +38,19 @@ type Client struct {
 	formats   strfmt.Registry
 }
 
-/*
-GraphqlBatch gets a response based on graph q l
+// ClientService is the interface for Client methods
+type ClientService interface {
+	GraphqlBatch(params *GraphqlBatchParams, authInfo runtime.ClientAuthInfoWriter) (*GraphqlBatchOK, error)
 
-Perform a batched GraphQL query
+	GraphqlPost(params *GraphqlPostParams, authInfo runtime.ClientAuthInfoWriter) (*GraphqlPostOK, error)
+
+	SetTransport(transport runtime.ClientTransport)
+}
+
+/*
+  GraphqlBatch gets a response based on graph q l
+
+  Perform a batched GraphQL query
 */
 func (a *Client) GraphqlBatch(params *GraphqlBatchParams, authInfo runtime.ClientAuthInfoWriter) (*GraphqlBatchOK, error) {
 	// TODO: Validate the params before sending
@@ -77,9 +85,9 @@ func (a *Client) GraphqlBatch(params *GraphqlBatchParams, authInfo runtime.Clien
 }
 
 /*
-GraphqlPost gets a response based on graph q l
+  GraphqlPost gets a response based on graph q l
 
-Get an object based on GraphQL
+  Get an object based on GraphQL
 */
 func (a *Client) GraphqlPost(params *GraphqlPostParams, authInfo runtime.ClientAuthInfoWriter) (*GraphqlPostOK, error) {
 	// TODO: Validate the params before sending

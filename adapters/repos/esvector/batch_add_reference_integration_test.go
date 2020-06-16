@@ -27,6 +27,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -160,7 +161,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 	refreshAll(t, client)
 
 	t.Run("check all references are now present", func(t *testing.T) {
-		source, err := repo.ThingByID(context.Background(), sourceID, nil, false)
+		source, err := repo.ThingByID(context.Background(), sourceID, nil, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 
 		refs := source.Thing().Schema.(map[string]interface{})["toTarget"]
