@@ -16,22 +16,27 @@ package rest
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/actions"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/things"
+	"github.com/semi-technologies/weaviate/deprecations"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/sirupsen/logrus"
 )
 
 type kindHandlers struct {
 	manager     kindsManager
+	logger      logrus.FieldLogger
 	requestsLog requestLog
 	config      config.Config
 }
@@ -45,10 +50,10 @@ type kindsManager interface {
 	AddAction(context.Context, *models.Principal, *models.Action) (*models.Action, error)
 	ValidateThing(context.Context, *models.Principal, *models.Thing) error
 	ValidateAction(context.Context, *models.Principal, *models.Action) error
-	GetThing(context.Context, *models.Principal, strfmt.UUID, bool) (*models.Thing, error)
-	GetAction(context.Context, *models.Principal, strfmt.UUID, bool) (*models.Action, error)
-	GetThings(context.Context, *models.Principal, *int64, bool) ([]*models.Thing, error)
-	GetActions(context.Context, *models.Principal, *int64, bool) ([]*models.Action, error)
+	GetThing(context.Context, *models.Principal, strfmt.UUID, traverser.UnderscoreProperties) (*models.Thing, error)
+	GetAction(context.Context, *models.Principal, strfmt.UUID, traverser.UnderscoreProperties) (*models.Action, error)
+	GetThings(context.Context, *models.Principal, *int64, traverser.UnderscoreProperties) ([]*models.Thing, error)
+	GetActions(context.Context, *models.Principal, *int64, traverser.UnderscoreProperties) ([]*models.Action, error)
 	UpdateThing(context.Context, *models.Principal, strfmt.UUID, *models.Thing) (*models.Thing, error)
 	UpdateAction(context.Context, *models.Principal, strfmt.UUID, *models.Action) (*models.Action, error)
 	MergeThing(context.Context, *models.Principal, strfmt.UUID, *models.Thing) error
@@ -161,7 +166,20 @@ func (h *kindHandlers) validateAction(params actions.ActionsValidateParams,
 
 func (h *kindHandlers) getThing(params things.ThingsGetParams,
 	principal *models.Principal) middleware.Responder {
-	thing, err := h.manager.GetThing(params.HTTPRequest.Context(), principal, params.ID, derefBool(params.Meta))
+
+	underscores, err := parseIncludeParam(params.Include)
+	if err != nil {
+		return things.NewThingsGetBadRequest().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	if derefBool(params.Meta) {
+		deprecations.Log(h.logger, "rest-meta-prop")
+		underscores.Classification = true
+		underscores.Vector = true
+	}
+
+	thing, err := h.manager.GetThing(params.HTTPRequest.Context(), principal, params.ID, underscores)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -186,7 +204,18 @@ func (h *kindHandlers) getThing(params things.ThingsGetParams,
 
 func (h *kindHandlers) getAction(params actions.ActionsGetParams,
 	principal *models.Principal) middleware.Responder {
-	action, err := h.manager.GetAction(params.HTTPRequest.Context(), principal, params.ID, derefBool(params.Meta))
+	underscores, err := parseIncludeParam(params.Include)
+	if err != nil {
+		return actions.NewActionsGetBadRequest().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	if derefBool(params.Meta) {
+		deprecations.Log(h.logger, "rest-meta-prop")
+		underscores.Classification = true
+		underscores.Vector = true
+	}
+	action, err := h.manager.GetAction(params.HTTPRequest.Context(), principal, params.ID, underscores)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -211,7 +240,23 @@ func (h *kindHandlers) getAction(params actions.ActionsGetParams,
 
 func (h *kindHandlers) getThings(params things.ThingsListParams,
 	principal *models.Principal) middleware.Responder {
-	list, err := h.manager.GetThings(params.HTTPRequest.Context(), principal, params.Limit, derefBool(params.Meta))
+	underscores, err := parseIncludeParam(params.Include)
+	if err != nil {
+		return things.NewThingsListBadRequest().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	var deprecationsRes []*models.Deprecation
+
+	if derefBool(params.Meta) {
+		deprecations.Log(h.logger, "rest-meta-prop")
+		d := deprecations.ByID["rest-meta-prop"]
+		deprecationsRes = append(deprecationsRes, &d)
+		underscores.Classification = true
+		underscores.Vector = true
+	}
+
+	list, err := h.manager.GetThings(params.HTTPRequest.Context(), principal, params.Limit, underscores)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -235,12 +280,28 @@ func (h *kindHandlers) getThings(params things.ThingsListParams,
 		WithPayload(&models.ThingsListResponse{
 			Things:       list,
 			TotalResults: int64(len(list)),
+			Deprecations: deprecationsRes,
 		})
 }
 
 func (h *kindHandlers) getActions(params actions.ActionsListParams,
 	principal *models.Principal) middleware.Responder {
-	list, err := h.manager.GetActions(params.HTTPRequest.Context(), principal, params.Limit, derefBool(params.Meta))
+	underscores, err := parseIncludeParam(params.Include)
+	if err != nil {
+		return actions.NewActionsListBadRequest().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	var deprecationsRes []*models.Deprecation
+
+	if derefBool(params.Meta) {
+		deprecations.Log(h.logger, "rest-meta-prop")
+		d := deprecations.ByID["rest-meta-prop"]
+		deprecationsRes = append(deprecationsRes, &d)
+		underscores.Classification = true
+		underscores.Vector = true
+	}
+	list, err := h.manager.GetActions(params.HTTPRequest.Context(), principal, params.Limit, underscores)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
@@ -263,6 +324,7 @@ func (h *kindHandlers) getActions(params actions.ActionsListParams,
 	return actions.NewActionsListOK().
 		WithPayload(&models.ActionsListResponse{
 			Actions:      list,
+			Deprecations: deprecationsRes,
 			TotalResults: int64(len(list)),
 		})
 }
@@ -529,8 +591,8 @@ func (h *kindHandlers) deleteThingReference(params things.ThingsReferencesDelete
 }
 
 func setupKindHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog,
-	manager *kinds.Manager, config config.Config) {
-	h := &kindHandlers{manager, requestsLog, config}
+	manager *kinds.Manager, config config.Config, logger logrus.FieldLogger) {
+	h := &kindHandlers{manager, logger, requestsLog, config}
 
 	api.ThingsThingsCreateHandler = things.
 		ThingsCreateHandlerFunc(h.addThing)
@@ -624,4 +686,27 @@ func (h *kindHandlers) extendReferenceWithAPILink(ref *models.SingleRef) *models
 
 	ref.Href = strfmt.URI(fmt.Sprintf("%s/v1/%ss/%s", h.config.Origin, parsed.Kind.Name(), parsed.TargetID))
 	return ref
+}
+
+func parseIncludeParam(in *string) (traverser.UnderscoreProperties, error) {
+	out := traverser.UnderscoreProperties{}
+	if in == nil {
+		return out, nil
+	}
+
+	parts := strings.Split(*in, ",")
+
+	for _, prop := range parts {
+		switch prop {
+		case "_classification", "classification":
+			out.Classification = true
+		case "_vector", "vector":
+			out.Vector = true
+
+		default:
+			return out, fmt.Errorf("unrecognized property '%s' in ?include list", prop)
+		}
+	}
+
+	return out, nil
 }

@@ -168,7 +168,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	appState.Network.RegisterSchemaGetter(schemaManager)
 
 	setupSchemaHandlers(api, appState.TelemetryLogger, schemaManager)
-	setupKindHandlers(api, appState.TelemetryLogger, kindsManager, appState.ServerConfig.Config)
+	setupKindHandlers(api, appState.TelemetryLogger, kindsManager, appState.ServerConfig.Config, appState.Logger)
 	setupKindBatchHandlers(api, appState.TelemetryLogger, batchKindsManager)
 	setupC11yHandlers(api, appState.TelemetryLogger, vectorInspector, appState.Contextionary)
 	setupGraphQLHandlers(api, appState.TelemetryLogger, appState)
