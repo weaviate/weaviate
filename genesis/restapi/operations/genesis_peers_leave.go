@@ -21,7 +21,7 @@ package operations
 import (
 	"net/http"
 
-	middleware "github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/runtime/middleware"
 )
 
 // GenesisPeersLeaveHandlerFunc turns a function with the right signature into a genesis peers leave handler

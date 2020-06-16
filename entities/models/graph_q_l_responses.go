@@ -21,13 +21,13 @@ package models
 import (
 	"strconv"
 
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // GraphQLResponses A list of GraphQL responses.
+//
 // swagger:model GraphQLResponses
 type GraphQLResponses []*GraphQLResponse
 

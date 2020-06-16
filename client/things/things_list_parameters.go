@@ -26,9 +26,8 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
-
-	strfmt "github.com/go-openapi/strfmt"
 )
 
 // NewThingsListParams creates a new ThingsListParams object
@@ -75,6 +74,11 @@ for the things list operation typically these are written to a http.Request
 */
 type ThingsListParams struct {
 
+	/*Include
+	  Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector
+
+	*/
+	Include *string
 	/*Limit
 	  The maximum number of items to be returned per page. Default value is set in Weaviate config.
 
@@ -124,6 +128,17 @@ func (o *ThingsListParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
+// WithInclude adds the include to the things list params
+func (o *ThingsListParams) WithInclude(include *string) *ThingsListParams {
+	o.SetInclude(include)
+	return o
+}
+
+// SetInclude adds the include to the things list params
+func (o *ThingsListParams) SetInclude(include *string) {
+	o.Include = include
+}
+
 // WithLimit adds the limit to the things list params
 func (o *ThingsListParams) WithLimit(limit *int64) *ThingsListParams {
 	o.SetLimit(limit)
@@ -153,6 +168,22 @@ func (o *ThingsListParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Re
 		return err
 	}
 	var res []error
+
+	if o.Include != nil {
+
+		// query param include
+		var qrInclude string
+		if o.Include != nil {
+			qrInclude = *o.Include
+		}
+		qInclude := qrInclude
+		if qInclude != "" {
+			if err := r.SetQueryParam("include", qInclude); err != nil {
+				return err
+			}
+		}
+
+	}
 
 	if o.Limit != nil {
 
