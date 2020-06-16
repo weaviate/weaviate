@@ -21,12 +21,12 @@ package schema
 import (
 	"net/http"
 
-	errors "github.com/go-openapi/errors"
-	middleware "github.com/go-openapi/runtime/middleware"
-	strfmt "github.com/go-openapi/strfmt"
-	swag "github.com/go-openapi/swag"
+	"github.com/go-openapi/errors"
+	"github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 
-	models "github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 // SchemaDumpHandlerFunc turns a function with the right signature into a schema dump handler
@@ -89,14 +89,15 @@ func (o *SchemaDump) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 }
 
 // SchemaDumpOKBody schema dump o k body
+//
 // swagger:model SchemaDumpOKBody
 type SchemaDumpOKBody struct {
 
 	// actions
-	Actions *models.Schema `json:"actions,omitempty"`
+	Actions *models.Schema `yaml:"actions,omitempty" foobar:"actions,omitempty"`
 
 	// things
-	Things *models.Schema `json:"things,omitempty"`
+	Things *models.Schema `yaml:"things,omitempty" foobar:"things,omitempty"`
 }
 
 // Validate validates this schema dump o k body
