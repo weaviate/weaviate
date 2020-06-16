@@ -94,8 +94,9 @@ func (r *Repo) encodeMergePrimitive(enc *json.Encoder, merge kinds.MergeDocument
 	index := classIndexFromClassName(merge.Kind, merge.Class)
 	control := r.bulkUpdateControlObject(index, merge.ID.String())
 	initial := map[string]interface{}{
-		keyVector.String():  vectorToBase64(merge.Vector),
-		keyUpdated.String(): merge.UpdateTime,
+		keyVector.String():               vectorToBase64(merge.Vector),
+		keyUpdated.String():              merge.UpdateTime,
+		keyUnderscoreProperties.String(): merge.UnderscoreProperties,
 	}
 	props := r.addPropsToBucket(initial, merge.PrimitiveSchema)
 

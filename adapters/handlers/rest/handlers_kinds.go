@@ -700,6 +700,8 @@ func parseIncludeParam(in *string) (traverser.UnderscoreProperties, error) {
 		switch prop {
 		case "_classification", "classification":
 			out.Classification = true
+		case "_meta", "meta":
+			out.VectorizationMeta = true
 		case "_vector", "vector":
 			out.Vector = true
 

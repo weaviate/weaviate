@@ -27,13 +27,14 @@ import (
 )
 
 type MergeDocument struct {
-	Kind            kind.Kind
-	Class           string
-	ID              strfmt.UUID
-	PrimitiveSchema map[string]interface{}
-	References      BatchReferences
-	Vector          []float32
-	UpdateTime      int64
+	Kind                 kind.Kind
+	Class                string
+	ID                   strfmt.UUID
+	PrimitiveSchema      map[string]interface{}
+	References           BatchReferences
+	Vector               []float32
+	UpdateTime           int64
+	UnderscoreProperties models.UnderscoreProperties
 }
 
 func (m *Manager) MergeAction(ctx context.Context, principal *models.Principal,
@@ -51,7 +52,7 @@ func (m *Manager) MergeAction(ctx context.Context, principal *models.Principal,
 	primitive, refs := m.splitPrimitiveAndRefs(updated.Schema.(map[string]interface{}),
 		updated.Class, id, kind.Action)
 
-	vector, err := m.mergeActionSchemasAndVectorize(ctx, previous.ClassName, previous.Schema, primitive)
+	vector, source, err := m.mergeActionSchemasAndVectorize(ctx, previous.ClassName, previous.Schema, primitive)
 	if err != nil {
 		return NewErrInternal("vectorize merged: %v", err)
 	}
@@ -64,6 +65,11 @@ func (m *Manager) MergeAction(ctx context.Context, principal *models.Principal,
 		References:      refs,
 		Vector:          vector,
 		UpdateTime:      m.timeSource.Now(),
+		UnderscoreProperties: models.UnderscoreProperties{
+			VectorizationMeta: &models.VectorizationMeta{
+				Source: source,
+			},
+		},
 	})
 	if err != nil {
 		return NewErrInternal("repo: %v", err)
@@ -103,14 +109,14 @@ func (m *Manager) retrievePreviousAndValidateMergeAction(ctx context.Context, pr
 }
 
 func (m *Manager) mergeActionSchemasAndVectorize(ctx context.Context, className string,
-	old interface{}, new map[string]interface{}) ([]float32, error) {
+	old interface{}, new map[string]interface{}) ([]float32, []*models.VectorizationMetaSource, error) {
 	var merged map[string]interface{}
 	if old == nil {
 		merged = new
 	} else {
 		oldMap, ok := old.(map[string]interface{})
 		if !ok {
-			return nil, fmt.Errorf("expected previous schema to be map, but got %#v", old)
+			return nil, nil, fmt.Errorf("expected previous schema to be map, but got %#v", old)
 		}
 
 		for key, value := range new {
@@ -120,7 +126,12 @@ func (m *Manager) mergeActionSchemasAndVectorize(ctx context.Context, className 
 		merged = oldMap
 	}
 
-	return m.vectorizer.Action(ctx, &models.Action{Class: className, Schema: merged})
+	v, source, err := m.vectorizer.Action(ctx, &models.Action{Class: className, Schema: merged})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return v, sourceFromInputElements(source), nil
 }
 
 func (m *Manager) MergeThing(ctx context.Context, principal *models.Principal,
@@ -138,7 +149,7 @@ func (m *Manager) MergeThing(ctx context.Context, principal *models.Principal,
 	primitive, refs := m.splitPrimitiveAndRefs(updated.Schema.(map[string]interface{}),
 		updated.Class, id, kind.Thing)
 
-	vector, err := m.mergeThingSchemasAndVectorize(ctx, previous.ClassName, previous.Schema, primitive)
+	vector, source, err := m.mergeThingSchemasAndVectorize(ctx, previous.ClassName, previous.Schema, primitive)
 	if err != nil {
 		return NewErrInternal("vectorize merged: %v", err)
 	}
@@ -151,6 +162,11 @@ func (m *Manager) MergeThing(ctx context.Context, principal *models.Principal,
 		References:      refs,
 		Vector:          vector,
 		UpdateTime:      m.timeSource.Now(),
+		UnderscoreProperties: models.UnderscoreProperties{
+			VectorizationMeta: &models.VectorizationMeta{
+				Source: source,
+			},
+		},
 	})
 	if err != nil {
 		return NewErrInternal("repo: %v", err)
@@ -190,14 +206,14 @@ func (m *Manager) retrievePreviousAndValidateMergeThing(ctx context.Context, pri
 }
 
 func (m *Manager) mergeThingSchemasAndVectorize(ctx context.Context, className string,
-	old interface{}, new map[string]interface{}) ([]float32, error) {
+	old interface{}, new map[string]interface{}) ([]float32, []*models.VectorizationMetaSource, error) {
 	var merged map[string]interface{}
 	if old == nil {
 		merged = new
 	} else {
 		oldMap, ok := old.(map[string]interface{})
 		if !ok {
-			return nil, fmt.Errorf("expected previous schema to be map, but got %#v", old)
+			return nil, nil, fmt.Errorf("expected previous schema to be map, but got %#v", old)
 		}
 
 		for key, value := range new {
@@ -207,7 +223,12 @@ func (m *Manager) mergeThingSchemasAndVectorize(ctx context.Context, className s
 		merged = oldMap
 	}
 
-	return m.vectorizer.Thing(ctx, &models.Thing{Class: className, Schema: merged})
+	v, source, err := m.vectorizer.Thing(ctx, &models.Thing{Class: className, Schema: merged})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return v, sourceFromInputElements(source), nil
 }
 
 func (m *Manager) splitPrimitiveAndRefs(in map[string]interface{}, sourceClass string,

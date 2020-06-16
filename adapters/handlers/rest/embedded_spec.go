@@ -3836,11 +3836,15 @@ func init() {
         "vector": {
           "description": "This object's position in the Contextionary vector space",
           "$ref": "#/definitions/C11yVector"
+        },
+        "vectorizationMeta": {
+          "description": "Additional information about how the object was vectorized",
+          "$ref": "#/definitions/VectorizationMeta"
         }
       }
     },
     "UnderscorePropertiesClassification": {
-      "description": "This meta field contains additional info about the classification which affected this object",
+      "description": "This underscore property contains additional info about the classification which affected this object",
       "properties": {
         "basedOn": {
           "description": "The (primitive) field(s) which were used as a basis for classification. For example, if the type of classification is \"knn\" with k=3, the 3 nearest neighbors - based on these fields - were considered for the classification.",
@@ -3878,6 +3882,34 @@ func init() {
     "VectorWeights": {
       "description": "Allow custom overrides of vector weights as math expressions. E.g. \"pancake\": \"7\" will set the weight for the word pancake to 7 in the vectorization, whereas \"w * 3\" would triple the originally calculated word. This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value (string/string) object.",
       "type": "object"
+    },
+    "VectorizationMeta": {
+      "description": "This underscore property contains additional info about the how the class was vectorized",
+      "properties": {
+        "source": {
+          "description": "The input that was used to vectorize this object",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/VectorizationMetaSource"
+          }
+        }
+      }
+    },
+    "VectorizationMetaSource": {
+      "description": "This underscore property contains additional info about the how the class was vectorized",
+      "properties": {
+        "concept": {
+          "type": "string"
+        },
+        "occurrence": {
+          "type": "number",
+          "format": "uint64"
+        },
+        "weight": {
+          "type": "number",
+          "format": "float32"
+        }
+      }
     },
     "WhereFilter": {
       "description": "Filter search results using a where filter",
@@ -7999,11 +8031,15 @@ func init() {
         "vector": {
           "description": "This object's position in the Contextionary vector space",
           "$ref": "#/definitions/C11yVector"
+        },
+        "vectorizationMeta": {
+          "description": "Additional information about how the object was vectorized",
+          "$ref": "#/definitions/VectorizationMeta"
         }
       }
     },
     "UnderscorePropertiesClassification": {
-      "description": "This meta field contains additional info about the classification which affected this object",
+      "description": "This underscore property contains additional info about the classification which affected this object",
       "properties": {
         "basedOn": {
           "description": "The (primitive) field(s) which were used as a basis for classification. For example, if the type of classification is \"knn\" with k=3, the 3 nearest neighbors - based on these fields - were considered for the classification.",
@@ -8041,6 +8077,34 @@ func init() {
     "VectorWeights": {
       "description": "Allow custom overrides of vector weights as math expressions. E.g. \"pancake\": \"7\" will set the weight for the word pancake to 7 in the vectorization, whereas \"w * 3\" would triple the originally calculated word. This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value (string/string) object.",
       "type": "object"
+    },
+    "VectorizationMeta": {
+      "description": "This underscore property contains additional info about the how the class was vectorized",
+      "properties": {
+        "source": {
+          "description": "The input that was used to vectorize this object",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/VectorizationMetaSource"
+          }
+        }
+      }
+    },
+    "VectorizationMetaSource": {
+      "description": "This underscore property contains additional info about the how the class was vectorized",
+      "properties": {
+        "concept": {
+          "type": "string"
+        },
+        "occurrence": {
+          "type": "number",
+          "format": "uint64"
+        },
+        "weight": {
+          "type": "number",
+          "format": "float32"
+        }
+      }
     },
     "WhereFilter": {
       "description": "Filter search results using a where filter",

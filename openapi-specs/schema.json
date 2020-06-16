@@ -716,7 +716,12 @@
         "vector": {
           "description": "This object's position in the Contextionary vector space",
           "$ref": "#/definitions/C11yVector"
+        },
+        "vectorizationMeta": {
+          "description": "Additional information about how the object was vectorized",
+          "$ref": "#/definitions/VectorizationMeta"
         }
+
       }
     },
     "ReferenceMetaClassification": {
@@ -736,7 +741,7 @@
       }
     },
     "UnderscorePropertiesClassification": {
-      "description": "This meta field contains additional info about the classification which affected this object",
+      "description": "This underscore property contains additional info about the classification which affected this object",
       "properties": {
         "id": {
           "description": "unique identifier of the classification run",
@@ -768,6 +773,34 @@
           "items": {
             "type": "string"
           }
+        }
+      }
+    },
+    "VectorizationMeta": {
+      "description": "This underscore property contains additional info about the how the class was vectorized",
+      "properties": {
+        "source": {
+          "description": "The input that was used to vectorize this object",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/VectorizationMetaSource"
+          }
+        }
+      }
+    },
+    "VectorizationMetaSource": {
+      "description": "This underscore property contains additional info about the how the class was vectorized",
+      "properties": {
+        "concept": {
+          "type": "string"
+        },
+        "weight": {
+          "type": "number",
+          "format":"float32"
+        },
+        "occurrence": {
+          "type": "number",
+          "format":"uint64"
         }
       }
     },

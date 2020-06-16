@@ -25,7 +25,7 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// UnderscorePropertiesClassification This meta field contains additional info about the classification which affected this object
+// UnderscorePropertiesClassification This underscore property contains additional info about the classification which affected this object
 //
 // swagger:model UnderscorePropertiesClassification
 type UnderscorePropertiesClassification struct {
