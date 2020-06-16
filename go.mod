@@ -40,7 +40,7 @@ require (
 	github.com/stretchr/testify v1.6.1
 	github.com/ugorji/go/codec v0.0.0-20190309163734-c4a1c341dc93
 	go.mongodb.org/mongo-driver v1.3.4 // indirect
-	golang.org/x/net v0.0.0-20200226121028-0de0cce0169b
+	golang.org/x/net v0.0.0-20200602114024-627f9648deb9
 	golang.org/x/tools v0.0.0-20200611032120-1fdcbd130028 // indirect
 	google.golang.org/grpc v1.24.0
 	gopkg.in/yaml.v2 v2.3.0
@@ -48,12 +48,5 @@ require (
 )
 
 replace github.com/coreos/go-systemd => github.com/coreos/go-systemd/v22 v22.0.0
-
-// remove the next three when https://github.com/go-swagger/go-swagger/pull/2313 is merged/fixed
-replace (
-	github.com/go-openapi/errors v0.19.6 => github.com/go-openapi/errors v0.19.4
-	github.com/go-openapi/runtime v0.19.16 => github.com/go-openapi/runtime v0.19.15
-	github.com/go-openapi/validate v0.19.10 => github.com/go-openapi/validate v0.19.8
-)
 
 go 1.14

@@ -3136,6 +3136,62 @@ func init() {
         }
       }
     },
+    "Deprecation": {
+      "type": "object",
+      "properties": {
+        "apiType": {
+          "description": "Describes which API is effected, usually one of: REST, GraphQL",
+          "type": "string"
+        },
+        "id": {
+          "description": "The id that uniquely identifies this particular deprecations (mostly used internally)",
+          "type": "string"
+        },
+        "locations": {
+          "description": "The locations within the specified API affected by this deprecation",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "mitigation": {
+          "description": "User-required action to not be affected by the (planned) removal",
+          "type": "string"
+        },
+        "msg": {
+          "description": "What this deprecation is about",
+          "type": "string"
+        },
+        "plannedRemovalVersion": {
+          "description": "A best-effort guess of which upcoming version will remove the feature entirely",
+          "type": "string"
+        },
+        "removedIn": {
+          "description": "If the feature has already been removed, it was removed in this version",
+          "type": "string",
+          "x-nullable": true
+        },
+        "removedTime": {
+          "description": "If the feature has already been removed, it was removed at this timestamp",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
+        "sinceTime": {
+          "description": "The deprecation was introduced in this version",
+          "type": "string",
+          "format": "date-time"
+        },
+        "sinceVersion": {
+          "description": "The deprecation was introduced in this version",
+          "type": "string"
+        },
+        "status": {
+          "description": "Whether the problematic API functionality is deprecated (planned to be removed) or already removed",
+          "type": "string"
+        }
+      }
+    },
     "ErrorResponse": {
       "description": "An error response given by Weaviate end-points.",
       "type": "object",
@@ -7111,6 +7167,62 @@ func init() {
           "type": "string",
           "format": "date-time",
           "example": "2017-07-21T17:32:28Z"
+        }
+      }
+    },
+    "Deprecation": {
+      "type": "object",
+      "properties": {
+        "apiType": {
+          "description": "Describes which API is effected, usually one of: REST, GraphQL",
+          "type": "string"
+        },
+        "id": {
+          "description": "The id that uniquely identifies this particular deprecations (mostly used internally)",
+          "type": "string"
+        },
+        "locations": {
+          "description": "The locations within the specified API affected by this deprecation",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "mitigation": {
+          "description": "User-required action to not be affected by the (planned) removal",
+          "type": "string"
+        },
+        "msg": {
+          "description": "What this deprecation is about",
+          "type": "string"
+        },
+        "plannedRemovalVersion": {
+          "description": "A best-effort guess of which upcoming version will remove the feature entirely",
+          "type": "string"
+        },
+        "removedIn": {
+          "description": "If the feature has already been removed, it was removed in this version",
+          "type": "string",
+          "x-nullable": true
+        },
+        "removedTime": {
+          "description": "If the feature has already been removed, it was removed at this timestamp",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
+        "sinceTime": {
+          "description": "The deprecation was introduced in this version",
+          "type": "string",
+          "format": "date-time"
+        },
+        "sinceVersion": {
+          "description": "The deprecation was introduced in this version",
+          "type": "string"
+        },
+        "status": {
+          "description": "Whether the problematic API functionality is deprecated (planned to be removed) or already removed",
+          "type": "string"
         }
       }
     },

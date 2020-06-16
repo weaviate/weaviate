@@ -72,7 +72,7 @@ func (o *SchemaThingsPropertiesAddParams) BindRequest(r *http.Request, route *mi
 		var body models.Property
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
-				res = append(res, errors.Required("body", "body"))
+				res = append(res, errors.Required("body", "body", ""))
 			} else {
 				res = append(res, errors.NewParseError("body", "body", "", err))
 			}
@@ -87,7 +87,7 @@ func (o *SchemaThingsPropertiesAddParams) BindRequest(r *http.Request, route *mi
 			}
 		}
 	} else {
-		res = append(res, errors.Required("body", "body"))
+		res = append(res, errors.Required("body", "body", ""))
 	}
 	rClassName, rhkClassName, _ := route.Params.GetOK("className")
 	if err := o.bindClassName(rClassName, rhkClassName, route.Formats); err != nil {

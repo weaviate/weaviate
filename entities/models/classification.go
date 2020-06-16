@@ -197,7 +197,7 @@ const (
 
 // prop value enum
 func (m *Classification) validateStatusEnum(path, location string, value string) error {
-	if err := validate.Enum(path, location, value, classificationTypeStatusPropEnum); err != nil {
+	if err := validate.EnumCase(path, location, value, classificationTypeStatusPropEnum, true); err != nil {
 		return err
 	}
 	return nil
@@ -276,7 +276,7 @@ const (
 
 // prop value enum
 func (m *Classification) validateTypeEnum(path, location string, value string) error {
-	if err := validate.Enum(path, location, value, classificationTypeTypePropEnum); err != nil {
+	if err := validate.EnumCase(path, location, value, classificationTypeTypePropEnum, true); err != nil {
 		return err
 	}
 	return nil

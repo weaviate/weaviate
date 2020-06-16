@@ -66,7 +66,7 @@ func (o *SchemaThingsCreateParams) BindRequest(r *http.Request, route *middlewar
 		var body models.Class
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
-				res = append(res, errors.Required("thingClass", "body"))
+				res = append(res, errors.Required("thingClass", "body", ""))
 			} else {
 				res = append(res, errors.NewParseError("thingClass", "body", "", err))
 			}
@@ -81,7 +81,7 @@ func (o *SchemaThingsCreateParams) BindRequest(r *http.Request, route *middlewar
 			}
 		}
 	} else {
-		res = append(res, errors.Required("thingClass", "body"))
+		res = append(res, errors.Required("thingClass", "body", ""))
 	}
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)

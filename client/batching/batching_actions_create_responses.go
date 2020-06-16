@@ -296,7 +296,7 @@ func init() {
 }
 
 func (o *BatchingActionsCreateBody) validateFieldsItemsEnum(path, location string, value string) error {
-	if err := validate.Enum(path, location, value, batchingActionsCreateBodyFieldsItemsEnum); err != nil {
+	if err := validate.EnumCase(path, location, value, batchingActionsCreateBodyFieldsItemsEnum, true); err != nil {
 		return err
 	}
 	return nil
