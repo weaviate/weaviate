@@ -13,5 +13,11 @@
 
 package deprecations
 
+import "github.com/sirupsen/logrus"
+
 //go:generate go run gen.go
 //go:generate goimports -w data.go
+
+func Log(logger logrus.FieldLogger, id string) {
+	logger.WithField("depreaction", ByID[id]).Warning(ByID[id].Msg)
+}

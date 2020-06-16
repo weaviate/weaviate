@@ -78,6 +78,16 @@
         },
         {
           "properties": {
+            "deprecations": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Deprecation"
+              }
+            }
+          }
+        },
+        {
+          "properties": {
             "result": {
               "description": "Results for this specific Action.",
               "format": "object",
@@ -106,6 +116,12 @@
             "$ref": "#/definitions/Action"
           },
           "type": "array"
+        },
+        "deprecations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Deprecation"
+          }
         },
         "totalResults": {
           "description": "The total number of Actions for the query. The number of items in a response may be smaller due to paging.",
@@ -880,6 +896,16 @@
         },
         {
           "properties": {
+            "deprecations": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Deprecation"
+              }
+            }
+          }
+        },
+        {
+          "properties": {
             "result": {
               "description": "Results for this specific Thing.",
               "format": "object",
@@ -908,6 +934,12 @@
             "$ref": "#/definitions/Thing"
           },
           "type": "array"
+        },
+        "deprecations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Deprecation"
+          }
         },
         "totalResults": {
           "description": "The total number of Things for the query. The number of items in a response may be smaller due to paging.",

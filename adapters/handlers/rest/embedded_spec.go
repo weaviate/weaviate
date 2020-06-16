@@ -2733,6 +2733,16 @@ func init() {
         },
         {
           "properties": {
+            "deprecations": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Deprecation"
+              }
+            }
+          }
+        },
+        {
+          "properties": {
             "result": {
               "description": "Results for this specific Action.",
               "format": "object",
@@ -2764,6 +2774,12 @@ func init() {
           "type": "array",
           "items": {
             "$ref": "#/definitions/Action"
+          }
+        },
+        "deprecations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Deprecation"
           }
         },
         "totalResults": {
@@ -3702,6 +3718,16 @@ func init() {
         },
         {
           "properties": {
+            "deprecations": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Deprecation"
+              }
+            }
+          }
+        },
+        {
+          "properties": {
             "result": {
               "description": "Results for this specific Thing.",
               "format": "object",
@@ -3728,6 +3754,12 @@ func init() {
       "description": "List of Things.",
       "type": "object",
       "properties": {
+        "deprecations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Deprecation"
+          }
+        },
         "things": {
           "description": "The actual list of Things.",
           "type": "array",
@@ -6687,6 +6719,16 @@ func init() {
         },
         {
           "properties": {
+            "deprecations": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Deprecation"
+              }
+            }
+          }
+        },
+        {
+          "properties": {
             "result": {
               "description": "Results for this specific Action.",
               "format": "object",
@@ -6709,7 +6751,7 @@ func init() {
         }
       ]
     },
-    "ActionsGetResponseAO1Result": {
+    "ActionsGetResponseAO2Result": {
       "description": "Results for this specific Action.",
       "format": "object",
       "properties": {
@@ -6736,6 +6778,12 @@ func init() {
           "type": "array",
           "items": {
             "$ref": "#/definitions/Action"
+          }
+        },
+        "deprecations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Deprecation"
           }
         },
         "totalResults": {
@@ -7745,6 +7793,16 @@ func init() {
         },
         {
           "properties": {
+            "deprecations": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Deprecation"
+              }
+            }
+          }
+        },
+        {
+          "properties": {
             "result": {
               "description": "Results for this specific Thing.",
               "format": "object",
@@ -7767,7 +7825,7 @@ func init() {
         }
       ]
     },
-    "ThingsGetResponseAO1Result": {
+    "ThingsGetResponseAO2Result": {
       "description": "Results for this specific Thing.",
       "format": "object",
       "properties": {
@@ -7789,6 +7847,12 @@ func init() {
       "description": "List of Things.",
       "type": "object",
       "properties": {
+        "deprecations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Deprecation"
+          }
+        },
         "things": {
           "description": "The actual list of Things.",
           "type": "array",
