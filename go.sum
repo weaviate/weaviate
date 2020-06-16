@@ -153,6 +153,7 @@ github.com/gogo/protobuf v1.1.1/go.mod h1:r8qH/GZQm5c6nD/R0oafs1akxWv10x8SbQlK7a
 github.com/gogo/protobuf v1.2.1/go.mod h1:hp+jE20tsWTFYpLwKvXlhS1hjn+gTNwPg2I6zVXpSg4=
 github.com/gogo/protobuf v1.3.1 h1:DqDEcV5aeaTmdFBePNpYsp3FlcVH/2ISVVM9Qf8PSls=
 github.com/gogo/protobuf v1.3.1/go.mod h1:SlYgWuQ5SjCEi6WLHjHCa1yvBfUnHcTbrrZtXPKa29o=
+github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b h1:VKtxabqXZkF25pY9ekfRL6a582T4P37/31XEstQ5p58=
 github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b/go.mod h1:SBH7ygxi8pfUlaOkMMuAQtPIUF8ecWP5IEl/CR7VP2Q=
 github.com/golang/groupcache v0.0.0-20191027212112-611e8accdfc9/go.mod h1:cIg4eruTrX1D+g88fzRXU5OdNfaM+9IcxsU14FzY7Hc=
 github.com/golang/mock v1.1.1/go.mod h1:oTYuIxOrZwtPieC+H1uAHpcLFnEyAGVDL/k47Jfbm0A=
@@ -253,6 +254,8 @@ github.com/satori/go.uuid v0.0.0-20180103174451-36e9d2ebbde5/go.mod h1:dA0hQrYB0
 github.com/semi-technologies/contextionary v0.0.0-20191217102943-101dfb9e85c3/go.mod h1:RZj9+XXQYFagJkUpJsjFe/c4ocNn95RWX52/I5xQEvE=
 github.com/semi-technologies/contextionary v0.0.0-20200424084255-29fe88e56c12 h1:3MuEVFTfhHKS+QELH85n6PV0BdKorYn7c/JiqHQoylI=
 github.com/semi-technologies/contextionary v0.0.0-20200424084255-29fe88e56c12/go.mod h1:4EhKX7fTVJDYO/5GomMwgWj7g0lbH4VVpBLSSrwb0pU=
+github.com/semi-technologies/contextionary v0.0.0-20200616133106-50b629495397 h1:rLWadC/gRM89Q98+VraCi18/VfdtPZdeT3qWGxutCRw=
+github.com/semi-technologies/contextionary v0.0.0-20200616133106-50b629495397/go.mod h1:4EhKX7fTVJDYO/5GomMwgWj7g0lbH4VVpBLSSrwb0pU=
 github.com/semi-technologies/weaviate v0.0.0-20191217103051-f205b052ea98/go.mod h1:L9tpP5SUOPX1GneTSNtAcEqIB4UyEF5kjirQlNintoM=
 github.com/sergi/go-diff v1.0.0/go.mod h1:0CfEIISq7TuYL3j771MWULgwwjU+GofnZX9QAmXWZgo=
 github.com/sirupsen/logrus v1.2.0/go.mod h1:LxeOpSwHxABJmUn/MG1IvRgCAasNZTLOkJPxbbu5VWo=

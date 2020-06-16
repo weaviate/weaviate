@@ -26,7 +26,7 @@ import (
 type inspectorClient interface {
 	VectorForWord(ctx context.Context, word string) ([]float32, error)
 	VectorForCorpi(ctx context.Context, words []string,
-		overrides map[string]string) ([]float32, error)
+		overrides map[string]string) ([]float32, []InputElement, error)
 	NearestWordsByVector(ctx context.Context, vector []float32, n int, k int) ([]string, []float32, error)
 	IsWordPresent(ctx context.Context, word string) (bool, error)
 }
@@ -89,7 +89,7 @@ func (i *Inspector) concatWord(ctx context.Context, words string,
 	// far - preferable in this case, to concat the words into one corpus, rather
 	// than treating each word as its own.
 	corpus := strings.Join(wordArray, " ")
-	vector, err := i.client.VectorForCorpi(ctx, []string{corpus}, nil)
+	vector, _, err := i.client.VectorForCorpi(ctx, []string{corpus}, nil)
 	if err != nil {
 		return nil, err
 	}

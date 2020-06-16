@@ -49,7 +49,7 @@ type vectorizer interface {
 	// element should be explicit nil, not skipped
 	MultiVectorForWord(ctx context.Context, words []string) ([][]float32, error)
 
-	VectorForCorpi(ctx context.Context, corpi []string, overrides map[string]string) ([]float32, error)
+	VectorForCorpi(ctx context.Context, corpi []string, overrides map[string]string) ([]float32, []libvectorizer.InputElement, error)
 }
 
 type authorizer interface {
