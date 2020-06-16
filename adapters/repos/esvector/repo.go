@@ -56,7 +56,7 @@ const (
 	keyMetaClassificationLosingDistance  internalKey = "losingDistance"
 
 	// object meta
-	keyObjectMeta internalKey = "_meta"
+	keyUnderscoreProperties internalKey = "_meta"
 
 	// vector weight customization
 	keyVectorWeights internalKey = "_vector_weights"
@@ -183,18 +183,18 @@ func (r *Repo) PutAction(ctx context.Context,
 }
 
 func (r *Repo) objectBucket(k kind.Kind, id, className string, props models.PropertySchema,
-	meta *models.ObjectMeta, vectorWeights map[string]string, vector []float32,
+	meta *models.UnderscoreProperties, vectorWeights map[string]string, vector []float32,
 	createTime, updateTime int64) map[string]interface{} {
 
 	bucket := map[string]interface{}{
-		keyKind.String():          k.Name(),
-		keyID.String():            id,
-		keyClassName.String():     className,
-		keyVector.String():        vectorToBase64(vector),
-		keyCreated.String():       createTime,
-		keyUpdated.String():       updateTime,
-		keyObjectMeta.String():    meta,
-		keyVectorWeights.String(): vectorWeights,
+		keyKind.String():                 k.Name(),
+		keyID.String():                   id,
+		keyClassName.String():            className,
+		keyVector.String():               vectorToBase64(vector),
+		keyCreated.String():              createTime,
+		keyUpdated.String():              updateTime,
+		keyUnderscoreProperties.String(): meta,
+		keyVectorWeights.String():        vectorWeights,
 	}
 
 	ex := r.addPropsToBucket(bucket, props)
@@ -203,7 +203,7 @@ func (r *Repo) objectBucket(k kind.Kind, id, className string, props models.Prop
 
 func (r *Repo) putObject(ctx context.Context,
 	k kind.Kind, id, className string, props models.PropertySchema,
-	meta *models.ObjectMeta, vectorWeights map[string]string, vector []float32,
+	meta *models.UnderscoreProperties, vectorWeights map[string]string, vector []float32,
 	createTime, updateTime int64) error {
 
 	bucket := r.objectBucket(k, id, className, props, meta, vectorWeights, vector, createTime, updateTime)

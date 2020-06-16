@@ -21,9 +21,7 @@ package client
 import (
 	"github.com/go-openapi/runtime"
 	httptransport "github.com/go-openapi/runtime/client"
-
-	strfmt "github.com/go-openapi/strfmt"
-
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/genesis/client/operations"
 )
 
@@ -69,9 +67,7 @@ func New(transport runtime.ClientTransport, formats strfmt.Registry) *WeaviateGe
 
 	cli := new(WeaviateGenesisServer)
 	cli.Transport = transport
-
 	cli.Operations = operations.New(transport, formats)
-
 	return cli
 }
 
@@ -116,7 +112,7 @@ func (cfg *TransportConfig) WithSchemes(schemes []string) *TransportConfig {
 
 // WeaviateGenesisServer is a client for weaviate genesis server
 type WeaviateGenesisServer struct {
-	Operations *operations.Client
+	Operations operations.ClientService
 
 	Transport runtime.ClientTransport
 }
@@ -124,7 +120,5 @@ type WeaviateGenesisServer struct {
 // SetTransport changes the transport on the client and all its subresources
 func (c *WeaviateGenesisServer) SetTransport(transport runtime.ClientTransport) {
 	c.Transport = transport
-
 	c.Operations.SetTransport(transport)
-
 }
