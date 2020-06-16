@@ -21,18 +21,21 @@ package models
 import (
 	"strconv"
 
-	strfmt "github.com/go-openapi/strfmt"
-
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // ActionsListResponse List of Actions.
+//
 // swagger:model ActionsListResponse
 type ActionsListResponse struct {
 
 	// The actual list of Actions.
 	Actions []*Action `json:"actions"`
+
+	// deprecations
+	Deprecations []*Deprecation `json:"deprecations"`
 
 	// The total number of Actions for the query. The number of items in a response may be smaller due to paging.
 	TotalResults int64 `json:"totalResults,omitempty"`
@@ -43,6 +46,10 @@ func (m *ActionsListResponse) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateActions(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateDeprecations(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -67,6 +74,31 @@ func (m *ActionsListResponse) validateActions(formats strfmt.Registry) error {
 			if err := m.Actions[i].Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("actions" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+func (m *ActionsListResponse) validateDeprecations(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Deprecations) { // not required
+		return nil
+	}
+
+	for i := 0; i < len(m.Deprecations); i++ {
+		if swag.IsZero(m.Deprecations[i]) { // not required
+			continue
+		}
+
+		if m.Deprecations[i] != nil {
+			if err := m.Deprecations[i].Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("deprecations" + "." + strconv.Itoa(i))
 				}
 				return err
 			}

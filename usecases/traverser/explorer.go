@@ -124,6 +124,12 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 	output := make([]interface{}, 0, len(input))
 
 	for _, res := range input {
+		if res.UnderscoreProperties != nil {
+			if res.UnderscoreProperties.Classification != nil {
+				res.Schema.(map[string]interface{})["_classification"] = res.UnderscoreProperties.Classification
+			}
+		}
+
 		if searchVector != nil {
 			dist, err := e.distancer(res.Vector, searchVector)
 			if err != nil {

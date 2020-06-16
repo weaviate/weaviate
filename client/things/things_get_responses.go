@@ -23,10 +23,9 @@ import (
 	"io"
 
 	"github.com/go-openapi/runtime"
+	"github.com/go-openapi/strfmt"
 
-	strfmt "github.com/go-openapi/strfmt"
-
-	models "github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 // ThingsGetReader is a Reader for the ThingsGet structure.
@@ -43,6 +42,12 @@ func (o *ThingsGetReader) ReadResponse(response runtime.ClientResponse, consumer
 			return nil, err
 		}
 		return result, nil
+	case 400:
+		result := NewThingsGetBadRequest()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 401:
 		result := NewThingsGetUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -97,6 +102,39 @@ func (o *ThingsGetOK) GetPayload() *models.Thing {
 func (o *ThingsGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.Thing)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewThingsGetBadRequest creates a ThingsGetBadRequest with default headers values
+func NewThingsGetBadRequest() *ThingsGetBadRequest {
+	return &ThingsGetBadRequest{}
+}
+
+/*ThingsGetBadRequest handles this case with default header values.
+
+Malformed request.
+*/
+type ThingsGetBadRequest struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *ThingsGetBadRequest) Error() string {
+	return fmt.Sprintf("[GET /things/{id}][%d] thingsGetBadRequest  %+v", 400, o.Payload)
+}
+
+func (o *ThingsGetBadRequest) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *ThingsGetBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {

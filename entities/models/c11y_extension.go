@@ -19,12 +19,12 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	strfmt "github.com/go-openapi/strfmt"
-
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // C11yExtension A resource describing an extension to the contextinoary, containing both the identifier and the definition of the extension
+//
 // swagger:model C11yExtension
 type C11yExtension struct {
 
