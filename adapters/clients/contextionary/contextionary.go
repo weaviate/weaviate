@@ -180,7 +180,8 @@ func (c *Client) VectorForWord(ctx context.Context, word string) ([]float32, err
 	if err != nil {
 		return nil, fmt.Errorf("could not get vector from remote: %v", err)
 	}
-	return vectorFromProto(res.Entries), nil
+	v, _, _ := vectorFromProto(res)
+	return v, nil
 }
 
 // TODO: gh-1125 this must be moved to the c11y, otherwise we still send n
@@ -204,34 +205,41 @@ func (c *Client) MultiVectorForWord(ctx context.Context, words []string) ([][]fl
 			continue
 		}
 
-		out[i] = vectorFromProto(elem.Entries)
+		out[i], _, _ = vectorFromProto(elem)
 	}
 
 	return out, nil
 }
 
-func vectorFromProto(in []*pb.VectorEntry) []float32 {
-	output := make([]float32, len(in), len(in))
-	for i, entry := range in {
+func vectorFromProto(in *pb.Vector) ([]float32, []vectorizer.InputElement, error) {
+	output := make([]float32, len(in.Entries), len(in.Entries))
+	for i, entry := range in.Entries {
 		output[i] = entry.Entry
 	}
 
-	return output
+	source := make([]vectorizer.InputElement, len(in.Source))
+	for i, s := range in.Source {
+		source[i].Concept = s.Concept
+		source[i].Weight = s.Weight
+		source[i].Occurrence = s.Occurrence
+	}
+
+	return output, source, nil
 }
 
-func (c *Client) VectorForCorpi(ctx context.Context, corpi []string, overridesMap map[string]string) ([]float32, error) {
+func (c *Client) VectorForCorpi(ctx context.Context, corpi []string, overridesMap map[string]string) ([]float32, []vectorizer.InputElement, error) {
 	overrides := overridesFromMap(overridesMap)
 	res, err := c.grpcClient.VectorForCorpi(ctx, &pb.Corpi{Corpi: corpi, Overrides: overrides})
 	if err != nil {
 		st, ok := status.FromError(err)
 		if !ok || st.Code() != codes.InvalidArgument {
-			return nil, fmt.Errorf("could not get vector from remote: %v", err)
+			return nil, nil, fmt.Errorf("could not get vector from remote: %v", err)
 		}
 
-		return nil, vectorizer.NewErrNoUsableWordsf(st.Message())
+		return nil, nil, vectorizer.NewErrNoUsableWordsf(st.Message())
 	}
 
-	return vectorFromProto(res.Entries), nil
+	return vectorFromProto(res)
 }
 
 func (c *Client) NearestWordsByVector(ctx context.Context, vector []float32, n int, k int) ([]string, []float32, error) {

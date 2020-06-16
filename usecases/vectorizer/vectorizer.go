@@ -42,7 +42,7 @@ func NewErrNoUsableWordsf(pattern string, args ...interface{}) ErrNoUsableWords 
 
 type client interface {
 	VectorForCorpi(ctx context.Context, corpi []string,
-		overrides map[string]string) ([]float32, error)
+		overrides map[string]string) ([]float32, []InputElement, error)
 }
 
 // IndexCheck returns whether a property of a class should be indexed
@@ -113,7 +113,7 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 		corpi = append(corpi, camelCaseToLower(className))
 	}
 
-	vector, err := v.client.VectorForCorpi(ctx, []string{strings.Join(corpi, " ")}, overrides)
+	vector, _, err := v.client.VectorForCorpi(ctx, []string{strings.Join(corpi, " ")}, overrides)
 	if err != nil {
 		switch err.(type) {
 		case ErrNoUsableWords:
@@ -155,7 +155,7 @@ func (v *Vectorizer) Corpi(ctx context.Context, corpi []string,
 		corpi[i] = camelCaseToLower(corpus)
 	}
 
-	vector, err := v.client.VectorForCorpi(ctx, corpi, nil)
+	vector, _, err := v.client.VectorForCorpi(ctx, corpi, nil)
 	if err != nil {
 		return nil, fmt.Errorf("vectorizing corpus '%+v': %v", corpi, err)
 	}
@@ -179,4 +179,10 @@ func camelCaseToLower(in string) string {
 	}
 
 	return sb.String()
+}
+
+type InputElement struct {
+	Concept    string
+	Weight     float32
+	Occurrence uint64
 }
