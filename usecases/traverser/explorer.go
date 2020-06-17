@@ -128,6 +128,10 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 			if res.UnderscoreProperties.Classification != nil {
 				res.Schema.(map[string]interface{})["_classification"] = res.UnderscoreProperties.Classification
 			}
+
+			if res.UnderscoreProperties.Interpretation != nil {
+				res.Schema.(map[string]interface{})["_interpretation"] = res.UnderscoreProperties.Interpretation
+			}
 		}
 
 		if searchVector != nil {

@@ -58,6 +58,8 @@ func (r Result) Thing() *models.Thing {
 	if r.UnderscoreProperties != nil {
 		t.Vector = r.UnderscoreProperties.Vector
 		t.Classification = r.UnderscoreProperties.Classification
+		t.Interpretation = r.UnderscoreProperties.Interpretation
+		r.UnderscoreProperties.Interpretation = nil
 	}
 
 	return t
@@ -82,6 +84,8 @@ func (r Result) Action() *models.Action {
 	if r.UnderscoreProperties != nil {
 		t.Vector = r.UnderscoreProperties.Vector
 		t.Classification = r.UnderscoreProperties.Classification
+		t.Interpretation = r.UnderscoreProperties.Interpretation
+		r.UnderscoreProperties.Interpretation = nil
 	}
 
 	return t

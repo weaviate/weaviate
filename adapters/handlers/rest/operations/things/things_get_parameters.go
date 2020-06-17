@@ -50,7 +50,7 @@ type ThingsGetParams struct {
 	  In: path
 	*/
 	ID strfmt.UUID
-	/*Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector
+	/*Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector, interpretation, _interpretation
 	  In: query
 	*/
 	Include *string
