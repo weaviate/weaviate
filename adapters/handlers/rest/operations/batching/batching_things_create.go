@@ -99,10 +99,10 @@ func (o *BatchingThingsCreate) ServeHTTP(rw http.ResponseWriter, r *http.Request
 type BatchingThingsCreateBody struct {
 
 	// Define which fields need to be returned. Default value is ALL
-	Fields []*string `yaml:"fields" foobar:"fields"`
+	Fields []*string `yaml:"fields" json:"fields"`
 
 	// things
-	Things []*models.Thing `yaml:"things" foobar:"things"`
+	Things []*models.Thing `yaml:"things" json:"things"`
 }
 
 // Validate validates this batching things create body

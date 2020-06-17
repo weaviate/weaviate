@@ -24,7 +24,7 @@ fi
 # Remove old stuff.
 (cd $DIR/..; rm -rf entities/models client adapters/handlers/rest/operations/)
 
-(cd $DIR/..; $SWAGGER generate server --name=weaviate --model-package=entities/models --server-package=adapters/handlers/rest --spec=openapi-specs/schema.json -P models.Principal --default-scheme=https --struct-tags=yaml --struct-tags=foobar)
+(cd $DIR/..; $SWAGGER generate server --name=weaviate --model-package=entities/models --server-package=adapters/handlers/rest --spec=openapi-specs/schema.json -P models.Principal --default-scheme=https --struct-tags=yaml --struct-tags=json)
 (cd $DIR/..; $SWAGGER generate client --name=weaviate --model-package=entities/models --spec=openapi-specs/schema.json -P models.Principal --default-scheme=https)
 
 echo Generate Deprecation code...
