@@ -143,4 +143,5 @@ type UnderscoreProperties struct {
 	Classification bool
 	RefMeta        bool
 	Vector         bool
+	Interpretation bool
 }

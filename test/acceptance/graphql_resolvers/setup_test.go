@@ -37,6 +37,7 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("getting objects with filters", gettingObjectsWithFilters)
 	t.Run("getting objects with geo filters", gettingObjectsWithGeoFilters)
 	t.Run("getting objects with grouping", gettingObjectsWithGrouping)
+	t.Run("getting objects with underscore props", gettingObjectsWithUnderscoreProps)
 
 	// tear down
 	deleteThingClass(t, "Person")

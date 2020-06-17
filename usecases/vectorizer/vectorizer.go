@@ -42,7 +42,7 @@ func NewErrNoUsableWordsf(pattern string, args ...interface{}) ErrNoUsableWords 
 
 type client interface {
 	VectorForCorpi(ctx context.Context, corpi []string,
-		overrides map[string]string) ([]float32, error)
+		overrides map[string]string) ([]float32, []InputElement, error)
 }
 
 // IndexCheck returns whether a property of a class should be indexed
@@ -62,7 +62,7 @@ func (v *Vectorizer) SetIndexChecker(ic IndexCheck) {
 }
 
 // Thing object to vector
-func (v *Vectorizer) Thing(ctx context.Context, object *models.Thing) ([]float32, error) {
+func (v *Vectorizer) Thing(ctx context.Context, object *models.Thing) ([]float32, []InputElement, error) {
 	var overrides map[string]string
 	if object.VectorWeights != nil {
 		overrides = object.VectorWeights.(map[string]string)
@@ -72,7 +72,7 @@ func (v *Vectorizer) Thing(ctx context.Context, object *models.Thing) ([]float32
 }
 
 // Action object to vector
-func (v *Vectorizer) Action(ctx context.Context, object *models.Action) ([]float32, error) {
+func (v *Vectorizer) Action(ctx context.Context, object *models.Action) ([]float32, []InputElement, error) {
 	var overrides map[string]string
 	if object.VectorWeights != nil {
 		overrides = object.VectorWeights.(map[string]string)
@@ -82,7 +82,7 @@ func (v *Vectorizer) Action(ctx context.Context, object *models.Action) ([]float
 }
 
 func (v *Vectorizer) object(ctx context.Context, className string,
-	schema interface{}, overrides map[string]string) ([]float32, error) {
+	schema interface{}, overrides map[string]string) ([]float32, []InputElement, error) {
 	var corpi []string
 
 	if v.indexCheck.VectorizeClassName(className) {
@@ -113,11 +113,11 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 		corpi = append(corpi, camelCaseToLower(className))
 	}
 
-	vector, err := v.client.VectorForCorpi(ctx, []string{strings.Join(corpi, " ")}, overrides)
+	vector, ie, err := v.client.VectorForCorpi(ctx, []string{strings.Join(corpi, " ")}, overrides)
 	if err != nil {
 		switch err.(type) {
 		case ErrNoUsableWords:
-			return nil, fmt.Errorf("The object is invalid, as weaviate could not extract "+
+			return nil, nil, fmt.Errorf("The object is invalid, as weaviate could not extract "+
 				"any contextionary-valid words from it. This is the case when you have "+
 				"set the options 'vectorizeClassName: false' and 'vectorizePropertyName: false' in this class' schema definition "+
 				"and not a single property's value "+
@@ -140,11 +140,11 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 				"\n\nTo learn more about the contextionary and how it behaves, check out: https://www.semi.technology/documentation/weaviate/current/contextionary.html"+
 				"\n\nOriginal error: %v", corpi, err)
 		default:
-			return nil, fmt.Errorf("vectorizing object with corpus '%+v': %v", corpi, err)
+			return nil, nil, fmt.Errorf("vectorizing object with corpus '%+v': %v", corpi, err)
 		}
 	}
 
-	return vector, nil
+	return vector, ie, nil
 }
 
 // Corpi takes any list of strings and builds a common vector for all of them
@@ -155,7 +155,7 @@ func (v *Vectorizer) Corpi(ctx context.Context, corpi []string,
 		corpi[i] = camelCaseToLower(corpus)
 	}
 
-	vector, err := v.client.VectorForCorpi(ctx, corpi, nil)
+	vector, _, err := v.client.VectorForCorpi(ctx, corpi, nil)
 	if err != nil {
 		return nil, fmt.Errorf("vectorizing corpus '%+v': %v", corpi, err)
 	}
@@ -179,4 +179,11 @@ func camelCaseToLower(in string) string {
 	}
 
 	return sb.String()
+}
+
+// TODO: replace with models.InterpretationSource
+type InputElement struct {
+	Concept    string
+	Weight     float32
+	Occurrence uint64
 }
