@@ -24,6 +24,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -71,14 +72,14 @@ type fakeVectorizer struct {
 	mock.Mock
 }
 
-func (f *fakeVectorizer) Thing(ctx context.Context, thing *models.Thing) ([]float32, error) {
+func (f *fakeVectorizer) Thing(ctx context.Context, thing *models.Thing) ([]float32, []vectorizer.InputElement, error) {
 	args := f.Called(thing)
-	return args.Get(0).([]float32), args.Error(1)
+	return args.Get(0).([]float32), nil, args.Error(1)
 }
 
-func (f *fakeVectorizer) Action(ctx context.Context, action *models.Action) ([]float32, error) {
+func (f *fakeVectorizer) Action(ctx context.Context, action *models.Action) ([]float32, []vectorizer.InputElement, error) {
 	args := f.Called(action)
-	return args.Get(0).([]float32), args.Error(1)
+	return args.Get(0).([]float32), nil, args.Error(1)
 }
 
 func (f *fakeVectorizer) Corpi(ctx context.Context, corpi []string) ([]float32, error) {

@@ -32,6 +32,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"github.com/sirupsen/logrus"
 )
 
@@ -54,8 +55,8 @@ type timeSource interface {
 }
 
 type Vectorizer interface {
-	Thing(ctx context.Context, concept *models.Thing) ([]float32, error)
-	Action(ctx context.Context, concept *models.Action) ([]float32, error)
+	Thing(ctx context.Context, concept *models.Thing) ([]float32, []vectorizer.InputElement, error)
+	Action(ctx context.Context, concept *models.Action) ([]float32, []vectorizer.InputElement, error)
 }
 
 type locks interface {

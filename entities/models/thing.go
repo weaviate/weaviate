@@ -30,10 +30,13 @@ import (
 // swagger:model Thing
 type Thing struct {
 
-	// If this object was subject of a classificiation, additional meta info about this classification is available here
+	// If this object was subject of a classificiation, additional meta info about this classification is available here. (Underscore properties are optional, include them using the ?include=_<propName> parameter)
 	Classification *UnderscorePropertiesClassification `json:"_classification,omitempty"`
 
-	// This object's position in the Contextionary vector space
+	// Additional information about how this property was interpreted at vectorization. (Underscore properties are optional, include them using the ?include=_<propName> parameter)
+	Interpretation *Interpretation `json:"_interpretation,omitempty"`
+
+	// This object's position in the Contextionary vector space. (Underscore properties are optional, include them using the ?include=_<propName> parameter)
 	Vector C11yVector `json:"_vector,omitempty"`
 
 	// Class of the Thing, defined in the schema.
@@ -67,6 +70,10 @@ func (m *Thing) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validateInterpretation(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateVector(formats); err != nil {
 		res = append(res, err)
 	}
@@ -95,6 +102,24 @@ func (m *Thing) validateClassification(formats strfmt.Registry) error {
 		if err := m.Classification.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("_classification")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Thing) validateInterpretation(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Interpretation) { // not required
+		return nil
+	}
+
+	if m.Interpretation != nil {
+		if err := m.Interpretation.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("_interpretation")
 			}
 			return err
 		}

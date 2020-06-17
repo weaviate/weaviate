@@ -24,6 +24,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	testhelper "github.com/semi-technologies/weaviate/test/helper"
+	libvectorizer "github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -410,10 +411,10 @@ func (f *fakeVectorizer) MultiVectorForWord(ctx context.Context, words []string)
 }
 
 func (f *fakeVectorizer) VectorForCorpi(ctx context.Context, corpi []string,
-	overrides map[string]string) ([]float32, error) {
+	overrides map[string]string) ([]float32, []libvectorizer.InputElement, error) {
 	words := strings.Split(corpi[0], " ")
 	if len(words) == 0 {
-		return nil, fmt.Errorf("vector for corpi called without words")
+		return nil, nil, fmt.Errorf("vector for corpi called without words")
 	}
 
 	vectors, _ := f.MultiVectorForWord(ctx, words)
@@ -421,10 +422,10 @@ func (f *fakeVectorizer) VectorForCorpi(ctx context.Context, corpi []string,
 	return f.centroid(vectors, words)
 }
 
-func (f *fakeVectorizer) centroid(in [][]float32, words []string) ([]float32, error) {
+func (f *fakeVectorizer) centroid(in [][]float32, words []string) ([]float32, []libvectorizer.InputElement, error) {
 	withoutNilVectors := make([][]float32, len(in))
 	if len(in) == 0 {
-		return nil, fmt.Errorf("got nil vector list for words: %v", words)
+		return nil, nil, fmt.Errorf("got nil vector list for words: %v", words)
 	}
 
 	i := 0
@@ -438,7 +439,7 @@ func (f *fakeVectorizer) centroid(in [][]float32, words []string) ([]float32, er
 	}
 	withoutNilVectors = withoutNilVectors[:i]
 	if i == 0 {
-		return nil, fmt.Errorf("no usable words: %v", words)
+		return nil, nil, fmt.Errorf("no usable words: %v", words)
 	}
 
 	// take the first vector assuming all have the same length
@@ -454,5 +455,5 @@ func (f *fakeVectorizer) centroid(in [][]float32, words []string) ([]float32, er
 		out[i] = sum / float32(len(withoutNilVectors))
 	}
 
-	return out, nil
+	return out, nil, nil
 }

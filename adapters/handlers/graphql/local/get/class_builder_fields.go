@@ -410,6 +410,8 @@ func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.De
 			switch name {
 			case "_classification":
 				underscoreProps.Classification = true
+			case "_interpretation":
+				underscoreProps.Interpretation = true
 			}
 		} else {
 			properties = append(properties, property)

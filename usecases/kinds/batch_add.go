@@ -136,8 +136,15 @@ func (b *BatchManager) validateAction(ctx context.Context, principal *models.Pri
 	err = validation.New(s, b.exists, b.network, b.config).Action(ctx, action)
 	ec.add(err)
 
-	vector, err := b.vectorizer.Action(ctx, action)
+	vector, source, err := b.vectorizer.Action(ctx, action)
 	ec.add(err)
+
+	if action.Meta == nil {
+		action.Meta = &models.UnderscoreProperties{}
+	}
+	action.Meta.Interpretation = &models.Interpretation{
+		Source: sourceFromInputElements(source),
+	}
 
 	*resultsC <- BatchAction{
 		UUID:          id,
@@ -277,8 +284,15 @@ func (b *BatchManager) validateThing(ctx context.Context, principal *models.Prin
 	err = validation.New(s, b.exists, b.network, b.config).Thing(ctx, thing)
 	ec.add(err)
 
-	vector, err := b.vectorizer.Thing(ctx, thing)
+	vector, source, err := b.vectorizer.Thing(ctx, thing)
 	ec.add(err)
+
+	if thing.Meta == nil {
+		thing.Meta = &models.UnderscoreProperties{}
+	}
+	thing.Meta.Interpretation = &models.Interpretation{
+		Source: sourceFromInputElements(source),
+	}
 
 	*resultsC <- BatchThing{
 		UUID:          id,

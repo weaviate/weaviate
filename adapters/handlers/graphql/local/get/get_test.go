@@ -334,6 +334,51 @@ func TestExtractUnderscoreFields(t *testing.T) {
 				},
 			},
 		},
+		test{
+			name:  "with _interpretation",
+			query: "{ Get { Actions { SomeAction { _interpretation { source { concept weight occurrence } }  } } } }",
+			expectedParams: traverser.GetParams{
+				Kind:      kind.Action,
+				ClassName: "SomeAction",
+				UnderscoreProperties: traverser.UnderscoreProperties{
+					Interpretation: true,
+				},
+			},
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"_interpretation": &models.Interpretation{
+						Source: []*models.InterpretationSource{
+							&models.InterpretationSource{
+								Concept:    "foo",
+								Weight:     0.6,
+								Occurrence: 1200,
+							},
+							&models.InterpretationSource{
+								Concept:    "bar",
+								Weight:     0.9,
+								Occurrence: 800,
+							},
+						},
+					},
+				},
+			},
+			expectedResult: map[string]interface{}{
+				"_interpretation": map[string]interface{}{
+					"source": []interface{}{
+						map[string]interface{}{
+							"concept":    "foo",
+							"weight":     0.6,
+							"occurrence": 1200,
+						},
+						map[string]interface{}{
+							"concept":    "bar",
+							"weight":     0.9,
+							"occurrence": 800,
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for _, test := range tests {
