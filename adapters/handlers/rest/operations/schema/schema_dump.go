@@ -94,10 +94,10 @@ func (o *SchemaDump) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 type SchemaDumpOKBody struct {
 
 	// actions
-	Actions *models.Schema `yaml:"actions,omitempty" foobar:"actions,omitempty"`
+	Actions *models.Schema `yaml:"actions,omitempty" json:"actions,omitempty"`
 
 	// things
-	Things *models.Schema `yaml:"things,omitempty" foobar:"things,omitempty"`
+	Things *models.Schema `yaml:"things,omitempty" json:"things,omitempty"`
 }
 
 // Validate validates this schema dump o k body

@@ -95,7 +95,7 @@ func (o *WeaviateRoot) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 type WeaviateRootOKBody struct {
 
 	// links
-	Links []*models.Link `yaml:"links" foobar:"links"`
+	Links []*models.Link `yaml:"links" json:"links"`
 }
 
 // Validate validates this weaviate root o k body

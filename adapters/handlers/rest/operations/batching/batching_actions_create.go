@@ -99,10 +99,10 @@ func (o *BatchingActionsCreate) ServeHTTP(rw http.ResponseWriter, r *http.Reques
 type BatchingActionsCreateBody struct {
 
 	// actions
-	Actions []*models.Action `yaml:"actions" foobar:"actions"`
+	Actions []*models.Action `yaml:"actions" json:"actions"`
 
 	// Define which fields need to be returned. Default value is ALL
-	Fields []*string `yaml:"fields" foobar:"fields"`
+	Fields []*string `yaml:"fields" json:"fields"`
 }
 
 // Validate validates this batching actions create body
