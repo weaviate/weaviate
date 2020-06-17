@@ -84,6 +84,11 @@ func Test_MergeAction(t *testing.T) {
 				Class:      "ZooAction",
 				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
 				Vector:     []float32{1, 2, 3},
+				UnderscoreProperties: models.UnderscoreProperties{
+					Interpretation: &models.Interpretation{
+						Source: []*models.InterpretationSource{},
+					},
+				},
 				PrimitiveSchema: map[string]interface{}{
 					"name": "My little pony zoo with extra sparkles",
 				},
@@ -129,6 +134,11 @@ func Test_MergeAction(t *testing.T) {
 				Class:      "ZooAction",
 				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
 				Vector:     []float32{1, 2, 3},
+				UnderscoreProperties: models.UnderscoreProperties{
+					Interpretation: &models.Interpretation{
+						Source: []*models.InterpretationSource{},
+					},
+				},
 				PrimitiveSchema: map[string]interface{}{
 					"name":      "My little pony zoo with extra sparkles",
 					"area":      3.222,
@@ -175,6 +185,11 @@ func Test_MergeAction(t *testing.T) {
 					"name": "My little pony zoo with extra sparkles",
 				},
 				Vector: []float32{1, 2, 3},
+				UnderscoreProperties: models.UnderscoreProperties{
+					Interpretation: &models.Interpretation{
+						Source: []*models.InterpretationSource{},
+					},
+				},
 				References: BatchReferences{
 					BatchReference{
 						From: crossrefMustParseSource("weaviate://localhost/actions/ZooAction/dd59815b-142b-4c54-9b12-482434bd54ca/hasAnimals"),
@@ -283,6 +298,11 @@ func Test_MergeThing(t *testing.T) {
 				Class:      "Zoo",
 				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
 				Vector:     []float32{1, 2, 3},
+				UnderscoreProperties: models.UnderscoreProperties{
+					Interpretation: &models.Interpretation{
+						Source: []*models.InterpretationSource{},
+					},
+				},
 				PrimitiveSchema: map[string]interface{}{
 					"name": "My little pony zoo with extra sparkles",
 				},
@@ -328,6 +348,11 @@ func Test_MergeThing(t *testing.T) {
 				Class:      "Zoo",
 				ID:         "dd59815b-142b-4c54-9b12-482434bd54ca",
 				Vector:     []float32{1, 2, 3},
+				UnderscoreProperties: models.UnderscoreProperties{
+					Interpretation: &models.Interpretation{
+						Source: []*models.InterpretationSource{},
+					},
+				},
 				PrimitiveSchema: map[string]interface{}{
 					"name":      "My little pony zoo with extra sparkles",
 					"area":      3.222,
@@ -374,6 +399,11 @@ func Test_MergeThing(t *testing.T) {
 					"name": "My little pony zoo with extra sparkles",
 				},
 				Vector: []float32{1, 2, 3},
+				UnderscoreProperties: models.UnderscoreProperties{
+					Interpretation: &models.Interpretation{
+						Source: []*models.InterpretationSource{},
+					},
+				},
 				References: BatchReferences{
 					BatchReference{
 						From: crossrefMustParseSource("weaviate://localhost/things/Zoo/dd59815b-142b-4c54-9b12-482434bd54ca/hasAnimals"),

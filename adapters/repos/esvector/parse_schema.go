@@ -352,6 +352,16 @@ func (r *Repo) extractUnderscoreProps(in map[string]interface{}) *models.Undersc
 		return nil
 	}
 
+	classification := extractClassification(objectMetaMap)
+	interpretation := extractInterpretation(objectMetaMap)
+
+	return &models.UnderscoreProperties{
+		Classification: classification,
+		Interpretation: interpretation,
+	}
+}
+
+func extractClassification(objectMetaMap map[string]interface{}) *models.UnderscorePropertiesClassification {
 	classificationField, ok := objectMetaMap[keyMetaClassification.String()]
 	if !ok {
 		// for now classification is the only meta field, so we can return early if
@@ -385,8 +395,33 @@ func (r *Repo) extractUnderscoreProps(in map[string]interface{}) *models.Undersc
 		classification.ClassifiedFields = interfaceToStringSlice(classified.([]interface{}))
 	}
 
-	return &models.UnderscoreProperties{
-		Classification: classification,
+	return classification
+}
+
+func extractInterpretation(obj map[string]interface{}) *models.Interpretation {
+	metaMap, ok := obj["interpretation"]
+	if !ok {
+		// be backward-compatible, an old version might not have this prop set
+		return nil
+	}
+
+	source, ok := metaMap.(map[string]interface{})["source"]
+	if !ok {
+		return nil
+	}
+
+	sourceList := source.([]interface{})
+	parsed := make([]*models.InterpretationSource, len(sourceList))
+	for i, elem := range sourceList {
+		parsed[i] = &models.InterpretationSource{
+			Concept:    elem.(map[string]interface{})["concept"].(string),
+			Occurrence: uint64(elem.(map[string]interface{})["occurrence"].(float64)),
+			Weight:     elem.(map[string]interface{})["weight"].(float64),
+		}
+	}
+
+	return &models.Interpretation{
+		Source: parsed,
 	}
 }
 

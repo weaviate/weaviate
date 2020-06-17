@@ -80,7 +80,7 @@ type ThingsGetParams struct {
 	*/
 	ID strfmt.UUID
 	/*Include
-	  Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector
+	  Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector, interpretation, _interpretation
 
 	*/
 	Include *string

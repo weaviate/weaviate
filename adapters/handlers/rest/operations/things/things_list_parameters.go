@@ -44,7 +44,7 @@ type ThingsListParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector
+	/*Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector, interpretation, _interpretation
 	  In: query
 	*/
 	Include *string

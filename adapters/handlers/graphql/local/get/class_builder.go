@@ -157,6 +157,7 @@ func (b *classBuilder) classObject(kindName string, class *models.Class) *graphq
 
 func (b *classBuilder) underscoreFields(classProperties graphql.Fields, kindName string, class *models.Class) {
 	classProperties["_classification"] = b.underscoreClassificationField(kindName, class)
+	classProperties["_interpretation"] = b.underscoreInterpretationField(kindName, class)
 
 }
 
@@ -170,6 +171,24 @@ func (b *classBuilder) underscoreClassificationField(kindName string, class *mod
 				"scope":            &graphql.Field{Type: graphql.NewList(graphql.String)},
 				"classifiedFields": &graphql.Field{Type: graphql.NewList(graphql.String)},
 				"completed":        &graphql.Field{Type: graphql.String},
+			},
+		}),
+	}
+}
+
+func (b *classBuilder) underscoreInterpretationField(kindName string, class *models.Class) *graphql.Field {
+	return &graphql.Field{
+		Type: graphql.NewObject(graphql.ObjectConfig{
+			Name: fmt.Sprintf("%sUnderscoreInterpretation", class.Class),
+			Fields: graphql.Fields{
+				"source": &graphql.Field{Type: graphql.NewList(graphql.NewObject(graphql.ObjectConfig{
+					Name: fmt.Sprintf("%sUnderscoreInterpretationSource", class.Class),
+					Fields: graphql.Fields{
+						"concept":    &graphql.Field{Type: graphql.String},
+						"weight":     &graphql.Field{Type: graphql.Float},
+						"occurrence": &graphql.Field{Type: graphql.Int},
+					},
+				}))},
 			},
 		}),
 	}
