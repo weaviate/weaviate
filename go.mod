@@ -13,7 +13,7 @@ require (
 	github.com/fatih/color v1.7.0 // indirect
 	github.com/go-openapi/errors v0.19.6
 	github.com/go-openapi/loads v0.19.5
-	github.com/go-openapi/runtime v0.19.16
+	github.com/go-openapi/runtime v0.19.18
 	github.com/go-openapi/spec v0.19.8
 	github.com/go-openapi/strfmt v0.19.5
 	github.com/go-openapi/swag v0.19.9
@@ -37,7 +37,7 @@ require (
 	github.com/stretchr/testify v1.6.1
 	github.com/ugorji/go/codec v0.0.0-20190309163734-c4a1c341dc93
 	golang.org/x/net v0.0.0-20200602114024-627f9648deb9
-	golang.org/x/tools v0.0.0-20200615222825-6aa8f57aacd9 // indirect
+	golang.org/x/tools v0.0.0-20200617042924-7f3f4b10a808 // indirect
 	google.golang.org/grpc v1.24.0
 	gopkg.in/yaml.v2 v2.3.0
 	sigs.k8s.io/yaml v1.1.0 // indirect
