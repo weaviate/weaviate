@@ -63,8 +63,6 @@ func TestInvalidDataTypeInProperty(t *testing.T) {
 }
 
 func TestAddAndRemoveThingClass(t *testing.T) {
-	t.Parallel()
-
 	randomThingClassName := "YellowCars"
 
 	// Ensure that this name is not in the schema yet.
@@ -83,6 +81,8 @@ func TestAddAndRemoveThingClass(t *testing.T) {
 
 	t.Log("Asserting that this class is now created")
 	assert.Contains(t, GetThingClassNames(t), randomThingClassName)
+
+	t.Run("pure http - without the auto-generated client", testGetSchemaWithoutClient)
 
 	// Now clean up this class.
 	t.Log("Remove the class")

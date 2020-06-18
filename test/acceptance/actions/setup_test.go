@@ -92,9 +92,9 @@ func Test_Actions(t *testing.T) {
 	t.Run("updating actions", updateActions)
 
 	// tear down
-	// deleteThingClass(t, "ActionTestThing")
-	// deleteActionClass(t, "TestAction")
-	// deleteActionClass(t, "TestActionTwo")
+	deleteThingClass(t, "ActionTestThing")
+	deleteActionClass(t, "TestAction")
+	deleteActionClass(t, "TestActionTwo")
 }
 
 func createActionClass(t *testing.T, class *models.Class) {
