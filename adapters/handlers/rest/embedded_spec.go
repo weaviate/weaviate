@@ -3470,6 +3470,34 @@ func init() {
         "$ref": "#/definitions/SingleRef"
       }
     },
+    "NearestNeighbor": {
+      "description": "A group of neighboring concepts",
+      "type": "object",
+      "properties": {
+        "concept": {
+          "description": "The neighboring concept",
+          "type": "string"
+        },
+        "distance": {
+          "description": "The distance between the result and this neighbor",
+          "type": "number",
+          "format": "float32"
+        }
+      }
+    },
+    "NearestNeighbors": {
+      "description": "A group of neighboring concepts",
+      "type": "object",
+      "properties": {
+        "neighbors": {
+          "description": "The individual neighbor items",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NearestNeighbor"
+          }
+        }
+      }
+    },
     "PatchDocumentAction": {
       "description": "Either a JSONPatch document as defined by RFC 6902 (from, op, path, value), or a merge document (RFC 7396).",
       "required": [
@@ -3872,6 +3900,10 @@ func init() {
         "interpretation": {
           "description": "Additional information about how the object was vectorized",
           "$ref": "#/definitions/Interpretation"
+        },
+        "nearestNeighbors": {
+          "description": "Neighboring concepts of your search results",
+          "$ref": "#/definitions/NearestNeighbors"
         },
         "vector": {
           "description": "This object's position in the Contextionary vector space",
@@ -7655,6 +7687,34 @@ func init() {
         "$ref": "#/definitions/SingleRef"
       }
     },
+    "NearestNeighbor": {
+      "description": "A group of neighboring concepts",
+      "type": "object",
+      "properties": {
+        "concept": {
+          "description": "The neighboring concept",
+          "type": "string"
+        },
+        "distance": {
+          "description": "The distance between the result and this neighbor",
+          "type": "number",
+          "format": "float32"
+        }
+      }
+    },
+    "NearestNeighbors": {
+      "description": "A group of neighboring concepts",
+      "type": "object",
+      "properties": {
+        "neighbors": {
+          "description": "The individual neighbor items",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NearestNeighbor"
+          }
+        }
+      }
+    },
     "PatchDocumentAction": {
       "description": "Either a JSONPatch document as defined by RFC 6902 (from, op, path, value), or a merge document (RFC 7396).",
       "required": [
@@ -8075,6 +8135,10 @@ func init() {
         "interpretation": {
           "description": "Additional information about how the object was vectorized",
           "$ref": "#/definitions/Interpretation"
+        },
+        "nearestNeighbors": {
+          "description": "Neighboring concepts of your search results",
+          "$ref": "#/definitions/NearestNeighbors"
         },
         "vector": {
           "description": "This object's position in the Contextionary vector space",

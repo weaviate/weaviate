@@ -24,14 +24,6 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
-type getRepo interface {
-	GetThing(context.Context, strfmt.UUID, *models.Thing) error
-	GetAction(context.Context, strfmt.UUID, *models.Action) error
-
-	ListThings(ctx context.Context, limit int, thingsResponse *models.ThingsListResponse) error
-	ListActions(ctx context.Context, limit int, actionsResponse *models.ActionsListResponse) error
-}
-
 // GetThing Class from the connected DB
 func (m *Manager) GetThing(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, underscore traverser.UnderscoreProperties) (*models.Thing, error) {

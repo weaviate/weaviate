@@ -724,6 +724,10 @@
         "interpretation": {
           "description": "Additional information about how the object was vectorized",
           "$ref": "#/definitions/Interpretation"
+        },
+        "nearestNeighbors": {
+          "description": "Neighboring concepts of your search results",
+          "$ref": "#/definitions/NearestNeighbors"
         }
 
       }
@@ -779,6 +783,34 @@
           }
         }
       }
+    },
+    "NearestNeighbors": {
+      "description": "A group of neighboring concepts",
+      "properties": {
+        "neighbors": {
+          "description": "The individual neighbor items",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NearestNeighbor"
+          }
+        }
+      },
+      "type": "object"
+    },
+    "NearestNeighbor": {
+      "description": "A group of neighboring concepts",
+      "properties": {
+        "concept": {
+          "description": "The neighboring concept",
+          "type": "string"
+        },
+        "distance": {
+          "description": "The distance between the result and this neighbor",
+          "type": "number",
+          "format": "float32"
+        }
+      },
+      "type": "object"
     },
     "Interpretation": {
       "description": "This underscore property contains additional info about the how the class was vectorized",
