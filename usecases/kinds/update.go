@@ -24,8 +24,6 @@ import (
 )
 
 type updateAndGetRepo interface {
-	// The validation package needs to be able to get existing classes as well
-	getRepo
 
 	// methods to update new items
 	updateRepo

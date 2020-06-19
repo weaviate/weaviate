@@ -27,7 +27,6 @@ import (
 )
 
 type addAndGetRepo interface {
-	getRepo
 	addRepo
 }
 

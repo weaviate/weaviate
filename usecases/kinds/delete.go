@@ -24,7 +24,6 @@ import (
 
 type deleteAndGetRepo interface {
 	deleteRepo
-	getRepo
 }
 
 type deleteRepo interface {
