@@ -28,108 +28,120 @@ func TestExtender(t *testing.T) {
 	f := &fakeContextionary{}
 	e := NewExtender(f)
 
-	vectors := [][]float32{
-		[]float32{0.1, 0.2, 0.3},
-		[]float32{0.11, 0.22, 0.33},
-		[]float32{0.111, 0.222, 0.333},
-	}
+	t.Run("with empty results", func(t *testing.T) {
 
-	testData := []search.Result{
-		search.Result{
-			Schema: map[string]interface{}{"name": "item1"},
-			Vector: vectors[0],
-		},
-		search.Result{
-			Schema: map[string]interface{}{"name": "item2"},
-			Vector: vectors[1],
-		},
-		search.Result{
-			Schema: map[string]interface{}{"name": "item3"},
-			Vector: vectors[2],
-			UnderscoreProperties: &models.UnderscoreProperties{
-				Classification: &models.UnderscorePropertiesClassification{ // verify it doesn't remove existing underscore props
-					ID: strfmt.UUID("123"),
+		testData := []search.Result(nil)
+		expectedResults := []search.Result(nil)
+
+		res, err := e.Do(context.Background(), testData, nil)
+		require.Nil(t, err)
+		assert.Equal(t, expectedResults, res)
+	})
+
+	t.Run("with multiple results", func(t *testing.T) {
+		vectors := [][]float32{
+			[]float32{0.1, 0.2, 0.3},
+			[]float32{0.11, 0.22, 0.33},
+			[]float32{0.111, 0.222, 0.333},
+		}
+
+		testData := []search.Result{
+			search.Result{
+				Schema: map[string]interface{}{"name": "item1"},
+				Vector: vectors[0],
+			},
+			search.Result{
+				Schema: map[string]interface{}{"name": "item2"},
+				Vector: vectors[1],
+			},
+			search.Result{
+				Schema: map[string]interface{}{"name": "item3"},
+				Vector: vectors[2],
+				UnderscoreProperties: &models.UnderscoreProperties{
+					Classification: &models.UnderscorePropertiesClassification{ // verify it doesn't remove existing underscore props
+						ID: strfmt.UUID("123"),
+					},
 				},
 			},
-		},
-	}
+		}
 
-	expectedResults := []search.Result{
-		search.Result{
-			Schema: map[string]interface{}{"name": "item1"},
-			Vector: vectors[0],
-			UnderscoreProperties: &models.UnderscoreProperties{
-				NearestNeighbors: &models.NearestNeighbors{
-					Neighbors: []*models.NearestNeighbor{
-						&models.NearestNeighbor{
-							Concept:  "word1",
-							Distance: 1,
-						},
-						&models.NearestNeighbor{
-							Concept:  "word2",
-							Distance: 2,
-						},
-						&models.NearestNeighbor{
-							Concept:  "word3",
-							Distance: 3,
+		expectedResults := []search.Result{
+			search.Result{
+				Schema: map[string]interface{}{"name": "item1"},
+				Vector: vectors[0],
+				UnderscoreProperties: &models.UnderscoreProperties{
+					NearestNeighbors: &models.NearestNeighbors{
+						Neighbors: []*models.NearestNeighbor{
+							&models.NearestNeighbor{
+								Concept:  "word1",
+								Distance: 1,
+							},
+							&models.NearestNeighbor{
+								Concept:  "word2",
+								Distance: 2,
+							},
+							&models.NearestNeighbor{
+								Concept:  "word3",
+								Distance: 3,
+							},
 						},
 					},
 				},
 			},
-		},
-		search.Result{
-			Schema: map[string]interface{}{"name": "item2"},
-			Vector: vectors[1],
-			UnderscoreProperties: &models.UnderscoreProperties{
-				NearestNeighbors: &models.NearestNeighbors{
-					Neighbors: []*models.NearestNeighbor{
-						&models.NearestNeighbor{
-							Concept:  "word4",
-							Distance: 0.1,
-						},
-						&models.NearestNeighbor{
-							Concept:  "word5",
-							Distance: 0.2,
-						},
-						&models.NearestNeighbor{
-							Concept:  "word6",
-							Distance: 0.3,
-						},
-					},
-				},
-			},
-		},
-		search.Result{
-			Schema: map[string]interface{}{"name": "item3"},
-			Vector: vectors[2],
-			UnderscoreProperties: &models.UnderscoreProperties{
-				Classification: &models.UnderscorePropertiesClassification{ // verify it doesn't remove existing underscore props
-					ID: strfmt.UUID("123"),
-				},
-				NearestNeighbors: &models.NearestNeighbors{
-					Neighbors: []*models.NearestNeighbor{
-						&models.NearestNeighbor{
-							Concept:  "word5",
-							Distance: 1.1,
-						},
-						&models.NearestNeighbor{
-							Concept:  "word6",
-							Distance: 1.2,
-						},
-						&models.NearestNeighbor{
-							Concept:  "word7",
-							Distance: 1.3,
+			search.Result{
+				Schema: map[string]interface{}{"name": "item2"},
+				Vector: vectors[1],
+				UnderscoreProperties: &models.UnderscoreProperties{
+					NearestNeighbors: &models.NearestNeighbors{
+						Neighbors: []*models.NearestNeighbor{
+							&models.NearestNeighbor{
+								Concept:  "word4",
+								Distance: 0.1,
+							},
+							&models.NearestNeighbor{
+								Concept:  "word5",
+								Distance: 0.2,
+							},
+							&models.NearestNeighbor{
+								Concept:  "word6",
+								Distance: 0.3,
+							},
 						},
 					},
 				},
 			},
-		},
-	}
+			search.Result{
+				Schema: map[string]interface{}{"name": "item3"},
+				Vector: vectors[2],
+				UnderscoreProperties: &models.UnderscoreProperties{
+					Classification: &models.UnderscorePropertiesClassification{ // verify it doesn't remove existing underscore props
+						ID: strfmt.UUID("123"),
+					},
+					NearestNeighbors: &models.NearestNeighbors{
+						Neighbors: []*models.NearestNeighbor{
+							&models.NearestNeighbor{
+								Concept:  "word7",
+								Distance: 1.1,
+							},
+							&models.NearestNeighbor{
+								Concept:  "word8",
+								Distance: 2.2,
+							},
+							&models.NearestNeighbor{
+								Concept:  "word9",
+								Distance: 3.3,
+							},
+						},
+					},
+				},
+			},
+		}
 
-	res, err := e.Do(testData)
-	require.Nil(t, err)
-	assert.Equal(t, expectedResults, res)
-	assert.Equal(t, f.calledWithVectors, vectors)
+		res, err := e.Do(context.Background(), testData, nil)
+		require.Nil(t, err)
+		assert.Equal(t, expectedResults, res)
+		assert.Equal(t, f.calledWithVectors, vectors)
+	})
 }
 
 type fakeContextionary struct {
