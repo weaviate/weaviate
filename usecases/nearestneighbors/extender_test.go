@@ -33,9 +33,52 @@ func TestExtender(t *testing.T) {
 		testData := []search.Result(nil)
 		expectedResults := []search.Result(nil)
 
-		res, err := e.Do(context.Background(), testData, nil)
+		res, err := e.Multi(context.Background(), testData, nil)
 		require.Nil(t, err)
 		assert.Equal(t, expectedResults, res)
+	})
+
+	t.Run("with a single result", func(t *testing.T) {
+
+		testData := &search.Result{
+			Schema: map[string]interface{}{"name": "item1"},
+			Vector: []float32{0.1, 0.3, 0.5},
+			UnderscoreProperties: &models.UnderscoreProperties{
+				Classification: &models.UnderscorePropertiesClassification{ // verify it doesn't remove existing underscore props
+					ID: strfmt.UUID("123"),
+				},
+			},
+		}
+
+		expectedResult := &search.Result{
+			Schema: map[string]interface{}{"name": "item1"},
+			Vector: []float32{0.1, 0.3, 0.5},
+			UnderscoreProperties: &models.UnderscoreProperties{
+				Classification: &models.UnderscorePropertiesClassification{ // verify it doesn't remove existing underscore props
+					ID: strfmt.UUID("123"),
+				},
+				NearestNeighbors: &models.NearestNeighbors{
+					Neighbors: []*models.NearestNeighbor{
+						&models.NearestNeighbor{
+							Concept:  "word1",
+							Distance: 1,
+						},
+						&models.NearestNeighbor{
+							Concept:  "word2",
+							Distance: 2,
+						},
+						&models.NearestNeighbor{
+							Concept:  "word3",
+							Distance: 3,
+						},
+					},
+				},
+			},
+		}
+
+		res, err := e.Single(context.Background(), testData, nil)
+		require.Nil(t, err)
+		assert.Equal(t, expectedResult, res)
 	})
 
 	t.Run("with multiple results", func(t *testing.T) {
@@ -137,7 +180,7 @@ func TestExtender(t *testing.T) {
 			},
 		}
 
-		res, err := e.Do(context.Background(), testData, nil)
+		res, err := e.Multi(context.Background(), testData, nil)
 		require.Nil(t, err)
 		assert.Equal(t, expectedResults, res)
 		assert.Equal(t, f.calledWithVectors, vectors)
@@ -163,5 +206,5 @@ func (f *fakeContextionary) MultiNearestWordsByVector(ctx context.Context, vecto
 		[]float32{1.1, 2.2, 3.3},
 	}
 
-	return words, distances, nil
+	return words[:len(vectors)], distances[:len(vectors)], nil // return up to three results, but fewer if the input is shorter
 }

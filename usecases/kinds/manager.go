@@ -52,7 +52,8 @@ type Manager struct {
 }
 
 type nnExtender interface {
-	Do(ctx context.Context, in []search.Result, limit *int) ([]search.Result, error)
+	Single(ctx context.Context, in *search.Result, limit *int) (*search.Result, error)
+	Multi(ctx context.Context, in []search.Result, limit *int) ([]search.Result, error)
 }
 
 type timeSource interface {

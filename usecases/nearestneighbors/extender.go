@@ -35,7 +35,20 @@ type contextionary interface {
 	MultiNearestWordsByVector(ctx context.Context, vectors [][]float32, k, n int) ([][]string, [][]float32, error)
 }
 
-func (e *Extender) Do(ctx context.Context, in []search.Result, limit *int) ([]search.Result, error) {
+func (e *Extender) Single(ctx context.Context, in *search.Result, limit *int) (*search.Result, error) {
+	if in == nil {
+		return nil, nil
+	}
+
+	multiRes, err := e.Multi(ctx, []search.Result{*in}, limit) // safe to deref, as we did a nil check before
+	if err != nil {
+		return nil, err
+	}
+
+	return &multiRes[0], nil
+}
+
+func (e *Extender) Multi(ctx context.Context, in []search.Result, limit *int) ([]search.Result, error) {
 	if in == nil {
 		return nil, nil
 	}
