@@ -379,6 +379,47 @@ func TestExtractUnderscoreFields(t *testing.T) {
 				},
 			},
 		},
+		test{
+			name:  "with _nearestNeighbors",
+			query: "{ Get { Actions { SomeAction { _nearestNeighbors { neighbors { concept distance } }  } } } }",
+			expectedParams: traverser.GetParams{
+				Kind:      kind.Action,
+				ClassName: "SomeAction",
+				UnderscoreProperties: traverser.UnderscoreProperties{
+					NearestNeighbors: true,
+				},
+			},
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"_nearestNeighbors": &models.NearestNeighbors{
+						Neighbors: []*models.NearestNeighbor{
+							&models.NearestNeighbor{
+								Concept:  "foo",
+								Distance: 0.1,
+							},
+							&models.NearestNeighbor{
+								Concept:  "bar",
+								Distance: 0.2,
+							},
+						},
+					},
+				},
+			},
+			expectedResult: map[string]interface{}{
+				"_nearestNeighbors": map[string]interface{}{
+					"neighbors": []interface{}{
+						map[string]interface{}{
+							"concept":  "foo",
+							"distance": float32(0.1),
+						},
+						map[string]interface{}{
+							"concept":  "bar",
+							"distance": float32(0.2),
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for _, test := range tests {

@@ -33,6 +33,7 @@ type Explorer struct {
 	vectorizer CorpiVectorizer
 	distancer  distancer
 	logger     logrus.FieldLogger
+	nnExtender nnExtender
 }
 
 type distancer func(a, b []float32) (float32, error)
@@ -49,10 +50,14 @@ type explorerRepo interface {
 	GetAction(context.Context, strfmt.UUID, *models.Action) error
 }
 
+type nnExtender interface {
+	Multi(ctx context.Context, in []search.Result, limit *int) ([]search.Result, error)
+}
+
 // NewExplorer with search and connector repo
 func NewExplorer(search vectorClassSearch, vectorizer CorpiVectorizer,
-	distancer distancer, logger logrus.FieldLogger) *Explorer {
-	return &Explorer{search, vectorizer, distancer, logger}
+	distancer distancer, logger logrus.FieldLogger, nnExtender nnExtender) *Explorer {
+	return &Explorer{search, vectorizer, distancer, logger, nnExtender}
 }
 
 // GetClass from search and connector repo
@@ -95,6 +100,15 @@ func (e *Explorer) getClassExploration(ctx context.Context,
 		res = grouped
 	}
 
+	if params.UnderscoreProperties.NearestNeighbors {
+		withNN, err := e.nnExtender.Multi(ctx, res, nil)
+		if err != nil {
+			return nil, fmt.Errorf("extend with nearest neighbors: %v", err)
+		}
+
+		res = withNN
+	}
+
 	return e.searchResultsToGetResponse(ctx, res, params.Explore.Certainty, searchVector)
 }
 
@@ -115,6 +129,15 @@ func (e *Explorer) getClassList(ctx context.Context,
 		res = grouped
 	}
 
+	if params.UnderscoreProperties.NearestNeighbors {
+		withNN, err := e.nnExtender.Multi(ctx, res, nil)
+		if err != nil {
+			return nil, fmt.Errorf("extend with nearest neighbors: %v", err)
+		}
+
+		res = withNN
+	}
+
 	return e.searchResultsToGetResponse(ctx, res, 0, nil)
 }
 
@@ -131,6 +154,10 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 
 			if res.UnderscoreProperties.Interpretation != nil {
 				res.Schema.(map[string]interface{})["_interpretation"] = res.UnderscoreProperties.Interpretation
+			}
+
+			if res.UnderscoreProperties.NearestNeighbors != nil {
+				res.Schema.(map[string]interface{})["_nearestNeighbors"] = res.UnderscoreProperties.NearestNeighbors
 			}
 		}
 

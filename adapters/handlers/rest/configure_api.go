@@ -93,6 +93,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	var vectorizer vectorizer
 	var migrator migrate.Migrator
 	var explorer explorer
+	nnExtender := nearestneighbors.NewExtender(appState.Contextionary)
 
 	if appState.ServerConfig.Config.CustomDB {
 		repo := db.New(appState.Logger, db.Config{
@@ -102,7 +103,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		vectorRepo = repo
 		migrator = vectorMigrator
 		vectorizer = libvectorizer.New(appState.Contextionary, nil)
-		explorer = traverser.NewExplorer(repo, vectorizer, libvectorizer.NormalizedDistance, appState.Logger)
+		explorer = traverser.NewExplorer(repo, vectorizer, libvectorizer.NormalizedDistance, appState.Logger, nnExtender)
 	} else {
 		repo := esvector.NewRepo(esClient, appState.Logger, nil,
 			appState.ServerConfig.Config.VectorIndex.DenormalizationDepth,
@@ -114,7 +115,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		vectorRepo = repo
 		migrator = vectorMigrator
 		vectorizer = libvectorizer.New(appState.Contextionary, nil)
-		explorer = traverser.NewExplorer(repo, vectorizer, libvectorizer.NormalizedDistance, appState.Logger)
+		explorer = traverser.NewExplorer(repo, vectorizer, libvectorizer.NormalizedDistance, appState.Logger, nnExtender)
 	}
 
 	schemaRepo := etcd.NewSchemaRepo(etcdClient)
@@ -142,7 +143,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		os.Exit(1)
 	}
 
-	nnExtender := nearestneighbors.NewExtender(appState.Contextionary)
 	kindsManager := kinds.NewManager(appState.Locks,
 		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, vectorizer, vectorRepo, nnExtender)
