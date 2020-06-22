@@ -3481,7 +3481,7 @@ func init() {
         "distance": {
           "description": "The distance between the result and this neighbor",
           "type": "number",
-          "format": "float32"
+          "format": "float"
         }
       }
     },
@@ -7698,7 +7698,7 @@ func init() {
         "distance": {
           "description": "The distance between the result and this neighbor",
           "type": "number",
-          "format": "float32"
+          "format": "float"
         }
       }
     },

@@ -807,7 +807,7 @@
         "distance": {
           "description": "The distance between the result and this neighbor",
           "type": "number",
-          "format": "float32"
+          "format": "float"
         }
       },
       "type": "object"

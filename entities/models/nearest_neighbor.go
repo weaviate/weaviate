@@ -32,7 +32,7 @@ type NearestNeighbor struct {
 	Concept string `json:"concept,omitempty"`
 
 	// The distance between the result and this neighbor
-	Distance float64 `json:"distance,omitempty"`
+	Distance float32 `json:"distance,omitempty"`
 }
 
 // Validate validates this nearest neighbor
