@@ -113,6 +113,13 @@ func (m *Manager) getThingFromRepo(ctx context.Context, id strfmt.UUID,
 		return nil, NewErrNotFound("no thing with id '%s'", id)
 	}
 
+	if underscore.NearestNeighbors {
+		res, err = m.nnExtender.Single(ctx, res, nil)
+		if err != nil {
+			return nil, NewErrInternal("extend nearest neighbors: %v", err)
+		}
+	}
+
 	return res, nil
 }
 
@@ -126,7 +133,7 @@ func (m *Manager) getThingsFromRepo(ctx context.Context, limit *int64,
 	}
 
 	if underscore.NearestNeighbors {
-		res, err = m.nnExtender.Do(ctx, res, nil)
+		res, err = m.nnExtender.Multi(ctx, res, nil)
 		if err != nil {
 			return nil, NewErrInternal("extend nearest neighbors: %v", err)
 		}
@@ -146,6 +153,13 @@ func (m *Manager) getActionFromRepo(ctx context.Context, id strfmt.UUID,
 		return nil, NewErrNotFound("no action with id '%s'", id)
 	}
 
+	if underscore.NearestNeighbors {
+		res, err = m.nnExtender.Single(ctx, res, nil)
+		if err != nil {
+			return nil, NewErrInternal("extend nearest neighbors: %v", err)
+		}
+	}
+
 	return res, nil
 }
 
@@ -159,7 +173,7 @@ func (m *Manager) getActionsFromRepo(ctx context.Context, limit *int64,
 	}
 
 	if underscore.NearestNeighbors {
-		res, err = m.nnExtender.Do(ctx, res, nil)
+		res, err = m.nnExtender.Multi(ctx, res, nil)
 		if err != nil {
 			return nil, NewErrInternal("extend nearest neighbors: %v", err)
 		}
