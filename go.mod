@@ -31,7 +31,7 @@ require (
 	github.com/pkg/errors v0.8.1
 	github.com/rs/cors v1.5.0
 	github.com/satori/go.uuid v0.0.0-20180103174451-36e9d2ebbde5
-	github.com/semi-technologies/contextionary v0.0.0-20200618145256-7f2010552dda
+	github.com/semi-technologies/contextionary v0.0.0-20200622144407-0a253c7254f2
 	github.com/sirupsen/logrus v1.4.2
 	github.com/square/go-jose v2.3.0+incompatible
 	github.com/stretchr/testify v1.6.1
