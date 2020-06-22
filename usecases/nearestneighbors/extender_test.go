@@ -11,7 +11,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package nearestneighbor
+package nearestneighbors
 
 import (
 	"context"
@@ -152,13 +152,13 @@ func (f *fakeContextionary) MultiNearestWordsByVector(ctx context.Context, vecto
 
 	f.calledWithVectors = vectors
 	words := [][]string{
-		[]string{"word1", "word2", "word3"},
+		[]string{"word1", "word2", "$THING[abc]", "word3"}, // special $ items shouldbe removed
 		[]string{"word4", "word5", "word6"},
 		[]string{"word7", "word8", "word9"},
 	}
 
 	distances := [][]float32{
-		[]float32{1.0, 2.0, 3.0},
+		[]float32{1.0, 2.0, 9.99, 3.0},
 		[]float32{0.1, 0.2, 0.3},
 		[]float32{1.1, 2.2, 3.3},
 	}

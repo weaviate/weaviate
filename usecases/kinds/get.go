@@ -125,6 +125,13 @@ func (m *Manager) getThingsFromRepo(ctx context.Context, limit *int64,
 		return nil, NewErrInternal("list things: %v", err)
 	}
 
+	if underscore.NearestNeighbors {
+		res, err = m.nnExtender.Do(ctx, res, nil)
+		if err != nil {
+			return nil, NewErrInternal("extend nearest neighbors: %v", err)
+		}
+	}
+
 	return res.Things(), nil
 }
 
@@ -149,6 +156,13 @@ func (m *Manager) getActionsFromRepo(ctx context.Context, limit *int64,
 	res, err := m.vectorRepo.ActionSearch(ctx, smartLimit, nil, underscore)
 	if err != nil {
 		return nil, NewErrInternal("list actions: %v", err)
+	}
+
+	if underscore.NearestNeighbors {
+		res, err = m.nnExtender.Do(ctx, res, nil)
+		if err != nil {
+			return nil, NewErrInternal("extend nearest neighbors: %v", err)
+		}
 	}
 
 	return res.Actions(), nil

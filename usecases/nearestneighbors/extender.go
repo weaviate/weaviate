@@ -11,7 +11,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package nearestneighbor
+package nearestneighbors
 
 import (
 	"context"
@@ -87,12 +87,19 @@ func limitOrDefault(user *int) int {
 
 func wordsAndDistancesToNN(words []string, distances []float32) []*models.NearestNeighbor {
 	out := make([]*models.NearestNeighbor, len(words))
-	for i := range out {
-		out[i] = &models.NearestNeighbor{
+
+	o := 0               // index for the out array
+	for i := range out { // index for the source array
+		if words[i][0] == '$' {
+			continue
+		}
+		out[o] = &models.NearestNeighbor{
 			Concept:  words[i],
 			Distance: distances[i],
 		}
+
+		o++
 	}
 
-	return out
+	return out[:o]
 }

@@ -36,6 +36,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/classification"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/nearestneighbors"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
@@ -120,7 +121,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	classifierRepo := etcd.NewClassificationRepo(etcdClient)
 
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
-		appState.Locks, appState.Network, appState.Logger, appState.Contextionary, appState.Authorizer, appState.StopwordDetector)
+		appState.Locks, appState.Network, appState.Logger, appState.Contextionary,
+		appState.Authorizer, appState.StopwordDetector)
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
@@ -140,9 +142,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		os.Exit(1)
 	}
 
+	nnExtender := nearestneighbors.NewExtender(appState.Contextionary)
 	kindsManager := kinds.NewManager(appState.Locks,
 		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,
-		appState.Authorizer, vectorizer, vectorRepo)
+		appState.Authorizer, vectorizer, vectorRepo, nnExtender)
 	batchKindsManager := kinds.NewBatchManager(vectorRepo, vectorizer, appState.Locks,
 		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,
 		appState.Authorizer)

@@ -2739,6 +2739,10 @@ func init() {
           "description": "Additional information about how this property was interpreted at vectorization. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/Interpretation"
         },
+        "_nearestNeighbors": {
+          "description": "Additional information about the neighboring concepts of this element",
+          "$ref": "#/definitions/NearestNeighbors"
+        },
         "_vector": {
           "description": "This object's position in the Contextionary vector space. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/C11yVector"
@@ -3791,6 +3795,10 @@ func init() {
         "_interpretation": {
           "description": "Additional information about how this property was interpreted at vectorization. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/Interpretation"
+        },
+        "_nearestNeighbors": {
+          "description": "Additional information about the neighboring concepts of this element",
+          "$ref": "#/definitions/NearestNeighbors"
         },
         "_vector": {
           "description": "This object's position in the Contextionary vector space. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
@@ -6867,6 +6875,10 @@ func init() {
           "description": "Additional information about how this property was interpreted at vectorization. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/Interpretation"
         },
+        "_nearestNeighbors": {
+          "description": "Additional information about the neighboring concepts of this element",
+          "$ref": "#/definitions/NearestNeighbors"
+        },
         "_vector": {
           "description": "This object's position in the Contextionary vector space. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/C11yVector"
@@ -8008,6 +8020,10 @@ func init() {
         "_interpretation": {
           "description": "Additional information about how this property was interpreted at vectorization. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/Interpretation"
+        },
+        "_nearestNeighbors": {
+          "description": "Additional information about the neighboring concepts of this element",
+          "$ref": "#/definitions/NearestNeighbors"
         },
         "_vector": {
           "description": "This object's position in the Contextionary vector space. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
