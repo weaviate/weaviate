@@ -205,3 +205,9 @@ func (f *fakeVectorRepo) AddReference(ctx context.Context, kind kind.Kind, sourc
 	args := f.Called(kind, source, prop, ref)
 	return args.Error(0)
 }
+
+type fakeExtender struct{}
+
+func (f *fakeExtender) Do(ctx context.Context, in []search.Result, limit *int) ([]search.Result, error) {
+	return nil, nil
+}

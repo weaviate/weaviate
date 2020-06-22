@@ -702,6 +702,8 @@ func parseIncludeParam(in *string) (traverser.UnderscoreProperties, error) {
 			out.Classification = true
 		case "_interpretation", "interpretation":
 			out.Interpretation = true
+		case "_nearestNeighbors", "nearestNeighbors", "nearestneighbors", "_nearestneighbors", "nearest-neighbors", "nearest_neighbors", "_nearest_neighbors":
+			out.NearestNeighbors = true
 		case "_vector", "vector":
 			out.Vector = true
 
