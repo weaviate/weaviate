@@ -176,6 +176,7 @@ func (h *kindHandlers) getThing(params things.ThingsGetParams,
 	if derefBool(params.Meta) {
 		deprecations.Log(h.logger, "rest-meta-prop")
 		underscores.Classification = true
+		underscores.RefMeta = true
 		underscores.Vector = true
 	}
 
@@ -213,6 +214,7 @@ func (h *kindHandlers) getAction(params actions.ActionsGetParams,
 	if derefBool(params.Meta) {
 		deprecations.Log(h.logger, "rest-meta-prop")
 		underscores.Classification = true
+		underscores.RefMeta = true
 		underscores.Vector = true
 	}
 	action, err := h.manager.GetAction(params.HTTPRequest.Context(), principal, params.ID, underscores)
@@ -253,6 +255,7 @@ func (h *kindHandlers) getThings(params things.ThingsListParams,
 		d := deprecations.ByID["rest-meta-prop"]
 		deprecationsRes = append(deprecationsRes, &d)
 		underscores.Classification = true
+		underscores.RefMeta = true
 		underscores.Vector = true
 	}
 
@@ -299,6 +302,7 @@ func (h *kindHandlers) getActions(params actions.ActionsListParams,
 		d := deprecations.ByID["rest-meta-prop"]
 		deprecationsRes = append(deprecationsRes, &d)
 		underscores.Classification = true
+		underscores.RefMeta = true
 		underscores.Vector = true
 	}
 	list, err := h.manager.GetActions(params.HTTPRequest.Context(), principal, params.Limit, underscores)
@@ -700,6 +704,7 @@ func parseIncludeParam(in *string) (traverser.UnderscoreProperties, error) {
 		switch prop {
 		case "_classification", "classification":
 			out.Classification = true
+			out.RefMeta = true
 		case "_interpretation", "interpretation":
 			out.Interpretation = true
 		case "_nearestNeighbors", "nearestNeighbors", "nearestneighbors", "_nearestneighbors", "nearest-neighbors", "nearest_neighbors", "_nearest_neighbors":

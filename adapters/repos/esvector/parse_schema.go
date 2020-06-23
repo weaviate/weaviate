@@ -64,6 +64,9 @@ func (r *Repo) parseSchema(input map[string]interface{}, properties traverser.Se
 
 					if underscore.RefMeta {
 						singleRef.Meta = parseRefMeta(refMap)
+						if singleRef.Meta != nil {
+							singleRef.Classification = singleRef.Meta.Classification
+						}
 					}
 					refs = append(refs, singleRef)
 				}
