@@ -154,4 +154,51 @@ func gettingObjectsWithUnderscoreProps(t *testing.T) {
 
 		assert.ElementsMatch(t, expected, companies)
 	})
+
+	t.Run("with _nearestNeighbors set", func(t *testing.T) {
+		query := `
+		{
+				Get {
+					Things {
+						Company {
+						  _nearestNeighbors{
+							  neighbors {
+								  concept
+									distance
+								}
+							}
+							name
+						}
+					}
+				}
+		}
+		`
+		result := AssertGraphQL(t, helper.RootAuth, query)
+		companies := result.Get("Get", "Things", "Company").AsSlice()
+
+		extractNeighbors := func(in interface{}) []interface{} {
+			return in.(map[string]interface{})["_nearestNeighbors"].(map[string]interface{})["neighbors"].([]interface{})
+		}
+
+		neighbors0 := extractNeighbors(companies[0])
+		neighbors1 := extractNeighbors(companies[1])
+		neighbors2 := extractNeighbors(companies[2])
+
+		validateNeighbors(t, neighbors0, neighbors1, neighbors2)
+	})
+}
+
+func validateNeighbors(t *testing.T, neighborsGroups ...[]interface{}) {
+	for i, group := range neighborsGroups {
+		if len(group) == 0 {
+			t.Fatalf("group %d: length of neighbors is 0", i)
+		}
+
+		for j, neighbor := range group {
+			asMap := neighbor.(map[string]interface{})
+			if len(asMap["concept"].(string)) == 0 {
+				t.Fatalf("group %d: element %d: concept has length 0", i, j)
+			}
+		}
+	}
 }
