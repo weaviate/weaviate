@@ -702,6 +702,10 @@
         "meta": {
           "description": "Additional Meta information about this particular reference. Only shown if meta==true.",
           "$ref": "#/definitions/ReferenceMeta"
+        },
+        "_classification": {
+          "description": "Additional Meta information about classifications if the item was part of one",
+          "$ref": "#/definitions/ReferenceMetaClassification"
         }
       }
     },

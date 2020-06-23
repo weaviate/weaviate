@@ -30,6 +30,9 @@ import (
 // swagger:model SingleRef
 type SingleRef struct {
 
+	// Additional Meta information about classifications if the item was part of one
+	Classification *ReferenceMetaClassification `json:"_classification,omitempty"`
+
 	// If using a direct reference, specify the URI to point to the cross-ref here. Should be in the form of weaviate://localhost/things/<uuid> for the example of a local cross-ref to a thing
 	// Format: uri
 	Beacon strfmt.URI `json:"beacon,omitempty"`
@@ -53,6 +56,10 @@ type SingleRef struct {
 func (m *SingleRef) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateClassification(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateBeacon(formats); err != nil {
 		res = append(res, err)
 	}
@@ -72,6 +79,24 @@ func (m *SingleRef) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *SingleRef) validateClassification(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Classification) { // not required
+		return nil
+	}
+
+	if m.Classification != nil {
+		if err := m.Classification.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("_classification")
+			}
+			return err
+		}
+	}
+
 	return nil
 }
 

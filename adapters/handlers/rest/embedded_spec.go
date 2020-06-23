@@ -3760,6 +3760,10 @@ func init() {
     "SingleRef": {
       "description": "Either set beacon (direct reference) or set class and schema (concept reference)",
       "properties": {
+        "_classification": {
+          "description": "Additional Meta information about classifications if the item was part of one",
+          "$ref": "#/definitions/ReferenceMetaClassification"
+        },
         "beacon": {
           "description": "If using a direct reference, specify the URI to point to the cross-ref here. Should be in the form of weaviate://localhost/things/\u003cuuid\u003e for the example of a local cross-ref to a thing",
           "type": "string",
@@ -7985,6 +7989,10 @@ func init() {
     "SingleRef": {
       "description": "Either set beacon (direct reference) or set class and schema (concept reference)",
       "properties": {
+        "_classification": {
+          "description": "Additional Meta information about classifications if the item was part of one",
+          "$ref": "#/definitions/ReferenceMetaClassification"
+        },
         "beacon": {
           "description": "If using a direct reference, specify the URI to point to the cross-ref here. Should be in the form of weaviate://localhost/things/\u003cuuid\u003e for the example of a local cross-ref to a thing",
           "type": "string",
