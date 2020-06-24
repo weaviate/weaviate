@@ -79,6 +79,10 @@
         "_interpretation": {
           "description": "Additional information about how this property was interpreted at vectorization. (Underscore properties are optional, include them using the ?include=_<propName> parameter)",
           "$ref": "#/definitions/Interpretation"
+        },
+        "_nearestNeighbors": {
+          "description": "Additional information about the neighboring concepts of this element",
+          "$ref": "#/definitions/NearestNeighbors"
         }
       },
       "type": "object"
@@ -698,6 +702,10 @@
         "meta": {
           "description": "Additional Meta information about this particular reference. Only shown if meta==true.",
           "$ref": "#/definitions/ReferenceMeta"
+        },
+        "_classification": {
+          "description": "Additional Meta information about classifications if the item was part of one",
+          "$ref": "#/definitions/ReferenceMetaClassification"
         }
       }
     },
@@ -724,6 +732,10 @@
         "interpretation": {
           "description": "Additional information about how the object was vectorized",
           "$ref": "#/definitions/Interpretation"
+        },
+        "nearestNeighbors": {
+          "description": "Neighboring concepts of your search results",
+          "$ref": "#/definitions/NearestNeighbors"
         }
 
       }
@@ -779,6 +791,34 @@
           }
         }
       }
+    },
+    "NearestNeighbors": {
+      "description": "A group of neighboring concepts",
+      "properties": {
+        "neighbors": {
+          "description": "The individual neighbor items",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NearestNeighbor"
+          }
+        }
+      },
+      "type": "object"
+    },
+    "NearestNeighbor": {
+      "description": "A group of neighboring concepts",
+      "properties": {
+        "concept": {
+          "description": "The neighboring concept",
+          "type": "string"
+        },
+        "distance": {
+          "description": "The distance between the result and this neighbor",
+          "type": "number",
+          "format": "float"
+        }
+      },
+      "type": "object"
     },
     "Interpretation": {
       "description": "This underscore property contains additional info about the how the class was vectorized",
@@ -942,6 +982,10 @@
         "_interpretation": {
           "description": "Additional information about how this property was interpreted at vectorization. (Underscore properties are optional, include them using the ?include=_<propName> parameter)",
           "$ref": "#/definitions/Interpretation"
+        },
+        "_nearestNeighbors": {
+          "description": "Additional information about the neighboring concepts of this element",
+          "$ref": "#/definitions/NearestNeighbors"
         }
       },
       "type": "object"

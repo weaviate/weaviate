@@ -24,14 +24,6 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
-type getRepo interface {
-	GetThing(context.Context, strfmt.UUID, *models.Thing) error
-	GetAction(context.Context, strfmt.UUID, *models.Action) error
-
-	ListThings(ctx context.Context, limit int, thingsResponse *models.ThingsListResponse) error
-	ListActions(ctx context.Context, limit int, actionsResponse *models.ActionsListResponse) error
-}
-
 // GetThing Class from the connected DB
 func (m *Manager) GetThing(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, underscore traverser.UnderscoreProperties) (*models.Thing, error) {
@@ -121,6 +113,13 @@ func (m *Manager) getThingFromRepo(ctx context.Context, id strfmt.UUID,
 		return nil, NewErrNotFound("no thing with id '%s'", id)
 	}
 
+	if underscore.NearestNeighbors {
+		res, err = m.nnExtender.Single(ctx, res, nil)
+		if err != nil {
+			return nil, NewErrInternal("extend nearest neighbors: %v", err)
+		}
+	}
+
 	return res, nil
 }
 
@@ -131,6 +130,13 @@ func (m *Manager) getThingsFromRepo(ctx context.Context, limit *int64,
 	res, err := m.vectorRepo.ThingSearch(ctx, smartLimit, nil, underscore)
 	if err != nil {
 		return nil, NewErrInternal("list things: %v", err)
+	}
+
+	if underscore.NearestNeighbors {
+		res, err = m.nnExtender.Multi(ctx, res, nil)
+		if err != nil {
+			return nil, NewErrInternal("extend nearest neighbors: %v", err)
+		}
 	}
 
 	return res.Things(), nil
@@ -147,6 +153,13 @@ func (m *Manager) getActionFromRepo(ctx context.Context, id strfmt.UUID,
 		return nil, NewErrNotFound("no action with id '%s'", id)
 	}
 
+	if underscore.NearestNeighbors {
+		res, err = m.nnExtender.Single(ctx, res, nil)
+		if err != nil {
+			return nil, NewErrInternal("extend nearest neighbors: %v", err)
+		}
+	}
+
 	return res, nil
 }
 
@@ -157,6 +170,13 @@ func (m *Manager) getActionsFromRepo(ctx context.Context, limit *int64,
 	res, err := m.vectorRepo.ActionSearch(ctx, smartLimit, nil, underscore)
 	if err != nil {
 		return nil, NewErrInternal("list actions: %v", err)
+	}
+
+	if underscore.NearestNeighbors {
+		res, err = m.nnExtender.Multi(ctx, res, nil)
+		if err != nil {
+			return nil, NewErrInternal("extend nearest neighbors: %v", err)
+		}
 	}
 
 	return res.Actions(), nil

@@ -211,8 +211,9 @@ func Test_MergeAction(t *testing.T) {
 			cfg := &config.WeaviateConfig{}
 			authorizer := &fakeAuthorizer{}
 			vectorizer := &fakeVectorizer{}
+			extender := &fakeExtender{}
 			manager := NewManager(locks, schemaManager, network,
-				cfg, logger, authorizer, vectorizer, vectorRepo)
+				cfg, logger, authorizer, vectorizer, vectorRepo, extender)
 			manager.timeSource = fakeTimeSource{}
 
 			if test.previous != nil {
@@ -425,8 +426,9 @@ func Test_MergeThing(t *testing.T) {
 			cfg := &config.WeaviateConfig{}
 			authorizer := &fakeAuthorizer{}
 			vectorizer := &fakeVectorizer{}
+			extender := &fakeExtender{}
 			manager := NewManager(locks, schemaManager, network,
-				cfg, logger, authorizer, vectorizer, vectorRepo)
+				cfg, logger, authorizer, vectorizer, vectorRepo, extender)
 			manager.timeSource = fakeTimeSource{}
 
 			if test.previous != nil {

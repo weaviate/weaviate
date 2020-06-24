@@ -48,6 +48,12 @@ type Manager struct {
 	vectorizer    Vectorizer
 	vectorRepo    VectorRepo
 	timeSource    timeSource
+	nnExtender    nnExtender
+}
+
+type nnExtender interface {
+	Single(ctx context.Context, in *search.Result, limit *int) (*search.Result, error)
+	Multi(ctx context.Context, in []search.Result, limit *int) ([]search.Result, error)
 }
 
 type timeSource interface {
@@ -98,7 +104,7 @@ type VectorRepo interface {
 // NewManager creates a new manager
 func NewManager(locks locks, schemaManager schemaManager,
 	network network, config *config.WeaviateConfig, logger logrus.FieldLogger,
-	authorizer authorizer, vectorizer Vectorizer, vectorRepo VectorRepo) *Manager {
+	authorizer authorizer, vectorizer Vectorizer, vectorRepo VectorRepo, nnExtender nnExtender) *Manager {
 	return &Manager{
 		network:       network,
 		config:        config,
@@ -108,6 +114,7 @@ func NewManager(locks locks, schemaManager schemaManager,
 		vectorizer:    vectorizer,
 		authorizer:    authorizer,
 		vectorRepo:    vectorRepo,
+		nnExtender:    nnExtender,
 		timeSource:    defaultTimeSource{},
 	}
 }

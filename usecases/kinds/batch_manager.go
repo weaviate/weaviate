@@ -47,7 +47,6 @@ type batchRepoNew interface {
 }
 
 type batchAndGetRepo interface {
-	getRepo
 	ClassExists(ctx context.Context, id strfmt.UUID) (bool, error)
 }
 
