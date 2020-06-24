@@ -159,6 +159,7 @@ func (b *classBuilder) underscoreFields(classProperties graphql.Fields, kindName
 	classProperties["_classification"] = b.underscoreClassificationField(kindName, class)
 	classProperties["_interpretation"] = b.underscoreInterpretationField(kindName, class)
 	classProperties["_nearestNeighbors"] = b.underscoreNNField(kindName, class)
+	classProperties["_featureProjection"] = b.underscoreFeatureProjectionField(kindName, class)
 
 }
 
@@ -207,6 +208,17 @@ func (b *classBuilder) underscoreNNField(kindName string, class *models.Class) *
 						"distance": &graphql.Field{Type: graphql.Float},
 					},
 				}))},
+			},
+		}),
+	}
+}
+
+func (b *classBuilder) underscoreFeatureProjectionField(kindName string, class *models.Class) *graphql.Field {
+	return &graphql.Field{
+		Type: graphql.NewObject(graphql.ObjectConfig{
+			Name: fmt.Sprintf("%sUnderscoreFeatureProjection", class.Class),
+			Fields: graphql.Fields{
+				"vector": &graphql.Field{Type: graphql.NewList(graphql.Float)},
 			},
 		}),
 	}

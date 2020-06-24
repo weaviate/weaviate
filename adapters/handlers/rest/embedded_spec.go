@@ -3277,6 +3277,18 @@ func init() {
         }
       }
     },
+    "FeatureProjection": {
+      "description": "A lower-dimensional representation of the objects vector",
+      "properties": {
+        "vector": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float"
+          }
+        }
+      }
+    },
     "GeoCoordinates": {
       "properties": {
         "latitude": {
@@ -3908,6 +3920,10 @@ func init() {
         "classification": {
           "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
           "$ref": "#/definitions/UnderscorePropertiesClassification"
+        },
+        "featureProjection": {
+          "description": "The concepts vector projected into a lower dimensional space (for visualization purposes)",
+          "$ref": "#/definitions/FeatureProjection"
         },
         "interpretation": {
           "description": "Additional information about how the object was vectorized",
@@ -7500,6 +7516,18 @@ func init() {
         }
       }
     },
+    "FeatureProjection": {
+      "description": "A lower-dimensional representation of the objects vector",
+      "properties": {
+        "vector": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float"
+          }
+        }
+      }
+    },
     "GeoCoordinates": {
       "properties": {
         "latitude": {
@@ -8155,6 +8183,10 @@ func init() {
         "classification": {
           "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
           "$ref": "#/definitions/UnderscorePropertiesClassification"
+        },
+        "featureProjection": {
+          "description": "The concepts vector projected into a lower dimensional space (for visualization purposes)",
+          "$ref": "#/definitions/FeatureProjection"
         },
         "interpretation": {
           "description": "Additional information about how the object was vectorized",
