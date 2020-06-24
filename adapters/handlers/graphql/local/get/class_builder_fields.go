@@ -412,6 +412,8 @@ func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.De
 				underscoreProps.Classification = true
 			case "_interpretation":
 				underscoreProps.Interpretation = true
+			case "_nearestNeighbors":
+				underscoreProps.NearestNeighbors = true
 			}
 		} else {
 			properties = append(properties, property)

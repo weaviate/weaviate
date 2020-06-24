@@ -31,14 +31,14 @@ require (
 	github.com/pkg/errors v0.8.1
 	github.com/rs/cors v1.5.0
 	github.com/satori/go.uuid v0.0.0-20180103174451-36e9d2ebbde5
-	github.com/semi-technologies/contextionary v0.0.0-20200616133106-50b629495397
+	github.com/semi-technologies/contextionary v0.0.0-20200622144407-0a253c7254f2
 	github.com/sirupsen/logrus v1.4.2
 	github.com/square/go-jose v2.3.0+incompatible
 	github.com/stretchr/testify v1.6.1
 	github.com/ugorji/go/codec v0.0.0-20190309163734-c4a1c341dc93
 	github.com/vektah/gqlparser v1.1.2 // indirect
 	golang.org/x/net v0.0.0-20200602114024-627f9648deb9
-	golang.org/x/tools v0.0.0-20200619023621-037be6a06566 // indirect
+	golang.org/x/tools v0.0.0-20200624060801-dcbf2a9ed15d // indirect
 	google.golang.org/grpc v1.24.0
 	gopkg.in/square/go-jose.v2 v2.5.1 // indirect
 	gopkg.in/yaml.v2 v2.3.0

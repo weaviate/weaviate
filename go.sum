@@ -280,6 +280,10 @@ github.com/semi-technologies/contextionary v0.0.0-20200424084255-29fe88e56c12 h1
 github.com/semi-technologies/contextionary v0.0.0-20200424084255-29fe88e56c12/go.mod h1:4EhKX7fTVJDYO/5GomMwgWj7g0lbH4VVpBLSSrwb0pU=
 github.com/semi-technologies/contextionary v0.0.0-20200616133106-50b629495397 h1:rLWadC/gRM89Q98+VraCi18/VfdtPZdeT3qWGxutCRw=
 github.com/semi-technologies/contextionary v0.0.0-20200616133106-50b629495397/go.mod h1:4EhKX7fTVJDYO/5GomMwgWj7g0lbH4VVpBLSSrwb0pU=
+github.com/semi-technologies/contextionary v0.0.0-20200618145256-7f2010552dda h1:XfJ1qg77h2uVfYXzVi5gS8eBjTcslQkY56p+vvJQKbs=
+github.com/semi-technologies/contextionary v0.0.0-20200618145256-7f2010552dda/go.mod h1:4EhKX7fTVJDYO/5GomMwgWj7g0lbH4VVpBLSSrwb0pU=
+github.com/semi-technologies/contextionary v0.0.0-20200622144407-0a253c7254f2 h1:lFflW5tnfWChXvG8A3rAdh+xWANgvZSyvtuvndTHyTY=
+github.com/semi-technologies/contextionary v0.0.0-20200622144407-0a253c7254f2/go.mod h1:4EhKX7fTVJDYO/5GomMwgWj7g0lbH4VVpBLSSrwb0pU=
 github.com/semi-technologies/weaviate v0.0.0-20191217103051-f205b052ea98/go.mod h1:L9tpP5SUOPX1GneTSNtAcEqIB4UyEF5kjirQlNintoM=
 github.com/sergi/go-diff v1.0.0/go.mod h1:0CfEIISq7TuYL3j771MWULgwwjU+GofnZX9QAmXWZgo=
 github.com/sirupsen/logrus v1.2.0/go.mod h1:LxeOpSwHxABJmUn/MG1IvRgCAasNZTLOkJPxbbu5VWo=
@@ -424,6 +428,8 @@ golang.org/x/tools v0.0.0-20200618031402-d15173dcc7e4 h1:xotC2PrtjSST30ilZLyawOq
 golang.org/x/tools v0.0.0-20200618031402-d15173dcc7e4/go.mod h1:EkVYQZoAsY45+roYkvgYkIh4xh/qjgUK9TdY2XT94GE=
 golang.org/x/tools v0.0.0-20200619023621-037be6a06566 h1:49klx7QdOOhowArd5SbtZIcSClTNc0HBG5OrZQ8jQvQ=
 golang.org/x/tools v0.0.0-20200619023621-037be6a06566/go.mod h1:EkVYQZoAsY45+roYkvgYkIh4xh/qjgUK9TdY2XT94GE=
+golang.org/x/tools v0.0.0-20200624060801-dcbf2a9ed15d h1:Y4+kqqCbf46GCNf04uMqIlDYf1FuyTqSLDGywuWdRUI=
+golang.org/x/tools v0.0.0-20200624060801-dcbf2a9ed15d/go.mod h1:EkVYQZoAsY45+roYkvgYkIh4xh/qjgUK9TdY2XT94GE=
 golang.org/x/xerrors v0.0.0-20190717185122-a985d3407aa7/go.mod h1:I/5z698sn9Ka8TeJc9MKroUUfqBBauWjQqLJ2OPfmY0=
 golang.org/x/xerrors v0.0.0-20191011141410-1b5146add898/go.mod h1:I/5z698sn9Ka8TeJc9MKroUUfqBBauWjQqLJ2OPfmY0=
 golang.org/x/xerrors v0.0.0-20191204190536-9bdfabe68543 h1:E7g+9GITq07hpfrRu66IVDexMakfv52eLZ2CXBWiKr4=
