@@ -57,8 +57,9 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		vectorizer := &fakeVectorizer{}
+		extender := &fakeExtender{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log)
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
 		search.
@@ -110,9 +111,10 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		vectorizer := &fakeVectorizer{}
+		extender := &fakeExtender{}
 		log, _ := test.NewNullLogger()
 
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log)
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
 		search.
@@ -158,8 +160,9 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		vectorizer := &fakeVectorizer{}
+		extender := &fakeExtender{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log)
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		search.
@@ -224,8 +227,9 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		vectorizer := &fakeVectorizer{}
+		extender := &fakeExtender{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log)
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		search.
@@ -299,8 +303,9 @@ func Test_Explorer_GetClass(t *testing.T) {
 
 		search := &fakeVectorSearcher{}
 		vectorizer := &fakeVectorizer{}
+		extender := &fakeExtender{}
 		log, _ := test.NewNullLogger()
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log)
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		search.
@@ -329,6 +334,118 @@ func Test_Explorer_GetClass(t *testing.T) {
 								Concept:    "foo",
 								Weight:     0.123,
 								Occurrence: 123,
+							},
+						},
+					},
+				}, res[1])
+		})
+	})
+
+	t.Run("when the _nearestNeighbors prop is set", func(t *testing.T) {
+		params := GetParams{
+			Kind:       kind.Thing,
+			ClassName:  "BestClass",
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    nil,
+			UnderscoreProperties: UnderscoreProperties{
+				NearestNeighbors: true,
+			},
+		}
+
+		searchResults := []search.Result{
+			{
+				Kind: kind.Thing,
+				ID:   "id1",
+				Schema: map[string]interface{}{
+					"name": "Foo",
+				},
+			},
+			{
+				Kind: kind.Action,
+				ID:   "id2",
+				Schema: map[string]interface{}{
+					"name": "Bar",
+				},
+			},
+		}
+
+		searcher := &fakeVectorSearcher{}
+		vectorizer := &fakeVectorizer{}
+		log, _ := test.NewNullLogger()
+		extender := &fakeExtender{
+			returnArgs: []search.Result{
+				{
+					Kind: kind.Thing,
+					ID:   "id1",
+					Schema: map[string]interface{}{
+						"name": "Foo",
+					},
+					UnderscoreProperties: &models.UnderscoreProperties{
+						NearestNeighbors: &models.NearestNeighbors{
+							Neighbors: []*models.NearestNeighbor{
+								&models.NearestNeighbor{
+									Concept:  "foo",
+									Distance: 0.1,
+								},
+							},
+						},
+					},
+				},
+				{
+					Kind: kind.Action,
+					ID:   "id2",
+					Schema: map[string]interface{}{
+						"name": "Bar",
+					},
+					UnderscoreProperties: &models.UnderscoreProperties{
+						NearestNeighbors: &models.NearestNeighbors{
+							Neighbors: []*models.NearestNeighbor{
+								&models.NearestNeighbor{
+									Concept:  "bar",
+									Distance: 0.1,
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		explorer := NewExplorer(searcher, vectorizer, newFakeDistancer(), log, extender)
+		expectedParamsToSearch := params
+		expectedParamsToSearch.SearchVector = nil
+		searcher.
+			On("ClassSearch", expectedParamsToSearch).
+			Return(searchResults, nil)
+
+		res, err := explorer.GetClass(context.Background(), params)
+
+		t.Run("class search must be called with right params", func(t *testing.T) {
+			assert.Nil(t, err)
+			searcher.AssertExpectations(t)
+		})
+
+		t.Run("response must contain concepts", func(t *testing.T) {
+			require.Len(t, res, 2)
+			assert.Equal(t,
+				map[string]interface{}{
+					"name": "Foo",
+					"_nearestNeighbors": &models.NearestNeighbors{
+						Neighbors: []*models.NearestNeighbor{
+							&models.NearestNeighbor{
+								Concept:  "foo",
+								Distance: 0.1,
+							},
+						},
+					},
+				}, res[0])
+			assert.Equal(t,
+				map[string]interface{}{
+					"name": "Bar",
+					"_nearestNeighbors": &models.NearestNeighbors{
+						Neighbors: []*models.NearestNeighbor{
+							&models.NearestNeighbor{
+								Concept:  "bar",
+								Distance: 0.1,
 							},
 						},
 					},

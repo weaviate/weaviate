@@ -242,3 +242,11 @@ type fakeSchemaGetter struct {
 func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
 	return f.schema
 }
+
+type fakeExtender struct {
+	returnArgs []search.Result
+}
+
+func (f *fakeExtender) Multi(ctx context.Context, in []search.Result, limit *int) ([]search.Result, error) {
+	return f.returnArgs, nil
+}

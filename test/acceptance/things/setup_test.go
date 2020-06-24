@@ -57,6 +57,7 @@ func Test_Things(t *testing.T) {
 
 	// tests
 	t.Run("listing things", listingThings)
+	t.Run("searching for neighbors", searchNeighbors)
 	t.Run("creating things", creatingThings)
 
 	// tear down

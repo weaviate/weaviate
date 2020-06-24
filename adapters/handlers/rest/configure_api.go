@@ -36,6 +36,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/classification"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/nearestneighbors"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
@@ -92,6 +93,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	var vectorizer vectorizer
 	var migrator migrate.Migrator
 	var explorer explorer
+	nnExtender := nearestneighbors.NewExtender(appState.Contextionary)
 
 	if appState.ServerConfig.Config.CustomDB {
 		repo := db.New(appState.Logger, db.Config{
@@ -101,7 +103,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		vectorRepo = repo
 		migrator = vectorMigrator
 		vectorizer = libvectorizer.New(appState.Contextionary, nil)
-		explorer = traverser.NewExplorer(repo, vectorizer, libvectorizer.NormalizedDistance, appState.Logger)
+		explorer = traverser.NewExplorer(repo, vectorizer, libvectorizer.NormalizedDistance, appState.Logger, nnExtender)
 	} else {
 		repo := esvector.NewRepo(esClient, appState.Logger, nil,
 			appState.ServerConfig.Config.VectorIndex.DenormalizationDepth,
@@ -113,14 +115,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		vectorRepo = repo
 		migrator = vectorMigrator
 		vectorizer = libvectorizer.New(appState.Contextionary, nil)
-		explorer = traverser.NewExplorer(repo, vectorizer, libvectorizer.NormalizedDistance, appState.Logger)
+		explorer = traverser.NewExplorer(repo, vectorizer, libvectorizer.NormalizedDistance, appState.Logger, nnExtender)
 	}
 
 	schemaRepo := etcd.NewSchemaRepo(etcdClient)
 	classifierRepo := etcd.NewClassificationRepo(etcdClient)
 
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
-		appState.Locks, appState.Network, appState.Logger, appState.Contextionary, appState.Authorizer, appState.StopwordDetector)
+		appState.Locks, appState.Network, appState.Logger, appState.Contextionary,
+		appState.Authorizer, appState.StopwordDetector)
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
@@ -142,7 +145,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	kindsManager := kinds.NewManager(appState.Locks,
 		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,
-		appState.Authorizer, vectorizer, vectorRepo)
+		appState.Authorizer, vectorizer, vectorRepo, nnExtender)
 	batchKindsManager := kinds.NewBatchManager(vectorRepo, vectorizer, appState.Locks,
 		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,
 		appState.Authorizer)

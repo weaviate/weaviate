@@ -2739,6 +2739,10 @@ func init() {
           "description": "Additional information about how this property was interpreted at vectorization. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/Interpretation"
         },
+        "_nearestNeighbors": {
+          "description": "Additional information about the neighboring concepts of this element",
+          "$ref": "#/definitions/NearestNeighbors"
+        },
         "_vector": {
           "description": "This object's position in the Contextionary vector space. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/C11yVector"
@@ -3470,6 +3474,34 @@ func init() {
         "$ref": "#/definitions/SingleRef"
       }
     },
+    "NearestNeighbor": {
+      "description": "A group of neighboring concepts",
+      "type": "object",
+      "properties": {
+        "concept": {
+          "description": "The neighboring concept",
+          "type": "string"
+        },
+        "distance": {
+          "description": "The distance between the result and this neighbor",
+          "type": "number",
+          "format": "float"
+        }
+      }
+    },
+    "NearestNeighbors": {
+      "description": "A group of neighboring concepts",
+      "type": "object",
+      "properties": {
+        "neighbors": {
+          "description": "The individual neighbor items",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NearestNeighbor"
+          }
+        }
+      }
+    },
     "PatchDocumentAction": {
       "description": "Either a JSONPatch document as defined by RFC 6902 (from, op, path, value), or a merge document (RFC 7396).",
       "required": [
@@ -3728,6 +3760,10 @@ func init() {
     "SingleRef": {
       "description": "Either set beacon (direct reference) or set class and schema (concept reference)",
       "properties": {
+        "_classification": {
+          "description": "Additional Meta information about classifications if the item was part of one",
+          "$ref": "#/definitions/ReferenceMetaClassification"
+        },
         "beacon": {
           "description": "If using a direct reference, specify the URI to point to the cross-ref here. Should be in the form of weaviate://localhost/things/\u003cuuid\u003e for the example of a local cross-ref to a thing",
           "type": "string",
@@ -3763,6 +3799,10 @@ func init() {
         "_interpretation": {
           "description": "Additional information about how this property was interpreted at vectorization. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/Interpretation"
+        },
+        "_nearestNeighbors": {
+          "description": "Additional information about the neighboring concepts of this element",
+          "$ref": "#/definitions/NearestNeighbors"
         },
         "_vector": {
           "description": "This object's position in the Contextionary vector space. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
@@ -3872,6 +3912,10 @@ func init() {
         "interpretation": {
           "description": "Additional information about how the object was vectorized",
           "$ref": "#/definitions/Interpretation"
+        },
+        "nearestNeighbors": {
+          "description": "Neighboring concepts of your search results",
+          "$ref": "#/definitions/NearestNeighbors"
         },
         "vector": {
           "description": "This object's position in the Contextionary vector space",
@@ -6835,6 +6879,10 @@ func init() {
           "description": "Additional information about how this property was interpreted at vectorization. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/Interpretation"
         },
+        "_nearestNeighbors": {
+          "description": "Additional information about the neighboring concepts of this element",
+          "$ref": "#/definitions/NearestNeighbors"
+        },
         "_vector": {
           "description": "This object's position in the Contextionary vector space. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/C11yVector"
@@ -7655,6 +7703,34 @@ func init() {
         "$ref": "#/definitions/SingleRef"
       }
     },
+    "NearestNeighbor": {
+      "description": "A group of neighboring concepts",
+      "type": "object",
+      "properties": {
+        "concept": {
+          "description": "The neighboring concept",
+          "type": "string"
+        },
+        "distance": {
+          "description": "The distance between the result and this neighbor",
+          "type": "number",
+          "format": "float"
+        }
+      }
+    },
+    "NearestNeighbors": {
+      "description": "A group of neighboring concepts",
+      "type": "object",
+      "properties": {
+        "neighbors": {
+          "description": "The individual neighbor items",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/NearestNeighbor"
+          }
+        }
+      }
+    },
     "PatchDocumentAction": {
       "description": "Either a JSONPatch document as defined by RFC 6902 (from, op, path, value), or a merge document (RFC 7396).",
       "required": [
@@ -7913,6 +7989,10 @@ func init() {
     "SingleRef": {
       "description": "Either set beacon (direct reference) or set class and schema (concept reference)",
       "properties": {
+        "_classification": {
+          "description": "Additional Meta information about classifications if the item was part of one",
+          "$ref": "#/definitions/ReferenceMetaClassification"
+        },
         "beacon": {
           "description": "If using a direct reference, specify the URI to point to the cross-ref here. Should be in the form of weaviate://localhost/things/\u003cuuid\u003e for the example of a local cross-ref to a thing",
           "type": "string",
@@ -7948,6 +8028,10 @@ func init() {
         "_interpretation": {
           "description": "Additional information about how this property was interpreted at vectorization. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/Interpretation"
+        },
+        "_nearestNeighbors": {
+          "description": "Additional information about the neighboring concepts of this element",
+          "$ref": "#/definitions/NearestNeighbors"
         },
         "_vector": {
           "description": "This object's position in the Contextionary vector space. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
@@ -8075,6 +8159,10 @@ func init() {
         "interpretation": {
           "description": "Additional information about how the object was vectorized",
           "$ref": "#/definitions/Interpretation"
+        },
+        "nearestNeighbors": {
+          "description": "Neighboring concepts of your search results",
+          "$ref": "#/definitions/NearestNeighbors"
         },
         "vector": {
           "description": "This object's position in the Contextionary vector space",

@@ -35,6 +35,9 @@ type UnderscoreProperties struct {
 	// Additional information about how the object was vectorized
 	Interpretation *Interpretation `json:"interpretation,omitempty"`
 
+	// Neighboring concepts of your search results
+	NearestNeighbors *NearestNeighbors `json:"nearestNeighbors,omitempty"`
+
 	// This object's position in the Contextionary vector space
 	Vector C11yVector `json:"vector,omitempty"`
 }
@@ -48,6 +51,10 @@ func (m *UnderscoreProperties) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateInterpretation(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateNearestNeighbors(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -89,6 +96,24 @@ func (m *UnderscoreProperties) validateInterpretation(formats strfmt.Registry) e
 		if err := m.Interpretation.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("interpretation")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *UnderscoreProperties) validateNearestNeighbors(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.NearestNeighbors) { // not required
+		return nil
+	}
+
+	if m.NearestNeighbors != nil {
+		if err := m.NearestNeighbors.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("nearestNeighbors")
 			}
 			return err
 		}
