@@ -36,6 +36,9 @@ type Action struct {
 	// Additional information about how this property was interpreted at vectorization. (Underscore properties are optional, include them using the ?include=_<propName> parameter)
 	Interpretation *Interpretation `json:"_interpretation,omitempty"`
 
+	// Additional information about the neighboring concepts of this element
+	NearestNeighbors *NearestNeighbors `json:"_nearestNeighbors,omitempty"`
+
 	// This object's position in the Contextionary vector space. (Underscore properties are optional, include them using the ?include=_<propName> parameter)
 	Vector C11yVector `json:"_vector,omitempty"`
 
@@ -71,6 +74,10 @@ func (m *Action) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateInterpretation(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateNearestNeighbors(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -120,6 +127,24 @@ func (m *Action) validateInterpretation(formats strfmt.Registry) error {
 		if err := m.Interpretation.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("_interpretation")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Action) validateNearestNeighbors(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.NearestNeighbors) { // not required
+		return nil
+	}
+
+	if m.NearestNeighbors != nil {
+		if err := m.NearestNeighbors.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("_nearestNeighbors")
 			}
 			return err
 		}

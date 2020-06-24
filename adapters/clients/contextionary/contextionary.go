@@ -184,8 +184,6 @@ func (c *Client) VectorForWord(ctx context.Context, word string) ([]float32, err
 	return v, nil
 }
 
-// TODO: gh-1125 this must be moved to the c11y, otherwise we still send n
-// requests which is a lot of overhead that isn't required
 func (c *Client) MultiVectorForWord(ctx context.Context, words []string) ([][]float32, error) {
 	out := make([][]float32, len(words))
 	wordParams := make([]*pb.Word, len(words))
@@ -209,6 +207,32 @@ func (c *Client) MultiVectorForWord(ctx context.Context, words []string) ([][]fl
 	}
 
 	return out, nil
+}
+
+func (c *Client) MultiNearestWordsByVector(ctx context.Context, vectors [][]float32, k, n int) ([][]string, [][]float32, error) {
+	words := make([][]string, len(vectors))
+	distances := make([][]float32, len(vectors))
+	searchParams := make([]*pb.VectorNNParams, len(vectors))
+
+	for i, vector := range vectors {
+		searchParams[i] = &pb.VectorNNParams{
+			Vector: vectorToProto(vector),
+			K:      int32(k),
+			N:      int32(n),
+		}
+	}
+
+	res, err := c.grpcClient.MultiNearestWordsByVector(ctx, &pb.VectorNNParamsList{Params: searchParams})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	for i, elem := range res.Words {
+		words[i] = elem.Words
+		distances[i] = elem.Distances
+	}
+
+	return words, distances, nil
 }
 
 func vectorFromProto(in *pb.Vector) ([]float32, []vectorizer.InputElement, error) {

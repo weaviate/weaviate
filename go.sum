@@ -280,6 +280,10 @@ github.com/semi-technologies/contextionary v0.0.0-20200424084255-29fe88e56c12 h1
 github.com/semi-technologies/contextionary v0.0.0-20200424084255-29fe88e56c12/go.mod h1:4EhKX7fTVJDYO/5GomMwgWj7g0lbH4VVpBLSSrwb0pU=
 github.com/semi-technologies/contextionary v0.0.0-20200616133106-50b629495397 h1:rLWadC/gRM89Q98+VraCi18/VfdtPZdeT3qWGxutCRw=
 github.com/semi-technologies/contextionary v0.0.0-20200616133106-50b629495397/go.mod h1:4EhKX7fTVJDYO/5GomMwgWj7g0lbH4VVpBLSSrwb0pU=
+github.com/semi-technologies/contextionary v0.0.0-20200618145256-7f2010552dda h1:XfJ1qg77h2uVfYXzVi5gS8eBjTcslQkY56p+vvJQKbs=
+github.com/semi-technologies/contextionary v0.0.0-20200618145256-7f2010552dda/go.mod h1:4EhKX7fTVJDYO/5GomMwgWj7g0lbH4VVpBLSSrwb0pU=
+github.com/semi-technologies/contextionary v0.0.0-20200622144407-0a253c7254f2 h1:lFflW5tnfWChXvG8A3rAdh+xWANgvZSyvtuvndTHyTY=
+github.com/semi-technologies/contextionary v0.0.0-20200622144407-0a253c7254f2/go.mod h1:4EhKX7fTVJDYO/5GomMwgWj7g0lbH4VVpBLSSrwb0pU=
 github.com/semi-technologies/weaviate v0.0.0-20191217103051-f205b052ea98/go.mod h1:L9tpP5SUOPX1GneTSNtAcEqIB4UyEF5kjirQlNintoM=
 github.com/sergi/go-diff v1.0.0/go.mod h1:0CfEIISq7TuYL3j771MWULgwwjU+GofnZX9QAmXWZgo=
 github.com/sirupsen/logrus v1.2.0/go.mod h1:LxeOpSwHxABJmUn/MG1IvRgCAasNZTLOkJPxbbu5VWo=
