@@ -140,9 +140,16 @@ func (sp SelectProperties) FindProperty(propName string) *SelectProperty {
 }
 
 type UnderscoreProperties struct {
-	Classification   bool
-	RefMeta          bool
-	Vector           bool
-	Interpretation   bool
-	NearestNeighbors bool
+	Classification    bool
+	RefMeta           bool
+	Vector            bool
+	Interpretation    bool
+	NearestNeighbors  bool
+	FeatureProjection *FeatureProjection
+}
+
+type FeatureProjection struct {
+	Enabled    bool
+	Algorithm  *string // optional parameter
+	Dimensions *int    // optional parameter
 }

@@ -414,6 +414,11 @@ func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.De
 				underscoreProps.Interpretation = true
 			case "_nearestNeighbors":
 				underscoreProps.NearestNeighbors = true
+			case "_featureProjection":
+				underscoreProps.FeatureProjection = &traverser.FeatureProjection{
+					Enabled: true,
+					// TODO: extract arguments
+				}
 			}
 		} else {
 			properties = append(properties, property)

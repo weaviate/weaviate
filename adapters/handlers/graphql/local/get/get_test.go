@@ -420,6 +420,31 @@ func TestExtractUnderscoreFields(t *testing.T) {
 				},
 			},
 		},
+		test{
+			name:  "with _featureProjection without any optional parameters",
+			query: "{ Get { Actions { SomeAction { _featureProjection { vector }  } } } }",
+			expectedParams: traverser.GetParams{
+				Kind:      kind.Action,
+				ClassName: "SomeAction",
+				UnderscoreProperties: traverser.UnderscoreProperties{
+					FeatureProjection: &traverser.FeatureProjection{
+						Enabled: true,
+					},
+				},
+			},
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"_featureProjection": &models.FeatureProjection{
+						Vector: []float32{0.0, 1.1, 2.2},
+					},
+				},
+			},
+			expectedResult: map[string]interface{}{
+				"_featureProjection": map[string]interface{}{
+					"vector": []interface{}{float32(0.0), float32(1.1), float32(2.2)},
+				},
+			},
+		},
 	}
 
 	for _, test := range tests {

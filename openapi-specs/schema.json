@@ -736,6 +736,10 @@
         "nearestNeighbors": {
           "description": "Neighboring concepts of your search results",
           "$ref": "#/definitions/NearestNeighbors"
+        },
+        "featureProjection": {
+          "description": "The concepts vector projected into a lower dimensional space (for visualization purposes)",
+          "$ref": "#/definitions/FeatureProjection"
         }
 
       }
@@ -845,6 +849,18 @@
         "occurrence": {
           "type": "number",
           "format":"uint64"
+        }
+      }
+    },
+    "FeatureProjection": {
+      "description": "A lower-dimensional representation of the objects vector",
+      "properties": {
+        "vector": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float"
+          }
         }
       }
     },
