@@ -250,3 +250,11 @@ type fakeExtender struct {
 func (f *fakeExtender) Multi(ctx context.Context, in []search.Result, limit *int) ([]search.Result, error) {
 	return f.returnArgs, nil
 }
+
+type fakeProjector struct {
+	returnArgs []search.Result
+}
+
+func (f *fakeProjector) Reduce(in []search.Result) ([]search.Result, error) {
+	return f.returnArgs, nil
+}

@@ -36,7 +36,8 @@ func Test_ExploreConcepts(t *testing.T) {
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		extender := &fakeExtender{}
-		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender)
+		projector := &fakeProjector{}
+		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorizer, vectorSearcher, explorer, schemaGetter)
@@ -58,7 +59,8 @@ func Test_ExploreConcepts(t *testing.T) {
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		extender := &fakeExtender{}
-		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender)
+		projector := &fakeProjector{}
+		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorizer, vectorSearcher, explorer, schemaGetter)
@@ -111,7 +113,8 @@ func Test_ExploreConcepts(t *testing.T) {
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		extender := &fakeExtender{}
-		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender)
+		projector := &fakeProjector{}
+		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorizer, vectorSearcher, explorer, schemaGetter)
@@ -149,7 +152,8 @@ func Test_ExploreConcepts(t *testing.T) {
 		vectorSearcher := &fakeVectorSearcher{}
 		log, _ := test.NewNullLogger()
 		extender := &fakeExtender{}
-		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender)
+		projector := &fakeProjector{}
+		explorer := NewExplorer(vectorSearcher, vectorizer, newFakeDistancer(), log, extender, projector)
 		schemaGetter := &fakeSchemaGetter{}
 		traverser := NewTraverser(&config.WeaviateConfig{}, locks, logger, authorizer,
 			vectorizer, vectorSearcher, explorer, schemaGetter)
