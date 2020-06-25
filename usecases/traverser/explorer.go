@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
+	libprojector "github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/traverser/grouper"
 	"github.com/sirupsen/logrus"
 )
@@ -56,7 +57,7 @@ type nnExtender interface {
 }
 
 type projector interface {
-	Reduce(in []search.Result) ([]search.Result, error)
+	Reduce(in []search.Result, params *libprojector.Params) ([]search.Result, error)
 }
 
 // NewExplorer with search and connector repo
@@ -116,7 +117,7 @@ func (e *Explorer) getClassExploration(ctx context.Context,
 	}
 
 	if params.UnderscoreProperties.FeatureProjection != nil {
-		withFP, err := e.projector.Reduce(res)
+		withFP, err := e.projector.Reduce(res, params.UnderscoreProperties.FeatureProjection)
 		if err != nil {
 			return nil, fmt.Errorf("extend with feature projections: %v", err)
 		}
@@ -154,7 +155,7 @@ func (e *Explorer) getClassList(ctx context.Context,
 	}
 
 	if params.UnderscoreProperties.FeatureProjection != nil {
-		withFP, err := e.projector.Reduce(res)
+		withFP, err := e.projector.Reduce(res, params.UnderscoreProperties.FeatureProjection)
 		if err != nil {
 			return nil, fmt.Errorf("extend with feature projections: %v", err)
 		}

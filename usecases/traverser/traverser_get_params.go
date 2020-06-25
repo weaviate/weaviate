@@ -20,6 +20,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	libprojector "github.com/semi-technologies/weaviate/usecases/projector"
 )
 
 type GetParams struct {
@@ -145,11 +146,5 @@ type UnderscoreProperties struct {
 	Vector            bool
 	Interpretation    bool
 	NearestNeighbors  bool
-	FeatureProjection *FeatureProjection
-}
-
-type FeatureProjection struct {
-	Enabled    bool
-	Algorithm  *string // optional parameter
-	Dimensions *int    // optional parameter
+	FeatureProjection *libprojector.Params
 }

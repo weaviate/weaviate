@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
+	libprojector "github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -466,7 +467,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			Pagination: &filters.Pagination{Limit: 100},
 			Filters:    nil,
 			UnderscoreProperties: UnderscoreProperties{
-				FeatureProjection: &FeatureProjection{},
+				FeatureProjection: &libprojector.Params{},
 			},
 		}
 
