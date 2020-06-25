@@ -23,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 )
@@ -427,7 +428,7 @@ func TestExtractUnderscoreFields(t *testing.T) {
 				Kind:      kind.Action,
 				ClassName: "SomeAction",
 				UnderscoreProperties: traverser.UnderscoreProperties{
-					FeatureProjection: &traverser.FeatureProjection{
+					FeatureProjection: &projector.Params{
 						Enabled: true,
 					},
 				},

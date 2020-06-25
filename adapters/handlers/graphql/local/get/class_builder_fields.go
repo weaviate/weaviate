@@ -25,6 +25,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 
@@ -415,7 +416,7 @@ func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.De
 			case "_nearestNeighbors":
 				underscoreProps.NearestNeighbors = true
 			case "_featureProjection":
-				underscoreProps.FeatureProjection = &traverser.FeatureProjection{
+				underscoreProps.FeatureProjection = &projector.Params{
 					Enabled: true,
 					// TODO: extract arguments
 				}

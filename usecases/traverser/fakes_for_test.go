@@ -24,6 +24,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
+	libprojector "github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -255,6 +256,6 @@ type fakeProjector struct {
 	returnArgs []search.Result
 }
 
-func (f *fakeProjector) Reduce(in []search.Result) ([]search.Result, error) {
+func (f *fakeProjector) Reduce(in []search.Result, params *libprojector.Params) ([]search.Result, error) {
 	return f.returnArgs, nil
 }

@@ -41,7 +41,7 @@ func TestProjector(t *testing.T) {
 			},
 		}
 
-		res, err := p.Reduce(testData)
+		res, err := p.Reduce(testData, &Params{})
 		require.Nil(t, err)
 		assert.Len(t, res, len(testData))
 		assert.Equal(t, res[2].UnderscoreProperties.Classification.ID, strfmt.UUID("123"),
