@@ -17,6 +17,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
@@ -25,6 +26,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 
@@ -414,6 +416,8 @@ func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.De
 				underscoreProps.Interpretation = true
 			case "_nearestNeighbors":
 				underscoreProps.NearestNeighbors = true
+			case "_featureProjection":
+				underscoreProps.FeatureProjection = parseFeatureProjectionArguments(field.Arguments)
 			}
 		} else {
 			properties = append(properties, property)
@@ -489,4 +493,41 @@ func hackyWorkaroundToExtractClassName(def ast.Definition, name string) (string,
 	}
 
 	return string(matches[1]), nil
+}
+
+func parseFeatureProjectionArguments(args []*ast.Argument) *projector.Params {
+	out := &projector.Params{Enabled: true}
+
+	for _, arg := range args {
+		switch arg.Name.Value {
+		case "dimensions":
+			asInt, _ := strconv.Atoi(arg.Value.GetValue().(string))
+			out.Dimensions = ptInt(asInt)
+		case "iterations":
+			asInt, _ := strconv.Atoi(arg.Value.GetValue().(string))
+			out.Iterations = ptInt(asInt)
+		case "learningRate":
+			asInt, _ := strconv.Atoi(arg.Value.GetValue().(string))
+			out.LearningRate = ptInt(asInt)
+		case "perplexity":
+			asInt, _ := strconv.Atoi(arg.Value.GetValue().(string))
+			out.Perplexity = ptInt(asInt)
+		case "algorithm":
+			out.Algorithm = ptString(arg.Value.GetValue().(string))
+
+		default:
+			// ignore what we don't recognize
+		}
+
+	}
+
+	return out
+}
+
+func ptString(in string) *string {
+	return &in
+}
+
+func ptInt(in int) *int {
+	return &in
 }

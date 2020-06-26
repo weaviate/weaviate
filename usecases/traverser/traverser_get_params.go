@@ -20,6 +20,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	libprojector "github.com/semi-technologies/weaviate/usecases/projector"
 )
 
 type GetParams struct {
@@ -140,9 +141,10 @@ func (sp SelectProperties) FindProperty(propName string) *SelectProperty {
 }
 
 type UnderscoreProperties struct {
-	Classification   bool
-	RefMeta          bool
-	Vector           bool
-	Interpretation   bool
-	NearestNeighbors bool
+	Classification    bool
+	RefMeta           bool
+	Vector            bool
+	Interpretation    bool
+	NearestNeighbors  bool
+	FeatureProjection *libprojector.Params
 }

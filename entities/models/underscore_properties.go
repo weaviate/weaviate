@@ -32,6 +32,9 @@ type UnderscoreProperties struct {
 	// If this object was subject of a classificiation, additional meta info about this classification is available here
 	Classification *UnderscorePropertiesClassification `json:"classification,omitempty"`
 
+	// The concepts vector projected into a lower dimensional space (for visualization purposes)
+	FeatureProjection *FeatureProjection `json:"featureProjection,omitempty"`
+
 	// Additional information about how the object was vectorized
 	Interpretation *Interpretation `json:"interpretation,omitempty"`
 
@@ -47,6 +50,10 @@ func (m *UnderscoreProperties) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateClassification(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateFeatureProjection(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -78,6 +85,24 @@ func (m *UnderscoreProperties) validateClassification(formats strfmt.Registry) e
 		if err := m.Classification.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("classification")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *UnderscoreProperties) validateFeatureProjection(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.FeatureProjection) { // not required
+		return nil
+	}
+
+	if m.FeatureProjection != nil {
+		if err := m.FeatureProjection.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("featureProjection")
 			}
 			return err
 		}

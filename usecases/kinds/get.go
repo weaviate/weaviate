@@ -21,6 +21,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
@@ -30,6 +31,10 @@ func (m *Manager) GetThing(ctx context.Context, principal *models.Principal,
 	err := m.authorizer.Authorize(principal, "get", fmt.Sprintf("things/%s", id.String()))
 	if err != nil {
 		return nil, err
+	}
+
+	if underscore.FeatureProjection != nil {
+		return nil, fmt.Errorf("feature projection is not possible on a non-list request")
 	}
 
 	unlock, err := m.locks.LockConnector()
@@ -69,6 +74,10 @@ func (m *Manager) GetAction(ctx context.Context, principal *models.Principal,
 	err := m.authorizer.Authorize(principal, "get", fmt.Sprintf("actions/%s", id.String()))
 	if err != nil {
 		return nil, err
+	}
+
+	if underscore.FeatureProjection != nil {
+		return nil, fmt.Errorf("feature projection is not possible on a non-list request")
 	}
 
 	unlock, err := m.locks.LockConnector()
@@ -139,6 +148,13 @@ func (m *Manager) getThingsFromRepo(ctx context.Context, limit *int64,
 		}
 	}
 
+	if underscore.FeatureProjection != nil {
+		res, err = m.projector.Reduce(res, &projector.Params{Enabled: true})
+		if err != nil {
+			return nil, NewErrInternal("perform feature projection: %v", err)
+		}
+	}
+
 	return res.Things(), nil
 }
 
@@ -176,6 +192,13 @@ func (m *Manager) getActionsFromRepo(ctx context.Context, limit *int64,
 		res, err = m.nnExtender.Multi(ctx, res, nil)
 		if err != nil {
 			return nil, NewErrInternal("extend nearest neighbors: %v", err)
+		}
+	}
+
+	if underscore.FeatureProjection != nil {
+		res, err = m.projector.Reduce(res, &projector.Params{Enabled: true})
+		if err != nil {
+			return nil, NewErrInternal("perform feature projection: %v", err)
 		}
 	}
 

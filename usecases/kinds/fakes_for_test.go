@@ -23,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
+	"github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"github.com/stretchr/testify/mock"
@@ -213,5 +214,11 @@ func (f *fakeExtender) Single(ctx context.Context, in *search.Result, limit *int
 }
 
 func (f *fakeExtender) Multi(ctx context.Context, in []search.Result, limit *int) ([]search.Result, error) {
+	return nil, nil
+}
+
+type fakeProjector struct{}
+
+func (f *fakeProjector) Reduce(in []search.Result, params *projector.Params) ([]search.Result, error) {
 	return nil, nil
 }

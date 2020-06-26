@@ -38,6 +38,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/semi-technologies/weaviate/usecases/nearestneighbors"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
+	"github.com/semi-technologies/weaviate/usecases/projector"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
@@ -94,6 +95,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	var migrator migrate.Migrator
 	var explorer explorer
 	nnExtender := nearestneighbors.NewExtender(appState.Contextionary)
+	featureProjector := projector.New()
 
 	if appState.ServerConfig.Config.CustomDB {
 		repo := db.New(appState.Logger, db.Config{
@@ -103,7 +105,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		vectorRepo = repo
 		migrator = vectorMigrator
 		vectorizer = libvectorizer.New(appState.Contextionary, nil)
-		explorer = traverser.NewExplorer(repo, vectorizer, libvectorizer.NormalizedDistance, appState.Logger, nnExtender)
+		explorer = traverser.NewExplorer(repo, vectorizer, libvectorizer.NormalizedDistance,
+			appState.Logger, nnExtender, featureProjector)
 	} else {
 		repo := esvector.NewRepo(esClient, appState.Logger, nil,
 			appState.ServerConfig.Config.VectorIndex.DenormalizationDepth,
@@ -115,7 +118,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		vectorRepo = repo
 		migrator = vectorMigrator
 		vectorizer = libvectorizer.New(appState.Contextionary, nil)
-		explorer = traverser.NewExplorer(repo, vectorizer, libvectorizer.NormalizedDistance, appState.Logger, nnExtender)
+		explorer = traverser.NewExplorer(repo, vectorizer, libvectorizer.NormalizedDistance,
+			appState.Logger, nnExtender, featureProjector)
 	}
 
 	schemaRepo := etcd.NewSchemaRepo(etcdClient)
@@ -145,7 +149,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	kindsManager := kinds.NewManager(appState.Locks,
 		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,
-		appState.Authorizer, vectorizer, vectorRepo, nnExtender)
+		appState.Authorizer, vectorizer, vectorRepo, nnExtender, featureProjector)
 	batchKindsManager := kinds.NewBatchManager(vectorRepo, vectorizer, appState.Locks,
 		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,
 		appState.Authorizer)

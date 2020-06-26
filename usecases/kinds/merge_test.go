@@ -212,8 +212,9 @@ func Test_MergeAction(t *testing.T) {
 			authorizer := &fakeAuthorizer{}
 			vectorizer := &fakeVectorizer{}
 			extender := &fakeExtender{}
+			projector := &fakeProjector{}
 			manager := NewManager(locks, schemaManager, network,
-				cfg, logger, authorizer, vectorizer, vectorRepo, extender)
+				cfg, logger, authorizer, vectorizer, vectorRepo, extender, projector)
 			manager.timeSource = fakeTimeSource{}
 
 			if test.previous != nil {
@@ -427,8 +428,9 @@ func Test_MergeThing(t *testing.T) {
 			authorizer := &fakeAuthorizer{}
 			vectorizer := &fakeVectorizer{}
 			extender := &fakeExtender{}
+			projector := &fakeProjector{}
 			manager := NewManager(locks, schemaManager, network,
-				cfg, logger, authorizer, vectorizer, vectorRepo, extender)
+				cfg, logger, authorizer, vectorizer, vectorRepo, extender, projector)
 			manager.timeSource = fakeTimeSource{}
 
 			if test.previous != nil {

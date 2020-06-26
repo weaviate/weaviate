@@ -23,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 )
@@ -417,6 +418,61 @@ func TestExtractUnderscoreFields(t *testing.T) {
 							"distance": float32(0.2),
 						},
 					},
+				},
+			},
+		},
+		test{
+			name:  "with _featureProjection without any optional parameters",
+			query: "{ Get { Actions { SomeAction { _featureProjection { vector }  } } } }",
+			expectedParams: traverser.GetParams{
+				Kind:      kind.Action,
+				ClassName: "SomeAction",
+				UnderscoreProperties: traverser.UnderscoreProperties{
+					FeatureProjection: &projector.Params{
+						Enabled: true,
+					},
+				},
+			},
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"_featureProjection": &models.FeatureProjection{
+						Vector: []float32{0.0, 1.1, 2.2},
+					},
+				},
+			},
+			expectedResult: map[string]interface{}{
+				"_featureProjection": map[string]interface{}{
+					"vector": []interface{}{float32(0.0), float32(1.1), float32(2.2)},
+				},
+			},
+		},
+		test{
+			name:  "with _featureProjection with optional parameters",
+			query: `{ Get { Actions { SomeAction { _featureProjection(algorithm: "tsne", dimensions: 3, learningRate: 15, iterations: 100, perplexity: 10) { vector }  } } } }`,
+			expectedParams: traverser.GetParams{
+				Kind:      kind.Action,
+				ClassName: "SomeAction",
+				UnderscoreProperties: traverser.UnderscoreProperties{
+					FeatureProjection: &projector.Params{
+						Enabled:      true,
+						Algorithm:    ptString("tsne"),
+						Dimensions:   ptInt(3),
+						Iterations:   ptInt(100),
+						LearningRate: ptInt(15),
+						Perplexity:   ptInt(10),
+					},
+				},
+			},
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"_featureProjection": &models.FeatureProjection{
+						Vector: []float32{0.0, 1.1, 2.2},
+					},
+				},
+			},
+			expectedResult: map[string]interface{}{
+				"_featureProjection": map[string]interface{}{
+					"vector": []interface{}{float32(0.0), float32(1.1), float32(2.2)},
 				},
 			},
 		},
