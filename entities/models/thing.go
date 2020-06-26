@@ -33,6 +33,9 @@ type Thing struct {
 	// If this object was subject of a classificiation, additional meta info about this classification is available here. (Underscore properties are optional, include them using the ?include=_<propName> parameter)
 	Classification *UnderscorePropertiesClassification `json:"_classification,omitempty"`
 
+	// A feature projection of the object's vector into lower dimensions for visualization
+	FeatureProjection *FeatureProjection `json:"_featureProjection,omitempty"`
+
 	// Additional information about how this property was interpreted at vectorization. (Underscore properties are optional, include them using the ?include=_<propName> parameter)
 	Interpretation *Interpretation `json:"_interpretation,omitempty"`
 
@@ -73,6 +76,10 @@ func (m *Thing) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validateFeatureProjection(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateInterpretation(formats); err != nil {
 		res = append(res, err)
 	}
@@ -109,6 +116,24 @@ func (m *Thing) validateClassification(formats strfmt.Registry) error {
 		if err := m.Classification.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("_classification")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Thing) validateFeatureProjection(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.FeatureProjection) { // not required
+		return nil
+	}
+
+	if m.FeatureProjection != nil {
+		if err := m.FeatureProjection.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("_featureProjection")
 			}
 			return err
 		}

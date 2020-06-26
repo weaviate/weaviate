@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
+	libprojector "github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/traverser/grouper"
 	"github.com/sirupsen/logrus"
 )
@@ -34,6 +35,7 @@ type Explorer struct {
 	distancer  distancer
 	logger     logrus.FieldLogger
 	nnExtender nnExtender
+	projector  projector
 }
 
 type distancer func(a, b []float32) (float32, error)
@@ -54,10 +56,15 @@ type nnExtender interface {
 	Multi(ctx context.Context, in []search.Result, limit *int) ([]search.Result, error)
 }
 
+type projector interface {
+	Reduce(in []search.Result, params *libprojector.Params) ([]search.Result, error)
+}
+
 // NewExplorer with search and connector repo
 func NewExplorer(search vectorClassSearch, vectorizer CorpiVectorizer,
-	distancer distancer, logger logrus.FieldLogger, nnExtender nnExtender) *Explorer {
-	return &Explorer{search, vectorizer, distancer, logger, nnExtender}
+	distancer distancer, logger logrus.FieldLogger, nnExtender nnExtender,
+	projector projector) *Explorer {
+	return &Explorer{search, vectorizer, distancer, logger, nnExtender, projector}
 }
 
 // GetClass from search and connector repo
@@ -109,6 +116,15 @@ func (e *Explorer) getClassExploration(ctx context.Context,
 		res = withNN
 	}
 
+	if params.UnderscoreProperties.FeatureProjection != nil {
+		withFP, err := e.projector.Reduce(res, params.UnderscoreProperties.FeatureProjection)
+		if err != nil {
+			return nil, fmt.Errorf("extend with feature projections: %v", err)
+		}
+
+		res = withFP
+	}
+
 	return e.searchResultsToGetResponse(ctx, res, params.Explore.Certainty, searchVector)
 }
 
@@ -138,6 +154,15 @@ func (e *Explorer) getClassList(ctx context.Context,
 		res = withNN
 	}
 
+	if params.UnderscoreProperties.FeatureProjection != nil {
+		withFP, err := e.projector.Reduce(res, params.UnderscoreProperties.FeatureProjection)
+		if err != nil {
+			return nil, fmt.Errorf("extend with feature projections: %v", err)
+		}
+
+		res = withFP
+	}
+
 	return e.searchResultsToGetResponse(ctx, res, 0, nil)
 }
 
@@ -158,6 +183,10 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 
 			if res.UnderscoreProperties.NearestNeighbors != nil {
 				res.Schema.(map[string]interface{})["_nearestNeighbors"] = res.UnderscoreProperties.NearestNeighbors
+			}
+
+			if res.UnderscoreProperties.FeatureProjection != nil {
+				res.Schema.(map[string]interface{})["_featureProjection"] = res.UnderscoreProperties.FeatureProjection
 			}
 		}
 

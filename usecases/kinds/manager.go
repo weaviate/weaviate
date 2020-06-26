@@ -31,6 +31,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
+	"github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"github.com/sirupsen/logrus"
@@ -49,11 +50,16 @@ type Manager struct {
 	vectorRepo    VectorRepo
 	timeSource    timeSource
 	nnExtender    nnExtender
+	projector     featureProjector
 }
 
 type nnExtender interface {
 	Single(ctx context.Context, in *search.Result, limit *int) (*search.Result, error)
 	Multi(ctx context.Context, in []search.Result, limit *int) ([]search.Result, error)
+}
+
+type featureProjector interface {
+	Reduce(in []search.Result, params *projector.Params) ([]search.Result, error)
 }
 
 type timeSource interface {
@@ -104,7 +110,8 @@ type VectorRepo interface {
 // NewManager creates a new manager
 func NewManager(locks locks, schemaManager schemaManager,
 	network network, config *config.WeaviateConfig, logger logrus.FieldLogger,
-	authorizer authorizer, vectorizer Vectorizer, vectorRepo VectorRepo, nnExtender nnExtender) *Manager {
+	authorizer authorizer, vectorizer Vectorizer, vectorRepo VectorRepo,
+	nnExtender nnExtender, projector featureProjector) *Manager {
 	return &Manager{
 		network:       network,
 		config:        config,
@@ -116,6 +123,7 @@ func NewManager(locks locks, schemaManager schemaManager,
 		vectorRepo:    vectorRepo,
 		nnExtender:    nnExtender,
 		timeSource:    defaultTimeSource{},
+		projector:     projector,
 	}
 }
 

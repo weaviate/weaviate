@@ -2735,6 +2735,10 @@ func init() {
           "description": "If this object was subject of a classificiation, additional meta info about this classification is available here. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/UnderscorePropertiesClassification"
         },
+        "_featureProjection": {
+          "description": "A feature projection of the object's vector into lower dimensions for visualization",
+          "$ref": "#/definitions/FeatureProjection"
+        },
         "_interpretation": {
           "description": "Additional information about how this property was interpreted at vectorization. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/Interpretation"
@@ -3277,6 +3281,18 @@ func init() {
         }
       }
     },
+    "FeatureProjection": {
+      "description": "A lower-dimensional representation of the objects vector",
+      "properties": {
+        "vector": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float"
+          }
+        }
+      }
+    },
     "GeoCoordinates": {
       "properties": {
         "latitude": {
@@ -3796,6 +3812,10 @@ func init() {
           "description": "If this object was subject of a classificiation, additional meta info about this classification is available here. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/UnderscorePropertiesClassification"
         },
+        "_featureProjection": {
+          "description": "A feature projection of the object's vector into lower dimensions for visualization",
+          "$ref": "#/definitions/FeatureProjection"
+        },
         "_interpretation": {
           "description": "Additional information about how this property was interpreted at vectorization. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/Interpretation"
@@ -3908,6 +3928,10 @@ func init() {
         "classification": {
           "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
           "$ref": "#/definitions/UnderscorePropertiesClassification"
+        },
+        "featureProjection": {
+          "description": "The concepts vector projected into a lower dimensional space (for visualization purposes)",
+          "$ref": "#/definitions/FeatureProjection"
         },
         "interpretation": {
           "description": "Additional information about how the object was vectorized",
@@ -6875,6 +6899,10 @@ func init() {
           "description": "If this object was subject of a classificiation, additional meta info about this classification is available here. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/UnderscorePropertiesClassification"
         },
+        "_featureProjection": {
+          "description": "A feature projection of the object's vector into lower dimensions for visualization",
+          "$ref": "#/definitions/FeatureProjection"
+        },
         "_interpretation": {
           "description": "Additional information about how this property was interpreted at vectorization. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/Interpretation"
@@ -7500,6 +7528,18 @@ func init() {
         }
       }
     },
+    "FeatureProjection": {
+      "description": "A lower-dimensional representation of the objects vector",
+      "properties": {
+        "vector": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float"
+          }
+        }
+      }
+    },
     "GeoCoordinates": {
       "properties": {
         "latitude": {
@@ -8025,6 +8065,10 @@ func init() {
           "description": "If this object was subject of a classificiation, additional meta info about this classification is available here. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/UnderscorePropertiesClassification"
         },
+        "_featureProjection": {
+          "description": "A feature projection of the object's vector into lower dimensions for visualization",
+          "$ref": "#/definitions/FeatureProjection"
+        },
         "_interpretation": {
           "description": "Additional information about how this property was interpreted at vectorization. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/Interpretation"
@@ -8155,6 +8199,10 @@ func init() {
         "classification": {
           "description": "If this object was subject of a classificiation, additional meta info about this classification is available here",
           "$ref": "#/definitions/UnderscorePropertiesClassification"
+        },
+        "featureProjection": {
+          "description": "The concepts vector projected into a lower dimensional space (for visualization purposes)",
+          "$ref": "#/definitions/FeatureProjection"
         },
         "interpretation": {
           "description": "Additional information about how the object was vectorized",
