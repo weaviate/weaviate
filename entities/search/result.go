@@ -64,6 +64,9 @@ func (r Result) Thing() *models.Thing {
 
 		t.NearestNeighbors = r.UnderscoreProperties.NearestNeighbors
 		r.UnderscoreProperties.NearestNeighbors = nil
+
+		t.FeatureProjection = r.UnderscoreProperties.FeatureProjection
+		r.UnderscoreProperties.FeatureProjection = nil
 	}
 
 	return t
@@ -94,6 +97,9 @@ func (r Result) Action() *models.Action {
 
 		t.NearestNeighbors = r.UnderscoreProperties.NearestNeighbors
 		r.UnderscoreProperties.NearestNeighbors = nil
+
+		t.FeatureProjection = r.UnderscoreProperties.FeatureProjection
+		r.UnderscoreProperties.FeatureProjection = nil
 	}
 
 	return t

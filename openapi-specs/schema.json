@@ -83,6 +83,10 @@
         "_nearestNeighbors": {
           "description": "Additional information about the neighboring concepts of this element",
           "$ref": "#/definitions/NearestNeighbors"
+        },
+        "_featureProjection": {
+          "description": "A feature projection of the object's vector into lower dimensions for visualization",
+          "$ref": "#/definitions/FeatureProjection"
         }
       },
       "type": "object"
@@ -1002,6 +1006,10 @@
         "_nearestNeighbors": {
           "description": "Additional information about the neighboring concepts of this element",
           "$ref": "#/definitions/NearestNeighbors"
+        },
+        "_featureProjection": {
+          "description": "A feature projection of the object's vector into lower dimensions for visualization",
+          "$ref": "#/definitions/FeatureProjection"
         }
       },
       "type": "object"
