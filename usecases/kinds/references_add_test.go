@@ -52,8 +52,9 @@ func Test_ReferencesAdd_CardinalityMany(t *testing.T) {
 		authorizer = &fakeAuthorizer{}
 		vectorizer = &fakeVectorizer{}
 		extender := &fakeExtender{}
+		projector := &fakeProjector{}
 		manager = NewManager(locks, schemaManager, network,
-			cfg, logger, authorizer, vectorizer, vectorRepo, extender)
+			cfg, logger, authorizer, vectorizer, vectorRepo, extender, projector)
 	}
 
 	t.Run("without prior refs", func(t *testing.T) {

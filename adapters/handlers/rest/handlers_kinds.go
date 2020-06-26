@@ -29,6 +29,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
@@ -709,6 +710,8 @@ func parseIncludeParam(in *string) (traverser.UnderscoreProperties, error) {
 			out.Interpretation = true
 		case "_nearestNeighbors", "nearestNeighbors", "nearestneighbors", "_nearestneighbors", "nearest-neighbors", "nearest_neighbors", "_nearest_neighbors":
 			out.NearestNeighbors = true
+		case "_featureProjection", "featureProjection", "featureprojection", "_featureprojection", "feature-projection", "feature_projection", "_feature_projection":
+			out.FeatureProjection = &projector.Params{}
 		case "_vector", "vector":
 			out.Vector = true
 

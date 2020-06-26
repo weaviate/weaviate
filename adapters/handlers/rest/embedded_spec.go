@@ -2735,6 +2735,10 @@ func init() {
           "description": "If this object was subject of a classificiation, additional meta info about this classification is available here. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/UnderscorePropertiesClassification"
         },
+        "_featureProjection": {
+          "description": "A feature projection of the object's vector into lower dimensions for visualization",
+          "$ref": "#/definitions/FeatureProjection"
+        },
         "_interpretation": {
           "description": "Additional information about how this property was interpreted at vectorization. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/Interpretation"
@@ -3807,6 +3811,10 @@ func init() {
         "_classification": {
           "description": "If this object was subject of a classificiation, additional meta info about this classification is available here. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/UnderscorePropertiesClassification"
+        },
+        "_featureProjection": {
+          "description": "A feature projection of the object's vector into lower dimensions for visualization",
+          "$ref": "#/definitions/FeatureProjection"
         },
         "_interpretation": {
           "description": "Additional information about how this property was interpreted at vectorization. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
@@ -6891,6 +6899,10 @@ func init() {
           "description": "If this object was subject of a classificiation, additional meta info about this classification is available here. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/UnderscorePropertiesClassification"
         },
+        "_featureProjection": {
+          "description": "A feature projection of the object's vector into lower dimensions for visualization",
+          "$ref": "#/definitions/FeatureProjection"
+        },
         "_interpretation": {
           "description": "Additional information about how this property was interpreted at vectorization. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/Interpretation"
@@ -8052,6 +8064,10 @@ func init() {
         "_classification": {
           "description": "If this object was subject of a classificiation, additional meta info about this classification is available here. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
           "$ref": "#/definitions/UnderscorePropertiesClassification"
+        },
+        "_featureProjection": {
+          "description": "A feature projection of the object's vector into lower dimensions for visualization",
+          "$ref": "#/definitions/FeatureProjection"
         },
         "_interpretation": {
           "description": "Additional information about how this property was interpreted at vectorization. (Underscore properties are optional, include them using the ?include=_\u003cpropName\u003e parameter)",
