@@ -215,6 +215,28 @@ func (b *classBuilder) underscoreNNField(kindName string, class *models.Class) *
 
 func (b *classBuilder) underscoreFeatureProjectionField(kindName string, class *models.Class) *graphql.Field {
 	return &graphql.Field{
+		Args: graphql.FieldConfigArgument{
+			"algorithm": &graphql.ArgumentConfig{
+				Type:         graphql.String,
+				DefaultValue: nil,
+			},
+			"dimensions": &graphql.ArgumentConfig{
+				Type:         graphql.Int,
+				DefaultValue: nil,
+			},
+			"learningRate": &graphql.ArgumentConfig{
+				Type:         graphql.Int,
+				DefaultValue: nil,
+			},
+			"iterations": &graphql.ArgumentConfig{
+				Type:         graphql.Int,
+				DefaultValue: nil,
+			},
+			"perplexity": &graphql.ArgumentConfig{
+				Type:         graphql.Int,
+				DefaultValue: nil,
+			},
+		},
 		Type: graphql.NewObject(graphql.ObjectConfig{
 			Name: fmt.Sprintf("%sUnderscoreFeatureProjection", class.Class),
 			Fields: graphql.Fields{
