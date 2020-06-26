@@ -186,6 +186,35 @@ func gettingObjectsWithUnderscoreProps(t *testing.T) {
 
 		validateNeighbors(t, neighbors0, neighbors1, neighbors2)
 	})
+
+	t.Run("with _featureProjection set", func(t *testing.T) {
+		query := `
+		{
+				Get {
+					Things {
+						Company {
+							_featureProjection(dimensions:3){
+								vector
+							}
+							name
+						}
+					}
+				}
+		}
+		`
+		result := AssertGraphQL(t, helper.RootAuth, query)
+		companies := result.Get("Get", "Things", "Company").AsSlice()
+
+		extractProjections := func(in interface{}) []interface{} {
+			return in.(map[string]interface{})["_featureProjection"].(map[string]interface{})["vector"].([]interface{})
+		}
+
+		projections0 := extractProjections(companies[0])
+		projections1 := extractProjections(companies[1])
+		projections2 := extractProjections(companies[2])
+
+		validateProjections(t, 3, projections0, projections1, projections2)
+	})
 }
 
 func validateNeighbors(t *testing.T, neighborsGroups ...[]interface{}) {
@@ -199,6 +228,14 @@ func validateNeighbors(t *testing.T, neighborsGroups ...[]interface{}) {
 			if len(asMap["concept"].(string)) == 0 {
 				t.Fatalf("group %d: element %d: concept has length 0", i, j)
 			}
+		}
+	}
+}
+
+func validateProjections(t *testing.T, dims int, vectors ...[]interface{}) {
+	for _, vector := range vectors {
+		if len(vector) != dims {
+			t.Fatalf("expected feature projection vector to have length 3, got: %d", len(vector))
 		}
 	}
 }

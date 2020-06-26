@@ -47,6 +47,30 @@ func searchNeighbors(t *testing.T) {
 	validateNeighbors(t, extractNeighbor(res.Payload.Things[0]), extractNeighbor(res.Payload.Things[1]))
 }
 
+func featureProjection(t *testing.T) {
+
+	listParams := things.NewThingsListParams().WithInclude(ptString("_featureProjection"))
+	res, err := helper.Client(t).Things.ThingsList(listParams, nil)
+	require.Nil(t, err, "should not error")
+
+	extractProjection := func(in *models.Thing) []interface{} {
+		// marshalling to JSON and back into an untyped map to make sure we assert
+		// on the actual JSON structure. This way if we accidentaly change the
+		// goswagger generation so it affects both the client and the server in the
+		// same way, this test should catch it
+		b, err := json.Marshal(in)
+		require.Nil(t, err)
+
+		var untyped map[string]interface{}
+		err = json.Unmarshal(b, &untyped)
+		require.Nil(t, err)
+
+		return untyped["_featureProjection"].(map[string]interface{})["vector"].([]interface{})
+	}
+
+	validateProjections(t, 2, extractProjection(res.Payload.Things[0]), extractProjection(res.Payload.Things[1]))
+}
+
 func ptString(in string) *string {
 	return &in
 }
@@ -62,6 +86,14 @@ func validateNeighbors(t *testing.T, neighborsGroups ...[]interface{}) {
 			if len(asMap["concept"].(string)) == 0 {
 				t.Fatalf("group %d: element %d: concept has length 0", i, j)
 			}
+		}
+	}
+}
+
+func validateProjections(t *testing.T, dims int, vectors ...[]interface{}) {
+	for _, vector := range vectors {
+		if len(vector) != dims {
+			t.Fatalf("expected feature projection vector to have length 3, got: %d", len(vector))
 		}
 	}
 }
