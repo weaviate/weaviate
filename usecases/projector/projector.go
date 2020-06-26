@@ -15,7 +15,9 @@ package projector
 
 import (
 	"fmt"
+	"math/rand"
 	"strings"
+	"time"
 
 	"github.com/etiennedi/go-tsne/tsne"
 	"github.com/pkg/errors"
@@ -25,10 +27,14 @@ import (
 )
 
 func New() *FeatureProjector {
-	return &FeatureProjector{}
+	return &FeatureProjector{
+		fixedSeed: time.Now().UnixNano(),
+	}
 }
 
-type FeatureProjector struct{}
+type FeatureProjector struct {
+	fixedSeed int64
+}
 
 func (f *FeatureProjector) Reduce(in []search.Result, params *Params) ([]search.Result, error) {
 	if in == nil || len(in) == 0 {
@@ -58,8 +64,9 @@ func (f *FeatureProjector) Reduce(in []search.Result, params *Params) ([]search.
 	}
 
 	matrix := mat.NewDense(len(in), dims, mergedVectors)
-	perplexity := float64(len(in)) / 2
-	t := tsne.NewTSNE(2, perplexity, 100, 100, false)
+	rand.Seed(f.fixedSeed) // TODO: don't use global random function
+	t := tsne.NewTSNE(*params.Dimensions, float64(*params.Perplexity),
+		float64(*params.LearningRate), *params.Iterations, false)
 	t.EmbedData(matrix, nil)
 	rows, cols := t.Y.Dims()
 	if rows != len(in) {
