@@ -39,7 +39,7 @@ require (
 	github.com/ugorji/go/codec v0.0.0-20190309163734-c4a1c341dc93
 	github.com/vektah/gqlparser v1.1.2 // indirect
 	golang.org/x/net v0.0.0-20200602114024-627f9648deb9
-	golang.org/x/tools v0.0.0-20200624060801-dcbf2a9ed15d // indirect
+	golang.org/x/tools v0.0.0-20200626032829-bcbc01e07a20 // indirect
 	gonum.org/v1/gonum v0.7.0
 	google.golang.org/grpc v1.24.0
 	gopkg.in/square/go-jose.v2 v2.5.1 // indirect
