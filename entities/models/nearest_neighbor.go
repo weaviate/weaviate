@@ -33,6 +33,9 @@ type NearestNeighbor struct {
 
 	// The distance between the result and this neighbor
 	Distance float32 `json:"distance,omitempty"`
+
+	// The neighbor's vector position
+	Vector []float32 `json:"vector"`
 }
 
 // Validate validates this nearest neighbor
