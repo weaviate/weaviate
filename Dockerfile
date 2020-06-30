@@ -22,31 +22,6 @@ COPY . .
 RUN go build -ldflags '-w -extldflags "-static"' -o /weaviate-server ./cmd/weaviate-server 
 
 ###############################################################################
-# This image builds the genesis
-FROM build_base AS genesis
-COPY . .
-RUN go build -ldflags '-w -extldflags "-static"' -o genesis-server ./genesis/cmd/weaviate-genesis-server/
-ENTRYPOINT ["./genesis-server"]
-
-# ###############################################################################
-# # This creates an image that can be run to import the demo dataset for development
-# FROM build_base AS data_importer
-# COPY . .
-# ENTRYPOINT ["./tools/dev/import_demo_data.sh"]
-
-###############################################################################
-# This creates an image that can be used to fake a genesis for a local network setup
-FROM build_base AS genesis_fake
-COPY . .
-ENTRYPOINT ["./tools/dev/genesis_fake.sh"]
-
-###############################################################################
-# This creates an image that can be used to fake a genesis for a local network setup
-FROM build_base AS remote_weaviate_fake
-COPY . .
-ENTRYPOINT ["./tools/dev/remote_weaviate_fake.sh"]
-
-###############################################################################
 # This creates an image that can be used to fake an api for telemetry acceptance test purposes
 FROM build_base AS telemetry_mock_api
 COPY . .
