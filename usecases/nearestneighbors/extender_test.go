@@ -191,20 +191,75 @@ type fakeContextionary struct {
 	calledWithVectors [][]float32
 }
 
-func (f *fakeContextionary) MultiNearestWordsByVector(ctx context.Context, vectors [][]float32, k, n int) ([][]string, [][]float32, error) {
+func (f *fakeContextionary) MultiNearestWordsByVector(ctx context.Context, vectors [][]float32, k, n int) ([]*models.NearestNeighbors, error) {
 
 	f.calledWithVectors = vectors
-	words := [][]string{
-		[]string{"word1", "word2", "$THING[abc]", "word3"}, // special $ items shouldbe removed
-		[]string{"word4", "word5", "word6"},
-		[]string{"word7", "word8", "word9"},
+	out := []*models.NearestNeighbors{
+		&models.NearestNeighbors{
+			Neighbors: []*models.NearestNeighbor{
+				&models.NearestNeighbor{
+					Concept:  "word1",
+					Distance: 1.0,
+					Vector:   nil,
+				},
+				&models.NearestNeighbor{
+					Concept:  "word2",
+					Distance: 2.0,
+					Vector:   nil,
+				},
+				&models.NearestNeighbor{
+					Concept:  "$THING[abc]",
+					Distance: 9.99,
+					Vector:   nil,
+				},
+				&models.NearestNeighbor{
+					Concept:  "word3",
+					Distance: 3.0,
+					Vector:   nil,
+				},
+			},
+		},
+
+		&models.NearestNeighbors{
+			Neighbors: []*models.NearestNeighbor{
+				&models.NearestNeighbor{
+					Concept:  "word4",
+					Distance: 0.1,
+					Vector:   nil,
+				},
+				&models.NearestNeighbor{
+					Concept:  "word5",
+					Distance: 0.2,
+					Vector:   nil,
+				},
+				&models.NearestNeighbor{
+					Concept:  "word6",
+					Distance: 0.3,
+					Vector:   nil,
+				},
+			},
+		},
+
+		&models.NearestNeighbors{
+			Neighbors: []*models.NearestNeighbor{
+				&models.NearestNeighbor{
+					Concept:  "word7",
+					Distance: 1.1,
+					Vector:   nil,
+				},
+				&models.NearestNeighbor{
+					Concept:  "word8",
+					Distance: 2.2,
+					Vector:   nil,
+				},
+				&models.NearestNeighbor{
+					Concept:  "word9",
+					Distance: 3.3,
+					Vector:   nil,
+				},
+			},
+		},
 	}
 
-	distances := [][]float32{
-		[]float32{1.0, 2.0, 9.99, 3.0},
-		[]float32{0.1, 0.2, 0.3},
-		[]float32{1.1, 2.2, 3.3},
-	}
-
-	return words[:len(vectors)], distances[:len(vectors)], nil // return up to three results, but fewer if the input is shorter
+	return out[:len(vectors)], nil // return up to three results, but fewer if the input is shorter
 }

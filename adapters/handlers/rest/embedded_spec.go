@@ -3502,6 +3502,14 @@ func init() {
           "description": "The distance between the result and this neighbor",
           "type": "number",
           "format": "float"
+        },
+        "vector": {
+          "description": "The neighbor's vector position",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float"
+          }
         }
       }
     },
@@ -7755,6 +7763,14 @@ func init() {
           "description": "The distance between the result and this neighbor",
           "type": "number",
           "format": "float"
+        },
+        "vector": {
+          "description": "The neighbor's vector position",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float"
+          }
         }
       }
     },

@@ -67,7 +67,7 @@ type contextionary interface {
 	VectorForWord(ctx context.Context, word string) ([]float32, error)
 	MultiVectorForWord(ctx context.Context, words []string) ([][]float32, error)
 	NearestWordsByVector(ctx context.Context, vector []float32, n int, k int) ([]string, []float32, error)
-	MultiNearestWordsByVector(ctx context.Context, vectors [][]float32, n int, k int) ([][]string, [][]float32, error)
+	MultiNearestWordsByVector(ctx context.Context, vectors [][]float32, n int, k int) ([]*models.NearestNeighbors, error)
 	VectorForCorpi(ctx context.Context, corpi []string, overrides map[string]string) ([]float32, []vectorizer.InputElement, error)
 	Version(ctx context.Context) (string, error)
 	WordCount(ctx context.Context) (int64, error)
