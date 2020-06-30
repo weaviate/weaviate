@@ -19,14 +19,14 @@ RUN go mod download
 # This image builds the weavaite server
 FROM build_base AS server_builder
 COPY . .
-RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go install -a -tags netgo -ldflags '-w -extldflags "-static"' ./cmd/weaviate-server
+RUN go build -ldflags '-w -extldflags "-static"' -o /weaviate-server ./cmd/weaviate-server 
 
 ###############################################################################
 # This image builds the genesis
 FROM build_base AS genesis
 COPY . .
-RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go install -a -tags netgo -ldflags '-w -extldflags "-static"' ./genesis/cmd/weaviate-genesis-server/
-ENTRYPOINT ["/go/bin/weaviate-genesis-server"]
+RUN go build -ldflags '-w -extldflags "-static"' -o genesis-server ./genesis/cmd/weaviate-genesis-server/
+ENTRYPOINT ["./genesis-server"]
 
 # ###############################################################################
 # # This creates an image that can be run to import the demo dataset for development
@@ -59,6 +59,6 @@ ENTRYPOINT ["./tools/dev/telemetry_mock_api.sh"]
 FROM alpine AS weaviate
 ENTRYPOINT ["/bin/weaviate"]
 COPY ./tools/dev/config.docker.yaml /weaviate.conf.yaml
-COPY --from=server_builder /go/bin/weaviate-server /bin/weaviate
+COPY --from=server_builder /weaviate-server /bin/weaviate
 COPY --from=build_base /etc/ssl/certs /etc/ssl/certs
 CMD [ "--host", "0.0.0.0", "--port", "8080", "--scheme", "http", "--config-file", "./weaviate.conf.yaml" ]
