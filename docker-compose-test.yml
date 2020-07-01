@@ -8,7 +8,6 @@ services:
       target: weaviate
     depends_on:
       - esvector
-      - genesis_fake
       - etcd
     restart: on-failure:0
     ports:
@@ -23,19 +22,6 @@ services:
     environment:
       SCHEMA_PROVIDER_URL: etcd:2379
       OCCURRENCE_WEIGHT_LINEAR_FACTOR: 0.75
-  genesis_fake:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: genesis_fake
-    restart: on-failure:0
-    ports:
-      - "8090:8090"
-    environment:
-      REMOTE_PEER_NAME: RemoteWeaviateForAcceptanceTest
-      REMOTE_PEER_URI: http://remote_weaviate_fake:8081
-      LOCAL_PEER_URI: http://weaviate:8080
-      ACCEPTANCE_TEST: "on"
   telemetry_mock_api: # used for telemetry logging acceptance testing
     build:
       context: .
@@ -44,33 +30,6 @@ services:
     restart: on-failure:0
     ports:
       - "8087:8087"
-  remote_weaviate_fake: # used for testing the Network.Get functionality
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: remote_weaviate_fake
-    restart: on-failure:0
-    ports:
-      - "8081:8081"
-  remote_weaviate_fakes_with_test_schema: # used for comparing the remote schema against the prototype
-    build:
-      context: ./tools/remote_weaviate_fake_with_test_schema/
-      dockerfile: Dockerfile
-    restart: on-failure:0
-    ports:
-      - "8082:8082"
-  genesis: # an actual genesis - not used in the weaviate tests, but used to test the genesis itself
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: genesis
-    restart: on-failure:0
-    ports:
-      - "8111:8111"
-    command:
-      - "--scheme=http"
-      - "--host=0.0.0.0"
-      - "--port=8111"
   etcd:
     image: gcr.io/etcd-development/etcd:v3.3.8
     ports:
