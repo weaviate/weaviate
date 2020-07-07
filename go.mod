@@ -41,6 +41,7 @@ require (
 	golang.org/x/net v0.0.0-20200602114024-627f9648deb9
 	golang.org/x/tools v0.0.0-20200630145137-aa3d50130bb9 // indirect
 	gonum.org/v1/gonum v0.7.0
+	gonum.org/v1/plot v0.0.0-20190515093506-e2840ee46a6b
 	google.golang.org/grpc v1.24.0
 	gopkg.in/square/go-jose.v2 v2.5.1 // indirect
 	gopkg.in/yaml.v2 v2.3.0
