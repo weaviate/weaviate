@@ -22,6 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	libprojector "github.com/semi-technologies/weaviate/usecases/projector"
+	"github.com/semi-technologies/weaviate/usecases/sempath"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -61,7 +62,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 		extender := &fakeExtender{}
 		log, _ := test.NewNullLogger()
 		projector := &fakeProjector{}
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector)
+		pathBuilder := &fakePathBuilder{}
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
 		search.
@@ -117,7 +119,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 		log, _ := test.NewNullLogger()
 
 		projector := &fakeProjector{}
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector)
+		pathBuilder := &fakePathBuilder{}
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
 		search.
@@ -166,7 +169,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 		extender := &fakeExtender{}
 		log, _ := test.NewNullLogger()
 		projector := &fakeProjector{}
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector)
+		pathBuilder := &fakePathBuilder{}
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		search.
@@ -234,7 +238,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 		extender := &fakeExtender{}
 		log, _ := test.NewNullLogger()
 		projector := &fakeProjector{}
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector)
+		pathBuilder := &fakePathBuilder{}
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		search.
@@ -311,7 +316,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 		extender := &fakeExtender{}
 		log, _ := test.NewNullLogger()
 		projector := &fakeProjector{}
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector)
+		pathBuilder := &fakePathBuilder{}
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		search.
@@ -417,7 +423,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 			},
 		}
 		projector := &fakeProjector{}
-		explorer := NewExplorer(searcher, vectorizer, newFakeDistancer(), log, extender, projector)
+		pathBuilder := &fakePathBuilder{}
+		explorer := NewExplorer(searcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		searcher.
@@ -520,7 +527,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 				},
 			},
 		}
-		explorer := NewExplorer(searcher, vectorizer, newFakeDistancer(), log, extender, projector)
+		pathBuilder := &fakePathBuilder{}
+		explorer := NewExplorer(searcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = nil
 		searcher.
@@ -552,10 +560,171 @@ func Test_Explorer_GetClass(t *testing.T) {
 				}, res[1])
 		})
 	})
+
+	t.Run("when the _semanticPath prop is set", func(t *testing.T) {
+		params := GetParams{
+			Kind:       kind.Thing,
+			ClassName:  "BestClass",
+			Pagination: &filters.Pagination{Limit: 100},
+			Filters:    nil,
+			UnderscoreProperties: UnderscoreProperties{
+				SemanticPath: &sempath.Params{},
+			},
+			Explore: &ExploreParams{
+				Values: []string{"foobar"},
+			},
+		}
+
+		searchResults := []search.Result{
+			{
+				Kind: kind.Thing,
+				ID:   "id1",
+				Schema: map[string]interface{}{
+					"name": "Foo",
+				},
+			},
+			{
+				Kind: kind.Action,
+				ID:   "id2",
+				Schema: map[string]interface{}{
+					"name": "Bar",
+				},
+			},
+		}
+
+		searcher := &fakeVectorSearcher{}
+		vectorizer := &fakeVectorizer{}
+		log, _ := test.NewNullLogger()
+		extender := &fakeExtender{}
+		projector := &fakeProjector{}
+		pathBuilder := &fakePathBuilder{
+			returnArgs: []search.Result{
+				{
+					Kind: kind.Thing,
+					ID:   "id1",
+					Schema: map[string]interface{}{
+						"name": "Foo",
+					},
+					UnderscoreProperties: &models.UnderscoreProperties{
+						SemanticPath: &models.SemanticPath{
+							Path: []*models.SemanticPathElement{
+								&models.SemanticPathElement{
+									Concept:            "pathelem1",
+									DistanceToQuery:    0,
+									DistanceToResult:   2.1,
+									DistanceToPrevious: nil,
+									DistanceToNext:     ptFloat32(0.5),
+								},
+								&models.SemanticPathElement{
+									Concept:            "pathelem2",
+									DistanceToQuery:    2.1,
+									DistanceToResult:   0,
+									DistanceToPrevious: ptFloat32(0.5),
+									DistanceToNext:     nil,
+								},
+							},
+						},
+					},
+				},
+				{
+					Kind: kind.Thing,
+					ID:   "id2",
+					Schema: map[string]interface{}{
+						"name": "Bar",
+					},
+					UnderscoreProperties: &models.UnderscoreProperties{
+						SemanticPath: &models.SemanticPath{
+							Path: []*models.SemanticPathElement{
+								&models.SemanticPathElement{
+									Concept:            "pathelem1",
+									DistanceToQuery:    0,
+									DistanceToResult:   2.1,
+									DistanceToPrevious: nil,
+									DistanceToNext:     ptFloat32(0.5),
+								},
+								&models.SemanticPathElement{
+									Concept:            "pathelem2",
+									DistanceToQuery:    2.1,
+									DistanceToResult:   0,
+									DistanceToPrevious: ptFloat32(0.5),
+									DistanceToNext:     nil,
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		explorer := NewExplorer(searcher, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		expectedParamsToSearch := params
+		expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
+		searcher.
+			On("VectorClassSearch", expectedParamsToSearch).
+			Return(searchResults, nil)
+
+		res, err := explorer.GetClass(context.Background(), params)
+
+		t.Run("class search must be called with right params", func(t *testing.T) {
+			assert.Nil(t, err)
+			searcher.AssertExpectations(t)
+		})
+
+		t.Run("response must contain concepts", func(t *testing.T) {
+			require.Len(t, res, 2)
+			assert.Equal(t,
+				map[string]interface{}{
+					"name": "Foo",
+					"_semanticPath": &models.SemanticPath{
+						Path: []*models.SemanticPathElement{
+							&models.SemanticPathElement{
+								Concept:            "pathelem1",
+								DistanceToQuery:    0,
+								DistanceToResult:   2.1,
+								DistanceToPrevious: nil,
+								DistanceToNext:     ptFloat32(0.5),
+							},
+							&models.SemanticPathElement{
+								Concept:            "pathelem2",
+								DistanceToQuery:    2.1,
+								DistanceToResult:   0,
+								DistanceToPrevious: ptFloat32(0.5),
+								DistanceToNext:     nil,
+							},
+						},
+					},
+				}, res[0])
+			assert.Equal(t,
+				map[string]interface{}{
+					"name": "Bar",
+					"_semanticPath": &models.SemanticPath{
+						Path: []*models.SemanticPathElement{
+							&models.SemanticPathElement{
+								Concept:            "pathelem1",
+								DistanceToQuery:    0,
+								DistanceToResult:   2.1,
+								DistanceToPrevious: nil,
+								DistanceToNext:     ptFloat32(0.5),
+							},
+							&models.SemanticPathElement{
+								Concept:            "pathelem2",
+								DistanceToQuery:    2.1,
+								DistanceToResult:   0,
+								DistanceToPrevious: ptFloat32(0.5),
+								DistanceToNext:     nil,
+							},
+						},
+					},
+				}, res[1])
+		})
+	})
 }
 
 func newFakeDistancer() func(a, b []float32) (float32, error) {
 	return func(source, target []float32) (float32, error) {
 		return 0.5, nil
 	}
+}
+
+func ptFloat32(in float32) *float32 {
+	return &in
 }

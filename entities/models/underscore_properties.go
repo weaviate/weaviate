@@ -41,6 +41,9 @@ type UnderscoreProperties struct {
 	// Neighboring concepts of your search results
 	NearestNeighbors *NearestNeighbors `json:"nearestNeighbors,omitempty"`
 
+	// The semantic path between the search query and the result. Only on 'explore' searches
+	SemanticPath *SemanticPath `json:"semanticPath,omitempty"`
+
 	// This object's position in the Contextionary vector space
 	Vector C11yVector `json:"vector,omitempty"`
 }
@@ -62,6 +65,10 @@ func (m *UnderscoreProperties) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateNearestNeighbors(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateSemanticPath(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -139,6 +146,24 @@ func (m *UnderscoreProperties) validateNearestNeighbors(formats strfmt.Registry)
 		if err := m.NearestNeighbors.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("nearestNeighbors")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *UnderscoreProperties) validateSemanticPath(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.SemanticPath) { // not required
+		return nil
+	}
+
+	if m.SemanticPath != nil {
+		if err := m.SemanticPath.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("semanticPath")
 			}
 			return err
 		}
