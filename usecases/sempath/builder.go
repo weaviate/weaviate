@@ -64,15 +64,24 @@ func (f *PathBuilder) CalculatePath(in []search.Result, params *Params) ([]searc
 		return nil, err
 	}
 
-	for _, obj := range in {
-		f.calculatePathPerObject(obj, in, params, searchNeighbors)
+	for i, obj := range in {
+		path, err := f.calculatePathPerObject(obj, in, params, searchNeighbors)
+		if err != nil {
+			return nil, fmt.Errorf("object %d: %v", i, err)
+		}
+
+		if in[i].UnderscoreProperties == nil {
+			in[i].UnderscoreProperties = &models.UnderscoreProperties{}
+		}
+
+		in[i].UnderscoreProperties.SemanticPath = path
 	}
 
 	return in, nil
 }
 
 func (f *PathBuilder) calculatePathPerObject(obj search.Result, allObjects []search.Result, params *Params,
-	searchNeighbors []*models.NearestNeighbor) ([]search.Result, error) {
+	searchNeighbors []*models.NearestNeighbor) (*models.SemanticPath, error) {
 	dims := len(obj.Vector)
 	matrix, neighbors, err := f.vectorsToMatrix(obj, allObjects, dims, params, searchNeighbors)
 	if err != nil {
@@ -88,6 +97,9 @@ func (f *PathBuilder) calculatePathPerObject(obj search.Result, allObjects []sea
 		return nil, fmt.Errorf("have different output results than input %d != %d", inputRows, rows)
 	}
 
+	// create an explicit copy of the neighbors, so we don't mutate them.
+	// Otherwise the 2nd round will have been influenced by the first
+	projectedNeighbors := copyNeighbors(searchNeighbors)
 	var projectedSearchVector []float32
 	var projectedTargetVector []float32
 	for i := 0; i < rows; i++ {
@@ -99,16 +111,14 @@ func (f *PathBuilder) calculatePathPerObject(obj search.Result, allObjects []sea
 			projectedTargetVector = vector
 		} else if i < 1+len(neighbors) {
 			// these must be neighbor props
-			neighbors[i-1].Vector = vector
+			projectedNeighbors[i-1].Vector = vector
 		} else {
 			// is now the very last element which is the search vector
 			projectedSearchVector = vector
 		}
 	}
 
-	f.buildPath(neighbors, projectedSearchVector, projectedTargetVector)
-
-	return nil, nil
+	return f.buildPath(projectedNeighbors, projectedSearchVector, projectedTargetVector), nil
 }
 
 func (f *PathBuilder) addSearchNeighbors(params *Params) ([]*models.NearestNeighbor, error) {
@@ -133,7 +143,7 @@ func (f *PathBuilder) vectorsToMatrix(obj search.Result, allObjects []search.Res
 	// concat all vectors to build gonum dense matrix
 	mergedVectors := make([]float64, items*dims)
 	if l := len(obj.Vector); l != dims {
-		return nil, nil, fmt.Errorf("inconsistent vector lengths found: %d and %d", dims, l)
+		return nil, nil, fmt.Errorf("object: inconsistent vector lengths found: dimensions=%d and object=%d", dims, l)
 	}
 
 	for j, dim := range obj.Vector {
@@ -149,7 +159,7 @@ func (f *PathBuilder) vectorsToMatrix(obj search.Result, allObjects []search.Res
 		}
 
 		if l := len(neighborVector); l != dims {
-			return nil, nil, fmt.Errorf("inconsistent vector lengths found: %d and %d", dims, l)
+			return nil, nil, fmt.Errorf("neighbor: inconsistent vector lengths found: dimensions=%d and object=%d", dims, l)
 		}
 
 		for j, dim := range neighborVector {
@@ -249,8 +259,9 @@ func (ec *errorCompounder) toError() error {
 	return errors.New(msg.String())
 }
 
-func (f *PathBuilder) buildPath(neighbors []*models.NearestNeighbor, searchVector []float32, target []float32) {
-	var path []*models.NearestNeighbor
+func (f *PathBuilder) buildPath(neighbors []*models.NearestNeighbor, searchVector []float32,
+	target []float32) *models.SemanticPath {
+	var path []*models.SemanticPathElement
 
 	var minDist = float32(math.MaxFloat32)
 
@@ -266,12 +277,14 @@ func (f *PathBuilder) buildPath(neighbors []*models.NearestNeighbor, searchVecto
 		current = nn[0].Vector
 		minDist = f.distance(current, target)
 
-		path = append(path, nn[0])
+		path = append(path, &models.SemanticPathElement{
+			Concept: nn[0].Concept,
+			// TODO: add distances
+		})
 	}
 
-	fmt.Printf("\n\n\npath:\n")
-	for _, elem := range path {
-		fmt.Printf(" - %s", elem.Concept)
+	return &models.SemanticPath{
+		Path: path,
 	}
 }
 
@@ -305,4 +318,18 @@ func (f *PathBuilder) discardFurtherThan(candidates []*models.NearestNeighbor, t
 	}
 
 	return out[:i]
+}
+
+// craete an explicit deep copy that does not keep any references
+func copyNeighbors(in []*models.NearestNeighbor) []*models.NearestNeighbor {
+	out := make([]*models.NearestNeighbor, len(in))
+	for i, n := range in {
+		out[i] = &models.NearestNeighbor{
+			Concept:  n.Concept,
+			Distance: n.Distance,
+			Vector:   n.Vector,
+		}
+	}
+
+	return out
 }
