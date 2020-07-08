@@ -99,7 +99,7 @@ func (f *PathBuilder) calculatePathPerObject(obj search.Result, allObjects []sea
 
 	// create an explicit copy of the neighbors, so we don't mutate them.
 	// Otherwise the 2nd round will have been influenced by the first
-	projectedNeighbors := copyNeighbors(searchNeighbors)
+	projectedNeighbors := copyNeighbors(neighbors)
 	var projectedSearchVector []float32
 	var projectedTargetVector []float32
 	for i := 0; i < rows; i++ {
@@ -118,7 +118,8 @@ func (f *PathBuilder) calculatePathPerObject(obj search.Result, allObjects []sea
 		}
 	}
 
-	return f.buildPath(projectedNeighbors, projectedSearchVector, projectedTargetVector), nil
+	path := f.buildPath(projectedNeighbors, projectedSearchVector, projectedTargetVector)
+	return f.addDistancesToPath(path, neighbors, params.SearchVector, obj.Vector)
 }
 
 func (f *PathBuilder) addSearchNeighbors(params *Params) ([]*models.NearestNeighbor, error) {
@@ -136,8 +137,9 @@ func (f *PathBuilder) vectorsToMatrix(obj search.Result, allObjects []search.Res
 
 	items := 1 // the initial object
 	var neighbors []*models.NearestNeighbor
-	neighbors = f.extractNeighborsAndRemoveDuplicates(allObjects)
+	neighbors = f.extractNeighbors(allObjects)
 	neighbors = append(neighbors, searchNeighbors...)
+	neighbors = f.removeDuplicateNeighborsAndDollarNeighbors(neighbors)
 	items += len(neighbors) + 1 // The +1 is for the search vector which we append last
 
 	// concat all vectors to build gonum dense matrix
@@ -153,10 +155,6 @@ func (f *PathBuilder) vectorsToMatrix(obj search.Result, allObjects []search.Res
 	withoutNeighbors := 1 * dims
 	for i, neighbor := range neighbors {
 		neighborVector := neighbor.Vector
-		if neighbor.Concept == "iphone" {
-			// fmt.Printf("iphone (pos %d): %v\n\n", i, neighborVector)
-			// fmt.Printf("search: %v\n\n", params.SearchVector)
-		}
 
 		if l := len(neighborVector); l != dims {
 			return nil, nil, fmt.Errorf("neighbor: inconsistent vector lengths found: dimensions=%d and object=%d", dims, l)
@@ -171,15 +169,10 @@ func (f *PathBuilder) vectorsToMatrix(obj search.Result, allObjects []search.Res
 		mergedVectors[len(mergedVectors)-dims+i] = float64(dim)
 	}
 
-	// fmt.Printf("in matrix (search): %v\n\n", mergedVectors[len(mergedVectors)-dims:])
-	// fmt.Printf("in matrix (iphone): %v\n\n", mergedVectors[41*dims:42*dims])
-
-	// fmt.Printf("matrix rows: %d\nobjects: %d\nneighbors: %d\ntotal should be: %d\ntotal is: %d\n", items, len(in), len(neighbors), len(in)+len(neighbors)+1, len(mergedVectors)/300)
-
 	return mat.NewDense(items, dims, mergedVectors), neighbors, nil
 }
 
-func (f *PathBuilder) extractNeighborsAndRemoveDuplicates(in []search.Result) []*models.NearestNeighbor {
+func (f *PathBuilder) extractNeighbors(in []search.Result) []*models.NearestNeighbor {
 	var out []*models.NearestNeighbor
 
 	for _, obj := range in {
@@ -190,16 +183,20 @@ func (f *PathBuilder) extractNeighborsAndRemoveDuplicates(in []search.Result) []
 		out = append(out, obj.UnderscoreProperties.NearestNeighbors.Neighbors...)
 	}
 
-	return f.removeDuplicateNeighbors(out)
+	return out
 }
 
-func (f *PathBuilder) removeDuplicateNeighbors(in []*models.NearestNeighbor) []*models.NearestNeighbor {
+func (f *PathBuilder) removeDuplicateNeighborsAndDollarNeighbors(in []*models.NearestNeighbor) []*models.NearestNeighbor {
 	seen := map[string]struct{}{}
 	out := make([]*models.NearestNeighbor, len(in))
 
 	i := 0
 	for _, candidate := range in {
 		if _, ok := seen[candidate.Concept]; ok {
+			continue
+		}
+
+		if candidate.Concept[0] == '$' {
 			continue
 		}
 
@@ -279,7 +276,6 @@ func (f *PathBuilder) buildPath(neighbors []*models.NearestNeighbor, searchVecto
 
 		path = append(path, &models.SemanticPathElement{
 			Concept: nn[0].Concept,
-			// TODO: add distances
 		})
 	}
 
@@ -332,4 +328,100 @@ func copyNeighbors(in []*models.NearestNeighbor) []*models.NearestNeighbor {
 	}
 
 	return out
+}
+
+func (f *PathBuilder) addDistancesToPath(path *models.SemanticPath, neighbors []*models.NearestNeighbor,
+	searchVector, targetVector []float32) (*models.SemanticPath, error) {
+
+	for i, elem := range path.Path {
+		vec, ok := neighborVecByConcept(neighbors, elem.Concept)
+		if !ok {
+			return nil, fmt.Errorf("no vector present for concept: %s", elem.Concept)
+		}
+
+		if i != 0 {
+			// include previous
+			previousVec, ok := neighborVecByConcept(neighbors, path.Path[i-1].Concept)
+			if !ok {
+				return nil, fmt.Errorf("no vector present for previous concept: %s", path.Path[i-1].Concept)
+			}
+
+			d, err := cosineDist(vec, previousVec)
+			if err != nil {
+				return nil, errors.Wrap(err, "calculate distance between current path and previous element")
+			}
+
+			path.Path[i].DistanceToPrevious = &d
+		}
+
+		// target
+		d, err := cosineDist(vec, targetVector)
+		if err != nil {
+			return nil, errors.Wrap(err, "calculate distance between current path and result element")
+		}
+		path.Path[i].DistanceToResult = d
+
+		// query
+		d, err = cosineDist(vec, searchVector)
+		if err != nil {
+			return nil, errors.Wrap(err, "calculate distance between current path and query element")
+		}
+		path.Path[i].DistanceToQuery = d
+
+		if i != len(path.Path)-1 {
+			// include next
+			nextVec, ok := neighborVecByConcept(neighbors, path.Path[i+1].Concept)
+			if !ok {
+				return nil, fmt.Errorf("no vector present for next concept: %s", path.Path[i+1].Concept)
+			}
+
+			d, err := cosineDist(vec, nextVec)
+			if err != nil {
+				return nil, errors.Wrap(err, "calculate distance between current path and next element")
+			}
+
+			path.Path[i].DistanceToNext = &d
+		}
+	}
+
+	return path, nil
+}
+
+func neighborVecByConcept(neighbors []*models.NearestNeighbor, concept string) ([]float32, bool) {
+	for _, n := range neighbors {
+		if n.Concept == concept {
+			return n.Vector, true
+		}
+	}
+
+	return nil, false
+}
+
+func cosineSim(a, b []float32) (float32, error) {
+	if len(a) != len(b) {
+		return 0, fmt.Errorf("vectors have different dimensions")
+	}
+
+	var (
+		sumProduct float64
+		sumASquare float64
+		sumBSquare float64
+	)
+
+	for i := range a {
+		sumProduct += float64(a[i] * b[i])
+		sumASquare += float64(a[i] * a[i])
+		sumBSquare += float64(b[i] * b[i])
+	}
+
+	return float32(sumProduct / (math.Sqrt(sumASquare) * math.Sqrt(sumBSquare))), nil
+}
+
+func cosineDist(a, b []float32) (float32, error) {
+	sim, err := cosineSim(a, b)
+	if err != nil {
+		return 0, err
+	}
+
+	return 1 - sim, nil
 }
