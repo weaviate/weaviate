@@ -3781,6 +3781,43 @@ func init() {
       "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
     },
+    "SemanticPath": {
+      "description": "A semantic path between two objects, e.g. a search query and a result",
+      "properties": {
+        "path": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SemanticPathElement"
+          }
+        }
+      }
+    },
+    "SemanticPathElement": {
+      "description": "On link on the semantic path chain",
+      "properties": {
+        "concept": {
+          "type": "string"
+        },
+        "distanceToNext": {
+          "type": "number",
+          "format": "float",
+          "x-nullable": true
+        },
+        "distanceToPrevious": {
+          "type": "number",
+          "format": "float",
+          "x-nullable": true
+        },
+        "distanceToQuery": {
+          "type": "number",
+          "format": "float"
+        },
+        "distanceToResult": {
+          "type": "number",
+          "format": "float"
+        }
+      }
+    },
     "SingleRef": {
       "description": "Either set beacon (direct reference) or set class and schema (concept reference)",
       "properties": {
@@ -3948,6 +3985,10 @@ func init() {
         "nearestNeighbors": {
           "description": "Neighboring concepts of your search results",
           "$ref": "#/definitions/NearestNeighbors"
+        },
+        "semanticPath": {
+          "description": "The semantic path between the search query and the result. Only on 'explore' searches",
+          "$ref": "#/definitions/SemanticPath"
         },
         "vector": {
           "description": "This object's position in the Contextionary vector space",
@@ -8042,6 +8083,43 @@ func init() {
       "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
     },
+    "SemanticPath": {
+      "description": "A semantic path between two objects, e.g. a search query and a result",
+      "properties": {
+        "path": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SemanticPathElement"
+          }
+        }
+      }
+    },
+    "SemanticPathElement": {
+      "description": "On link on the semantic path chain",
+      "properties": {
+        "concept": {
+          "type": "string"
+        },
+        "distanceToNext": {
+          "type": "number",
+          "format": "float",
+          "x-nullable": true
+        },
+        "distanceToPrevious": {
+          "type": "number",
+          "format": "float",
+          "x-nullable": true
+        },
+        "distanceToQuery": {
+          "type": "number",
+          "format": "float"
+        },
+        "distanceToResult": {
+          "type": "number",
+          "format": "float"
+        }
+      }
+    },
     "SingleRef": {
       "description": "Either set beacon (direct reference) or set class and schema (concept reference)",
       "properties": {
@@ -8227,6 +8305,10 @@ func init() {
         "nearestNeighbors": {
           "description": "Neighboring concepts of your search results",
           "$ref": "#/definitions/NearestNeighbors"
+        },
+        "semanticPath": {
+          "description": "The semantic path between the search query and the result. Only on 'explore' searches",
+          "$ref": "#/definitions/SemanticPath"
         },
         "vector": {
           "description": "This object's position in the Contextionary vector space",

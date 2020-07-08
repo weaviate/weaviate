@@ -23,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
 	libprojector "github.com/semi-technologies/weaviate/usecases/projector"
+	"github.com/semi-technologies/weaviate/usecases/sempath"
 	"github.com/semi-technologies/weaviate/usecases/traverser/grouper"
 	"github.com/sirupsen/logrus"
 )
@@ -31,12 +32,13 @@ import (
 // contain monitoring or authorization checks. It should thus never be directly
 // used by an API, but through a Traverser.
 type Explorer struct {
-	search     vectorClassSearch
-	vectorizer CorpiVectorizer
-	distancer  distancer
-	logger     logrus.FieldLogger
-	nnExtender nnExtender
-	projector  projector
+	search      vectorClassSearch
+	vectorizer  CorpiVectorizer
+	distancer   distancer
+	logger      logrus.FieldLogger
+	nnExtender  nnExtender
+	projector   projector
+	pathBuilder pathBuilder
 }
 
 type distancer func(a, b []float32) (float32, error)
@@ -61,11 +63,15 @@ type projector interface {
 	Reduce(in []search.Result, params *libprojector.Params) ([]search.Result, error)
 }
 
+type pathBuilder interface {
+	CalculatePath(in []search.Result, params *sempath.Params) ([]search.Result, error)
+}
+
 // NewExplorer with search and connector repo
 func NewExplorer(search vectorClassSearch, vectorizer CorpiVectorizer,
 	distancer distancer, logger logrus.FieldLogger, nnExtender nnExtender,
-	projector projector) *Explorer {
-	return &Explorer{search, vectorizer, distancer, logger, nnExtender, projector}
+	projector projector, pathBuilder pathBuilder) *Explorer {
+	return &Explorer{search, vectorizer, distancer, logger, nnExtender, projector, pathBuilder}
 }
 
 // GetClass from search and connector repo
@@ -132,6 +138,17 @@ func (e *Explorer) getClassExploration(ctx context.Context,
 		res = withFP
 	}
 
+	if params.UnderscoreProperties.SemanticPath != nil {
+		p := params.UnderscoreProperties.SemanticPath
+		p.SearchVector = searchVector
+		withPath, err := e.pathBuilder.CalculatePath(res, p)
+		if err != nil {
+			return nil, fmt.Errorf("extend with semantic path: %v", err)
+		}
+
+		res = withPath
+	}
+
 	return e.searchResultsToGetResponse(ctx, res, params.Explore.Certainty, searchVector)
 }
 
@@ -170,6 +187,10 @@ func (e *Explorer) getClassList(ctx context.Context,
 		res = withFP
 	}
 
+	if params.UnderscoreProperties.SemanticPath != nil {
+		return nil, fmt.Errorf("semantic path not possible on 'list' queries, only on 'explore' queries")
+	}
+
 	return e.searchResultsToGetResponse(ctx, res, 0, nil)
 }
 
@@ -194,6 +215,10 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 
 			if res.UnderscoreProperties.FeatureProjection != nil {
 				res.Schema.(map[string]interface{})["_featureProjection"] = res.UnderscoreProperties.FeatureProjection
+			}
+
+			if res.UnderscoreProperties.SemanticPath != nil {
+				res.Schema.(map[string]interface{})["_semanticPath"] = res.UnderscoreProperties.SemanticPath
 			}
 		}
 
