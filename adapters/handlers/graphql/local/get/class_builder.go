@@ -160,6 +160,7 @@ func (b *classBuilder) underscoreFields(classProperties graphql.Fields, kindName
 	classProperties["_interpretation"] = b.underscoreInterpretationField(kindName, class)
 	classProperties["_nearestNeighbors"] = b.underscoreNNField(kindName, class)
 	classProperties["_featureProjection"] = b.underscoreFeatureProjectionField(kindName, class)
+	classProperties["_semanticPath"] = b.underscoreSemanticPathField(kindName, class)
 
 }
 
@@ -241,6 +242,26 @@ func (b *classBuilder) underscoreFeatureProjectionField(kindName string, class *
 			Name: fmt.Sprintf("%sUnderscoreFeatureProjection", class.Class),
 			Fields: graphql.Fields{
 				"vector": &graphql.Field{Type: graphql.NewList(graphql.Float)},
+			},
+		}),
+	}
+}
+
+func (b *classBuilder) underscoreSemanticPathField(kindName string, class *models.Class) *graphql.Field {
+	return &graphql.Field{
+		Type: graphql.NewObject(graphql.ObjectConfig{
+			Name: fmt.Sprintf("%sUnderscoreSemanticPath", class.Class),
+			Fields: graphql.Fields{
+				"path": &graphql.Field{Type: graphql.NewList(graphql.NewObject(graphql.ObjectConfig{
+					Name: fmt.Sprintf("%sUnderscoreSemanticPathElement", class.Class),
+					Fields: graphql.Fields{
+						"concept":            &graphql.Field{Type: graphql.String},
+						"distanceToQuery":    &graphql.Field{Type: graphql.Float},
+						"distanceToResult":   &graphql.Field{Type: graphql.Float},
+						"distanceToNext":     &graphql.Field{Type: graphql.Float},
+						"distanceToPrevious": &graphql.Field{Type: graphql.Float},
+					},
+				}))},
 			},
 		}),
 	}
