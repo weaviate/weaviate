@@ -218,6 +218,10 @@ func (p *Params) SetDefaultsAndValidate(inputSize, dims int) error {
 
 func (p *Params) validate(inputSize, dims int) error {
 	ec := &errorCompounder{}
+	if inputSize > 25 {
+		ec.addf("result length %d is larger than 25 items: semantic path calculation is only suported up to 25 items, set a limit to <= 25", inputSize)
+	}
+
 	if p.SearchVector == nil || len(p.SearchVector) == 0 {
 		ec.addf("no valid search vector present, got: %v", p.SearchVector)
 	}
