@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -85,8 +85,55 @@ func TestSemanticPathBuilder(t *testing.T) {
 	res, err := b.CalculatePath(input, &Params{SearchVector: searchVector})
 	require.Nil(t, err)
 
-	spew.Dump(res)
-	t.Fail()
+	expectedPath := &models.SemanticPath{
+		Path: []*models.SemanticPathElement{
+			&models.SemanticPathElement{
+				Concept:          "good5",
+				DistanceToNext:   ptFloat32(0.00029218197),
+				DistanceToQuery:  0.13783735,
+				DistanceToResult: 0.011904657,
+			},
+			&models.SemanticPathElement{
+				Concept:            "good2",
+				DistanceToNext:     ptFloat32(0.014019072),
+				DistanceToPrevious: ptFloat32(0.00029218197),
+				DistanceToQuery:    0.12584269,
+				DistanceToResult:   0.015912116,
+			},
+			&models.SemanticPathElement{
+				Concept:            "good3",
+				DistanceToNext:     ptFloat32(4.9889088e-05),
+				DistanceToPrevious: ptFloat32(0.014019072),
+				DistanceToQuery:    0.21913117,
+				DistanceToResult:   6.0379505e-05,
+			},
+			&models.SemanticPathElement{
+				Concept:            "good6",
+				DistanceToNext:     ptFloat32(0.0046744347),
+				DistanceToPrevious: ptFloat32(4.9889088e-05),
+				DistanceToQuery:    0.2254098,
+				DistanceToResult:   5.364418e-07,
+			},
+			&models.SemanticPathElement{
+				Concept:            "good1",
+				DistanceToNext:     ptFloat32(0.00015383959),
+				DistanceToPrevious: ptFloat32(0.0046744347),
+				DistanceToQuery:    0.16794968,
+				DistanceToResult:   0.004771471,
+			},
+			&models.SemanticPathElement{
+				Concept:            "good4",
+				DistanceToPrevious: ptFloat32(0.00015383959),
+				DistanceToQuery:    0.17780781,
+				DistanceToResult:   0.003213048,
+			},
+		},
+	}
+
+	require.Len(t, res, 1)
+	require.NotNil(t, res[0].UnderscoreProperties)
+	assert.Equal(t, expectedPath, res[0].UnderscoreProperties.SemanticPath)
+
 }
 
 type fakeC11y struct {
@@ -95,4 +142,8 @@ type fakeC11y struct {
 
 func (f *fakeC11y) MultiNearestWordsByVector(ctx context.Context, vectors [][]float32, k, n int) ([]*models.NearestNeighbors, error) {
 	return f.neighbors, nil
+}
+
+func ptFloat32(in float32) *float32 {
+	return &in
 }
