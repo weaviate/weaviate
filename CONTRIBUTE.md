@@ -30,3 +30,12 @@ If you create a pull request without smart commits, the pull request will be [sq
 ### Running Weaviate without database
 
 If you work on Weaviate but not need a database. You can run Weaviate like this: `./cmd/weaviate-server/main.go --scheme=http --port=8080 --host=127.0.0.1 --config="dummy"`
+
+### Contributor License Agreement
+
+Contributions to Weaviate must be accompanied by a Contributor License Agreement. You (or your employer) retain the copyright to your contribution; this simply gives us permission to use and redistribute your contributions as part of Weaviate. Go to [this page](https://www.semi.technology/playbook/contributor-license-agreement.html) to read the current agreement.
+
+The process works as follows:
+
+- You contribute by opening a [pull request](#pull-request).
+- If your account has no CLA, a DocuSign link will be added as a comment to the pull request.
