@@ -22,7 +22,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/etiennedi/go-tsne/tsne"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -118,8 +117,6 @@ func (f *PathBuilder) calculatePathPerObject(obj search.Result, allObjects []sea
 			projectedSearchVector = vector
 		}
 	}
-
-	spew.Dump(projectedNeighbors)
 
 	path := f.buildPath(projectedNeighbors, projectedSearchVector, projectedTargetVector)
 	return f.addDistancesToPath(path, neighbors, params.SearchVector, obj.Vector)
@@ -429,8 +426,6 @@ func cosineDist(a, b []float32) (float32, error) {
 	if err != nil {
 		return 0, err
 	}
-
-	fmt.Printf("input 1: %f\ninput 2: %f\n: sim: %f\n\n", a, b, sim)
 
 	return 1 - sim, nil
 }
