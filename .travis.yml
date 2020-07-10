@@ -22,6 +22,8 @@ after_success:
             # push the release
             travis_wait 30 docker push $TAG
             travis_wait 30 docker push $LATESTTAG
+            # send to codecov.io
+            bash <(curl -s https://codecov.io/bash)
         # do a release
         elif [ -n "$TRAVIS_TAG" ]; then
             TAG=$DOCKER_ID$TRAVIS_TAG
