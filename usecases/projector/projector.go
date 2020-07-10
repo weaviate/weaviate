@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/etiennedi/go-tsne/tsne"
+	"github.com/danaugrs/go-tsne/tsne"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -51,19 +51,10 @@ func (f *FeatureProjector) Reduce(in []search.Result, params *Params) ([]search.
 		return nil, errors.Wrap(err, "invalid params")
 	}
 
-	// concat all vectors to build gonum dense matrix
-	mergedVectors := make([]float64, len(in)*dims)
-	for i, obj := range in {
-		if l := len(obj.Vector); l != dims {
-			return nil, fmt.Errorf("inconsistent vector lengths found: %d and %d", dims, l)
-		}
-
-		for j, dim := range obj.Vector {
-			mergedVectors[i*dims+j] = float64(dim)
-		}
+	matrix, err := f.vectorsToMatrix(in, dims, params)
+	if err != nil {
+		return nil, err
 	}
-
-	matrix := mat.NewDense(len(in), dims, mergedVectors)
 	rand.Seed(f.fixedSeed) // TODO: don't use global random function
 	t := tsne.NewTSNE(*params.Dimensions, float64(*params.Perplexity),
 		float64(*params.LearningRate), *params.Iterations, false)
@@ -93,13 +84,82 @@ func (f *FeatureProjector) Reduce(in []search.Result, params *Params) ([]search.
 	return in, nil
 }
 
+func (f *FeatureProjector) vectorsToMatrix(in []search.Result, dims int, params *Params) (*mat.Dense, error) {
+
+	items := len(in)
+	var neighbors []*models.NearestNeighbor
+	if params.IncludeNeighbors {
+		neighbors = f.extractNeighborsAndRemoveDuplicates(in)
+		items += len(neighbors)
+	}
+
+	// concat all vectors to build gonum dense matrix
+	mergedVectors := make([]float64, items*dims)
+	for i, obj := range in {
+		if l := len(obj.Vector); l != dims {
+			return nil, fmt.Errorf("inconsistent vector lengths found: %d and %d", dims, l)
+		}
+
+		for j, dim := range obj.Vector {
+			mergedVectors[i*dims+j] = float64(dim)
+		}
+	}
+
+	withoutNeighbors := len(in) * dims
+	for i, neighbor := range neighbors {
+		neighborVector := neighbor.Vector
+		if l := len(neighborVector); l != dims {
+			return nil, fmt.Errorf("inconsistent vector lengths found: %d and %d", dims, l)
+		}
+
+		for j, dim := range neighborVector {
+			mergedVectors[withoutNeighbors-1+i*dims+j] = float64(dim)
+		}
+	}
+
+	return mat.NewDense(len(in), dims, mergedVectors), nil
+}
+
+func (f *FeatureProjector) extractNeighborsAndRemoveDuplicates(in []search.Result) []*models.NearestNeighbor {
+	var out []*models.NearestNeighbor
+
+	for _, obj := range in {
+		if obj.UnderscoreProperties == nil || obj.UnderscoreProperties.NearestNeighbors == nil {
+			continue
+		}
+
+		out = append(out, obj.UnderscoreProperties.NearestNeighbors.Neighbors...)
+	}
+
+	return f.removeDuplicateNeighbors(out)
+}
+
+func (f *FeatureProjector) removeDuplicateNeighbors(in []*models.NearestNeighbor) []*models.NearestNeighbor {
+	seen := map[string]struct{}{}
+	out := make([]*models.NearestNeighbor, len(in))
+
+	i := 0
+	for _, candidate := range in {
+		if _, ok := seen[candidate.Concept]; ok {
+			continue
+		}
+
+		out[i] = candidate
+		i++
+		seen[candidate.Concept] = struct{}{}
+	}
+
+	return out[:i]
+}
+
 type Params struct {
-	Enabled      bool
-	Algorithm    *string // optional parameter
-	Dimensions   *int    // optional parameter
-	Perplexity   *int    // optional parameter
-	Iterations   *int    // optional parameter
-	LearningRate *int    // optional parameter
+	Enabled          bool
+	Algorithm        *string // optional parameter
+	Dimensions       *int    // optional parameter
+	Perplexity       *int    // optional parameter
+	Iterations       *int    // optional parameter
+	LearningRate     *int    // optional parameter
+	IncludeNeighbors bool
 }
 
 func (p *Params) SetDefaultsAndValidate(inputSize, dims int) error {

@@ -744,6 +744,10 @@
         "featureProjection": {
           "description": "The concepts vector projected into a lower dimensional space (for visualization purposes)",
           "$ref": "#/definitions/FeatureProjection"
+        },
+        "semanticPath": {
+          "description": "The semantic path between the search query and the result. Only on 'explore' searches",
+          "$ref": "#/definitions/SemanticPath"
         }
 
       }
@@ -824,6 +828,14 @@
           "description": "The distance between the result and this neighbor",
           "type": "number",
           "format": "float"
+        },
+        "vector": {
+          "description": "The neighbor's vector position",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float"
+          }
         }
       },
       "type": "object"
@@ -865,6 +877,43 @@
             "type": "number",
             "format": "float"
           }
+        }
+      }
+    },
+    "SemanticPath": {
+      "description": "A semantic path between two objects, e.g. a search query and a result",
+      "properties": {
+        "path": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SemanticPathElement"
+          }
+        }
+      }
+    },
+    "SemanticPathElement": {
+      "description": "On link on the semantic path chain",
+      "properties": {
+        "concept": {
+          "type": "string"
+        },
+        "distanceToQuery": {
+          "type": "number",
+          "format": "float"
+        },
+        "distanceToResult": {
+          "type": "number",
+          "format": "float"
+        },
+        "distanceToPrevious": {
+          "type": "number",
+          "format": "float",
+          "x-nullable": true
+        },
+        "distanceToNext": {
+          "type": "number",
+          "format": "float",
+          "x-nullable": true
         }
       }
     },

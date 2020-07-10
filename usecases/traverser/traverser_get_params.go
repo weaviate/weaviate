@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	libprojector "github.com/semi-technologies/weaviate/usecases/projector"
+	"github.com/semi-technologies/weaviate/usecases/sempath"
 )
 
 type GetParams struct {
@@ -146,5 +147,6 @@ type UnderscoreProperties struct {
 	Vector            bool
 	Interpretation    bool
 	NearestNeighbors  bool
+	SemanticPath      *sempath.Params
 	FeatureProjection *libprojector.Params
 }
