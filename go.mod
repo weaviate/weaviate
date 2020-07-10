@@ -6,10 +6,10 @@ require (
 	github.com/boltdb/bolt v1.3.1
 	github.com/coreos/etcd v3.3.18+incompatible
 	github.com/coreos/go-oidc v2.0.0+incompatible
+	github.com/danaugrs/go-tsne v0.0.0-20200708172100-6b7d1d577fd3
 	github.com/davecgh/go-spew v1.1.1
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/elastic/go-elasticsearch/v5 v5.6.0
-	github.com/etiennedi/go-tsne v0.0.0-20200514072915-0785d987ebe8
 	github.com/fatih/camelcase v1.0.0
 	github.com/fatih/color v1.7.0 // indirect
 	github.com/go-openapi/errors v0.19.6
@@ -32,12 +32,11 @@ require (
 	github.com/pkg/errors v0.8.1
 	github.com/rs/cors v1.5.0
 	github.com/satori/go.uuid v0.0.0-20180103174451-36e9d2ebbde5
-	github.com/semi-technologies/contextionary v0.0.0-20200622144407-0a253c7254f2
+	github.com/semi-technologies/contextionary v0.0.0-20200701085343-13c11a568705
 	github.com/sirupsen/logrus v1.4.2
 	github.com/square/go-jose v2.3.0+incompatible
 	github.com/stretchr/testify v1.6.1
 	github.com/ugorji/go/codec v0.0.0-20190309163734-c4a1c341dc93
-	github.com/vektah/gqlparser v1.1.2 // indirect
 	go.mongodb.org/mongo-driver v1.3.5 // indirect
 	golang.org/x/net v0.0.0-20200625001655-4c5254603344
 	golang.org/x/tools v0.0.0-20200710042808-f1c4188a97a1 // indirect

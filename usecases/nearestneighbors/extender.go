@@ -32,7 +32,7 @@ type Extender struct {
 }
 
 type contextionary interface {
-	MultiNearestWordsByVector(ctx context.Context, vectors [][]float32, k, n int) ([][]string, [][]float32, error)
+	MultiNearestWordsByVector(ctx context.Context, vectors [][]float32, k, n int) ([]*models.NearestNeighbors, error)
 }
 
 func (e *Extender) Single(ctx context.Context, in *search.Result, limit *int) (*search.Result, error) {
@@ -61,13 +61,13 @@ func (e *Extender) Multi(ctx context.Context, in []search.Result, limit *int) ([
 		vectors[i] = res.Vector
 	}
 
-	words, distances, err := e.searcher.MultiNearestWordsByVector(ctx, vectors, DefaultK, limitOrDefault(limit))
+	neighbors, err := e.searcher.MultiNearestWordsByVector(ctx, vectors, DefaultK, limitOrDefault(limit))
 	if err != nil {
 		return nil, errors.Wrap(err, "get neighbors for search results")
 	}
 
-	if len(words) != len(distances) || len(words) != len(in) {
-		return nil, fmt.Errorf("inconsistent results: input=%d words=%d distances=%d", len(in), len(words), len(distances))
+	if len(neighbors) != len(in) {
+		return nil, fmt.Errorf("inconsistent results: input=%d neighbors=%d", len(in), len(neighbors))
 	}
 
 	for i, res := range in {
@@ -76,10 +76,7 @@ func (e *Extender) Multi(ctx context.Context, in []search.Result, limit *int) ([
 			up = &models.UnderscoreProperties{}
 		}
 
-		up.NearestNeighbors = &models.NearestNeighbors{
-			Neighbors: wordsAndDistancesToNN(words[i], distances[i]),
-		}
-
+		up.NearestNeighbors = removeDollarElements(neighbors[i])
 		in[i].UnderscoreProperties = up
 	}
 
@@ -98,21 +95,20 @@ func limitOrDefault(user *int) int {
 	return *user
 }
 
-func wordsAndDistancesToNN(words []string, distances []float32) []*models.NearestNeighbor {
-	out := make([]*models.NearestNeighbor, len(words))
-
-	o := 0               // index for the out array
-	for i := range out { // index for the source array
-		if words[i][0] == '$' {
+func removeDollarElements(in *models.NearestNeighbors) *models.NearestNeighbors {
+	neighbors := make([]*models.NearestNeighbor, len(in.Neighbors))
+	i := 0
+	for _, elem := range in.Neighbors {
+		if elem.Concept[0] == '$' {
 			continue
 		}
-		out[o] = &models.NearestNeighbor{
-			Concept:  words[i],
-			Distance: distances[i],
-		}
 
-		o++
+		neighbors[i] = elem
+		i++
+
 	}
 
-	return out[:o]
+	return &models.NearestNeighbors{
+		Neighbors: neighbors[:i],
+	}
 }

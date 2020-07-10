@@ -19,32 +19,63 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"strconv"
+
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
-// NearestNeighbor A group of neighboring concepts
+// SemanticPath A semantic path between two objects, e.g. a search query and a result
 //
-// swagger:model NearestNeighbor
-type NearestNeighbor struct {
+// swagger:model SemanticPath
+type SemanticPath struct {
 
-	// The neighboring concept
-	Concept string `json:"concept,omitempty"`
-
-	// The distance between the result and this neighbor
-	Distance float32 `json:"distance,omitempty"`
-
-	// The neighbor's vector position
-	Vector []float32 `json:"vector"`
+	// path
+	Path []*SemanticPathElement `json:"path"`
 }
 
-// Validate validates this nearest neighbor
-func (m *NearestNeighbor) Validate(formats strfmt.Registry) error {
+// Validate validates this semantic path
+func (m *SemanticPath) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.validatePath(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *SemanticPath) validatePath(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Path) { // not required
+		return nil
+	}
+
+	for i := 0; i < len(m.Path); i++ {
+		if swag.IsZero(m.Path[i]) { // not required
+			continue
+		}
+
+		if m.Path[i] != nil {
+			if err := m.Path[i].Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("path" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
 	return nil
 }
 
 // MarshalBinary interface implementation
-func (m *NearestNeighbor) MarshalBinary() ([]byte, error) {
+func (m *SemanticPath) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -52,8 +83,8 @@ func (m *NearestNeighbor) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *NearestNeighbor) UnmarshalBinary(b []byte) error {
-	var res NearestNeighbor
+func (m *SemanticPath) UnmarshalBinary(b []byte) error {
+	var res SemanticPath
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

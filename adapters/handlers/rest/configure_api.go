@@ -41,6 +41,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/projector"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
+	"github.com/semi-technologies/weaviate/usecases/sempath"
 	"github.com/semi-technologies/weaviate/usecases/telemetry"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	libvectorizer "github.com/semi-technologies/weaviate/usecases/vectorizer"
@@ -96,6 +97,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	var explorer explorer
 	nnExtender := nearestneighbors.NewExtender(appState.Contextionary)
 	featureProjector := projector.New()
+	pathBuilder := sempath.New(appState.Contextionary)
 
 	if appState.ServerConfig.Config.CustomDB {
 		repo := db.New(appState.Logger, db.Config{
@@ -106,7 +108,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		migrator = vectorMigrator
 		vectorizer = libvectorizer.New(appState.Contextionary, nil)
 		explorer = traverser.NewExplorer(repo, vectorizer, libvectorizer.NormalizedDistance,
-			appState.Logger, nnExtender, featureProjector)
+			appState.Logger, nnExtender, featureProjector, pathBuilder)
 	} else {
 		repo := esvector.NewRepo(esClient, appState.Logger, nil,
 			appState.ServerConfig.Config.VectorIndex.DenormalizationDepth,
@@ -119,7 +121,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		migrator = vectorMigrator
 		vectorizer = libvectorizer.New(appState.Contextionary, nil)
 		explorer = traverser.NewExplorer(repo, vectorizer, libvectorizer.NormalizedDistance,
-			appState.Logger, nnExtender, featureProjector)
+			appState.Logger, nnExtender, featureProjector, pathBuilder)
 	}
 
 	schemaRepo := etcd.NewSchemaRepo(etcdClient)
