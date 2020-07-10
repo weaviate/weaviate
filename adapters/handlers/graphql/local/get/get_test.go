@@ -24,6 +24,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/projector"
+	"github.com/semi-technologies/weaviate/usecases/sempath"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 )
@@ -473,6 +474,59 @@ func TestExtractUnderscoreFields(t *testing.T) {
 			expectedResult: map[string]interface{}{
 				"_featureProjection": map[string]interface{}{
 					"vector": []interface{}{float32(0.0), float32(1.1), float32(2.2)},
+				},
+			},
+		},
+		test{
+			name:  "with _sempath set",
+			query: `{ Get { Actions { SomeAction { _semanticPath { path { concept distanceToQuery distanceToResult distanceToPrevious distanceToNext } } } } } }`,
+			expectedParams: traverser.GetParams{
+				Kind:      kind.Action,
+				ClassName: "SomeAction",
+				UnderscoreProperties: traverser.UnderscoreProperties{
+					SemanticPath: &sempath.Params{},
+				},
+			},
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"_semanticPath": &models.SemanticPath{
+						Path: []*models.SemanticPathElement{
+							&models.SemanticPathElement{
+								Concept:            "foo",
+								DistanceToNext:     ptFloat32(0.5),
+								DistanceToPrevious: nil,
+								DistanceToQuery:    0.1,
+								DistanceToResult:   0.1,
+							},
+							&models.SemanticPathElement{
+								Concept:            "bar",
+								DistanceToPrevious: ptFloat32(0.5),
+								DistanceToNext:     nil,
+								DistanceToQuery:    0.1,
+								DistanceToResult:   0.1,
+							},
+						},
+					},
+				},
+			},
+			expectedResult: map[string]interface{}{
+				"_semanticPath": map[string]interface{}{
+					"path": []interface{}{
+						map[string]interface{}{
+							"concept":            "foo",
+							"distanceToNext":     float32(0.5),
+							"distanceToPrevious": nil,
+							"distanceToQuery":    float32(0.1),
+							"distanceToResult":   float32(0.1),
+						},
+						map[string]interface{}{
+							"concept":            "bar",
+							"distanceToPrevious": float32(0.5),
+							"distanceToNext":     nil,
+							"distanceToQuery":    float32(0.1),
+							"distanceToResult":   float32(0.1),
+						},
+					},
 				},
 			},
 		},

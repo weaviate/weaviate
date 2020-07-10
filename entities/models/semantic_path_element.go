@@ -23,28 +23,34 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// NearestNeighbor A group of neighboring concepts
+// SemanticPathElement On link on the semantic path chain
 //
-// swagger:model NearestNeighbor
-type NearestNeighbor struct {
+// swagger:model SemanticPathElement
+type SemanticPathElement struct {
 
-	// The neighboring concept
+	// concept
 	Concept string `json:"concept,omitempty"`
 
-	// The distance between the result and this neighbor
-	Distance float32 `json:"distance,omitempty"`
+	// distance to next
+	DistanceToNext *float32 `json:"distanceToNext,omitempty"`
 
-	// The neighbor's vector position
-	Vector []float32 `json:"vector"`
+	// distance to previous
+	DistanceToPrevious *float32 `json:"distanceToPrevious,omitempty"`
+
+	// distance to query
+	DistanceToQuery float32 `json:"distanceToQuery,omitempty"`
+
+	// distance to result
+	DistanceToResult float32 `json:"distanceToResult,omitempty"`
 }
 
-// Validate validates this nearest neighbor
-func (m *NearestNeighbor) Validate(formats strfmt.Registry) error {
+// Validate validates this semantic path element
+func (m *SemanticPathElement) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
 // MarshalBinary interface implementation
-func (m *NearestNeighbor) MarshalBinary() ([]byte, error) {
+func (m *SemanticPathElement) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -52,8 +58,8 @@ func (m *NearestNeighbor) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *NearestNeighbor) UnmarshalBinary(b []byte) error {
-	var res NearestNeighbor
+func (m *SemanticPathElement) UnmarshalBinary(b []byte) error {
+	var res SemanticPathElement
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}
