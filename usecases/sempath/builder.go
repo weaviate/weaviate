@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/etiennedi/go-tsne/tsne"
+	"github.com/danaugrs/go-tsne/tsne"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
