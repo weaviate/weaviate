@@ -209,9 +209,8 @@ func (c *Client) MultiVectorForWord(ctx context.Context, words []string) ([][]fl
 	return out, nil
 }
 
-func (c *Client) MultiNearestWordsByVector(ctx context.Context, vectors [][]float32, k, n int) ([][]string, [][]float32, error) {
-	words := make([][]string, len(vectors))
-	distances := make([][]float32, len(vectors))
+func (c *Client) MultiNearestWordsByVector(ctx context.Context, vectors [][]float32, k, n int) ([]*models.NearestNeighbors, error) {
+	out := make([]*models.NearestNeighbors, len(vectors))
 	searchParams := make([]*pb.VectorNNParams, len(vectors))
 
 	for i, vector := range vectors {
@@ -224,15 +223,31 @@ func (c *Client) MultiNearestWordsByVector(ctx context.Context, vectors [][]floa
 
 	res, err := c.grpcClient.MultiNearestWordsByVector(ctx, &pb.VectorNNParamsList{Params: searchParams})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	for i, elem := range res.Words {
-		words[i] = elem.Words
-		distances[i] = elem.Distances
+		out[i] = &models.NearestNeighbors{
+			Neighbors: c.extractNeighbors(elem),
+		}
 	}
 
-	return words, distances, nil
+	return out, nil
+}
+
+func (c *Client) extractNeighbors(elem *pb.NearestWords) []*models.NearestNeighbor {
+	out := make([]*models.NearestNeighbor, len(elem.Words))
+
+	for i := range out {
+		vec, _, _ := vectorFromProto(elem.Vectors.Vectors[i])
+		out[i] = &models.NearestNeighbor{
+			Concept:  elem.Words[i],
+			Distance: elem.Distances[i],
+			Vector:   vec,
+		}
+
+	}
+	return out
 }
 
 func vectorFromProto(in *pb.Vector) ([]float32, []vectorizer.InputElement, error) {

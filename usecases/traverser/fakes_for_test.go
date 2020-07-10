@@ -25,6 +25,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	libprojector "github.com/semi-technologies/weaviate/usecases/projector"
+	"github.com/semi-technologies/weaviate/usecases/sempath"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -257,5 +258,13 @@ type fakeProjector struct {
 }
 
 func (f *fakeProjector) Reduce(in []search.Result, params *libprojector.Params) ([]search.Result, error) {
+	return f.returnArgs, nil
+}
+
+type fakePathBuilder struct {
+	returnArgs []search.Result
+}
+
+func (f *fakePathBuilder) CalculatePath(in []search.Result, params *sempath.Params) ([]search.Result, error) {
 	return f.returnArgs, nil
 }
