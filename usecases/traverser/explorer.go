@@ -16,7 +16,6 @@ package traverser
 import (
 	"context"
 	"fmt"
-	"runtime/debug"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/filters"
@@ -77,12 +76,6 @@ func NewExplorer(search vectorClassSearch, vectorizer CorpiVectorizer,
 // GetClass from search and connector repo
 func (e *Explorer) GetClass(ctx context.Context,
 	params GetParams) ([]interface{}, error) {
-	defer func() {
-
-		fmt.Println(recover())
-		fmt.Println(string(debug.Stack()))
-
-	}()
 
 	if params.Pagination == nil {
 		params.Pagination = &filters.Pagination{
