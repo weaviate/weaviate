@@ -10,4 +10,9 @@ else
   docker-compose up -d esvector
 fi
 
-go test -count 1 -tags=integrationTest "$@" ./adapters/repos/...
+echo "" > coverage-integration.txt
+go test -count 1 -coverprofile=profile.out -tags=integrationTest "$@" ./adapters/repos/...
+if [ -f profile.out ]; then
+  cat profile.out >> coverage-integration.txt
+  rm profile.out
+fi

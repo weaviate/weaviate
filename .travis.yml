@@ -6,7 +6,15 @@ after_success:
   - WEAVIATE_VERSION=$(cat openapi-specs/schema.json| jq -r '.info.version')
   - |
     # send to codecov.io
-    bash <(curl -s https://codecov.io/bash)
+    # unit tests
+    rm -f coverage.txt || true; mv coverage-unit.txt coverage.txt
+    bash <(curl -s https://codecov.io/bash) -F unittests
+
+    # unit tests
+    rm -f coverage.txt || true; mv coverage-integration.txt coverage.txt
+    bash <(curl -s https://codecov.io/bash) -F integration
+
+    rm coverage.txt
   - |
     # only push to Dockerhub if master and not a PR
     if [ "$TRAVIS_PULL_REQUEST" = "false" ]; then
