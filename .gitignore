@@ -90,3 +90,5 @@ c.out
 esbackups/
 adapters/repos/db/testdata/
 
+# coverage files
+coverage*.txt
