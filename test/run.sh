@@ -43,16 +43,11 @@ function main() {
 }
 
 function run_unit_tests() {
-  echo "" > coverage-unit.txt
   if [[ "$*" == *--acceptance-only* ]]; then
     echo "Skipping unit test"
     return
   fi
-  go test -race -coverprofile=profile.out -covermode=atomic -count 1 $(go list ./... | grep -v 'test/acceptance') | grep -v '\[no test files\]'
-  if [ -f profile.out ]; then
-    cat profile.out >> coverage-unit.txt
-    rm profile.out
-  fi
+  go test -race -coverprofile=coverage-unit.txt -covermode=atomic -count 1 $(go list ./... | grep -v 'test/acceptance') | grep -v '\[no test files\]'
 }
 
 function run_integration_tests() {
