@@ -48,6 +48,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const MinimumRequiredContextionaryVersion = "0.4.15"
+
 func makeConfigureServer(appState *state.State) func(*http.Server, string, string) {
 	return func(s *http.Server, scheme, addr string) {
 		// Add properties to the config
@@ -77,6 +79,8 @@ type explorer interface {
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	appState, etcdClient, esClient := startupRoutine()
+
+	validateContextionaryVersion(appState)
 
 	api.ServeError = errors.ServeError
 
@@ -368,4 +372,43 @@ func (d *dummyLock) LockConnector() (func() error, error) {
 
 func (d *dummyLock) LockSchema() (func() error, error) {
 	return func() error { return nil }, nil
+}
+
+func validateContextionaryVersion(appState *state.State) {
+	for {
+		time.Sleep(1 * time.Second)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		v, err := appState.Contextionary.Version(ctx)
+		if err != nil {
+			appState.Logger.WithField("action", "startup_check_contextionary").WithError(err).
+				Warnf("could not connect to contextionary at startup, trying again in 1 sec")
+			continue
+		}
+
+		ok, err := extractVersionAndCompare(v, MinimumRequiredContextionaryVersion)
+		if err != nil {
+			appState.Logger.WithField("action", "startup_check_contextionary").
+				WithField("requiredMinimumContextionaryVersion", MinimumRequiredContextionaryVersion).
+				WithField("contextionaryVersion", v).
+				WithError(err).
+				Warnf("cannot determine if contextionary version is compatible. This is fine in development, but probelematic if you see this production")
+			break
+		}
+
+		if ok {
+			appState.Logger.WithField("action", "startup_check_contextionary").
+				WithField("requiredMinimumContextionaryVersion", MinimumRequiredContextionaryVersion).
+				WithField("contextionaryVersion", v).
+				Infof("found a valid contextionary version")
+			break
+		} else {
+			appState.Logger.WithField("action", "startup_check_contextionary").
+				WithField("requiredMinimumContextionaryVersion", MinimumRequiredContextionaryVersion).
+				WithField("contextionaryVersion", v).
+				Fatalf("insufficient contextionary version, cannot start up")
+			break
+		}
+	}
 }
