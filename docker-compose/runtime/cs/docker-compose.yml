@@ -3,6 +3,7 @@ services:
     environment:
       OCCURRENCE_WEIGHT_LINEAR_FACTOR: 0.75
       SCHEMA_PROVIDER_URL: etcd:2379
+      NEIGHBOR_OCCURRENCE_IGNORE_PERCENTILE: 5
     image: semitechnologies/contextionary:cs0.14.0-v0.4.15
     ports:
     - 9999:9999
