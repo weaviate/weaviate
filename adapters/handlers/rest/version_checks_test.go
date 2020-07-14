@@ -76,7 +76,7 @@ func TestExtractVersionAndCompare(t *testing.T) {
 
 		// only patch bigger
 		test{
-			input:           "abc-v0.1.2",
+			input:           "abc-v0.1.3",
 			requiredMinimum: "0.1.2",
 			expectedIsMet:   true,
 			expectedErr:     nil,
