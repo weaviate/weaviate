@@ -74,7 +74,8 @@ func TestExistingClassSingleRef(t *testing.T) {
 func TestGetPropertyDataType(t *testing.T) {
 
 	class := &models.Class{Class: "TestClass"}
-	dataTypes := []string{"string", "text", "int", "number", "date", "geoCoordinates", "phoneNumber", "Ref", "invalid"}
+	dataTypes := []string{"string", "text", "int", "number", "boolean",
+		"date", "geoCoordinates", "phoneNumber", "Ref", "invalid"}
 	class.Properties = make([]*models.Property, len(dataTypes))
 	for i, dtString := range dataTypes {
 
@@ -108,12 +109,20 @@ func TestGetPropertyDataType(t *testing.T) {
 			expectedDataType: ptDataType(DataTypeInt),
 		},
 		test{
+			propName:         "booleanProp",
+			expectedDataType: ptDataType(DataTypeBoolean),
+		},
+		test{
 			propName:         "dateProp",
 			expectedDataType: ptDataType(DataTypeDate),
 		},
 		test{
 			propName:         "phoneNumberProp",
 			expectedDataType: ptDataType(DataTypePhoneNumber),
+		},
+		test{
+			propName:         "geoCoordinatesProp",
+			expectedDataType: ptDataType(DataTypeGeoCoordinates),
 		},
 		test{
 			propName:         "RefProp",
