@@ -57,6 +57,12 @@ func Test_ParsePath(t *testing.T) {
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedPath, path, "should parse the path correctly")
+
+		// Extract innermost path element
+		innerMost := path.GetInnerMost()
+		assert.Equal(t, innerMost, &Path{Class: "Planet", Property: "name"})
+
+		// Print Slice
 	})
 }
 
@@ -90,10 +96,23 @@ func Test_SlicePath(t *testing.T) {
 				},
 			},
 		}
-		expectedSegments := []interface{}{"InCountry", "Country", "InContinent", "Continent", "OnPlanet", "Planet", "name"}
 
-		segments := path.SliceInterface()
+		t.Run("as []interface{}", func(t *testing.T) {
+			expectedSegments := []interface{}{"InCountry", "Country", "InContinent", "Continent", "OnPlanet", "Planet", "name"}
+			segments := path.SliceInterface()
+			assert.Equal(t, expectedSegments, segments, "should slice the path correctly")
+		})
 
-		assert.Equal(t, expectedSegments, segments, "should slice the path correctly")
+		t.Run("as []string titleized", func(t *testing.T) {
+			expectedSegments := []string{"InCountry", "Country", "InContinent", "Continent", "OnPlanet", "Planet", "name"}
+			segments := path.Slice()
+			assert.Equal(t, expectedSegments, segments, "should slice the path correctly")
+		})
+
+		t.Run("as []string non-titleized", func(t *testing.T) {
+			expectedSegments := []string{"inCountry", "Country", "inContinent", "Continent", "onPlanet", "Planet", "name"}
+			segments := path.SliceNonTitleized()
+			assert.Equal(t, expectedSegments, segments, "should slice the path correctly")
+		})
 	})
 }
