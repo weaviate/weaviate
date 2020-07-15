@@ -29,17 +29,6 @@ type WeaviateSchema struct {
 	ThingSchema  schemaProperties
 }
 
-func HackFromDatabaseSchema(dbSchema Schema) WeaviateSchema {
-	return WeaviateSchema{
-		ActionSchema: schemaProperties{
-			Schema: dbSchema.Actions,
-		},
-		ThingSchema: schemaProperties{
-			Schema: dbSchema.Things,
-		},
-	}
-}
-
 const (
 	// validationErrorMessage is a constant for returning the same message
 	validationErrorMessage string = "All predicates with the same name across different classes should contain the same kind of data"
