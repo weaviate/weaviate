@@ -38,7 +38,7 @@ func TestEsVectorRepoBatch(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{}
-	repo := NewRepo(client, logger, schemaGetter, 3, 100, 1, "0-1")
+	repo := NewRepo(client, logger, schemaGetter, 1, "0-1")
 	waitForEsToBeReady(t, repo)
 	migrator := NewMigrator(repo)
 

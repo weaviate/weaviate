@@ -68,15 +68,10 @@ type Contextionary struct {
 }
 
 type VectorIndex struct {
-	Enabled                bool    `json:"enabled" yaml:"enabled"`
-	URL                    string  `json:"url" yaml:"url"`
-	DenormalizationDepth   int     `json:"denormalizationDepth" yaml:"denormalizationDepth"`
-	SupernodeThreshold     int     `json:"supernodeThreshold" yaml:"supernodeThreshold"`
-	CacheCycleIdleWaitTime int     `json:"cacheCycleIdleWaitTime" yaml:"cacheCycleIdleWaitTime"`
-	CacheCycleBusyWaitTime int     `json:"cacheCycleBusyWaitTime" yaml:"cacheCycleBusyWaitTime"`
-	CacheCycleBulkSize     int     `json:"cacheCycleBulkSize" yaml:"cacheCycleBulkSize"`
-	NumberOfShards         *int    `json:"numberOfShards" yaml:"numberOfShards"`
-	AutoExpandReplicas     *string `json:"autoExpandReplicas" yaml:"autoExpandReplicas"`
+	Enabled            bool    `json:"enabled" yaml:"enabled"`
+	URL                string  `json:"url" yaml:"url"`
+	NumberOfShards     *int    `json:"numberOfShards" yaml:"numberOfShards"`
+	AutoExpandReplicas *string `json:"autoExpandReplicas" yaml:"autoExpandReplicas"`
 }
 
 type Persistence struct {
@@ -92,26 +87,6 @@ func (p Persistence) Validate() error {
 }
 
 func (v *VectorIndex) SetDefaults() {
-	if v.DenormalizationDepth == 0 {
-		v.DenormalizationDepth = 2
-	}
-
-	if v.SupernodeThreshold == 0 {
-		v.SupernodeThreshold = 100
-	}
-
-	if v.CacheCycleIdleWaitTime == 0 {
-		v.CacheCycleIdleWaitTime = 1000
-	}
-
-	if v.CacheCycleBusyWaitTime == 0 {
-		v.CacheCycleBusyWaitTime = 500
-	}
-
-	if v.CacheCycleBulkSize == 0 {
-		v.CacheCycleBulkSize = 200
-	}
-
 	if v.NumberOfShards == nil {
 		v.NumberOfShards = ptInt(3)
 	}
