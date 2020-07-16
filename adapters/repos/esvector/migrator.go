@@ -135,7 +135,6 @@ func (m *Migrator) setMappings(ctx context.Context, index string,
 
 func (m *Migrator) esPropsFromClassProps(props []*models.Property, depth int) (map[string]interface{}, error) {
 	esProperties := map[string]interface{}{}
-	cache := map[string]interface{}{}
 
 	for _, prop := range props {
 		// index everything unless explicitly turned off
@@ -164,32 +163,12 @@ func (m *Migrator) esPropsFromClassProps(props []*models.Property, depth int) (m
 		default:
 			// must be a ref
 
-			// mapping for the actual field containing the beacon
-			if depth == 0 {
-				esProperties[prop.Name] = map[string]interface{}{
-					"properties": map[string]interface{}{
-						"beacon": map[string]interface{}{
-							"type": Keyword,
-						},
+			esProperties[prop.Name] = map[string]interface{}{
+				"properties": map[string]interface{}{
+					"beacon": map[string]interface{}{
+						"type": Keyword,
 					},
-				}
-
-			}
-
-			// mapping for the cache
-			if depth+1 > m.repo.denormalizationDepthLimit {
-				continue
-			}
-
-			refProp, err := m.mapRefProp(prop.DataType, depth+1)
-			if err != nil {
-				return nil, fmt.Errorf("ref prop '%s': %v", prop.Name, err)
-			}
-
-			if depth == 0 {
-				cache[prop.Name] = refProp
-			} else {
-				esProperties[prop.Name] = refProp
+				},
 			}
 		}
 	}
@@ -216,32 +195,4 @@ func typeMapPhoneNumber(index bool) map[string]interface{} {
 			"valid":                  typeMap(Boolean, index),
 		},
 	}
-}
-
-func (m *Migrator) mapRefProp(classNames []string, depth int) (map[string]interface{}, error) {
-	s := m.repo.schemaGetter.GetSchemaSkipAuth()
-
-	properties := map[string]interface{}{}
-
-	for _, className := range classNames {
-		class := s.FindClassByName(schema.ClassName(className))
-		if class == nil {
-			return nil, fmt.Errorf("class '%s' not found", className)
-		}
-
-		esProperties, err := m.esPropsFromClassProps(class.Properties, depth)
-		if err != nil {
-			return nil, fmt.Errorf("target class '%s': %#v", className, err)
-		}
-
-		properties[className] = map[string]interface{}{
-			"properties": esProperties,
-			"type":       "nested",
-		}
-	}
-
-	return map[string]interface{}{
-		"properties": properties,
-	}, nil
-
 }
