@@ -16,7 +16,7 @@
     "graphql-to-json-schema": "^1.0.0",
     "graphql-union-input-type": "^0.4.0",
     "json-server": "^0.14.0",
-    "lodash": "^4.17.10",
+    "lodash": "^4.17.19",
     "mocha": "^5.2.0",
     "request": "^2.87.0",
     "should": "^13.2.1",
