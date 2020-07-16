@@ -56,6 +56,30 @@ func (s *Shard) objectByID(ctx context.Context, id strfmt.UUID, props traverser.
 	return &object, nil
 }
 
+func (s *Shard) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
+	var ok bool
+
+	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
+	if err != nil {
+		return false, err
+	}
+
+	err = s.db.View(func(tx *bolt.Tx) error {
+		bytes := tx.Bucket(helpers.ObjectsBucket).Get(idBytes)
+		if bytes == nil {
+			return nil
+		}
+
+		ok = true
+		return nil
+	})
+	if err != nil {
+		return false, errors.Wrap(err, "bolt view tx")
+	}
+
+	return ok, nil
+}
+
 func (s *Shard) vectorByIndexID(ctx context.Context, indexID int32) ([]float32, error) {
 	keyBuf := bytes.NewBuffer(make([]byte, 4))
 	binary.Write(keyBuf, binary.LittleEndian, &indexID)

@@ -110,6 +110,19 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID, props traverser.
 	return obj, nil
 }
 
+func (i *Index) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
+	// TODO: search across all shards, rather than hard-coded "single" shard
+	// TODO: can we improve this by hashing so we know the target shard?
+
+	shard := i.Shards["single"]
+	ok, err := shard.exists(ctx, id)
+	if err != nil {
+		return false, errors.Wrapf(err, "shard %s", shard.ID())
+	}
+
+	return ok, nil
+}
+
 func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
 	meta bool) ([]*storobj.Object, error) {
 	// TODO: don't ignore meta
