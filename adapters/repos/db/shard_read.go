@@ -12,7 +12,10 @@
 package db
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
+	"fmt"
 
 	"github.com/boltdb/bolt"
 	"github.com/go-openapi/strfmt"
@@ -51,6 +54,38 @@ func (s *Shard) objectByID(ctx context.Context, id strfmt.UUID, props traverser.
 	}
 
 	return &object, nil
+}
+
+func (s *Shard) vectorByIndexID(ctx context.Context, indexID int32) ([]float32, error) {
+	keyBuf := bytes.NewBuffer(make([]byte, 4))
+	binary.Write(keyBuf, binary.LittleEndian, &indexID)
+	key := keyBuf.Bytes()
+
+	var vec []float32
+	err := s.db.View(func(tx *bolt.Tx) error {
+		uuid := tx.Bucket(helpers.IndexIDBucket).Get(key)
+		if uuid != nil {
+			return fmt.Errorf("index id %d resolved to a nil object-id", indexID)
+		}
+
+		bytes := tx.Bucket(helpers.ObjectsBucket).Get(uuid)
+		if bytes == nil {
+			return fmt.Errorf("uuid resolved to a nil object")
+		}
+
+		obj, err := storobj.FromBinary(bytes)
+		if err != nil {
+			return errors.Wrap(err, "unmarshal kind object")
+		}
+
+		vec = obj.Vector
+		return nil
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "bolt view tx")
+	}
+
+	return vec, nil
 }
 
 func (s *Shard) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
