@@ -62,15 +62,13 @@ const (
 
 // Repo stores and retrieves vector info in elasticsearch
 type Repo struct {
-	client                    *elasticsearch.Client
-	logger                    logrus.FieldLogger
-	schemaGetter              schemaUC.SchemaGetter
-	denormalizationDepthLimit int
-	superNodeThreshold        int
-	requestCounter            counter
-	schemaRefFinder           schemaRefFinder
-	numberOfShards            int
-	autoExpandReplicas        string
+	client             *elasticsearch.Client
+	logger             logrus.FieldLogger
+	schemaGetter       schemaUC.SchemaGetter
+	requestCounter     counter
+	schemaRefFinder    schemaRefFinder
+	numberOfShards     int
+	autoExpandReplicas string
 }
 
 type schemaRefFinder interface {
@@ -93,17 +91,15 @@ func (c *noopCounter) Inc() {}
 
 // NewRepo from existing es client
 func NewRepo(client *elasticsearch.Client, logger logrus.FieldLogger,
-	schemaGetter schemaUC.SchemaGetter, denormalizationLimit int, superNodeThreshold, numberOfShards int, autoExpandReplicas string) *Repo {
+	schemaGetter schemaUC.SchemaGetter, numberOfShards int, autoExpandReplicas string) *Repo {
 	return &Repo{
-		client:                    client,
-		logger:                    logger,
-		schemaGetter:              schemaGetter,
-		denormalizationDepthLimit: denormalizationLimit,
-		superNodeThreshold:        superNodeThreshold,
-		requestCounter:            &noopCounter{},
-		schemaRefFinder:           &noopSchemaRefFinder{},
-		numberOfShards:            numberOfShards,
-		autoExpandReplicas:        autoExpandReplicas,
+		client:             client,
+		logger:             logger,
+		schemaGetter:       schemaGetter,
+		requestCounter:     &noopCounter{},
+		schemaRefFinder:    &noopSchemaRefFinder{},
+		numberOfShards:     numberOfShards,
+		autoExpandReplicas: autoExpandReplicas,
 	}
 }
 
