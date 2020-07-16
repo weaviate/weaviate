@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/indexcounter"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
@@ -26,10 +27,11 @@ import (
 // database files for all the objects it owns. How a shard is determined for a
 // target object (e.g. Murmur hash, etc.) is still open at this point
 type Shard struct {
-	index   *Index // a reference to the underlying index, which in turn contains schema information
-	name    string
-	db      *bolt.DB // one db file per shard, uses buckets for separation between data storage, index storage, etc.
-	counter *indexcounter.Counter
+	index       *Index // a reference to the underlying index, which in turn contains schema information
+	name        string
+	db          *bolt.DB // one db file per shard, uses buckets for separation between data storage, index storage, etc.
+	counter     *indexcounter.Counter
+	vectorIndex VectorIndex
 }
 
 func NewShard(shardName string, index *Index) (*Shard, error) {
@@ -37,6 +39,7 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 		index: index,
 		name:  shardName,
 	}
+	s.vectorIndex = hnsw.New(shardName, 30, 60, s.vectorByIndexID)
 
 	err := s.initDBFile()
 	if err != nil {
