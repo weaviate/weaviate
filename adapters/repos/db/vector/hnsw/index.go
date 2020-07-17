@@ -52,13 +52,16 @@ type hnsw struct {
 type vectorForID func(ctx context.Context, id int32) ([]float32, error)
 
 func New(rootPath, id string, maximumConnections int, efConstruction int, vectorForID vectorForID) *hnsw {
+
+	vectorCache := newCache(vectorForID)
+
 	return &hnsw{
 		maximumConnections:          maximumConnections,
 		maximumConnectionsLayerZero: 2 * maximumConnections,                    // inspired by original paper and other implementations
 		levelNormalizer:             1 / math.Log(float64(maximumConnections)), // inspired by c++ implementation
 		efConstruction:              efConstruction,
 		nodes:                       make([]*hnswVertex, 0, importLimit), // TODO: grow variably rather than fixed length
-		vectorForID:                 vectorForID,
+		vectorForID:                 vectorCache.get,
 		commitLog:                   newHnswCommitLogger(rootPath, id),
 		id:                          id,
 	}
