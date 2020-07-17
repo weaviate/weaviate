@@ -8,13 +8,13 @@ import (
 	"os"
 )
 
-func newHnswCommitLogger(name string) *hnswCommitLogger {
+func newHnswCommitLogger(rootPath, name string) *hnswCommitLogger {
 	l := &hnswCommitLogger{
 		events: make(chan []byte),
 	}
 
 	// TODO: adjust file path
-	fd, err := os.OpenFile(fmt.Sprintf("./data/hnsw_commit_log_%s", name), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666)
+	fd, err := os.OpenFile(fmt.Sprintf("%s/%s.hnsw.commitlog", rootPath, name), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666)
 	if err != nil {
 		panic(err)
 	}

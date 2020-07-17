@@ -6,6 +6,8 @@ import (
 	"math"
 	"math/rand"
 	"sync"
+
+	"github.com/pkg/errors"
 )
 
 const importLimit = 10000 // TODO: make variable
@@ -49,7 +51,7 @@ type hnsw struct {
 
 type vectorForID func(ctx context.Context, id int32) ([]float32, error)
 
-func New(id string, maximumConnections int, efConstruction int, vectorForID vectorForID) *hnsw {
+func New(rootPath, id string, maximumConnections int, efConstruction int, vectorForID vectorForID) *hnsw {
 	return &hnsw{
 		maximumConnections:          maximumConnections,
 		maximumConnectionsLayerZero: 2 * maximumConnections,                    // inspired by original paper and other implementations
@@ -57,7 +59,7 @@ func New(id string, maximumConnections int, efConstruction int, vectorForID vect
 		efConstruction:              efConstruction,
 		nodes:                       make([]*hnswVertex, 0, importLimit), // TODO: grow variably rather than fixed length
 		vectorForID:                 vectorForID,
-		commitLog:                   newHnswCommitLogger(id),
+		commitLog:                   newHnswCommitLogger(rootPath, id),
 		id:                          id,
 	}
 
@@ -169,12 +171,10 @@ func (h *hnsw) Add(id int, vector []float32) error {
 		id: id,
 	}
 
-	h.insert(node)
-
-	return nil
+	return h.insert(node)
 }
 
-func (h *hnsw) insert(node *hnswVertex) {
+func (h *hnsw) insert(node *hnswVertex) error {
 	// before := time.Now()
 	h.RLock()
 	// m.addBuildingReadLockingBeginning(before)
@@ -188,13 +188,13 @@ func (h *hnsw) insert(node *hnswVertex) {
 		h.currentMaximumLayer = 0
 		node.connections = map[int][]uint32{}
 		node.level = 0
-		h.nodes = make([]*hnswVertex, 100000)
+		h.nodes = make([]*hnswVertex, importLimit)
 		h.commitLog.AddNode(node)
 		h.nodes[node.id] = node
 		h.Unlock()
 
 		// go h.insertHook(node.id, 0, node.connections)
-		return
+		return nil
 	}
 	// initially use the "global" entrypoint which is guaranteed to be on the
 	// currently highest layer
@@ -225,18 +225,32 @@ func (h *hnsw) insert(node *hnswVertex) {
 	// each layer for a better candidate and update the candidate
 	for level := currentMaximumLayer; level > targetLevel; level-- {
 		tmpBST := &binarySearchTreeGeneric{}
-		tmpBST.insert(entryPointID, h.distBetweenNodes(nodeId, entryPointID))
-		res := h.searchLayer(node, *tmpBST, 1, level)
+		dist, err := h.distBetweenNodes(nodeId, entryPointID)
+		if err != nil {
+			return errors.Wrapf(err, "calculate distance between insert node and entry point at level %d", level)
+		}
+		tmpBST.insert(entryPointID, dist)
+		res, err := h.searchLayer(node, *tmpBST, 1, level)
+		if err != nil {
+			return errors.Wrapf(err, "update candidate: search layer at level %d", level)
+		}
 		entryPointID = res.minimum().index
 	}
 
 	var results = &binarySearchTreeGeneric{}
-	results.insert(entryPointID, h.distBetweenNodes(nodeId, entryPointID))
+	dist, err := h.distBetweenNodes(nodeId, entryPointID)
+	if err != nil {
+		return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
+	}
+	results.insert(entryPointID, dist)
 
 	neighborsAtLevel := make(map[int][]uint32) // for distributed spike
 
 	for level := min(targetLevel, currentMaximumLayer); level >= 0; level-- {
-		results = h.searchLayer(node, *results, h.efConstruction, level)
+		results, err = h.searchLayer(node, *results, h.efConstruction, level)
+		if err != nil {
+			return errors.Wrapf(err, "find neighbors: search layer at level %d", level)
+		}
 
 		// TODO: support both neighbor selection algos
 		neighbors := h.selectNeighborsSimple(nodeId, *results, h.maximumConnections)
@@ -271,7 +285,10 @@ func (h *hnsw) insert(node *hnswVertex) {
 			}
 
 			// TODO: support both neighbor selection algos
-			updatedConnections := h.selectNeighborsSimpleFromId(nodeId, currentConnections, maximumConnections)
+			updatedConnections, err := h.selectNeighborsSimpleFromId(nodeId, currentConnections, maximumConnections)
+			if err != nil {
+				return errors.Wrap(err, "connect neighbors")
+			}
 
 			// before = time.Now()
 			neighbor.Lock()
@@ -293,9 +310,11 @@ func (h *hnsw) insert(node *hnswVertex) {
 		h.currentMaximumLayer = targetLevel
 		h.Unlock()
 	}
+
+	return nil
 }
 
-func (h *hnsw) searchLayer(queryNode *hnswVertex, entrypoints binarySearchTreeGeneric, ef int, level int) *binarySearchTreeGeneric {
+func (h *hnsw) searchLayer(queryNode *hnswVertex, entrypoints binarySearchTreeGeneric, ef int, level int) (*binarySearchTreeGeneric, error) {
 
 	// create 3 copies of the entrypoint bst
 	visited := map[uint32]struct{}{}
@@ -313,9 +332,17 @@ func (h *hnsw) searchLayer(queryNode *hnswVertex, entrypoints binarySearchTreeGe
 	for candidates.root != nil { // efficient way to see if the len is > 0
 		candidate := candidates.minimum()
 		candidates.delete(candidate.index, candidate.dist)
-		worstResultDistance := h.distBetweenNodes(results.maximum().index, queryNode.id)
+		worstResultDistance, err := h.distBetweenNodes(results.maximum().index, queryNode.id)
+		if err != nil {
+			return nil, errors.Wrap(err, "calculated distance between worst result and query")
+		}
 
-		if h.distBetweenNodes(candidate.index, queryNode.id) > worstResultDistance {
+		dist, err := h.distBetweenNodes(candidate.index, queryNode.id)
+		if err != nil {
+			return nil, errors.Wrap(err, "calculated distance between best candidate and query")
+		}
+
+		if dist > worstResultDistance {
 			break
 		}
 
@@ -340,7 +367,11 @@ func (h *hnsw) searchLayer(queryNode *hnswVertex, entrypoints binarySearchTreeGe
 			// make sure we never visit this neighbor again
 			visited[neighborID] = struct{}{}
 
-			distance := h.distBetweenNodes(int(neighborID), queryNode.id)
+			distance, err := h.distBetweenNodes(int(neighborID), queryNode.id)
+			if err != nil {
+				return nil, errors.Wrap(err, "calculate distance between neighbor and query")
+			}
+
 			resLenBefore := results.len() // calculating just once saves a bit of time
 			if distance < worstResultDistance || resLenBefore < ef {
 				results.insert(int(neighborID), distance)
@@ -356,7 +387,7 @@ func (h *hnsw) searchLayer(queryNode *hnswVertex, entrypoints binarySearchTreeGe
 		}
 	}
 
-	return results
+	return results, nil
 }
 
 func (h *hnsw) selectNeighborsSimple(nodeId int, input binarySearchTreeGeneric, max int) []uint32 {
@@ -373,14 +404,17 @@ func (h *hnsw) selectNeighborsSimple(nodeId int, input binarySearchTreeGeneric, 
 	return out
 }
 
-func (h *hnsw) selectNeighborsSimpleFromId(nodeId int, ids []uint32, max int) []uint32 {
+func (h *hnsw) selectNeighborsSimpleFromId(nodeId int, ids []uint32, max int) ([]uint32, error) {
 	bst := &binarySearchTreeGeneric{}
 	for _, id := range ids {
-		dist := h.distBetweenNodes(int(id), nodeId)
+		dist, err := h.distBetweenNodes(int(id), nodeId)
+		if err != nil {
+			return nil, errors.Wrap(err, "select neighbors simple from id")
+		}
 		bst.insert(int(id), dist)
 	}
 
-	return h.selectNeighborsSimple(nodeId, *bst, max)
+	return h.selectNeighborsSimple(nodeId, *bst, max), nil
 }
 
 func (v *hnswVertex) linkAtLevel(level int, target uint32, cl *hnswCommitLogger) {
@@ -404,36 +438,58 @@ func min(a, b int) int {
 	return b
 }
 
-func (h *hnsw) distBetweenNodes(a, b int) float32 {
+func (h *hnsw) distBetweenNodes(a, b int) (float32, error) {
 	// TODO: handle errors
 	// TODO: introduce single search/transaction context instead of spawning new
 	// ones
-	vecA, _ := h.vectorForID(context.Background(), int32(a))
-	vecB, _ := h.vectorForID(context.Background(), int32(b))
+	vecA, err := h.vectorForID(context.Background(), int32(a))
+	if err != nil {
+		return 0, errors.Wrapf(err, "could not get vector of object at docID %d", a)
+	}
+
+	if vecA == nil || len(vecA) == 0 {
+		return 0, fmt.Errorf("got a nil or zero-length vector at docID %d", a)
+	}
+
+	vecB, err := h.vectorForID(context.Background(), int32(b))
+	if err != nil {
+		return 0, errors.Wrapf(err, "could not get vector of object at docID %d", b)
+	}
+
+	if vecB == nil || len(vecB) == 0 {
+		return 0, fmt.Errorf("got a nil or zero-length vector at docID %d", b)
+	}
+
 	return cosineDist(vecA, vecB)
 }
 
 func (h *hnsw) SearchByID(id int, k int) ([]int, error) {
 	// TODO: make ef configurable
-	return h.knnSearch(id, k, 36), nil
+	return h.knnSearch(id, k, 36)
 }
 
 func (h *hnsw) SearchByVector(vector []float32, k int) ([]int, error) {
 	return nil, fmt.Errorf("search by vector not supported yet")
 }
 
-func (h *hnsw) knnSearch(queryNodeID int, k int, ef int) []int {
+func (h *hnsw) knnSearch(queryNodeID int, k int, ef int) ([]int, error) {
 	h.RLock()
 	queryNode := h.nodes[queryNodeID]
 	h.RUnlock()
 
 	entryPointID := h.entryPointID
-	entryPointDistance := h.distBetweenNodes(entryPointID, queryNodeID)
+	entryPointDistance, err := h.distBetweenNodes(entryPointID, queryNodeID)
+	if err != nil {
+		return nil, errors.Wrap(err, "knn search: distance between entrypint and query node")
+	}
 
 	for level := h.currentMaximumLayer; level >= 1; level-- { // stop at layer 1, not 0!
 		eps := &binarySearchTreeGeneric{}
 		eps.insert(entryPointID, entryPointDistance)
-		res := h.searchLayer(queryNode, *eps, 1, level)
+		res, err := h.searchLayer(queryNode, *eps, 1, level)
+		if err != nil {
+			return nil, errors.Wrapf(err, "knn search: search layer at level %d", level)
+		}
 		best := res.minimum()
 		entryPointID = best.index
 		entryPointDistance = best.dist
@@ -441,7 +497,10 @@ func (h *hnsw) knnSearch(queryNodeID int, k int, ef int) []int {
 
 	eps := &binarySearchTreeGeneric{}
 	eps.insert(entryPointID, entryPointDistance)
-	res := h.searchLayer(queryNode, *eps, ef, 0)
+	res, err := h.searchLayer(queryNode, *eps, ef, 0)
+	if err != nil {
+		return nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
+	}
 
 	flat := res.flattenInOrder()
 	size := min(len(flat), k)
@@ -453,7 +512,7 @@ func (h *hnsw) knnSearch(queryNodeID int, k int, ef int) []int {
 		out[i] = elem.index
 	}
 
-	return out
+	return out, nil
 }
 
 func (h *hnsw) Stats() {
