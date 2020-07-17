@@ -45,7 +45,19 @@ func (db *DB) ClassSearch(ctx context.Context, params traverser.GetParams) ([]se
 	return storobj.SearchResults(res), nil
 }
 func (db *DB) VectorClassSearch(ctx context.Context, params traverser.GetParams) ([]search.Result, error) {
-	return nil, fmt.Errorf("vector-based search not implemented (yet)")
+	idx := db.GetIndex(params.Kind, schema.ClassName(params.ClassName))
+	if idx == nil {
+		return nil, fmt.Errorf("tried to browse non-existing index for %s/%s", params.Kind, params.ClassName)
+	}
+
+	res, err := idx.objectVectorSearch(ctx, params.SearchVector, params.Pagination.Limit, params.Filters, false)
+	if err != nil {
+		return nil, errors.Wrapf(err, "object vector search at index %s", idx.ID())
+	}
+
+	// TODO: Inject uuid at expected field
+
+	return storobj.SearchResults(res), nil
 }
 func (db *DB) VectorSearch(ctx context.Context, vector []float32, limit int,
 	filters *filters.LocalFilter) ([]search.Result, error) {
