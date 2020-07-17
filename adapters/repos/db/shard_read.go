@@ -88,7 +88,7 @@ func (s *Shard) vectorByIndexID(ctx context.Context, indexID int32) ([]float32, 
 	var vec []float32
 	err := s.db.View(func(tx *bolt.Tx) error {
 		uuid := tx.Bucket(helpers.IndexIDBucket).Get(key)
-		if uuid != nil {
+		if uuid == nil {
 			return fmt.Errorf("index id %d resolved to a nil object-id", indexID)
 		}
 

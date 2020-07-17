@@ -39,7 +39,7 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 		index: index,
 		name:  shardName,
 	}
-	s.vectorIndex = hnsw.New(shardName, 30, 60, s.vectorByIndexID)
+	s.vectorIndex = hnsw.New(s.index.Config.RootPath, s.ID(), 30, 60, s.vectorByIndexID)
 
 	err := s.initDBFile()
 	if err != nil {

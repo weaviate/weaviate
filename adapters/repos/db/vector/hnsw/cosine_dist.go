@@ -25,13 +25,9 @@ func cosineSim(a, b []float32) (float32, error) {
 	return float32(sumProduct / (math.Sqrt(sumASquare) * math.Sqrt(sumBSquare))), nil
 }
 
-func cosineDist(a, b []float32) float32 {
+func cosineDist(a, b []float32) (float32, error) {
 	// before := time.Now()
 	// defer m.addDistancing(before)
 	sim, err := cosineSim(a, b)
-	if err != nil {
-		panic(err)
-	}
-
-	return 1 - sim
+	return 1 - sim, err
 }
