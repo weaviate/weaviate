@@ -122,6 +122,59 @@ func (s *Shard) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	return inverted.NewSearcher(s.db).Object(ctx, limit, filters, meta)
 }
 
+func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32, limit int,
+	filters *filters.LocalFilter, meta bool) ([]*storobj.Object, error) {
+	if filters != nil {
+		return nil, fmt.Errorf("combining vector search and filters not possible yet")
+	}
+
+	ids, err := s.vectorIndex.SearchByVector(searchVector, limit)
+	if err != nil {
+		return nil, errors.Wrap(err, "vector search")
+	}
+
+	if ids == nil || len(ids) == 0 {
+		return nil, nil
+	}
+
+	var out []*storobj.Object
+
+	if err := s.db.View(func(tx *bolt.Tx) error {
+		uuidKeys := make([][]byte, len(ids))
+		b := tx.Bucket(helpers.IndexIDBucket)
+		if b == nil {
+			return fmt.Errorf("index id bucket not found")
+		}
+
+		for i, pointer := range ids {
+			keyBuf := bytes.NewBuffer(make([]byte, 4))
+			pointerUint32 := uint32(pointer)
+			binary.Write(keyBuf, binary.LittleEndian, &pointerUint32)
+			key := keyBuf.Bytes()
+			uuidKeys[i] = b.Get(key)
+		}
+
+		out = make([]*storobj.Object, len(uuidKeys))
+		b = tx.Bucket(helpers.ObjectsBucket)
+		if b == nil {
+			return fmt.Errorf("index id bucket not found")
+		}
+		for i, uuid := range uuidKeys {
+			elem, err := storobj.FromBinary(b.Get(uuid))
+			if err != nil {
+				return errors.Wrap(err, "unmarshal data object")
+			}
+
+			out[i] = elem
+		}
+		return nil
+	}); err != nil {
+		return nil, errors.Wrap(err, "docID to []*storobj.Object after vector search")
+	}
+
+	return out, nil
+}
+
 func (s *Shard) objectList(ctx context.Context, limit int, meta bool) ([]*storobj.Object, error) {
 	out := make([]*storobj.Object, limit)
 	i := 0

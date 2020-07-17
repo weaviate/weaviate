@@ -136,3 +136,17 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 	return res, nil
 }
+
+func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32, limit int,
+	filters *filters.LocalFilter, meta bool) ([]*storobj.Object, error) {
+	// TODO: don't ignore meta
+	// TODO: search across all shards, rather than hard-coded "single" shard
+
+	shard := i.Shards["single"]
+	res, err := shard.objectVectorSearch(ctx, searchVector, limit, filters, meta)
+	if err != nil {
+		return nil, errors.Wrapf(err, "shard %s", shard.ID())
+	}
+
+	return res, nil
+}
