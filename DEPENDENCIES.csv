@@ -1,10 +1,10 @@
 PACKAGE,LICENSE,LICENSE NAME
-https://golang.org/,https://golang.org/LICENSE,BSD 3-Clause "New" or "Revised" License
+https://golang.org/,https://golang.org/LICENSE,BSD 3-Clause New or Revised License
 https://github.com/BurntSushi/toml/,https://github.com/BurntSushi/toml/blob/master/COPYING,MIT License
-https://github.com/PuerkitoBio/purell/,https://github.com/PuerkitoBio/purell/blob/master/LICENSE,BSD 3-Clause "New" or "Revised" License
-https://github.com/PuerkitoBio/urlesc/,https://github.com/PuerkitoBio/urlesc/blob/master/LICENSE,BSD 3-Clause "New" or "Revised" License
+https://github.com/PuerkitoBio/purell/,https://github.com/PuerkitoBio/purell/blob/master/LICENSE,BSD 3-Clause New or Revised License
+https://github.com/PuerkitoBio/urlesc/,https://github.com/PuerkitoBio/urlesc/blob/master/LICENSE,BSD 3-Clause New or Revised License
 https://github.com/TylerBrock/colorjson/,https://github.com/TylerBrock/colorjson/blob/master/LICENSE,MIT License
-https://github.com/alecthomas/template/,https://github.com/alecthomas/template/blob/master/LICENSE,BSD 3-Clause "New" or "Revised" License
+https://github.com/alecthomas/template/,https://github.com/alecthomas/template/blob/master/LICENSE,BSD 3-Clause New or Revised License
 https://github.com/alecthomas/units,https://github.com/alecthomas/units/blob/master/COPYING,MIT License
 https://github.com/alecthomas/kingpin,https://github.com/alecthomas/kingpin/blob/master/COPYING,MIT License
 https://github.com/antihax/optional,https://github.com/antihax/optional/blob/master/LICENSE,MIT License
@@ -26,7 +26,7 @@ https://github.com/elastic/go-elasticsearch/,https://github.com/elastic/go-elast
 https://github.com/fatih/camelcase,https://github.com/fatih/camelcase/blob/master/LICENSE.md,MIT License
 https://github.com/fatih/color,https://github.com/fatih/color/blob/master/LICENSE.md,MIT License
 https://github.com/ghodss/yaml,https://github.com/ghodss/yaml/blob/master/LICENSE,MIT License
-https://github.com/globalsign/mgo,https://github.com/globalsign/mgo/blob/master/LICENSEBSD,2-Clause "Simplified" License
+https://github.com/globalsign/mgo,https://github.com/globalsign/mgo/blob/master/LICENSEBSD,2-Clause Simplified License
 https://github.com/go-kit/kit,https://github.com/go-kit/kit/blob/master/LICENSE,MIT License
 https://github.com/go-logfmt/logfmt,https://github.com/go-logfmt/logfmt/blob/master/LICENSE,MIT License
 https://github.com/go-openapi/analysis,https://github.com/go-openapi/analysis/blob/master/LICENSE,Apache License 2.0
@@ -39,28 +39,28 @@ https://github.com/go-openapi/spec,https://github.com/go-openapi/spec/blob/maste
 https://github.com/go-openapi/swag,https://github.com/go-openapi/swag/blob/master/LICENSE,Apache License 2.0
 https://github.com/go-openapi/validate,https://github.com/go-openapi/validate/blob/master/LICENSE,Apache License 2.0
 https://github.com/go-stack/stack,https://github.com/go-stack/stack/blob/master/LICENSE.md,MIT License
-https://github.com/godbus/dbus/,https://github.com/godbus/dbus/blob/master/LICENSE,BSD 2-Clause "Simplified" License
-https://github.com/gogo/protobuf,https://github.com/gogo/protobuf/blob/master/LICENSE,BSD 3-Clause "New" or "Revised" License
+https://github.com/godbus/dbus/,https://github.com/godbus/dbus/blob/master/LICENSE,BSD 2-Clause Simplified License
+https://github.com/gogo/protobuf,https://github.com/gogo/protobuf/blob/master/LICENSE,BSD 3-Clause New or Revised License
 https://github.com/golang/glog,https://github.com/golang/glog/blob/master/LICENSE,Apache License 2.0
 https://github.com/golang/groupcache,https://github.com/golang/groupcache/blob/master/LICENSE,Apache License 2.0
 https://github.com/golang/mock,https://github.com/golang/mock/blob/master/LICENSE,Apache License 2.0
-https://github.com/golang/protobuf,https://github.com/golang/protobuf/blob/master/LICENSE,BSD 3-Clause "New" or "Revised" License
+https://github.com/golang/protobuf,https://github.com/golang/protobuf/blob/master/LICENSE,BSD 3-Clause New or Revised License
 https://github.com/google/btree,https://github.com/google/btree/blob/master/LICENSE,Apache License 2.0
-https://github.com/google/go-cmp,https://github.com/google/go-cmp/blob/master/LICENSE,BSD 3-Clause "New" or "Revised" License
+https://github.com/google/go-cmp,https://github.com/google/go-cmp/blob/master/LICENSE,BSD 3-Clause New or Revised License
 https://github.com/google/gofuzz,https://github.com/google/gofuzz/blob/master/LICENSE,Apache License 2.0
 https://github.com/google/renameio,https://github.com/google/renameio/blob/master/LICENSE,Apache License 2.0
-https://github.com/google/uuid,https://github.com/google/uuid/blob/master/LICENSE,BSD 3-Clause "New" or "Revised" License
-https://github.com/gorilla/mux,https://github.com/gorilla/mux/blob/master/LICENSE,BSD 3-Clause "New" or "Revised" License
-https://github.com/gorilla/websocket,https://github.com/gorilla/websocket/blob/master/LICENSE,BSD 2-Clause "Simplified" License
+https://github.com/google/uuid,https://github.com/google/uuid/blob/master/LICENSE,BSD 3-Clause New or Revised License
+https://github.com/gorilla/mux,https://github.com/gorilla/mux/blob/master/LICENSE,BSD 3-Clause New or Revised License
+https://github.com/gorilla/websocket,https://github.com/gorilla/websocket/blob/master/LICENSE,BSD 2-Clause Simplified License
 https://github.com/graphql-go/graphql,https://github.com/graphql-go/graphql/blob/master/LICENSE,MIT License
 https://github.com/grpc-ecosystem/go-grpc-middleware,https://github.com/grpc-ecosystem/go-grpc-middleware/blob/master/LICENSE,Apache License 2.0
 https://github.com/grpc-ecosystem/go-grpc-prometheus,https://github.com/grpc-ecosystem/go-grpc-prometheus/blob/master/LICENSE,Apache License 2.0
-https://github.com/grpc-ecosystem/grpc-gateway,https://github.com/grpc-ecosystem/grpc-gateway/blob/master/LICENSE.txt,BSD 3-Clause "New" or "Revised" License
+https://github.com/grpc-ecosystem/grpc-gateway,https://github.com/grpc-ecosystem/grpc-gateway/blob/master/LICENSE.txt,BSD 3-Clause New or Revised License
 https://github.com/hokaccha/go-prettyjson,https://github.com/hokaccha/go-prettyjson/blob/master/LICENSE,MIT License
-https://github.com/jessevdk/go-flags,https://github.com/jessevdk/go-flags/blob/master/LICENSE,BSD 3-Clause "New" or "Revised" License
+https://github.com/jessevdk/go-flags,https://github.com/jessevdk/go-flags/blob/master/LICENSE,BSD 3-Clause New or Revised License
 https://github.com/jonboulle/clockwork,https://github.com/jonboulle/clockwork/blob/master/LICENSE,Apache License 2.0
 https://github.com/json-iterator/go,https://github.com/json-iterator/go/blob/master/LICENSE,MIT License
-https://github.com/julienschmidt/httprouter,https://github.com/julienschmidt/httprouter/blob/master/LICENSE,BSD 3-Clause "New" or "Revised" License
+https://github.com/julienschmidt/httprouter,https://github.com/julienschmidt/httprouter/blob/master/LICENSE,BSD 3-Clause New or Revised License
 https://github.com/kisielk/errcheck,https://github.com/kisielk/errcheck/blob/master/LICENSE,MIT License
 https://github.com/kisielk/gotool,https://github.com/kisielk/gotool/blob/master/LICENSE,MIT License
 https://github.com/konsorten/go-windows-terminal-sequences,https://github.com/konsorten/go-windows-terminal-sequences/blob/master/LICENSE,MIT License
@@ -76,16 +76,16 @@ https://github.com/modern-go/concurrent,https://github.com/modern-go/concurrent/
 https://github.com/modern-go/reflect2,https://github.com/modern-go/reflect2/blob/master/LICENSE,Apache License 2.0
 https://github.com/mwitkow/go-conntrack,https://github.com/mwitkow/go-conntrack/blob/master/LICENSE,Apache License 2.0
 https://github.com/opentracing/opentracing-go,https://github.com/opentracing/opentracing-go/blob/master/LICENSE,Apache License 2.0
-https://github.com/pborman/uuid,https://github.com/pborman/uuid/blob/master/LICENSE,BSD 3-Clause "New" or "Revised" License
-https://github.com/pkg/errors,https://github.com/pkg/errors/blob/master/LICENSE,BSD 2-Clause "Simplified" License
-https://github.com/pmezard/go-difflib,https://github.com/pmezard/go-difflib/blob/master/LICENSE,BSD 3-Clause "New" or "Revised" License
+https://github.com/pborman/uuid,https://github.com/pborman/uuid/blob/master/LICENSE,BSD 3-Clause New or Revised License
+https://github.com/pkg/errors,https://github.com/pkg/errors/blob/master/LICENSE,BSD 2-Clause Simplified License
+https://github.com/pmezard/go-difflib,https://github.com/pmezard/go-difflib/blob/master/LICENSE,BSD 3-Clause New or Revised License
 https://github.com/pquerna/cachecontrol,https://github.com/pquerna/cachecontrol/blob/master/LICENSE,Apache License 2.0
 https://github.com/prometheus/client_golang,https://github.com/prometheus/client_golang/blob/master/LICENSE,Apache License 2.0
 https://github.com/prometheus/client_model,https://github.com/prometheus/client_model/blob/master/LICENSE,Apache License 2.0
 https://github.com/prometheus/common,https://github.com/prometheus/common/blob/master/LICENSE,Apache License 2.0
 https://github.com/prometheus/procfs,https://github.com/prometheus/procfs/blob/master/LICENSE,Apache License 2.0
-https://github.com/rogpeppe/fastuuid,https://github.com/rogpeppe/fastuuid/blob/master/LICENSE,BSD 3-Clause "New" or "Revised" License
-https://github.com/rogpeppe/go-internal,https://github.com/rogpeppe/go-internal/blob/master/LICENSE,BSD 3-Clause "New" or "Revised" License
+https://github.com/rogpeppe/fastuuid,https://github.com/rogpeppe/fastuuid/blob/master/LICENSE,BSD 3-Clause New or Revised License
+https://github.com/rogpeppe/go-internal,https://github.com/rogpeppe/go-internal/blob/master/LICENSE,BSD 3-Clause New or Revised License
 https://github.com/rs/cors,https://github.com/rs/cors/blob/master/LICENSE,MIT License
 https://github.com/satori/go.uuid,https://github.com/satori/go.uuid/blob/master/LICENSE,MIT License
 https://github.com/sirupsen/logrus,https://github.com/sirupsen/logrus/blob/master/LICENSE,MIT License
@@ -93,7 +93,7 @@ https://github.com/soheilhy/cmux,https://github.com/soheilhy/cmux/blob/master/LI
 https://github.com/square/go-jose,https://github.com/square/go-jose/blob/master/LICENSE,Apache License 2.0
 https://github.com/stretchr/objx,https://github.com/stretchr/objx/blob/master/LICENSE,MIT License
 https://github.com/stretchr/testify,https://github.com/stretchr/testify/blob/master/LICENSE,MIT License
-https://github.com/syndtr/goleveldb,https://github.com/syndtr/goleveldb/blob/master/LICENSE,BSD 2-Clause "Simplified" License
+https://github.com/syndtr/goleveldb,https://github.com/syndtr/goleveldb/blob/master/LICENSE,BSD 2-Clause Simplified License
 https://github.com/tidwall/pretty,https://github.com/tidwall/pretty/blob/master/LICENSE,MIT License
 https://github.com/tmc/grpc-websocket-proxy,https://github.com/tmc/grpc-websocket-proxy/blob/master/LICENSE,MIT License
 https://github.com/ugorji/go,https://github.com/ugorji/go/blob/master/LICENSE,MIT License
@@ -102,18 +102,18 @@ https://pkg.go.dev/go.mongodb.org/mongo-driver,https://pkg.go.dev/go.mongodb.org
 https://pkg.go.dev/go.uber.org/atomic?tab=doc,https://pkg.go.dev/go.uber.org/atomic?tab=licenses,MIT License
 https://pkg.go.dev/go.uber.org/multierr?tab=doc,https://pkg.go.dev/go.uber.org/multierr?tab=licenses,MIT License
 https://pkg.go.dev/go.uber.org/zap?tab=doc,https://pkg.go.dev/go.uber.org/zap?tab=licenses,MIT License
-https://pkg.go.dev/golang.org/x/crypto,https://pkg.go.dev/golang.org/x/crypto?tab=licenses,BSD 3-Clause "New" or "Revised" License
-https://pkg.go.dev/golang.org/x/exp,https://pkg.go.dev/golang.org/x/exp?tab=licenses,BSD 3-Clause "New" or "Revised" License
-https://pkg.go.dev/golang.org/x/lint?tab=doc,https://pkg.go.dev/golang.org/x/lint?tab=licenses,BSD 3-Clause "New" or "Revised" License
-https://pkg.go.dev/golang.org/x/mod,https://pkg.go.dev/golang.org/x/mod?tab=licenses,BSD 3-Clause "New" or "Revised" License
-https://pkg.go.dev/golang.org/x/net,https://pkg.go.dev/golang.org/x/net?tab=licenses,BSD 3-Clause "New" or "Revised" License
-https://pkg.go.dev/golang.org/x/oauth2,https://pkg.go.dev/golang.org/x/oauth2?tab=licenses,BSD 3-Clause "New" or "Revised" License
-https://pkg.go.dev/golang.org/x/sync,https://pkg.go.dev/golang.org/x/sync?tab=licenses,BSD 3-Clause "New" or "Revised" License
-https://pkg.go.dev/golang.org/x/sys,https://pkg.go.dev/golang.org/x/sys?tab=licenses,BSD 3-Clause "New" or "Revised" License
-https://pkg.go.dev/golang.org/x/text?tab=doc,https://pkg.go.dev/golang.org/x/text?tab=licenses,BSD 3-Clause "New" or "Revised" License
-https://pkg.go.dev/golang.org/x/time,https://pkg.go.dev/golang.org/x/time?tab=licenses,BSD 3-Clause "New" or "Revised" License
-https://pkg.go.dev/golang.org/x/tools,https://pkg.go.dev/golang.org/x/tools?tab=licenses,BSD 3-Clause "New" or "Revised" License
-https://pkg.go.dev/golang.org/x/xerrors?tab=doc,https://pkg.go.dev/golang.org/x/xerrors?tab=licenses,BSD 3-Clause "New" or "Revised" License
+https://pkg.go.dev/golang.org/x/crypto,https://pkg.go.dev/golang.org/x/crypto?tab=licenses,BSD 3-Clause New or Revised License
+https://pkg.go.dev/golang.org/x/exp,https://pkg.go.dev/golang.org/x/exp?tab=licenses,BSD 3-Clause New or Revised License
+https://pkg.go.dev/golang.org/x/lint?tab=doc,https://pkg.go.dev/golang.org/x/lint?tab=licenses,BSD 3-Clause New or Revised License
+https://pkg.go.dev/golang.org/x/mod,https://pkg.go.dev/golang.org/x/mod?tab=licenses,BSD 3-Clause New or Revised License
+https://pkg.go.dev/golang.org/x/net,https://pkg.go.dev/golang.org/x/net?tab=licenses,BSD 3-Clause New or Revised License
+https://pkg.go.dev/golang.org/x/oauth2,https://pkg.go.dev/golang.org/x/oauth2?tab=licenses,BSD 3-Clause New or Revised License
+https://pkg.go.dev/golang.org/x/sync,https://pkg.go.dev/golang.org/x/sync?tab=licenses,BSD 3-Clause New or Revised License
+https://pkg.go.dev/golang.org/x/sys,https://pkg.go.dev/golang.org/x/sys?tab=licenses,BSD 3-Clause New or Revised License
+https://pkg.go.dev/golang.org/x/text?tab=doc,https://pkg.go.dev/golang.org/x/text?tab=licenses,BSD 3-Clause New or Revised License
+https://pkg.go.dev/golang.org/x/time,https://pkg.go.dev/golang.org/x/time?tab=licenses,BSD 3-Clause New or Revised License
+https://pkg.go.dev/golang.org/x/tools,https://pkg.go.dev/golang.org/x/tools?tab=licenses,BSD 3-Clause New or Revised License
+https://pkg.go.dev/golang.org/x/xerrors?tab=doc,https://pkg.go.dev/golang.org/x/xerrors?tab=licenses,BSD 3-Clause New or Revised License
 https://pkg.go.dev/google.golang.org/appengine?tab=doc,https://pkg.go.dev/google.golang.org/appengine?tab=licenses,Apache License 2.0
 https://godoc.org/google.golang.org/genproto,https://pkg.go.dev/google.golang.org/genproto?tab=licenses,Apache License 2.0
 https://pkg.go.dev/google.golang.org/grpc?tab=doc,https://pkg.go.dev/google.golang.org/grpc?tab=licenses,Apache License 2.0
