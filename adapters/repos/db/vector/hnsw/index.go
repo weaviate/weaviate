@@ -42,7 +42,7 @@ type hnsw struct {
 
 	vectorForID vectorForID
 
-	commitLog *hnswCommitLogger
+	commitLog commitLogger
 
 	// // for distributed spike, can be used to call a insertExternal on a different graph
 	// insertHook func(node, targetLevel int, neighborsAtLevel map[int][]uint32)
@@ -51,9 +51,17 @@ type hnsw struct {
 	rootPath string
 }
 
+type commitLogger interface {
+	AddNode(node *hnswVertex) error
+	SetEntryPointWithMaxLayer(id int, level int) error
+	AddLinkAtLevel(nodeid int, level int, target uint32) error
+	ReplaceLinksAtLevel(nodeid int, level int, targets []uint32) error
+}
+
 type vectorForID func(ctx context.Context, id int32) ([]float32, error)
 
-func New(rootPath, id string, maximumConnections int, efConstruction int, vectorForID vectorForID) (*hnsw, error) {
+func New(rootPath, id string, commitLogger commitLogger, maximumConnections int,
+	efConstruction int, vectorForID vectorForID) (*hnsw, error) {
 
 	vectorCache := newCache(vectorForID)
 
@@ -73,7 +81,7 @@ func New(rootPath, id string, maximumConnections int, efConstruction int, vector
 	}
 
 	// init commit logger for future writes
-	index.commitLog = newHnswCommitLogger(rootPath, id)
+	index.commitLog = commitLogger
 
 	return index, nil
 }
@@ -357,7 +365,7 @@ func (h *hnsw) insert(node *hnswVertex) error {
 	return nil
 }
 
-func (v *hnswVertex) linkAtLevel(level int, target uint32, cl *hnswCommitLogger) {
+func (v *hnswVertex) linkAtLevel(level int, target uint32, cl commitLogger) {
 	v.Lock()
 	cl.AddLinkAtLevel(v.id, level, target)
 	v.connections[level] = append(v.connections[level], target)
