@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"os"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -46,26 +47,65 @@ type hnsw struct {
 	// // for distributed spike, can be used to call a insertExternal on a different graph
 	// insertHook func(node, targetLevel int, neighborsAtLevel map[int][]uint32)
 
-	id string
+	id       string
+	rootPath string
 }
 
 type vectorForID func(ctx context.Context, id int32) ([]float32, error)
 
-func New(rootPath, id string, maximumConnections int, efConstruction int, vectorForID vectorForID) *hnsw {
+func New(rootPath, id string, maximumConnections int, efConstruction int, vectorForID vectorForID) (*hnsw, error) {
 
 	vectorCache := newCache(vectorForID)
 
-	return &hnsw{
+	index := &hnsw{
 		maximumConnections:          maximumConnections,
 		maximumConnectionsLayerZero: 2 * maximumConnections,                    // inspired by original paper and other implementations
 		levelNormalizer:             1 / math.Log(float64(maximumConnections)), // inspired by c++ implementation
 		efConstruction:              efConstruction,
 		nodes:                       make([]*hnswVertex, 0, importLimit), // TODO: grow variably rather than fixed length
 		vectorForID:                 vectorCache.get,
-		commitLog:                   newHnswCommitLogger(rootPath, id),
 		id:                          id,
+		rootPath:                    rootPath,
 	}
 
+	if err := index.restoreFromDisk(); err != nil {
+		return nil, errors.Wrapf(err, "restore hnsw index %q", id)
+	}
+
+	// init commit logger for future writes
+	index.commitLog = newHnswCommitLogger(rootPath, id)
+
+	return index, nil
+}
+
+// if a commit log is already present it will be read into memory, if not we
+// start with an empty model
+func (h *hnsw) restoreFromDisk() error {
+	fileName := commitLogFileName(h.rootPath, h.id)
+	if _, err := os.Stat(fileName); err != nil {
+		if os.IsNotExist(err) {
+			// nothing to do here we can return
+			return nil
+		}
+
+		return errors.Wrapf(err, "unexpected error checking for commit log file %q", fileName)
+	}
+
+	fd, err := os.Open(fileName)
+	if err != nil {
+		return errors.Wrapf(err, "open commit log %q for reading", fileName)
+	}
+
+	res, err := newDeserializer().Do(fd)
+	if err != nil {
+		return errors.Wrapf(err, "deserialize commit log %q", fileName)
+	}
+
+	h.nodes = res.nodes
+	h.currentMaximumLayer = int(res.level)
+	h.entryPointID = int(res.entrypoint)
+
+	return nil
 }
 
 // TODO: use this for incoming replication

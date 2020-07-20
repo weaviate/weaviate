@@ -8,13 +8,18 @@ import (
 	"os"
 )
 
+// TODO: adjust file path, it needs to contain timestamps. Possibly use a
+// directory as helpers
+func commitLogFileName(rootPath, name string) string {
+	return fmt.Sprintf("%s/%s.hnsw.commitlog", rootPath, name)
+}
+
 func newHnswCommitLogger(rootPath, name string) *hnswCommitLogger {
 	l := &hnswCommitLogger{
 		events: make(chan []byte),
 	}
 
-	// TODO: adjust file path
-	fd, err := os.OpenFile(fmt.Sprintf("%s/%s.hnsw.commitlog", rootPath, name), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666)
+	fd, err := os.OpenFile(commitLogFileName(rootPath, name), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666)
 	if err != nil {
 		panic(err)
 	}

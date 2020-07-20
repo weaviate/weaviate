@@ -39,16 +39,21 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 		index: index,
 		name:  shardName,
 	}
-	s.vectorIndex = hnsw.New(s.index.Config.RootPath, s.ID(), 30, 60, s.vectorByIndexID)
 
-	err := s.initDBFile()
+	vi, err := hnsw.New(s.index.Config.RootPath, s.ID(), 30, 60, s.vectorByIndexID)
 	if err != nil {
-		return nil, errors.Wrapf(err, "init shard %s", s.ID())
+		return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
+	}
+	s.vectorIndex = vi
+
+	err = s.initDBFile()
+	if err != nil {
+		return nil, errors.Wrapf(err, "init shard %q: shard db", s.ID())
 	}
 
 	counter, err := indexcounter.New(s.ID(), index.Config.RootPath)
 	if err != nil {
-		return nil, errors.Wrapf(err, "init shard index counter %s", s.ID())
+		return nil, errors.Wrapf(err, "init shard %q: index counter", s.ID())
 	}
 
 	s.counter = counter
