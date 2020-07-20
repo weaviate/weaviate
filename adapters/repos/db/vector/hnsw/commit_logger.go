@@ -14,7 +14,7 @@ func commitLogFileName(rootPath, name string) string {
 	return fmt.Sprintf("%s/%s.hnsw.commitlog", rootPath, name)
 }
 
-func newHnswCommitLogger(rootPath, name string) *hnswCommitLogger {
+func NewCommitLogger(rootPath, name string) *hnswCommitLogger {
 	l := &hnswCommitLogger{
 		events: make(chan []byte),
 	}
