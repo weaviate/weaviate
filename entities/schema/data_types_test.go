@@ -12,9 +12,12 @@
 package schema
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDetectPrimitiveTypes(t *testing.T) {
@@ -66,4 +69,86 @@ func TestExistingClassSingleRef(t *testing.T) {
 	if !pdt.IsReference() {
 		t.Fatal("not single ref")
 	}
+}
+
+func TestGetPropertyDataType(t *testing.T) {
+
+	class := &models.Class{Class: "TestClass"}
+	dataTypes := []string{"string", "text", "int", "number", "boolean",
+		"date", "geoCoordinates", "phoneNumber", "Ref", "invalid"}
+	class.Properties = make([]*models.Property, len(dataTypes))
+	for i, dtString := range dataTypes {
+
+		class.Properties[i] = &models.Property{
+			Name:     dtString + "Prop",
+			DataType: []string{dtString},
+		}
+	}
+
+	type test struct {
+		propName         string
+		expectedDataType *DataType
+		expectedErr      error
+	}
+
+	tests := []test{
+		test{
+			propName:         "stringProp",
+			expectedDataType: ptDataType(DataTypeString),
+		},
+		test{
+			propName:         "textProp",
+			expectedDataType: ptDataType(DataTypeText),
+		},
+		test{
+			propName:         "numberProp",
+			expectedDataType: ptDataType(DataTypeNumber),
+		},
+		test{
+			propName:         "intProp",
+			expectedDataType: ptDataType(DataTypeInt),
+		},
+		test{
+			propName:         "booleanProp",
+			expectedDataType: ptDataType(DataTypeBoolean),
+		},
+		test{
+			propName:         "dateProp",
+			expectedDataType: ptDataType(DataTypeDate),
+		},
+		test{
+			propName:         "phoneNumberProp",
+			expectedDataType: ptDataType(DataTypePhoneNumber),
+		},
+		test{
+			propName:         "geoCoordinatesProp",
+			expectedDataType: ptDataType(DataTypeGeoCoordinates),
+		},
+		test{
+			propName:         "RefProp",
+			expectedDataType: ptDataType(DataTypeCRef),
+		},
+		test{
+			propName:         "wrongProp",
+			expectedDataType: nil,
+			expectedErr:      fmt.Errorf("no such prop with name 'wrongProp' found in class 'TestClass' in the schema. Check your schema files for which properties in this class are available"),
+		},
+		test{
+			propName:         "invalidProp",
+			expectedDataType: nil,
+			expectedErr:      fmt.Errorf("given value-DataType does not exist."),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.propName, func(t *testing.T) {
+			dt, err := GetPropertyDataType(class, test.propName)
+			require.Equal(t, test.expectedErr, err)
+			assert.Equal(t, test.expectedDataType, dt)
+		})
+	}
+}
+
+func ptDataType(dt DataType) *DataType {
+	return &dt
 }

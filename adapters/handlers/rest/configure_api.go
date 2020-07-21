@@ -113,8 +113,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			appState.Logger, nnExtender, featureProjector, pathBuilder)
 	} else {
 		repo := esvector.NewRepo(esClient, appState.Logger, nil,
-			appState.ServerConfig.Config.VectorIndex.DenormalizationDepth,
-			appState.ServerConfig.Config.VectorIndex.SupernodeThreshold,
 			*appState.ServerConfig.Config.VectorIndex.NumberOfShards,     // guaranteed not to be nil as there are defaults
 			*appState.ServerConfig.Config.VectorIndex.AutoExpandReplicas, // guaranteed not to be nil as there are defaults
 		)

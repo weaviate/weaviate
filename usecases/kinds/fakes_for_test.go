@@ -148,12 +148,14 @@ func (f *fakeVectorRepo) ActionByID(ctx context.Context,
 
 func (f *fakeVectorRepo) ThingSearch(ctx context.Context, limit int,
 	filters *filters.LocalFilter, underscores traverser.UnderscoreProperties) (search.Results, error) {
-	return nil, nil
+	args := f.Called(limit, filters, underscores)
+	return args.Get(0).([]search.Result), args.Error(1)
 }
 
 func (f *fakeVectorRepo) ActionSearch(ctx context.Context, limit int,
 	filters *filters.LocalFilter, underscores traverser.UnderscoreProperties) (search.Results, error) {
-	return nil, nil
+	args := f.Called(limit, filters, underscores)
+	return args.Get(0).([]search.Result), args.Error(1)
 }
 
 func (f *fakeVectorRepo) PutThing(ctx context.Context,
@@ -205,18 +207,23 @@ func (f *fakeVectorRepo) AddReference(ctx context.Context, kind kind.Kind, sourc
 	return args.Error(0)
 }
 
-type fakeExtender struct{}
+type fakeExtender struct {
+	single *search.Result
+	multi  []search.Result
+}
 
 func (f *fakeExtender) Single(ctx context.Context, in *search.Result, limit *int) (*search.Result, error) {
-	return nil, nil
+	return f.single, nil
 }
 
 func (f *fakeExtender) Multi(ctx context.Context, in []search.Result, limit *int) ([]search.Result, error) {
-	return nil, nil
+	return f.multi, nil
 }
 
-type fakeProjector struct{}
+type fakeProjector struct {
+	multi []search.Result
+}
 
 func (f *fakeProjector) Reduce(in []search.Result, params *projector.Params) ([]search.Result, error) {
-	return nil, nil
+	return f.multi, nil
 }
