@@ -81,7 +81,7 @@ func TestEsVectorMigrator(t *testing.T) {
 	require.Nil(t, err)
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{schema: refSchema}
-	repo := NewRepo(client, logger, schemaGetter, 3, 100, 1, "0-1")
+	repo := NewRepo(client, logger, schemaGetter, 1, "0-1")
 	waitForEsToBeReady(t, repo)
 	migrator := NewMigrator(repo)
 
@@ -275,7 +275,7 @@ func TestEsVectorMigrator_ImportingConcepts(t *testing.T) {
 	require.Nil(t, err)
 	logger, _ := test.NewNullLogger()
 	schemaGetter := &fakeSchemaGetter{}
-	repo := NewRepo(client, logger, schemaGetter, 3, 100, 1, "0-1")
+	repo := NewRepo(client, logger, schemaGetter, 1, "0-1")
 	waitForEsToBeReady(t, repo)
 	migrator := NewMigrator(repo)
 

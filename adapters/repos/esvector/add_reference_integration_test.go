@@ -70,7 +70,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 	}
 	schemaGetter := &fakeSchemaGetter{schema: schema}
 	logger := logrus.New()
-	repo := NewRepo(client, logger, schemaGetter, 2, 100, 1, "0-1")
+	repo := NewRepo(client, logger, schemaGetter, 1, "0-1")
 	waitForEsToBeReady(t, repo)
 	migrator := NewMigrator(repo)
 
