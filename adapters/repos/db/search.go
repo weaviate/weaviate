@@ -61,7 +61,33 @@ func (db *DB) VectorClassSearch(ctx context.Context, params traverser.GetParams)
 }
 func (db *DB) VectorSearch(ctx context.Context, vector []float32, limit int,
 	filters *filters.LocalFilter) ([]search.Result, error) {
-	return nil, fmt.Errorf("vector-based search not implemented (yet)")
+	var found search.Results
+
+	// TODO: Search in parallel, rather than sequentially or this will be
+	// painfully slow on large schemas
+	for _, index := range db.indices {
+		res, err := index.objectVectorSearch(ctx, vector, limit, filters, false) // TODO support all underscore props
+		if err != nil {
+			return nil, errors.Wrapf(err, "search index %s", index.ID())
+		}
+
+		found = append(found, storobj.SearchResults(res)...)
+		if len(found) >= limit {
+			// we are done
+			break
+		}
+	}
+
+	found, err := found.SortByDistanceToVector(vector)
+	if err != nil {
+		return nil, errors.Wrapf(err, "re-sort when merging indices")
+	}
+
+	if len(found) > limit {
+		found = found[:limit]
+	}
+
+	return found, nil
 }
 
 func (d *DB) ThingSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
