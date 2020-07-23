@@ -56,7 +56,7 @@ func (f *Searcher) Object(ctx context.Context, limit int, filter *filters.LocalF
 		return nil, err
 	}
 
-	// TODO: support more than one pv pair
+	// TODO: support more than one pv pair from filter
 
 	var out []*storobj.Object
 	if err := f.db.View(func(tx *bolt.Tx) error {

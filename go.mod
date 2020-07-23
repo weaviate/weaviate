@@ -29,7 +29,7 @@ require (
 	github.com/mattn/go-isatty v0.0.11 // indirect
 	github.com/modern-go/reflect2 v1.0.1 // indirect
 	github.com/nyaruka/phonenumbers v1.0.54
-	github.com/pkg/errors v0.8.1
+	github.com/pkg/errors v0.9.1
 	github.com/rs/cors v1.5.0
 	github.com/satori/go.uuid v0.0.0-20180103174451-36e9d2ebbde5
 	github.com/semi-technologies/contextionary v0.0.0-20200701085343-13c11a568705

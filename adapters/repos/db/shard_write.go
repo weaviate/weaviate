@@ -71,6 +71,10 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 		return errors.Wrap(err, "bolt batch tx")
 	}
 
+	if err := s.vectorIndex.Add(int(docID), object.Vector); err != nil {
+		return errors.Wrap(err, "insert to vector index")
+	}
+
 	return nil
 }
 
