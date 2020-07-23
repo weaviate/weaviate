@@ -36,13 +36,6 @@ func NewSearcher(db *bolt.DB) *Searcher {
 	}
 }
 
-type propValuePair struct {
-	prop         string
-	value        []byte
-	operator     filters.Operator
-	hasFrequency bool
-}
-
 func (f *Searcher) Object(ctx context.Context, limit int, filter *filters.LocalFilter,
 	meta bool) ([]*storobj.Object, error) {
 	// defer func() {
@@ -51,27 +44,25 @@ func (f *Searcher) Object(ctx context.Context, limit int, filter *filters.LocalF
 	// 	}
 	// }()
 
-	pv, err := f.extractPropValuePairs(filter)
+	pv, err := f.extractPropValuePair(filter.Root)
 	if err != nil {
 		return nil, err
 	}
 
-	// TODO: support more than one pv pair from filter
-
 	var out []*storobj.Object
 	if err := f.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(helpers.BucketFromPropName(pv[0].prop))
-		if b == nil {
-			return fmt.Errorf("bucket for prop %s not found - is it indexed?", pv[0].prop)
+
+		if err := pv.fetchDocIDs(tx, f, limit); err != nil {
+			return errors.Wrap(err, "fetch doc ids for prop/value pair")
 		}
 
-		pointers, err := f.docPointers(pv[0].operator, b, pv[0].value, limit, pv[0].hasFrequency)
+		pointers, err := pv.mergeDocIDs()
 		if err != nil {
-			return err
+			return errors.Wrap(err, "merge doc ids by operator")
 		}
 
 		uuidKeys := make([][]byte, len(pointers.docIDs))
-		b = tx.Bucket(helpers.IndexIDBucket)
+		b := tx.Bucket(helpers.IndexIDBucket)
 		if b == nil {
 			return fmt.Errorf("index id bucket not found")
 		}
@@ -150,52 +141,63 @@ func (fs *Searcher) parseInvertedIndexRow(in []byte, limit int, hasFrequency boo
 	return out, nil
 }
 
-func (fs *Searcher) extractPropValuePairs(filter *filters.LocalFilter) ([]propValuePair, error) {
-	if filter.Root.Operands != nil {
-		return nil, fmt.Errorf("nested filteres not supported yet")
+func (fs *Searcher) extractPropValuePair(filter *filters.Clause) (*propValuePair, error) {
+	var out propValuePair
+	if filter.Operands != nil {
+		// nested filter
+		out.children = make([]*propValuePair, len(filter.Operands))
+
+		for i, clause := range filter.Operands {
+			child, err := fs.extractPropValuePair(&clause)
+			if err != nil {
+				return nil, errors.Wrapf(err, "nested clause at pos %d", i)
+			}
+			out.children[i] = child
+		}
+	} else {
+		// we are on a value element
+
+		var extractValueFn func(in interface{}) ([]byte, error)
+		var hasFrequency bool
+		switch filter.Value.Type {
+		case schema.DataTypeText:
+			extractValueFn = fs.extractTextValue
+			hasFrequency = true
+		case schema.DataTypeString:
+			extractValueFn = fs.extractStringValue
+			hasFrequency = true
+		case schema.DataTypeBoolean:
+			extractValueFn = fs.extractBoolValue
+			hasFrequency = false
+		case schema.DataTypeInt:
+			extractValueFn = fs.extractIntValue
+			hasFrequency = false
+		case schema.DataTypeNumber:
+			extractValueFn = fs.extractNumberValue
+			hasFrequency = false
+		default:
+			return nil, fmt.Errorf("data type not supported yet")
+		}
+
+		byteValue, err := extractValueFn(filter.Value.Value)
+		if err != nil {
+			return nil, err
+		}
+
+		out.value = byteValue
+		out.hasFrequency = hasFrequency
+
+		props := filter.On.Slice()
+		if len(props) != 1 {
+			return nil, fmt.Errorf("ref-filters not supported yet")
+		}
+
+		out.prop = props[0]
 	}
 
-	var extractValueFn func(in interface{}) ([]byte, error)
-	var hasFrequency bool
-	switch filter.Root.Value.Type {
-	case schema.DataTypeText:
-		extractValueFn = fs.extractTextValue
-		hasFrequency = true
-	case schema.DataTypeString:
-		extractValueFn = fs.extractStringValue
-		hasFrequency = true
-	case schema.DataTypeBoolean:
-		extractValueFn = fs.extractBoolValue
-		hasFrequency = false
-	case schema.DataTypeInt:
-		extractValueFn = fs.extractIntValue
-		hasFrequency = false
-	case schema.DataTypeNumber:
-		extractValueFn = fs.extractNumberValue
-		hasFrequency = false
-	default:
-		return nil, fmt.Errorf("data type not supported yet")
-	}
+	out.operator = filter.Operator
 
-	byteValue, err := extractValueFn(filter.Root.Value.Value)
-	if err != nil {
-		return nil, err
-	}
-
-	props := filter.Root.On.Slice()
-	if len(props) != 1 {
-		return nil, fmt.Errorf("ref-filters not supported yet")
-	}
-
-	// TODO: support more than one
-	return []propValuePair{
-		propValuePair{
-			prop:         props[0],
-			value:        byteValue,
-			operator:     filter.Root.Operator,
-			hasFrequency: hasFrequency,
-		},
-	}, nil
+	return &out, nil
 }
 
 type docPointers struct {
