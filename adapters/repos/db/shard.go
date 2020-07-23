@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/indexcounter"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
@@ -26,10 +27,11 @@ import (
 // database files for all the objects it owns. How a shard is determined for a
 // target object (e.g. Murmur hash, etc.) is still open at this point
 type Shard struct {
-	index   *Index // a reference to the underlying index, which in turn contains schema information
-	name    string
-	db      *bolt.DB // one db file per shard, uses buckets for separation between data storage, index storage, etc.
-	counter *indexcounter.Counter
+	index       *Index // a reference to the underlying index, which in turn contains schema information
+	name        string
+	db          *bolt.DB // one db file per shard, uses buckets for separation between data storage, index storage, etc.
+	counter     *indexcounter.Counter
+	vectorIndex VectorIndex
 }
 
 func NewShard(shardName string, index *Index) (*Shard, error) {
@@ -38,14 +40,21 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 		name:  shardName,
 	}
 
-	err := s.initDBFile()
+	vi, err := hnsw.New(s.index.Config.RootPath, s.ID(), hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID()),
+		30, 60, s.vectorByIndexID)
 	if err != nil {
-		return nil, errors.Wrapf(err, "init shard %s", s.ID())
+		return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
+	}
+	s.vectorIndex = vi
+
+	err = s.initDBFile()
+	if err != nil {
+		return nil, errors.Wrapf(err, "init shard %q: shard db", s.ID())
 	}
 
 	counter, err := indexcounter.New(s.ID(), index.Config.RootPath)
 	if err != nil {
-		return nil, errors.Wrapf(err, "init shard index counter %s", s.ID())
+		return nil, errors.Wrapf(err, "init shard %q: index counter", s.ID())
 	}
 
 	s.counter = counter
