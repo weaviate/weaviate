@@ -99,6 +99,13 @@ func TestCRUD(t *testing.T) {
 	}
 
 	thingID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
+
+	t.Run("validating that the thing doesn't exist prior", func(t *testing.T) {
+		ok, err := repo.Exists(context.Background(), thingID)
+		require.Nil(t, err)
+		assert.False(t, ok)
+	})
+
 	t.Run("adding a thing", func(t *testing.T) {
 		thing := &models.Thing{
 			CreationTimeUnix:   1565612833955,
@@ -127,6 +134,12 @@ func TestCRUD(t *testing.T) {
 		err := repo.PutThing(context.Background(), thing, vector)
 
 		assert.Nil(t, err)
+	})
+
+	t.Run("validating that the thing exists now", func(t *testing.T) {
+		ok, err := repo.Exists(context.Background(), thingID)
+		require.Nil(t, err)
+		assert.True(t, ok)
 	})
 
 	timeMust := func(t strfmt.DateTime, err error) strfmt.DateTime {
@@ -163,64 +176,63 @@ func TestCRUD(t *testing.T) {
 		assert.Nil(t, err)
 	})
 
-	// TODO: gh-1148
-	// t.Run("searching by vector", func(t *testing.T) {
-	// 	// the search vector is designed to be very close to the action, but
-	// 	// somewhat far from the thing. So it should match the action closer
-	// 	searchVector := []float32{2.9, 1.1, 0.5, 8.01}
+	t.Run("searching by vector", func(t *testing.T) {
+		// the search vector is designed to be very close to the action, but
+		// somewhat far from the thing. So it should match the action closer
+		searchVector := []float32{2.9, 1.1, 0.5, 8.01}
 
-	// 	res, err := repo.VectorSearch(context.Background(), searchVector, 10, nil)
+		res, err := repo.VectorSearch(context.Background(), searchVector, 10, nil)
 
-	// 	require.Nil(t, err)
-	// 	require.Equal(t, true, len(res) >= 2)
-	// 	assert.Equal(t, actionID, res[0].ID)
-	// 	assert.Equal(t, kind.Action, res[0].Kind)
-	// 	assert.Equal(t, "TheBestActionClass", res[0].ClassName)
-	// 	assert.Equal(t, "TheBestActionClass", res[0].ClassName)
-	// 	assert.Equal(t, int64(1000002), res[0].Created)
-	// 	assert.Equal(t, int64(1000003), res[0].Updated)
-	// 	assert.Equal(t, thingID, res[1].ID)
-	// 	assert.Equal(t, kind.Thing, res[1].Kind)
-	// 	assert.Equal(t, "TheBestThingClass", res[1].ClassName)
-	// 	assert.Equal(t, int64(1565612833955), res[1].Created)
-	// 	assert.Equal(t, int64(1000001), res[1].Updated)
-	// })
+		require.Nil(t, err)
+		require.Equal(t, true, len(res) >= 2)
+		assert.Equal(t, actionID, res[0].ID)
+		assert.Equal(t, kind.Action, res[0].Kind)
+		assert.Equal(t, "TheBestActionClass", res[0].ClassName)
+		assert.Equal(t, "TheBestActionClass", res[0].ClassName)
+		assert.Equal(t, int64(1000002), res[0].Created)
+		assert.Equal(t, int64(1000003), res[0].Updated)
+		assert.Equal(t, thingID, res[1].ID)
+		assert.Equal(t, kind.Thing, res[1].Kind)
+		assert.Equal(t, "TheBestThingClass", res[1].ClassName)
+		assert.Equal(t, int64(1565612833955), res[1].Created)
+		assert.Equal(t, int64(1000001), res[1].Updated)
+	})
 
-	// TODO: gh-1148
-	// t.Run("searching by vector for a single class", func(t *testing.T) {
-	// 	// the search vector is designed to be very close to the action, but
-	// 	// somewhat far from the thing. So it should match the action closer
-	// 	searchVector := []float32{2.9, 1.1, 0.5, 8.01}
+	t.Run("searching by vector for a single class", func(t *testing.T) {
+		// the search vector is designed to be very close to the action, but
+		// somewhat far from the thing. So it should match the action closer
+		searchVector := []float32{2.9, 1.1, 0.5, 8.01}
 
-	// 	params := traverser.GetParams{
-	// 		SearchVector: searchVector,
-	// 		Kind:         kind.Thing,
-	// 		ClassName:    "TheBestThingClass",
-	// 		Pagination:   &filters.Pagination{Limit: 10},
-	// 		Filters:      nil,
-	// 	}
-	// 	res, err := repo.VectorClassSearch(context.Background(), params)
+		params := traverser.GetParams{
+			SearchVector: searchVector,
+			Kind:         kind.Thing,
+			ClassName:    "TheBestThingClass",
+			Pagination:   &filters.Pagination{Limit: 10},
+			Filters:      nil,
+		}
+		res, err := repo.VectorClassSearch(context.Background(), params)
 
-	// 	require.Nil(t, err)
-	// 	require.Len(t, res, 1, "got exactly one result")
-	// 	assert.Equal(t, thingID, res[0].ID, "extracted the ID")
-	// 	assert.Equal(t, kind.Thing, res[0].Kind, "matches the kind")
-	// 	assert.Equal(t, "TheBestThingClass", res[0].ClassName, "matches the class name")
-	// 	schema := res[0].Schema.(map[string]interface{})
-	// 	assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
-	// 	assert.Equal(t, &models.GeoCoordinates{ptFloat32(1), ptFloat32(2)}, schema["location"], "has correct geo prop")
-	// 	assert.Equal(t, &models.PhoneNumber{
-	// 		CountryCode:            49,
-	// 		DefaultCountry:         "DE",
-	// 		Input:                  "0171 1234567",
-	// 		Valid:                  true,
-	// 		InternationalFormatted: "+49 171 1234567",
-	// 		National:               1234567,
-	// 		NationalFormatted:      "0171 1234567",
-	// 	}, schema["phone"], "has correct phone prop")
-	// 	assert.Equal(t, thingID.String(), schema["uuid"], "has id in schema as uuid field")
-	// 	assert.Nil(t, res[0].Meta, "not meta information should be included unless explicitly asked for")
-	// })
+		require.Nil(t, err)
+		require.Len(t, res, 1, "got exactly one result")
+		assert.Equal(t, thingID, res[0].ID, "extracted the ID")
+		assert.Equal(t, kind.Thing, res[0].Kind, "matches the kind")
+		assert.Equal(t, "TheBestThingClass", res[0].ClassName, "matches the class name")
+		schema := res[0].Schema.(map[string]interface{})
+		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
+		// TODO gh-1150
+		// assert.Equal(t, &models.GeoCoordinates{ptFloat32(1), ptFloat32(2)}, schema["location"], "has correct geo prop")
+		// assert.Equal(t, &models.PhoneNumber{
+		// 	CountryCode:            49,
+		// 	DefaultCountry:         "DE",
+		// 	Input:                  "0171 1234567",
+		// 	Valid:                  true,
+		// 	InternationalFormatted: "+49 171 1234567",
+		// 	National:               1234567,
+		// 	NationalFormatted:      "0171 1234567",
+		// }, schema["phone"], "has correct phone prop")
+		// assert.Equal(t, thingID.String(), schema["uuid"], "has id in schema as uuid field")
+		assert.Nil(t, res[0].UnderscoreProperties, "not meta information should be included unless explicitly asked for")
+	})
 
 	t.Run("searching by class type", func(t *testing.T) {
 		params := traverser.GetParams{
