@@ -15,12 +15,12 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
@@ -346,6 +346,10 @@ func (ko *Object) parseKind(uuid strfmt.UUID, create, update int64, className st
 	var schema map[string]interface{}
 	if err := json.Unmarshal(schemaB, &schema); err != nil {
 		return err
+	}
+
+	if err := ko.enrichSchemaTypes(schema); err != nil {
+		return errors.Wrap(err, "enrich schema datatypes")
 	}
 
 	var underscore *models.UnderscoreProperties
