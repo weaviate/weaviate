@@ -58,9 +58,8 @@ func TestFilters(t *testing.T) {
 	t.Run("primitve props with limit",
 		testPrimitivePropsWithLimit(repo))
 
-	// TODO: gh-1150 support chained filters
-	// t.Run("chained primitive props",
-	// 	testChainedPrimitiveProps(repo, migrator))
+	t.Run("chained primitive props",
+		testChainedPrimitiveProps(repo, migrator))
 
 }
 
@@ -295,84 +294,83 @@ func testPrimitivePropsWithLimit(repo *DB) func(t *testing.T) {
 	}
 }
 
-// TODO: gh-1150 supported chained filters
-// func testChainedPrimitiveProps(repo *DB,
-// 	migrator *Migrator) func(t *testing.T) {
-// 	return func(t *testing.T) {
-// 		type test struct {
-// 			name        string
-// 			filter      *filters.LocalFilter
-// 			expectedIDs []strfmt.UUID
-// 		}
+func testChainedPrimitiveProps(repo *DB,
+	migrator *Migrator) func(t *testing.T) {
+	return func(t *testing.T) {
+		type test struct {
+			name        string
+			filter      *filters.LocalFilter
+			expectedIDs []strfmt.UUID
+		}
 
-// 		tests := []test{
-// 			test{
-// 				name: "modelName == sprinter AND  weight > 3000",
-// 				filter: filterAnd(
-// 					buildFilter("modelName", "sprinter", eq, dtString),
-// 					buildFilter("weight", 3000, gt, dtNumber),
-// 				),
-// 				expectedIDs: []strfmt.UUID{carSprinterID},
-// 			},
-// 			test{
-// 				name: "modelName == sprinter OR modelName == e63s",
-// 				filter: filterOr(
-// 					buildFilter("modelName", "sprinter", eq, dtString),
-// 					buildFilter("modelName", "e63s", eq, dtString),
-// 				),
-// 				expectedIDs: []strfmt.UUID{carSprinterID, carE63sID},
-// 			},
-// 			test{
-// 				name: "NOT modelName == sprinter, modelName == e63s",
-// 				filter: filterNot(
-// 					buildFilter("modelName", "sprinter", eq, dtString),
-// 					buildFilter("modelName", "e63s", eq, dtString),
-// 				),
-// 				expectedIDs: []strfmt.UUID{carPoloID},
-// 			},
-// 			test{
-// 				name: "NOT horsepower < 200 , weight > 3000",
-// 				filter: filterNot(
-// 					buildFilter("horsepower", 200, lt, dtNumber),
-// 					buildFilter("weight", 3000, gt, dtNumber),
-// 				),
-// 				expectedIDs: []strfmt.UUID{carE63sID},
-// 			},
-// 			test{
-// 				name: "(heavy AND powerful) OR light",
-// 				filter: filterOr(
-// 					filterAnd(
-// 						buildFilter("horsepower", 200, gt, dtNumber),
-// 						buildFilter("weight", 1500, gt, dtNumber),
-// 					),
-// 					buildFilter("weight", 1500, lt, dtNumber),
-// 				),
-// 				expectedIDs: []strfmt.UUID{carE63sID, carPoloID},
-// 			},
-// 		}
+		tests := []test{
+			test{
+				name: "modelName == sprinter AND  weight > 3000",
+				filter: filterAnd(
+					buildFilter("modelName", "sprinter", eq, dtString),
+					buildFilter("weight", float64(3000), gt, dtNumber),
+				),
+				expectedIDs: []strfmt.UUID{carSprinterID},
+			},
+			test{
+				name: "modelName == sprinter OR modelName == e63s",
+				filter: filterOr(
+					buildFilter("modelName", "sprinter", eq, dtString),
+					buildFilter("modelName", "e63s", eq, dtString),
+				),
+				expectedIDs: []strfmt.UUID{carSprinterID, carE63sID},
+			},
+			// test{
+			// 	name: "NOT modelName == sprinter, modelName == e63s",
+			// 	filter: filterNot(
+			// 		buildFilter("modelName", "sprinter", eq, dtString),
+			// 		buildFilter("modelName", "e63s", eq, dtString),
+			// 	),
+			// 	expectedIDs: []strfmt.UUID{carPoloID},
+			// },
+			// test{
+			// 	name: "NOT horsepower < 200 , weight > 3000",
+			// 	filter: filterNot(
+			// 		buildFilter("horsepower", 200, lt, dtNumber),
+			// 		buildFilter("weight", 3000, gt, dtNumber),
+			// 	),
+			// 	expectedIDs: []strfmt.UUID{carE63sID},
+			// },
+			test{
+				name: "(heavy AND powerful) OR light",
+				filter: filterOr(
+					filterAnd(
+						buildFilter("horsepower", 200, gt, dtInt),
+						buildFilter("weight", float64(1500), gt, dtNumber),
+					),
+					buildFilter("weight", float64(1500), lt, dtNumber),
+				),
+				expectedIDs: []strfmt.UUID{carE63sID, carPoloID},
+			},
+		}
 
-// 		for _, test := range tests {
-// 			t.Run(test.name, func(t *testing.T) {
-// 				params := traverser.GetParams{
-// 					SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
-// 					Kind:         kind.Thing,
-// 					ClassName:    carClass.Class,
-// 					Pagination:   &filters.Pagination{Limit: 100},
-// 					Filters:      test.filter,
-// 				}
-// 				res, err := repo.VectorClassSearch(context.Background(), params)
-// 				require.Nil(t, err)
-// 				require.Len(t, res, len(test.expectedIDs))
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				params := traverser.GetParams{
+					// SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
+					Kind:       kind.Thing,
+					ClassName:  carClass.Class,
+					Pagination: &filters.Pagination{Limit: 100},
+					Filters:    test.filter,
+				}
+				res, err := repo.ClassSearch(context.Background(), params)
+				require.Nil(t, err)
+				require.Len(t, res, len(test.expectedIDs))
 
-// 				ids := make([]strfmt.UUID, len(test.expectedIDs), len(test.expectedIDs))
-// 				for pos, concept := range res {
-// 					ids[pos] = concept.ID
-// 				}
-// 				assert.ElementsMatch(t, ids, test.expectedIDs, "ids dont match")
-// 			})
-// 		}
-// 	}
-// }
+				ids := make([]strfmt.UUID, len(test.expectedIDs), len(test.expectedIDs))
+				for pos, concept := range res {
+					ids[pos] = concept.ID
+				}
+				assert.ElementsMatch(t, ids, test.expectedIDs, "ids dont match")
+			})
+		}
+	}
+}
 
 func buildFilter(propName string, value interface{}, operator filters.Operator, schemaType schema.DataType) *filters.LocalFilter {
 	return &filters.LocalFilter{

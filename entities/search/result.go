@@ -12,6 +12,8 @@
 package search
 
 import (
+	"sort"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
@@ -119,4 +121,31 @@ func (rs Results) Actions() []*models.Action {
 	}
 
 	return actions
+}
+
+func (rs Results) SortByDistanceToVector(vector []float32) (Results, error) {
+	var lastErr error
+	var hasErrored bool
+
+	sort.Slice(rs, func(a, b int) bool {
+		distA, err := cosineDist(rs[a].Vector, vector)
+		if err != nil {
+			lastErr = err
+			hasErrored = true
+		}
+
+		distB, err := cosineDist(rs[b].Vector, vector)
+		if err != nil {
+			lastErr = err
+			hasErrored = true
+		}
+
+		return distA < distB
+	})
+
+	if hasErrored {
+		return nil, lastErr
+	}
+
+	return rs, nil
 }
