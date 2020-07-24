@@ -99,6 +99,13 @@ func TestCRUD(t *testing.T) {
 	}
 
 	thingID := strfmt.UUID("a0b55b05-bc5b-4cc9-b646-1452d1390a62")
+
+	t.Run("validating that the thing doesn't exist prior", func(t *testing.T) {
+		ok, err := repo.Exists(context.Background(), thingID)
+		require.Nil(t, err)
+		assert.False(t, ok)
+	})
+
 	t.Run("adding a thing", func(t *testing.T) {
 		thing := &models.Thing{
 			CreationTimeUnix:   1565612833955,
@@ -127,6 +134,12 @@ func TestCRUD(t *testing.T) {
 		err := repo.PutThing(context.Background(), thing, vector)
 
 		assert.Nil(t, err)
+	})
+
+	t.Run("validating that the thing exists now", func(t *testing.T) {
+		ok, err := repo.Exists(context.Background(), thingID)
+		require.Nil(t, err)
+		assert.True(t, ok)
 	})
 
 	timeMust := func(t strfmt.DateTime, err error) strfmt.DateTime {
