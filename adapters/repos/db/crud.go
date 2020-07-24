@@ -90,7 +90,19 @@ func (d *DB) objectByID(ctx context.Context, kind kind.Kind, id strfmt.UUID, pro
 }
 
 func (d *DB) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
-	panic("not implemented") // TODO: Implement
+	// TODO: Search in parallel, rather than sequentially or this will be
+	// painfully slow on large schemas
+	for _, index := range d.indices {
+		ok, err := index.exists(ctx, id)
+		if err != nil {
+			return false, errors.Wrapf(err, "search index %s", index.ID())
+		}
+		if ok {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 func (d *DB) AddReference(ctx context.Context, kind kind.Kind, source strfmt.UUID, propName string, ref *models.SingleRef) error {
