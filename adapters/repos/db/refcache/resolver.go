@@ -93,7 +93,9 @@ func (r *Resolver) parseSchema(schema map[string]interface{}, properties travers
 			return schema, errors.Wrapf(err, "parse refs for prop %q", propName)
 		}
 
-		schema[uppercaseFirstLetter(propName)] = parsed
+		if parsed != nil {
+			schema[uppercaseFirstLetter(propName)] = parsed
+		}
 		delete(schema, propName) // we have the uppercased/resolved now. No more need for the unresolved
 	}
 
