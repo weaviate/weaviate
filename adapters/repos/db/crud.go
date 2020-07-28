@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/refcache"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/multi"
@@ -108,6 +109,7 @@ func (d *DB) MultiGet(ctx context.Context, query []multi.Identifier) ([]search.R
 // objectByID checks every index of the particular kind for the ID
 func (d *DB) objectByID(ctx context.Context, kind kind.Kind, id strfmt.UUID, props traverser.SelectProperties, meta bool) (*search.Result, error) {
 
+	var result *search.Result
 	// TODO: Search in parallel, rather than sequentially or this will be
 	// painfully slow on large schemas
 	for _, index := range d.indices {
@@ -121,11 +123,29 @@ func (d *DB) objectByID(ctx context.Context, kind kind.Kind, id strfmt.UUID, pro
 		}
 
 		if res != nil {
-			return res.SearchResult(), nil
+			result = res.SearchResult()
+			break
 		}
 	}
 
-	return nil, nil
+	if result == nil {
+		return nil, nil
+	}
+
+	return d.enrichRefsForSingle(ctx, result, props, meta)
+}
+
+func (d *DB) enrichRefsForSingle(ctx context.Context, obj *search.Result, props traverser.SelectProperties,
+	meta bool) (*search.Result, error) {
+
+	res, err := refcache.NewResolver(refcache.NewCacher(d, d.logger)).
+		Do(ctx, []search.Result{*obj}, props, meta)
+
+	if err != nil {
+		return nil, errors.Wrap(err, "resolve cross-refs")
+	}
+
+	return &res[0], nil
 }
 
 func (d *DB) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {

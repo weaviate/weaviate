@@ -30,7 +30,7 @@ import (
 )
 
 func (s *Shard) objectByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties, meta bool) (*storobj.Object, error) {
-	var object storobj.Object
+	var object *storobj.Object
 
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
@@ -47,14 +47,14 @@ func (s *Shard) objectByID(ctx context.Context, id strfmt.UUID, props traverser.
 		if err != nil {
 			return errors.Wrap(err, "unmarshal kind object")
 		}
-		object = *obj
+		object = obj
 		return nil
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "bolt view tx")
 	}
 
-	return &object, nil
+	return object, nil
 }
 
 func (s *Shard) multiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error) {

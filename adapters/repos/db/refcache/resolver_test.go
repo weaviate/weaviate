@@ -109,7 +109,7 @@ func TestResolver(t *testing.T) {
 				ID:        "foo",
 				ClassName: "BestClass",
 				Schema: map[string]interface{}{
-					"refProp": []interface{}{
+					"RefProp": []interface{}{
 						search.LocalRef{
 							Class: "SomeClass",
 							Fields: map[string]interface{}{
@@ -203,7 +203,7 @@ func TestResolver(t *testing.T) {
 				ID:        "foo",
 				ClassName: "BestClass",
 				Schema: map[string]interface{}{
-					"refProp": []interface{}{
+					"RefProp": []interface{}{
 						search.LocalRef{
 							Class: "SomeClass",
 							Fields: map[string]interface{}{
@@ -213,7 +213,7 @@ func TestResolver(t *testing.T) {
 										Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/things/ignoreMe")),
 									},
 								},
-								"nestedRef": []interface{}{
+								"NestedRef": []interface{}{
 									search.LocalRef{
 										Class: "SomeNestedClass",
 										Fields: map[string]interface{}{
