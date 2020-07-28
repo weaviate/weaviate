@@ -19,6 +19,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/multi"
+	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
@@ -64,6 +66,43 @@ func (d *DB) ThingByID(ctx context.Context, id strfmt.UUID, props traverser.Sele
 func (d *DB) ActionByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties,
 	underscore traverser.UnderscoreProperties) (*search.Result, error) {
 	return d.objectByID(ctx, kind.Action, id, props, underscore.Classification) // TODO: deal with all underscore fields
+}
+
+func (d *DB) MultiGet(ctx context.Context, query []multi.Identifier) ([]search.Result, error) {
+	byIndex := map[string][]multi.Identifier{}
+
+	for i, q := range query {
+		// store original position to make assembly easier later
+		q.OriginalPosition = i
+
+		for _, index := range d.indices {
+			if index.Config.Kind != q.Kind || index.Config.ClassName != schema.ClassName(q.ClassName) {
+				continue
+			}
+
+			queue := byIndex[index.ID()]
+			queue = append(queue, q)
+			byIndex[index.ID()] = queue
+		}
+	}
+
+	out := make(search.Results, len(query))
+	for indexID, queries := range byIndex {
+		indexRes, err := d.indices[indexID].multiObjectByID(ctx, queries)
+		if err != nil {
+			return nil, errors.Wrapf(err, "index %q", indexID)
+		}
+
+		for i, obj := range indexRes {
+			if obj == nil {
+				continue
+			}
+			res := obj.SearchResult()
+			out[queries[i].OriginalPosition] = *res
+		}
+	}
+
+	return out, nil
 }
 
 // objectByID checks every index of the particular kind for the ID

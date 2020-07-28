@@ -24,6 +24,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/multi"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -286,6 +287,36 @@ func TestCRUD(t *testing.T) {
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
 		// TODO gh-1150 support geo coordinates
 		// assert.Equal(t, &models.GeoCoordinates{ptFloat32(1), ptFloat32(2)}, schema["location"], "has correct geo prop")
+		// assert.Equal(t, thingID.String(), schema["uuid"], "has id in schema as uuid field")
+	})
+
+	t.Run("listing multiple things by IDs (MultiGet)", func(t *testing.T) {
+		query := []multi.Identifier{
+			multi.Identifier{
+				ID:        "be685717-e61e-450d-8d5c-f44f32d0336c", // this id does not exist
+				ClassName: "TheBestThingClass",
+				Kind:      kind.Thing,
+			},
+			multi.Identifier{
+				ID:        thingID.String(),
+				ClassName: "TheBestThingClass",
+				Kind:      kind.Thing,
+			},
+		}
+		res, err := repo.MultiGet(context.Background(), query)
+		require.Nil(t, err)
+		require.Len(t, res, 2, "length must match even with nil-items")
+
+		assert.Equal(t, strfmt.UUID(""), res[0].ID, "empty object for the not-found item")
+
+		item := res[1]
+		assert.Equal(t, thingID, item.ID, "extracted the ID")
+		assert.Equal(t, kind.Thing, item.Kind, "matches the kind")
+		assert.Equal(t, "TheBestThingClass", item.ClassName, "matches the class name")
+		schema := item.Schema.(map[string]interface{})
+		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
+		assert.Equal(t, &models.GeoCoordinates{ptFloat32(1), ptFloat32(2)}, schema["location"], "has correct geo prop")
+		// TODO gh-1150 add uuid field
 		// assert.Equal(t, thingID.String(), schema["uuid"], "has id in schema as uuid field")
 	})
 

@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/multi"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
@@ -108,6 +109,19 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID, props traverser.
 	}
 
 	return obj, nil
+}
+
+func (i *Index) multiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error) {
+	// TODO: search across all shards, rather than hard-coded "single" shard
+	// TODO: can we improve this by hashing so we know the target shard?
+
+	shard := i.Shards["single"]
+	objects, err := shard.multiObjectByID(ctx, query)
+	if err != nil {
+		return nil, errors.Wrapf(err, "shard %s", shard.ID())
+	}
+
+	return objects, nil
 }
 
 func (i *Index) exists(ctx context.Context, id strfmt.UUID) (bool, error) {

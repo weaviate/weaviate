@@ -80,13 +80,13 @@ func TestCachedResolver(t *testing.T) {
 		}
 		err := cr.Build(context.Background(), input, nil, false)
 		require.Nil(t, err)
-		_, ok := cr.Get(multi.Identifier{Id: "123", Kind: kind.Thing, ClassName: "SomeClass"})
+		_, ok := cr.Get(multi.Identifier{ID: "123", Kind: kind.Thing, ClassName: "SomeClass"})
 		assert.False(t, ok)
 	})
 
 	t.Run("with a single ref, and a matching select prop", func(t *testing.T) {
 		repo := newFakeRepo()
-		repo.lookup[multi.Identifier{Id: id1, Kind: kind.Thing, ClassName: "SomeClass"}] = search.Result{
+		repo.lookup[multi.Identifier{ID: id1, Kind: kind.Thing, ClassName: "SomeClass"}] = search.Result{
 			ClassName: "SomeClass",
 			ID:        strfmt.UUID(id1),
 			Kind:      kind.Thing,
@@ -137,7 +137,7 @@ func TestCachedResolver(t *testing.T) {
 
 		err := cr.Build(context.Background(), input, selectProps, false)
 		require.Nil(t, err)
-		res, ok := cr.Get(multi.Identifier{Id: id1, Kind: kind.Thing, ClassName: "SomeClass"})
+		res, ok := cr.Get(multi.Identifier{ID: id1, Kind: kind.Thing, ClassName: "SomeClass"})
 		require.True(t, ok)
 		assert.Equal(t, expected, res)
 		assert.Equal(t, 1, repo.counter, "required the expected amount of lookups")
@@ -145,7 +145,7 @@ func TestCachedResolver(t *testing.T) {
 
 	t.Run("with a nested lookup, partially resolved", func(t *testing.T) {
 		repo := newFakeRepo()
-		repo.lookup[multi.Identifier{Id: id1, Kind: kind.Thing, ClassName: "SomeClass"}] = search.Result{
+		repo.lookup[multi.Identifier{ID: id1, Kind: kind.Thing, ClassName: "SomeClass"}] = search.Result{
 			ClassName: "SomeClass",
 			ID:        strfmt.UUID(id1),
 			Kind:      kind.Thing,
@@ -163,7 +163,7 @@ func TestCachedResolver(t *testing.T) {
 				},
 			},
 		}
-		repo.lookup[multi.Identifier{Id: id2, Kind: kind.Thing, ClassName: "SomeNestedClass"}] = search.Result{
+		repo.lookup[multi.Identifier{ID: id2, Kind: kind.Thing, ClassName: "SomeNestedClass"}] = search.Result{
 			ClassName: "SomeNestedClass",
 			ID:        strfmt.UUID(id2),
 			Kind:      kind.Thing,
@@ -247,10 +247,10 @@ func TestCachedResolver(t *testing.T) {
 
 		err := cr.Build(context.Background(), input, selectProps, false)
 		require.Nil(t, err)
-		res, ok := cr.Get(multi.Identifier{Id: id1, Kind: kind.Thing, ClassName: "SomeClass"})
+		res, ok := cr.Get(multi.Identifier{ID: id1, Kind: kind.Thing, ClassName: "SomeClass"})
 		require.True(t, ok)
 		assert.Equal(t, expectedOuter, res)
-		res, ok = cr.Get(multi.Identifier{Id: id2, Kind: kind.Thing, ClassName: "SomeNestedClass"})
+		res, ok = cr.Get(multi.Identifier{ID: id2, Kind: kind.Thing, ClassName: "SomeNestedClass"})
 		require.True(t, ok)
 		assert.Equal(t, expectedInner, res)
 		assert.Equal(t, 2, repo.counter, "required the expected amount of lookups")
@@ -262,7 +262,7 @@ func TestCachedResolver(t *testing.T) {
 		// used for something like a product category, e.g. it would not be
 		// uncommon at all if all search results are of the same category)
 		repo := newFakeRepo()
-		repo.lookup[multi.Identifier{Id: id1, Kind: kind.Thing, ClassName: "SomeClass"}] = search.Result{
+		repo.lookup[multi.Identifier{ID: id1, Kind: kind.Thing, ClassName: "SomeClass"}] = search.Result{
 			ClassName: "SomeClass",
 			ID:        strfmt.UUID(id1),
 			Kind:      kind.Thing,
@@ -275,7 +275,7 @@ func TestCachedResolver(t *testing.T) {
 				},
 			},
 		}
-		repo.lookup[multi.Identifier{Id: id2, Kind: kind.Thing, ClassName: "SomeNestedClass"}] = search.Result{
+		repo.lookup[multi.Identifier{ID: id2, Kind: kind.Thing, ClassName: "SomeNestedClass"}] = search.Result{
 			ClassName: "SomeNestedClass",
 			ID:        strfmt.UUID(id2),
 			Kind:      kind.Thing,
@@ -378,10 +378,10 @@ func TestCachedResolver(t *testing.T) {
 
 		err := cr.Build(context.Background(), input, selectProps, false)
 		require.Nil(t, err)
-		res, ok := cr.Get(multi.Identifier{Id: id1, Kind: kind.Thing, ClassName: "SomeClass"})
+		res, ok := cr.Get(multi.Identifier{ID: id1, Kind: kind.Thing, ClassName: "SomeClass"})
 		require.True(t, ok)
 		assert.Equal(t, expectedOuter, res)
-		res, ok = cr.Get(multi.Identifier{Id: id2, Kind: kind.Thing, ClassName: "SomeNestedClass"})
+		res, ok = cr.Get(multi.Identifier{ID: id2, Kind: kind.Thing, ClassName: "SomeNestedClass"})
 		require.True(t, ok)
 		assert.Equal(t, expectedInner, res)
 		assert.Equal(t, 2, repo.counter, "required the expected amount of lookup queries")
