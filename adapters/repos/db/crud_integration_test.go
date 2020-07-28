@@ -231,8 +231,7 @@ func TestCRUD(t *testing.T) {
 			NationalFormatted:      "0171 1234567",
 		}, schema["phone"], "has correct phone prop")
 		assert.Nil(t, res[0].UnderscoreProperties, "no meta information should be included unless explicitly asked for")
-		// TODO gh-1150 uuid
-		// assert.Equal(t, thingID.String(), schema["uuid"], "has id in schema as uuid field")
+		assert.Equal(t, thingID, schema["uuid"], "has id in schema as uuid field")
 	})
 
 	t.Run("searching by class type", func(t *testing.T) {
@@ -253,8 +252,7 @@ func TestCRUD(t *testing.T) {
 		schema := res[0].Schema.(map[string]interface{})
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
 		assert.Equal(t, &models.GeoCoordinates{ptFloat32(1), ptFloat32(2)}, schema["location"], "has correct geo prop")
-		// TODO gh-1150
-		// assert.Equal(t, thingID.String(), schema["uuid"], "has id in schema as uuid field")
+		assert.Equal(t, thingID, schema["uuid"], "has id in schema as uuid field")
 	})
 
 	t.Run("searching all things", func(t *testing.T) {
@@ -271,8 +269,7 @@ func TestCRUD(t *testing.T) {
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
 		assert.Equal(t, &models.GeoCoordinates{ptFloat32(1), ptFloat32(2)}, schema["location"], "has correct geo prop")
-		// TODO gh-1150 support uuid
-		// assert.Equal(t, thingID.String(), schema["uuid"], "has id in schema as uuid field")
+		assert.Equal(t, thingID, schema["uuid"], "has id in schema as uuid field")
 	})
 
 	t.Run("searching a thing by ID", func(t *testing.T) {
@@ -285,9 +282,8 @@ func TestCRUD(t *testing.T) {
 		assert.Equal(t, "TheBestThingClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
-		// TODO gh-1150 support geo coordinates
-		// assert.Equal(t, &models.GeoCoordinates{ptFloat32(1), ptFloat32(2)}, schema["location"], "has correct geo prop")
-		// assert.Equal(t, thingID.String(), schema["uuid"], "has id in schema as uuid field")
+		assert.Equal(t, &models.GeoCoordinates{ptFloat32(1), ptFloat32(2)}, schema["location"], "has correct geo prop")
+		assert.Equal(t, thingID, schema["uuid"], "has id in schema as uuid field")
 	})
 
 	t.Run("listing multiple things by IDs (MultiGet)", func(t *testing.T) {
@@ -316,8 +312,7 @@ func TestCRUD(t *testing.T) {
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
 		assert.Equal(t, &models.GeoCoordinates{ptFloat32(1), ptFloat32(2)}, schema["location"], "has correct geo prop")
-		// TODO gh-1150 add uuid field
-		// assert.Equal(t, thingID.String(), schema["uuid"], "has id in schema as uuid field")
+		assert.Equal(t, thingID, schema["uuid"], "has id in schema as uuid field")
 	})
 
 	t.Run("searching an action by ID without meta", func(t *testing.T) {

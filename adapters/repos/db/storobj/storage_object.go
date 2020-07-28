@@ -146,6 +146,12 @@ func (ko *Object) VectorWeights() models.VectorWeights {
 }
 
 func (ko *Object) SearchResult() *search.Result {
+	schema := ko.Schema()
+	if schema == nil {
+		schema = map[string]interface{}{}
+	}
+	schema.(map[string]interface{})["uuid"] = ko.ID()
+
 	return &search.Result{
 		Kind:      ko.Kind,
 		ID:        ko.ID(),
