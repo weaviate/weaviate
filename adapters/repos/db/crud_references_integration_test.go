@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
@@ -219,32 +220,27 @@ func TestNestedReferences(t *testing.T) {
 														Class: "Planet",
 														Fields: map[string]interface{}{
 															"name": "Earth",
-															// TODO: gh-1150 include uuid in schema
-															// "uuid": "32c69af9-cbbe-4ec9-bf6c-365cd6c22fdf",
+															"uuid": strfmt.UUID("32c69af9-cbbe-4ec9-bf6c-365cd6c22fdf"),
 														},
 													},
 												},
 												"name": "North America",
-												// TODO: gh-1150 include uuid in schema
-												// "uuid": "4aad8154-e7f3-45b8-81a6-725171419e55",
+												"uuid": strfmt.UUID("4aad8154-e7f3-45b8-81a6-725171419e55"),
 											},
 										},
 									},
 									"name": "USA",
-									// TODO: gh-1150 include uuid in schema
-									// "uuid": "18c80a16-346a-477d-849d-9d92e5040ac9",
+									"uuid": strfmt.UUID("18c80a16-346a-477d-849d-9d92e5040ac9"),
 								},
 							},
 						},
 						"name": "San Francisco",
-						// TODO: gh-1150 include uuid in schema
-						// "uuid": "2297e094-6218-43d4-85b1-3d20af752f23",
+						"uuid": strfmt.UUID("2297e094-6218-43d4-85b1-3d20af752f23"),
 					},
 				},
 			},
 			"name": "Tim Apple's Fruit Bar",
-			// TODO: gh-1150 include uuid in schema
-			// "uuid": "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
+			"uuid": strfmt.UUID("4ef47fb0-3cf5-44fc-b378-9e217dff13ac"),
 		}
 
 		res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
@@ -260,8 +256,7 @@ func TestNestedReferences(t *testing.T) {
 					Class: "City",
 					Fields: map[string]interface{}{
 						"name": "San Francisco",
-						// TODO: gh-1150 uuid
-						// "uuid": "2297e094-6218-43d4-85b1-3d20af752f23",
+						"uuid": strfmt.UUID("2297e094-6218-43d4-85b1-3d20af752f23"),
 						// why is inCountry present here? We didn't specify it our select
 						// properties. Note it is "inCountry" with a lowercase letter
 						// (meaning unresolved) whereas "InCountry" would mean it was
@@ -279,8 +274,7 @@ func TestNestedReferences(t *testing.T) {
 				},
 			},
 			"name": "Tim Apple's Fruit Bar",
-			// TODO: gh-1150 uuid
-			// "uuid": "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
+			"uuid": strfmt.UUID("4ef47fb0-3cf5-44fc-b378-9e217dff13ac"),
 		}
 
 		res, err := repo.ThingByID(context.Background(), "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
@@ -294,8 +288,7 @@ func TestNestedReferences(t *testing.T) {
 			traverser.SelectProperties{}, traverser.UnderscoreProperties{})
 
 		expectedSchema := map[string]interface{}{
-			// TODO: gh-1150 uuid
-			// "uuid": "4ef47fb0-3cf5-44fc-b378-9e217dff13ac",
+			"uuid": strfmt.UUID("4ef47fb0-3cf5-44fc-b378-9e217dff13ac"),
 			"inCity": models.MultipleRef{
 				&models.SingleRef{
 					Beacon: "weaviate://localhost/things/2297e094-6218-43d4-85b1-3d20af752f23",
