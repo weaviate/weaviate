@@ -72,9 +72,6 @@ func (r *Resolver) parseObject(object search.Result, properties traverser.Select
 
 func (r *Resolver) parseSchema(schema map[string]interface{}, properties traverser.SelectProperties,
 	meta bool) (map[string]interface{}, error) {
-
-	fmt.Printf("\n\n\n parseSchema called with schema \n%#v\n\nproperties:\n %#v\n\n\n",
-		schema, properties)
 	for propName, value := range schema {
 
 		refs, ok := value.(models.MultipleRef)
@@ -96,7 +93,8 @@ func (r *Resolver) parseSchema(schema map[string]interface{}, properties travers
 			return schema, errors.Wrapf(err, "parse refs for prop %q", propName)
 		}
 
-		schema[propName] = parsed
+		schema[uppercaseFirstLetter(propName)] = parsed
+		delete(schema, propName) // we have the uppercased/resolved now. No more need for the unresolved
 	}
 
 	return schema, nil
