@@ -33,20 +33,11 @@ type repo interface {
 
 func NewCachedResolver(repo repo, logger logrus.FieldLogger) *cacher {
 	return &cacher{
-		logger:  logger,
-		repo:    repo,
-		store:   map[multi.Identifier]search.Result{},
-		counter: &noopCounter{}, // can be overwritten in test or debug scenarios
+		logger: logger,
+		repo:   repo,
+		store:  map[multi.Identifier]search.Result{},
 	}
 }
-
-type counter interface {
-	Inc()
-}
-
-type noopCounter struct{}
-
-func (c *noopCounter) Inc() {}
 
 type cacherJob struct {
 	si       multi.Identifier
@@ -56,15 +47,14 @@ type cacherJob struct {
 
 type cacher struct {
 	sync.Mutex
-	jobs    []cacherJob
-	logger  logrus.FieldLogger
-	repo    repo
-	store   map[multi.Identifier]search.Result
-	meta    *bool // meta is immutable for the lifetime of the request cacher, so we can safely store it
-	counter counter
+	jobs   []cacherJob
+	logger logrus.FieldLogger
+	repo   repo
+	store  map[multi.Identifier]search.Result
+	meta   *bool // meta is immutable for the lifetime of the request cacher, so we can safely store it
 }
 
-func (c *cacher) get(si multi.Identifier) (search.Result, bool) {
+func (c *cacher) Get(si multi.Identifier) (search.Result, bool) {
 	sr, ok := c.store[si]
 	return sr, ok
 }
