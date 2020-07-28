@@ -148,7 +148,7 @@ func (c *cacher) findJobsFromResponse(objects []search.Result, properties traver
 						return err
 					}
 					c.addJob(multi.Identifier{
-						Id:        ref.TargetID.String(),
+						ID:        ref.TargetID.String(),
 						Kind:      ref.Kind,
 						ClassName: selectPropRef.ClassName}, innerProperties)
 				}
@@ -193,7 +193,11 @@ func (c *cacher) ReplaceInitialPropertiesWithSpecific(obj search.Result,
 	// this is a nested level, we cannot rely on global initialSelectProperties
 	// anymore, instead we need to find the selectProperties for exactly this
 	// ID
-	job, ok := c.findJob(multi.Identifier{obj.ID.String(), obj.Kind, obj.ClassName})
+	job, ok := c.findJob(multi.Identifier{
+		ID:        obj.ID.String(),
+		Kind:      obj.Kind,
+		ClassName: obj.ClassName,
+	})
 	if ok {
 		return job.props, nil
 	}
@@ -373,7 +377,7 @@ func removeEmptyResults(in []search.Result) []search.Result {
 func (c *cacher) storeResults(res search.Results) error {
 	for _, item := range res {
 		c.store[multi.Identifier{
-			Id:        item.ID.String(),
+			ID:        item.ID.String(),
 			Kind:      item.Kind,
 			ClassName: item.ClassName,
 		}] = item
