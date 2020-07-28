@@ -31,8 +31,8 @@ type repo interface {
 	MultiGet(ctx context.Context, query []multi.Identifier) ([]search.Result, error)
 }
 
-func NewCachedResolver(repo repo, logger logrus.FieldLogger) *cacher {
-	return &cacher{
+func NewCacher(repo repo, logger logrus.FieldLogger) *Cacher {
+	return &Cacher{
 		logger: logger,
 		repo:   repo,
 		store:  map[multi.Identifier]search.Result{},
@@ -45,7 +45,7 @@ type cacherJob struct {
 	complete bool
 }
 
-type cacher struct {
+type Cacher struct {
 	sync.Mutex
 	jobs   []cacherJob
 	logger logrus.FieldLogger
@@ -54,7 +54,7 @@ type cacher struct {
 	meta   *bool // meta is immutable for the lifetime of the request cacher, so we can safely store it
 }
 
-func (c *cacher) Get(si multi.Identifier) (search.Result, bool) {
+func (c *Cacher) Get(si multi.Identifier) (search.Result, bool) {
 	sr, ok := c.store[si]
 	return sr, ok
 }
@@ -78,7 +78,7 @@ func (c *cacher) Get(si multi.Identifier) (search.Result, bool) {
 // do any more lookups against the backend on its own, it only asks the cacher.
 // Thus it is important that a cacher.build() runs before the first parseSchema
 // is started.
-func (c *cacher) Build(ctx context.Context, objects []search.Result,
+func (c *Cacher) Build(ctx context.Context, objects []search.Result,
 	properties traverser.SelectProperties, meta bool) error {
 	if c.meta == nil {
 		// store meta prop if we haven't yet
@@ -104,7 +104,7 @@ func (c *cacher) Build(ctx context.Context, objects []search.Result,
 // references. In a recursive lookup this can both be done on the rootlevel to
 // start the first lookup as well as recursively on the results of a lookup to
 // further look if a next-level call is required.
-func (c *cacher) findJobsFromResponse(objects []search.Result, properties traverser.SelectProperties) error {
+func (c *Cacher) findJobsFromResponse(objects []search.Result, properties traverser.SelectProperties) error {
 	for _, obj := range objects {
 		var err error
 
@@ -159,7 +159,7 @@ func (c *cacher) findJobsFromResponse(objects []search.Result, properties traver
 	return nil
 }
 
-func (c *cacher) skipProperty(key string, value interface{}, selectProp *traverser.SelectProperty) (bool, models.MultipleRef) {
+func (c *Cacher) skipProperty(key string, value interface{}, selectProp *traverser.SelectProperty) (bool, models.MultipleRef) {
 	// the cacher runs at a point where primitive props have already been
 	// parsed, so we can simply look for parsed, but not resolved refenereces
 	parsed, ok := value.(models.MultipleRef)
@@ -177,11 +177,11 @@ func (c *cacher) skipProperty(key string, value interface{}, selectProp *travers
 	return false, parsed
 }
 
-func (c *cacher) extractAndParseBeacon(item *models.SingleRef) (*crossref.Ref, error) {
+func (c *Cacher) extractAndParseBeacon(item *models.SingleRef) (*crossref.Ref, error) {
 	return crossref.Parse(item.Beacon.String())
 }
 
-func (c *cacher) ReplaceInitialPropertiesWithSpecific(obj search.Result,
+func (c *Cacher) ReplaceInitialPropertiesWithSpecific(obj search.Result,
 	properties traverser.SelectProperties) (traverser.SelectProperties, error) {
 
 	if properties != nil {
@@ -205,11 +205,11 @@ func (c *cacher) ReplaceInitialPropertiesWithSpecific(obj search.Result,
 	return properties, nil
 }
 
-func (c *cacher) addJob(si multi.Identifier, props traverser.SelectProperties) {
+func (c *Cacher) addJob(si multi.Identifier, props traverser.SelectProperties) {
 	c.jobs = append(c.jobs, cacherJob{si, props, false})
 }
 
-func (c *cacher) findJob(si multi.Identifier) (cacherJob, bool) {
+func (c *Cacher) findJob(si multi.Identifier) (cacherJob, bool) {
 	for _, job := range c.jobs {
 		if job.si == si {
 			return job, true
@@ -221,7 +221,7 @@ func (c *cacher) findJob(si multi.Identifier) (cacherJob, bool) {
 }
 
 // finds incompleteJobs without altering the original job list
-func (c *cacher) incompleteJobs() []cacherJob {
+func (c *Cacher) incompleteJobs() []cacherJob {
 	out := make([]cacherJob, len(c.jobs))
 	n := 0
 	for _, job := range c.jobs {
@@ -235,7 +235,7 @@ func (c *cacher) incompleteJobs() []cacherJob {
 }
 
 // finds complete jobs  without altering the original job list
-func (c *cacher) completeJobs() []cacherJob {
+func (c *Cacher) completeJobs() []cacherJob {
 	out := make([]cacherJob, len(c.jobs))
 	n := 0
 	for _, job := range c.jobs {
@@ -256,7 +256,7 @@ func (c *cacher) completeJobs() []cacherJob {
 // duplicates with already complete jobs since retrieving the required item
 // again (with different SelectProperties) comes at minimal cost and is the
 // only way out of that deadlock situation.
-func (c *cacher) dedupJobList() {
+func (c *Cacher) dedupJobList() {
 	incompleteJobs := c.incompleteJobs()
 	before := len(incompleteJobs)
 	if before == 0 {
@@ -294,7 +294,7 @@ func (c *cacher) dedupJobList() {
 		Debug("completed job list deduplication")
 }
 
-func (c *cacher) fetchJobs(ctx context.Context) error {
+func (c *Cacher) fetchJobs(ctx context.Context) error {
 	jobs := c.incompleteJobs()
 	if len(jobs) == 0 {
 		c.logSkipFetchJobs()
@@ -310,7 +310,7 @@ func (c *cacher) fetchJobs(ctx context.Context) error {
 	return c.parseAndStore(ctx, res)
 }
 
-func (c *cacher) logSkipFetchJobs() {
+func (c *Cacher) logSkipFetchJobs() {
 	c.logger.
 		WithFields(
 			logrus.Fields{
@@ -319,7 +319,7 @@ func (c *cacher) logSkipFetchJobs() {
 		Debug("skip fetch jobs, have no incomplete jobs")
 }
 
-func (c *cacher) logCompleteFetchJobs(start time.Time, amount int) {
+func (c *Cacher) logCompleteFetchJobs(start time.Time, amount int) {
 	took := time.Since(start)
 
 	c.logger.
@@ -340,7 +340,7 @@ func (c *cacher) logCompleteFetchJobs(start time.Time, amount int) {
 //
 // Once no more nested refs can be found, the recursion triggers its exit
 // condition and all jobs are stored.
-func (c *cacher) parseAndStore(ctx context.Context, res []search.Result) error {
+func (c *Cacher) parseAndStore(ctx context.Context, res []search.Result) error {
 	// mark all current jobs as done, as we use the amount of incomplete jobs as
 	// the exit condition for the recursion. Next up, we will start a nested
 	// Build() call. If the Build call returns no new jobs, we are done and the
@@ -374,7 +374,7 @@ func removeEmptyResults(in []search.Result) []search.Result {
 	return out[0:n]
 }
 
-func (c *cacher) storeResults(res search.Results) error {
+func (c *Cacher) storeResults(res search.Results) error {
 	for _, item := range res {
 		c.store[multi.Identifier{
 			ID:        item.ID.String(),
@@ -386,7 +386,7 @@ func (c *cacher) storeResults(res search.Results) error {
 	return nil
 }
 
-func (c *cacher) markAllJobsAsDone() {
+func (c *Cacher) markAllJobsAsDone() {
 	for i := range c.jobs {
 		c.jobs[i].complete = true
 	}

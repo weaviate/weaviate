@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCachedResolver(t *testing.T) {
+func TestCacher(t *testing.T) {
 	// some ids to be used in the tests, they carry no meaning outside each test
 	id1 := "132bdf92-ffec-4a52-9196-73ea7cbb5a5e"
 	id2 := "a60a26dc-791a-41fc-8dda-c0f21f90cc98"
@@ -24,7 +24,7 @@ func TestCachedResolver(t *testing.T) {
 	t.Run("with empty results", func(t *testing.T) {
 		repo := newFakeRepo()
 		logger, _ := test.NewNullLogger()
-		cr := NewCachedResolver(repo, logger)
+		cr := NewCacher(repo, logger)
 		err := cr.Build(context.Background(), nil, nil, false)
 		assert.Nil(t, err)
 	})
@@ -32,7 +32,7 @@ func TestCachedResolver(t *testing.T) {
 	t.Run("with results with nil-schemas", func(t *testing.T) {
 		repo := newFakeRepo()
 		logger, _ := test.NewNullLogger()
-		cr := NewCachedResolver(repo, logger)
+		cr := NewCacher(repo, logger)
 		input := []search.Result{
 			search.Result{
 				ID:        "foo",
@@ -46,7 +46,7 @@ func TestCachedResolver(t *testing.T) {
 	t.Run("with results without refs in the schema", func(t *testing.T) {
 		repo := newFakeRepo()
 		logger, _ := test.NewNullLogger()
-		cr := NewCachedResolver(repo, logger)
+		cr := NewCacher(repo, logger)
 		input := []search.Result{
 			search.Result{
 				ID:        "foo",
@@ -64,7 +64,7 @@ func TestCachedResolver(t *testing.T) {
 	t.Run("with a single ref, but no selectprops", func(t *testing.T) {
 		repo := newFakeRepo()
 		logger, _ := test.NewNullLogger()
-		cr := NewCachedResolver(repo, logger)
+		cr := NewCacher(repo, logger)
 		input := []search.Result{
 			search.Result{
 				ID:        "foo",
@@ -95,7 +95,7 @@ func TestCachedResolver(t *testing.T) {
 			},
 		}
 		logger, _ := test.NewNullLogger()
-		cr := NewCachedResolver(repo, logger)
+		cr := NewCacher(repo, logger)
 		input := []search.Result{
 			search.Result{
 				ID:        "foo",
@@ -172,7 +172,7 @@ func TestCachedResolver(t *testing.T) {
 			},
 		}
 		logger, _ := test.NewNullLogger()
-		cr := NewCachedResolver(repo, logger)
+		cr := NewCacher(repo, logger)
 		input := []search.Result{
 			search.Result{
 				ID:        "foo",
@@ -284,7 +284,7 @@ func TestCachedResolver(t *testing.T) {
 			},
 		}
 		logger, _ := test.NewNullLogger()
-		cr := NewCachedResolver(repo, logger)
+		cr := NewCacher(repo, logger)
 
 		// contains three items, all pointing to the same inner class
 		input := []search.Result{
