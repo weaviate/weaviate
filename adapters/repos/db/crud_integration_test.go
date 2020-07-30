@@ -24,6 +24,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/multi"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -219,19 +220,18 @@ func TestCRUD(t *testing.T) {
 		assert.Equal(t, "TheBestThingClass", res[0].ClassName, "matches the class name")
 		schema := res[0].Schema.(map[string]interface{})
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
-		// TODO gh-1150
-		// assert.Equal(t, &models.GeoCoordinates{ptFloat32(1), ptFloat32(2)}, schema["location"], "has correct geo prop")
-		// assert.Equal(t, &models.PhoneNumber{
-		// 	CountryCode:            49,
-		// 	DefaultCountry:         "DE",
-		// 	Input:                  "0171 1234567",
-		// 	Valid:                  true,
-		// 	InternationalFormatted: "+49 171 1234567",
-		// 	National:               1234567,
-		// 	NationalFormatted:      "0171 1234567",
-		// }, schema["phone"], "has correct phone prop")
-		// assert.Equal(t, thingID.String(), schema["uuid"], "has id in schema as uuid field")
-		assert.Nil(t, res[0].UnderscoreProperties, "not meta information should be included unless explicitly asked for")
+		assert.Equal(t, &models.GeoCoordinates{ptFloat32(1), ptFloat32(2)}, schema["location"], "has correct geo prop")
+		assert.Equal(t, &models.PhoneNumber{
+			CountryCode:            49,
+			DefaultCountry:         "DE",
+			Input:                  "0171 1234567",
+			Valid:                  true,
+			InternationalFormatted: "+49 171 1234567",
+			National:               1234567,
+			NationalFormatted:      "0171 1234567",
+		}, schema["phone"], "has correct phone prop")
+		assert.Nil(t, res[0].UnderscoreProperties, "no meta information should be included unless explicitly asked for")
+		assert.Equal(t, thingID, schema["uuid"], "has id in schema as uuid field")
 	})
 
 	t.Run("searching by class type", func(t *testing.T) {
@@ -251,9 +251,8 @@ func TestCRUD(t *testing.T) {
 		assert.Equal(t, "TheBestThingClass", res[0].ClassName, "matches the class name")
 		schema := res[0].Schema.(map[string]interface{})
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
-		// TODO gh-1150
-		// assert.Equal(t, &models.GeoCoordinates{ptFloat32(1), ptFloat32(2)}, schema["location"], "has correct geo prop")
-		// assert.Equal(t, thingID.String(), schema["uuid"], "has id in schema as uuid field")
+		assert.Equal(t, &models.GeoCoordinates{ptFloat32(1), ptFloat32(2)}, schema["location"], "has correct geo prop")
+		assert.Equal(t, thingID, schema["uuid"], "has id in schema as uuid field")
 	})
 
 	t.Run("searching all things", func(t *testing.T) {
@@ -269,9 +268,8 @@ func TestCRUD(t *testing.T) {
 		assert.Equal(t, "TheBestThingClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
-		// TODO gh-1150 support geo coordinates
-		// assert.Equal(t, &models.GeoCoordinates{ptFloat32(1), ptFloat32(2)}, schema["location"], "has correct geo prop")
-		// assert.Equal(t, thingID.String(), schema["uuid"], "has id in schema as uuid field")
+		assert.Equal(t, &models.GeoCoordinates{ptFloat32(1), ptFloat32(2)}, schema["location"], "has correct geo prop")
+		assert.Equal(t, thingID, schema["uuid"], "has id in schema as uuid field")
 	})
 
 	t.Run("searching a thing by ID", func(t *testing.T) {
@@ -284,9 +282,37 @@ func TestCRUD(t *testing.T) {
 		assert.Equal(t, "TheBestThingClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
-		// TODO gh-1150 support geo coordinates
-		// assert.Equal(t, &models.GeoCoordinates{ptFloat32(1), ptFloat32(2)}, schema["location"], "has correct geo prop")
-		// assert.Equal(t, thingID.String(), schema["uuid"], "has id in schema as uuid field")
+		assert.Equal(t, &models.GeoCoordinates{ptFloat32(1), ptFloat32(2)}, schema["location"], "has correct geo prop")
+		assert.Equal(t, thingID, schema["uuid"], "has id in schema as uuid field")
+	})
+
+	t.Run("listing multiple things by IDs (MultiGet)", func(t *testing.T) {
+		query := []multi.Identifier{
+			multi.Identifier{
+				ID:        "be685717-e61e-450d-8d5c-f44f32d0336c", // this id does not exist
+				ClassName: "TheBestThingClass",
+				Kind:      kind.Thing,
+			},
+			multi.Identifier{
+				ID:        thingID.String(),
+				ClassName: "TheBestThingClass",
+				Kind:      kind.Thing,
+			},
+		}
+		res, err := repo.MultiGet(context.Background(), query)
+		require.Nil(t, err)
+		require.Len(t, res, 2, "length must match even with nil-items")
+
+		assert.Equal(t, strfmt.UUID(""), res[0].ID, "empty object for the not-found item")
+
+		item := res[1]
+		assert.Equal(t, thingID, item.ID, "extracted the ID")
+		assert.Equal(t, kind.Thing, item.Kind, "matches the kind")
+		assert.Equal(t, "TheBestThingClass", item.ClassName, "matches the class name")
+		schema := item.Schema.(map[string]interface{})
+		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
+		assert.Equal(t, &models.GeoCoordinates{ptFloat32(1), ptFloat32(2)}, schema["location"], "has correct geo prop")
+		assert.Equal(t, thingID, schema["uuid"], "has id in schema as uuid field")
 	})
 
 	t.Run("searching an action by ID without meta", func(t *testing.T) {
@@ -303,7 +329,7 @@ func TestCRUD(t *testing.T) {
 		// assert.Nil(t, item.Meta, "not meta information should be included unless explicitly asked for")
 	})
 
-	// TODO gh-1150 support meta
+	// TODO gh-1150 support underscore props
 	// t.Run("searching an action by ID with meta==true", func(t *testing.T) {
 	// 	item, err := repo.ActionByID(context.Background(), actionID, traverser.SelectProperties{}, true)
 	// 	require.Nil(t, err)

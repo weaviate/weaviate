@@ -16,6 +16,7 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/refcache"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
@@ -40,9 +41,7 @@ func (db *DB) ClassSearch(ctx context.Context, params traverser.GetParams) ([]se
 		return nil, errors.Wrapf(err, "object search at index %s", idx.ID())
 	}
 
-	// TODO: Inject uuid at expected field
-
-	return storobj.SearchResults(res), nil
+	return db.enrichRefsForList(ctx, storobj.SearchResults(res), params.Properties, params.UnderscoreProperties.RefMeta)
 }
 func (db *DB) VectorClassSearch(ctx context.Context, params traverser.GetParams) ([]search.Result, error) {
 	idx := db.GetIndex(params.Kind, schema.ClassName(params.ClassName))
@@ -55,9 +54,7 @@ func (db *DB) VectorClassSearch(ctx context.Context, params traverser.GetParams)
 		return nil, errors.Wrapf(err, "object vector search at index %s", idx.ID())
 	}
 
-	// TODO: Inject uuid at expected field
-
-	return storobj.SearchResults(res), nil
+	return db.enrichRefsForList(ctx, storobj.SearchResults(res), params.Properties, params.UnderscoreProperties.RefMeta)
 }
 func (db *DB) VectorSearch(ctx context.Context, vector []float32, limit int,
 	filters *filters.LocalFilter) ([]search.Result, error) {
@@ -87,6 +84,8 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, limit int,
 		found = found[:limit]
 	}
 
+	// not enriching by refs, as a vector search result cannot provide
+	// SelectProperties
 	return found, nil
 }
 
@@ -129,4 +128,17 @@ func (d *DB) objectSearch(ctx context.Context, kind kind.Kind, limit int, filter
 	}
 
 	return found, nil
+}
+
+func (d *DB) enrichRefsForList(ctx context.Context, objs search.Results, props traverser.SelectProperties,
+	meta bool) (search.Results, error) {
+
+	res, err := refcache.NewResolver(refcache.NewCacher(d, d.logger)).
+		Do(ctx, objs, props, meta)
+
+	if err != nil {
+		return nil, errors.Wrap(err, "resolve cross-refs")
+	}
+
+	return res, nil
 }
