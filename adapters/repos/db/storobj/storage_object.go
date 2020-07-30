@@ -15,12 +15,12 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
@@ -29,17 +29,17 @@ import (
 
 type Object struct {
 	MarshallerVersion uint8
-	Kind              kind.Kind      `json:"kind"`
-	Thing             *models.Thing  `json:"thing"`
-	Action            *models.Action `json:"action"`
-	Vector            []float32      `json:"vector"`
+	Kind              kind.Kind     `json:"kind"`
+	Thing             models.Thing  `json:"thing"`
+	Action            models.Action `json:"action"`
+	Vector            []float32     `json:"vector"`
 	indexID           uint32
 }
 
 func FromThing(thing *models.Thing, vector []float32) *Object {
 	return &Object{
 		Kind:              kind.Thing,
-		Thing:             thing,
+		Thing:             *thing,
 		Vector:            vector,
 		MarshallerVersion: 1,
 	}
@@ -48,7 +48,7 @@ func FromThing(thing *models.Thing, vector []float32) *Object {
 func FromAction(action *models.Action, vector []float32) *Object {
 	return &Object{
 		Kind:              kind.Action,
-		Action:            action,
+		Action:            *action,
 		Vector:            vector,
 		MarshallerVersion: 1,
 	}
@@ -95,7 +95,7 @@ func (ko *Object) ID() strfmt.UUID {
 	case kind.Action:
 		return ko.Action.ID
 	default:
-		panic("impossible kind")
+		panic(fmt.Sprintf("impossible kind: %q", ko.Kind))
 	}
 }
 func (ko *Object) LastUpdateTimeUnix() int64 {
@@ -146,6 +146,12 @@ func (ko *Object) VectorWeights() models.VectorWeights {
 }
 
 func (ko *Object) SearchResult() *search.Result {
+	schema := ko.Schema()
+	if schema == nil {
+		schema = map[string]interface{}{}
+	}
+	schema.(map[string]interface{})["uuid"] = ko.ID()
+
 	return &search.Result{
 		Kind:      ko.Kind,
 		ID:        ko.ID(),
@@ -159,6 +165,12 @@ func (ko *Object) SearchResult() *search.Result {
 		Score:                1, // TODO: actuallly score
 		// TODO: Beacon?
 	}
+}
+
+func (ko *Object) Valid() bool {
+	return ko.Kind != "" &&
+		ko.ID() != "" &&
+		ko.Class().String() != ""
 }
 
 func SearchResults(in []*Object) search.Results {
@@ -348,6 +360,10 @@ func (ko *Object) parseKind(uuid strfmt.UUID, create, update int64, className st
 		return err
 	}
 
+	if err := ko.enrichSchemaTypes(schema); err != nil {
+		return errors.Wrap(err, "enrich schema datatypes")
+	}
+
 	var underscore *models.UnderscoreProperties
 	if err := json.Unmarshal(underscoreB, &underscore); err != nil {
 		return err
@@ -360,7 +376,7 @@ func (ko *Object) parseKind(uuid strfmt.UUID, create, update int64, className st
 
 	// TODO: include all underscore props
 	if ko.Kind == kind.Thing {
-		ko.Thing = &models.Thing{
+		ko.Thing = models.Thing{
 			Class:              className,
 			CreationTimeUnix:   create,
 			LastUpdateTimeUnix: update,
@@ -370,7 +386,7 @@ func (ko *Object) parseKind(uuid strfmt.UUID, create, update int64, className st
 			VectorWeights:      vectorWeights,
 		}
 	} else if ko.Kind == kind.Action {
-		ko.Action = &models.Action{
+		ko.Action = models.Action{
 			Class:              className,
 			CreationTimeUnix:   create,
 			LastUpdateTimeUnix: update,
