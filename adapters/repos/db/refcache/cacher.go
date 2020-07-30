@@ -60,12 +60,12 @@ func (c *Cacher) Get(si multi.Identifier) (search.Result, bool) {
 }
 
 // Build builds the lookup cache recursively and tries to be smart about it. This
-// means that it aims to send only a single request (mget) to elasticsearch per
-// level. the recursion exit condition is jobs marked as done. At some point
+// means that it aims to use only a single (multiget) transaction per layer.
+// The recursion exit condition is jobs marked as done. At some point
 // the cacher will realise that for every nested prop there is already a
 // complete job, so it it stop the recursion.
 //
-// build is called on a "level" i.e. the raw schema before parse. After working
+// build is called on a "level" i.e. the search result. After working
 // on the job list for the first time if the resolved items still contain
 // references and the user set the SelectProperty to indicate they want to
 // resolve them, build is called again on all the results (plural!) from the
@@ -73,11 +73,6 @@ func (c *Cacher) Get(si multi.Identifier) (search.Result, bool) {
 // regardless of the amount of lookups per level.
 //
 // This keeps request times to a minimum even on deeply nested requests.
-//
-// parseSchema which will be called on the root element subsequently does not
-// do any more lookups against the backend on its own, it only asks the cacher.
-// Thus it is important that a cacher.build() runs before the first parseSchema
-// is started.
 func (c *Cacher) Build(ctx context.Context, objects []search.Result,
 	properties traverser.SelectProperties, meta bool) error {
 	if c.meta == nil {
@@ -99,7 +94,8 @@ func (c *Cacher) Build(ctx context.Context, objects []search.Result,
 	return nil
 }
 
-// a response is a raw (unparsed) search response from elasticsearch.
+// A response is a []search.Result which has all primitive props parsed (and
+// even ref-beacons parsed into their respective types, but not resolved!)
 // findJobsFromResponse will traverse through it and  check if there are
 // references. In a recursive lookup this can both be done on the rootlevel to
 // start the first lookup as well as recursively on the results of a lookup to
