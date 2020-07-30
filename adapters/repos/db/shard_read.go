@@ -25,11 +25,12 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/filters"
+	"github.com/semi-technologies/weaviate/entities/multi"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 func (s *Shard) objectByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties, meta bool) (*storobj.Object, error) {
-	var object storobj.Object
+	var object *storobj.Object
 
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
@@ -46,14 +47,49 @@ func (s *Shard) objectByID(ctx context.Context, id strfmt.UUID, props traverser.
 		if err != nil {
 			return errors.Wrap(err, "unmarshal kind object")
 		}
-		object = *obj
+		object = obj
 		return nil
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "bolt view tx")
 	}
 
-	return &object, nil
+	return object, nil
+}
+
+func (s *Shard) multiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error) {
+	objects := make([]*storobj.Object, len(query))
+
+	ids := make([][]byte, len(query))
+	for i, q := range query {
+		idBytes, err := uuid.MustParse(q.ID).MarshalBinary()
+		if err != nil {
+			return nil, err
+		}
+
+		ids[i] = idBytes
+	}
+
+	err := s.db.View(func(tx *bolt.Tx) error {
+		for i, id := range ids {
+			bytes := tx.Bucket(helpers.ObjectsBucket).Get(id)
+			if bytes == nil {
+				continue
+			}
+
+			obj, err := storobj.FromBinary(bytes)
+			if err != nil {
+				return errors.Wrap(err, "unmarshal kind object")
+			}
+			objects[i] = obj
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "bolt view tx")
+	}
+
+	return objects, nil
 }
 
 func (s *Shard) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
