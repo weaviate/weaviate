@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -39,7 +40,7 @@ func (c *Classifier) run(params models.Classification, kind kind.Kind,
 	unclassifiedItems, err := c.vectorRepo.GetUnclassified(ctx,
 		kind, params.Class, params.ClassifyProperties, filters.source)
 	if err != nil {
-		c.failRunWithError(params, err)
+		c.failRunWithError(params, errors.Wrap(err, "retrieve to-be-classifieds"))
 		return
 	}
 
