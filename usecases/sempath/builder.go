@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/danaugrs/go-tsne/tsne"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -288,9 +287,6 @@ func (f *PathBuilder) buildPath(neighbors []*models.NearestNeighbor, searchVecto
 }
 
 func (f *PathBuilder) nearestNeighbors(search []float32, candidates []*models.NearestNeighbor, length int) []*models.NearestNeighbor {
-
-	spew.Dump(candidates)
-
 	sort.Slice(candidates, func(a, b int) bool {
 		return f.distance(candidates[a].Vector, search) < f.distance(candidates[b].Vector, search)
 	})
