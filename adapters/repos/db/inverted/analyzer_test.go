@@ -17,6 +17,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -173,6 +174,30 @@ func TestAnalyzer(t *testing.T) {
 			getData(a.Float(400000)),
 			getData(a.Float(1000000)),
 			getData(a.Float(math.MaxFloat64)),
+		}
+
+		var afterSort = make([][]byte, len(results))
+		copy(afterSort, results)
+		sort.Slice(afterSort, func(a, b int) bool { return bytes.Compare(afterSort[a], afterSort[b]) == -1 })
+		assert.Equal(t, results, afterSort)
+	})
+
+	t.Run("with refCount it stays sortable", func(t *testing.T) {
+		getData := func(in []Countable, err error) []byte {
+			require.Nil(t, err)
+			return in[0].Data
+		}
+
+		var results = [][]byte{
+			getData(a.RefCount(make(models.MultipleRef, 0))),
+			getData(a.RefCount(make(models.MultipleRef, 1))),
+			getData(a.RefCount(make(models.MultipleRef, 2))),
+			getData(a.RefCount(make(models.MultipleRef, 99))),
+			getData(a.RefCount(make(models.MultipleRef, 100))),
+			getData(a.RefCount(make(models.MultipleRef, 101))),
+			getData(a.RefCount(make(models.MultipleRef, 256))),
+			getData(a.RefCount(make(models.MultipleRef, 300))),
+			getData(a.RefCount(make(models.MultipleRef, 456))),
 		}
 
 		var afterSort = make([][]byte, len(results))

@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/indexcounter"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
 // Shard is the smallest completely-contained index unit. A shard mananages
@@ -97,7 +98,18 @@ func (s *Shard) initDBFile() error {
 func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 	if err := s.db.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists(helpers.BucketFromPropName(prop.Name))
-		return err
+		if err != nil {
+			return err
+		}
+
+		if schema.IsRefDataType(prop.DataType) {
+			_, err := tx.CreateBucketIfNotExists(helpers.BucketFromPropName(helpers.MetaCountProp(prop.Name)))
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
 	}); err != nil {
 		return errors.Wrap(err, "bolt update tx")
 	}
