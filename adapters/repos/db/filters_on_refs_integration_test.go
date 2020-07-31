@@ -28,6 +28,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -376,96 +377,76 @@ func TestRefFilters(t *testing.T) {
 
 		// })
 
-		// TODO: gh-1218
-		// t.Run("by reference count", func(t *testing.T) {
-		// 	t.Run("equal to zero", func(t *testing.T) {
-		// 		filter := filterCarParkedCount(filters.OperatorEqual, 0)
-		// 		params := getParamsWithFilter("MultiRefCar", filter)
-		// 		res, err := repo.ClassSearch(context.Background(), params)
-		// 		require.Nil(t, err)
-		// 		require.Len(t, res, 1) // there is just one car parked nowhere
-		// 		assert.Equal(t, "Car which is parked no where", res[0].Schema.(map[string]interface{})["name"])
-		// 	})
+		t.Run("by reference count", func(t *testing.T) {
+			t.Run("equal to zero", func(t *testing.T) {
+				filter := filterCarParkedCount(filters.OperatorEqual, 0)
+				params := getParamsWithFilter("MultiRefCar", filter)
+				res, err := repo.ClassSearch(context.Background(), params)
+				require.Nil(t, err)
+				require.Len(t, res, 1) // there is just one car parked nowhere
+				assert.Equal(t, "Car which is parked no where", res[0].Schema.(map[string]interface{})["name"])
+			})
 
-		// 	t.Run("equal to one", func(t *testing.T) {
-		// 		filter := filterCarParkedCount(filters.OperatorEqual, 1)
-		// 		params := getParamsWithFilter("MultiRefCar", filter)
-		// 		res, err := repo.ClassSearch(context.Background(), params)
-		// 		require.Nil(t, err)
-		// 		expectedNames := []string{
-		// 			"Car which is parked in a garage",
-		// 			"Car which is parked in a lot",
-		// 		}
-		// 		assert.ElementsMatch(t, expectedNames, extractNames(res))
-		// 	})
+			t.Run("equal to one", func(t *testing.T) {
+				filter := filterCarParkedCount(filters.OperatorEqual, 1)
+				params := getParamsWithFilter("MultiRefCar", filter)
+				res, err := repo.ClassSearch(context.Background(), params)
+				require.Nil(t, err)
+				expectedNames := []string{
+					"Car which is parked in a garage",
+					"Car which is parked in a lot",
+				}
+				assert.ElementsMatch(t, expectedNames, extractNames(res))
+			})
 
-		// 	t.Run("equal to more than one", func(t *testing.T) {
-		// 		filter := filterCarParkedCount(filters.OperatorGreaterThan, 1)
-		// 		params := getParamsWithFilter("MultiRefCar", filter)
-		// 		res, err := repo.ClassSearch(context.Background(), params)
-		// 		require.Nil(t, err)
-		// 		expectedNames := []string{
-		// 			"Car which is parked in two places at the same time (magic!)",
-		// 		}
-		// 		assert.ElementsMatch(t, expectedNames, extractNames(res))
-		// 	})
+			t.Run("equal to more than one", func(t *testing.T) {
+				filter := filterCarParkedCount(filters.OperatorGreaterThan, 1)
+				params := getParamsWithFilter("MultiRefCar", filter)
+				res, err := repo.ClassSearch(context.Background(), params)
+				require.Nil(t, err)
+				expectedNames := []string{
+					"Car which is parked in two places at the same time (magic!)",
+				}
+				assert.ElementsMatch(t, expectedNames, extractNames(res))
+			})
 
-		// 	t.Run("greater or equal one", func(t *testing.T) {
-		// 		filter := filterCarParkedCount(filters.OperatorGreaterThanEqual, 1)
-		// 		params := getParamsWithFilter("MultiRefCar", filter)
-		// 		res, err := repo.ClassSearch(context.Background(), params)
-		// 		require.Nil(t, err)
-		// 		expectedNames := []string{
-		// 			"Car which is parked in a garage",
-		// 			"Car which is parked in a lot",
-		// 			"Car which is parked in two places at the same time (magic!)",
-		// 		}
-		// 		assert.ElementsMatch(t, expectedNames, extractNames(res))
-		// 	})
+			t.Run("greater or equal one", func(t *testing.T) {
+				filter := filterCarParkedCount(filters.OperatorGreaterThanEqual, 1)
+				params := getParamsWithFilter("MultiRefCar", filter)
+				res, err := repo.ClassSearch(context.Background(), params)
+				require.Nil(t, err)
+				expectedNames := []string{
+					"Car which is parked in a garage",
+					"Car which is parked in a lot",
+					"Car which is parked in two places at the same time (magic!)",
+				}
+				assert.ElementsMatch(t, expectedNames, extractNames(res))
+			})
 
-		// 	t.Run("less than one", func(t *testing.T) {
-		// 		filter := filterCarParkedCount(filters.OperatorLessThan, 1)
-		// 		params := getParamsWithFilter("MultiRefCar", filter)
-		// 		res, err := repo.ClassSearch(context.Background(), params)
-		// 		require.Nil(t, err)
-		// 		expectedNames := []string{
-		// 			"Car which is parked no where",
-		// 		}
-		// 		assert.ElementsMatch(t, expectedNames, extractNames(res))
-		// 	})
+			t.Run("less than one", func(t *testing.T) {
+				filter := filterCarParkedCount(filters.OperatorLessThan, 1)
+				params := getParamsWithFilter("MultiRefCar", filter)
+				res, err := repo.ClassSearch(context.Background(), params)
+				require.Nil(t, err)
+				expectedNames := []string{
+					"Car which is parked no where",
+				}
+				assert.ElementsMatch(t, expectedNames, extractNames(res))
+			})
 
-		// 	t.Run("less than or equal one", func(t *testing.T) {
-		// 		filter := filterCarParkedCount(filters.OperatorLessThanEqual, 1)
-		// 		params := getParamsWithFilter("MultiRefCar", filter)
-		// 		res, err := repo.ClassSearch(context.Background(), params)
-		// 		require.Nil(t, err)
-		// 		expectedNames := []string{
-		// 			"Car which is parked in a garage",
-		// 			"Car which is parked in a lot",
-		// 			"Car which is parked no where",
-		// 		}
-		// 		assert.ElementsMatch(t, expectedNames, extractNames(res))
-		// 	})
-
-		// 	t.Run("with an incorrect data type", func(t *testing.T) {
-		// 		filter := &filters.LocalFilter{
-		// 			Root: &filters.Clause{
-		// 				Operator: filters.OperatorLessThanEqual,
-		// 				On: &filters.Path{
-		// 					Class:    schema.ClassName("MultiRefCar"),
-		// 					Property: schema.PropertyName("parkedAt"),
-		// 				},
-		// 				Value: &filters.Value{
-		// 					Value: "some string",
-		// 					Type:  schema.DataTypeString,
-		// 				},
-		// 			},
-		// 		}
-		// 		params := getParamsWithFilter("MultiRefCar", filter)
-		// 		_, err := repo.ClassSearch(context.Background(), params)
-		// 		assert.Equal(t, fmt.Errorf("reference count filters require a value of type int, got: string"), err)
-		// 	})
-		// })
+			t.Run("less than or equal one", func(t *testing.T) {
+				filter := filterCarParkedCount(filters.OperatorLessThanEqual, 1)
+				params := getParamsWithFilter("MultiRefCar", filter)
+				res, err := repo.ClassSearch(context.Background(), params)
+				require.Nil(t, err)
+				expectedNames := []string{
+					"Car which is parked in a garage",
+					"Car which is parked in a lot",
+					"Car which is parked no where",
+				}
+				assert.ElementsMatch(t, expectedNames, extractNames(res))
+			})
+		})
 	})
 }
 
