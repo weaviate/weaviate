@@ -34,12 +34,6 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 		return err
 	}
 
-	docID, err := s.counter.GetAndInc()
-	if err != nil {
-		return errors.Wrap(err, "get new doc id from counter")
-	}
-	object.SetIndexID(docID)
-
 	data, err := object.MarshalBinary()
 	if err != nil {
 		return errors.Wrapf(err, "marshal object %s to binary", object.ID())
@@ -50,9 +44,26 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 		return err
 	}
 
+	var docID uint32
 	if err := s.db.Batch(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(helpers.ObjectsBucket)
+
+		existing := bucket.Get([]byte(idBytes))
+		if existing == nil {
+			docID, err = s.counter.GetAndInc()
+			if err != nil {
+				return errors.Wrap(err, "get new doc id from counter")
+			}
+			object.SetIndexID(docID)
+		} else {
+			docID, err = storobj.DocIDFromBinary(existing)
+			if err != nil {
+				return errors.Wrap(err, "get existing doc id from object binary")
+			}
+		}
+
 		// insert data object
-		if err := tx.Bucket(helpers.ObjectsBucket).Put([]byte(idBytes), data); err != nil {
+		if err := bucket.Put([]byte(idBytes), data); err != nil {
 			return errors.Wrap(err, "put object data")
 		}
 
