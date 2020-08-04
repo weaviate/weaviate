@@ -34,32 +34,35 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 		return err
 	}
 
-	data, err := object.MarshalBinary()
-	if err != nil {
-		return errors.Wrapf(err, "marshal object %s to binary", object.ID())
-	}
-
 	invertProps, err := s.analyzeObject(object)
 	if err != nil {
 		return err
 	}
 
 	var docID uint32
+	var isUpdate bool
 	if err := s.db.Batch(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(helpers.ObjectsBucket)
 
 		existing := bucket.Get([]byte(idBytes))
 		if existing == nil {
+			isUpdate = false
 			docID, err = s.counter.GetAndInc()
 			if err != nil {
 				return errors.Wrap(err, "get new doc id from counter")
 			}
-			object.SetIndexID(docID)
 		} else {
+			isUpdate = true
 			docID, err = storobj.DocIDFromBinary(existing)
 			if err != nil {
 				return errors.Wrap(err, "get existing doc id from object binary")
 			}
+		}
+		object.SetIndexID(docID)
+
+		data, err := object.MarshalBinary()
+		if err != nil {
+			return errors.Wrapf(err, "marshal object %s to binary", object.ID())
 		}
 
 		// insert data object
@@ -72,9 +75,17 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 			return errors.Wrap(err, "put inverted indices props")
 		}
 
-		// insert inverted index props
-		if err := s.extendInvertedIndices(tx, invertProps, docID); err != nil {
-			return errors.Wrap(err, "put inverted indices props")
+		if !isUpdate {
+			// TODO gh-1221: the above is an over-simplification to make sure that on
+			// an update we don't add index id duplicates, so instaed we simply don't
+			// touch the invertied index at all. This essentially means right now
+			// updates aren't indexed. Instead we should (as outlined in #1221)
+			// calculate the delta, then explicitly add/remove where necessary
+
+			// insert inverted index props
+			if err := s.extendInvertedIndices(tx, invertProps, docID); err != nil {
+				return errors.Wrap(err, "put inverted indices props")
+			}
 		}
 
 		return nil
