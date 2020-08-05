@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 )
 
 func (h *hnsw) SearchByID(id int, k int) ([]int, error) {
@@ -20,9 +21,9 @@ func (h *hnsw) SearchByID(id int, k int) ([]int, error) {
 	return h.knnSearch(id, k, 36)
 }
 
-func (h *hnsw) SearchByVector(vector []float32, k int) ([]int, error) {
+func (h *hnsw) SearchByVector(vector []float32, k int, allowList inverted.AllowList) ([]int, error) {
 	// TODO: make ef configurable
-	return h.knnSearchByVector(vector, k, 36)
+	return h.knnSearchByVector(vector, k, 36, allowList)
 }
 
 func (h *hnsw) searchLayer(queryNode *hnswVertex, entrypoints binarySearchTreeGeneric, ef int, level int) (*binarySearchTreeGeneric, error) {
@@ -144,7 +145,7 @@ func (h *hnsw) knnSearch(queryNodeID int, k int, ef int) ([]int, error) {
 	return out, nil
 }
 
-func (h *hnsw) searchLayerByVector(queryVector []float32, entrypoints binarySearchTreeGeneric, ef int, level int) (*binarySearchTreeGeneric, error) {
+func (h *hnsw) searchLayerByVector(queryVector []float32, entrypoints binarySearchTreeGeneric, ef int, level int, allowList inverted.AllowList) (*binarySearchTreeGeneric, error) {
 
 	// create 3 copies of the entrypoint bst
 	visited := map[uint32]struct{}{}
@@ -156,15 +157,36 @@ func (h *hnsw) searchLayerByVector(queryVector []float32, entrypoints binarySear
 
 	for _, ep := range entrypoints.flattenInOrder() {
 		candidates.insert(ep.index, ep.dist)
+		if level == 0 && allowList != nil {
+			// we are on the lowest level containing the actual candidates and we
+			// have an allow list (i.e. the user has probably set some sort of a
+			// filter restricting this search further. As a result we have to
+			// ignore items not on the list
+			if !allowList.Contains(uint32(ep.index)) {
+				continue
+			}
+		}
 		results.insert(ep.index, ep.dist)
 	}
 
 	for candidates.root != nil { // efficient way to see if the len is > 0
 		candidate := candidates.minimum()
 		candidates.delete(candidate.index, candidate.dist)
-		worstResultDistance, err := h.distBetweenNodeAndVec(results.maximum().index, queryVector)
-		if err != nil {
-			return nil, errors.Wrap(err, "calculated distance between worst result and query")
+
+		var worstResultDistance float32
+
+		if results.root != nil {
+			d, err := h.distBetweenNodeAndVec(results.maximum().index, queryVector)
+			if err != nil {
+				return nil, errors.Wrap(err, "calculated distance between worst result and query")
+			}
+			worstResultDistance = d
+		} else {
+			// if the entrypoint (which we received from a higher layer doesn't match
+			// the allow List the result list is empty. In this case we can just set
+			// the worstDistance to an arbitrarily large number, so that any
+			// (allowed) candidate will have a lower distance in comparison
+			worstResultDistance = 9001
 		}
 
 		dist, err := h.distBetweenNodeAndVec(candidate.index, queryVector)
@@ -204,8 +226,17 @@ func (h *hnsw) searchLayerByVector(queryVector []float32, entrypoints binarySear
 
 			resLenBefore := results.len() // calculating just once saves a bit of time
 			if distance < worstResultDistance || resLenBefore < ef {
-				results.insert(int(neighborID), distance)
 				candidates.insert(int(neighborID), distance)
+				if level == 0 && allowList != nil {
+					// we are on the lowest level containing the actual candidates and we
+					// have an allow list (i.e. the user has probably set some sort of a
+					// filter restricting this search further. As a result we have to
+					// ignore items not on the list
+					if !allowList.Contains(neighborID) {
+						continue
+					}
+				}
+				results.insert(int(neighborID), distance)
 
 				if resLenBefore+1 > ef { // +1 because we have added one node size calculating the len
 					max := results.maximum()
@@ -220,7 +251,8 @@ func (h *hnsw) searchLayerByVector(queryVector []float32, entrypoints binarySear
 	return results, nil
 }
 
-func (h *hnsw) knnSearchByVector(searchVec []float32, k int, ef int) ([]int, error) {
+func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
+	ef int, allowList inverted.AllowList) ([]int, error) {
 
 	entryPointID := h.entryPointID
 	entryPointDistance, err := h.distBetweenNodeAndVec(entryPointID, searchVec)
@@ -231,7 +263,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int, ef int) ([]int, err
 	for level := h.currentMaximumLayer; level >= 1; level-- { // stop at layer 1, not 0!
 		eps := &binarySearchTreeGeneric{}
 		eps.insert(entryPointID, entryPointDistance)
-		res, err := h.searchLayerByVector(searchVec, *eps, 1, level)
+		res, err := h.searchLayerByVector(searchVec, *eps, 1, level, nil) // ignore allowList on layers > 0
 		if err != nil {
 			return nil, errors.Wrapf(err, "knn search: search layer at level %d", level)
 		}
@@ -242,7 +274,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int, ef int) ([]int, err
 
 	eps := &binarySearchTreeGeneric{}
 	eps.insert(entryPointID, entryPointDistance)
-	res, err := h.searchLayerByVector(searchVec, *eps, ef, 0)
+	res, err := h.searchLayerByVector(searchVec, *eps, ef, 0, allowList)
 	if err != nil {
 		return nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
 	}
