@@ -38,6 +38,7 @@ func NewSearcher(db *bolt.DB, schema schema.Schema) *Searcher {
 	}
 }
 
+// Object returns a list of full objects
 func (f *Searcher) Object(ctx context.Context, limit int, filter *filters.LocalFilter,
 	meta bool, className schema.ClassName) ([]*storobj.Object, error) {
 	// defer func() {
@@ -92,6 +93,45 @@ func (f *Searcher) Object(ctx context.Context, limit int, filter *filters.LocalF
 
 	}); err != nil {
 		return nil, errors.Wrap(err, "object filter search bolt view tx")
+	}
+
+	return out, nil
+}
+
+// DocIDs is similar to Objects, but does not actually resolve the docIDs to
+// full objects. Instead it returns the pure object id pointers. They can then
+// be used in a secondary index (e.g. vector index)
+func (f *Searcher) DocIDs(ctx context.Context, limit int, filter *filters.LocalFilter,
+	meta bool, className schema.ClassName) (AllowList, error) {
+	// defer func() {
+	// 	if r := recover(); r != nil {
+	// 		fmt.Printf("%v at %s", r, debug.Stack())
+	// 	}
+	// }()
+
+	pv, err := f.extractPropValuePair(filter.Root, className)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := f.db.View(func(tx *bolt.Tx) error {
+		if err := pv.fetchDocIDs(tx, f, limit); err != nil {
+			return errors.Wrap(err, "fetch doc ids for prop/value pair")
+		}
+
+		return nil
+	}); err != nil {
+		return nil, errors.Wrap(err, "doc id filter search bolt view tx")
+	}
+
+	pointers, err := pv.mergeDocIDs()
+	if err != nil {
+		return nil, errors.Wrap(err, "merge doc ids by operator")
+	}
+
+	out := make(AllowList, len(pointers.docIDs))
+	for _, p := range pointers.docIDs {
+		out.Insert(p.id)
 	}
 
 	return out, nil

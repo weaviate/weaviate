@@ -161,11 +161,27 @@ func (s *Shard) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32, limit int,
 	filters *filters.LocalFilter, meta bool) ([]*storobj.Object, error) {
+	// defer func() {
+	// 	err := recover()
+	// 	if err != nil {
+	// 		fmt.Println(err)
+	// 		debug.PrintStack()
+	// 	}
+	// }()
+
+	var allowList inverted.AllowList
+
 	if filters != nil {
-		return nil, fmt.Errorf("combining vector search and filters not possible yet")
+		list, err := inverted.NewSearcher(s.db, s.index.getSchema.GetSchemaSkipAuth()).
+			DocIDs(ctx, limit, filters, meta, s.index.Config.ClassName)
+		if err != nil {
+			return nil, errors.Wrap(err, "build inverted filter allow list")
+		}
+
+		allowList = list
 	}
 
-	ids, err := s.vectorIndex.SearchByVector(searchVector, limit)
+	ids, err := s.vectorIndex.SearchByVector(searchVector, limit, allowList)
 	if err != nil {
 		return nil, errors.Wrap(err, "vector search")
 	}
