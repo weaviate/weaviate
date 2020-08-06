@@ -173,7 +173,7 @@ func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32, 
 
 	if filters != nil {
 		list, err := inverted.NewSearcher(s.db, s.index.getSchema.GetSchemaSkipAuth()).
-			DocIDs(ctx, limit, filters, meta, s.index.Config.ClassName)
+			DocIDs(ctx, filters, meta, s.index.Config.ClassName)
 		if err != nil {
 			return nil, errors.Wrap(err, "build inverted filter allow list")
 		}
