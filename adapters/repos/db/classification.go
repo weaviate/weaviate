@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/filters"
@@ -88,9 +87,6 @@ func (a *KnnAggregator) Aggregate(k int, properties []string) ([]classification.
 	if err != nil {
 		return nil, errors.Wrap(err, "aggregate: extract beacons from neighbors")
 	}
-
-	spew.Dump(a.input)
-	spew.Dump(neighbors)
 
 	return a.aggregateBeacons(neighbors)
 }
