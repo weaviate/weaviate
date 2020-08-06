@@ -101,7 +101,14 @@ func (f *Searcher) Object(ctx context.Context, limit int, filter *filters.LocalF
 // DocIDs is similar to Objects, but does not actually resolve the docIDs to
 // full objects. Instead it returns the pure object id pointers. They can then
 // be used in a secondary index (e.g. vector index)
-func (f *Searcher) DocIDs(ctx context.Context, limit int, filter *filters.LocalFilter,
+//
+// DocID queries does not contain a limit by design, as we won't know if the limit
+// wouldn't remove the item that is most important for the follow up query.
+// Imagine the user sets the limit to 1 and the follow-up is a vector search.
+// If we already limited the allowList to 1, the vector search would be
+// pointless, as only the first element would be allowed, regardless of which
+// had the shortest distance
+func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	meta bool, className schema.ClassName) (AllowList, error) {
 	// defer func() {
 	// 	if r := recover(); r != nil {
@@ -115,7 +122,7 @@ func (f *Searcher) DocIDs(ctx context.Context, limit int, filter *filters.LocalF
 	}
 
 	if err := f.db.View(func(tx *bolt.Tx) error {
-		if err := pv.fetchDocIDs(tx, f, limit); err != nil {
+		if err := pv.fetchDocIDs(tx, f, -1); err != nil {
 			return errors.Wrap(err, "fetch doc ids for prop/value pair")
 		}
 
@@ -151,7 +158,7 @@ func (fs *Searcher) parseInvertedIndexRow(in []byte, limit int, hasFrequency boo
 
 	read := 0
 	for {
-		if read >= limit {
+		if limit > 0 && read >= limit { // limit >0 allows us to specify -1 to mean unlimited
 			// we are done because the user specified limit is reached
 			break
 		}
@@ -234,8 +241,10 @@ func (fs *Searcher) extractPrimitiveProp(propName string, dt schema.DataType, va
 	case schema.DataTypeNumber:
 		extractValueFn = fs.extractNumberValue
 		hasFrequency = false
+	case "":
+		return nil, fmt.Errorf("data type cannot be empty")
 	default:
-		return nil, fmt.Errorf("data type not supported yet")
+		return nil, fmt.Errorf("data type %q not supported yet", dt)
 	}
 
 	byteValue, err := extractValueFn(value)
