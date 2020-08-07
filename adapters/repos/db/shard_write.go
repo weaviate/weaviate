@@ -16,8 +16,10 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"sync"
 
 	"github.com/boltdb/bolt"
+	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -41,63 +43,151 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 
 	var docID uint32
 	var isUpdate bool
+
 	if err := s.db.Batch(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket(helpers.ObjectsBucket)
 
-		existing := bucket.Get([]byte(idBytes))
-		if existing == nil {
-			isUpdate = false
-			docID, err = s.counter.GetAndInc()
-			if err != nil {
-				return errors.Wrap(err, "get new doc id from counter")
-			}
-		} else {
-			isUpdate = true
-			docID, err = storobj.DocIDFromBinary(existing)
-			if err != nil {
-				return errors.Wrap(err, "get existing doc id from object binary")
-			}
-		}
-		object.SetIndexID(docID)
-
-		data, err := object.MarshalBinary()
+		id, update, err := s.putObjectInTx(tx, object, idBytes, invertProps)
 		if err != nil {
-			return errors.Wrapf(err, "marshal object %s to binary", object.ID())
+			return err
 		}
 
-		// insert data object
-		if err := bucket.Put([]byte(idBytes), data); err != nil {
-			return errors.Wrap(err, "put object data")
-		}
-
-		// build indexID->UUID lookup
-		if err := s.addIndexIDLookup(tx, idBytes, docID); err != nil {
-			return errors.Wrap(err, "put inverted indices props")
-		}
-
-		if !isUpdate {
-			// TODO gh-1221: the above is an over-simplification to make sure that on
-			// an update we don't add index id duplicates, so instaed we simply don't
-			// touch the invertied index at all. This essentially means right now
-			// updates aren't indexed. Instead we should (as outlined in #1221)
-			// calculate the delta, then explicitly add/remove where necessary
-
-			// insert inverted index props
-			if err := s.extendInvertedIndices(tx, invertProps, docID); err != nil {
-				return errors.Wrap(err, "put inverted indices props")
-			}
-		}
-
+		docID = id
+		isUpdate = update
 		return nil
 	}); err != nil {
 		return errors.Wrap(err, "bolt batch tx")
 	}
 
-	if err := s.vectorIndex.Add(int(docID), object.Vector); err != nil {
-		return errors.Wrap(err, "insert to vector index")
+	if !isUpdate {
+		if err := s.vectorIndex.Add(int(docID), object.Vector); err != nil {
+			return errors.Wrap(err, "insert to vector index")
+		}
+	} else {
+		fmt.Printf("skipping vector update because its an update. TODO: handle correctly\n")
 	}
 
 	return nil
+}
+
+func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) error {
+	maxPerTransaction := 30
+	docIDs := map[strfmt.UUID]uint32{}
+
+	var wg = &sync.WaitGroup{}
+	for i := 0; i < len(objects); i += maxPerTransaction {
+		end := i + maxPerTransaction
+		if end > len(objects) {
+			end = len(objects)
+		}
+
+		batch := objects[i:end]
+		wg.Add(1)
+		go func(i int, batch []*storobj.Object) {
+			defer wg.Done()
+			if err := s.db.Batch(func(tx *bolt.Tx) error {
+				for _, object := range batch {
+
+					idBytes, err := uuid.MustParse(object.ID().String()).MarshalBinary()
+					if err != nil {
+						return err
+					}
+
+					invertProps, err := s.analyzeObject(object)
+					if err != nil {
+						return err
+					}
+
+					id, _, err := s.putObjectInTx(tx, object, idBytes, invertProps)
+					if err != nil {
+						return err
+					}
+
+					docIDs[object.ID()] = id
+				}
+				return nil
+			}); err != nil {
+				// TODO: handle
+				err = errors.Wrap(err, "bolt batch tx")
+				fmt.Printf("ERROR: %v\n", err)
+			}
+		}(i, batch)
+
+	}
+	wg.Wait()
+
+	// TODO: is it smart to let them all run in parallel? wouldn't it be better
+	// to open no more threads than we have cpu cores?
+	wg = &sync.WaitGroup{}
+	for _, object := range objects {
+		wg.Add(1)
+		docID := int(docIDs[object.ID()])
+		go func(object *storobj.Object, docID int) {
+			defer wg.Done()
+
+			if err := s.vectorIndex.Add(docID, object.Vector); err != nil {
+				// TODO: Handle error
+				fmt.Println(errors.Wrap(err, "insert to vector index"))
+			}
+		}(object, docID)
+	}
+	wg.Wait()
+
+	return nil
+}
+
+func (s *Shard) putObjectInTx(tx *bolt.Tx, object *storobj.Object, idBytes []byte,
+	invertProps []inverted.Property) (uint32, bool, error) {
+	var docID uint32
+	var isUpdate bool
+	var err error
+
+	bucket := tx.Bucket(helpers.ObjectsBucket)
+
+	existing := bucket.Get([]byte(idBytes))
+	if existing == nil {
+		isUpdate = false
+		docID, err = s.counter.GetAndInc()
+		if err != nil {
+			return docID, isUpdate, errors.Wrap(err, "get new doc id from counter")
+		}
+	} else {
+		isUpdate = true
+		docID, err = storobj.DocIDFromBinary(existing)
+		if err != nil {
+			return docID, isUpdate, errors.Wrap(err, "get existing doc id from object binary")
+		}
+	}
+	object.SetIndexID(docID)
+
+	data, err := object.MarshalBinary()
+	if err != nil {
+		return docID, isUpdate, errors.Wrapf(err, "marshal object %s to binary", object.ID())
+	}
+
+	// insert data object
+	if err := bucket.Put([]byte(idBytes), data); err != nil {
+		return docID, isUpdate, errors.Wrap(err, "put object data")
+	}
+
+	// build indexID->UUID lookup
+	if err := s.addIndexIDLookup(tx, idBytes, docID); err != nil {
+		return docID, isUpdate, errors.Wrap(err, "put inverted indices props")
+	}
+
+	if !isUpdate {
+		// TODO gh-1221: the above is an over-simplification to make sure that on
+		// an update we don't add index id duplicates, so instaed we simply don't
+		// touch the invertied index at all. This essentially means right now
+		// updates aren't indexed. Instead we should (as outlined in #1221)
+		// calculate the delta, then explicitly add/remove where necessary
+
+		// insert inverted index props
+		if err := s.extendInvertedIndices(tx, invertProps, docID); err != nil {
+			return docID, isUpdate, errors.Wrap(err, "put inverted indices props")
+		}
+	}
+
+	return docID, isUpdate, nil
 }
 
 func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, error) {

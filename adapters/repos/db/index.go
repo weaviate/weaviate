@@ -96,6 +96,17 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
 	return nil
 }
 
+func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object) error {
+	// TODO: pick the right shard(s) instead of using the "single" shard
+	shard := i.Shards["single"]
+	err := shard.putObjectBatch(ctx, objects)
+	if err != nil {
+		return errors.Wrapf(err, "shard %s", shard.ID())
+	}
+
+	return nil
+}
+
 func (i *Index) objectByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties, meta bool) (*storobj.Object, error) {
 	// TODO: don't ignore meta
 
