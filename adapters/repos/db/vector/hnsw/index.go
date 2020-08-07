@@ -22,7 +22,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-const importLimit = 10000 // TODO: make variable
+const importLimit = 50000 // TODO: make variable
 
 type hnsw struct {
 	sync.RWMutex
@@ -53,7 +53,7 @@ type hnsw struct {
 
 	vectorForID vectorForID
 
-	commitLog commitLogger
+	commitLog CommitLogger
 
 	// // for distributed spike, can be used to call a insertExternal on a different graph
 	// insertHook func(node, targetLevel int, neighborsAtLevel map[int][]uint32)
@@ -62,16 +62,24 @@ type hnsw struct {
 	rootPath string
 }
 
-type commitLogger interface {
+type CommitLogger interface {
 	AddNode(node *hnswVertex) error
 	SetEntryPointWithMaxLayer(id int, level int) error
 	AddLinkAtLevel(nodeid int, level int, target uint32) error
 	ReplaceLinksAtLevel(nodeid int, level int, targets []uint32) error
 }
 
+type makeCommitLogger func() CommitLogger
+
 type vectorForID func(ctx context.Context, id int32) ([]float32, error)
 
-func New(rootPath, id string, commitLogger commitLogger, maximumConnections int,
+// New creates a new HNSW index, the commit logger is provided through a thunk
+// (a function which can be deferred). This is because creating a commit logger
+// opens files for writing. However, checking whether a file is present, is a
+// criterium for the index to see if it has to recover from disk or if its a
+// truly new index. So instead the index is initialized, with un-biased disk
+// checks first and only then is the commit logger created
+func New(rootPath, id string, makeCommitLogger makeCommitLogger, maximumConnections int,
 	efConstruction int, vectorForID vectorForID) (*hnsw, error) {
 
 	vectorCache := newCache(vectorForID)
@@ -81,7 +89,7 @@ func New(rootPath, id string, commitLogger commitLogger, maximumConnections int,
 		maximumConnectionsLayerZero: 2 * maximumConnections,                    // inspired by original paper and other implementations
 		levelNormalizer:             1 / math.Log(float64(maximumConnections)), // inspired by c++ implementation
 		efConstruction:              efConstruction,
-		nodes:                       make([]*hnswVertex, 0, importLimit), // TODO: grow variably rather than fixed length
+		nodes:                       make([]*hnswVertex, 0), // TODO: grow variably rather than fixed length
 		vectorForID:                 vectorCache.get,
 		id:                          id,
 		rootPath:                    rootPath,
@@ -92,7 +100,7 @@ func New(rootPath, id string, commitLogger commitLogger, maximumConnections int,
 	}
 
 	// init commit logger for future writes
-	index.commitLog = commitLogger
+	index.commitLog = makeCommitLogger()
 
 	return index, nil
 }
@@ -245,18 +253,22 @@ func (h *hnsw) insert(node *hnswVertex) error {
 
 	if total == 0 {
 		h.Lock()
-		h.commitLog.SetEntryPointWithMaxLayer(node.id, 0)
-		h.entryPointID = node.id
-		h.currentMaximumLayer = 0
-		node.connections = map[int][]uint32{}
-		node.level = 0
-		h.nodes = make([]*hnswVertex, importLimit)
-		h.commitLog.AddNode(node)
-		h.nodes[node.id] = node
-		h.Unlock()
+		if len(h.nodes) != 0 {
+			h.Unlock()
+		} else {
+			h.commitLog.SetEntryPointWithMaxLayer(node.id, 0)
+			h.entryPointID = node.id
+			h.currentMaximumLayer = 0
+			node.connections = map[int][]uint32{}
+			node.level = 0
+			h.nodes = make([]*hnswVertex, importLimit)
+			h.commitLog.AddNode(node)
+			h.nodes[node.id] = node
 
-		// go h.insertHook(node.id, 0, node.connections)
-		return nil
+			h.Unlock()
+			// go h.insertHook(node.id, 0, node.connections)
+			return nil
+		}
 	}
 	// initially use the "global" entrypoint which is guaranteed to be on the
 	// currently highest layer
@@ -376,7 +388,7 @@ func (h *hnsw) insert(node *hnswVertex) error {
 	return nil
 }
 
-func (v *hnswVertex) linkAtLevel(level int, target uint32, cl commitLogger) {
+func (v *hnswVertex) linkAtLevel(level int, target uint32, cl CommitLogger) {
 	v.Lock()
 	cl.AddLinkAtLevel(v.id, level, target)
 	v.connections[level] = append(v.connections[level], target)

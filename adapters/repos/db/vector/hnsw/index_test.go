@@ -24,8 +24,11 @@ func TestHnswIndex(t *testing.T) {
 	// is tested in a separate integration test that takes care of providing and
 	// cleaning up the correct place on disk to write test files
 	cl := &noopCommitLogger{}
+	makeCL := func() CommitLogger {
+		return cl
+	}
 
-	index, err := New("doesnt-matter-as-committlogger-is-mocked-out", "unittest", cl, 30, 60, testVectorForID)
+	index, err := New("doesnt-matter-as-committlogger-is-mocked-out", "unittest", makeCL, 30, 60, testVectorForID)
 	require.Nil(t, err)
 
 	for i, vec := range testVectors {

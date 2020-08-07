@@ -18,12 +18,12 @@ import (
 
 func (h *hnsw) SearchByID(id int, k int) ([]int, error) {
 	// TODO: make ef configurable
-	return h.knnSearch(id, k, 36)
+	return h.knnSearch(id, k, 128)
 }
 
 func (h *hnsw) SearchByVector(vector []float32, k int, allowList inverted.AllowList) ([]int, error) {
 	// TODO: make ef configurable
-	return h.knnSearchByVector(vector, k, 36, allowList)
+	return h.knnSearchByVector(vector, k, 128, allowList)
 }
 
 func (h *hnsw) searchLayer(queryNode *hnswVertex, entrypoints binarySearchTreeGeneric, ef int, level int) (*binarySearchTreeGeneric, error) {

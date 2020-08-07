@@ -34,7 +34,10 @@ func TestHnswPersistence(t *testing.T) {
 	}()
 
 	cl := NewCommitLogger(dirName, "integrationtest")
-	index, err := New(dirName, "integrationtest", cl, 30, 60, testVectorForID)
+	makeCL := func() CommitLogger {
+		return cl
+	}
+	index, err := New(dirName, "integrationtest", makeCL, 30, 60, testVectorForID)
 	require.Nil(t, err)
 
 	for i, vec := range testVectors {
@@ -60,7 +63,7 @@ func TestHnswPersistence(t *testing.T) {
 	index = nil
 
 	// build a new index from the (uncondensed) commit log
-	secondIndex, err := New(dirName, "integrationtest", cl, 30, 60,
+	secondIndex, err := New(dirName, "integrationtest", makeCL, 30, 60,
 		testVectorForID)
 	require.Nil(t, err)
 
