@@ -1,7 +1,6 @@
 package classification
 
 import (
-	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -39,7 +38,6 @@ func (w *runWorker) work(wg *sync.WaitGroup) {
 		} else {
 			atomic.AddInt64(w.successCount, 1)
 		}
-		fmt.Printf("worker %d has completed job %d\n", w.id, i)
 	}
 }
 
