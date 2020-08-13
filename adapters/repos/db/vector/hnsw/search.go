@@ -12,6 +12,8 @@
 package hnsw
 
 import (
+	"context"
+
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 )
@@ -155,6 +157,8 @@ func (h *hnsw) searchLayerByVector(queryVector []float32, entrypoints binarySear
 	candidates := &binarySearchTreeGeneric{}
 	results := &binarySearchTreeGeneric{}
 
+	distancer := newReusableDistancer(queryVector)
+
 	for _, ep := range entrypoints.flattenInOrder() {
 		candidates.insert(ep.index, ep.dist)
 		if level == 0 && allowList != nil {
@@ -176,7 +180,12 @@ func (h *hnsw) searchLayerByVector(queryVector []float32, entrypoints binarySear
 		var worstResultDistance float32
 
 		if results.root != nil {
-			d, err := h.distBetweenNodeAndVec(results.maximum().index, queryVector)
+			nodeVec, err := h.vectorForID(context.Background(),
+				int32(results.maximum().index))
+			if err != nil {
+				return nil, errors.Wrapf(err, "could not get vector of object at docID %d", results.maximum().index)
+			}
+			d, err := distancer.distance(nodeVec)
 			if err != nil {
 				return nil, errors.Wrap(err, "calculated distance between worst result and query")
 			}
@@ -189,7 +198,12 @@ func (h *hnsw) searchLayerByVector(queryVector []float32, entrypoints binarySear
 			worstResultDistance = 9001
 		}
 
-		dist, err := h.distBetweenNodeAndVec(candidate.index, queryVector)
+		candidateVec, err := h.vectorForID(context.Background(),
+			int32(candidate.index))
+		if err != nil {
+			return nil, errors.Wrapf(err, "could not get vector of object at docID %d", results.maximum().index)
+		}
+		dist, err := distancer.distance(candidateVec)
 		if err != nil {
 			return nil, errors.Wrap(err, "calculated distance between best candidate and query")
 		}
@@ -219,7 +233,12 @@ func (h *hnsw) searchLayerByVector(queryVector []float32, entrypoints binarySear
 			// make sure we never visit this neighbor again
 			visited[neighborID] = struct{}{}
 
-			distance, err := h.distBetweenNodeAndVec(int(neighborID), queryVector)
+			neighborVec, err := h.vectorForID(context.Background(),
+				int32(neighborID))
+			if err != nil {
+				return nil, errors.Wrapf(err, "could not get vector of object at docID %d", results.maximum().index)
+			}
+			distance, err := distancer.distance(neighborVec)
 			if err != nil {
 				return nil, errors.Wrap(err, "calculate distance between neighbor and query")
 			}

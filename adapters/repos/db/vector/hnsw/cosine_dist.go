@@ -42,3 +42,49 @@ func cosineDist(a, b []float32) (float32, error) {
 	sim, err := cosineSim(a, b)
 	return 1 - sim, err
 }
+
+// when running multiple distance calculations against the same vector (i.e.
+// vector A is always the same, but B changes each iteration), we can make
+// cosine dist a lot more efficient by calculating the A-specific values just
+// once
+type reusableDistancer struct {
+	fixedVector                   []float64
+	fixedVetorSquredSumSquareRoot float64
+}
+
+func newReusableDistancer(fixedVec []float32) *reusableDistancer {
+	var sum float64
+	fixed := make([]float64, len(fixedVec))
+
+	for i, elem := range fixedVec {
+		asFloat64 := float64(elem)
+		fixed[i] = asFloat64
+		sum += asFloat64 * asFloat64
+	}
+
+	sqrt := math.Sqrt(sum)
+
+	return &reusableDistancer{
+		fixedVector:                   fixed,
+		fixedVetorSquredSumSquareRoot: sqrt,
+	}
+}
+
+func (d *reusableDistancer) distance(input []float32) (float32, error) {
+	if len(input) != len(d.fixedVector) {
+		return 0, fmt.Errorf("vectors have different dimensions")
+	}
+
+	var (
+		sumProduct float64
+		sumSquare  float64
+	)
+
+	for i := range input {
+		asFloat64 := float64(input[i])
+		sumProduct += asFloat64 * d.fixedVector[i]
+		sumSquare += asFloat64 * asFloat64
+	}
+
+	return 1 - float32(sumProduct/(math.Sqrt(sumSquare)*d.fixedVetorSquredSumSquareRoot)), nil
+}
