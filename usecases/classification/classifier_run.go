@@ -14,6 +14,7 @@ package classification
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -92,32 +93,26 @@ func (c *Classifier) prepareRun(kind kind.Kind, params models.Classification, fi
 	return classifyItem, nil
 }
 
+// runItems splits the job list into batches that can be worked on parallely
+// depending on the available CPUs
 func (c *Classifier) runItems(classifyItem classifyItemFn, kind kind.Kind, params models.Classification, filters filters,
-	unclassifiedItems []search.Result) (models.Classification, error) {
-	var (
-		successCount int64
-		errorCount   int64
-	)
+	items []search.Result) (models.Classification, error) {
 
-	errors := &errorCompounder{}
-	for i, item := range unclassifiedItems {
-		c.logBeginClassifyItem(params, item)
-		err := classifyItem(item, i, kind, params, filters)
-		if err != nil {
-			errors.add(err)
-			errorCount++
-		} else {
-			successCount++
-		}
-		c.logFinishClassifyItem(params, item)
+	workerCount := runtime.GOMAXPROCS(0)
+	if len(items) < workerCount {
+		workerCount = len(items)
 	}
 
-	params.Meta.Completed = strfmt.DateTime(time.Now())
-	params.Meta.CountSucceeded = successCount
-	params.Meta.CountFailed = errorCount
-	params.Meta.Count = successCount + errorCount
+	workers := newRunWorkers(workerCount, classifyItem, kind, params, filters)
+	workers.addJobs(items)
+	res := workers.work()
 
-	return params, errors.toError()
+	params.Meta.Completed = strfmt.DateTime(time.Now())
+	params.Meta.CountSucceeded = res.successCount
+	params.Meta.CountFailed = res.errorCount
+	params.Meta.Count = res.successCount + res.errorCount
+
+	return params, res.err
 }
 
 func (c *Classifier) succeedRun(params models.Classification) {
