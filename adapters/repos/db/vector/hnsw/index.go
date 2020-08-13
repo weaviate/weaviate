@@ -235,16 +235,14 @@ func (h *hnsw) restoreFromDisk() error {
 // }
 
 func (h *hnsw) Add(id int, vector []float32) error {
-	// TODO: can we do anything meaningful with the vector to save another
-	// lookup?
 	node := &hnswVertex{
 		id: id,
 	}
 
-	return h.insert(node)
+	return h.insert(node, vector)
 }
 
-func (h *hnsw) insert(node *hnswVertex) error {
+func (h *hnsw) insert(node *hnswVertex, nodeVec []float32) error {
 	// before := time.Now()
 	h.RLock()
 	// m.addBuildingReadLockingBeginning(before)
@@ -304,7 +302,7 @@ func (h *hnsw) insert(node *hnswVertex) error {
 			return errors.Wrapf(err, "calculate distance between insert node and entry point at level %d", level)
 		}
 		tmpBST.insert(entryPointID, dist)
-		res, err := h.searchLayer(node, *tmpBST, 1, level)
+		res, err := h.searchLayerByVector(nodeVec, *tmpBST, 1, level, nil)
 		if err != nil {
 			return errors.Wrapf(err, "update candidate: search layer at level %d", level)
 		}
@@ -321,7 +319,7 @@ func (h *hnsw) insert(node *hnswVertex) error {
 	neighborsAtLevel := make(map[int][]uint32) // for distributed spike
 
 	for level := min(targetLevel, currentMaximumLayer); level >= 0; level-- {
-		results, err = h.searchLayer(node, *results, h.efConstruction, level)
+		results, err = h.searchLayerByVector(nodeVec, *results, h.efConstruction, level, nil)
 		if err != nil {
 			return errors.Wrapf(err, "find neighbors: search layer at level %d", level)
 		}

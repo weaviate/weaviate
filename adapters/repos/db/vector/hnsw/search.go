@@ -28,97 +28,24 @@ func (h *hnsw) SearchByVector(vector []float32, k int, allowList inverted.AllowL
 	return h.knnSearchByVector(vector, k, 128, allowList)
 }
 
-func (h *hnsw) searchLayer(queryNode *hnswVertex, entrypoints binarySearchTreeGeneric, ef int, level int) (*binarySearchTreeGeneric, error) {
-
-	// create 3 copies of the entrypoint bst
-	visited := map[uint32]struct{}{}
-	for _, elem := range entrypoints.flattenInOrder() {
-		visited[uint32(elem.index)] = struct{}{}
-	}
-	candidates := &binarySearchTreeGeneric{}
-	results := &binarySearchTreeGeneric{}
-
-	for _, ep := range entrypoints.flattenInOrder() {
-		candidates.insert(ep.index, ep.dist)
-		results.insert(ep.index, ep.dist)
-	}
-
-	for candidates.root != nil { // efficient way to see if the len is > 0
-		candidate := candidates.minimum()
-		candidates.delete(candidate.index, candidate.dist)
-		worstResultDistance, err := h.distBetweenNodes(results.maximum().index, queryNode.id)
-		if err != nil {
-			return nil, errors.Wrap(err, "calculated distance between worst result and query")
-		}
-
-		dist, err := h.distBetweenNodes(candidate.index, queryNode.id)
-		if err != nil {
-			return nil, errors.Wrap(err, "calculated distance between best candidate and query")
-		}
-
-		if dist > worstResultDistance {
-			break
-		}
-
-		// before := time.Now()
-		h.RLock()
-		// m.addBuildingReadLocking(before)
-		candidateNode := h.nodes[candidate.index]
-		h.RUnlock()
-
-		// before = time.Now()
-		candidateNode.RLock()
-		// m.addBuildingItemLocking(before)
-		connections := candidateNode.connections[level]
-		candidateNode.RUnlock()
-
-		for _, neighborID := range connections {
-			if _, ok := visited[neighborID]; ok {
-				// skip if we've already visited this neighbor
-				continue
-			}
-
-			// make sure we never visit this neighbor again
-			visited[neighborID] = struct{}{}
-
-			distance, err := h.distBetweenNodes(int(neighborID), queryNode.id)
-			if err != nil {
-				return nil, errors.Wrap(err, "calculate distance between neighbor and query")
-			}
-
-			resLenBefore := results.len() // calculating just once saves a bit of time
-			if distance < worstResultDistance || resLenBefore < ef {
-				results.insert(int(neighborID), distance)
-				candidates.insert(int(neighborID), distance)
-
-				if resLenBefore+1 > ef { // +1 because we have added one node size calculating the len
-					max := results.maximum()
-					results.delete(max.index, max.dist)
-				}
-
-			}
-
-		}
-	}
-
-	return results, nil
-}
-
 func (h *hnsw) knnSearch(queryNodeID int, k int, ef int) ([]int, error) {
-	h.RLock()
-	queryNode := h.nodes[queryNodeID]
-	h.RUnlock()
-
 	entryPointID := h.entryPointID
 	entryPointDistance, err := h.distBetweenNodes(entryPointID, queryNodeID)
 	if err != nil {
 		return nil, errors.Wrap(err, "knn search: distance between entrypint and query node")
 	}
 
+	queryVector, err := h.vectorForID(context.Background(),
+		int32(queryNodeID))
+	if err != nil {
+		return nil, errors.Wrapf(err, "could not get vector of object at docID %d", queryNodeID)
+	}
+
 	for level := h.currentMaximumLayer; level >= 1; level-- { // stop at layer 1, not 0!
 		eps := &binarySearchTreeGeneric{}
 		eps.insert(entryPointID, entryPointDistance)
-		res, err := h.searchLayer(queryNode, *eps, 1, level)
+
+		res, err := h.searchLayerByVector(queryVector, *eps, 1, level, nil)
 		if err != nil {
 			return nil, errors.Wrapf(err, "knn search: search layer at level %d", level)
 		}
@@ -129,7 +56,7 @@ func (h *hnsw) knnSearch(queryNodeID int, k int, ef int) ([]int, error) {
 
 	eps := &binarySearchTreeGeneric{}
 	eps.insert(entryPointID, entryPointDistance)
-	res, err := h.searchLayer(queryNode, *eps, ef, 0)
+	res, err := h.searchLayerByVector(queryVector, *eps, ef, 0, nil)
 	if err != nil {
 		return nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
 	}
