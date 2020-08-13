@@ -51,13 +51,24 @@ func (c *Classifier) run(params models.Classification, kind kind.Kind,
 	}
 	c.logItemsFetched(params, unclassifiedItems)
 
-	var (
-		successCount int64
-		errorCount   int64
-	)
+	classifyItem, err := c.prepareRun(kind, params, filters, unclassifiedItems)
+	if err != nil {
+		c.failRunWithError(params, errors.Wrap(err, "prepare classification"))
+		return
+	}
 
+	params, err = c.runItems(classifyItem, kind, params, filters, unclassifiedItems)
+	if err != nil {
+		c.failRunWithError(params, err)
+		return
+	}
+
+	c.succeedRun(params)
+}
+
+func (c *Classifier) prepareRun(kind kind.Kind, params models.Classification, filters filters,
+	unclassifiedItems []search.Result) (classifyItemFn, error) {
 	var classifyItem classifyItemFn
-
 	c.logBeginPreparation(params)
 	// safe to deref as we have passed validation at this point and or setting of
 	// default values
@@ -68,18 +79,25 @@ func (c *Classifier) run(params models.Classification, kind kind.Kind,
 		// 1. do preparation here once
 		preparedContext, err := c.prepareContextualClassification(kind, params, filters, unclassifiedItems)
 		if err != nil {
-			c.failRunWithError(params, fmt.Errorf("prepare context for contexual classification: %v", err))
-			return
+			return nil, errors.Wrap(err, "prepare context for contexual classification")
 		}
 
 		// 2. use higher order function to inject preparation data so it is then present for each single run
 		classifyItem = c.makeClassifyItemContextual(preparedContext)
 	default:
-		c.failRunWithError(params,
-			fmt.Errorf("unsupported type '%s', have no classify item fn for this", *params.Type))
-		return
+		return nil, fmt.Errorf("unsupported type '%s', have no classify item fn for this", *params.Type)
 	}
+
 	c.logFinishPreparation(params)
+	return classifyItem, nil
+}
+
+func (c *Classifier) runItems(classifyItem classifyItemFn, kind kind.Kind, params models.Classification, filters filters,
+	unclassifiedItems []search.Result) (models.Classification, error) {
+	var (
+		successCount int64
+		errorCount   int64
+	)
 
 	errors := &errorCompounder{}
 	for i, item := range unclassifiedItems {
@@ -99,13 +117,7 @@ func (c *Classifier) run(params models.Classification, kind kind.Kind,
 	params.Meta.CountFailed = errorCount
 	params.Meta.Count = successCount + errorCount
 
-	err = errors.toError()
-	if err != nil {
-		c.failRunWithError(params, err)
-		return
-	}
-
-	c.succeedRun(params)
+	return params, errors.toError()
 }
 
 func (c *Classifier) succeedRun(params models.Classification) {
