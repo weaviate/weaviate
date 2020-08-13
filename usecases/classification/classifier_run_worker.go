@@ -50,6 +50,8 @@ func newRunWorker(id int, workerCount int, rw *runWorkers) *runWorker {
 		params:       rw.params,
 		filters:      rw.filters,
 		classify:     rw.classify,
+		id:           id,
+		workerCount:  workerCount,
 	}
 }
 
