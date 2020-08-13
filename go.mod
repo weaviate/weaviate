@@ -39,6 +39,7 @@ require (
 	github.com/stretchr/testify v1.6.1
 	github.com/ugorji/go/codec v0.0.0-20190309163734-c4a1c341dc93
 	go.mongodb.org/mongo-driver v1.3.5 // indirect
+	go.uber.org/atomic v1.5.0
 	golang.org/x/net v0.0.0-20200625001655-4c5254603344
 	golang.org/x/tools v0.0.0-20200724022722-7017fd6b1305 // indirect
 	gonum.org/v1/gonum v0.7.0

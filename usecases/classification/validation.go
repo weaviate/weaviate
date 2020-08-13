@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -201,20 +202,27 @@ func (v *Validator) typeKNN() bool {
 }
 
 type errorCompounder struct {
+	sync.Mutex
 	errors []error
 }
 
 func (ec *errorCompounder) addf(msg string, args ...interface{}) {
+	ec.Lock()
+	defer ec.Unlock()
 	ec.errors = append(ec.errors, fmt.Errorf(msg, args...))
 }
 
 func (ec *errorCompounder) add(err error) {
+	ec.Lock()
+	defer ec.Unlock()
 	if err != nil {
 		ec.errors = append(ec.errors, err)
 	}
 }
 
 func (ec *errorCompounder) toError() error {
+	ec.Lock()
+	defer ec.Unlock()
 	if len(ec.errors) == 0 {
 		return nil
 	}

@@ -30,7 +30,7 @@ func newCache(getFromSource vectorForID) *vectorCache {
 	return &vectorCache{
 		cache:         sync.Map{},
 		count:         0,
-		maxSize:       10000, // TODO: make configurable
+		maxSize:       100000, // TODO: make configurable
 		getFromSource: getFromSource,
 	}
 
