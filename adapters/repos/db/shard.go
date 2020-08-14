@@ -45,7 +45,7 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 		return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID())
 	}
 	vi, err := hnsw.New(s.index.Config.RootPath, s.ID(), makeCommitLogger,
-		120, 256, s.vectorByIndexID)
+		60, 128, s.vectorByIndexID)
 	if err != nil {
 		return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
 	}
