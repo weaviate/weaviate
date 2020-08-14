@@ -29,6 +29,11 @@ func (db *DB) BatchPutThings(ctx context.Context, things kinds.BatchThings) (kin
 				continue
 			}
 
+			if item.Err != nil {
+				// item has a validation error or another reason to ignore
+				continue
+			}
+
 			queue := byIndex[index.ID()]
 			queue = append(queue, storobj.FromThing(item.Thing, item.Vector))
 			byIndex[index.ID()] = queue
@@ -49,6 +54,11 @@ func (db *DB) BatchPutActions(ctx context.Context, actions kinds.BatchActions) (
 	for _, item := range actions {
 		for _, index := range db.indices {
 			if index.Config.Kind != kind.Action || index.Config.ClassName != schema.ClassName(item.Action.Class) {
+				continue
+			}
+
+			if item.Err != nil {
+				// item has a validation error or another reason to ignore
 				continue
 			}
 

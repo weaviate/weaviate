@@ -235,6 +235,10 @@ func (h *hnsw) restoreFromDisk() error {
 // }
 
 func (h *hnsw) Add(id int, vector []float32) error {
+	if vector == nil || len(vector) == 0 {
+		return fmt.Errorf("insert called with nil-vector")
+	}
+
 	node := &hnswVertex{
 		id: id,
 	}
@@ -243,6 +247,7 @@ func (h *hnsw) Add(id int, vector []float32) error {
 }
 
 func (h *hnsw) insert(node *hnswVertex, nodeVec []float32) error {
+
 	// before := time.Now()
 	h.RLock()
 	// m.addBuildingReadLockingBeginning(before)
@@ -297,7 +302,7 @@ func (h *hnsw) insert(node *hnswVertex, nodeVec []float32) error {
 	// each layer for a better candidate and update the candidate
 	for level := currentMaximumLayer; level > targetLevel; level-- {
 		tmpBST := &binarySearchTreeGeneric{}
-		dist, err := h.distBetweenNodes(nodeId, entryPointID)
+		dist, err := h.distBetweenNodeAndVec(entryPointID, nodeVec)
 		if err != nil {
 			return errors.Wrapf(err, "calculate distance between insert node and entry point at level %d", level)
 		}
@@ -310,7 +315,7 @@ func (h *hnsw) insert(node *hnswVertex, nodeVec []float32) error {
 	}
 
 	var results = &binarySearchTreeGeneric{}
-	dist, err := h.distBetweenNodes(nodeId, entryPointID)
+	dist, err := h.distBetweenNodeAndVec(entryPointID, nodeVec)
 	if err != nil {
 		return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
 	}

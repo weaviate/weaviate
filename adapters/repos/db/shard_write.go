@@ -119,6 +119,7 @@ func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) e
 	// to open no more threads than we have cpu cores?
 	wg = &sync.WaitGroup{}
 	for _, object := range objects {
+
 		wg.Add(1)
 		docID := int(docIDs[object.ID()])
 		go func(object *storobj.Object, docID int) {
