@@ -49,6 +49,7 @@ func (fs *Searcher) docPointersGreaterThan(b *bolt.Bucket, value []byte,
 	limit int, hasFrequency bool, allowEqual bool) (docPointers, error) {
 	c := b.Cursor()
 	var pointers docPointers
+
 	for k, v := c.Seek(value); k != nil; k, v = c.Next() {
 		if bytes.Equal(k, value) && !allowEqual {
 			continue
@@ -61,7 +62,7 @@ func (fs *Searcher) docPointersGreaterThan(b *bolt.Bucket, value []byte,
 
 		pointers.count += curr.count
 		pointers.docIDs = append(pointers.docIDs, curr.docIDs...)
-		if pointers.count >= uint32(limit) {
+		if limit > 0 && pointers.count >= uint32(limit) {
 			break
 		}
 	}

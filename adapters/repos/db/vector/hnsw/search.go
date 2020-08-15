@@ -20,12 +20,12 @@ import (
 
 func (h *hnsw) SearchByID(id int, k int) ([]int, error) {
 	// TODO: make ef configurable
-	return h.knnSearch(id, k, 128)
+	return h.knnSearch(id, k, 8*k)
 }
 
 func (h *hnsw) SearchByVector(vector []float32, k int, allowList inverted.AllowList) ([]int, error) {
 	// TODO: make ef configurable
-	return h.knnSearchByVector(vector, k, 128, allowList)
+	return h.knnSearchByVector(vector, k, k*8, allowList)
 }
 
 func (h *hnsw) knnSearch(queryNodeID int, k int, ef int) ([]int, error) {

@@ -99,14 +99,13 @@ func mergeAnd(children []*propValuePair) (*docPointers, error) {
 			continue
 		}
 
+		// TODO: optimize to use fixed length slice and cut off (should be
+		// considerably cheaper on very long lists, such as we encounter during
+		// large classification cases
 		out.docIDs = append(out.docIDs, docPointer{
 			id: id,
 		})
 	}
-
-	sort.Slice(out.docIDs, func(a, b int) bool {
-		return out.docIDs[a].id < out.docIDs[b].id
-	})
 
 	return &out, nil
 }
