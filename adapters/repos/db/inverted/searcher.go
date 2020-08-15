@@ -27,14 +27,16 @@ import (
 )
 
 type Searcher struct {
-	db     *bolt.DB
-	schema schema.Schema
+	db       *bolt.DB
+	schema   schema.Schema
+	rowCache *rowCacher
 }
 
 func NewSearcher(db *bolt.DB, schema schema.Schema) *Searcher {
 	return &Searcher{
-		db:     db,
-		schema: schema,
+		db:       db,
+		schema:   schema,
+		rowCache: newRowCacher(10 * 1024 * 1024), // TODO: make configurable
 	}
 }
 
