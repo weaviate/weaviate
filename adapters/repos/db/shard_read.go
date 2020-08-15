@@ -171,6 +171,7 @@ func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32, 
 
 	var allowList inverted.AllowList
 
+	// beforeAllow := time.Now()
 	if filters != nil {
 		list, err := inverted.NewSearcher(s.db, s.index.getSchema.GetSchemaSkipAuth()).
 			DocIDs(ctx, filters, meta, s.index.Config.ClassName)
@@ -180,11 +181,14 @@ func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32, 
 
 		allowList = list
 	}
+	// fmt.Printf("building allow list took %s\n", time.Since(beforeAllow))
 
+	// beforeVector := time.Now()
 	ids, err := s.vectorIndex.SearchByVector(searchVector, limit, allowList)
 	if err != nil {
 		return nil, errors.Wrap(err, "vector search")
 	}
+	// fmt.Printf("vector search took %s\n", time.Since(beforeVector))
 
 	if ids == nil || len(ids) == 0 {
 		return nil, nil
@@ -192,6 +196,7 @@ func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32, 
 
 	var out []*storobj.Object
 
+	// beforeBolt := time.Now()
 	if err := s.db.View(func(tx *bolt.Tx) error {
 		uuidKeys := make([][]byte, len(ids))
 		b := tx.Bucket(helpers.IndexIDBucket)
@@ -224,6 +229,7 @@ func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32, 
 	}); err != nil {
 		return nil, errors.Wrap(err, "docID to []*storobj.Object after vector search")
 	}
+	// fmt.Printf("get object from bolt took %s\n", time.Since(beforeBolt))
 
 	return out, nil
 }

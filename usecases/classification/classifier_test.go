@@ -89,7 +89,9 @@ func Test_Classifier_KNN(t *testing.T) {
 		})
 
 		t.Run("the classifier updated the things/actions with the classified references", func(t *testing.T) {
+			vectorRepo.Lock()
 			require.Len(t, vectorRepo.db, 6)
+			vectorRepo.Unlock()
 
 			t.Run("food", func(t *testing.T) {
 				idArticleFoodOne := "06a1e824-889c-4649-97f9-1ed3fa401d8e"
@@ -253,7 +255,9 @@ func Test_Classifier_Contextual(t *testing.T) {
 		})
 
 		t.Run("the classifier updated the things/actions with the classified references", func(t *testing.T) {
+			vectorRepo.Lock()
 			require.Len(t, vectorRepo.db, 6)
+			vectorRepo.Unlock()
 
 			t.Run("food", func(t *testing.T) {
 				idArticleFoodOne := "06a1e824-889c-4649-97f9-1ed3fa401d8e"

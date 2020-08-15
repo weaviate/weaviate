@@ -131,10 +131,12 @@ func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 		return nil, errors.Wrap(err, "doc id filter search bolt view tx")
 	}
 
+	// beforeMerge := time.Now()
 	pointers, err := pv.mergeDocIDs()
 	if err != nil {
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
+	// fmt.Printf("time spent merging: %s\n", time.Since(beforeMerge))
 
 	out := make(AllowList, len(pointers.docIDs))
 	for _, p := range pointers.docIDs {
@@ -145,12 +147,21 @@ func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 }
 
 func (fs *Searcher) parseInvertedIndexRow(in []byte, limit int, hasFrequency bool) (docPointers, error) {
-	out := docPointers{}
+	out := docPointers{
+		checksum: make([]byte, 4),
+	}
 	if len(in) == 0 {
 		return out, nil
 	}
 
 	r := bytes.NewReader(in)
+	if n, err := r.Read(out.checksum); err != nil {
+		return out, errors.Wrap(err, "read checksum")
+	} else {
+		fmt.Printf("read %d bytes\n", n)
+	}
+
+	fmt.Printf("checksum is %v\n", out.checksum)
 
 	if err := binary.Read(r, binary.LittleEndian, &out.count); err != nil {
 		return out, errors.Wrap(err, "read doc count")
@@ -295,8 +306,9 @@ func (fs *Searcher) onRefProp(className schema.ClassName, propName string) bool 
 }
 
 type docPointers struct {
-	count  uint32
-	docIDs []docPointer
+	count    uint32
+	docIDs   []docPointer
+	checksum []byte // helps us judge if a cached read is still fresh
 }
 
 type docPointer struct {

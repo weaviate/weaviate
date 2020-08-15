@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"hash/crc32"
 	"sync"
 
 	"github.com/boltdb/bolt"
@@ -63,7 +64,7 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 			return errors.Wrap(err, "insert to vector index")
 		}
 	} else {
-		fmt.Printf("skipping vector update because its an update. TODO: handle correctly\n")
+		// fmt.Printf("skipping vector update because its an update. TODO: handle correctly\n")
 	}
 
 	return nil
@@ -263,6 +264,10 @@ func (s *Shard) extendInvertedIndexItemWithFrequency(b *bolt.Bucket, item invert
 		// beginning as zero
 		docCount := uint32(0)
 		binary.Write(updated, binary.LittleEndian, &docCount)
+	} else {
+		// remove the old checksum
+		data = data[4:]
+		updated = bytes.NewBuffer(data)
 	}
 
 	// append current document
@@ -278,9 +283,18 @@ func (s *Shard) extendInvertedIndexItemWithFrequency(b *bolt.Bucket, item invert
 	countBytes := bytes.NewBuffer(make([]byte, 0, 4))
 	binary.Write(countBytes, binary.LittleEndian, &docCount)
 
-	// combine back together and save
+	// combine back together
 	combined := append(countBytes.Bytes(), extended[4:]...)
-	err := b.Put(item.Data, combined)
+
+	// finally calculate the checksum and prepend one more time.
+	chksum, err := s.checksum(combined)
+	if err != nil {
+		return err
+	}
+
+	combined = append(chksum, combined...)
+
+	err = b.Put(item.Data, combined)
 	if err != nil {
 		return err
 	}
@@ -304,6 +318,10 @@ func (s *Shard) extendInvertedIndexItem(b *bolt.Bucket, item inverted.Countable,
 		// beginning as zero
 		docCount := uint32(0)
 		binary.Write(updated, binary.LittleEndian, &docCount)
+	} else {
+		// remove the old checksum
+		data = data[4:]
+		updated = bytes.NewBuffer(data)
 	}
 
 	// append current document
@@ -320,12 +338,27 @@ func (s *Shard) extendInvertedIndexItem(b *bolt.Bucket, item inverted.Countable,
 
 	// combine back together and save
 	combined := append(countBytes.Bytes(), extended[4:]...)
-	err := b.Put(item.Data, combined)
+
+	// finally calculate the checksum and prepend one more time.
+	chksum, err := s.checksum(combined)
+	if err != nil {
+		return err
+	}
+
+	combined = append(chksum, combined...)
+	err = b.Put(item.Data, combined)
 	if err != nil {
 		return err
 	}
 
 	return nil
+}
+
+func (s *Shard) checksum(in []byte) ([]byte, error) {
+	checksum := crc32.ChecksumIEEE(in)
+	buf := bytes.NewBuffer(make([]byte, 0, 4))
+	err := binary.Write(buf, binary.LittleEndian, &checksum)
+	return buf.Bytes(), err
 }
 
 func (s *Shard) addIndexIDLookup(tx *bolt.Tx, id []byte, docID uint32) error {
