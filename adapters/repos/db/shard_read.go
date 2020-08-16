@@ -155,7 +155,8 @@ func (s *Shard) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		return s.objectList(ctx, limit, meta)
 	}
 
-	return inverted.NewSearcher(s.db, s.index.getSchema.GetSchemaSkipAuth()).
+	return inverted.NewSearcher(
+		s.db, s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache).
 		Object(ctx, limit, filters, meta, s.index.Config.ClassName)
 }
 
@@ -173,7 +174,8 @@ func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32, 
 
 	// beforeAllow := time.Now()
 	if filters != nil {
-		list, err := inverted.NewSearcher(s.db, s.index.getSchema.GetSchemaSkipAuth()).
+		list, err := inverted.NewSearcher(
+			s.db, s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache).
 			DocIDs(ctx, filters, meta, s.index.Config.ClassName)
 		if err != nil {
 			return nil, errors.Wrap(err, "build inverted filter allow list")

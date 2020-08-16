@@ -12,8 +12,8 @@
 package inverted
 
 import (
+	"bytes"
 	"fmt"
-	"sort"
 
 	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
@@ -32,12 +32,13 @@ type propValuePair struct {
 
 func (pv *propValuePair) fetchDocIDs(tx *bolt.Tx, searcher *Searcher, limit int) error {
 	if pv.operator.OnValue() {
-		b := tx.Bucket(helpers.BucketFromPropName(pv.prop))
+		id := helpers.BucketFromPropName(pv.prop)
+		b := tx.Bucket(id)
 		if b == nil {
 			return fmt.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
 		}
 
-		pointers, err := searcher.docPointers(pv.operator, b, pv.value, limit, pv.hasFrequency)
+		pointers, err := searcher.docPointers(id, pv.operator, b, pv.value, limit, pv.hasFrequency)
 		if err != nil {
 			return err
 		}
@@ -83,6 +84,12 @@ func mergeAnd(children []*propValuePair) (*docPointers, error) {
 		sets[i] = docIDs
 	}
 
+	if checksumsIdentical(sets) {
+		// all children are identical, no need to merge, simply return the first
+		// set
+		return sets[0], nil
+	}
+
 	// merge AND
 	found := map[uint32]int{} // map[id]count
 	for _, set := range sets {
@@ -123,6 +130,12 @@ func mergeOr(children []*propValuePair) (*docPointers, error) {
 		sets[i] = docIDs
 	}
 
+	if checksumsIdentical(sets) {
+		// all children are identical, no need to merge, simply return the first
+		// set
+		return sets[0], nil
+	}
+
 	// merge AND
 	found := map[uint32]int{} // map[id]count
 	for _, set := range sets {
@@ -142,9 +155,24 @@ func mergeOr(children []*propValuePair) (*docPointers, error) {
 		})
 	}
 
-	sort.Slice(out.docIDs, func(a, b int) bool {
-		return out.docIDs[a].id < out.docIDs[b].id
-	})
-
 	return &out, nil
+}
+
+func checksumsIdentical(sets []*docPointers) bool {
+	if len(sets) == 0 {
+		return false
+	}
+
+	if len(sets) == 1 {
+		return true
+	}
+
+	var lastChecksum = sets[0].checksum
+	for _, set := range sets {
+		if !bytes.Equal(set.checksum, lastChecksum) {
+			return false
+		}
+	}
+
+	return true
 }
