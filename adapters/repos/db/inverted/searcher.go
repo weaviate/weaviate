@@ -29,14 +29,15 @@ import (
 type Searcher struct {
 	db       *bolt.DB
 	schema   schema.Schema
-	rowCache *rowCacher
+	rowCache *RowCacher
 }
 
-func NewSearcher(db *bolt.DB, schema schema.Schema) *Searcher {
+func NewSearcher(db *bolt.DB, schema schema.Schema,
+	rowCache *RowCacher) *Searcher {
 	return &Searcher{
 		db:       db,
 		schema:   schema,
-		rowCache: newRowCacher(10 * 1024 * 1024), // TODO: make configurable
+		rowCache: rowCache,
 	}
 }
 
@@ -133,12 +134,10 @@ func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 		return nil, errors.Wrap(err, "doc id filter search bolt view tx")
 	}
 
-	// beforeMerge := time.Now()
 	pointers, err := pv.mergeDocIDs()
 	if err != nil {
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
-	// fmt.Printf("time spent merging: %s\n", time.Since(beforeMerge))
 
 	out := make(AllowList, len(pointers.docIDs))
 	for _, p := range pointers.docIDs {
@@ -148,7 +147,7 @@ func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	return out, nil
 }
 
-func (fs *Searcher) parseInvertedIndexRow(in []byte, limit int, hasFrequency bool) (docPointers, error) {
+func (fs *Searcher) parseInvertedIndexRow(id, in []byte, limit int, hasFrequency bool) (docPointers, error) {
 	out := docPointers{
 		checksum: make([]byte, 4),
 	}
@@ -157,13 +156,17 @@ func (fs *Searcher) parseInvertedIndexRow(in []byte, limit int, hasFrequency boo
 	}
 
 	r := bytes.NewReader(in)
-	if n, err := r.Read(out.checksum); err != nil {
+	if _, err := r.Read(out.checksum); err != nil {
 		return out, errors.Wrap(err, "read checksum")
-	} else {
-		fmt.Printf("read %d bytes\n", n)
 	}
 
-	fmt.Printf("checksum is %v\n", out.checksum)
+	// only use cache on unlimited searches, e.g. when building allow lists
+	if limit < 0 {
+		cached, ok := fs.rowCache.Load(id, out.checksum)
+		if ok {
+			return *cached, nil
+		}
+	}
 
 	if err := binary.Read(r, binary.LittleEndian, &out.count); err != nil {
 		return out, errors.Wrap(err, "read doc count")
@@ -197,6 +200,11 @@ func (fs *Searcher) parseInvertedIndexRow(in []byte, limit int, hasFrequency boo
 
 		out.docIDs = append(out.docIDs, docPointer{id: docID, frequency: &frequency})
 		read++
+	}
+
+	// only write into cache on unlimited requests of a certain length
+	if limit < 0 && read > 500 { // TODO: what's a realistic cutoff?
+		fs.rowCache.Store(id, &out)
 	}
 
 	return out, nil

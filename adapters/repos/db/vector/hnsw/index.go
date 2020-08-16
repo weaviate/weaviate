@@ -22,7 +22,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-const importLimit = 50000 // TODO: make variable
+const importLimit = 200000 // TODO: make variable
 
 type hnsw struct {
 	sync.RWMutex

@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/indexcounter"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -28,17 +29,19 @@ import (
 // database files for all the objects it owns. How a shard is determined for a
 // target object (e.g. Murmur hash, etc.) is still open at this point
 type Shard struct {
-	index       *Index // a reference to the underlying index, which in turn contains schema information
-	name        string
-	db          *bolt.DB // one db file per shard, uses buckets for separation between data storage, index storage, etc.
-	counter     *indexcounter.Counter
-	vectorIndex VectorIndex
+	index            *Index // a reference to the underlying index, which in turn contains schema information
+	name             string
+	db               *bolt.DB // one db file per shard, uses buckets for separation between data storage, index storage, etc.
+	counter          *indexcounter.Counter
+	vectorIndex      VectorIndex
+	invertedRowCache *inverted.RowCacher
 }
 
 func NewShard(shardName string, index *Index) (*Shard, error) {
 	s := &Shard{
-		index: index,
-		name:  shardName,
+		index:            index,
+		name:             shardName,
+		invertedRowCache: inverted.NewRowCacher(10 * 1024 * 1024),
 	}
 
 	makeCommitLogger := func() hnsw.CommitLogger {

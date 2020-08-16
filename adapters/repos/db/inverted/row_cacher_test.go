@@ -7,7 +7,7 @@ import (
 )
 
 func TestRowCacher(t *testing.T) {
-	cacher := newRowCacher(100)
+	cacher := NewRowCacher(100)
 
 	rowID := []byte("myRow")
 	t.Run("it allow entries which still fit", func(t *testing.T) {
