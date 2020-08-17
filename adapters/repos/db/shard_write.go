@@ -70,9 +70,13 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 	return nil
 }
 
-func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) error {
+// return value map[int]error gives the error for the index as it received it
+func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) map[int]error {
 	maxPerTransaction := 30
+
+	m := &sync.Mutex{}
 	docIDs := map[strfmt.UUID]uint32{}
+	errs := map[int]error{} // int represents original index
 
 	var wg = &sync.WaitGroup{}
 	for i := 0; i < len(objects); i += maxPerTransaction {
@@ -85,10 +89,20 @@ func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) e
 		wg.Add(1)
 		go func(i int, batch []*storobj.Object) {
 			defer wg.Done()
+			var affectedIndices []int
 			if err := s.db.Batch(func(tx *bolt.Tx) error {
-				for _, object := range batch {
+				for j := range batch {
+					// so we can reference potential errors
+					affectedIndices = append(affectedIndices, i+j)
+				}
 
-					idBytes, err := uuid.MustParse(object.ID().String()).MarshalBinary()
+				for _, object := range batch {
+					uuidParsed, err := uuid.Parse(object.ID().String())
+					if err != nil {
+						return errors.Wrap(err, "invalid id")
+					}
+
+					idBytes, err := uuidParsed.MarshalBinary()
 					if err != nil {
 						return err
 					}
@@ -103,13 +117,18 @@ func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) e
 						return err
 					}
 
+					m.Lock()
 					docIDs[object.ID()] = id
+					m.Unlock()
 				}
 				return nil
 			}); err != nil {
-				// TODO: handle
+				m.Lock()
 				err = errors.Wrap(err, "bolt batch tx")
-				fmt.Printf("ERROR: %v\n", err)
+				for _, affected := range affectedIndices {
+					errs[affected] = err
+				}
+				m.Unlock()
 			}
 		}(i, batch)
 
@@ -119,22 +138,27 @@ func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) e
 	// TODO: is it smart to let them all run in parallel? wouldn't it be better
 	// to open no more threads than we have cpu cores?
 	wg = &sync.WaitGroup{}
-	for _, object := range objects {
+	for i, object := range objects {
+		if _, ok := errs[i]; ok {
+			// had an error prior, ignore
+			continue
+		}
 
 		wg.Add(1)
 		docID := int(docIDs[object.ID()])
-		go func(object *storobj.Object, docID int) {
+		go func(object *storobj.Object, docID int, index int) {
 			defer wg.Done()
 
 			if err := s.vectorIndex.Add(docID, object.Vector); err != nil {
-				// TODO: Handle error
-				fmt.Println(errors.Wrap(err, "insert to vector index"))
+				m.Lock()
+				errs[index] = errors.Wrap(err, "insert to vector index")
+				m.Unlock()
 			}
-		}(object, docID)
+		}(object, docID, i)
 	}
 	wg.Wait()
 
-	return nil
+	return errs
 }
 
 func (s *Shard) putObjectInTx(tx *bolt.Tx, object *storobj.Object, idBytes []byte,

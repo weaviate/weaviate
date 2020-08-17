@@ -14,15 +14,19 @@ package db
 import (
 	"context"
 
-	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
 )
 
+type batchQueue struct {
+	objects       []*storobj.Object
+	originalIndex []int
+}
+
 func (db *DB) BatchPutThings(ctx context.Context, things kinds.BatchThings) (kinds.BatchThings, error) {
-	byIndex := map[string][]*storobj.Object{}
+	byIndex := map[string]batchQueue{}
 	for _, item := range things {
 		for _, index := range db.indices {
 			if index.Config.Kind != kind.Thing || index.Config.ClassName != schema.ClassName(item.Thing.Class) {
@@ -35,22 +39,24 @@ func (db *DB) BatchPutThings(ctx context.Context, things kinds.BatchThings) (kin
 			}
 
 			queue := byIndex[index.ID()]
-			queue = append(queue, storobj.FromThing(item.Thing, item.Vector))
+			queue.objects = append(queue.objects, storobj.FromThing(item.Thing, item.Vector))
+			queue.originalIndex = append(queue.originalIndex, item.OriginalIndex)
 			byIndex[index.ID()] = queue
 		}
 	}
 
-	for indexID, queries := range byIndex {
-		err := db.indices[indexID].putObjectBatch(ctx, queries)
-		if err != nil {
-			return nil, errors.Wrapf(err, "index %q", indexID)
+	for indexID, queue := range byIndex {
+		errs := db.indices[indexID].putObjectBatch(ctx, queue.objects)
+		for index, err := range errs {
+			things[queue.originalIndex[index]].Err = err
 		}
 	}
 
 	return things, nil
 }
+
 func (db *DB) BatchPutActions(ctx context.Context, actions kinds.BatchActions) (kinds.BatchActions, error) {
-	byIndex := map[string][]*storobj.Object{}
+	byIndex := map[string]batchQueue{}
 	for _, item := range actions {
 		for _, index := range db.indices {
 			if index.Config.Kind != kind.Action || index.Config.ClassName != schema.ClassName(item.Action.Class) {
@@ -63,15 +69,16 @@ func (db *DB) BatchPutActions(ctx context.Context, actions kinds.BatchActions) (
 			}
 
 			queue := byIndex[index.ID()]
-			queue = append(queue, storobj.FromAction(item.Action, item.Vector))
+			queue.objects = append(queue.objects, storobj.FromAction(item.Action, item.Vector))
+			queue.originalIndex = append(queue.originalIndex, item.OriginalIndex)
 			byIndex[index.ID()] = queue
 		}
 	}
 
-	for indexID, queries := range byIndex {
-		err := db.indices[indexID].putObjectBatch(ctx, queries)
-		if err != nil {
-			return nil, errors.Wrapf(err, "index %q", indexID)
+	for indexID, queue := range byIndex {
+		errs := db.indices[indexID].putObjectBatch(ctx, queue.objects)
+		for index, err := range errs {
+			actions[queue.originalIndex[index]].Err = err
 		}
 	}
 
