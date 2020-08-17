@@ -18,6 +18,15 @@ var (
 	IndexIDBucket []byte = []byte("index_ids")
 )
 
+// BucketFromPropName creates the byte-represenation used as the bucket name
+// for a partiular prop in the inverted index
 func BucketFromPropName(propName string) []byte {
 	return []byte(fmt.Sprintf("property_%s", propName))
+}
+
+// MetaCountProp helps create an internally used propName for meta props that
+// don't explicitly exist in the user schema, but are required for proper
+// indexing, such as the count of arrays.
+func MetaCountProp(propName string) string {
+	return fmt.Sprintf("%s__meta_count", propName)
 }

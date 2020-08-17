@@ -13,8 +13,10 @@ package hnsw
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 )
@@ -30,7 +32,7 @@ func newCache(getFromSource vectorForID) *vectorCache {
 	return &vectorCache{
 		cache:         sync.Map{},
 		count:         0,
-		maxSize:       10000, // TODO: make configurable
+		maxSize:       200000, // TODO: make configurable
 		getFromSource: getFromSource,
 	}
 
@@ -47,6 +49,7 @@ func (c *vectorCache) get(ctx context.Context, id int32) ([]float32, error) {
 		}
 
 		if c.count >= int32(c.maxSize) {
+			fmt.Printf("deleting cache because its full %s\n", time.Now())
 			c.cache.Range(func(key, value interface{}) bool {
 				c.cache.Delete(key)
 				atomic.AddInt32(&c.count, -1)

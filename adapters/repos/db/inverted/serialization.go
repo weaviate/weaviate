@@ -66,3 +66,18 @@ func LexicographicallySortableInt64(in int64) ([]byte, error) {
 
 	return buf.Bytes(), nil
 }
+
+// LexicographicallySortableUint32 performs a conversion to a lexicographically
+// sortable byte slice. Fro this, big endian notation is required and the sign
+// must be flipped
+func LexicographicallySortableUint32(in uint32) ([]byte, error) {
+	buf := bytes.NewBuffer(nil)
+
+	// no signs to flip as this is a uint
+	err := binary.Write(buf, binary.BigEndian, in)
+	if err != nil {
+		return nil, errors.Wrap(err, "serialize int value as big endian")
+	}
+
+	return buf.Bytes(), nil
+}

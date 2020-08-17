@@ -68,7 +68,7 @@ func (r *Repo) GetUnclassified(ctx context.Context, kind kind.Kind,
 
 	body := map[string]interface{}{
 		"query": query,
-		"size":  9999,
+		"size":  10000,
 		"aggregations": map[string]interface{}{
 			"count": map[string]interface{}{
 				"value_count": map[string]interface{}{
@@ -109,9 +109,9 @@ func (r *Repo) unclassifiedSearchResponse(ctx context.Context, res *esapi.Respon
 		return nil, fmt.Errorf("vector search: decode json: %v", err)
 	}
 
-	if err := checkClassificationCount(sr.Aggregations); err != nil {
-		return nil, err
-	}
+	// if err := checkClassificationCount(sr.Aggregations); err != nil {
+	// 	return nil, err
+	// }
 
 	requestCacher := newCacher(r)
 	err = requestCacher.build(ctx, sr, properties, false)

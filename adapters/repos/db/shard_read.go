@@ -155,19 +155,42 @@ func (s *Shard) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		return s.objectList(ctx, limit, meta)
 	}
 
-	return inverted.NewSearcher(s.db).Object(ctx, limit, filters, meta)
+	return inverted.NewSearcher(
+		s.db, s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache).
+		Object(ctx, limit, filters, meta, s.index.Config.ClassName)
 }
 
 func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32, limit int,
 	filters *filters.LocalFilter, meta bool) ([]*storobj.Object, error) {
-	if filters != nil {
-		return nil, fmt.Errorf("combining vector search and filters not possible yet")
-	}
+	// defer func() {
+	// 	err := recover()
+	// 	if err != nil {
+	// 		fmt.Println(err)
+	// 		debug.PrintStack()
+	// 	}
+	// }()
 
-	ids, err := s.vectorIndex.SearchByVector(searchVector, limit)
+	var allowList inverted.AllowList
+
+	// beforeAllow := time.Now()
+	if filters != nil {
+		list, err := inverted.NewSearcher(
+			s.db, s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache).
+			DocIDs(ctx, filters, meta, s.index.Config.ClassName)
+		if err != nil {
+			return nil, errors.Wrap(err, "build inverted filter allow list")
+		}
+
+		allowList = list
+	}
+	// fmt.Printf("building allow list took %s\n", time.Since(beforeAllow))
+
+	// beforeVector := time.Now()
+	ids, err := s.vectorIndex.SearchByVector(searchVector, limit, allowList)
 	if err != nil {
 		return nil, errors.Wrap(err, "vector search")
 	}
+	// fmt.Printf("vector search took %s\n", time.Since(beforeVector))
 
 	if ids == nil || len(ids) == 0 {
 		return nil, nil
@@ -175,6 +198,7 @@ func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32, 
 
 	var out []*storobj.Object
 
+	// beforeBolt := time.Now()
 	if err := s.db.View(func(tx *bolt.Tx) error {
 		uuidKeys := make([][]byte, len(ids))
 		b := tx.Bucket(helpers.IndexIDBucket)
@@ -207,6 +231,7 @@ func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32, 
 	}); err != nil {
 		return nil, errors.Wrap(err, "docID to []*storobj.Object after vector search")
 	}
+	// fmt.Printf("get object from bolt took %s\n", time.Since(beforeBolt))
 
 	return out, nil
 }

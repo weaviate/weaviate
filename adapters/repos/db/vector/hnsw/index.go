@@ -22,7 +22,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-const importLimit = 10000 // TODO: make variable
+const importLimit = 200000 // TODO: make variable
 
 type hnsw struct {
 	sync.RWMutex
@@ -53,7 +53,7 @@ type hnsw struct {
 
 	vectorForID vectorForID
 
-	commitLog commitLogger
+	commitLog CommitLogger
 
 	// // for distributed spike, can be used to call a insertExternal on a different graph
 	// insertHook func(node, targetLevel int, neighborsAtLevel map[int][]uint32)
@@ -62,16 +62,24 @@ type hnsw struct {
 	rootPath string
 }
 
-type commitLogger interface {
+type CommitLogger interface {
 	AddNode(node *hnswVertex) error
 	SetEntryPointWithMaxLayer(id int, level int) error
 	AddLinkAtLevel(nodeid int, level int, target uint32) error
 	ReplaceLinksAtLevel(nodeid int, level int, targets []uint32) error
 }
 
+type makeCommitLogger func() CommitLogger
+
 type vectorForID func(ctx context.Context, id int32) ([]float32, error)
 
-func New(rootPath, id string, commitLogger commitLogger, maximumConnections int,
+// New creates a new HNSW index, the commit logger is provided through a thunk
+// (a function which can be deferred). This is because creating a commit logger
+// opens files for writing. However, checking whether a file is present, is a
+// criterium for the index to see if it has to recover from disk or if its a
+// truly new index. So instead the index is initialized, with un-biased disk
+// checks first and only then is the commit logger created
+func New(rootPath, id string, makeCommitLogger makeCommitLogger, maximumConnections int,
 	efConstruction int, vectorForID vectorForID) (*hnsw, error) {
 
 	vectorCache := newCache(vectorForID)
@@ -81,7 +89,7 @@ func New(rootPath, id string, commitLogger commitLogger, maximumConnections int,
 		maximumConnectionsLayerZero: 2 * maximumConnections,                    // inspired by original paper and other implementations
 		levelNormalizer:             1 / math.Log(float64(maximumConnections)), // inspired by c++ implementation
 		efConstruction:              efConstruction,
-		nodes:                       make([]*hnswVertex, 0, importLimit), // TODO: grow variably rather than fixed length
+		nodes:                       make([]*hnswVertex, 0), // TODO: grow variably rather than fixed length
 		vectorForID:                 vectorCache.get,
 		id:                          id,
 		rootPath:                    rootPath,
@@ -92,7 +100,7 @@ func New(rootPath, id string, commitLogger commitLogger, maximumConnections int,
 	}
 
 	// init commit logger for future writes
-	index.commitLog = commitLogger
+	index.commitLog = makeCommitLogger()
 
 	return index, nil
 }
@@ -227,16 +235,19 @@ func (h *hnsw) restoreFromDisk() error {
 // }
 
 func (h *hnsw) Add(id int, vector []float32) error {
-	// TODO: can we do anything meaningful with the vector to save another
-	// lookup?
+	if vector == nil || len(vector) == 0 {
+		return fmt.Errorf("insert called with nil-vector")
+	}
+
 	node := &hnswVertex{
 		id: id,
 	}
 
-	return h.insert(node)
+	return h.insert(node, vector)
 }
 
-func (h *hnsw) insert(node *hnswVertex) error {
+func (h *hnsw) insert(node *hnswVertex, nodeVec []float32) error {
+
 	// before := time.Now()
 	h.RLock()
 	// m.addBuildingReadLockingBeginning(before)
@@ -245,18 +256,22 @@ func (h *hnsw) insert(node *hnswVertex) error {
 
 	if total == 0 {
 		h.Lock()
-		h.commitLog.SetEntryPointWithMaxLayer(node.id, 0)
-		h.entryPointID = node.id
-		h.currentMaximumLayer = 0
-		node.connections = map[int][]uint32{}
-		node.level = 0
-		h.nodes = make([]*hnswVertex, importLimit)
-		h.commitLog.AddNode(node)
-		h.nodes[node.id] = node
-		h.Unlock()
+		if len(h.nodes) != 0 {
+			h.Unlock()
+		} else {
+			h.commitLog.SetEntryPointWithMaxLayer(node.id, 0)
+			h.entryPointID = node.id
+			h.currentMaximumLayer = 0
+			node.connections = map[int][]uint32{}
+			node.level = 0
+			h.nodes = make([]*hnswVertex, importLimit)
+			h.commitLog.AddNode(node)
+			h.nodes[node.id] = node
 
-		// go h.insertHook(node.id, 0, node.connections)
-		return nil
+			h.Unlock()
+			// go h.insertHook(node.id, 0, node.connections)
+			return nil
+		}
 	}
 	// initially use the "global" entrypoint which is guaranteed to be on the
 	// currently highest layer
@@ -287,12 +302,12 @@ func (h *hnsw) insert(node *hnswVertex) error {
 	// each layer for a better candidate and update the candidate
 	for level := currentMaximumLayer; level > targetLevel; level-- {
 		tmpBST := &binarySearchTreeGeneric{}
-		dist, err := h.distBetweenNodes(nodeId, entryPointID)
+		dist, err := h.distBetweenNodeAndVec(entryPointID, nodeVec)
 		if err != nil {
 			return errors.Wrapf(err, "calculate distance between insert node and entry point at level %d", level)
 		}
 		tmpBST.insert(entryPointID, dist)
-		res, err := h.searchLayer(node, *tmpBST, 1, level)
+		res, err := h.searchLayerByVector(nodeVec, *tmpBST, 1, level, nil)
 		if err != nil {
 			return errors.Wrapf(err, "update candidate: search layer at level %d", level)
 		}
@@ -300,7 +315,7 @@ func (h *hnsw) insert(node *hnswVertex) error {
 	}
 
 	var results = &binarySearchTreeGeneric{}
-	dist, err := h.distBetweenNodes(nodeId, entryPointID)
+	dist, err := h.distBetweenNodeAndVec(entryPointID, nodeVec)
 	if err != nil {
 		return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
 	}
@@ -309,7 +324,7 @@ func (h *hnsw) insert(node *hnswVertex) error {
 	neighborsAtLevel := make(map[int][]uint32) // for distributed spike
 
 	for level := min(targetLevel, currentMaximumLayer); level >= 0; level-- {
-		results, err = h.searchLayer(node, *results, h.efConstruction, level)
+		results, err = h.searchLayerByVector(nodeVec, *results, h.efConstruction, level, nil)
 		if err != nil {
 			return errors.Wrapf(err, "find neighbors: search layer at level %d", level)
 		}
@@ -376,7 +391,7 @@ func (h *hnsw) insert(node *hnswVertex) error {
 	return nil
 }
 
-func (v *hnswVertex) linkAtLevel(level int, target uint32, cl commitLogger) {
+func (v *hnswVertex) linkAtLevel(level int, target uint32, cl CommitLogger) {
 	v.Lock()
 	cl.AddLinkAtLevel(v.id, level, target)
 	v.connections[level] = append(v.connections[level], target)

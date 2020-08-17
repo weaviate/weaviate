@@ -312,7 +312,7 @@ func (c *Cacher) logSkipFetchJobs() {
 			logrus.Fields{
 				"action": "request_cacher_fetch_jobs_skip",
 			}).
-		Debug("skip fetch jobs, have no incomplete jobs")
+		Trace("skip fetch jobs, have no incomplete jobs")
 }
 
 func (c *Cacher) logCompleteFetchJobs(start time.Time, amount int) {
@@ -325,7 +325,7 @@ func (c *Cacher) logCompleteFetchJobs(start time.Time, amount int) {
 				"took":   took,
 				"jobs":   amount,
 			}).
-		Debug("fetch jobs complete")
+		Trace("fetch jobs complete")
 }
 
 // parseAndStore parses the results for nested refs. Since it is already a

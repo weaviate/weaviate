@@ -14,9 +14,11 @@ package classification
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -39,7 +41,7 @@ func (c *Classifier) run(params models.Classification, kind kind.Kind,
 	unclassifiedItems, err := c.vectorRepo.GetUnclassified(ctx,
 		kind, params.Class, params.ClassifyProperties, filters.source)
 	if err != nil {
-		c.failRunWithError(params, err)
+		c.failRunWithError(params, errors.Wrap(err, "retrieve to-be-classifieds"))
 		return
 	}
 
@@ -50,13 +52,24 @@ func (c *Classifier) run(params models.Classification, kind kind.Kind,
 	}
 	c.logItemsFetched(params, unclassifiedItems)
 
-	var (
-		successCount int64
-		errorCount   int64
-	)
+	classifyItem, err := c.prepareRun(kind, params, filters, unclassifiedItems)
+	if err != nil {
+		c.failRunWithError(params, errors.Wrap(err, "prepare classification"))
+		return
+	}
 
+	params, err = c.runItems(classifyItem, kind, params, filters, unclassifiedItems)
+	if err != nil {
+		c.failRunWithError(params, err)
+		return
+	}
+
+	c.succeedRun(params)
+}
+
+func (c *Classifier) prepareRun(kind kind.Kind, params models.Classification, filters filters,
+	unclassifiedItems []search.Result) (classifyItemFn, error) {
 	var classifyItem classifyItemFn
-
 	c.logBeginPreparation(params)
 	// safe to deref as we have passed validation at this point and or setting of
 	// default values
@@ -67,44 +80,39 @@ func (c *Classifier) run(params models.Classification, kind kind.Kind,
 		// 1. do preparation here once
 		preparedContext, err := c.prepareContextualClassification(kind, params, filters, unclassifiedItems)
 		if err != nil {
-			c.failRunWithError(params, fmt.Errorf("prepare context for contexual classification: %v", err))
-			return
+			return nil, errors.Wrap(err, "prepare context for contexual classification")
 		}
 
 		// 2. use higher order function to inject preparation data so it is then present for each single run
 		classifyItem = c.makeClassifyItemContextual(preparedContext)
 	default:
-		c.failRunWithError(params,
-			fmt.Errorf("unsupported type '%s', have no classify item fn for this", *params.Type))
-		return
+		return nil, fmt.Errorf("unsupported type '%s', have no classify item fn for this", *params.Type)
 	}
-	c.logFinishPreparation(params)
 
-	errors := &errorCompounder{}
-	for i, item := range unclassifiedItems {
-		c.logBeginClassifyItem(params, item)
-		err := classifyItem(item, i, kind, params, filters)
-		if err != nil {
-			errors.add(err)
-			errorCount++
-		} else {
-			successCount++
-		}
-		c.logFinishClassifyItem(params, item)
+	c.logFinishPreparation(params)
+	return classifyItem, nil
+}
+
+// runItems splits the job list into batches that can be worked on parallely
+// depending on the available CPUs
+func (c *Classifier) runItems(classifyItem classifyItemFn, kind kind.Kind, params models.Classification, filters filters,
+	items []search.Result) (models.Classification, error) {
+
+	workerCount := runtime.GOMAXPROCS(0)
+	if len(items) < workerCount {
+		workerCount = len(items)
 	}
+
+	workers := newRunWorkers(workerCount, classifyItem, kind, params, filters)
+	workers.addJobs(items)
+	res := workers.work()
 
 	params.Meta.Completed = strfmt.DateTime(time.Now())
-	params.Meta.CountSucceeded = successCount
-	params.Meta.CountFailed = errorCount
-	params.Meta.Count = successCount + errorCount
+	params.Meta.CountSucceeded = res.successCount
+	params.Meta.CountFailed = res.errorCount
+	params.Meta.Count = res.successCount + res.errorCount
 
-	err = errors.toError()
-	if err != nil {
-		c.failRunWithError(params, err)
-		return
-	}
-
-	c.succeedRun(params)
+	return params, res.err
 }
 
 func (c *Classifier) succeedRun(params models.Classification) {
