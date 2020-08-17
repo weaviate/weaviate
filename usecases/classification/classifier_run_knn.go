@@ -26,7 +26,6 @@ func (c *Classifier) classifyItemUsingKNN(item search.Result, itemIndex int, kin
 	defer cancel()
 
 	// K is guaranteed to be set by now, no danger in dereferencing the pointer
-	// beforeSearch := time.Now()
 	res, err := c.vectorRepo.AggregateNeighbors(ctx, item.Vector,
 		kind, item.ClassName,
 		params.ClassifyProperties, int(*params.K), filters.trainingSet)
@@ -34,7 +33,6 @@ func (c *Classifier) classifyItemUsingKNN(item search.Result, itemIndex int, kin
 	if err != nil {
 		return fmt.Errorf("classify %s/%s: %v", item.ClassName, item.ID, err)
 	}
-	// fmt.Printf("time spent searching: %s\n", time.Since(beforeSearch))
 
 	var classified []string
 
@@ -62,14 +60,11 @@ func (c *Classifier) classifyItemUsingKNN(item search.Result, itemIndex int, kin
 	}
 
 	c.extendItemWithObjectMeta(&item, params, classified)
-	go func() {
-		// beforeStore := time.Now()
-		err = c.store(item)
-		if err != nil {
-			fmt.Printf("store %s/%s: %v", item.ClassName, item.ID, err)
-		}
-		// fmt.Printf("time spent storing: %s\n", time.Since(beforeStore))
-	}()
+	// TODO: send back over channel for batched storage
+	err = c.store(item)
+	if err != nil {
+		fmt.Printf("store %s/%s: %v", item.ClassName, item.ID, err)
+	}
 
 	return nil
 }
