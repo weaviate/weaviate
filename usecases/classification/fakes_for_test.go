@@ -87,6 +87,8 @@ type fakeVectorRepoKNN struct {
 func (f *fakeVectorRepoKNN) GetUnclassified(ctx context.Context,
 	k kind.Kind, class string, properties []string,
 	filter *libfilters.LocalFilter) ([]search.Result, error) {
+	f.Lock()
+	defer f.Unlock()
 	if k != kind.Thing {
 		return nil, fmt.Errorf("unsupported kind in test fake: %v", k)
 	}
@@ -97,6 +99,8 @@ func (f *fakeVectorRepoKNN) GetUnclassified(ctx context.Context,
 func (f *fakeVectorRepoKNN) AggregateNeighbors(ctx context.Context, vector []float32,
 	ki kind.Kind, class string, properties []string, k int,
 	filter *libfilters.LocalFilter) ([]NeighborRef, error) {
+	f.Lock()
+	defer f.Unlock()
 
 	// simulate that this takes some time
 	time.Sleep(5 * time.Millisecond)
@@ -148,6 +152,8 @@ func (f *fakeVectorRepoKNN) AggregateNeighbors(ctx context.Context, vector []flo
 
 func (f *fakeVectorRepoKNN) VectorClassSearch(ctx context.Context,
 	params traverser.GetParams) ([]search.Result, error) {
+	f.Lock()
+	defer f.Unlock()
 	return nil, fmt.Errorf("vector class search not implemented in fake")
 }
 

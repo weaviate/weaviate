@@ -149,3 +149,8 @@ func IsValidValueDataType(dt string) bool {
 	}
 	return false
 }
+
+func IsRefDataType(dt []string) bool {
+	firstLetter := string(dt[0][0])
+	return strings.ToUpper(firstLetter) == firstLetter
+}
