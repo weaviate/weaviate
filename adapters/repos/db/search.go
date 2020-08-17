@@ -44,6 +44,10 @@ func (db *DB) ClassSearch(ctx context.Context, params traverser.GetParams) ([]se
 	return db.enrichRefsForList(ctx, storobj.SearchResults(res), params.Properties, params.UnderscoreProperties.RefMeta)
 }
 func (db *DB) VectorClassSearch(ctx context.Context, params traverser.GetParams) ([]search.Result, error) {
+	if params.SearchVector == nil {
+		return db.ClassSearch(ctx, params)
+	}
+
 	idx := db.GetIndex(params.Kind, schema.ClassName(params.ClassName))
 	if idx == nil {
 		return nil, fmt.Errorf("tried to browse non-existing index for %s/%s", params.Kind, params.ClassName)

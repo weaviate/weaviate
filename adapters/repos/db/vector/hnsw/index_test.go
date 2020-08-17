@@ -24,8 +24,11 @@ func TestHnswIndex(t *testing.T) {
 	// is tested in a separate integration test that takes care of providing and
 	// cleaning up the correct place on disk to write test files
 	cl := &noopCommitLogger{}
+	makeCL := func() CommitLogger {
+		return cl
+	}
 
-	index, err := New("doesnt-matter-as-committlogger-is-mocked-out", "unittest", cl, 30, 60, testVectorForID)
+	index, err := New("doesnt-matter-as-committlogger-is-mocked-out", "unittest", makeCL, 30, 60, testVectorForID)
 	require.Nil(t, err)
 
 	for i, vec := range testVectors {
@@ -35,28 +38,28 @@ func TestHnswIndex(t *testing.T) {
 
 	t.Run("searching within cluster 1", func(t *testing.T) {
 		position := 0
-		res, err := index.knnSearchByVector(testVectors[position], 3, 36)
+		res, err := index.knnSearchByVector(testVectors[position], 3, 36, nil)
 		require.Nil(t, err)
 		assert.ElementsMatch(t, []int{0, 1, 2}, res)
 	})
 
 	t.Run("searching within cluster 2", func(t *testing.T) {
 		position := 3
-		res, err := index.knnSearchByVector(testVectors[position], 3, 36)
+		res, err := index.knnSearchByVector(testVectors[position], 3, 36, nil)
 		require.Nil(t, err)
 		assert.ElementsMatch(t, []int{3, 4, 5}, res)
 	})
 
 	t.Run("searching within cluster 3", func(t *testing.T) {
 		position := 6
-		res, err := index.knnSearchByVector(testVectors[position], 3, 36)
+		res, err := index.knnSearchByVector(testVectors[position], 3, 36, nil)
 		require.Nil(t, err)
 		assert.ElementsMatch(t, []int{6, 7, 8}, res)
 	})
 
 	t.Run("searching within cluster 2 with a scope larger than the cluster", func(t *testing.T) {
 		position := 3
-		res, err := index.knnSearchByVector(testVectors[position], 50, 36)
+		res, err := index.knnSearchByVector(testVectors[position], 50, 36, nil)
 		require.Nil(t, err)
 		assert.Equal(t, []int{
 			3, 5, 4, // cluster 2

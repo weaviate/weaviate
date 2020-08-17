@@ -75,6 +75,16 @@ func (fs Searcher) extractIntValue(in interface{}) ([]byte, error) {
 	return LexicographicallySortableInt64(int64(value))
 }
 
+// assumes an untyped int and stores as string-formatted int64
+func (fs Searcher) extractIntCountValue(in interface{}) ([]byte, error) {
+	value, ok := in.(int)
+	if !ok {
+		return nil, fmt.Errorf("expected value to be int, got %T", in)
+	}
+
+	return LexicographicallySortableUint32(uint32(value))
+}
+
 // assumes an untyped bool and stores as bool64
 func (fs Searcher) extractBoolValue(in interface{}) ([]byte, error) {
 	value, ok := in.(bool)

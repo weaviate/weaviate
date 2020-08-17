@@ -183,6 +183,23 @@ func SearchResults(in []*Object) search.Results {
 	return out
 }
 
+func DocIDFromBinary(in []byte) (uint32, error) {
+	var version uint8
+	r := bytes.NewReader(in)
+	le := binary.LittleEndian
+	if err := binary.Read(r, le, &version); err != nil {
+		return 0, err
+	}
+
+	if version != 1 {
+		return 0, fmt.Errorf("unsupported binary marshaller version %d", version)
+	}
+
+	var indexID uint32
+	err := binary.Read(r, le, &indexID)
+	return indexID, err
+}
+
 // MarshalBinary creates the binary representation of a kind object. Regardless
 // of the marshaller version the first byte is a uint8 indicating the version
 // followed by the payload which depends on the specific version

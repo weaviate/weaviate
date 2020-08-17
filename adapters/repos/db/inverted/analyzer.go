@@ -16,6 +16,8 @@ import (
 	"encoding/binary"
 	"strings"
 	"unicode"
+
+	"github.com/semi-technologies/weaviate/entities/models"
 )
 
 type Countable struct {
@@ -137,6 +139,22 @@ func (a *Analyzer) Bool(in bool) ([]Countable, error) {
 	return []Countable{
 		Countable{
 			Data: b.Bytes(),
+		},
+	}, nil
+}
+
+// RefCount does not index the content of the refs, but only the count with 0
+// being an explicitly allowed value as well.
+func (a *Analyzer) RefCount(in models.MultipleRef) ([]Countable, error) {
+	length := uint32(len(in))
+	data, err := LexicographicallySortableUint32(length)
+	if err != nil {
+		return nil, err
+	}
+
+	return []Countable{
+		Countable{
+			Data: data,
 		},
 	}, nil
 }

@@ -96,6 +96,13 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
 	return nil
 }
 
+// return value map[int]error gives the error for the index as it received it
+func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object) map[int]error {
+	// TODO: pick the right shard(s) instead of using the "single" shard
+	shard := i.Shards["single"]
+	return shard.putObjectBatch(ctx, objects)
+}
+
 func (i *Index) objectByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties, meta bool) (*storobj.Object, error) {
 	// TODO: don't ignore meta
 
