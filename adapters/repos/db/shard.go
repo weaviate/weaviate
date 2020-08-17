@@ -19,29 +19,36 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/indexcounter"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
 // Shard is the smallest completely-contained index unit. A shard mananages
 // database files for all the objects it owns. How a shard is determined for a
 // target object (e.g. Murmur hash, etc.) is still open at this point
 type Shard struct {
-	index       *Index // a reference to the underlying index, which in turn contains schema information
-	name        string
-	db          *bolt.DB // one db file per shard, uses buckets for separation between data storage, index storage, etc.
-	counter     *indexcounter.Counter
-	vectorIndex VectorIndex
+	index            *Index // a reference to the underlying index, which in turn contains schema information
+	name             string
+	db               *bolt.DB // one db file per shard, uses buckets for separation between data storage, index storage, etc.
+	counter          *indexcounter.Counter
+	vectorIndex      VectorIndex
+	invertedRowCache *inverted.RowCacher
 }
 
 func NewShard(shardName string, index *Index) (*Shard, error) {
 	s := &Shard{
-		index: index,
-		name:  shardName,
+		index:            index,
+		name:             shardName,
+		invertedRowCache: inverted.NewRowCacher(10 * 1024 * 1024),
 	}
 
-	vi, err := hnsw.New(s.index.Config.RootPath, s.ID(), hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID()),
-		30, 60, s.vectorByIndexID)
+	makeCommitLogger := func() hnsw.CommitLogger {
+		return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID())
+	}
+	vi, err := hnsw.New(s.index.Config.RootPath, s.ID(), makeCommitLogger,
+		60, 128, s.vectorByIndexID)
 	if err != nil {
 		return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
 	}
@@ -97,7 +104,18 @@ func (s *Shard) initDBFile() error {
 func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 	if err := s.db.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists(helpers.BucketFromPropName(prop.Name))
-		return err
+		if err != nil {
+			return err
+		}
+
+		if schema.IsRefDataType(prop.DataType) {
+			_, err := tx.CreateBucketIfNotExists(helpers.BucketFromPropName(helpers.MetaCountProp(prop.Name)))
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
 	}); err != nil {
 		return errors.Wrap(err, "bolt update tx")
 	}

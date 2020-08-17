@@ -151,6 +151,95 @@ func TestCRUD(t *testing.T) {
 		return t
 	}
 
+	t.Run("updating the thing", func(t *testing.T) {
+		thing := &models.Thing{
+			CreationTimeUnix:   1565612833955,
+			LastUpdateTimeUnix: 10000020,
+			ID:                 thingID,
+			Class:              "TheBestThingClass",
+			Schema: map[string]interface{}{
+				"stringProp": "some updated value",
+				"phone": &models.PhoneNumber{
+					CountryCode:            49,
+					DefaultCountry:         "DE",
+					Input:                  "0171 1234567",
+					Valid:                  true,
+					InternationalFormatted: "+49 171 1234567",
+					National:               1234567,
+					NationalFormatted:      "0171 1234567",
+				},
+				"location": &models.GeoCoordinates{
+					Latitude:  ptFloat32(1),
+					Longitude: ptFloat32(2),
+				},
+			},
+		}
+		vector := []float32{1, 3, 5, 0.4}
+
+		err := repo.PutThing(context.Background(), thing, vector)
+		assert.Nil(t, err)
+	})
+
+	t.Run("validating the updates are reflected", func(t *testing.T) {
+		expected := &models.Thing{
+			CreationTimeUnix:   1565612833955,
+			LastUpdateTimeUnix: 10000020,
+			ID:                 thingID,
+			Class:              "TheBestThingClass",
+			VectorWeights:      map[string]string(nil),
+			Schema: map[string]interface{}{
+				"stringProp": "some updated value",
+				"phone": &models.PhoneNumber{
+					CountryCode:            49,
+					DefaultCountry:         "DE",
+					Input:                  "0171 1234567",
+					Valid:                  true,
+					InternationalFormatted: "+49 171 1234567",
+					National:               1234567,
+					NationalFormatted:      "0171 1234567",
+				},
+				"location": &models.GeoCoordinates{
+					Latitude:  ptFloat32(1),
+					Longitude: ptFloat32(2),
+				},
+			},
+		}
+
+		res, err := repo.ThingByID(context.Background(), thingID, nil, traverser.UnderscoreProperties{})
+		require.Nil(t, err)
+
+		assert.Equal(t, expected, res.Thing())
+	})
+
+	t.Run("updating the thing back to its original value", func(t *testing.T) {
+		thing := &models.Thing{
+			CreationTimeUnix:   1565612833955,
+			LastUpdateTimeUnix: 1000001,
+			ID:                 thingID,
+			Class:              "TheBestThingClass",
+			Schema: map[string]interface{}{
+				"stringProp": "some value",
+				"phone": &models.PhoneNumber{
+					CountryCode:            49,
+					DefaultCountry:         "DE",
+					Input:                  "0171 1234567",
+					Valid:                  true,
+					InternationalFormatted: "+49 171 1234567",
+					National:               1234567,
+					NationalFormatted:      "0171 1234567",
+				},
+				"location": &models.GeoCoordinates{
+					Latitude:  ptFloat32(1),
+					Longitude: ptFloat32(2),
+				},
+			},
+		}
+		vector := []float32{1, 3, 5, 0.4}
+
+		err := repo.PutThing(context.Background(), thing, vector)
+		assert.Nil(t, err)
+	})
+
 	actionID := strfmt.UUID("022ca5ba-7c0b-4a78-85bf-26346bbcfae7")
 	t.Run("adding an action", func(t *testing.T) {
 		action := &models.Action{

@@ -89,7 +89,9 @@ func Test_Classifier_KNN(t *testing.T) {
 		})
 
 		t.Run("the classifier updated the things/actions with the classified references", func(t *testing.T) {
+			vectorRepo.Lock()
 			require.Len(t, vectorRepo.db, 6)
+			vectorRepo.Unlock()
 
 			t.Run("food", func(t *testing.T) {
 				idArticleFoodOne := "06a1e824-889c-4649-97f9-1ed3fa401d8e"
@@ -150,14 +152,19 @@ func Test_Classifier_KNN(t *testing.T) {
 			require.Nil(t, err)
 			require.NotNil(t, class)
 			assert.Equal(t, models.ClassificationStatusFailed, class.Status)
-			expectedErr := "classification failed: " +
-				"classify Article/75ba35af-6a08-40ae-b442-3bec69b355f9: something went wrong, " +
-				"classify Article/f850439a-d3cd-4f17-8fbf-5a64405645cd: something went wrong, " +
-				"classify Article/a2bbcbdc-76e1-477d-9e72-a6d2cfb50109: something went wrong, " +
-				"classify Article/069410c3-4b9e-4f68-8034-32a066cb7997: something went wrong, " +
-				"classify Article/06a1e824-889c-4649-97f9-1ed3fa401d8e: something went wrong, " +
-				"classify Article/6402e649-b1e0-40ea-b192-a64eab0d5e56: something went wrong"
-			assert.Equal(t, expectedErr, class.Error)
+			expectedErrStrings := []string{
+				"classification failed: ",
+				"classify Article/75ba35af-6a08-40ae-b442-3bec69b355f9: something went wrong",
+				"classify Article/f850439a-d3cd-4f17-8fbf-5a64405645cd: something went wrong",
+				"classify Article/a2bbcbdc-76e1-477d-9e72-a6d2cfb50109: something went wrong",
+				"classify Article/069410c3-4b9e-4f68-8034-32a066cb7997: something went wrong",
+				"classify Article/06a1e824-889c-4649-97f9-1ed3fa401d8e: something went wrong",
+				"classify Article/6402e649-b1e0-40ea-b192-a64eab0d5e56: something went wrong",
+			}
+
+			for _, msg := range expectedErrStrings {
+				assert.Contains(t, class.Error, msg)
+			}
 		})
 	})
 
@@ -248,7 +255,9 @@ func Test_Classifier_Contextual(t *testing.T) {
 		})
 
 		t.Run("the classifier updated the things/actions with the classified references", func(t *testing.T) {
+			vectorRepo.Lock()
 			require.Len(t, vectorRepo.db, 6)
+			vectorRepo.Unlock()
 
 			t.Run("food", func(t *testing.T) {
 				idArticleFoodOne := "06a1e824-889c-4649-97f9-1ed3fa401d8e"
@@ -310,14 +319,17 @@ func Test_Classifier_Contextual(t *testing.T) {
 			require.Nil(t, err)
 			require.NotNil(t, class)
 			assert.Equal(t, models.ClassificationStatusFailed, class.Status)
-			expectedErr := "classification failed: " +
-				"classify Article/75ba35af-6a08-40ae-b442-3bec69b355f9: something went wrong, " +
-				"classify Article/f850439a-d3cd-4f17-8fbf-5a64405645cd: something went wrong, " +
-				"classify Article/a2bbcbdc-76e1-477d-9e72-a6d2cfb50109: something went wrong, " +
-				"classify Article/069410c3-4b9e-4f68-8034-32a066cb7997: something went wrong, " +
-				"classify Article/06a1e824-889c-4649-97f9-1ed3fa401d8e: something went wrong, " +
-				"classify Article/6402e649-b1e0-40ea-b192-a64eab0d5e56: something went wrong"
-			assert.Equal(t, expectedErr, class.Error)
+			expectedErrStrings := []string{"classification failed: ",
+				"classify Article/75ba35af-6a08-40ae-b442-3bec69b355f9: something went wrong",
+				"classify Article/f850439a-d3cd-4f17-8fbf-5a64405645cd: something went wrong",
+				"classify Article/a2bbcbdc-76e1-477d-9e72-a6d2cfb50109: something went wrong",
+				"classify Article/069410c3-4b9e-4f68-8034-32a066cb7997: something went wrong",
+				"classify Article/06a1e824-889c-4649-97f9-1ed3fa401d8e: something went wrong",
+				"classify Article/6402e649-b1e0-40ea-b192-a64eab0d5e56: something went wrong",
+			}
+			for _, msg := range expectedErrStrings {
+				assert.Contains(t, class.Error, msg)
+			}
 		})
 	})
 

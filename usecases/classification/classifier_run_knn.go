@@ -60,9 +60,10 @@ func (c *Classifier) classifyItemUsingKNN(item search.Result, itemIndex int, kin
 	}
 
 	c.extendItemWithObjectMeta(&item, params, classified)
+	// TODO: send back over channel for batched storage
 	err = c.store(item)
 	if err != nil {
-		return fmt.Errorf("store %s/%s: %v", item.ClassName, item.ID, err)
+		fmt.Printf("store %s/%s: %v", item.ClassName, item.ID, err)
 	}
 
 	return nil

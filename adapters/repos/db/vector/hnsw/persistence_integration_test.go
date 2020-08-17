@@ -34,7 +34,10 @@ func TestHnswPersistence(t *testing.T) {
 	}()
 
 	cl := NewCommitLogger(dirName, "integrationtest")
-	index, err := New(dirName, "integrationtest", cl, 30, 60, testVectorForID)
+	makeCL := func() CommitLogger {
+		return cl
+	}
+	index, err := New(dirName, "integrationtest", makeCL, 30, 60, testVectorForID)
 	require.Nil(t, err)
 
 	for i, vec := range testVectors {
@@ -51,7 +54,7 @@ func TestHnswPersistence(t *testing.T) {
 
 	t.Run("verify that the results match originally", func(t *testing.T) {
 		position := 3
-		res, err := index.knnSearchByVector(testVectors[position], 50, 36)
+		res, err := index.knnSearchByVector(testVectors[position], 50, 36, nil)
 		require.Nil(t, err)
 		assert.Equal(t, expectedResults, res)
 	})
@@ -60,14 +63,14 @@ func TestHnswPersistence(t *testing.T) {
 	index = nil
 
 	// build a new index from the (uncondensed) commit log
-	secondIndex, err := New(dirName, "integrationtest", cl, 30, 60,
+	secondIndex, err := New(dirName, "integrationtest", makeCL, 30, 60,
 		testVectorForID)
 	require.Nil(t, err)
 
 	t.Run("verify that the results match after rebuiling from disk",
 		func(t *testing.T) {
 			position := 3
-			res, err := secondIndex.knnSearchByVector(testVectors[position], 50, 36)
+			res, err := secondIndex.knnSearchByVector(testVectors[position], 50, 36, nil)
 			require.Nil(t, err)
 			assert.Equal(t, expectedResults, res)
 		})
