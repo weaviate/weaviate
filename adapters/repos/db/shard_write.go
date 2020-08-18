@@ -16,7 +16,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"hash/crc32"
 	"sync"
 
 	"github.com/boltdb/bolt"
@@ -26,9 +25,6 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
-	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
 func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
@@ -180,7 +176,8 @@ func (s *Shard) putObjectInTx(tx *bolt.Tx, object *storobj.Object, idBytes []byt
 		isUpdate = true
 		docID, err = storobj.DocIDFromBinary(existing)
 		if err != nil {
-			return docID, isUpdate, errors.Wrap(err, "get existing doc id from object binary")
+			return docID, isUpdate, errors.Wrap(err,
+				"get existing doc id from object binary")
 		}
 	}
 	object.SetIndexID(docID)
@@ -216,175 +213,6 @@ func (s *Shard) putObjectInTx(tx *bolt.Tx, object *storobj.Object, idBytes []byt
 	return docID, isUpdate, nil
 }
 
-func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, error) {
-	if object.Schema() == nil {
-		return nil, nil
-	}
-
-	var schemaModel *models.Schema
-	if object.Kind == kind.Thing {
-		schemaModel = s.index.getSchema.GetSchemaSkipAuth().Things
-	} else {
-		schemaModel = s.index.getSchema.GetSchemaSkipAuth().Actions
-	}
-
-	c, err := schema.GetClassByName(schemaModel, object.Class().String())
-	if err != nil {
-		return nil, err
-	}
-
-	schemaMap, ok := object.Schema().(map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("expected schema to be map, but got %T", object.Schema())
-	}
-
-	return inverted.NewAnalyzer().Object(schemaMap, c.Properties)
-}
-
-func (s *Shard) extendInvertedIndices(tx *bolt.Tx, props []inverted.Property, docID uint32) error {
-	for _, prop := range props {
-		b := tx.Bucket(helpers.BucketFromPropName(prop.Name))
-		if b == nil {
-			return fmt.Errorf("no bucket for prop '%s' found", prop.Name)
-		}
-
-		if prop.HasFrequency {
-			for _, item := range prop.Items {
-				if err := s.extendInvertedIndexItemWithFrequency(b, item, docID, item.TermFrequency); err != nil {
-					return errors.Wrapf(err, "extend index with item '%s'", string(item.Data))
-				}
-			}
-		} else {
-			if len(prop.Items) != 1 {
-				return fmt.Errorf("prop %s has no frequency but %d items", prop.Name, len(prop.Items))
-			}
-
-			if err := s.extendInvertedIndexItem(b, prop.Items[0], docID); err != nil {
-				return errors.Wrapf(err, "extend index with item '%s'", string(prop.Items[0].Data))
-			}
-
-		}
-
-	}
-
-	return nil
-}
-
-// extendInvertedIndexItemWithFrequency maintains an inverted index row for one search term,
-// the structure is as follows:
-//
-// Bytes | Meaning
-// 0..4   | count of matching documents as uint32 (little endian)
-// 5..7   | doc id of first matching doc as uint32 (little endian)
-// 8..11   | term frequency in first doc as float32 (little endian)
-// ...
-// (n-7)..(n-4) | doc id of last doc
-// (n-3)..n     | term frequency of last
-func (s *Shard) extendInvertedIndexItemWithFrequency(b *bolt.Bucket, item inverted.Countable, docID uint32, freq float32) error {
-	data := b.Get(item.Data)
-	updated := bytes.NewBuffer(data)
-	if len(data) == 0 {
-		// this is the first time someones writing this row, initalize counter in
-		// beginning as zero
-		docCount := uint32(0)
-		binary.Write(updated, binary.LittleEndian, &docCount)
-	} else {
-		// remove the old checksum
-		data = data[4:]
-		updated = bytes.NewBuffer(data)
-	}
-
-	// append current document
-	binary.Write(updated, binary.LittleEndian, &docID)
-	binary.Write(updated, binary.LittleEndian, &freq)
-	extended := updated.Bytes()
-
-	// read and increase doc count
-	reader := bytes.NewReader(extended)
-	var docCount uint32
-	binary.Read(reader, binary.LittleEndian, &docCount)
-	docCount++
-	countBytes := bytes.NewBuffer(make([]byte, 0, 4))
-	binary.Write(countBytes, binary.LittleEndian, &docCount)
-
-	// combine back together
-	combined := append(countBytes.Bytes(), extended[4:]...)
-
-	// finally calculate the checksum and prepend one more time.
-	chksum, err := s.checksum(combined)
-	if err != nil {
-		return err
-	}
-
-	combined = append(chksum, combined...)
-
-	err = b.Put(item.Data, combined)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// extendInvertedIndexItem maintains an inverted index row for one search term,
-// the structure is as follows:
-//
-// Bytes | Meaning
-// 0..4   | count of matching documents as uint32 (little endian)
-// 5..7   | doc id of first matching doc as uint32 (little endian)
-// ...
-// (n-3)..n | doc id of last doc
-func (s *Shard) extendInvertedIndexItem(b *bolt.Bucket, item inverted.Countable, docID uint32) error {
-	data := b.Get(item.Data)
-	updated := bytes.NewBuffer(data)
-	if len(data) == 0 {
-		// this is the first time someones writing this row, initalize counter in
-		// beginning as zero
-		docCount := uint32(0)
-		binary.Write(updated, binary.LittleEndian, &docCount)
-	} else {
-		// remove the old checksum
-		data = data[4:]
-		updated = bytes.NewBuffer(data)
-	}
-
-	// append current document
-	binary.Write(updated, binary.LittleEndian, &docID)
-	extended := updated.Bytes()
-
-	// read and increase doc count
-	reader := bytes.NewReader(extended)
-	var docCount uint32
-	binary.Read(reader, binary.LittleEndian, &docCount)
-	docCount++
-	countBytes := bytes.NewBuffer(make([]byte, 0, 4))
-	binary.Write(countBytes, binary.LittleEndian, &docCount)
-
-	// combine back together and save
-	combined := append(countBytes.Bytes(), extended[4:]...)
-
-	// finally calculate the checksum and prepend one more time.
-	chksum, err := s.checksum(combined)
-	if err != nil {
-		return err
-	}
-
-	combined = append(chksum, combined...)
-	err = b.Put(item.Data, combined)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (s *Shard) checksum(in []byte) ([]byte, error) {
-	checksum := crc32.ChecksumIEEE(in)
-	buf := bytes.NewBuffer(make([]byte, 0, 4))
-	err := binary.Write(buf, binary.LittleEndian, &checksum)
-	return buf.Bytes(), err
-}
-
 func (s *Shard) addIndexIDLookup(tx *bolt.Tx, id []byte, docID uint32) error {
 	keyBuf := bytes.NewBuffer(make([]byte, 4))
 	binary.Write(keyBuf, binary.LittleEndian, &docID)
@@ -398,6 +226,53 @@ func (s *Shard) addIndexIDLookup(tx *bolt.Tx, id []byte, docID uint32) error {
 	if err := b.Put(key, id); err != nil {
 		return errors.Wrap(err, "store uuid for index id")
 	}
+
+	return nil
+}
+
+func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
+	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	var docID uint32
+	if err := s.db.Batch(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(helpers.ObjectsBucket)
+		existing := bucket.Get([]byte(idBytes))
+		if existing == nil {
+			// nothing to do
+			return nil
+		}
+
+		// we need the doc ID so we can clean up inverted indices currently
+		// pointing to this object
+		docID, err = storobj.DocIDFromBinary(existing)
+		if err != nil {
+			return errors.Wrap(err, "get existing doc id from object binary")
+		}
+
+		oldObj, err := storobj.FromBinary(existing)
+		if err != nil {
+			return errors.Wrap(err, "unmarshal existing doc")
+		}
+
+		invertedPointersToDelete, err := s.analyzeObject(oldObj)
+		if err != nil {
+			return errors.Wrap(err, "analyze object")
+		}
+
+		err = s.deleteFromInvertedIndices(tx, invertedPointersToDelete, docID)
+		if err != nil {
+			return errors.Wrap(err, "delete pointers from inverted index")
+		}
+
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "bolt batch tx")
+	}
+
+	// TODO: Delete from vector index
 
 	return nil
 }

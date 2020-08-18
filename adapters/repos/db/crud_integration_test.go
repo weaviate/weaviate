@@ -454,20 +454,117 @@ func TestCRUD(t *testing.T) {
 		assert.Equal(t, "some act-citing value", schema["stringProp"], "has correct string prop")
 	})
 
-	// TODO
-	// t.Run("deleting a thing again", func(t *testing.T) {
-	// 	err := repo.DeleteThing(context.Background(),
-	// 		"TheBestThingClass", thingID)
+	t.Run("verifying the thing is indexed in the inverted index", func(t *testing.T) {
+		// This is a control for the upcoming deletion, after the deletion it should not
+		// be indexed anymore.
+		res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+			Kind:       kind.Thing,
+			ClassName:  "TheBestThingClass",
+			Pagination: &filters.Pagination{Limit: 10},
+			Filters: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorEqual,
+					On: &filters.Path{
+						Class:    "TheBestThingClass",
+						Property: "stringProp",
+					},
+					Value: &filters.Value{
+						Value: "some",
+						Type:  dtString,
+					},
+				},
+			},
+		})
+		require.Nil(t, err)
+		require.Len(t, res, 1)
+	})
 
-	// 	assert.Nil(t, err)
-	// })
+	t.Run("verifying the action is indexed in the inverted index", func(t *testing.T) {
+		// This is a control for the upcoming deletion, after the deletion it should not
+		// be indexed anymore.
+		res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+			Kind:       kind.Action,
+			ClassName:  "TheBestActionClass",
+			Pagination: &filters.Pagination{Limit: 10},
+			Filters: &filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorEqual,
+					On: &filters.Path{
+						Class:    "TheBestActionClass",
+						Property: "stringProp",
+					},
+					Value: &filters.Value{
+						Value: "some",
+						Type:  dtString,
+					},
+				},
+			},
+		})
+		require.Nil(t, err)
+		require.Len(t, res, 1)
+	})
 
-	// t.Run("deleting a action again", func(t *testing.T) {
-	// 	err := repo.DeleteAction(context.Background(),
-	// 		"TheBestActionClass", actionID)
+	t.Run("deleting a thing again", func(t *testing.T) {
+		err := repo.DeleteThing(context.Background(),
+			"TheBestThingClass", thingID)
 
-	// 	assert.Nil(t, err)
-	// })
+		assert.Nil(t, err)
+	})
+
+	t.Run("deleting a action again", func(t *testing.T) {
+		err := repo.DeleteAction(context.Background(),
+			"TheBestActionClass", actionID)
+
+		assert.Nil(t, err)
+	})
+
+	t.Run("verifying the thing is NOT indexed in the inverted index",
+		func(t *testing.T) {
+			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+				Kind:       kind.Thing,
+				ClassName:  "TheBestThingClass",
+				Pagination: &filters.Pagination{Limit: 10},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorEqual,
+						On: &filters.Path{
+							Class:    "TheBestThingClass",
+							Property: "stringProp",
+						},
+						Value: &filters.Value{
+							Value: "some",
+							Type:  dtString,
+						},
+					},
+				},
+			})
+			require.Nil(t, err)
+			require.Len(t, res, 0)
+		})
+
+	t.Run("verifying the action is NOT indexed in the inverted index",
+		func(t *testing.T) {
+			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+				Kind:       kind.Action,
+				ClassName:  "TheBestActionClass",
+				Pagination: &filters.Pagination{Limit: 10},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorEqual,
+						On: &filters.Path{
+							Class:    "TheBestActionClass",
+							Property: "stringProp",
+						},
+						Value: &filters.Value{
+							Value: "some",
+							Type:  dtString,
+						},
+					},
+				},
+			})
+			require.Nil(t, err)
+			require.Len(t, res, 0)
+		})
 
 	// t.Run("searching by vector for a single thing class again after deletion", func(t *testing.T) {
 	// 	searchVector := []float32{2.9, 1.1, 0.5, 8.01}

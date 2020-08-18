@@ -151,7 +151,9 @@ func (fs *Searcher) parseInvertedIndexRow(id, in []byte, limit int, hasFrequency
 	out := docPointers{
 		checksum: make([]byte, 4),
 	}
-	if len(in) == 0 {
+
+	// 0 is a non-existing row, 4 is one that only contains a checksum, but no content
+	if len(in) == 0 || len(in) == 4 {
 		return out, nil
 	}
 

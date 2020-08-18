@@ -79,11 +79,13 @@ func indexID(kind kind.Kind, class schema.ClassName) string {
 
 func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
 	if i.Config.Kind != object.Kind {
-		return fmt.Errorf("cannot import object of kind %s into index of kind %s", object.Kind, i.Config.Kind)
+		return fmt.Errorf("cannot import object of kind %s into index of kind %s",
+			object.Kind, i.Config.Kind)
 	}
 
 	if i.Config.ClassName != object.Class() {
-		return fmt.Errorf("cannot import object of class %s into index of class %s", object.Class(), i.Config.ClassName)
+		return fmt.Errorf("cannot import object of class %s into index of class %s",
+			object.Class(), i.Config.ClassName)
 	}
 
 	// TODO: pick the right shard instead of using the "single" shard
@@ -97,13 +99,15 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object) error {
 }
 
 // return value map[int]error gives the error for the index as it received it
-func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object) map[int]error {
+func (i *Index) putObjectBatch(ctx context.Context,
+	objects []*storobj.Object) map[int]error {
 	// TODO: pick the right shard(s) instead of using the "single" shard
 	shard := i.Shards["single"]
 	return shard.putObjectBatch(ctx, objects)
 }
 
-func (i *Index) objectByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties, meta bool) (*storobj.Object, error) {
+func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
+	props traverser.SelectProperties, meta bool) (*storobj.Object, error) {
 	// TODO: don't ignore meta
 
 	// TODO: search across all shards, rather than hard-coded "single" shard
@@ -118,7 +122,8 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID, props traverser.
 	return obj, nil
 }
 
-func (i *Index) multiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error) {
+func (i *Index) multiObjectByID(ctx context.Context,
+	query []multi.Identifier) ([]*storobj.Object, error) {
 	// TODO: search across all shards, rather than hard-coded "single" shard
 	// TODO: can we improve this by hashing so we know the target shard?
 
@@ -144,7 +149,8 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 	return ok, nil
 }
 
-func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
+func (i *Index) objectSearch(ctx context.Context, limit int,
+	filters *filters.LocalFilter,
 	meta bool) ([]*storobj.Object, error) {
 	// TODO: don't ignore meta
 	// TODO: search across all shards, rather than hard-coded "single" shard
@@ -158,8 +164,8 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	return res, nil
 }
 
-func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32, limit int,
-	filters *filters.LocalFilter, meta bool) ([]*storobj.Object, error) {
+func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
+	limit int, filters *filters.LocalFilter, meta bool) ([]*storobj.Object, error) {
 	// TODO: don't ignore meta
 	// TODO: search across all shards, rather than hard-coded "single" shard
 
@@ -170,4 +176,15 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32, 
 	}
 
 	return res, nil
+}
+
+func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID) error {
+	// TODO: search across all shards, rather than hard-coded "single" shard
+
+	shard := i.Shards["single"]
+	if err := shard.deleteObject(ctx, id); err != nil {
+		return errors.Wrapf(err, "shard %s", shard.ID())
+	}
+
+	return nil
 }
