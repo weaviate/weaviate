@@ -267,12 +267,39 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
 			return errors.Wrap(err, "delete pointers from inverted index")
 		}
 
+		err = bucket.Delete(idBytes)
+		if err != nil {
+			return errors.Wrap(err, "delete object from bucket")
+		}
+
+		err = s.deleteIndexIDLookup(tx, docID)
+		if err != nil {
+			return errors.Wrap(err, "delete indexID->uuid lookup")
+		}
+
 		return nil
 	}); err != nil {
 		return errors.Wrap(err, "bolt batch tx")
 	}
 
 	// TODO: Delete from vector index
+
+	return nil
+}
+
+func (s *Shard) deleteIndexIDLookup(tx *bolt.Tx, docID uint32) error {
+	keyBuf := bytes.NewBuffer(make([]byte, 4))
+	binary.Write(keyBuf, binary.LittleEndian, &docID)
+	key := keyBuf.Bytes()
+
+	b := tx.Bucket(helpers.IndexIDBucket)
+	if b == nil {
+		return fmt.Errorf("no index id bucket found")
+	}
+
+	if err := b.Delete(key); err != nil {
+		return errors.Wrap(err, "delete uuid for index id")
+	}
 
 	return nil
 }
