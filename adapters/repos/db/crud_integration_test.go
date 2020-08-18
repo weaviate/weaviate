@@ -566,6 +566,20 @@ func TestCRUD(t *testing.T) {
 			require.Len(t, res, 0)
 		})
 
+	t.Run("trying to get the deleted thing by ID", func(t *testing.T) {
+		item, err := repo.ThingByID(context.Background(), thingID,
+			traverser.SelectProperties{}, traverser.UnderscoreProperties{})
+		require.Nil(t, err)
+		require.Nil(t, item, "must not have a result")
+	})
+
+	t.Run("trying to get the deleted action by ID", func(t *testing.T) {
+		item, err := repo.ActionByID(context.Background(), actionID,
+			traverser.SelectProperties{}, traverser.UnderscoreProperties{})
+		require.Nil(t, err)
+		require.Nil(t, item, "must not have a result")
+	})
+
 	// t.Run("searching by vector for a single thing class again after deletion", func(t *testing.T) {
 	// 	searchVector := []float32{2.9, 1.1, 0.5, 8.01}
 	// 	params := traverser.GetParams{
