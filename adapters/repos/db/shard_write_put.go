@@ -34,8 +34,17 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 		return errors.Wrap(err, "bolt batch tx")
 	}
 
+	if err := s.updateVectorIndex(object.Vector, status); err != nil {
+		return errors.Wrap(err, "update vector index")
+	}
+
+	return nil
+}
+
+func (s *Shard) updateVectorIndex(vector []float32,
+	status objectInsertStatus) error {
 	if !status.isUpdate {
-		if err := s.vectorIndex.Add(int(status.docID), object.Vector); err != nil {
+		if err := s.vectorIndex.Add(int(status.docID), vector); err != nil {
 			return errors.Wrap(err, "insert to vector index")
 		}
 	} else {

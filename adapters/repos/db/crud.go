@@ -198,5 +198,16 @@ func (d *DB) AddReference(ctx context.Context, kind kind.Kind, source strfmt.UUI
 }
 
 func (d *DB) Merge(ctx context.Context, merge kinds.MergeDocument) error {
-	return fmt.Errorf("not implemented")
+	idx := d.GetIndex(merge.Kind, schema.ClassName(merge.Class))
+	if idx == nil {
+		return fmt.Errorf("merge from non-existing index for %s/%s",
+			merge.Kind, merge.Class)
+	}
+
+	err := idx.mergeObject(ctx, merge)
+	if err != nil {
+		return errors.Wrapf(err, "merge into index %s", idx.ID())
+	}
+
+	return nil
 }
