@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -22,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/multi"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
@@ -192,9 +194,27 @@ func (d *DB) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 	return false, nil
 }
 
-func (d *DB) AddReference(ctx context.Context, kind kind.Kind, source strfmt.UUID,
-	propName string, ref *models.SingleRef) error {
-	return fmt.Errorf("not implemented")
+func (d *DB) AddReference(ctx context.Context, kind kind.Kind,
+	className string, source strfmt.UUID, propName string,
+	ref *models.SingleRef) error {
+	target, err := crossref.ParseSingleRef(ref)
+	if err != nil {
+		return err
+	}
+
+	return d.Merge(ctx, kinds.MergeDocument{
+		Kind:       kind,
+		Class:      className,
+		ID:         source,
+		UpdateTime: time.Now().UnixNano(),
+		References: kinds.BatchReferences{
+			kinds.BatchReference{
+				From: crossref.NewSource(kind, schema.ClassName(className),
+					schema.PropertyName(propName), source),
+				To: target,
+			},
+		},
+	})
 }
 
 func (d *DB) Merge(ctx context.Context, merge kinds.MergeDocument) error {
