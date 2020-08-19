@@ -158,7 +158,7 @@ func TestCRUD(t *testing.T) {
 			ID:                 thingID,
 			Class:              "TheBestThingClass",
 			Schema: map[string]interface{}{
-				"stringProp": "some updated value",
+				"stringProp": "updated value",
 				"phone": &models.PhoneNumber{
 					CountryCode:            49,
 					DefaultCountry:         "DE",
@@ -188,7 +188,7 @@ func TestCRUD(t *testing.T) {
 			Class:              "TheBestThingClass",
 			VectorWeights:      map[string]string(nil),
 			Schema: map[string]interface{}{
-				"stringProp": "some updated value",
+				"stringProp": "updated value",
 				"phone": &models.PhoneNumber{
 					CountryCode:            49,
 					DefaultCountry:         "DE",
@@ -205,11 +205,95 @@ func TestCRUD(t *testing.T) {
 			},
 		}
 
-		res, err := repo.ThingByID(context.Background(), thingID, nil, traverser.UnderscoreProperties{})
+		res, err := repo.ThingByID(context.Background(), thingID, nil,
+			traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 
 		assert.Equal(t, expected, res.Thing())
 	})
+
+	t.Run("finding the updated object by querying for an updated value",
+		func(t *testing.T) {
+			// This is to verify the inverted index was updated correctly
+			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+				Kind:       kind.Thing,
+				ClassName:  "TheBestThingClass",
+				Pagination: &filters.Pagination{Limit: 10},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorEqual,
+						On: &filters.Path{
+							Class:    "TheBestThingClass",
+							Property: "stringProp",
+						},
+						Value: &filters.Value{
+							// we would not have found this object before using "updated", as
+							// this string was only introduced as part of the update
+							Value: "updated",
+							Type:  dtString,
+						},
+					},
+				},
+			})
+			require.Nil(t, err)
+			require.Len(t, res, 1)
+			assert.Equal(t, thingID, res[0].ID)
+		})
+
+	t.Run("NOT finding the previous version by querying for an outdated value",
+		func(t *testing.T) {
+			// This is to verify the inverted index was cleaned up correctly
+			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+				Kind:       kind.Thing,
+				ClassName:  "TheBestThingClass",
+				Pagination: &filters.Pagination{Limit: 10},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorEqual,
+						On: &filters.Path{
+							Class:    "TheBestThingClass",
+							Property: "stringProp",
+						},
+						Value: &filters.Value{
+							Value: "some",
+							Type:  dtString,
+						},
+					},
+				},
+			})
+			require.Nil(t, err)
+			require.Len(t, res, 0)
+		})
+
+	t.Run("still finding it for an unchanged term",
+		func(t *testing.T) {
+			// This is to verify that while we're adding new links and cleaning up
+			// old ones, we don't actually touch those that were present and still
+			// should be
+			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+				Kind:       kind.Thing,
+				ClassName:  "TheBestThingClass",
+				Pagination: &filters.Pagination{Limit: 10},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorEqual,
+						On: &filters.Path{
+							Class:    "TheBestThingClass",
+							Property: "stringProp",
+						},
+						Value: &filters.Value{
+							// we would not have found this object before using "updated", as
+							// this string was only introduced as part of the update
+							Value: "value",
+							Type:  dtString,
+						},
+					},
+				},
+			})
+			require.Nil(t, err)
+			require.Len(t, res, 1)
+			assert.Equal(t, thingID, res[0].ID)
+		})
 
 	t.Run("updating the thing back to its original value", func(t *testing.T) {
 		thing := &models.Thing{

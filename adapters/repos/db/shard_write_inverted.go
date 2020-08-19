@@ -153,11 +153,12 @@ func (s *Shard) deleteFromInvertedIndicesProp(b *bolt.Bucket,
 				return errors.Wrap(err, "write frequency")
 
 			}
+
 		}
 
 	}
 
-	countBytes := bytes.NewBuffer(make([]byte, 0, 4))
+	countBytes := bytes.NewBuffer(make([]byte, 4))
 	binary.Write(countBytes, binary.LittleEndian, &newDocCount)
 
 	// combine back together
@@ -170,6 +171,19 @@ func (s *Shard) deleteFromInvertedIndicesProp(b *bolt.Bucket,
 	}
 
 	combined = append(chksum, combined...)
+	if len(combined) != 0 && len(combined) > 0 {
+		// -8 to remove the checksum and doc count
+		// module 4 for 4 bytes of docID if no frequency
+		// module 8 for 8 bytes of docID if frequency
+		if hasFrequency && (len(combined)-8)%8 != 0 {
+			return fmt.Errorf("sanity check: invert row has invalid updated length %d"+
+				"with original length %d", len(combined), len(data))
+		}
+		if !hasFrequency && (len(combined)-8)%4 != 0 {
+			return fmt.Errorf("sanity check: invert row has invalid updated length %d"+
+				"with original length %d", len(combined), len(data))
+		}
+	}
 
 	err = b.Put(item.Data, combined)
 	if err != nil {
@@ -193,6 +207,7 @@ func (s *Shard) deleteFromInvertedIndicesProp(b *bolt.Bucket,
 func (s *Shard) extendInvertedIndexItemWithFrequency(b *bolt.Bucket,
 	item inverted.Countable, docID uint32, freq float32) error {
 	data := b.Get(item.Data)
+
 	updated := bytes.NewBuffer(data)
 	if len(data) == 0 {
 		// this is the first time someones writing this row, initalize counter in
@@ -206,8 +221,12 @@ func (s *Shard) extendInvertedIndexItemWithFrequency(b *bolt.Bucket,
 	}
 
 	// append current document
-	binary.Write(updated, binary.LittleEndian, &docID)
-	binary.Write(updated, binary.LittleEndian, &freq)
+	if err := binary.Write(updated, binary.LittleEndian, &docID); err != nil {
+		return errors.Wrap(err, "write doc id")
+	}
+	if err := binary.Write(updated, binary.LittleEndian, &freq); err != nil {
+		return errors.Wrap(err, "write doc frequency")
+	}
 	extended := updated.Bytes()
 
 	// read and increase doc count
@@ -228,6 +247,12 @@ func (s *Shard) extendInvertedIndexItemWithFrequency(b *bolt.Bucket,
 	}
 
 	combined = append(chksum, combined...)
+	if len(combined) != 0 && len(combined) > 8 && (len(combined)-8)%8 != 0 {
+		// -8 to remove the checksum and doc count
+		// module 8 for 4 bytes of docID + frequency
+		return fmt.Errorf("sanity check: invert row has invalid updated length %d"+
+			"with original length %d", len(combined), len(data))
+	}
 
 	err = b.Put(item.Data, combined)
 	if err != nil {
@@ -237,6 +262,8 @@ func (s *Shard) extendInvertedIndexItemWithFrequency(b *bolt.Bucket,
 	return nil
 }
 
+// TODO: merge this with the other one and just make it a flag, too much
+// duplication
 // extendInvertedIndexItem maintains an inverted index row for one search term,
 // the structure is as follows:
 //
@@ -285,6 +312,13 @@ func (s *Shard) extendInvertedIndexItem(b *bolt.Bucket, item inverted.Countable,
 	err = b.Put(item.Data, combined)
 	if err != nil {
 		return err
+	}
+
+	if len(combined) != 0 && len(combined) > 0 && (len(combined)-8)%4 != 0 {
+		// -8 to remove the checksum and doc count
+		// module 4 for 4 bytes of docID
+		return fmt.Errorf("sanity check: invert row has invalid updated length %d"+
+			"with original length %d", len(combined), len(data))
 	}
 
 	return nil

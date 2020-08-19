@@ -238,7 +238,8 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	return out, nil
 }
 
-func (h *hnsw) selectNeighborsSimple(nodeId int, input binarySearchTreeGeneric, max int) []uint32 {
+func (h *hnsw) selectNeighborsSimple(nodeId int, input binarySearchTreeGeneric,
+	max int) []uint32 {
 	flat := input.flattenInOrder()
 	size := min(len(flat), max)
 	out := make([]uint32, size)
@@ -252,7 +253,8 @@ func (h *hnsw) selectNeighborsSimple(nodeId int, input binarySearchTreeGeneric, 
 	return out
 }
 
-func (h *hnsw) selectNeighborsSimpleFromId(nodeId int, ids []uint32, max int) ([]uint32, error) {
+func (h *hnsw) selectNeighborsSimpleFromId(nodeId int, ids []uint32,
+	max int) ([]uint32, error) {
 	bst := &binarySearchTreeGeneric{}
 	for _, id := range ids {
 		dist, err := h.distBetweenNodes(int(id), nodeId)
