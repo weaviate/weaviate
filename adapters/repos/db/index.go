@@ -24,6 +24,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/multi"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/usecases/kinds"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
@@ -183,6 +184,17 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID) error {
 
 	shard := i.Shards["single"]
 	if err := shard.deleteObject(ctx, id); err != nil {
+		return errors.Wrapf(err, "shard %s", shard.ID())
+	}
+
+	return nil
+}
+
+func (i *Index) mergeObject(ctx context.Context, merge kinds.MergeDocument) error {
+	// TODO: search across all shards, rather than hard-coded "single" shard
+
+	shard := i.Shards["single"]
+	if err := shard.mergeObject(ctx, merge); err != nil {
 		return errors.Wrapf(err, "shard %s", shard.ID())
 	}
 
