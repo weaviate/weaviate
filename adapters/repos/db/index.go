@@ -107,6 +107,14 @@ func (i *Index) putObjectBatch(ctx context.Context,
 	return shard.putObjectBatch(ctx, objects)
 }
 
+// return value map[int]error gives the error for the index as it received it
+func (i *Index) addReferencesBatch(ctx context.Context,
+	refs kinds.BatchReferences) map[int]error {
+	// TODO: pick the right shard(s) instead of using the "single" shard
+	shard := i.Shards["single"]
+	return shard.addReferencesBatch(ctx, refs)
+}
+
 func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 	props traverser.SelectProperties, meta bool) (*storobj.Object, error) {
 	// TODO: don't ignore meta

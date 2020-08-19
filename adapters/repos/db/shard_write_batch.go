@@ -14,12 +14,14 @@ package db
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/boltdb/bolt"
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
+	"github.com/semi-technologies/weaviate/usecases/kinds"
 )
 
 // return value map[int]error gives the error for the index as it received it
@@ -106,4 +108,80 @@ func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) m
 	wg.Wait()
 
 	return errs
+}
+
+// return value map[int]error gives the error for the index as it received it
+func (s *Shard) addReferencesBatch(ctx context.Context,
+	refs kinds.BatchReferences) map[int]error {
+	maxPerTransaction := 30
+
+	m := &sync.Mutex{}
+	errs := map[int]error{} // int represents original index
+
+	var wg = &sync.WaitGroup{}
+	for i := 0; i < len(refs); i += maxPerTransaction {
+		end := i + maxPerTransaction
+		if end > len(refs) {
+			end = len(refs)
+		}
+
+		batch := refs[i:end]
+		wg.Add(1)
+		go func(i int, batch kinds.BatchReferences) {
+			defer wg.Done()
+			var affectedIndices []int
+			if err := s.db.Batch(func(tx *bolt.Tx) error {
+				for j := range batch {
+					// so we can reference potential errors
+					affectedIndices = append(affectedIndices, i+j)
+				}
+
+				for _, ref := range batch {
+					uuidParsed, err := uuid.Parse(ref.From.TargetID.String())
+					if err != nil {
+						return errors.Wrap(err, "invalid id")
+					}
+
+					idBytes, err := uuidParsed.MarshalBinary()
+					if err != nil {
+						return err
+					}
+
+					mergeDoc := mergeDocFromBatchReference(ref)
+					_, err = s.mergeObjectInTx(tx, mergeDoc, idBytes)
+					if err != nil {
+						return err
+					}
+
+					m.Lock()
+					m.Unlock()
+				}
+				return nil
+			}); err != nil {
+				m.Lock()
+				err = errors.Wrap(err, "bolt batch tx")
+				for _, affected := range affectedIndices {
+					errs[affected] = err
+				}
+				m.Unlock()
+			}
+		}(i, batch)
+
+	}
+	wg.Wait()
+
+	// adding references can not alter the vector position, so no need to alter
+	// the vector index
+
+	return errs
+}
+
+func mergeDocFromBatchReference(ref kinds.BatchReference) kinds.MergeDocument {
+	return kinds.MergeDocument{
+		Kind:       ref.From.Kind,
+		Class:      ref.From.Class.String(),
+		ID:         ref.From.TargetID,
+		UpdateTime: time.Now().UnixNano(),
+		References: kinds.BatchReferences{ref},
+	}
 }
