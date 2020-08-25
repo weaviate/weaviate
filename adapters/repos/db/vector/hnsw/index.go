@@ -20,6 +20,7 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 )
 
 const importLimit = 200000 // TODO: make variable
@@ -298,82 +299,15 @@ func (h *hnsw) insert(node *hnswVertex, nodeVec []float32) error {
 	h.commitLog.AddNode(node)
 	h.Unlock()
 
-	// in case the new target is lower than the current max, we need to search
-	// each layer for a better candidate and update the candidate
-	for level := currentMaximumLayer; level > targetLevel; level-- {
-		tmpBST := &binarySearchTreeGeneric{}
-		dist, err := h.distBetweenNodeAndVec(entryPointID, nodeVec)
-		if err != nil {
-			return errors.Wrapf(err, "calculate distance between insert node and entry point at level %d", level)
-		}
-		tmpBST.insert(entryPointID, dist)
-		res, err := h.searchLayerByVector(nodeVec, *tmpBST, 1, level, nil)
-		if err != nil {
-			return errors.Wrapf(err, "update candidate: search layer at level %d", level)
-		}
-		entryPointID = res.minimum().index
-	}
-
-	var results = &binarySearchTreeGeneric{}
-	dist, err := h.distBetweenNodeAndVec(entryPointID, nodeVec)
+	entryPointID, err := h.findBestEntrypointForNode(currentMaximumLayer, targetLevel,
+		entryPointID, nodeVec)
 	if err != nil {
-		return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
+		return errors.Wrap(err, "find best entrypoint")
 	}
-	results.insert(entryPointID, dist)
 
-	neighborsAtLevel := make(map[int][]uint32) // for distributed spike
-
-	for level := min(targetLevel, currentMaximumLayer); level >= 0; level-- {
-		results, err = h.searchLayerByVector(nodeVec, *results, h.efConstruction, level, nil)
-		if err != nil {
-			return errors.Wrapf(err, "find neighbors: search layer at level %d", level)
-		}
-
-		// TODO: support both neighbor selection algos
-		neighbors := h.selectNeighborsSimple(nodeId, *results, h.maximumConnections)
-
-		// for distributed spike
-		neighborsAtLevel[level] = neighbors
-
-		for _, neighborID := range neighbors {
-			// before := time.Now()
-			h.RLock()
-			// m.addBuildingReadLocking(before)
-			neighbor := h.nodes[neighborID]
-			h.RUnlock()
-
-			neighbor.linkAtLevel(level, uint32(nodeId), h.commitLog)
-			node.linkAtLevel(level, uint32(neighbor.id), h.commitLog)
-
-			// before = time.Now()
-			neighbor.RLock()
-			// m.addBuildingItemLocking(before)
-			currentConnections := neighbor.connections[level]
-			neighbor.RUnlock()
-
-			maximumConnections := h.maximumConnections
-			if level == 0 {
-				maximumConnections = h.maximumConnectionsLayerZero
-			}
-
-			if len(currentConnections) <= maximumConnections {
-				// nothing to do, skip
-				continue
-			}
-
-			// TODO: support both neighbor selection algos
-			updatedConnections, err := h.selectNeighborsSimpleFromId(nodeId, currentConnections, maximumConnections)
-			if err != nil {
-				return errors.Wrap(err, "connect neighbors")
-			}
-
-			// before = time.Now()
-			neighbor.Lock()
-			// m.addBuildingItemLocking(before)
-			h.commitLog.ReplaceLinksAtLevel(neighbor.id, level, updatedConnections)
-			neighbor.connections[level] = updatedConnections
-			neighbor.Unlock()
-		}
+	if err := h.findAndConnectNeighbors(node, entryPointID, nodeVec,
+		targetLevel, currentMaximumLayer, nil); err != nil {
+		return errors.Wrap(err, "find and connect neighbors")
 	}
 
 	// go h.insertHook(nodeId, targetLevel, neighborsAtLevel)
@@ -396,6 +330,102 @@ func (v *hnswVertex) linkAtLevel(level int, target uint32, cl CommitLogger) {
 	cl.AddLinkAtLevel(v.id, level, target)
 	v.connections[level] = append(v.connections[level], target)
 	v.Unlock()
+}
+
+func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
+	entryPointID int, nodeVec []float32) (int, error) {
+
+	// in case the new target is lower than the current max, we need to search
+	// each layer for a better candidate and update the candidate
+	for level := currentMaxLevel; level > targetLevel; level-- {
+		tmpBST := &binarySearchTreeGeneric{}
+		dist, err := h.distBetweenNodeAndVec(entryPointID, nodeVec)
+		if err != nil {
+			return 0, errors.Wrapf(err,
+				"calculate distance between insert node and entry point at level %d", level)
+		}
+		tmpBST.insert(entryPointID, dist)
+		res, err := h.searchLayerByVector(nodeVec, *tmpBST, 1, level, nil)
+		if err != nil {
+			return 0,
+				errors.Wrapf(err, "update candidate: search layer at level %d", level)
+		}
+		entryPointID = res.minimum().index
+	}
+
+	return entryPointID, nil
+}
+
+func (h *hnsw) findAndConnectNeighbors(node *hnswVertex,
+	entryPointID int, nodeVec []float32, targetLevel, currentMaxLevel int,
+	denyList inverted.AllowList) error {
+	var results = &binarySearchTreeGeneric{}
+	dist, err := h.distBetweenNodeAndVec(entryPointID, nodeVec)
+	if err != nil {
+		return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
+	}
+	results.insert(entryPointID, dist)
+
+	// neighborsAtLevel := make(map[int][]uint32) // for distributed spike
+
+	for level := min(targetLevel, currentMaxLevel); level >= 0; level-- {
+		results, err = h.searchLayerByVector(nodeVec, *results, h.efConstruction,
+			level, nil)
+		if err != nil {
+			return errors.Wrapf(err, "find neighbors: search layer at level %d", level)
+		}
+
+		// TODO: support both neighbor selection algos
+		neighbors := h.selectNeighborsSimple(*results, h.maximumConnections, denyList)
+
+		// fmt.Printf("node %v, neighbors: %v with deny list %v\n", node.id, neighbors, denyList)
+
+		// // for distributed spike
+		// neighborsAtLevel[level] = neighbors
+
+		for _, neighborID := range neighbors {
+			// before := time.Now()
+			h.RLock()
+			// m.addBuildingReadLocking(before)
+			neighbor := h.nodes[neighborID]
+			h.RUnlock()
+
+			neighbor.linkAtLevel(level, uint32(node.id), h.commitLog)
+			node.linkAtLevel(level, uint32(neighbor.id), h.commitLog)
+
+			// before = time.Now()
+			neighbor.RLock()
+			// m.addBuildingItemLocking(before)
+			currentConnections := neighbor.connections[level]
+			neighbor.RUnlock()
+
+			maximumConnections := h.maximumConnections
+			if level == 0 {
+				maximumConnections = h.maximumConnectionsLayerZero
+			}
+
+			if len(currentConnections) <= maximumConnections {
+				// nothing to do, skip
+				continue
+			}
+
+			// TODO: support both neighbor selection algos
+			updatedConnections, err := h.selectNeighborsSimpleFromId(node.id,
+				currentConnections, maximumConnections, denyList)
+			if err != nil {
+				return errors.Wrap(err, "connect neighbors")
+			}
+
+			// before = time.Now()
+			neighbor.Lock()
+			// m.addBuildingItemLocking(before)
+			h.commitLog.ReplaceLinksAtLevel(neighbor.id, level, updatedConnections)
+			neighbor.connections[level] = updatedConnections
+			neighbor.Unlock()
+		}
+	}
+
+	return nil
 }
 
 type hnswVertex struct {

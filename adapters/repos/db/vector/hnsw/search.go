@@ -74,7 +74,9 @@ func (h *hnsw) knnSearch(queryNodeID int, k int, ef int) ([]int, error) {
 	return out, nil
 }
 
-func (h *hnsw) searchLayerByVector(queryVector []float32, entrypoints binarySearchTreeGeneric, ef int, level int, allowList inverted.AllowList) (*binarySearchTreeGeneric, error) {
+func (h *hnsw) searchLayerByVector(queryVector []float32,
+	entrypoints binarySearchTreeGeneric, ef int, level int,
+	allowList inverted.AllowList) (*binarySearchTreeGeneric, error) {
 
 	// create 3 copies of the entrypoint bst
 	visited := map[uint32]struct{}{}
@@ -97,6 +99,7 @@ func (h *hnsw) searchLayerByVector(queryVector []float32, entrypoints binarySear
 				continue
 			}
 		}
+
 		results.insert(ep.index, ep.dist)
 	}
 
@@ -238,12 +241,16 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	return out, nil
 }
 
-func (h *hnsw) selectNeighborsSimple(nodeId int, input binarySearchTreeGeneric,
-	max int) []uint32 {
+func (h *hnsw) selectNeighborsSimple(input binarySearchTreeGeneric,
+	max int, denyList inverted.AllowList) []uint32 {
 	flat := input.flattenInOrder()
 	size := min(len(flat), max)
 	out := make([]uint32, size)
 	for i, elem := range flat {
+		if denyList != nil && denyList.Contains(uint32(elem.index)) {
+			continue
+		}
+
 		if i >= size {
 			break
 		}
@@ -254,7 +261,7 @@ func (h *hnsw) selectNeighborsSimple(nodeId int, input binarySearchTreeGeneric,
 }
 
 func (h *hnsw) selectNeighborsSimpleFromId(nodeId int, ids []uint32,
-	max int) ([]uint32, error) {
+	max int, denyList inverted.AllowList) ([]uint32, error) {
 	bst := &binarySearchTreeGeneric{}
 	for _, id := range ids {
 		dist, err := h.distBetweenNodes(int(id), nodeId)
@@ -264,5 +271,5 @@ func (h *hnsw) selectNeighborsSimpleFromId(nodeId int, ids []uint32,
 		bst.insert(int(id), dist)
 	}
 
-	return h.selectNeighborsSimple(nodeId, *bst, max), nil
+	return h.selectNeighborsSimple(*bst, max, denyList), nil
 }
