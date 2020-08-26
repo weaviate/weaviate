@@ -74,6 +74,19 @@ func (h *hnsw) knnSearch(queryNodeID int, k int, ef int) ([]int, error) {
 	return out, nil
 }
 
+func (h *hnsw) hasTombstone(id int) bool {
+	h.RLock()
+	defer h.RUnlock()
+	_, ok := h.tombstones[id]
+	return ok
+}
+
+func (h *hnsw) addTombstone(id int) {
+	h.Lock()
+	h.tombstones[id] = struct{}{}
+	h.Unlock()
+}
+
 func (h *hnsw) searchLayerByVector(queryVector []float32,
 	entrypoints binarySearchTreeGeneric, ef int, level int,
 	allowList inverted.AllowList) (*binarySearchTreeGeneric, error) {
@@ -98,6 +111,10 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 			if !allowList.Contains(uint32(ep.index)) {
 				continue
 			}
+		}
+
+		if level == 0 && h.hasTombstone(ep.index) {
+			continue
 		}
 
 		results.insert(ep.index, ep.dist)
@@ -185,6 +202,11 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 						continue
 					}
 				}
+
+				if level == 0 && h.hasTombstone(int(neighborID)) {
+					continue
+				}
+
 				results.insert(int(neighborID), distance)
 
 				if resLenBefore+1 > ef { // +1 because we have added one node size calculating the len

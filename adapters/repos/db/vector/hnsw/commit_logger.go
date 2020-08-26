@@ -55,7 +55,7 @@ const (
 )
 
 // AddNode adds an empty node
-func (l *hnswCommitLogger) AddNode(node *hnswVertex) error {
+func (l *hnswCommitLogger) AddNode(node *vertex) error {
 	w := &bytes.Buffer{}
 	l.writeCommitType(w, addNode)
 	l.writeUint32(w, uint32(node.id))
