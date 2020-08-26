@@ -390,6 +390,11 @@ func (h *hnsw) findAndConnectNeighbors(node *hnswVertex,
 			neighbor := h.nodes[neighborID]
 			h.RUnlock()
 
+			if neighbor == node {
+				// don't connect to self
+				continue
+			}
+
 			neighbor.linkAtLevel(level, uint32(node.id), h.commitLog)
 			node.linkAtLevel(level, uint32(neighbor.id), h.commitLog)
 

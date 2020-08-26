@@ -40,14 +40,16 @@ func (h *hnsw) Delete(id int) error {
 		// 2. there is a risk that this is the only node in the entire graph. In
 		// this case we must reverse the special behavior of inserting the first
 		// node
-		return h.deleteEntrypoint(node)
+		if err := h.deleteEntrypoint(node); err != nil {
+			return errors.Wrap(err, "delete entrypoint")
+		}
 	}
 
 	h.Lock()
 	h.nodes[id] = nil
 	h.Unlock()
 
-	h.countOutgoing("after", node.id)
+	// h.countOutgoing("after", node.id)
 
 	return nil
 }
@@ -148,7 +150,66 @@ func (h *hnsw) deleteEntrypoint(node *hnswVertex) error {
 		return fmt.Errorf("deleting the only node in the graph not supported yet")
 	}
 
-	return fmt.Errorf("entrypoint")
+	node.Lock()
+	level := node.level
+	toBeDeleted := node.id
+	node.Unlock()
+
+	denyList := inverted.AllowList{}
+	denyList.Insert(uint32(toBeDeleted))
+
+	newEntrypoint, level := h.findNewEntrypoint(denyList, level)
+
+	h.Lock()
+	h.entryPointID = newEntrypoint
+	h.currentMaximumLayer = level
+	h.Unlock()
+
+	return nil
+}
+
+// returns entryPointID, level
+func (h *hnsw) findNewEntrypoint(denyList inverted.AllowList, targetLevel int) (int, int) {
+	for l := targetLevel; l >= 0; l-- {
+		// ideally we can find a new entrypoint at the same level of the
+		// to-be-deleted node. However, there is a chance it was the only node on
+		// that level, in that case we need to look at the next lower level for a
+		// better candidate
+
+		h.RLock()
+		maxNodes := len(h.nodes)
+		h.RUnlock()
+
+		for i := 0; i < maxNodes; i++ {
+			if denyList.Contains(uint32(i)) {
+				continue
+			}
+			h.RLock()
+			candidate := h.nodes[i]
+			h.RUnlock()
+
+			if candidate == nil {
+				continue
+			}
+
+			candidate.RLock()
+			candidateLevel := candidate.level
+			candidate.RUnlock()
+
+			if candidateLevel != l {
+				// not reaching up to the current level, skip in hope of finding another candidate
+				continue
+			}
+
+			// we have a node that matches
+			return i, l
+		}
+	}
+
+	// we made it thorugh the entire graph and didn't find a new entrypoint all
+	// the way down to level 0. This can only mean the graph is emtpy, which is
+	// unexpected.
+	panic("findNewEntrypoint called on an empty hnsw graph")
 }
 
 func (h *hnsw) isOnlyNode(needle *hnswVertex) bool {
