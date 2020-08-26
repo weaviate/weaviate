@@ -15,48 +15,61 @@ func (h *hnsw) Delete(id int) error {
 	return nil
 }
 
-func (h *hnsw) DeletePermanently(id int) error { // TODO: bulk usage
+// CleanUpTombstonedNodes removes nodes with a tombstone and reassignes edges
+// that were previously pointing to the tombstoned nodes
+func (h *hnsw) CleanUpTombstonedNodes() error {
+	deleteList := inverted.AllowList{}
+
 	h.RLock()
 	lenOfNodes := len(h.nodes)
+	tombstones := h.tombstones
 	h.RUnlock()
-	if lenOfNodes <= id {
-		// we're trying to delete an id outside the possible range, nothing to do
-		return nil
+
+	for id := range tombstones {
+		if lenOfNodes <= id {
+			// we're trying to delete an id outside the possible range, nothing to do
+			continue
+		}
+
+		deleteList.Insert(uint32(id))
 	}
 
-	h.RLock()
-	node := h.nodes[id]
-	h.RUnlock()
-	if node == nil {
-		// this node doesn't exist, we can't do anything else since without a node
-		// we also don't have connections to follow for cleaning up of neighbors
-		return nil
-	}
-
-	// h.countOutgoing("before", node.id)
-
-	if err := h.reassignNeighborsOf(id); err != nil {
+	if err := h.reassignNeighborsOf(deleteList); err != nil {
 		return errors.Wrap(err, "reassign neighbor edges")
 	}
 
-	if h.entryPointID == id {
-		// this a special case because:
-		//
-		// 1. we need to find a new entrypoint, if this is the last point on this
-		// level, we need to find an entyrpoint on a lower level
-		// 2. there is a risk that this is the only node in the entire graph. In
-		// this case we must reverse the special behavior of inserting the first
-		// node
-		if err := h.deleteEntrypoint(node); err != nil {
-			return errors.Wrap(err, "delete entrypoint")
+	for id := range tombstones {
+		if h.entryPointID == id {
+			// this a special case because:
+			//
+			// 1. we need to find a new entrypoint, if this is the last point on this
+			// level, we need to find an entyrpoint on a lower level
+			// 2. there is a risk that this is the only node in the entire graph. In
+			// this case we must reverse the special behavior of inserting the first
+			// node
+			h.RLock()
+			node := h.nodes[id]
+			h.RUnlock()
+			if err := h.deleteEntrypoint(node, deleteList); err != nil {
+				return errors.Wrap(err, "delete entrypoint")
+			}
 		}
 	}
 
-	h.Lock()
-	h.nodes[id] = nil
-	h.Unlock()
+	for id := range tombstones {
+		h.Lock()
+		h.nodes[id] = nil
+		delete(h.tombstones, id)
+		h.Unlock()
+	}
 
-	// h.countOutgoing("after", node.id)
+	if h.isEmpty() {
+		h.Lock()
+		h.nodes = make([]*vertex, 0)
+		h.entryPointID = 0
+		h.currentMaximumLayer = 0
+		h.Unlock()
+	}
 
 	return nil
 }
@@ -88,21 +101,19 @@ func (h *hnsw) countOutgoing(label string, needle int) {
 
 }
 
-func (h *hnsw) reassignNeighborsOf(toBeDeleted int) error {
-	denyList := inverted.AllowList{}
-	denyList.Insert(uint32(toBeDeleted))
+func (h *hnsw) reassignNeighborsOf(deleteList inverted.AllowList) error {
 
 	h.RLock()
 	size := len(h.nodes)
+	currentEntrypoint := h.entryPointID
 	h.RUnlock()
 
 	for neighbor := 0; neighbor < size; neighbor++ {
-		// TODO: pass through context, instead of spawning a new one
 		h.RLock()
 		neighborNode := h.nodes[neighbor]
 		h.RUnlock()
 
-		if neighborNode == nil || neighborNode.id == toBeDeleted {
+		if neighborNode == nil || deleteList.Contains(uint32(neighborNode.id)) {
 			continue
 		}
 
@@ -115,15 +126,34 @@ func (h *hnsw) reassignNeighborsOf(toBeDeleted int) error {
 		connections := neighborNode.connections
 		neighborNode.RUnlock()
 
-		if !connectionsPointTo(connections, toBeDeleted) {
+		if !connectionsPointTo(connections, deleteList) {
 			// nothing needs to be changed, skip
 			continue
 		}
 
 		entryPointID, err := h.findBestEntrypointForNode(h.currentMaximumLayer,
-			neighborLevel, h.entryPointID, neighborVec)
+			neighborLevel, currentEntrypoint, neighborVec)
 		if err != nil {
 			return errors.Wrap(err, "find best entrypoint")
+		}
+
+		if entryPointID == neighbor {
+			// if we use ourselves as entrypoint and delete all connections in the
+			// next step, we won't find any neighbors, so we need to use an
+			// alternative entryPoint in this round
+
+			if h.isOnlyNode(&vertex{id: neighbor}, deleteList) {
+				neighborNode.Lock()
+				// delete all existing connections before re-assigning
+				neighborNode.connections = map[int][]uint32{}
+				neighborNode.Unlock()
+				continue
+			}
+
+			tmpDenyList := deleteList
+			tmpDenyList.Insert(uint32(entryPointID))
+			alternative, _ := h.findNewEntrypoint(tmpDenyList, h.currentMaximumLayer)
+			entryPointID = alternative
 		}
 
 		neighborNode.Lock()
@@ -132,7 +162,7 @@ func (h *hnsw) reassignNeighborsOf(toBeDeleted int) error {
 		neighborNode.Unlock()
 
 		if err := h.findAndConnectNeighbors(neighborNode, entryPointID, neighborVec,
-			neighborLevel, h.currentMaximumLayer, denyList); err != nil {
+			neighborLevel, h.currentMaximumLayer, deleteList); err != nil {
 			return errors.Wrap(err, "find and connect neighbors")
 		}
 	}
@@ -140,10 +170,10 @@ func (h *hnsw) reassignNeighborsOf(toBeDeleted int) error {
 	return nil
 }
 
-func connectionsPointTo(connections map[int][]uint32, needle int) bool {
+func connectionsPointTo(connections map[int][]uint32, needles inverted.AllowList) bool {
 	for _, atLevel := range connections {
 		for _, pointer := range atLevel {
-			if int(pointer) == needle {
+			if needles.Contains(pointer) {
 				return true
 			}
 		}
@@ -152,18 +182,19 @@ func connectionsPointTo(connections map[int][]uint32, needle int) bool {
 	return false
 }
 
-func (h *hnsw) deleteEntrypoint(node *vertex) error {
-	if h.isOnlyNode(node) {
-		return fmt.Errorf("deleting the only node in the graph not supported yet")
+// deleteEntrypoint deletes the current entrypoint and replaces it with a new
+// one. It respects the attached denyList, so that it doesn't assign another
+// node which also has a tombstone and is also in the process of being cleaned
+// up
+func (h *hnsw) deleteEntrypoint(node *vertex, denyList inverted.AllowList) error {
+	if h.isOnlyNode(node, denyList) {
+		// no point in finding another entrypoint if this is the only node
+		return nil
 	}
 
 	node.Lock()
 	level := node.level
-	toBeDeleted := node.id
 	node.Unlock()
-
-	denyList := inverted.AllowList{}
-	denyList.Insert(uint32(toBeDeleted))
 
 	newEntrypoint, level := h.findNewEntrypoint(denyList, level)
 
@@ -219,12 +250,12 @@ func (h *hnsw) findNewEntrypoint(denyList inverted.AllowList, targetLevel int) (
 	panic("findNewEntrypoint called on an empty hnsw graph")
 }
 
-func (h *hnsw) isOnlyNode(needle *vertex) bool {
+func (h *hnsw) isOnlyNode(needle *vertex, denyList inverted.AllowList) bool {
 	h.RLock()
 	defer h.RUnlock()
 
 	for _, node := range h.nodes {
-		if node == nil || node.id == needle.id {
+		if node == nil || node.id == needle.id || denyList.Contains(uint32(node.id)) {
 			continue
 		}
 
@@ -232,4 +263,30 @@ func (h *hnsw) isOnlyNode(needle *vertex) bool {
 	}
 
 	return true
+}
+
+func (h *hnsw) isEmpty() bool {
+	h.RLock()
+	defer h.RUnlock()
+
+	for _, node := range h.nodes {
+		if node != nil {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (h *hnsw) hasTombstone(id int) bool {
+	h.RLock()
+	defer h.RUnlock()
+	_, ok := h.tombstones[id]
+	return ok
+}
+
+func (h *hnsw) addTombstone(id int) {
+	h.Lock()
+	h.tombstones[id] = struct{}{}
+	h.Unlock()
 }
