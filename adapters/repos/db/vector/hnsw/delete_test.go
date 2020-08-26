@@ -49,10 +49,8 @@ func TestDelete(t *testing.T) {
 			require.Nil(t, err)
 		}
 		fmt.Printf("%s", time.Since(before))
-
 	})
 
-	// t.Fail()
 }
 
 // we need a certain number of elements so that we can make sure that nodes
