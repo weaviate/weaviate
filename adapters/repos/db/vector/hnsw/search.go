@@ -74,19 +74,7 @@ func (h *hnsw) knnSearch(queryNodeID int, k int, ef int) ([]int, error) {
 	return out, nil
 }
 
-func (h *hnsw) hasTombstone(id int) bool {
-	h.RLock()
-	defer h.RUnlock()
-	_, ok := h.tombstones[id]
-	return ok
-}
-
-func (h *hnsw) addTombstone(id int) {
-	h.Lock()
-	h.tombstones[id] = struct{}{}
-	h.Unlock()
-}
-
+// TODO: Split up, this has become too large
 func (h *hnsw) searchLayerByVector(queryVector []float32,
 	entrypoints binarySearchTreeGeneric, ef int, level int,
 	allowList inverted.AllowList) (*binarySearchTreeGeneric, error) {
@@ -213,9 +201,7 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 					max := results.maximum()
 					results.delete(max.index, max.dist)
 				}
-
 			}
-
 		}
 	}
 

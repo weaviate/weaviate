@@ -385,8 +385,6 @@ func (h *hnsw) findAndConnectNeighbors(node *vertex,
 		// TODO: support both neighbor selection algos
 		neighbors := h.selectNeighborsSimple(*results, h.maximumConnections, denyList)
 
-		// fmt.Printf("node %v, neighbors: %v with deny list %v\n", node.id, neighbors, denyList)
-
 		// // for distributed spike
 		// neighborsAtLevel[level] = neighbors
 
