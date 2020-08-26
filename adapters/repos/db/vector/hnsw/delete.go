@@ -32,8 +32,6 @@ func (h *hnsw) Delete(id int) error {
 		return errors.Wrap(err, "reassign neighbor edges")
 	}
 
-	// h.countOutgoing("after", node.id)
-
 	if h.entryPointID == id {
 		// this a special case because:
 		//
@@ -44,6 +42,12 @@ func (h *hnsw) Delete(id int) error {
 		// node
 		return h.deleteEntrypoint(node)
 	}
+
+	h.Lock()
+	h.nodes[id] = nil
+	h.Unlock()
+
+	h.countOutgoing("after", node.id)
 
 	return nil
 }
@@ -57,10 +61,11 @@ func (h *hnsw) countOutgoing(label string, needle int) {
 			continue
 		}
 		for _, connectionsAtLevel := range node.connections {
-			for _, outgoing := range connectionsAtLevel {
+			for level, outgoing := range connectionsAtLevel {
 				if int(outgoing) == needle {
 					count++
 					ids = append(ids, node.id)
+					fmt.Printf("node id: %d, all connections at level %d: %v\n", node.id, level, connectionsAtLevel)
 				}
 
 			}
@@ -70,7 +75,7 @@ func (h *hnsw) countOutgoing(label string, needle int) {
 	}
 
 	fmt.Printf("%s: %d with node to be deleted: %d\n ", label, count, needle)
-	// fmt.Printf("probelamtic ids: %v\n", ids)
+	fmt.Printf("probelamtic ids: %v\n", ids)
 
 }
 
@@ -88,7 +93,7 @@ func (h *hnsw) reassignNeighborsOf(toBeDeleted int) error {
 		neighborNode := h.nodes[neighbor]
 		h.RUnlock()
 
-		if neighborNode == nil {
+		if neighborNode == nil || neighborNode.id == toBeDeleted {
 			continue
 		}
 
@@ -139,5 +144,24 @@ func connectionsPointTo(connections map[int][]uint32, needle int) bool {
 }
 
 func (h *hnsw) deleteEntrypoint(node *hnswVertex) error {
-	return fmt.Errorf("deleting the entry point not supported yet")
+	if h.isOnlyNode(node) {
+		return fmt.Errorf("deleting the only node in the graph not supported yet")
+	}
+
+	return fmt.Errorf("entrypoint")
+}
+
+func (h *hnsw) isOnlyNode(needle *hnswVertex) bool {
+	h.RLock()
+	defer h.RUnlock()
+
+	for _, node := range h.nodes {
+		if node == nil || node.id == needle.id {
+			continue
+		}
+
+		return false
+	}
+
+	return true
 }

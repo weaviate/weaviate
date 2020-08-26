@@ -244,20 +244,23 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 func (h *hnsw) selectNeighborsSimple(input binarySearchTreeGeneric,
 	max int, denyList inverted.AllowList) []uint32 {
 	flat := input.flattenInOrder()
-	size := min(len(flat), max)
-	out := make([]uint32, size)
+
+	maxSize := min(len(flat), max)
+	out := make([]uint32, maxSize)
+	actualSize := 0
 	for i, elem := range flat {
 		if denyList != nil && denyList.Contains(uint32(elem.index)) {
 			continue
 		}
 
-		if i >= size {
+		if i >= maxSize {
 			break
 		}
-		out[i] = uint32(elem.index)
+		out[actualSize] = uint32(elem.index)
+		actualSize++
 	}
 
-	return out
+	return out[:actualSize]
 }
 
 func (h *hnsw) selectNeighborsSimpleFromId(nodeId int, ids []uint32,
