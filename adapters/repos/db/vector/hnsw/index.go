@@ -50,11 +50,17 @@ type hnsw struct {
 
 	levelNormalizer float64
 
-	nodes []*hnswVertex
+	nodes []*vertex
 
 	vectorForID vectorForID
 
 	commitLog CommitLogger
+
+	// a lookup of current tombstones (i.e. nodes that have received a tombstone,
+	// but have not been cleaned up yet) Cleanup is the process of removal of all
+	// outgoing edges to the tombstone as well as deleting the tombstone itself.
+	// This process should happen periodically.
+	tombstones map[int]struct{}
 
 	// // for distributed spike, can be used to call a insertExternal on a different graph
 	// insertHook func(node, targetLevel int, neighborsAtLevel map[int][]uint32)
@@ -64,7 +70,7 @@ type hnsw struct {
 }
 
 type CommitLogger interface {
-	AddNode(node *hnswVertex) error
+	AddNode(node *vertex) error
 	SetEntryPointWithMaxLayer(id int, level int) error
 	AddLinkAtLevel(nodeid int, level int, target uint32) error
 	ReplaceLinksAtLevel(nodeid int, level int, targets []uint32) error
@@ -90,10 +96,11 @@ func New(rootPath, id string, makeCommitLogger makeCommitLogger, maximumConnecti
 		maximumConnectionsLayerZero: 2 * maximumConnections,                    // inspired by original paper and other implementations
 		levelNormalizer:             1 / math.Log(float64(maximumConnections)), // inspired by c++ implementation
 		efConstruction:              efConstruction,
-		nodes:                       make([]*hnswVertex, 0), // TODO: grow variably rather than fixed length
+		nodes:                       make([]*vertex, 0), // TODO: grow variably rather than fixed length
 		vectorForID:                 vectorCache.get,
 		id:                          id,
 		rootPath:                    rootPath,
+		tombstones:                  map[int]struct{}{},
 	}
 
 	if err := index.restoreFromDisk(); err != nil {
@@ -240,14 +247,14 @@ func (h *hnsw) Add(id int, vector []float32) error {
 		return fmt.Errorf("insert called with nil-vector")
 	}
 
-	node := &hnswVertex{
+	node := &vertex{
 		id: id,
 	}
 
 	return h.insert(node, vector)
 }
 
-func (h *hnsw) insert(node *hnswVertex, nodeVec []float32) error {
+func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 
 	// before := time.Now()
 	h.RLock()
@@ -265,7 +272,7 @@ func (h *hnsw) insert(node *hnswVertex, nodeVec []float32) error {
 			h.currentMaximumLayer = 0
 			node.connections = map[int][]uint32{}
 			node.level = 0
-			h.nodes = make([]*hnswVertex, importLimit)
+			h.nodes = make([]*vertex, importLimit)
 			h.commitLog.AddNode(node)
 			h.nodes[node.id] = node
 
@@ -325,7 +332,7 @@ func (h *hnsw) insert(node *hnswVertex, nodeVec []float32) error {
 	return nil
 }
 
-func (v *hnswVertex) linkAtLevel(level int, target uint32, cl CommitLogger) {
+func (v *vertex) linkAtLevel(level int, target uint32, cl CommitLogger) {
 	v.Lock()
 	cl.AddLinkAtLevel(v.id, level, target)
 	v.connections[level] = append(v.connections[level], target)
@@ -356,7 +363,7 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 	return entryPointID, nil
 }
 
-func (h *hnsw) findAndConnectNeighbors(node *hnswVertex,
+func (h *hnsw) findAndConnectNeighbors(node *vertex,
 	entryPointID int, nodeVec []float32, targetLevel, currentMaxLevel int,
 	denyList inverted.AllowList) error {
 	var results = &binarySearchTreeGeneric{}
@@ -433,7 +440,7 @@ func (h *hnsw) findAndConnectNeighbors(node *hnswVertex,
 	return nil
 }
 
-type hnswVertex struct {
+type vertex struct {
 	id int
 	sync.RWMutex
 	level       int

@@ -83,7 +83,7 @@ func TestHnswIndex(t *testing.T) {
 
 type noopCommitLogger struct{}
 
-func (n *noopCommitLogger) AddNode(node *hnswVertex) error {
+func (n *noopCommitLogger) AddNode(node *vertex) error {
 	return nil
 }
 func (n *noopCommitLogger) SetEntryPointWithMaxLayer(id int, level int) error {

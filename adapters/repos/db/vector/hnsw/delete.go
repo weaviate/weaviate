@@ -8,7 +8,14 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 )
 
+// Delete attaches a tombstone to an item so it can be periodically cleaned up
+// later and the edges reassigned
 func (h *hnsw) Delete(id int) error {
+	h.addTombstone(id)
+	return nil
+}
+
+func (h *hnsw) DeletePermanently(id int) error { // TODO: bulk usage
 	h.RLock()
 	lenOfNodes := len(h.nodes)
 	h.RUnlock()
@@ -145,7 +152,7 @@ func connectionsPointTo(connections map[int][]uint32, needle int) bool {
 	return false
 }
 
-func (h *hnsw) deleteEntrypoint(node *hnswVertex) error {
+func (h *hnsw) deleteEntrypoint(node *vertex) error {
 	if h.isOnlyNode(node) {
 		return fmt.Errorf("deleting the only node in the graph not supported yet")
 	}
@@ -212,7 +219,7 @@ func (h *hnsw) findNewEntrypoint(denyList inverted.AllowList, targetLevel int) (
 	panic("findNewEntrypoint called on an empty hnsw graph")
 }
 
-func (h *hnsw) isOnlyNode(needle *hnswVertex) bool {
+func (h *hnsw) isOnlyNode(needle *vertex) bool {
 	h.RLock()
 	defer h.RUnlock()
 

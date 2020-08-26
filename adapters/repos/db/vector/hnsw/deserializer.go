@@ -27,14 +27,14 @@ func newDeserializer() *deserializer {
 }
 
 type deserializationResult struct {
-	nodes      []*hnswVertex
+	nodes      []*vertex
 	entrypoint uint32
 	level      uint16
 }
 
 func (c *deserializer) Do(fd *os.File) (*deserializationResult, error) {
 	out := &deserializationResult{
-		nodes: make([]*hnswVertex, importLimit), // assume fixed length for now, make growable later
+		nodes: make([]*vertex, importLimit), // assume fixed length for now, make growable later
 	}
 
 	for {
@@ -71,7 +71,7 @@ func (c *deserializer) Do(fd *os.File) (*deserializationResult, error) {
 	return out, nil
 }
 
-func (c *deserializer) readNode(r io.Reader, nodes []*hnswVertex) error {
+func (c *deserializer) readNode(r io.Reader, nodes []*vertex) error {
 	id, err := c.readUint32(r)
 	if err != nil {
 		return err
@@ -87,7 +87,7 @@ func (c *deserializer) readNode(r io.Reader, nodes []*hnswVertex) error {
 	}
 
 	if nodes[id] == nil {
-		nodes[id] = &hnswVertex{level: int(level), id: int(id), connections: make(map[int][]uint32)}
+		nodes[id] = &vertex{level: int(level), id: int(id), connections: make(map[int][]uint32)}
 	} else {
 		nodes[id].level = int(level)
 	}
@@ -108,7 +108,7 @@ func (c *deserializer) readEP(r io.Reader) (uint32, uint16, error) {
 	return id, level, nil
 }
 
-func (c *deserializer) readLink(r io.Reader, nodes []*hnswVertex) error {
+func (c *deserializer) readLink(r io.Reader, nodes []*vertex) error {
 	source, err := c.readUint32(r)
 	if err != nil {
 		return err
@@ -125,14 +125,14 @@ func (c *deserializer) readLink(r io.Reader, nodes []*hnswVertex) error {
 	}
 
 	if int(source) >= len(nodes) || nodes[int(source)] == nil {
-		nodes[int(source)] = &hnswVertex{id: int(source), connections: make(map[int][]uint32)}
+		nodes[int(source)] = &vertex{id: int(source), connections: make(map[int][]uint32)}
 	}
 
 	nodes[int(source)].connections[int(level)] = append(nodes[int(source)].connections[int(level)], target)
 	return nil
 }
 
-func (c *deserializer) readLinks(r io.Reader, nodes []*hnswVertex) error {
+func (c *deserializer) readLinks(r io.Reader, nodes []*vertex) error {
 	source, err := c.readUint32(r)
 	if err != nil {
 		return err
