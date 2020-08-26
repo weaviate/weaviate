@@ -2,10 +2,10 @@ package hnsw
 
 import (
 	"context"
-	"fmt"
 	"testing"
-	"time"
 
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -35,20 +35,47 @@ func TestDelete(t *testing.T) {
 		}
 	})
 
-	t.Run("deleting every odd element", func(t *testing.T) {
-		before := time.Now()
+	var control []int
+
+	t.Run("doing a control search before delete with the respective allow list", func(t *testing.T) {
+		allowList := inverted.AllowList{}
+		for i := range vectors {
+			if i%2 == 0 {
+				continue
+			}
+
+			allowList.Insert(uint32(i))
+		}
+
+		res, err := vectorIndex.SearchByVector([]float32{0.1, 0.1, 0.1}, 20, allowList)
+		require.Nil(t, err)
+		require.True(t, len(res) > 0)
+		control = res
+	})
+
+	t.Run("deleting every even element", func(t *testing.T) {
 		for i := range vectors {
 			if i%2 != 0 {
 				continue
 			}
 
-			if vectorIndex.entryPointID == i {
-				continue
-			}
 			err := vectorIndex.Delete(i)
 			require.Nil(t, err)
 		}
-		fmt.Printf("%s", time.Since(before))
+	})
+
+	t.Run("start a search that should only contain the remaining elements", func(t *testing.T) {
+		res, err := vectorIndex.SearchByVector([]float32{0.1, 0.1, 0.1}, 20, nil)
+		require.Nil(t, err)
+		require.True(t, len(res) > 0)
+
+		for _, elem := range res {
+			if elem%2 == 0 {
+				t.Errorf("search result contained an even element: %d", elem)
+			}
+		}
+
+		assert.Equal(t, control, res)
 	})
 
 }
