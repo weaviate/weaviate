@@ -664,39 +664,38 @@ func TestCRUD(t *testing.T) {
 		require.Nil(t, item, "must not have a result")
 	})
 
-	// TODO: gh-1221
-	// t.Run("searching by vector for a single thing class again after deletion",
-	// 	func(t *testing.T) {
-	// 		searchVector := []float32{2.9, 1.1, 0.5, 8.01}
-	// 		params := traverser.GetParams{
-	// 			SearchVector: searchVector,
-	// 			Kind:         kind.Thing,
-	// 			ClassName:    "TheBestThingClass",
-	// 			Pagination:   &filters.Pagination{Limit: 10},
-	// 			Filters:      nil,
-	// 		}
+	t.Run("searching by vector for a single thing class again after deletion",
+		func(t *testing.T) {
+			searchVector := []float32{2.9, 1.1, 0.5, 8.01}
+			params := traverser.GetParams{
+				SearchVector: searchVector,
+				Kind:         kind.Thing,
+				ClassName:    "TheBestThingClass",
+				Pagination:   &filters.Pagination{Limit: 10},
+				Filters:      nil,
+			}
 
-	// 		res, err := repo.VectorClassSearch(context.Background(), params)
+			res, err := repo.VectorClassSearch(context.Background(), params)
 
-	// 		require.Nil(t, err)
-	// 		assert.Len(t, res, 0)
-	// 	})
+			require.Nil(t, err)
+			assert.Len(t, res, 0)
+		})
 
-	// t.Run("searching by vector for a single action class again after deletion", func(t *testing.T) {
-	// 	searchVector := []float32{2.9, 1.1, 0.5, 8.01}
-	// 	params := traverser.GetParams{
-	// 		SearchVector: searchVector,
-	// 		Kind:         kind.Action,
-	// 		ClassName:    "TheBestActionClass",
-	// 		Pagination:   &filters.Pagination{Limit: 10},
-	// 		Filters:      nil,
-	// 	}
+	t.Run("searching by vector for a single action class again after deletion", func(t *testing.T) {
+		searchVector := []float32{2.9, 1.1, 0.5, 8.01}
+		params := traverser.GetParams{
+			SearchVector: searchVector,
+			Kind:         kind.Action,
+			ClassName:    "TheBestActionClass",
+			Pagination:   &filters.Pagination{Limit: 10},
+			Filters:      nil,
+		}
 
-	// 	res, err := repo.VectorClassSearch(context.Background(), params)
+		res, err := repo.VectorClassSearch(context.Background(), params)
 
-	// 	require.Nil(t, err)
-	// 	assert.Len(t, res, 0)
-	// })
+		require.Nil(t, err)
+		assert.Len(t, res, 0)
+	})
 }
 
 func findID(list []search.Result, id strfmt.UUID) (search.Result, bool) {
