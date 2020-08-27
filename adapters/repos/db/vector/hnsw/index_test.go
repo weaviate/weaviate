@@ -103,3 +103,11 @@ func (n *noopCommitLogger) AddTombstone(nodeid int) error {
 func (n *noopCommitLogger) RemoveTombstone(nodeid int) error {
 	return nil
 }
+
+func (n *noopCommitLogger) DeleteNode(nodeid int) error {
+	return nil
+}
+
+func (n *noopCommitLogger) ClearLinks(nodeid int) error {
+	return nil
+}

@@ -76,6 +76,8 @@ type CommitLogger interface {
 	ReplaceLinksAtLevel(nodeid int, level int, targets []uint32) error
 	AddTombstone(nodeid int) error
 	RemoveTombstone(nodeid int) error
+	DeleteNode(nodeid int) error
+	ClearLinks(nodeid int) error
 }
 
 type makeCommitLogger func() CommitLogger

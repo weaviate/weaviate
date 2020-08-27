@@ -61,6 +61,7 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 		h.nodes[id] = nil
 		delete(h.tombstones, id)
 		h.Unlock()
+		h.commitLog.DeleteNode(id)
 		h.commitLog.RemoveTombstone(id)
 	}
 
@@ -148,10 +149,11 @@ func (h *hnsw) reassignNeighborsOf(deleteList inverted.AllowList) error {
 				// delete all existing connections before re-assigning
 				neighborNode.connections = map[int][]uint32{}
 				neighborNode.Unlock()
+				h.commitLog.ClearLinks(neighbor)
 				continue
 			}
 
-			tmpDenyList := deleteList
+			tmpDenyList := deleteList.DeepCopy()
 			tmpDenyList.Insert(uint32(entryPointID))
 			alternative, _ := h.findNewEntrypoint(tmpDenyList, h.currentMaximumLayer)
 			entryPointID = alternative
@@ -161,6 +163,7 @@ func (h *hnsw) reassignNeighborsOf(deleteList inverted.AllowList) error {
 		// delete all existing connections before re-assigning
 		neighborNode.connections = map[int][]uint32{}
 		neighborNode.Unlock()
+		h.commitLog.ClearLinks(neighbor)
 
 		if err := h.findAndConnectNeighbors(neighborNode, entryPointID, neighborVec,
 			neighborLevel, h.currentMaximumLayer, deleteList); err != nil {
@@ -203,6 +206,7 @@ func (h *hnsw) deleteEntrypoint(node *vertex, denyList inverted.AllowList) error
 	h.entryPointID = newEntrypoint
 	h.currentMaximumLayer = level
 	h.Unlock()
+	h.commitLog.SetEntryPointWithMaxLayer(newEntrypoint, level)
 
 	return nil
 }

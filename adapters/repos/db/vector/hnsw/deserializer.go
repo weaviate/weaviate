@@ -64,6 +64,12 @@ func (c *deserializer) Do(fd *os.File) (*deserializationResult, error) {
 			err = c.readLinks(fd, out.nodes)
 		case addTombstone:
 			err = c.readAddTombstone(fd, out.tombstones)
+		case removeTombstone:
+			err = c.readRemoveTombstone(fd, out.tombstones)
+		case clearLinks:
+			err = c.readClearLinks(fd, out.nodes)
+		case deleteNode:
+			err = c.readDeleteNode(fd, out.nodes)
 		default:
 			err = fmt.Errorf("unrecognized commit type %d", ct)
 		}
@@ -173,6 +179,53 @@ func (c *deserializer) readAddTombstone(r io.Reader, tombstones map[int]struct{}
 
 	tombstones[int(id)] = struct{}{}
 
+	return nil
+}
+
+func (c *deserializer) readRemoveTombstone(r io.Reader, tombstones map[int]struct{}) error {
+	id, err := c.readUint32(r)
+	if err != nil {
+		return err
+	}
+
+	delete(tombstones, int(id))
+
+	return nil
+}
+
+func (c *deserializer) readClearLinks(r io.Reader, nodes []*vertex) error {
+	id, err := c.readUint32(r)
+	if err != nil {
+		return err
+	}
+
+	if int(id) > len(nodes) {
+		// node is out of bounds, so it can't exist, nothing to do here
+		return nil
+	}
+
+	if nodes[id] == nil {
+		// node has been deleted or never existed, nothing to do
+		return nil
+	}
+
+	nodes[id].connections = map[int][]uint32{}
+	fmt.Printf("links cleared for node %d\n", id)
+	return nil
+}
+
+func (c *deserializer) readDeleteNode(r io.Reader, nodes []*vertex) error {
+	id, err := c.readUint32(r)
+	if err != nil {
+		return err
+	}
+
+	if int(id) > len(nodes) {
+		// node is out of bounds, so it can't exist, nothing to do here
+		return nil
+	}
+
+	nodes[id] = nil
 	return nil
 }
 
