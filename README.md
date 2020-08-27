@@ -1,8 +1,10 @@
-# Weaviate <img alt='Weaviate logo' src='https://raw.githubusercontent.com/semi-technologies/weaviate/19de0956c69b66c5552447e84d016f4fe29d12c9/docs/assets/weaviate-logo.png' width='180' align='right' />
+<h1>Weaviate</h1>
 
-**A cloud-native, realtime vector search engine that allows you to bring your machine learning models to scale.**
+<img alt='Weaviate logo' src='https://raw.githubusercontent.com/semi-technologies/weaviate/19de0956c69b66c5552447e84d016f4fe29d12c9/docs/assets/weaviate-logo.png' width='52' align='right' />
 
-![Demo of Weaviate](https://www.semi.technology/img/weaviate-demo.gif "Demo of Weaviate")
+**A cloud-native, realtime vector search engine that allows you to bring your machine learning models to scale**
+
+<a href="https://semi.technology/documentation/weaviate/current/" target="_blank"><img src="https://www.semi.technology/img/weaviate-demo.gif?i=2" alt="Demo of Weaviate" width="100%"></a>
 
 ## Description
 
