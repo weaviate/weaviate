@@ -78,6 +78,7 @@ type CommitLogger interface {
 	RemoveTombstone(nodeid int) error
 	DeleteNode(nodeid int) error
 	ClearLinks(nodeid int) error
+	Reset() error
 }
 
 type makeCommitLogger func() CommitLogger
@@ -100,7 +101,7 @@ func New(rootPath, id string, makeCommitLogger makeCommitLogger, maximumConnecti
 		maximumConnectionsLayerZero: 2 * maximumConnections,                    // inspired by original paper and other implementations
 		levelNormalizer:             1 / math.Log(float64(maximumConnections)), // inspired by c++ implementation
 		efConstruction:              efConstruction,
-		nodes:                       make([]*vertex, 0), // TODO: grow variably rather than fixed length
+		nodes:                       make([]*vertex, importLimit), // TODO: grow variably rather than fixed length
 		vectorForID:                 vectorCache.get,
 		id:                          id,
 		rootPath:                    rootPath,
@@ -259,32 +260,24 @@ func (h *hnsw) Add(id int, vector []float32) error {
 	return h.insert(node, vector)
 }
 
+func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
+	h.Lock()
+	defer h.Unlock()
+	h.commitLog.SetEntryPointWithMaxLayer(node.id, 0)
+	h.entryPointID = node.id
+	h.currentMaximumLayer = 0
+	node.connections = map[int][]uint32{}
+	node.level = 0
+	h.commitLog.AddNode(node)
+	h.nodes[node.id] = node
+
+	// go h.insertHook(node.id, 0, node.connections)
+	return nil
+}
+
 func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
-
-	// before := time.Now()
-	h.RLock()
-	// m.addBuildingReadLockingBeginning(before)
-	total := len(h.nodes)
-	h.RUnlock()
-
-	if total == 0 {
-		h.Lock()
-		if len(h.nodes) != 0 {
-			h.Unlock()
-		} else {
-			h.commitLog.SetEntryPointWithMaxLayer(node.id, 0)
-			h.entryPointID = node.id
-			h.currentMaximumLayer = 0
-			node.connections = map[int][]uint32{}
-			node.level = 0
-			h.nodes = make([]*vertex, importLimit)
-			h.commitLog.AddNode(node)
-			h.nodes[node.id] = node
-
-			h.Unlock()
-			// go h.insertHook(node.id, 0, node.connections)
-			return nil
-		}
+	if h.isEmpty() {
+		return h.insertInitialElement(node, nodeVec)
 	}
 	// initially use the "global" entrypoint which is guaranteed to be on the
 	// currently highest layer
@@ -526,4 +519,17 @@ func (h *hnsw) Stats() {
 		fmt.Printf("unique count on level %d: %d\n", level, count)
 	}
 
+}
+
+func (h *hnsw) isEmpty() bool {
+	h.RLock()
+	defer h.RUnlock()
+
+	for _, node := range h.nodes {
+		if node != nil {
+			return false
+		}
+	}
+
+	return true
 }
