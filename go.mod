@@ -2,7 +2,7 @@ module github.com/semi-technologies/weaviate
 
 require (
 	github.com/TylerBrock/colorjson v0.0.0-20180527164720-95ec53f28296
-	github.com/asaskevich/govalidator v0.0.0-20200817114649-df4adffc9d8c // indirect
+	github.com/asaskevich/govalidator v0.0.0-20200819183940-29e1ff8eb0bb // indirect
 	github.com/bmatcuk/doublestar v1.1.3
 	github.com/boltdb/bolt v1.3.1
 	github.com/coreos/etcd v3.3.18+incompatible
@@ -15,7 +15,7 @@ require (
 	github.com/fatih/color v1.7.0 // indirect
 	github.com/go-openapi/errors v0.19.6
 	github.com/go-openapi/loads v0.19.5
-	github.com/go-openapi/runtime v0.19.20
+	github.com/go-openapi/runtime v0.19.21
 	github.com/go-openapi/spec v0.19.8
 	github.com/go-openapi/strfmt v0.19.5
 	github.com/go-openapi/swag v0.19.9
@@ -26,7 +26,7 @@ require (
 	github.com/hokaccha/go-prettyjson v0.0.0-20190818114111-108c894c2c0e // indirect
 	github.com/jessevdk/go-flags v1.4.0
 	github.com/json-iterator/go v1.1.8 // indirect
-	github.com/mailru/easyjson v0.7.3 // indirect
+	github.com/mailru/easyjson v0.7.6 // indirect
 	github.com/mattn/go-colorable v0.1.4 // indirect
 	github.com/mattn/go-isatty v0.0.11 // indirect
 	github.com/mitchellh/mapstructure v1.3.3 // indirect
@@ -43,7 +43,7 @@ require (
 	go.mongodb.org/mongo-driver v1.4.0 // indirect
 	go.uber.org/atomic v1.5.0
 	golang.org/x/net v0.0.0-20200625001655-4c5254603344
-	golang.org/x/tools v0.0.0-20200817023811-d00afeaade8f // indirect
+	golang.org/x/tools v0.0.0-20200827143046-df83f4e7c16e // indirect
 	gonum.org/v1/gonum v0.7.0
 	google.golang.org/grpc v1.24.0
 	gopkg.in/square/go-jose.v2 v2.5.1 // indirect
