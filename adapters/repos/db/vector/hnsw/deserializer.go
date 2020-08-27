@@ -30,11 +30,13 @@ type deserializationResult struct {
 	nodes      []*vertex
 	entrypoint uint32
 	level      uint16
+	tombstones map[int]struct{}
 }
 
 func (c *deserializer) Do(fd *os.File) (*deserializationResult, error) {
 	out := &deserializationResult{
-		nodes: make([]*vertex, importLimit), // assume fixed length for now, make growable later
+		nodes:      make([]*vertex, importLimit), // assume fixed length for now, make growable later
+		tombstones: make(map[int]struct{}),
 	}
 
 	for {
@@ -60,6 +62,8 @@ func (c *deserializer) Do(fd *os.File) (*deserializationResult, error) {
 			err = c.readLink(fd, out.nodes)
 		case replaceLinksAtLevel:
 			err = c.readLinks(fd, out.nodes)
+		case addTombstone:
+			err = c.readAddTombstone(fd, out.tombstones)
 		default:
 			err = fmt.Errorf("unrecognized commit type %d", ct)
 		}
@@ -158,6 +162,17 @@ func (c *deserializer) readLinks(r io.Reader, nodes []*vertex) error {
 	}
 
 	nodes[int(source)].connections[int(level)] = targets
+	return nil
+}
+
+func (c *deserializer) readAddTombstone(r io.Reader, tombstones map[int]struct{}) error {
+	id, err := c.readUint32(r)
+	if err != nil {
+		return err
+	}
+
+	tombstones[int(id)] = struct{}{}
+
 	return nil
 }
 

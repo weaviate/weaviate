@@ -95,3 +95,11 @@ func (n *noopCommitLogger) AddLinkAtLevel(nodeid int, level int, target uint32) 
 func (n *noopCommitLogger) ReplaceLinksAtLevel(nodeid int, level int, targets []uint32) error {
 	return nil
 }
+
+func (n *noopCommitLogger) AddTombstone(nodeid int) error {
+	return nil
+}
+
+func (n *noopCommitLogger) RemoveTombstone(nodeid int) error {
+	return nil
+}

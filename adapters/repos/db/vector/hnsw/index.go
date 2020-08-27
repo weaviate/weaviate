@@ -74,6 +74,8 @@ type CommitLogger interface {
 	SetEntryPointWithMaxLayer(id int, level int) error
 	AddLinkAtLevel(nodeid int, level int, target uint32) error
 	ReplaceLinksAtLevel(nodeid int, level int, targets []uint32) error
+	AddTombstone(nodeid int) error
+	RemoveTombstone(nodeid int) error
 }
 
 type makeCommitLogger func() CommitLogger
@@ -139,6 +141,7 @@ func (h *hnsw) restoreFromDisk() error {
 	h.nodes = res.nodes
 	h.currentMaximumLayer = int(res.level)
 	h.entryPointID = int(res.entrypoint)
+	h.tombstones = res.tombstones
 
 	return nil
 }
