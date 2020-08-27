@@ -54,6 +54,8 @@ const (
 	replaceLinksAtLevel
 	addTombstone
 	removeTombstone
+	clearLinks
+	deleteNode
 )
 
 // AddNode adds an empty node
@@ -114,6 +116,25 @@ func (l *hnswCommitLogger) AddTombstone(nodeid int) error {
 func (l *hnswCommitLogger) RemoveTombstone(nodeid int) error {
 	w := &bytes.Buffer{}
 	l.writeCommitType(w, removeTombstone)
+	l.writeUint32(w, uint32(nodeid))
+
+	l.events <- w.Bytes()
+	return nil
+}
+
+func (l *hnswCommitLogger) ClearLinks(nodeid int) error {
+	w := &bytes.Buffer{}
+	l.writeCommitType(w, clearLinks)
+	l.writeUint32(w, uint32(nodeid))
+
+	l.events <- w.Bytes()
+	fmt.Printf("clear links writting to commit log for id %d\n", nodeid)
+	return nil
+}
+
+func (l *hnswCommitLogger) DeleteNode(nodeid int) error {
+	w := &bytes.Buffer{}
+	l.writeCommitType(w, deleteNode)
 	l.writeUint32(w, uint32(nodeid))
 
 	l.events <- w.Bytes()
