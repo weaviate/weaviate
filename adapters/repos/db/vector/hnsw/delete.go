@@ -67,10 +67,10 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 
 	if h.isEmpty() {
 		h.Lock()
-		h.nodes = make([]*vertex, 0)
 		h.entryPointID = 0
 		h.currentMaximumLayer = 0
 		h.Unlock()
+		h.commitLog.Reset()
 	}
 
 	return nil
@@ -265,19 +265,6 @@ func (h *hnsw) isOnlyNode(needle *vertex, denyList inverted.AllowList) bool {
 		}
 
 		return false
-	}
-
-	return true
-}
-
-func (h *hnsw) isEmpty() bool {
-	h.RLock()
-	defer h.RUnlock()
-
-	for _, node := range h.nodes {
-		if node != nil {
-			return false
-		}
 	}
 
 	return true

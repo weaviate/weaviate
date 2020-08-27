@@ -70,6 +70,10 @@ func (c *deserializer) Do(fd *os.File) (*deserializationResult, error) {
 			err = c.readClearLinks(fd, out.nodes)
 		case deleteNode:
 			err = c.readDeleteNode(fd, out.nodes)
+		case resetIndex:
+			out.entrypoint = 0
+			out.level = 0
+			out.nodes = make([]*vertex, importLimit) // TODO: make variable
 		default:
 			err = fmt.Errorf("unrecognized commit type %d", ct)
 		}

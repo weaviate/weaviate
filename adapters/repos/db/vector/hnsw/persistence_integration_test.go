@@ -201,4 +201,70 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 			require.Nil(t, err)
 			assert.Equal(t, expectedResults, res)
 		})
+
+	t.Run("further deleting all elements and reimporting one", func(t *testing.T) {
+		toDelete := []int{0, 1, 2, 3, 4, 5, 7}
+
+		for _, id := range toDelete {
+			err := secondIndex.Delete(id)
+			require.Nil(t, err)
+		}
+
+		err = secondIndex.CleanUpTombstonedNodes()
+		require.Nil(t, err)
+
+		err := secondIndex.Add(3, testVectors[3])
+		require.Nil(t, err)
+	})
+
+	secondIndex = nil
+	// build a new index from the (uncondensed) commit log
+	thirdIndex, err := New(dirName, indexID, makeCL, 30, 60,
+		testVectorForID)
+	require.Nil(t, err)
+
+	t.Run("verify that the results match after rebuiling from disk",
+		func(t *testing.T) {
+			position := 3
+			res, err := thirdIndex.knnSearchByVector(testVectors[position], 50, 36, nil)
+			require.Nil(t, err)
+			assert.Equal(t, []int{3}, res)
+		})
+
+	t.Run("delete all elements so the commitlog ends with an empty graph", func(t *testing.T) {
+		toDelete := []int{3}
+
+		for _, id := range toDelete {
+			err := thirdIndex.Delete(id)
+			require.Nil(t, err)
+		}
+
+		err = thirdIndex.CleanUpTombstonedNodes()
+		require.Nil(t, err)
+	})
+
+	thirdIndex = nil
+	// build a new index from the (uncondensed) commit log
+	fourthIndex, err := New(dirName, indexID, makeCL, 30, 60,
+		testVectorForID)
+	require.Nil(t, err)
+
+	t.Run("load from disk and try to insert again", func(t *testing.T) {
+		for i, vec := range testVectors {
+			err := fourthIndex.Add(i, vec)
+			require.Nil(t, err)
+		}
+	})
+
+	t.Run("verify that searching works normally", func(t *testing.T) {
+		expectedResults := []int{
+			3, 5, 4, // cluster 2
+			7, 8, 6, // cluster 3 with element 6 and 8 deleted
+			2, 1, 0, // cluster 1
+		}
+		position := 3
+		res, err := fourthIndex.knnSearchByVector(testVectors[position], 50, 36, nil)
+		require.Nil(t, err)
+		assert.Equal(t, expectedResults, res)
+	})
 }
