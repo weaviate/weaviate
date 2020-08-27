@@ -1,6 +1,4 @@
-<h1>Weaviate</h1>
-
-<img alt='Weaviate logo' src='https://raw.githubusercontent.com/semi-technologies/weaviate/19de0956c69b66c5552447e84d016f4fe29d12c9/docs/assets/weaviate-logo.png' width='52' align='right' />
+<h1>Weaviate<img alt='Weaviate logo' src='https://raw.githubusercontent.com/semi-technologies/weaviate/19de0956c69b66c5552447e84d016f4fe29d12c9/docs/assets/weaviate-logo.png' width='52' align='right' /></h1>
 
 **A cloud-native, realtime vector search engine that allows you to bring your machine learning models to scale**
 
