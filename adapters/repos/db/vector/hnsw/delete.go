@@ -61,6 +61,7 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 		h.nodes[id] = nil
 		delete(h.tombstones, id)
 		h.Unlock()
+		h.commitLog.RemoveTombstone(id)
 	}
 
 	if h.isEmpty() {
@@ -289,4 +290,5 @@ func (h *hnsw) addTombstone(id int) {
 	h.Lock()
 	h.tombstones[id] = struct{}{}
 	h.Unlock()
+	h.commitLog.AddTombstone(id)
 }

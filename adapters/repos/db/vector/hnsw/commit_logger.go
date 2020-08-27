@@ -52,6 +52,8 @@ const (
 	setEntryPointMaxLevel
 	addLinkAtLevel
 	replaceLinksAtLevel
+	addTombstone
+	removeTombstone
 )
 
 // AddNode adds an empty node
@@ -95,6 +97,24 @@ func (l *hnswCommitLogger) ReplaceLinksAtLevel(nodeid int, level int, targets []
 	l.writeUint16(w, uint16(level))
 	l.writeUint16(w, uint16(len(targets)))
 	l.writeUint32Slice(w, targets)
+
+	l.events <- w.Bytes()
+	return nil
+}
+
+func (l *hnswCommitLogger) AddTombstone(nodeid int) error {
+	w := &bytes.Buffer{}
+	l.writeCommitType(w, addTombstone)
+	l.writeUint32(w, uint32(nodeid))
+
+	l.events <- w.Bytes()
+	return nil
+}
+
+func (l *hnswCommitLogger) RemoveTombstone(nodeid int) error {
+	w := &bytes.Buffer{}
+	l.writeCommitType(w, removeTombstone)
+	l.writeUint32(w, uint32(nodeid))
 
 	l.events <- w.Bytes()
 	return nil
