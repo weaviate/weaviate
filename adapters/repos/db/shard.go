@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
@@ -50,9 +51,10 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 		MakeCommitLoggerThunk: func() hnsw.CommitLogger {
 			return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID())
 		},
-		MaximumConnections: 60,
-		EFConstruction:     128,
-		VectorForIDThunk:   s.vectorByIndexID,
+		MaximumConnections:       60,
+		EFConstruction:           128,
+		VectorForIDThunk:         s.vectorByIndexID,
+		TombstoneCleanupInterval: 1 * time.Minute,
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())

@@ -18,6 +18,7 @@ import (
 	"math/rand"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
@@ -119,6 +120,7 @@ func New(cfg Config) (*hnsw, error) {
 
 	// init commit logger for future writes
 	index.commitLog = cfg.MakeCommitLoggerThunk()
+	index.registerMaintainence(cfg)
 
 	return index, nil
 }
@@ -152,6 +154,30 @@ func (h *hnsw) restoreFromDisk() error {
 	h.tombstones = res.tombstones
 
 	return nil
+}
+
+func (h *hnsw) registerMaintainence(cfg Config) {
+	h.registerTombstoneCleanup(cfg)
+}
+
+func (h *hnsw) registerTombstoneCleanup(cfg Config) {
+	if cfg.TombstoneCleanupInterval == 0 {
+		// user is not interested in periodically cleaning up tombstones, clean up
+		// will be manual. (This is also helpful in tests where we want to
+		// explicitly control the point at which a cleanup happens)
+		return
+	}
+
+	go func() {
+		for {
+			time.Sleep(cfg.TombstoneCleanupInterval)
+			err := h.CleanUpTombstonedNodes()
+			if err != nil {
+				// TODO: log properly
+				fmt.Printf("tombstone cleanup errored: %v\n", err)
+			}
+		}
+	}()
 }
 
 // TODO: use this for incoming replication
