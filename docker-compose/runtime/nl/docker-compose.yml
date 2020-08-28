@@ -4,7 +4,7 @@ services:
       OCCURRENCE_WEIGHT_LINEAR_FACTOR: 0.75
       SCHEMA_PROVIDER_URL: etcd:2379
       NEIGHBOR_OCCURRENCE_IGNORE_PERCENTILE: 0
-    image: semitechnologies/contextionary:nl0.16.0-v0.4.15
+    image: semitechnologies/contextionary:nl0.16.0-v0.4.19
     ports:
     - 9999:9999
   esvector:
