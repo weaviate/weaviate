@@ -38,7 +38,14 @@ func TestHnswPersistence(t *testing.T) {
 	makeCL := func() CommitLogger {
 		return cl
 	}
-	index, err := New(dirName, indexID, makeCL, 30, 60, testVectorForID)
+	index, err := New(Config{
+		RootPath:              dirName,
+		ID:                    indexID,
+		MakeCommitLoggerThunk: makeCL,
+		MaximumConnections:    30,
+		EFConstruction:        60,
+		VectorForIDThunk:      testVectorForID,
+	})
 	require.Nil(t, err)
 
 	for i, vec := range testVectors {
@@ -64,8 +71,14 @@ func TestHnswPersistence(t *testing.T) {
 	index = nil
 
 	// build a new index from the (uncondensed) commit log
-	secondIndex, err := New(dirName, indexID, makeCL, 30, 60,
-		testVectorForID)
+	secondIndex, err := New(Config{
+		RootPath:              dirName,
+		ID:                    indexID,
+		MakeCommitLoggerThunk: makeCL,
+		MaximumConnections:    30,
+		EFConstruction:        60,
+		VectorForIDThunk:      testVectorForID,
+	})
 	require.Nil(t, err)
 
 	t.Run("verify that the results match after rebuiling from disk",
@@ -91,7 +104,14 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 	makeCL := func() CommitLogger {
 		return cl
 	}
-	index, err := New(dirName, indexID, makeCL, 30, 60, testVectorForID)
+	index, err := New(Config{
+		RootPath:              dirName,
+		ID:                    indexID,
+		MakeCommitLoggerThunk: makeCL,
+		MaximumConnections:    30,
+		EFConstruction:        60,
+		VectorForIDThunk:      testVectorForID,
+	})
 	require.Nil(t, err)
 
 	for i, vec := range testVectors {
@@ -124,8 +144,14 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 	index = nil
 
 	// build a new index from the (uncondensed) commit log
-	secondIndex, err := New(dirName, indexID, makeCL, 30, 60,
-		testVectorForID)
+	secondIndex, err := New(Config{
+		RootPath:              dirName,
+		ID:                    indexID,
+		MakeCommitLoggerThunk: makeCL,
+		MaximumConnections:    30,
+		EFConstruction:        60,
+		VectorForIDThunk:      testVectorForID,
+	})
 	require.Nil(t, err)
 
 	t.Run("verify that the results match after rebuiling from disk",
@@ -151,7 +177,14 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 	makeCL := func() CommitLogger {
 		return cl
 	}
-	index, err := New(dirName, indexID, makeCL, 30, 60, testVectorForID)
+	index, err := New(Config{
+		RootPath:              dirName,
+		ID:                    indexID,
+		MakeCommitLoggerThunk: makeCL,
+		MaximumConnections:    30,
+		EFConstruction:        60,
+		VectorForIDThunk:      testVectorForID,
+	})
 	require.Nil(t, err)
 
 	for i, vec := range testVectors {
@@ -189,8 +222,14 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 	index = nil
 
 	// build a new index from the (uncondensed) commit log
-	secondIndex, err := New(dirName, indexID, makeCL, 30, 60,
-		testVectorForID)
+	secondIndex, err := New(Config{
+		RootPath:              dirName,
+		ID:                    indexID,
+		MakeCommitLoggerThunk: makeCL,
+		MaximumConnections:    30,
+		EFConstruction:        60,
+		VectorForIDThunk:      testVectorForID,
+	})
 	require.Nil(t, err)
 	// dumpIndex(secondIndex)
 
@@ -219,8 +258,14 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 
 	secondIndex = nil
 	// build a new index from the (uncondensed) commit log
-	thirdIndex, err := New(dirName, indexID, makeCL, 30, 60,
-		testVectorForID)
+	thirdIndex, err := New(Config{
+		RootPath:              dirName,
+		ID:                    indexID,
+		MakeCommitLoggerThunk: makeCL,
+		MaximumConnections:    30,
+		EFConstruction:        60,
+		VectorForIDThunk:      testVectorForID,
+	})
 	require.Nil(t, err)
 
 	t.Run("verify that the results match after rebuiling from disk",
@@ -245,8 +290,14 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 
 	thirdIndex = nil
 	// build a new index from the (uncondensed) commit log
-	fourthIndex, err := New(dirName, indexID, makeCL, 30, 60,
-		testVectorForID)
+	fourthIndex, err := New(Config{
+		RootPath:              dirName,
+		ID:                    indexID,
+		MakeCommitLoggerThunk: makeCL,
+		MaximumConnections:    30,
+		EFConstruction:        60,
+		VectorForIDThunk:      testVectorForID,
+	})
 	require.Nil(t, err)
 
 	t.Run("load from disk and try to insert again", func(t *testing.T) {

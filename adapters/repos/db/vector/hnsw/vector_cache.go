@@ -25,10 +25,10 @@ type vectorCache struct {
 	cache         sync.Map
 	count         int32
 	maxSize       int
-	getFromSource vectorForID
+	getFromSource VectorForID
 }
 
-func newCache(getFromSource vectorForID) *vectorCache {
+func newCache(getFromSource VectorForID) *vectorCache {
 	return &vectorCache{
 		cache:         sync.Map{},
 		count:         0,
