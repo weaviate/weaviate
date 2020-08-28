@@ -20,13 +20,16 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 			return cl
 		}
 
-		index, err := New(
-			"doesnt-matter-as-committlogger-is-mocked-out",
-			"delete-test",
-			makeCL, 30, 128,
-			func(ctx context.Context, id int32) ([]float32, error) {
+		index, err := New(Config{
+			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:                    "delete-test",
+			MakeCommitLoggerThunk: makeCL,
+			MaximumConnections:    30,
+			EFConstruction:        128,
+			VectorForIDThunk: func(ctx context.Context, id int32) ([]float32, error) {
 				return vectors[int(id)], nil
-			})
+			},
+		})
 		require.Nil(t, err)
 		vectorIndex = index
 
@@ -92,13 +95,16 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 			return cl
 		}
 
-		index, err := New(
-			"doesnt-matter-as-committlogger-is-mocked-out",
-			"delete-test",
-			makeCL, 30, 128,
-			func(ctx context.Context, id int32) ([]float32, error) {
+		index, err := New(Config{
+			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:                    "delete-test",
+			MakeCommitLoggerThunk: makeCL,
+			MaximumConnections:    30,
+			EFConstruction:        128,
+			VectorForIDThunk: func(ctx context.Context, id int32) ([]float32, error) {
 				return vectors[int(id)], nil
-			})
+			},
+		})
 		require.Nil(t, err)
 		vectorIndex = index
 
@@ -174,13 +180,16 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 			return cl
 		}
 
-		index, err := New(
-			"doesnt-matter-as-committlogger-is-mocked-out",
-			"delete-test",
-			makeCL, 30, 128,
-			func(ctx context.Context, id int32) ([]float32, error) {
+		index, err := New(Config{
+			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:                    "delete-test",
+			MakeCommitLoggerThunk: makeCL,
+			MaximumConnections:    30,
+			EFConstruction:        128,
+			VectorForIDThunk: func(ctx context.Context, id int32) ([]float32, error) {
 				return vectors[int(id)], nil
-			})
+			},
+		})
 		require.Nil(t, err)
 		vectorIndex = index
 

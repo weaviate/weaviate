@@ -28,7 +28,14 @@ func TestHnswIndex(t *testing.T) {
 		return cl
 	}
 
-	index, err := New("doesnt-matter-as-committlogger-is-mocked-out", "unittest", makeCL, 30, 60, testVectorForID)
+	index, err := New(Config{
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    "unittest",
+		MakeCommitLoggerThunk: makeCL,
+		MaximumConnections:    30,
+		EFConstruction:        60,
+		VectorForIDThunk:      testVectorForID,
+	})
 	require.Nil(t, err)
 
 	for i, vec := range testVectors {

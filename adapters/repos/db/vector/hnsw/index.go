@@ -52,7 +52,7 @@ type hnsw struct {
 
 	nodes []*vertex
 
-	vectorForID vectorForID
+	vectorForID VectorForID
 
 	commitLog CommitLogger
 
@@ -81,9 +81,9 @@ type CommitLogger interface {
 	Reset() error
 }
 
-type makeCommitLogger func() CommitLogger
+type MakeCommitLogger func() CommitLogger
 
-type vectorForID func(ctx context.Context, id int32) ([]float32, error)
+type VectorForID func(ctx context.Context, id int32) ([]float32, error)
 
 // New creates a new HNSW index, the commit logger is provided through a thunk
 // (a function which can be deferred). This is because creating a commit logger
@@ -91,29 +91,34 @@ type vectorForID func(ctx context.Context, id int32) ([]float32, error)
 // criterium for the index to see if it has to recover from disk or if its a
 // truly new index. So instead the index is initialized, with un-biased disk
 // checks first and only then is the commit logger created
-func New(rootPath, id string, makeCommitLogger makeCommitLogger, maximumConnections int,
-	efConstruction int, vectorForID vectorForID) (*hnsw, error) {
+func New(cfg Config) (*hnsw, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, errors.Wrap(err, "invalid config")
+	}
 
-	vectorCache := newCache(vectorForID)
-
+	vectorCache := newCache(cfg.VectorForIDThunk)
 	index := &hnsw{
-		maximumConnections:          maximumConnections,
-		maximumConnectionsLayerZero: 2 * maximumConnections,                    // inspired by original paper and other implementations
-		levelNormalizer:             1 / math.Log(float64(maximumConnections)), // inspired by c++ implementation
-		efConstruction:              efConstruction,
-		nodes:                       make([]*vertex, importLimit), // TODO: grow variably rather than fixed length
-		vectorForID:                 vectorCache.get,
-		id:                          id,
-		rootPath:                    rootPath,
-		tombstones:                  map[int]struct{}{},
+		maximumConnections: cfg.MaximumConnections,
+
+		// inspired by original paper and other implementations
+		maximumConnectionsLayerZero: 2 * cfg.MaximumConnections,
+
+		// inspired by c++ implementation
+		levelNormalizer: 1 / math.Log(float64(cfg.MaximumConnections)),
+		efConstruction:  cfg.EFConstruction,
+		nodes:           make([]*vertex, importLimit), // TODO: grow variably rather than fixed length
+		vectorForID:     vectorCache.get,
+		id:              cfg.ID,
+		rootPath:        cfg.RootPath,
+		tombstones:      map[int]struct{}{},
 	}
 
 	if err := index.restoreFromDisk(); err != nil {
-		return nil, errors.Wrapf(err, "restore hnsw index %q", id)
+		return nil, errors.Wrapf(err, "restore hnsw index %q", cfg.ID)
 	}
 
 	// init commit logger for future writes
-	index.commitLog = makeCommitLogger()
+	index.commitLog = cfg.MakeCommitLoggerThunk()
 
 	return index, nil
 }
