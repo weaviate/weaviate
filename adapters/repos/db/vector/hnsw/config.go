@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // Config for a new HSNW index
@@ -14,6 +15,9 @@ type Config struct {
 	MaximumConnections    int
 	EFConstruction        int
 	VectorForIDThunk      VectorForID
+
+	// Optional, no period clean up will be scheduled if interval is not set
+	TombstoneCleanupInterval time.Duration
 }
 
 func (c Config) Validate() error {

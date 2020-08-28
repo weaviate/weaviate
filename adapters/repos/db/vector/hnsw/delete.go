@@ -25,6 +25,10 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 	tombstones := h.tombstones
 	h.RUnlock()
 
+	if lenOfNodes == 0 || len(tombstones) == 0 {
+		return nil
+	}
+
 	for id := range tombstones {
 		if lenOfNodes <= id {
 			// we're trying to delete an id outside the possible range, nothing to do
