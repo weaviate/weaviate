@@ -1365,7 +1365,7 @@
     },
     "description": "Open Source Search Graph (GraphQL/RESTful/P2P)",
     "title": "Weaviate",
-    "version": "0.22.14"
+    "version": "0.22.15"
   },
   "parameters": {
     "CommonLimitParameterQuery": {
