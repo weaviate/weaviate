@@ -43,12 +43,22 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 
 func (s *Shard) updateVectorIndex(vector []float32,
 	status objectInsertStatus) error {
-	if !status.isUpdate {
-		if err := s.vectorIndex.Add(int(status.docID), vector); err != nil {
-			return errors.Wrap(err, "insert to vector index")
+
+	if status.isUpdate && !status.docIDChanged {
+		// nothing has changed, nothing to do for us
+		return nil
+
+	}
+
+	if status.docIDChanged {
+		if err := s.vectorIndex.Delete(int(status.oldDocID)); err != nil {
+			return errors.Wrapf(err, "delete doc id %q from vector index", status.oldDocID)
 		}
-	} else {
-		// fmt.Printf("skipping vector update because its an update. TODO: handle correctly\n")
+
+	}
+
+	if err := s.vectorIndex.Add(int(status.docID), vector); err != nil {
+		return errors.Wrapf(err, "insert doc id %q to vector index", status.docID)
 	}
 
 	return nil
@@ -59,7 +69,7 @@ func (s *Shard) putObjectInTx(tx *bolt.Tx, object *storobj.Object,
 	bucket := tx.Bucket(helpers.ObjectsBucket)
 	previous := bucket.Get([]byte(idBytes))
 
-	status, err := s.determineInsertStatus(previous)
+	status, err := s.determineInsertStatus(previous, object)
 	if err != nil {
 		return status, errors.Wrap(err, "check insert/update status")
 	}
@@ -74,11 +84,8 @@ func (s *Shard) putObjectInTx(tx *bolt.Tx, object *storobj.Object,
 		return status, errors.Wrap(err, "upsert object data")
 	}
 
-	// build indexID->UUID lookup
-	// uuid is immutable, so this does not need to be altered, cleaned on
-	// updates, but is simply idempotent
-	if err := s.addIndexIDLookup(tx, idBytes, status.docID); err != nil {
-		return status, errors.Wrap(err, "add docID->UUID index")
+	if err := s.updateIndexIDLookup(tx, idBytes, status); err != nil {
+		return status, errors.Wrap(err, "add/update docID->UUID index")
 	}
 
 	if err := s.updateInvertedIndex(tx, object, status, previous); err != nil {
@@ -89,21 +96,24 @@ func (s *Shard) putObjectInTx(tx *bolt.Tx, object *storobj.Object,
 }
 
 type objectInsertStatus struct {
-	docID    uint32
-	isUpdate bool
+	docID        uint32
+	isUpdate     bool
+	docIDChanged bool
+	oldDocID     uint32
 }
 
 // to be called with the current contents of a row, if the row is empty (i.e.
 // didn't exist before, we will get a new docID from the central counter.
 // Otherwise, we will will reuse the previous docID and mark this as an update
-func (s Shard) determineInsertStatus(previous []byte) (objectInsertStatus, error) {
+func (s Shard) determineInsertStatus(previous []byte,
+	next *storobj.Object) (objectInsertStatus, error) {
 	var out objectInsertStatus
 
 	if previous == nil {
 		out.isUpdate = false
 		docID, err := s.counter.GetAndInc()
 		if err != nil {
-			return out, errors.Wrap(err, "get new doc id from counter")
+			return out, errors.Wrap(err, "initial doc id: get new doc id from counter")
 		}
 		out.docID = docID
 		return out, nil
@@ -115,8 +125,31 @@ func (s Shard) determineInsertStatus(previous []byte) (objectInsertStatus, error
 		return out, errors.Wrap(err, "get previous doc id from object binary")
 	}
 	out.docID = docID
+	out.oldDocID = docID
+
+	// we need to check if assignment of a new doc ID is required
+	if s.newDocIDRequired(previous, next) {
+		docID, err := s.counter.GetAndInc()
+		if err != nil {
+			return out, errors.Wrap(err, "doc id update: get new doc id from counter")
+		}
+		out.docID = docID
+		out.docIDChanged = true
+	}
 
 	return out, nil
+}
+
+// check if we need to update the doc ID. This might have various reasons in
+// the future. As of now, the only reason we need to update the docID is if the
+// vector position has changed, as vector indices are considered immutable
+func (s Shard) newDocIDRequired(previous []byte, next *storobj.Object) bool {
+	old, err := storobj.FromBinary(previous)
+	if err != nil {
+		return true
+	}
+
+	return !vectorsEqual(old.Vector, next.Vector)
 }
 
 func (s Shard) upsertObjectData(bucket *bolt.Bucket, id []byte, data []byte) error {
@@ -148,18 +181,48 @@ func (s Shard) updateInvertedIndex(tx *bolt.Tx, object *storobj.Object,
 			return errors.Wrap(err, "analyze previous object")
 		}
 
-		delta := inverted.Delta(previousInvertProps, nextInvertProps)
-		err = s.deleteFromInvertedIndices(tx, delta.ToDelete, status.docID)
-		if err != nil {
-			return errors.Wrap(err, "delete obsolete inverted pointers")
-		}
+		// there are two possible update cases:
+		// Case A: We have the same docID, so we only need to remove/add the deltas
+		// Case B: The doc ID has changed, so we need to delete anything pointing
+		// to the old doc ID and add everything pointing to the new one
 
-		invertPropsToAdd = delta.ToAdd
+		if status.docIDChanged {
+			// doc ID has changed, delete all old, add all new
+			err = s.deleteFromInvertedIndices(tx, previousInvertProps, status.oldDocID)
+			if err != nil {
+				return errors.Wrap(err, "delete obsolete inverted pointers")
+			}
+
+		} else {
+			// doc ID has not changed, only handle the delta
+			delta := inverted.Delta(previousInvertProps, nextInvertProps)
+			err = s.deleteFromInvertedIndices(tx, delta.ToDelete, status.docID)
+			if err != nil {
+				return errors.Wrap(err, "delete obsolete inverted pointers")
+			}
+
+			invertPropsToAdd = delta.ToAdd
+		}
 	}
 
 	err = s.extendInvertedIndices(tx, invertPropsToAdd, status.docID)
 	if err != nil {
 		return errors.Wrap(err, "put inverted indices props")
+	}
+
+	return nil
+}
+
+func (s *Shard) updateIndexIDLookup(tx *bolt.Tx, id []byte, status objectInsertStatus) error {
+	if status.docIDChanged {
+		// clean up old docId first
+		if err := s.removeIndexIDLookup(tx, status.oldDocID); err != nil {
+			return errors.Wrap(err, "remove docID->UUID index")
+		}
+	}
+
+	if err := s.addIndexIDLookup(tx, id, status.docID); err != nil {
+		return errors.Wrap(err, "add docID->UUID index")
 	}
 
 	return nil
@@ -180,4 +243,35 @@ func (s *Shard) addIndexIDLookup(tx *bolt.Tx, id []byte, docID uint32) error {
 	}
 
 	return nil
+}
+
+func (s *Shard) removeIndexIDLookup(tx *bolt.Tx, docID uint32) error {
+	keyBuf := bytes.NewBuffer(make([]byte, 4))
+	binary.Write(keyBuf, binary.LittleEndian, &docID)
+	key := keyBuf.Bytes()
+
+	b := tx.Bucket(helpers.IndexIDBucket)
+	if b == nil {
+		return fmt.Errorf("no index id bucket found")
+	}
+
+	if err := b.Delete(key); err != nil {
+		return errors.Wrap(err, "delete uuid for index id")
+	}
+
+	return nil
+}
+
+func vectorsEqual(a, b []float32) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+
+	return true
 }

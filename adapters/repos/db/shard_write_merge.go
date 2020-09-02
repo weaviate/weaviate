@@ -44,16 +44,17 @@ func (s *Shard) mergeObjectInTx(tx *bolt.Tx, merge kinds.MergeDocument,
 	bucket := tx.Bucket(helpers.ObjectsBucket)
 	previous := bucket.Get([]byte(idBytes))
 
-	status, err := s.determineInsertStatus(previous)
+	nextObj, err := s.mergeObjectData(previous, merge)
+	if err != nil {
+		return objectInsertStatus{}, errors.Wrap(err, "merge object data")
+	}
+
+	status, err := s.determineInsertStatus(previous, nextObj)
 	if err != nil {
 		return status, errors.Wrap(err, "check insert/update status")
 	}
 
-	nextObj, err := s.mergeObjectData(previous, merge, status)
-	if err != nil {
-		return status, errors.Wrap(err, "merge object data")
-	}
-
+	nextObj.SetIndexID(status.docID)
 	nextBytes, err := nextObj.MarshalBinary()
 	if err != nil {
 		return status, errors.Wrapf(err, "marshal object %s to binary", nextObj.ID())
@@ -78,11 +79,13 @@ func (s *Shard) mergeObjectInTx(tx *bolt.Tx, merge kinds.MergeDocument,
 }
 
 func (s *Shard) mergeObjectData(previous []byte,
-	merge kinds.MergeDocument, status objectInsertStatus) (*storobj.Object, error) {
+	merge kinds.MergeDocument) (*storobj.Object, error) {
 
 	var previousObj *storobj.Object
-	if !status.isUpdate {
-		previousObj = storobj.New(merge.Kind, status.docID)
+	if previous == nil || len(previous) == 0 {
+		// DocID must be overwritted after status check, simply set to initial
+		// value
+		previousObj = storobj.New(merge.Kind, 0)
 		previousObj.SetClass(merge.Class)
 		previousObj.SetID(merge.ID)
 	} else {
@@ -119,6 +122,12 @@ func mergeProps(previous *storobj.Object,
 		}
 		propParsed = append(propParsed, ref.To.SingleRef())
 		schema[propName] = propParsed
+	}
+
+	if merge.Vector == nil {
+		next.Vector = previous.Vector
+	} else {
+		next.Vector = merge.Vector
 	}
 
 	return &next
