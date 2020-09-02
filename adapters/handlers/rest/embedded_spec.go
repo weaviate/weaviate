@@ -949,7 +949,7 @@ func init() {
     },
     "/c11y/concepts/{concept}": {
       "get": {
-        "description": "Checks if a concept is part of the contextionary. Concepts should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase",
+        "description": "Checks if a concept is part of the contextionary. Concepts should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/schema-schema.md#camelcase",
         "tags": [
           "contextionary-API"
         ],
@@ -1097,7 +1097,7 @@ func init() {
     },
     "/c11y/words/{words}": {
       "get": {
-        "description": "Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase",
+        "description": "Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/schema-schema.md#camelcase",
         "tags": [
           "contextionary-API"
         ],
@@ -1520,7 +1520,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Create a new Action class in the ontology.",
+        "summary": "Create a new Action class in the schema.",
         "operationId": "schema.actions.create",
         "parameters": [
           {
@@ -1534,7 +1534,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added the new Action class to the ontology.",
+            "description": "Added the new Action class to the schema.",
             "schema": {
               "$ref": "#/definitions/Class"
             }
@@ -1623,7 +1623,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Remove an Action class (and all data in the instances) from the ontology.",
+        "summary": "Remove an Action class (and all data in the instances) from the schema.",
         "operationId": "schema.actions.delete",
         "parameters": [
           {
@@ -1635,7 +1635,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Removed the Action class from the ontology."
+            "description": "Removed the Action class from the schema."
           },
           "400": {
             "description": "Could not delete the Action class.",
@@ -1802,7 +1802,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Removed the property from the ontology."
+            "description": "Removed the property from the schema."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -1830,7 +1830,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Create a new Thing class in the ontology.",
+        "summary": "Create a new Thing class in the schema.",
         "operationId": "schema.things.create",
         "parameters": [
           {
@@ -1844,7 +1844,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added the new Thing class to the ontology.",
+            "description": "Added the new Thing class to the schema.",
             "schema": {
               "$ref": "#/definitions/Class"
             }
@@ -1932,7 +1932,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Remove a Thing class (and all data in the instances) from the ontology.",
+        "summary": "Remove a Thing class (and all data in the instances) from the schema.",
         "operationId": "schema.things.delete",
         "parameters": [
           {
@@ -1944,7 +1944,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Removed the Thing class from the ontology."
+            "description": "Removed the Thing class from the schema."
           },
           "400": {
             "description": "Could not delete the Thing class.",
@@ -2111,7 +2111,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Removed the property from the ontology."
+            "description": "Removed the property from the schema."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -5146,7 +5146,7 @@ func init() {
     },
     "/c11y/concepts/{concept}": {
       "get": {
-        "description": "Checks if a concept is part of the contextionary. Concepts should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase",
+        "description": "Checks if a concept is part of the contextionary. Concepts should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/schema-schema.md#camelcase",
         "tags": [
           "contextionary-API"
         ],
@@ -5294,7 +5294,7 @@ func init() {
     },
     "/c11y/words/{words}": {
       "get": {
-        "description": "Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase",
+        "description": "Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/schema-schema.md#camelcase",
         "tags": [
           "contextionary-API"
         ],
@@ -5717,7 +5717,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Create a new Action class in the ontology.",
+        "summary": "Create a new Action class in the schema.",
         "operationId": "schema.actions.create",
         "parameters": [
           {
@@ -5731,7 +5731,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added the new Action class to the ontology.",
+            "description": "Added the new Action class to the schema.",
             "schema": {
               "$ref": "#/definitions/Class"
             }
@@ -5820,7 +5820,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Remove an Action class (and all data in the instances) from the ontology.",
+        "summary": "Remove an Action class (and all data in the instances) from the schema.",
         "operationId": "schema.actions.delete",
         "parameters": [
           {
@@ -5832,7 +5832,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Removed the Action class from the ontology."
+            "description": "Removed the Action class from the schema."
           },
           "400": {
             "description": "Could not delete the Action class.",
@@ -5999,7 +5999,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Removed the property from the ontology."
+            "description": "Removed the property from the schema."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -6027,7 +6027,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Create a new Thing class in the ontology.",
+        "summary": "Create a new Thing class in the schema.",
         "operationId": "schema.things.create",
         "parameters": [
           {
@@ -6041,7 +6041,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added the new Thing class to the ontology.",
+            "description": "Added the new Thing class to the schema.",
             "schema": {
               "$ref": "#/definitions/Class"
             }
@@ -6129,7 +6129,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Remove a Thing class (and all data in the instances) from the ontology.",
+        "summary": "Remove a Thing class (and all data in the instances) from the schema.",
         "operationId": "schema.things.delete",
         "parameters": [
           {
@@ -6141,7 +6141,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Removed the Thing class from the ontology."
+            "description": "Removed the Thing class from the schema."
           },
           "400": {
             "description": "Could not delete the Thing class.",
@@ -6308,7 +6308,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Removed the property from the ontology."
+            "description": "Removed the property from the schema."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
