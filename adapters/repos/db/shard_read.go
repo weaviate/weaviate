@@ -29,7 +29,8 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
-func (s *Shard) objectByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties, meta bool) (*storobj.Object, error) {
+func (s *Shard) objectByID(ctx context.Context, id strfmt.UUID,
+	props traverser.SelectProperties, meta bool) (*storobj.Object, error) {
 	var object *storobj.Object
 
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
@@ -57,7 +58,8 @@ func (s *Shard) objectByID(ctx context.Context, id strfmt.UUID, props traverser.
 	return object, nil
 }
 
-func (s *Shard) multiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error) {
+func (s *Shard) multiObjectByID(ctx context.Context,
+	query []multi.Identifier) ([]*storobj.Object, error) {
 	objects := make([]*storobj.Object, len(query))
 
 	ids := make([][]byte, len(query))
@@ -148,8 +150,8 @@ func (s *Shard) vectorByIndexID(ctx context.Context, indexID int32) ([]float32, 
 	return vec, nil
 }
 
-func (s *Shard) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
-	meta bool) ([]*storobj.Object, error) {
+func (s *Shard) objectSearch(ctx context.Context, limit int,
+	filters *filters.LocalFilter, meta bool) ([]*storobj.Object, error) {
 
 	if filters == nil {
 		return s.objectList(ctx, limit, meta)
@@ -160,20 +162,10 @@ func (s *Shard) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		Object(ctx, limit, filters, meta, s.index.Config.ClassName)
 }
 
-// TODO: refactor, this has become to long
-func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32, limit int,
-	filters *filters.LocalFilter, meta bool) ([]*storobj.Object, error) {
-	// defer func() {
-	// 	err := recover()
-	// 	if err != nil {
-	// 		fmt.Println(err)
-	// 		debug.PrintStack()
-	// 	}
-	// }()
+func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32,
+	limit int, filters *filters.LocalFilter, meta bool) ([]*storobj.Object, error) {
 
 	var allowList inverted.AllowList
-
-	// beforeAllow := time.Now()
 	if filters != nil {
 		list, err := inverted.NewSearcher(
 			s.db, s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache).
@@ -184,77 +176,38 @@ func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32, 
 
 		allowList = list
 	}
-	// fmt.Printf("building allow list took %s\n", time.Since(beforeAllow))
-
-	// beforeVector := time.Now()
 	ids, err := s.vectorIndex.SearchByVector(searchVector, limit, allowList)
 	if err != nil {
 		return nil, errors.Wrap(err, "vector search")
 	}
-	// fmt.Printf("vector search took %s\n", time.Since(beforeVector))
 
 	if ids == nil || len(ids) == 0 {
 		return nil, nil
 	}
 
 	var out []*storobj.Object
-
-	// TODO: is this duplicated logic?
-	// beforeBolt := time.Now()
+	// TODO: unify
+	idsUint := make([]uint32, len(ids))
+	for i, id := range ids {
+		idsUint[i] = uint32(id)
+	}
 	if err := s.db.View(func(tx *bolt.Tx) error {
-		uuidKeys := make([][]byte, len(ids))
-		b := tx.Bucket(helpers.IndexIDBucket)
-		if b == nil {
-			return fmt.Errorf("index id bucket not found")
+		res, err := inverted.ObjectsFromDocIDsInTx(tx, idsUint)
+		if err != nil {
+			return errors.Wrap(err, "resolve doc ids to objects")
 		}
 
-		uuidIndex := 0
-		for _, pointer := range ids {
-			keyBuf := bytes.NewBuffer(make([]byte, 4))
-			pointerUint32 := uint32(pointer)
-			binary.Write(keyBuf, binary.LittleEndian, &pointerUint32)
-			key := keyBuf.Bytes()
-			uuid := b.Get(key)
-			if uuid == nil || len(uuid) == 0 {
-				// TODO: Log this as a warning
-				// There is no legitimate reason for this to happen. This essentially
-				// means that we received a doc Pointer that is not (or no longer)
-				// associated with an actual document. This could happen if a docID was
-				// deleted, but an inverted or vector index was not cleaned up
-				continue
-			}
-
-			uuidKeys[uuidIndex] = uuid
-			uuidIndex++
-		}
-
-		uuidKeys = uuidKeys[:uuidIndex]
-
-		fmt.Printf("\n\n\n\n")
-
-		out = make([]*storobj.Object, len(uuidKeys))
-		b = tx.Bucket(helpers.ObjectsBucket)
-		if b == nil {
-			return fmt.Errorf("index id bucket not found")
-		}
-		for i, uuid := range uuidKeys {
-			elem, err := storobj.FromBinary(b.Get(uuid))
-			if err != nil {
-				return errors.Wrapf(err, "position %d: unmarshal data object", i)
-			}
-
-			out[i] = elem
-		}
+		out = res
 		return nil
 	}); err != nil {
 		return nil, errors.Wrap(err, "docID to []*storobj.Object after vector search")
 	}
-	// fmt.Printf("get object from bolt took %s\n", time.Since(beforeBolt))
 
 	return out, nil
 }
 
-func (s *Shard) objectList(ctx context.Context, limit int, meta bool) ([]*storobj.Object, error) {
+func (s *Shard) objectList(ctx context.Context, limit int,
+	meta bool) ([]*storobj.Object, error) {
 	out := make([]*storobj.Object, limit)
 	i := 0
 	err := s.db.View(func(tx *bolt.Tx) error {
