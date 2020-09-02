@@ -160,6 +160,7 @@ func (s *Shard) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		Object(ctx, limit, filters, meta, s.index.Config.ClassName)
 }
 
+// TODO: refactor, this has become to long
 func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32, limit int,
 	filters *filters.LocalFilter, meta bool) ([]*storobj.Object, error) {
 	// defer func() {
@@ -198,6 +199,7 @@ func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32, 
 
 	var out []*storobj.Object
 
+	// TODO: is this duplicated logic?
 	// beforeBolt := time.Now()
 	if err := s.db.View(func(tx *bolt.Tx) error {
 		uuidKeys := make([][]byte, len(ids))
@@ -206,13 +208,29 @@ func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32, 
 			return fmt.Errorf("index id bucket not found")
 		}
 
-		for i, pointer := range ids {
+		uuidIndex := 0
+		for _, pointer := range ids {
 			keyBuf := bytes.NewBuffer(make([]byte, 4))
 			pointerUint32 := uint32(pointer)
 			binary.Write(keyBuf, binary.LittleEndian, &pointerUint32)
 			key := keyBuf.Bytes()
-			uuidKeys[i] = b.Get(key)
+			uuid := b.Get(key)
+			if uuid == nil || len(uuid) == 0 {
+				// TODO: Log this as a warning
+				// There is no legitimate reason for this to happen. This essentially
+				// means that we received a doc Pointer that is not (or no longer)
+				// associated with an actual document. This could happen if a docID was
+				// deleted, but an inverted or vector index was not cleaned up
+				continue
+			}
+
+			uuidKeys[uuidIndex] = uuid
+			uuidIndex++
 		}
+
+		uuidKeys = uuidKeys[:uuidIndex]
+
+		fmt.Printf("\n\n\n\n")
 
 		out = make([]*storobj.Object, len(uuidKeys))
 		b = tx.Bucket(helpers.ObjectsBucket)
@@ -222,7 +240,7 @@ func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32, 
 		for i, uuid := range uuidKeys {
 			elem, err := storobj.FromBinary(b.Get(uuid))
 			if err != nil {
-				return errors.Wrap(err, "unmarshal data object")
+				return errors.Wrapf(err, "position %d: unmarshal data object", i)
 			}
 
 			out[i] = elem
