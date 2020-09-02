@@ -256,6 +256,8 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		require.Nil(t, err)
 	})
 
+	dumpIndex(secondIndex)
+
 	secondIndex = nil
 	// build a new index from the (uncondensed) commit log
 	thirdIndex, err := New(Config{
@@ -267,6 +269,8 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		VectorForIDThunk:      testVectorForID,
 	})
 	require.Nil(t, err)
+
+	dumpIndex(thirdIndex)
 
 	t.Run("verify that the results match after rebuiling from disk",
 		func(t *testing.T) {
