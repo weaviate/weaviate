@@ -71,7 +71,7 @@ func NewSchemaActionsPropertiesDeleteOK() *SchemaActionsPropertiesDeleteOK {
 
 /*SchemaActionsPropertiesDeleteOK handles this case with default header values.
 
-Removed the property from the ontology.
+Removed the property from the schema.
 */
 type SchemaActionsPropertiesDeleteOK struct {
 }
