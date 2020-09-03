@@ -201,7 +201,8 @@ func (f *fakeVectorRepo) DeleteThing(ctx context.Context,
 	return args.Error(0)
 }
 
-func (f *fakeVectorRepo) AddReference(ctx context.Context, kind kind.Kind, source strfmt.UUID, prop string,
+func (f *fakeVectorRepo) AddReference(ctx context.Context, kind kind.Kind,
+	class string, source strfmt.UUID, prop string,
 	ref *models.SingleRef) error {
 	args := f.Called(kind, source, prop, ref)
 	return args.Error(0)
