@@ -16,6 +16,8 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -40,11 +42,132 @@ func TestStorageObjectMarshalling(t *testing.T) {
 		[]float32{1, 2, 0.7},
 	)
 
+	before.SetIndexID(7)
+
 	asBinary, err := before.MarshalBinary()
 	require.Nil(t, err)
 
 	after, err := FromBinary(asBinary)
 	require.Nil(t, err)
 
-	assert.Equal(t, before, after)
+	t.Run("compare", func(t *testing.T) {
+		assert.Equal(t, before, after)
+	})
+
+	t.Run("extract only doc id and compare", func(t *testing.T) {
+		id, err := DocIDFromBinary(asBinary)
+		require.Nil(t, err)
+		assert.Equal(t, uint32(7), id)
+	})
+}
+
+func TestNewStorageObject(t *testing.T) {
+	t.Run("things", func(t *testing.T) {
+		so := New(kind.Thing, 12)
+
+		t.Run("check index id", func(t *testing.T) {
+			assert.Equal(t, uint32(12), so.indexID)
+		})
+
+		t.Run("is invalid without required params", func(t *testing.T) {
+			assert.False(t, so.Valid())
+		})
+
+		t.Run("reassign index id", func(t *testing.T) {
+			so.SetIndexID(13)
+			assert.Equal(t, uint32(13), so.indexID)
+		})
+
+		t.Run("assign class", func(t *testing.T) {
+			so.SetClass("MyClass")
+			assert.Equal(t, schema.ClassName("MyClass"), so.Class())
+		})
+
+		t.Run("assign uuid", func(t *testing.T) {
+			id := strfmt.UUID("bf706904-8618-463f-899c-4a2aafd48d56")
+			so.SetID(id)
+			assert.Equal(t, id, so.ID())
+		})
+
+		t.Run("assign uuid", func(t *testing.T) {
+			schema := map[string]interface{}{
+				"foo": "bar",
+			}
+			so.SetSchema(schema)
+			assert.Equal(t, schema, so.Schema())
+		})
+
+		t.Run("must now be valid", func(t *testing.T) {
+			assert.True(t, so.Valid())
+		})
+
+		t.Run("make sure it's identical with an object created from an existing thing",
+			func(t *testing.T) {
+				alt := FromThing(&models.Thing{
+					Class: "MyClass",
+					ID:    "bf706904-8618-463f-899c-4a2aafd48d56",
+					Schema: map[string]interface{}{
+						"foo": "bar",
+					},
+				}, nil)
+				alt.SetIndexID(13)
+
+				assert.Equal(t, so, alt)
+			})
+	})
+
+	t.Run("actions", func(t *testing.T) {
+		so := New(kind.Action, 12)
+
+		t.Run("check index id", func(t *testing.T) {
+			assert.Equal(t, uint32(12), so.indexID)
+		})
+
+		t.Run("is invalid without required params", func(t *testing.T) {
+			assert.False(t, so.Valid())
+		})
+
+		t.Run("reassign index id", func(t *testing.T) {
+			so.SetIndexID(13)
+			assert.Equal(t, uint32(13), so.indexID)
+		})
+
+		t.Run("assign class", func(t *testing.T) {
+			so.SetClass("MyClass")
+			assert.Equal(t, schema.ClassName("MyClass"), so.Class())
+		})
+
+		t.Run("assign uuid", func(t *testing.T) {
+			id := strfmt.UUID("bf706904-8618-463f-899c-4a2aafd48d56")
+			so.SetID(id)
+			assert.Equal(t, id, so.ID())
+		})
+
+		t.Run("assign uuid", func(t *testing.T) {
+			schema := map[string]interface{}{
+				"foo": "bar",
+			}
+			so.SetSchema(schema)
+			assert.Equal(t, schema, so.Schema())
+		})
+
+		t.Run("must now be valid", func(t *testing.T) {
+			assert.True(t, so.Valid())
+		})
+
+		t.Run("make sure it's identical with an object created from an existing action",
+			func(t *testing.T) {
+				alt := FromAction(&models.Action{
+					Class: "MyClass",
+					ID:    "bf706904-8618-463f-899c-4a2aafd48d56",
+					Schema: map[string]interface{}{
+						"foo": "bar",
+					},
+				}, nil)
+				alt.SetIndexID(13)
+
+				assert.Equal(t, so, alt)
+			})
+	})
+
 }
