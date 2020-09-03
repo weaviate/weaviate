@@ -70,7 +70,8 @@ func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, pr
 		return NewErrInternal("could not update schema for network refs: %v", err)
 	}
 
-	err = m.vectorRepo.AddReference(ctx, kind.Action, action.ID, propertyName, property)
+	err = m.vectorRepo.AddReference(ctx, kind.Action, action.Class, action.ID,
+		propertyName, property)
 	if err != nil {
 		return NewErrInternal("add reference to vector repo: %v", err)
 	}
@@ -124,7 +125,8 @@ func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, pri
 		return NewErrInternal("could not update schema for network refs: %v", err)
 	}
 
-	err = m.vectorRepo.AddReference(ctx, kind.Thing, thing.ID, propertyName, property)
+	err = m.vectorRepo.AddReference(ctx, kind.Thing, thing.Class, thing.ID,
+		propertyName, property)
 	if err != nil {
 		return NewErrInternal("add reference to vector repo: %v", err)
 	}
