@@ -1,8 +1,15 @@
 package hnsw
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
-func dumpIndex(index *hnsw) {
+func dumpIndex(index *hnsw, labels ...string) {
+	if len(labels) > 0 {
+		fmt.Printf("--------------------------------------------------\n")
+		fmt.Printf("--  %s\n", strings.Join(labels, ", "))
+	}
 	fmt.Printf("--------------------------------------------------\n")
 	fmt.Printf("ID: %s\n", index.id)
 	fmt.Printf("Entrypoint: %d\n", index.entryPointID)

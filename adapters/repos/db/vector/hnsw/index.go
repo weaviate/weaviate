@@ -364,8 +364,23 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 func (v *vertex) linkAtLevel(level int, target uint32, cl CommitLogger) {
 	v.Lock()
 	cl.AddLinkAtLevel(v.id, level, target)
+	if targetContained(v.connections[level], target) {
+		// already linked, nothing to do
+		v.Unlock()
+		return
+	}
 	v.connections[level] = append(v.connections[level], target)
 	v.Unlock()
+}
+
+func targetContained(haystack []uint32, needle uint32) bool {
+	for _, candidate := range haystack {
+		if candidate == needle {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
@@ -409,6 +424,28 @@ func (h *hnsw) findAndConnectNeighbors(node *vertex,
 			level, nil)
 		if err != nil {
 			return errors.Wrapf(err, "find neighbors: search layer at level %d", level)
+		}
+
+		if results.contains(node.id, 0) {
+			// Make sure we don't get the node we're currently assigning on the
+			// result list. This could lead to a self-link, but far worse it could
+			// lead to using ourself as an entry point on the next lower level. In
+			// the process of (re)-assigning edges it would be fatal to use ourselves
+			// as an entrypoint, as there are only two possible scenarios: 1. This is
+			// a new insert, so we don't have edges yet. 2. This is a re-assign after
+			// a delete, so we did originally have edges, but they were cleared in
+			// preparation for the re-assignment.
+			//
+			// So why is it so bad to have ourselves (without connections) as an
+			// entrypoint? Because the exit condidtion in searchLayerByVector is if
+			// the candidates distance is worse than the current worst distance.
+			// Naturally, the node itself has the best distance (=0) to itself, so
+			// we'd ignore all other elements. However, since the node - as outlined
+			// before - has no nodes, the search wouldn't find any results. Thus we
+			// also can't add any new connections, leading to an isolated node in the
+			// graph. If that isolated node were to become the graphs entrypoint, the
+			// graph is basically unusable.
+			results.delete(node.id, 0)
 		}
 
 		// TODO: support both neighbor selection algos

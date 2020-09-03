@@ -381,3 +381,148 @@ func vectorsForDeleteTest() [][]float32 {
 		[]float32{0.03060897, 0.35226125, 0.8115969},
 	}
 }
+
+func TestDelete_EntrypointIssues(t *testing.T) {
+	// This test is motivated by flakyness of other tests. We seemed to have
+	// experienced a failure with the folowing structure
+	//
+	// Entrypoint: 6
+	// Max Level: 1
+	// Tombstones map[]
+
+	// Nodes and Connections:
+	// Node 0
+	// Level 0: Connections: [1 2 3 4 5 6 7 8]
+	// Node 1
+	// Level 0: Connections: [0 2 3 4 5 6 7 8]
+	// Node 2
+	// Level 0: Connections: [1 0 3 4 5 6 7 8]
+	// Node 3
+	// Level 0: Connections: [2 1 0 4 5 6 7 8]
+	// Node 4
+	// Level 0: Connections: [3 2 1 0 5 6 7 8]
+	// Node 5
+	// Level 0: Connections: [3 4 2 1 0 6 7 8]
+	// Node 6
+	// Level 0: Connections: [4 2 1 3 5 0 7 8]
+	// Level 1: Connections: [7]
+	// Node 7
+	// Level 1: Connections: [6]
+	// Level 0: Connections: [6 4 3 5 2 1 0 8]
+	// Node 8
+	// Level 0: Connections: [7 6 4 3 5 2 1 0]
+	//
+	// This test aims to rebuild this tree exactly (manually) and verifies that
+	// deletion of the old entrypoint (element 6), works without issue
+	//
+	// The underlying test set can be found in vectors_for_test.go
+
+	cl := &noopCommitLogger{}
+	makeCL := func() CommitLogger {
+		return cl
+	}
+
+	index, err := New(Config{
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    "delete-entrypoint-test",
+		MakeCommitLoggerThunk: makeCL,
+		MaximumConnections:    30,
+		EFConstruction:        128,
+		VectorForIDThunk:      testVectorForID,
+	})
+	require.Nil(t, err)
+
+	// manually build the index
+	index.entryPointID = 6
+	index.currentMaximumLayer = 1
+	index.nodes = make([]*vertex, 50)
+	index.nodes[0] = &vertex{
+		id: 0,
+		connections: map[int][]uint32{
+			0: []uint32{1, 2, 3, 4, 5, 6, 7, 8},
+		},
+	}
+	index.nodes[1] = &vertex{
+		id: 1,
+		connections: map[int][]uint32{
+			0: []uint32{0, 2, 3, 4, 5, 6, 7, 8},
+		},
+	}
+	index.nodes[2] = &vertex{
+		id: 2,
+		connections: map[int][]uint32{
+			0: []uint32{1, 0, 3, 4, 5, 6, 7, 8},
+		},
+	}
+	index.nodes[3] = &vertex{
+		id: 3,
+		connections: map[int][]uint32{
+			0: []uint32{2, 1, 0, 4, 5, 6, 7, 8},
+		},
+	}
+	index.nodes[4] = &vertex{
+		id: 4,
+		connections: map[int][]uint32{
+			0: []uint32{3, 2, 1, 0, 5, 6, 7, 8},
+		},
+	}
+	index.nodes[5] = &vertex{
+		id: 5,
+		connections: map[int][]uint32{
+			0: []uint32{3, 4, 2, 1, 0, 6, 7, 8},
+		},
+	}
+	index.nodes[6] = &vertex{
+		id: 6,
+		connections: map[int][]uint32{
+			0: []uint32{4, 3, 1, 3, 5, 0, 7, 8},
+			1: []uint32{7},
+		},
+		level: 1,
+	}
+	index.nodes[7] = &vertex{
+		id: 7,
+		connections: map[int][]uint32{
+			0: []uint32{6, 4, 3, 5, 2, 1, 0, 8},
+			1: []uint32{6},
+		},
+		level: 1,
+	}
+	index.nodes[8] = &vertex{
+		id: 8,
+		connections: map[int][]uint32{
+			8: []uint32{7, 6, 4, 3, 5, 2, 1, 0},
+		},
+	}
+
+	dumpIndex(index, "before delete")
+
+	t.Run("delete some elements and permanently delete tombstoned elements",
+		func(t *testing.T) {
+			err := index.Delete(6)
+			require.Nil(t, err)
+			err = index.Delete(8)
+			require.Nil(t, err)
+
+			err = index.CleanUpTombstonedNodes()
+			require.Nil(t, err)
+		})
+
+	dumpIndex(index, "after delete")
+
+	expectedResults := []int{
+		3, 5, 4, // cluster 2
+		7,       // cluster 3 with element 6 and 8 deleted
+		2, 1, 0, // cluster 1
+	}
+
+	t.Run("verify that the results are correct", func(t *testing.T) {
+		position := 3
+		res, err := index.knnSearchByVector(testVectors[position], 50, 36, nil)
+		require.Nil(t, err)
+		assert.Equal(t, expectedResults, res)
+	})
+
+	// t.Fail()
+
+}
