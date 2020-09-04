@@ -36,6 +36,14 @@ type Object struct {
 	indexID           uint32
 }
 
+func New(k kind.Kind, docID uint32) *Object {
+	return &Object{
+		MarshallerVersion: 1,
+		Kind:              k,
+		indexID:           docID,
+	}
+}
+
 func FromThing(thing *models.Thing, vector []float32) *Object {
 	return &Object{
 		Kind:              kind.Thing,
@@ -98,6 +106,29 @@ func (ko *Object) ID() strfmt.UUID {
 		panic(fmt.Sprintf("impossible kind: %q", ko.Kind))
 	}
 }
+
+func (ko *Object) SetID(id strfmt.UUID) {
+	switch ko.Kind {
+	case kind.Thing:
+		ko.Thing.ID = id
+	case kind.Action:
+		ko.Action.ID = id
+	default:
+		panic(fmt.Sprintf("impossible kind: %q", ko.Kind))
+	}
+}
+
+func (ko *Object) SetClass(class string) {
+	switch ko.Kind {
+	case kind.Thing:
+		ko.Thing.Class = class
+	case kind.Action:
+		ko.Action.Class = class
+	default:
+		panic(fmt.Sprintf("impossible kind: %q", ko.Kind))
+	}
+}
+
 func (ko *Object) LastUpdateTimeUnix() int64 {
 	switch ko.Kind {
 	case kind.Thing:
@@ -129,6 +160,17 @@ func (ko *Object) Schema() models.PropertySchema {
 		return ko.Thing.Schema
 	case kind.Action:
 		return ko.Action.Schema
+	default:
+		panic("impossible kind")
+	}
+}
+
+func (ko *Object) SetSchema(schema models.PropertySchema) {
+	switch ko.Kind {
+	case kind.Thing:
+		ko.Thing.Schema = schema
+	case kind.Action:
+		ko.Action.Schema = schema
 	default:
 		panic("impossible kind")
 	}

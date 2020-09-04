@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -22,24 +23,28 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/multi"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
-func (d *DB) PutThing(ctx context.Context, object *models.Thing, vector []float32) error {
+func (d *DB) PutThing(ctx context.Context, object *models.Thing,
+	vector []float32) error {
 	return d.putObject(ctx, storobj.FromThing(object, vector))
 }
 
-func (d *DB) PutAction(ctx context.Context, object *models.Action, vector []float32) error {
+func (d *DB) PutAction(ctx context.Context, object *models.Action,
+	vector []float32) error {
 	return d.putObject(ctx, storobj.FromAction(object, vector))
 }
 
 func (d *DB) putObject(ctx context.Context, object *storobj.Object) error {
 	idx := d.GetIndex(object.Kind, object.Class())
 	if idx == nil {
-		return fmt.Errorf("tried to import into non-existing index for %s/%s", object.Kind, object.Class())
+		return fmt.Errorf("import into non-existing index for %s/%s",
+			object.Kind, object.Class())
 	}
 
 	err := idx.putObject(ctx, object)
@@ -51,25 +56,48 @@ func (d *DB) putObject(ctx context.Context, object *storobj.Object) error {
 
 }
 
-func (d *DB) DeleteAction(ctx context.Context, className string, id strfmt.UUID) error {
-	panic("not implemented") // TODO: Implement
+func (d *DB) DeleteAction(ctx context.Context, className string,
+	id strfmt.UUID) error {
+	return d.deleteObject(ctx, kind.Action, className, id)
 }
 
-func (d *DB) DeleteThing(ctx context.Context, className string, id strfmt.UUID) error {
-	panic("not implemented") // TODO: Implement
+func (d *DB) DeleteThing(ctx context.Context, className string,
+	id strfmt.UUID) error {
+	return d.deleteObject(ctx, kind.Thing, className, id)
 }
 
-func (d *DB) ThingByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties,
+func (d *DB) deleteObject(ctx context.Context, kind kind.Kind, className string,
+	id strfmt.UUID) error {
+	idx := d.GetIndex(kind, schema.ClassName(className))
+	if idx == nil {
+		return fmt.Errorf("delete from non-existing index for %s/%s",
+			kind, className)
+	}
+
+	err := idx.deleteObject(ctx, id)
+	if err != nil {
+		return errors.Wrapf(err, "delete from index %s", idx.ID())
+	}
+
+	return nil
+}
+
+func (d *DB) ThingByID(ctx context.Context, id strfmt.UUID,
+	props traverser.SelectProperties,
 	underscore traverser.UnderscoreProperties) (*search.Result, error) {
-	return d.objectByID(ctx, kind.Thing, id, props, underscore.Classification) // TODO: deal with all underscore fields
+	// TODO: deal with all underscore fields
+	return d.objectByID(ctx, kind.Thing, id, props, underscore.Classification)
 }
 
-func (d *DB) ActionByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties,
+func (d *DB) ActionByID(ctx context.Context, id strfmt.UUID,
+	props traverser.SelectProperties,
 	underscore traverser.UnderscoreProperties) (*search.Result, error) {
-	return d.objectByID(ctx, kind.Action, id, props, underscore.Classification) // TODO: deal with all underscore fields
+	// TODO: deal with all underscore fields
+	return d.objectByID(ctx, kind.Action, id, props, underscore.Classification)
 }
 
-func (d *DB) MultiGet(ctx context.Context, query []multi.Identifier) ([]search.Result, error) {
+func (d *DB) MultiGet(ctx context.Context,
+	query []multi.Identifier) ([]search.Result, error) {
 	byIndex := map[string][]multi.Identifier{}
 
 	for i, q := range query {
@@ -77,7 +105,8 @@ func (d *DB) MultiGet(ctx context.Context, query []multi.Identifier) ([]search.R
 		q.OriginalPosition = i
 
 		for _, index := range d.indices {
-			if index.Config.Kind != q.Kind || index.Config.ClassName != schema.ClassName(q.ClassName) {
+			if index.Config.Kind != q.Kind ||
+				index.Config.ClassName != schema.ClassName(q.ClassName) {
 				continue
 			}
 
@@ -107,7 +136,8 @@ func (d *DB) MultiGet(ctx context.Context, query []multi.Identifier) ([]search.R
 }
 
 // objectByID checks every index of the particular kind for the ID
-func (d *DB) objectByID(ctx context.Context, kind kind.Kind, id strfmt.UUID, props traverser.SelectProperties, meta bool) (*search.Result, error) {
+func (d *DB) objectByID(ctx context.Context, kind kind.Kind, id strfmt.UUID,
+	props traverser.SelectProperties, meta bool) (*search.Result, error) {
 
 	var result *search.Result
 	// TODO: Search in parallel, rather than sequentially or this will be
@@ -135,8 +165,8 @@ func (d *DB) objectByID(ctx context.Context, kind kind.Kind, id strfmt.UUID, pro
 	return d.enrichRefsForSingle(ctx, result, props, meta)
 }
 
-func (d *DB) enrichRefsForSingle(ctx context.Context, obj *search.Result, props traverser.SelectProperties,
-	meta bool) (*search.Result, error) {
+func (d *DB) enrichRefsForSingle(ctx context.Context, obj *search.Result,
+	props traverser.SelectProperties, meta bool) (*search.Result, error) {
 
 	res, err := refcache.NewResolver(refcache.NewCacher(d, d.logger)).
 		Do(ctx, []search.Result{*obj}, props, meta)
@@ -164,10 +194,40 @@ func (d *DB) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 	return false, nil
 }
 
-func (d *DB) AddReference(ctx context.Context, kind kind.Kind, source strfmt.UUID, propName string, ref *models.SingleRef) error {
-	panic("not implemented") // TODO: Implement
+func (d *DB) AddReference(ctx context.Context, kind kind.Kind,
+	className string, source strfmt.UUID, propName string,
+	ref *models.SingleRef) error {
+	target, err := crossref.ParseSingleRef(ref)
+	if err != nil {
+		return err
+	}
+
+	return d.Merge(ctx, kinds.MergeDocument{
+		Kind:       kind,
+		Class:      className,
+		ID:         source,
+		UpdateTime: time.Now().UnixNano(),
+		References: kinds.BatchReferences{
+			kinds.BatchReference{
+				From: crossref.NewSource(kind, schema.ClassName(className),
+					schema.PropertyName(propName), source),
+				To: target,
+			},
+		},
+	})
 }
 
 func (d *DB) Merge(ctx context.Context, merge kinds.MergeDocument) error {
-	panic("not implemented") // TODO: Implement
+	idx := d.GetIndex(merge.Kind, schema.ClassName(merge.Class))
+	if idx == nil {
+		return fmt.Errorf("merge from non-existing index for %s/%s",
+			merge.Kind, merge.Class)
+	}
+
+	err := idx.mergeObject(ctx, merge)
+	if err != nil {
+		return errors.Wrapf(err, "merge into index %s", idx.ID())
+	}
+
+	return nil
 }
