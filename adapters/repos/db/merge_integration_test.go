@@ -187,6 +187,20 @@ func Test_MergingObjects(t *testing.T) {
 		assert.Equal(t, expectedSchema, schema)
 	})
 
+	t.Run("trying to merge from unexisting index", func(t *testing.T) {
+		md := kinds.MergeDocument{
+			Class: "WrongClass",
+			ID:    sourceID,
+			Kind:  kind.Thing,
+			PrimitiveSchema: map[string]interface{}{
+				"number": 7.0,
+			},
+		}
+
+		err := repo.Merge(context.Background(), md)
+		assert.Equal(t, fmt.Errorf(
+			"merge from non-existing index for thing/WrongClass"), err)
+	})
 	t.Run("add a reference and replace one prop", func(t *testing.T) {
 		source, err := crossref.ParseSource(fmt.Sprintf(
 			"weaviate://localhost/things/MergeTestSource/%s/toTarget", sourceID))

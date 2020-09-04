@@ -143,6 +143,24 @@ func TestCRUD(t *testing.T) {
 		assert.True(t, ok)
 	})
 
+	t.Run("trying to add a thing to a non-existing class", func(t *testing.T) {
+
+		thing := &models.Thing{
+			CreationTimeUnix:   1565612833955,
+			LastUpdateTimeUnix: 1000001,
+			ID:                 thingID,
+			Class:              "WrongClass",
+			Schema: map[string]interface{}{
+				"stringProp": "some value",
+			},
+		}
+		vector := []float32{1, 3, 5, 0.4}
+
+		err := repo.PutThing(context.Background(), thing, vector)
+		assert.Equal(t,
+			fmt.Errorf("import into non-existing index for thing/WrongClass"), err)
+	})
+
 	timeMust := func(t strfmt.DateTime, err error) strfmt.DateTime {
 		if err != nil {
 			panic(err)
@@ -600,6 +618,14 @@ func TestCRUD(t *testing.T) {
 			"TheBestActionClass", actionID)
 
 		assert.Nil(t, err)
+	})
+
+	t.Run("trying to delete from a non-existing class", func(t *testing.T) {
+		err := repo.DeleteThing(context.Background(),
+			"WrongClass", thingID)
+
+		assert.Equal(t, fmt.Errorf(
+			"delete from non-existing index for thing/WrongClass"), err)
 	})
 
 	t.Run("verifying the thing is NOT indexed in the inverted index",
