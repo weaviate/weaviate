@@ -31,3 +31,13 @@ func (al AllowList) Contains(id uint32) bool {
 	_, ok := al[id]
 	return ok
 }
+
+func (al AllowList) DeepCopy() AllowList {
+	out := AllowList{}
+
+	for id := range al {
+		out[id] = struct{}{}
+	}
+
+	return out
+}
