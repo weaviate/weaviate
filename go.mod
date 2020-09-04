@@ -40,10 +40,10 @@ require (
 	github.com/square/go-jose v2.3.0+incompatible
 	github.com/stretchr/testify v1.6.1
 	github.com/ugorji/go/codec v0.0.0-20190309163734-c4a1c341dc93
-	go.mongodb.org/mongo-driver v1.4.0 // indirect
+	go.mongodb.org/mongo-driver v1.4.1 // indirect
 	go.uber.org/atomic v1.5.0
-	golang.org/x/net v0.0.0-20200625001655-4c5254603344
-	golang.org/x/tools v0.0.0-20200828013309-97019fc2e64b // indirect
+	golang.org/x/net v0.0.0-20200822124328-c89045814202
+	golang.org/x/tools v0.0.0-20200903153655-76a6aac657c7 // indirect
 	gonum.org/v1/gonum v0.7.0
 	google.golang.org/grpc v1.24.0
 	gopkg.in/square/go-jose.v2 v2.5.1 // indirect
