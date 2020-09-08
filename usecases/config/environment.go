@@ -59,6 +59,15 @@ func FromEnv(config *Config) error {
 		config.Contextionary.URL = v
 	}
 
+	if v := os.Getenv("QUERY_DEFAULTS_LIMIT"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err != nil {
+			return errors.Wrapf(err, "parse QUERY_DEFAULTS_LIMIT as int")
+		}
+
+		config.QueryDefaults.Limit = int64(asInt)
+	}
+
 	if v := os.Getenv("ESVECTOR_URL"); v != "" {
 		config.VectorIndex.URL = v
 
@@ -73,6 +82,25 @@ func FromEnv(config *Config) error {
 
 		if v := os.Getenv("ESVECTOR_AUTO_EXPAND_REPLICAS"); v != "" {
 			config.VectorIndex.AutoExpandReplicas = &v
+		}
+	}
+
+	// Disable by default
+	config.Telemetry.Disabled = true
+	if v := os.Getenv("TELEMETRY_DISABLED"); v != "false" {
+		config.Telemetry.Disabled = false
+
+		if v := os.Getenv("TELEMETRY_INTERVAL"); v != "" {
+			asInt, err := strconv.Atoi(v)
+			if err != nil {
+				return errors.Wrapf(err, "parse TELEMETRY_INTERVAL as int")
+			}
+
+			config.Telemetry.Interval = asInt
+		}
+
+		if v := os.Getenv("TELEMETRY_REMOTE_URL"); v != "" {
+			config.Telemetry.RemoteURL = v
 		}
 	}
 
