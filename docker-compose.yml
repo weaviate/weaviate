@@ -57,6 +57,7 @@ services:
     ports: 
       - "9201:9200"
       - "9301:9300"
+
   kibana:
     image: kibana:7.1.0
     environment:
