@@ -140,7 +140,7 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 		assert.Equal(t, expectedResults, res)
 	})
 
-	// dumpIndex(index)
+	dumpIndex(index, "without_cleanup_original_index_before_storage")
 
 	// destory the index
 	index = nil
@@ -156,7 +156,7 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 	})
 	require.Nil(t, err)
 
-	// dumpIndex(secondIndex)
+	dumpIndex(secondIndex, "without_cleanup_after_rebuild")
 	t.Run("verify that the results match after rebuiling from disk",
 		func(t *testing.T) {
 			position := 3
