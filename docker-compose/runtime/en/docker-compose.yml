@@ -49,14 +49,18 @@ services:
     - '8080'
     - --scheme
     - http
-    - --config-file
-    - config.yaml
     depends_on:
     - esvector
-    image: semitechnologies/weaviate:0.22.15
+    image: semitechnologies/weaviate:0.22.16
     ports:
     - 8080:8080
     restart: on-failure:0
-    volumes:
-    - ./config.yaml:/config.yaml
+    environment:
+      CONFIGURATION_STORAGE_TYPE: etcd
+      CONFIGURATION_STORAGE_URL: http://etcd:2379
+      CONTEXTIONARY_URL: contextionary:9999
+      QUERY_DEFAULTS_LIMIT: 25
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
+      ESVECTOR_URL: http://esvector:9200
+
 version: '3.4'
