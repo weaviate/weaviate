@@ -21,6 +21,7 @@ import (
 	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/notimplemented"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -248,7 +249,8 @@ func (fs *Searcher) extractPropValuePair(filter *filters.Clause,
 	// on value or non-nested filter
 	props := filter.On.Slice()
 	if len(props) != 1 {
-		return nil, fmt.Errorf("ref-filters not supported yet")
+		return nil, fmt.Errorf("filtering by reference props not supported yet "+
+			"in standalone mode, see %s for details", notimplemented.Link)
 	}
 
 	// we are on a value element
@@ -284,7 +286,8 @@ func (fs *Searcher) extractPrimitiveProp(propName string, dt schema.DataType,
 	case "":
 		return nil, fmt.Errorf("data type cannot be empty")
 	default:
-		return nil, fmt.Errorf("data type %q not supported yet", dt)
+		return nil, fmt.Errorf("data type %q not supported yet in standalone mode, "+
+			"see %s for details", dt, notimplemented.Link)
 	}
 
 	byteValue, err := extractValueFn(value)

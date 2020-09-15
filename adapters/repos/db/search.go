@@ -16,6 +16,7 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/notimplemented"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/refcache"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
@@ -28,7 +29,8 @@ import (
 
 func (db *DB) Aggregate(ctx context.Context,
 	params traverser.AggregateParams) (*aggregation.Result, error) {
-	return nil, fmt.Errorf("aggregations not supported (yet)")
+	return nil, fmt.Errorf("aggregations not supported yet in standalone mode, "+
+		"see %s for details", notimplemented.Link)
 }
 
 func (db *DB) ClassSearch(ctx context.Context,
