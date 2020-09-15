@@ -16,6 +16,7 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/notimplemented"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/refcache"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
@@ -26,14 +27,22 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
-func (db *DB) Aggregate(ctx context.Context, params traverser.AggregateParams) (*aggregation.Result, error) {
-	return nil, fmt.Errorf("aggregations not supported (yet)")
+func (db *DB) Aggregate(ctx context.Context,
+	params traverser.AggregateParams) (*aggregation.Result, error) {
+	return nil, fmt.Errorf("aggregations not supported yet in standalone mode, "+
+		"see %s for details", notimplemented.Link)
 }
 
-func (db *DB) ClassSearch(ctx context.Context, params traverser.GetParams) ([]search.Result, error) {
+func (db *DB) ClassSearch(ctx context.Context,
+	params traverser.GetParams) ([]search.Result, error) {
 	idx := db.GetIndex(params.Kind, schema.ClassName(params.ClassName))
 	if idx == nil {
-		return nil, fmt.Errorf("tried to browse non-existing index for %s/%s", params.Kind, params.ClassName)
+		return nil, fmt.Errorf("tried to browse non-existing index for %s/%s",
+			params.Kind, params.ClassName)
+	}
+
+	if params.Pagination == nil {
+		return nil, fmt.Errorf("invalid params, pagination object is nil")
 	}
 
 	res, err := idx.objectSearch(ctx, params.Pagination.Limit, params.Filters, false)
@@ -41,24 +50,29 @@ func (db *DB) ClassSearch(ctx context.Context, params traverser.GetParams) ([]se
 		return nil, errors.Wrapf(err, "object search at index %s", idx.ID())
 	}
 
-	return db.enrichRefsForList(ctx, storobj.SearchResults(res), params.Properties, params.UnderscoreProperties.RefMeta)
+	return db.enrichRefsForList(ctx, storobj.SearchResults(res), params.Properties,
+		params.UnderscoreProperties.RefMeta)
 }
-func (db *DB) VectorClassSearch(ctx context.Context, params traverser.GetParams) ([]search.Result, error) {
+func (db *DB) VectorClassSearch(ctx context.Context,
+	params traverser.GetParams) ([]search.Result, error) {
 	if params.SearchVector == nil {
 		return db.ClassSearch(ctx, params)
 	}
 
 	idx := db.GetIndex(params.Kind, schema.ClassName(params.ClassName))
 	if idx == nil {
-		return nil, fmt.Errorf("tried to browse non-existing index for %s/%s", params.Kind, params.ClassName)
+		return nil, fmt.Errorf("tried to browse non-existing index for %s/%s",
+			params.Kind, params.ClassName)
 	}
 
-	res, err := idx.objectVectorSearch(ctx, params.SearchVector, params.Pagination.Limit, params.Filters, false)
+	res, err := idx.objectVectorSearch(ctx, params.SearchVector,
+		params.Pagination.Limit, params.Filters, false)
 	if err != nil {
 		return nil, errors.Wrapf(err, "object vector search at index %s", idx.ID())
 	}
 
-	return db.enrichRefsForList(ctx, storobj.SearchResults(res), params.Properties, params.UnderscoreProperties.RefMeta)
+	return db.enrichRefsForList(ctx, storobj.SearchResults(res), params.Properties,
+		params.UnderscoreProperties.RefMeta)
 }
 func (db *DB) VectorSearch(ctx context.Context, vector []float32, limit int,
 	filters *filters.LocalFilter) ([]search.Result, error) {
@@ -67,7 +81,8 @@ func (db *DB) VectorSearch(ctx context.Context, vector []float32, limit int,
 	// TODO: Search in parallel, rather than sequentially or this will be
 	// painfully slow on large schemas
 	for _, index := range db.indices {
-		res, err := index.objectVectorSearch(ctx, vector, limit, filters, false) // TODO support all underscore props
+		// TODO support all underscore props
+		res, err := index.objectVectorSearch(ctx, vector, limit, filters, false)
 		if err != nil {
 			return nil, errors.Wrapf(err, "search index %s", index.ID())
 		}
@@ -103,7 +118,8 @@ func (d *DB) ActionSearch(ctx context.Context, limit int, filters *filters.Local
 	return d.objectSearch(ctx, kind.Action, limit, filters, underscore)
 }
 
-func (d *DB) objectSearch(ctx context.Context, kind kind.Kind, limit int, filters *filters.LocalFilter,
+func (d *DB) objectSearch(ctx context.Context, kind kind.Kind, limit int,
+	filters *filters.LocalFilter,
 	underscore traverser.UnderscoreProperties) (search.Results, error) {
 
 	var found search.Results
@@ -115,7 +131,8 @@ func (d *DB) objectSearch(ctx context.Context, kind kind.Kind, limit int, filter
 			continue
 		}
 
-		res, err := index.objectSearch(ctx, limit, filters, underscore.Classification) // TODO support all underscore props
+		// TODO support all underscore props
+		res, err := index.objectSearch(ctx, limit, filters, underscore.Classification)
 		if err != nil {
 			return nil, errors.Wrapf(err, "search index %s", index.ID())
 		}
@@ -134,8 +151,8 @@ func (d *DB) objectSearch(ctx context.Context, kind kind.Kind, limit int, filter
 	return found, nil
 }
 
-func (d *DB) enrichRefsForList(ctx context.Context, objs search.Results, props traverser.SelectProperties,
-	meta bool) (search.Results, error) {
+func (d *DB) enrichRefsForList(ctx context.Context, objs search.Results,
+	props traverser.SelectProperties, meta bool) (search.Results, error) {
 
 	res, err := refcache.NewResolver(refcache.NewCacher(d, d.logger)).
 		Do(ctx, objs, props, meta)

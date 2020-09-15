@@ -46,7 +46,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const MinimumRequiredContextionaryVersion = "0.4.15"
+const MinimumRequiredContextionaryVersion = "0.4.19"
 
 func makeConfigureServer(appState *state.State) func(*http.Server, string, string) {
 	return func(s *http.Server, scheme, addr string) {
@@ -101,7 +101,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	featureProjector := projector.New()
 	pathBuilder := sempath.New(appState.Contextionary)
 
-	if appState.ServerConfig.Config.CustomDB {
+	if appState.ServerConfig.Config.Standalone {
 		repo := db.New(appState.Logger, db.Config{
 			RootPath: appState.ServerConfig.Config.Persistence.DataPath,
 		})

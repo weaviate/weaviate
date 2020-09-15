@@ -77,7 +77,7 @@ func NewSchemaThingsCreateOK() *SchemaThingsCreateOK {
 
 /*SchemaThingsCreateOK handles this case with default header values.
 
-Added the new Thing class to the ontology.
+Added the new Thing class to the schema.
 */
 type SchemaThingsCreateOK struct {
 	Payload *models.Class

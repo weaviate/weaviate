@@ -19,6 +19,7 @@ import (
 
 	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/notimplemented"
 	"github.com/semi-technologies/weaviate/entities/filters"
 )
 
@@ -39,7 +40,8 @@ func (fs *Searcher) docPointers(id []byte, operator filters.Operator,
 	case filters.OperatorLessThanEqual:
 		return fs.docPointersLessThan(id, b, value, limit, hasFrequency, true)
 	default:
-		return docPointers{}, fmt.Errorf("operator not supported (yet)")
+		return docPointers{}, fmt.Errorf("operator not supported (yet) in standalone "+
+			"mode, see %s for details", notimplemented.Link)
 	}
 }
 

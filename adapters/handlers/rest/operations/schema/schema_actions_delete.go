@@ -44,7 +44,7 @@ func NewSchemaActionsDelete(ctx *middleware.Context, handler SchemaActionsDelete
 
 /*SchemaActionsDelete swagger:route DELETE /schema/actions/{className} schema schemaActionsDelete
 
-Remove an Action class (and all data in the instances) from the ontology.
+Remove an Action class (and all data in the instances) from the schema.
 
 */
 type SchemaActionsDelete struct {

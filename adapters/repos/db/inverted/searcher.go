@@ -21,6 +21,7 @@ import (
 	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/notimplemented"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -42,14 +43,9 @@ func NewSearcher(db *bolt.DB, schema schema.Schema,
 }
 
 // Object returns a list of full objects
-func (f *Searcher) Object(ctx context.Context, limit int, filter *filters.LocalFilter,
-	meta bool, className schema.ClassName) ([]*storobj.Object, error) {
-	// defer func() {
-	// 	if r := recover(); r != nil {
-	// 		fmt.Printf("%v at %s", r, debug.Stack())
-	// 	}
-	// }()
-
+func (f *Searcher) Object(ctx context.Context, limit int,
+	filter *filters.LocalFilter, meta bool,
+	className schema.ClassName) ([]*storobj.Object, error) {
 	pv, err := f.extractPropValuePair(filter.Root, className)
 	if err != nil {
 		return nil, err
@@ -66,36 +62,60 @@ func (f *Searcher) Object(ctx context.Context, limit int, filter *filters.LocalF
 			return errors.Wrap(err, "merge doc ids by operator")
 		}
 
-		uuidKeys := make([][]byte, len(pointers.docIDs))
-		b := tx.Bucket(helpers.IndexIDBucket)
-		if b == nil {
-			return fmt.Errorf("index id bucket not found")
+		res, err := ObjectsFromDocIDsInTx(tx, pointers.IDs())
+		if err != nil {
+			return errors.Wrap(err, "resolve doc ids to objects")
 		}
 
-		for i, pointer := range pointers.docIDs {
-			keyBuf := bytes.NewBuffer(make([]byte, 4))
-			binary.Write(keyBuf, binary.LittleEndian, &pointer.id)
-			key := keyBuf.Bytes()
-			uuidKeys[i] = b.Get(key)
-		}
-
-		out = make([]*storobj.Object, len(uuidKeys))
-		b = tx.Bucket(helpers.ObjectsBucket)
-		if b == nil {
-			return fmt.Errorf("index id bucket not found")
-		}
-		for i, uuid := range uuidKeys {
-			elem, err := storobj.FromBinary(b.Get(uuid))
-			if err != nil {
-				return errors.Wrap(err, "unmarshal data object")
-			}
-
-			out[i] = elem
-		}
+		out = res
 		return nil
-
 	}); err != nil {
 		return nil, errors.Wrap(err, "object filter search bolt view tx")
+	}
+
+	return out, nil
+}
+
+func ObjectsFromDocIDsInTx(tx *bolt.Tx,
+	pointers []uint32) ([]*storobj.Object, error) {
+	uuidKeys := make([][]byte, len(pointers))
+	b := tx.Bucket(helpers.IndexIDBucket)
+	if b == nil {
+		return nil, fmt.Errorf("index id bucket not found")
+	}
+
+	uuidIndex := 0
+	for _, pointer := range pointers {
+		keyBuf := bytes.NewBuffer(make([]byte, 4))
+		pointerUint32 := uint32(pointer)
+		binary.Write(keyBuf, binary.LittleEndian, &pointerUint32)
+		key := keyBuf.Bytes()
+		uuid := b.Get(key)
+		if uuid == nil || len(uuid) == 0 {
+			// TODO: Log this as a warning
+			// There is no legitimate reason for this to happen. This essentially
+			// means that we received a doc Pointer that is not (or no longer)
+			// associated with an actual document. This could happen if a docID was
+			// deleted, but an inverted or vector index was not cleaned up
+			continue
+		}
+
+		uuidKeys[uuidIndex] = uuid
+		uuidIndex++
+	}
+
+	out := make([]*storobj.Object, len(uuidKeys))
+	b = tx.Bucket(helpers.ObjectsBucket)
+	if b == nil {
+		return nil, fmt.Errorf("index id bucket not found")
+	}
+	for i, uuid := range uuidKeys {
+		elem, err := storobj.FromBinary(b.Get(uuid))
+		if err != nil {
+			return nil, errors.Wrap(err, "unmarshal data object")
+		}
+
+		out[i] = elem
 	}
 
 	return out, nil
@@ -113,12 +133,6 @@ func (f *Searcher) Object(ctx context.Context, limit int, filter *filters.LocalF
 // had the shortest distance
 func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	meta bool, className schema.ClassName) (AllowList, error) {
-	// defer func() {
-	// 	if r := recover(); r != nil {
-	// 		fmt.Printf("%v at %s", r, debug.Stack())
-	// 	}
-	// }()
-
 	pv, err := f.extractPropValuePair(filter.Root, className)
 	if err != nil {
 		return nil, err
@@ -147,11 +161,14 @@ func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 	return out, nil
 }
 
-func (fs *Searcher) parseInvertedIndexRow(id, in []byte, limit int, hasFrequency bool) (docPointers, error) {
+func (fs *Searcher) parseInvertedIndexRow(id, in []byte, limit int,
+	hasFrequency bool) (docPointers, error) {
 	out := docPointers{
 		checksum: make([]byte, 4),
 	}
-	if len(in) == 0 {
+
+	// 0 is a non-existing row, 4 is one that only contains a checksum, but no content
+	if len(in) == 0 || len(in) == 4 {
 		return out, nil
 	}
 
@@ -174,7 +191,8 @@ func (fs *Searcher) parseInvertedIndexRow(id, in []byte, limit int, hasFrequency
 
 	read := 0
 	for {
-		if limit > 0 && read >= limit { // limit >0 allows us to specify -1 to mean unlimited
+		// limit >0 allows us to specify -1 to mean unlimited
+		if limit > 0 && read >= limit {
 			// we are done because the user specified limit is reached
 			break
 		}
@@ -210,7 +228,8 @@ func (fs *Searcher) parseInvertedIndexRow(id, in []byte, limit int, hasFrequency
 	return out, nil
 }
 
-func (fs *Searcher) extractPropValuePair(filter *filters.Clause, className schema.ClassName) (*propValuePair, error) {
+func (fs *Searcher) extractPropValuePair(filter *filters.Clause,
+	className schema.ClassName) (*propValuePair, error) {
 	var out propValuePair
 	if filter.Operands != nil {
 		// nested filter
@@ -230,7 +249,8 @@ func (fs *Searcher) extractPropValuePair(filter *filters.Clause, className schem
 	// on value or non-nested filter
 	props := filter.On.Slice()
 	if len(props) != 1 {
-		return nil, fmt.Errorf("ref-filters not supported yet")
+		return nil, fmt.Errorf("filtering by reference props not supported yet "+
+			"in standalone mode, see %s for details", notimplemented.Link)
 	}
 
 	// we are on a value element
@@ -239,11 +259,12 @@ func (fs *Searcher) extractPropValuePair(filter *filters.Clause, className schem
 		// reference count as opposed to the content
 		return fs.extractReferenceCount(props[0], filter.Value.Value, filter.Operator)
 	}
-	return fs.extractPrimitiveProp(props[0], filter.Value.Type, filter.Value.Value, filter.Operator)
+	return fs.extractPrimitiveProp(props[0], filter.Value.Type, filter.Value.Value,
+		filter.Operator)
 }
 
-func (fs *Searcher) extractPrimitiveProp(propName string, dt schema.DataType, value interface{},
-	operator filters.Operator) (*propValuePair, error) {
+func (fs *Searcher) extractPrimitiveProp(propName string, dt schema.DataType,
+	value interface{}, operator filters.Operator) (*propValuePair, error) {
 	var extractValueFn func(in interface{}) ([]byte, error)
 	var hasFrequency bool
 	switch dt {
@@ -265,7 +286,8 @@ func (fs *Searcher) extractPrimitiveProp(propName string, dt schema.DataType, va
 	case "":
 		return nil, fmt.Errorf("data type cannot be empty")
 	default:
-		return nil, fmt.Errorf("data type %q not supported yet", dt)
+		return nil, fmt.Errorf("data type %q not supported yet in standalone mode, "+
+			"see %s for details", dt, notimplemented.Link)
 	}
 
 	byteValue, err := extractValueFn(value)
@@ -324,4 +346,12 @@ type docPointers struct {
 type docPointer struct {
 	id        uint32
 	frequency *float32
+}
+
+func (d docPointers) IDs() []uint32 {
+	out := make([]uint32, len(d.docIDs))
+	for i, elem := range d.docIDs {
+		out[i] = elem.id
+	}
+	return out
 }
