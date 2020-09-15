@@ -51,7 +51,7 @@ func printRelaeseNotes(languages []language, version string) {
 		"(https://www.semi.technology/documentation/weaviate/current/getting-started/installation.html#docker-compose).")
 	fmt.Printf("\n## Breaking Changes\n*none*\n")
 	fmt.Printf("\n## New Features\n*none*\n")
-	fmt.Printf("\n## Breaking Changes\n*none*\n")
+	fmt.Printf("\n## Fixes\n*none*\n")
 }
 
 func makeLinks(languages []language) string {
