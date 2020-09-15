@@ -24,6 +24,20 @@ case $CONFIG in
         --host "127.0.0.1" \
         --port 8080
     ;;
+  local-customdb)
+    CONFIGURATION_STORAGE_TYPE=etcd \
+      CONFIGURATION_STORAGE_URL=http://localhost:2379 \
+      CONTEXTIONARY_URL=localhost:9999 \
+      QUERY_DEFAULTS_LIMIT=20 \
+      ORIGIN=http://localhost:8080 \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      STANDALONE_MODE=true \
+      PERSISTENCE_DATA_PATH="./data" \
+      go run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080
+    ;;
   local-oidc)
     CONFIGURATION_STORAGE_TYPE=etcd \
       CONFIGURATION_STORAGE_URL=http://localhost:2379 \
