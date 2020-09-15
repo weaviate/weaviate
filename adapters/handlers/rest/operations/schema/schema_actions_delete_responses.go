@@ -27,7 +27,7 @@ import (
 // SchemaActionsDeleteOKCode is the HTTP code returned for type SchemaActionsDeleteOK
 const SchemaActionsDeleteOKCode int = 200
 
-/*SchemaActionsDeleteOK Removed the Action class from the ontology.
+/*SchemaActionsDeleteOK Removed the Action class from the schema.
 
 swagger:response schemaActionsDeleteOK
 */

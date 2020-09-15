@@ -13,10 +13,15 @@ services:
     ports:
      - "8080:8080"
     environment:
-      DEVELOPMENT_UI: "on"
       LOG_LEVEL: "debug"
+      CONFIGURATION_STORAGE_TYPE: etcd
+      CONFIGURATION_STORAGE_URL: http://etcd:2379
+      CONTEXTIONARY_URL: contextionary:9999
+      QUERY_DEFAULTS_LIMIT: 20
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
+      ESVECTOR_URL: http://esvector:9200
   contextionary:
-    image: semitechnologies/contextionary:en0.14.0-v0.4.15
+    image: semitechnologies/contextionary:en0.16.0-v0.4.19
     ports:
       - "9999:9999"
     environment:

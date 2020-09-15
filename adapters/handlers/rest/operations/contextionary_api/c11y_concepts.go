@@ -46,7 +46,7 @@ func NewC11yConcepts(ctx *middleware.Context, handler C11yConceptsHandler) *C11y
 
 Checks if a concept is part of the contextionary.
 
-Checks if a concept is part of the contextionary. Concepts should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase
+Checks if a concept is part of the contextionary. Concepts should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/schema-schema.md#camelcase
 
 */
 type C11yConcepts struct {

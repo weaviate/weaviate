@@ -28,7 +28,6 @@ import (
 	"github.com/semi-technologies/weaviate/client/graphql"
 	"github.com/semi-technologies/weaviate/client/meta"
 	"github.com/semi-technologies/weaviate/client/operations"
-	"github.com/semi-technologies/weaviate/client/p2_p"
 	"github.com/semi-technologies/weaviate/client/schema"
 	"github.com/semi-technologies/weaviate/client/things"
 	"github.com/semi-technologies/weaviate/client/well_known"
@@ -83,7 +82,6 @@ func New(transport runtime.ClientTransport, formats strfmt.Registry) *Weaviate {
 	cli.Graphql = graphql.New(transport, formats)
 	cli.Meta = meta.New(transport, formats)
 	cli.Operations = operations.New(transport, formats)
-	cli.P2p = p2_p.New(transport, formats)
 	cli.Schema = schema.New(transport, formats)
 	cli.Things = things.New(transport, formats)
 	cli.WellKnown = well_known.New(transport, formats)
@@ -145,8 +143,6 @@ type Weaviate struct {
 
 	Operations operations.ClientService
 
-	P2p p2_p.ClientService
-
 	Schema schema.ClientService
 
 	Things things.ClientService
@@ -166,7 +162,6 @@ func (c *Weaviate) SetTransport(transport runtime.ClientTransport) {
 	c.Graphql.SetTransport(transport)
 	c.Meta.SetTransport(transport)
 	c.Operations.SetTransport(transport)
-	c.P2p.SetTransport(transport)
 	c.Schema.SetTransport(transport)
 	c.Things.SetTransport(transport)
 	c.WellKnown.SetTransport(transport)

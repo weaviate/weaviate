@@ -4,7 +4,8 @@ services:
       OCCURRENCE_WEIGHT_LINEAR_FACTOR: 0.75
       SCHEMA_PROVIDER_URL: etcd:2379
       NEIGHBOR_OCCURRENCE_IGNORE_PERCENTILE: 5
-    image: semitechnologies/contextionary:cs0.14.0-v0.4.15
+      ENABLE_COMPOUND_SPLITTING: 'false'
+    image: semitechnologies/contextionary:cs0.14.0-v0.4.19
     ports:
     - 9999:9999
   esvector:
@@ -48,14 +49,17 @@ services:
     - '8080'
     - --scheme
     - http
-    - --config-file
-    - config.yaml
     depends_on:
     - esvector
-    image: semitechnologies/weaviate:0.22.14
+    image: semitechnologies/weaviate:0.22.16
     ports:
     - 8080:8080
     restart: on-failure:0
-    volumes:
-    - ./config.yaml:/config.yaml
+    environment:
+      CONFIGURATION_STORAGE_TYPE: etcd
+      CONFIGURATION_STORAGE_URL: http://etcd:2379
+      CONTEXTIONARY_URL: contextionary:9999
+      QUERY_DEFAULTS_LIMIT: 25
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
+      ESVECTOR_URL: http://esvector:9200
 version: '3.4'

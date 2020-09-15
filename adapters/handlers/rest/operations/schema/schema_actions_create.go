@@ -44,7 +44,7 @@ func NewSchemaActionsCreate(ctx *middleware.Context, handler SchemaActionsCreate
 
 /*SchemaActionsCreate swagger:route POST /schema/actions schema schemaActionsCreate
 
-Create a new Action class in the ontology.
+Create a new Action class in the schema.
 
 */
 type SchemaActionsCreate struct {
