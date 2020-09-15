@@ -13,7 +13,7 @@ require (
 	github.com/elastic/go-elasticsearch/v5 v5.6.0
 	github.com/fatih/camelcase v1.0.0
 	github.com/fatih/color v1.7.0 // indirect
-	github.com/go-openapi/errors v0.19.6
+	github.com/go-openapi/errors v0.19.7
 	github.com/go-openapi/loads v0.19.5
 	github.com/go-openapi/runtime v0.19.21
 	github.com/go-openapi/spec v0.19.8
@@ -43,7 +43,7 @@ require (
 	go.mongodb.org/mongo-driver v1.4.1 // indirect
 	go.uber.org/atomic v1.5.0
 	golang.org/x/net v0.0.0-20200822124328-c89045814202
-	golang.org/x/tools v0.0.0-20200904185747-39188db58858 // indirect
+	golang.org/x/tools v0.0.0-20200915031644-64986481280e // indirect
 	gonum.org/v1/gonum v0.7.0
 	google.golang.org/grpc v1.24.0
 	gopkg.in/square/go-jose.v2 v2.5.1 // indirect
