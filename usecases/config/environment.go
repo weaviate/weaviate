@@ -14,6 +14,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/pkg/errors"
 )
@@ -48,6 +49,17 @@ func FromEnv(config *Config) error {
 		if v := os.Getenv("AUTHENTICATION_OIDC_GROUPS_CLAIM"); v != "" {
 			config.Authentication.OIDC.GroupsClaim = v
 		}
+	}
+
+	if enabled(os.Getenv("AUTHORIZATION_ADMINLIST_ENABLED")) {
+		config.Authorization.AdminList.Enabled = true
+
+		users := strings.Split(os.Getenv("AUTHORIZATION_ADMINLIST_USERS"), ",")
+		roUsers := strings.Split(os.Getenv("AUTHORIZATION_ADMINLIST_READONLY_USERS"),
+			",")
+
+		config.Authorization.AdminList.ReadOnlyUsers = roUsers
+		config.Authorization.AdminList.Users = users
 	}
 
 	if enabled(os.Getenv("STANDALONE_MODE")) {
