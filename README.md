@@ -4,7 +4,7 @@
 
 ## Description
 
-SeMI's Weaviate is a cloud-native, realtime vector search engine that allows you to bring your machine learning models to scale. There are extensions for specific use cases such as semantic search, plugins to integrate Weaviate in any application of your choice and a console to visualize your data.
+Weaviate is a cloud-native, realtime vector search engine that allows you to bring your machine learning models to scale. There are extensions for specific use cases such as semantic search, plugins to integrate Weaviate in any application of your choice and a console to visualize your data.
 
 ## Documentation
 
