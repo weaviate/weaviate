@@ -6,6 +6,8 @@
 
 Weaviate is a cloud-native, realtime vector search engine that allows you to bring your machine learning models to scale. There are extensions for specific use cases such as semantic search, plugins to integrate Weaviate in any application of your choice and a console to visualize your data.
 
+_GraphQL - RESTful - vector search engine - semantic search - HNSW - deep search - machine learning - kNN_
+
 ## Documentation
 
 - [Documentation](https://semi.technology/documentation/weaviate/current/)
