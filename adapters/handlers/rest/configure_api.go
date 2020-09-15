@@ -101,7 +101,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	featureProjector := projector.New()
 	pathBuilder := sempath.New(appState.Contextionary)
 
-	if appState.ServerConfig.Config.CustomDB {
+	if appState.ServerConfig.Config.Standalone {
 		repo := db.New(appState.Logger, db.Config{
 			RootPath: appState.ServerConfig.Config.Persistence.DataPath,
 		})
