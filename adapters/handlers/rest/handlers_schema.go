@@ -87,60 +87,6 @@ func (s *schemaHandlers) addActionProperty(params schema.SchemaActionsProperties
 	return schema.NewSchemaActionsPropertiesAddOK().WithPayload(params.Body)
 }
 
-func (s *schemaHandlers) deleteActionProperty(params schema.SchemaActionsPropertiesDeleteParams,
-	principal *models.Principal) middleware.Responder {
-	err := s.manager.DeleteActionProperty(params.HTTPRequest.Context(), principal, params.ClassName, params.PropertyName)
-	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return schema.NewSchemaActionsPropertiesDeleteForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		default:
-			return schema.NewSchemaActionsPropertiesDeleteInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
-		}
-	}
-
-	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
-	return schema.NewSchemaActionsPropertiesDeleteOK()
-}
-
-func (s *schemaHandlers) updateActionProperty(params schema.SchemaActionsPropertiesUpdateParams,
-	principal *models.Principal) middleware.Responder {
-	ctx := params.HTTPRequest.Context()
-	err := s.manager.UpdateActionProperty(ctx, principal, params.ClassName, params.PropertyName, params.Body)
-	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return schema.NewSchemaActionsPropertiesUpdateForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		default:
-			return schema.NewSchemaActionsPropertiesUpdateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
-		}
-	}
-
-	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
-	return schema.NewSchemaActionsPropertiesUpdateOK()
-}
-
-func (s *schemaHandlers) updateAction(params schema.SchemaActionsUpdateParams, principal *models.Principal) middleware.Responder {
-	ctx := params.HTTPRequest.Context()
-	err := s.manager.UpdateAction(ctx, principal, params.ClassName, params.Body)
-	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return schema.NewSchemaActionsUpdateForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		default:
-			return schema.NewSchemaActionsUpdateUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
-		}
-	}
-
-	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
-	return schema.NewSchemaActionsUpdateOK()
-}
-
 func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *models.Principal) middleware.Responder {
 	dbSchema, err := s.manager.GetSchema(principal)
 	if err != nil {
@@ -213,89 +159,22 @@ func (s *schemaHandlers) addThingProperty(params schema.SchemaThingsPropertiesAd
 	return schema.NewSchemaThingsPropertiesAddOK().WithPayload(params.Body)
 }
 
-func (s *schemaHandlers) deleteThingProperty(params schema.SchemaThingsPropertiesDeleteParams,
-	principal *models.Principal) middleware.Responder {
-	err := s.manager.DeleteThingProperty(params.HTTPRequest.Context(), principal, params.ClassName, params.PropertyName)
-	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return schema.NewSchemaThingsPropertiesDeleteForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		default:
-			return schema.NewSchemaThingsPropertiesDeleteInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
-		}
-	}
-
-	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
-	return schema.NewSchemaThingsPropertiesDeleteOK()
-}
-
-func (s *schemaHandlers) updateThingProperty(params schema.SchemaThingsPropertiesUpdateParams,
-	principal *models.Principal) middleware.Responder {
-	ctx := params.HTTPRequest.Context()
-	err := s.manager.UpdateThingProperty(ctx, principal, params.ClassName, params.PropertyName, params.Body)
-	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return schema.NewSchemaThingsPropertiesUpdateForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		default:
-			return schema.NewSchemaThingsPropertiesUpdateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
-		}
-	}
-
-	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
-	return schema.NewSchemaThingsPropertiesUpdateOK()
-}
-
-func (s *schemaHandlers) updateThing(params schema.SchemaThingsUpdateParams,
-	principal *models.Principal) middleware.Responder {
-	ctx := params.HTTPRequest.Context()
-	err := s.manager.UpdateThing(ctx, principal, params.ClassName, params.Body)
-	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return schema.NewSchemaThingsUpdateForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		default:
-			return schema.NewSchemaThingsUpdateUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
-		}
-	}
-
-	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
-	return schema.NewSchemaThingsUpdateOK()
-}
-
 func setupSchemaHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog, manager *schemaUC.Manager) {
 	h := &schemaHandlers{requestsLog, manager}
 
 	api.SchemaSchemaActionsCreateHandler = schema.
 		SchemaActionsCreateHandlerFunc(h.addAction)
-	api.SchemaSchemaActionsUpdateHandler = schema.
-		SchemaActionsUpdateHandlerFunc(h.updateAction)
 	api.SchemaSchemaActionsDeleteHandler = schema.
 		SchemaActionsDeleteHandlerFunc(h.deleteAction)
 	api.SchemaSchemaActionsPropertiesAddHandler = schema.
 		SchemaActionsPropertiesAddHandlerFunc(h.addActionProperty)
-	api.SchemaSchemaActionsPropertiesDeleteHandler = schema.
-		SchemaActionsPropertiesDeleteHandlerFunc(h.deleteActionProperty)
-	api.SchemaSchemaActionsPropertiesUpdateHandler = schema.
-		SchemaActionsPropertiesUpdateHandlerFunc(h.updateActionProperty)
 
 	api.SchemaSchemaThingsCreateHandler = schema.
 		SchemaThingsCreateHandlerFunc(h.addThing)
-	api.SchemaSchemaThingsUpdateHandler = schema.
-		SchemaThingsUpdateHandlerFunc(h.updateThing)
 	api.SchemaSchemaThingsDeleteHandler = schema.
 		SchemaThingsDeleteHandlerFunc(h.deleteThing)
 	api.SchemaSchemaThingsPropertiesAddHandler = schema.
 		SchemaThingsPropertiesAddHandlerFunc(h.addThingProperty)
-	api.SchemaSchemaThingsPropertiesDeleteHandler = schema.
-		SchemaThingsPropertiesDeleteHandlerFunc(h.deleteThingProperty)
-	api.SchemaSchemaThingsPropertiesUpdateHandler = schema.
-		SchemaThingsPropertiesUpdateHandlerFunc(h.updateThingProperty)
 
 	api.SchemaSchemaDumpHandler = schema.
 		SchemaDumpHandlerFunc(h.getSchema)

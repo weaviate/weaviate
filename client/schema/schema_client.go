@@ -44,12 +44,6 @@ type ClientService interface {
 
 	SchemaActionsPropertiesAdd(params *SchemaActionsPropertiesAddParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsPropertiesAddOK, error)
 
-	SchemaActionsPropertiesDelete(params *SchemaActionsPropertiesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsPropertiesDeleteOK, error)
-
-	SchemaActionsPropertiesUpdate(params *SchemaActionsPropertiesUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsPropertiesUpdateOK, error)
-
-	SchemaActionsUpdate(params *SchemaActionsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsUpdateOK, error)
-
 	SchemaDump(params *SchemaDumpParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaDumpOK, error)
 
 	SchemaThingsCreate(params *SchemaThingsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsCreateOK, error)
@@ -57,12 +51,6 @@ type ClientService interface {
 	SchemaThingsDelete(params *SchemaThingsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsDeleteOK, error)
 
 	SchemaThingsPropertiesAdd(params *SchemaThingsPropertiesAddParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsPropertiesAddOK, error)
-
-	SchemaThingsPropertiesDelete(params *SchemaThingsPropertiesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsPropertiesDeleteOK, error)
-
-	SchemaThingsPropertiesUpdate(params *SchemaThingsPropertiesUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsPropertiesUpdateOK, error)
-
-	SchemaThingsUpdate(params *SchemaThingsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsUpdateOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
 }
@@ -169,111 +157,6 @@ func (a *Client) SchemaActionsPropertiesAdd(params *SchemaActionsPropertiesAddPa
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for schema.actions.properties.add: API contract not enforced by server. Client expected to get an error, but got: %T", result)
-	panic(msg)
-}
-
-/*
-  SchemaActionsPropertiesDelete removes a property from an action class
-*/
-func (a *Client) SchemaActionsPropertiesDelete(params *SchemaActionsPropertiesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsPropertiesDeleteOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewSchemaActionsPropertiesDeleteParams()
-	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "schema.actions.properties.delete",
-		Method:             "DELETE",
-		PathPattern:        "/schema/actions/{className}/properties/{propertyName}",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
-		Schemes:            []string{"https"},
-		Params:             params,
-		Reader:             &SchemaActionsPropertiesDeleteReader{formats: a.formats},
-		AuthInfo:           authInfo,
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	})
-	if err != nil {
-		return nil, err
-	}
-	success, ok := result.(*SchemaActionsPropertiesDeleteOK)
-	if ok {
-		return success, nil
-	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
-	msg := fmt.Sprintf("unexpected success response for schema.actions.properties.delete: API contract not enforced by server. Client expected to get an error, but got: %T", result)
-	panic(msg)
-}
-
-/*
-  SchemaActionsPropertiesUpdate renames or replace the keywords of the property
-*/
-func (a *Client) SchemaActionsPropertiesUpdate(params *SchemaActionsPropertiesUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsPropertiesUpdateOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewSchemaActionsPropertiesUpdateParams()
-	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "schema.actions.properties.update",
-		Method:             "PUT",
-		PathPattern:        "/schema/actions/{className}/properties/{propertyName}",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
-		Schemes:            []string{"https"},
-		Params:             params,
-		Reader:             &SchemaActionsPropertiesUpdateReader{formats: a.formats},
-		AuthInfo:           authInfo,
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	})
-	if err != nil {
-		return nil, err
-	}
-	success, ok := result.(*SchemaActionsPropertiesUpdateOK)
-	if ok {
-		return success, nil
-	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
-	msg := fmt.Sprintf("unexpected success response for schema.actions.properties.update: API contract not enforced by server. Client expected to get an error, but got: %T", result)
-	panic(msg)
-}
-
-/*
-  SchemaActionsUpdate renames or replace the keywords of the action
-*/
-func (a *Client) SchemaActionsUpdate(params *SchemaActionsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsUpdateOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewSchemaActionsUpdateParams()
-	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "schema.actions.update",
-		Method:             "PUT",
-		PathPattern:        "/schema/actions/{className}",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
-		Schemes:            []string{"https"},
-		Params:             params,
-		Reader:             &SchemaActionsUpdateReader{formats: a.formats},
-		AuthInfo:           authInfo,
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	})
-	if err != nil {
-		return nil, err
-	}
-	success, ok := result.(*SchemaActionsUpdateOK)
-	if ok {
-		return success, nil
-	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
-	msg := fmt.Sprintf("unexpected success response for schema.actions.update: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
@@ -414,111 +297,6 @@ func (a *Client) SchemaThingsPropertiesAdd(params *SchemaThingsPropertiesAddPara
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for schema.things.properties.add: API contract not enforced by server. Client expected to get an error, but got: %T", result)
-	panic(msg)
-}
-
-/*
-  SchemaThingsPropertiesDelete removes a property from a thing class
-*/
-func (a *Client) SchemaThingsPropertiesDelete(params *SchemaThingsPropertiesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsPropertiesDeleteOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewSchemaThingsPropertiesDeleteParams()
-	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "schema.things.properties.delete",
-		Method:             "DELETE",
-		PathPattern:        "/schema/things/{className}/properties/{propertyName}",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
-		Schemes:            []string{"https"},
-		Params:             params,
-		Reader:             &SchemaThingsPropertiesDeleteReader{formats: a.formats},
-		AuthInfo:           authInfo,
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	})
-	if err != nil {
-		return nil, err
-	}
-	success, ok := result.(*SchemaThingsPropertiesDeleteOK)
-	if ok {
-		return success, nil
-	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
-	msg := fmt.Sprintf("unexpected success response for schema.things.properties.delete: API contract not enforced by server. Client expected to get an error, but got: %T", result)
-	panic(msg)
-}
-
-/*
-  SchemaThingsPropertiesUpdate renames or replace the keywords of the property
-*/
-func (a *Client) SchemaThingsPropertiesUpdate(params *SchemaThingsPropertiesUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsPropertiesUpdateOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewSchemaThingsPropertiesUpdateParams()
-	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "schema.things.properties.update",
-		Method:             "PUT",
-		PathPattern:        "/schema/things/{className}/properties/{propertyName}",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
-		Schemes:            []string{"https"},
-		Params:             params,
-		Reader:             &SchemaThingsPropertiesUpdateReader{formats: a.formats},
-		AuthInfo:           authInfo,
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	})
-	if err != nil {
-		return nil, err
-	}
-	success, ok := result.(*SchemaThingsPropertiesUpdateOK)
-	if ok {
-		return success, nil
-	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
-	msg := fmt.Sprintf("unexpected success response for schema.things.properties.update: API contract not enforced by server. Client expected to get an error, but got: %T", result)
-	panic(msg)
-}
-
-/*
-  SchemaThingsUpdate renames or replace the keywords of the thing
-*/
-func (a *Client) SchemaThingsUpdate(params *SchemaThingsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsUpdateOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewSchemaThingsUpdateParams()
-	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "schema.things.update",
-		Method:             "PUT",
-		PathPattern:        "/schema/things/{className}",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
-		Schemes:            []string{"https"},
-		Params:             params,
-		Reader:             &SchemaThingsUpdateReader{formats: a.formats},
-		AuthInfo:           authInfo,
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	})
-	if err != nil {
-		return nil, err
-	}
-	success, ok := result.(*SchemaThingsUpdateOK)
-	if ok {
-		return success, nil
-	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
-	msg := fmt.Sprintf("unexpected success response for schema.things.update: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
