@@ -25,10 +25,6 @@ import (
 func (m *Manager) DeleteActionReference(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
 
-	if m.config.Config.EsvectorOnly {
-		return fmt.Errorf("kinds.DeleteActionReference not supported yet in esvector-only mode")
-	}
-
 	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("actions/%s", id.String()))
 	if err != nil {
 		return err

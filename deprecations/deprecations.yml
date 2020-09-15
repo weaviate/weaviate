@@ -14,3 +14,15 @@ deprecations:
     plannedRemovalVersion: "0.23.0"
     removedIn: null
     removedTime: null
+  - id: config-files
+    status: deprecated # switch to removed once feature is completely removed
+    apiType: Configuration
+    locations: 
+    - --config-file=""
+    msg: "use of deprecated command line argument --config-file"
+    mitigation: "Configure Weaviate using environment variables."
+    sinceVersion: "0.22.16"
+    sinceTime: "2020-09-08T09:46:00+00:00"
+    plannedRemovalVersion: "0.23.0"
+    removedIn: null
+    removedTime: null

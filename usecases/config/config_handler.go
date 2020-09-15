@@ -13,12 +13,12 @@ package config
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"regexp"
 
 	"github.com/go-openapi/swag"
+	"github.com/semi-technologies/weaviate/deprecations"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 )
@@ -52,10 +52,16 @@ type Config struct {
 	Authorization        Authorization   `json:"authorization" yaml:"authorization"`
 	Telemetry            Telemetry       `json:"telemetry" yaml:"telemetry"`
 	VectorIndex          VectorIndex     `json:"vector_index" yaml:"vector_index"`
-	EsvectorOnly         bool            `json:"esvectorOnly" yaml:"esvectorOnly"`
-	CustomDB             bool            `json:"customdb" yaml:"customdb"`
+	Standalone           bool            `json:"standalone_mode" yaml:"standalone_mode"`
 	Origin               string          `json:"origin" yaml:"origin"`
 	Persistence          Persistence     `json:"persistence" yaml:"persistence"`
+}
+
+// Validate the non-nested parameters. Nested objects must provide their own
+// validation methods
+func (c Config) Validate() error {
+
+	return nil
 }
 
 // QueryDefaults for optional parameters
@@ -176,15 +182,26 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 	// Read config file
 	file, err := ioutil.ReadFile(configFileName)
 	if err != nil {
-		return errors.New("config file '" + configFileName + "' not found.")
+		// explicitly ignore
 	}
 
-	config, err := f.parseConfigFile(file, configFileName)
-	if err != nil {
+	if len(file) > 0 {
+		config, err := f.parseConfigFile(file, configFileName)
+		if err != nil {
+			return err
+		}
+		f.Config = config
+
+		deprecations.Log(logger, "config-files")
+	}
+
+	if err := FromEnv(&f.Config); err != nil {
 		return err
 	}
 
-	f.Config = config
+	if err := f.Config.Validate(); err != nil {
+		return fmt.Errorf("invalid config: %v", err)
+	}
 
 	if err := f.Config.Authentication.Validate(); err != nil {
 		return fmt.Errorf("invalid config: %v", err)
@@ -196,7 +213,7 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 
 	(&f.Config.VectorIndex).SetDefaults()
 
-	if f.Config.CustomDB {
+	if f.Config.Standalone {
 		if err := f.Config.Persistence.Validate(); err != nil {
 			return fmt.Errorf("invalid config: %v", err)
 		}
