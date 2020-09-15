@@ -194,7 +194,7 @@ func TestUpdateJourney(t *testing.T) {
 			// this time we are updating element-2 and move it away from the search
 			// vector, as well as updating an invert prop
 
-			updatedVec := []float32{-0.1, -0.12, -0.105}
+			updatedVec := []float32{-0.1, -0.12, -0.105123}
 			id := updateTestData()[2].ID
 
 			old, err := repo.ThingByID(context.Background(), id, traverser.SelectProperties{},
