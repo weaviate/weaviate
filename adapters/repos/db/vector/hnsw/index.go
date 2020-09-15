@@ -18,8 +18,10 @@ import (
 	"math/rand"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 )
 
 const importLimit = 200000 // TODO: make variable
@@ -49,11 +51,17 @@ type hnsw struct {
 
 	levelNormalizer float64
 
-	nodes []*hnswVertex
+	nodes []*vertex
 
-	vectorForID vectorForID
+	vectorForID VectorForID
 
 	commitLog CommitLogger
+
+	// a lookup of current tombstones (i.e. nodes that have received a tombstone,
+	// but have not been cleaned up yet) Cleanup is the process of removal of all
+	// outgoing edges to the tombstone as well as deleting the tombstone itself.
+	// This process should happen periodically.
+	tombstones map[int]struct{}
 
 	// // for distributed spike, can be used to call a insertExternal on a different graph
 	// insertHook func(node, targetLevel int, neighborsAtLevel map[int][]uint32)
@@ -63,15 +71,20 @@ type hnsw struct {
 }
 
 type CommitLogger interface {
-	AddNode(node *hnswVertex) error
+	AddNode(node *vertex) error
 	SetEntryPointWithMaxLayer(id int, level int) error
 	AddLinkAtLevel(nodeid int, level int, target uint32) error
 	ReplaceLinksAtLevel(nodeid int, level int, targets []uint32) error
+	AddTombstone(nodeid int) error
+	RemoveTombstone(nodeid int) error
+	DeleteNode(nodeid int) error
+	ClearLinks(nodeid int) error
+	Reset() error
 }
 
-type makeCommitLogger func() CommitLogger
+type MakeCommitLogger func() CommitLogger
 
-type vectorForID func(ctx context.Context, id int32) ([]float32, error)
+type VectorForID func(ctx context.Context, id int32) ([]float32, error)
 
 // New creates a new HNSW index, the commit logger is provided through a thunk
 // (a function which can be deferred). This is because creating a commit logger
@@ -79,28 +92,35 @@ type vectorForID func(ctx context.Context, id int32) ([]float32, error)
 // criterium for the index to see if it has to recover from disk or if its a
 // truly new index. So instead the index is initialized, with un-biased disk
 // checks first and only then is the commit logger created
-func New(rootPath, id string, makeCommitLogger makeCommitLogger, maximumConnections int,
-	efConstruction int, vectorForID vectorForID) (*hnsw, error) {
+func New(cfg Config) (*hnsw, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, errors.Wrap(err, "invalid config")
+	}
 
-	vectorCache := newCache(vectorForID)
-
+	vectorCache := newCache(cfg.VectorForIDThunk)
 	index := &hnsw{
-		maximumConnections:          maximumConnections,
-		maximumConnectionsLayerZero: 2 * maximumConnections,                    // inspired by original paper and other implementations
-		levelNormalizer:             1 / math.Log(float64(maximumConnections)), // inspired by c++ implementation
-		efConstruction:              efConstruction,
-		nodes:                       make([]*hnswVertex, 0), // TODO: grow variably rather than fixed length
-		vectorForID:                 vectorCache.get,
-		id:                          id,
-		rootPath:                    rootPath,
+		maximumConnections: cfg.MaximumConnections,
+
+		// inspired by original paper and other implementations
+		maximumConnectionsLayerZero: 2 * cfg.MaximumConnections,
+
+		// inspired by c++ implementation
+		levelNormalizer: 1 / math.Log(float64(cfg.MaximumConnections)),
+		efConstruction:  cfg.EFConstruction,
+		nodes:           make([]*vertex, importLimit), // TODO: grow variably rather than fixed length
+		vectorForID:     vectorCache.get,
+		id:              cfg.ID,
+		rootPath:        cfg.RootPath,
+		tombstones:      map[int]struct{}{},
 	}
 
 	if err := index.restoreFromDisk(); err != nil {
-		return nil, errors.Wrapf(err, "restore hnsw index %q", id)
+		return nil, errors.Wrapf(err, "restore hnsw index %q", cfg.ID)
 	}
 
 	// init commit logger for future writes
-	index.commitLog = makeCommitLogger()
+	index.commitLog = cfg.MakeCommitLoggerThunk()
+	index.registerMaintainence(cfg)
 
 	return index, nil
 }
@@ -131,8 +151,33 @@ func (h *hnsw) restoreFromDisk() error {
 	h.nodes = res.nodes
 	h.currentMaximumLayer = int(res.level)
 	h.entryPointID = int(res.entrypoint)
+	h.tombstones = res.tombstones
 
 	return nil
+}
+
+func (h *hnsw) registerMaintainence(cfg Config) {
+	h.registerTombstoneCleanup(cfg)
+}
+
+func (h *hnsw) registerTombstoneCleanup(cfg Config) {
+	if cfg.TombstoneCleanupInterval == 0 {
+		// user is not interested in periodically cleaning up tombstones, clean up
+		// will be manual. (This is also helpful in tests where we want to
+		// explicitly control the point at which a cleanup happens)
+		return
+	}
+
+	go func() {
+		for {
+			time.Sleep(cfg.TombstoneCleanupInterval)
+			err := h.CleanUpTombstonedNodes()
+			if err != nil {
+				// TODO: log properly
+				fmt.Printf("tombstone cleanup errored: %v\n", err)
+			}
+		}
+	}()
 }
 
 // TODO: use this for incoming replication
@@ -239,39 +284,31 @@ func (h *hnsw) Add(id int, vector []float32) error {
 		return fmt.Errorf("insert called with nil-vector")
 	}
 
-	node := &hnswVertex{
+	node := &vertex{
 		id: id,
 	}
 
 	return h.insert(node, vector)
 }
 
-func (h *hnsw) insert(node *hnswVertex, nodeVec []float32) error {
+func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
+	h.Lock()
+	defer h.Unlock()
+	h.commitLog.SetEntryPointWithMaxLayer(node.id, 0)
+	h.entryPointID = node.id
+	h.currentMaximumLayer = 0
+	node.connections = map[int][]uint32{}
+	node.level = 0
+	h.commitLog.AddNode(node)
+	h.nodes[node.id] = node
 
-	// before := time.Now()
-	h.RLock()
-	// m.addBuildingReadLockingBeginning(before)
-	total := len(h.nodes)
-	h.RUnlock()
+	// go h.insertHook(node.id, 0, node.connections)
+	return nil
+}
 
-	if total == 0 {
-		h.Lock()
-		if len(h.nodes) != 0 {
-			h.Unlock()
-		} else {
-			h.commitLog.SetEntryPointWithMaxLayer(node.id, 0)
-			h.entryPointID = node.id
-			h.currentMaximumLayer = 0
-			node.connections = map[int][]uint32{}
-			node.level = 0
-			h.nodes = make([]*hnswVertex, importLimit)
-			h.commitLog.AddNode(node)
-			h.nodes[node.id] = node
-
-			h.Unlock()
-			// go h.insertHook(node.id, 0, node.connections)
-			return nil
-		}
+func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
+	if h.isEmpty() {
+		return h.insertInitialElement(node, nodeVec)
 	}
 	// initially use the "global" entrypoint which is guaranteed to be on the
 	// currently highest layer
@@ -298,22 +335,81 @@ func (h *hnsw) insert(node *hnswVertex, nodeVec []float32) error {
 	h.commitLog.AddNode(node)
 	h.Unlock()
 
+	entryPointID, err := h.findBestEntrypointForNode(currentMaximumLayer, targetLevel,
+		entryPointID, nodeVec)
+	if err != nil {
+		return errors.Wrap(err, "find best entrypoint")
+	}
+
+	if err := h.findAndConnectNeighbors(node, entryPointID, nodeVec,
+		targetLevel, currentMaximumLayer, nil); err != nil {
+		return errors.Wrap(err, "find and connect neighbors")
+	}
+
+	// go h.insertHook(nodeId, targetLevel, neighborsAtLevel)
+
+	if targetLevel > h.currentMaximumLayer {
+		// before = time.Now()
+		h.Lock()
+		// m.addBuildingLocking(before)
+		h.commitLog.SetEntryPointWithMaxLayer(nodeId, targetLevel)
+		h.entryPointID = nodeId
+		h.currentMaximumLayer = targetLevel
+		h.Unlock()
+	}
+
+	return nil
+}
+
+func (v *vertex) linkAtLevel(level int, target uint32, cl CommitLogger) {
+	v.Lock()
+	cl.AddLinkAtLevel(v.id, level, target)
+	if targetContained(v.connections[level], target) {
+		// already linked, nothing to do
+		v.Unlock()
+		return
+	}
+	v.connections[level] = append(v.connections[level], target)
+	v.Unlock()
+}
+
+func targetContained(haystack []uint32, needle uint32) bool {
+	for _, candidate := range haystack {
+		if candidate == needle {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
+	entryPointID int, nodeVec []float32) (int, error) {
+
 	// in case the new target is lower than the current max, we need to search
 	// each layer for a better candidate and update the candidate
-	for level := currentMaximumLayer; level > targetLevel; level-- {
+	for level := currentMaxLevel; level > targetLevel; level-- {
 		tmpBST := &binarySearchTreeGeneric{}
 		dist, err := h.distBetweenNodeAndVec(entryPointID, nodeVec)
 		if err != nil {
-			return errors.Wrapf(err, "calculate distance between insert node and entry point at level %d", level)
+			return 0, errors.Wrapf(err,
+				"calculate distance between insert node and entry point at level %d", level)
 		}
 		tmpBST.insert(entryPointID, dist)
 		res, err := h.searchLayerByVector(nodeVec, *tmpBST, 1, level, nil)
 		if err != nil {
-			return errors.Wrapf(err, "update candidate: search layer at level %d", level)
+			return 0,
+				errors.Wrapf(err, "update candidate: search layer at level %d", level)
 		}
 		entryPointID = res.minimum().index
 	}
 
+	return entryPointID, nil
+}
+
+func (h *hnsw) findAndConnectNeighbors(node *vertex,
+	entryPointID int, nodeVec []float32, targetLevel, currentMaxLevel int,
+	denyList inverted.AllowList) error {
 	var results = &binarySearchTreeGeneric{}
 	dist, err := h.distBetweenNodeAndVec(entryPointID, nodeVec)
 	if err != nil {
@@ -321,19 +417,42 @@ func (h *hnsw) insert(node *hnswVertex, nodeVec []float32) error {
 	}
 	results.insert(entryPointID, dist)
 
-	neighborsAtLevel := make(map[int][]uint32) // for distributed spike
+	// neighborsAtLevel := make(map[int][]uint32) // for distributed spike
 
-	for level := min(targetLevel, currentMaximumLayer); level >= 0; level-- {
-		results, err = h.searchLayerByVector(nodeVec, *results, h.efConstruction, level, nil)
+	for level := min(targetLevel, currentMaxLevel); level >= 0; level-- {
+		results, err = h.searchLayerByVector(nodeVec, *results, h.efConstruction,
+			level, nil)
 		if err != nil {
 			return errors.Wrapf(err, "find neighbors: search layer at level %d", level)
 		}
 
-		// TODO: support both neighbor selection algos
-		neighbors := h.selectNeighborsSimple(nodeId, *results, h.maximumConnections)
+		if results.contains(node.id, 0) {
+			// Make sure we don't get the node we're currently assigning on the
+			// result list. This could lead to a self-link, but far worse it could
+			// lead to using ourself as an entry point on the next lower level. In
+			// the process of (re)-assigning edges it would be fatal to use ourselves
+			// as an entrypoint, as there are only two possible scenarios: 1. This is
+			// a new insert, so we don't have edges yet. 2. This is a re-assign after
+			// a delete, so we did originally have edges, but they were cleared in
+			// preparation for the re-assignment.
+			//
+			// So why is it so bad to have ourselves (without connections) as an
+			// entrypoint? Because the exit condidtion in searchLayerByVector is if
+			// the candidates distance is worse than the current worst distance.
+			// Naturally, the node itself has the best distance (=0) to itself, so
+			// we'd ignore all other elements. However, since the node - as outlined
+			// before - has no nodes, the search wouldn't find any results. Thus we
+			// also can't add any new connections, leading to an isolated node in the
+			// graph. If that isolated node were to become the graphs entrypoint, the
+			// graph is basically unusable.
+			results.delete(node.id, 0)
+		}
 
-		// for distributed spike
-		neighborsAtLevel[level] = neighbors
+		// TODO: support both neighbor selection algos
+		neighbors := h.selectNeighborsSimple(*results, h.maximumConnections, denyList)
+
+		// // for distributed spike
+		// neighborsAtLevel[level] = neighbors
 
 		for _, neighborID := range neighbors {
 			// before := time.Now()
@@ -342,7 +461,12 @@ func (h *hnsw) insert(node *hnswVertex, nodeVec []float32) error {
 			neighbor := h.nodes[neighborID]
 			h.RUnlock()
 
-			neighbor.linkAtLevel(level, uint32(nodeId), h.commitLog)
+			if neighbor == node {
+				// don't connect to self
+				continue
+			}
+
+			neighbor.linkAtLevel(level, uint32(node.id), h.commitLog)
 			node.linkAtLevel(level, uint32(neighbor.id), h.commitLog)
 
 			// before = time.Now()
@@ -362,7 +486,8 @@ func (h *hnsw) insert(node *hnswVertex, nodeVec []float32) error {
 			}
 
 			// TODO: support both neighbor selection algos
-			updatedConnections, err := h.selectNeighborsSimpleFromId(nodeId, currentConnections, maximumConnections)
+			updatedConnections, err := h.selectNeighborsSimpleFromId(node.id,
+				currentConnections, maximumConnections, denyList)
 			if err != nil {
 				return errors.Wrap(err, "connect neighbors")
 			}
@@ -376,29 +501,10 @@ func (h *hnsw) insert(node *hnswVertex, nodeVec []float32) error {
 		}
 	}
 
-	// go h.insertHook(nodeId, targetLevel, neighborsAtLevel)
-
-	if targetLevel > h.currentMaximumLayer {
-		// before = time.Now()
-		h.Lock()
-		// m.addBuildingLocking(before)
-		h.commitLog.SetEntryPointWithMaxLayer(nodeId, targetLevel)
-		h.entryPointID = nodeId
-		h.currentMaximumLayer = targetLevel
-		h.Unlock()
-	}
-
 	return nil
 }
 
-func (v *hnswVertex) linkAtLevel(level int, target uint32, cl CommitLogger) {
-	v.Lock()
-	cl.AddLinkAtLevel(v.id, level, target)
-	v.connections[level] = append(v.connections[level], target)
-	v.Unlock()
-}
-
-type hnswVertex struct {
+type vertex struct {
 	id int
 	sync.RWMutex
 	level       int
@@ -481,4 +587,17 @@ func (h *hnsw) Stats() {
 		fmt.Printf("unique count on level %d: %d\n", level, count)
 	}
 
+}
+
+func (h *hnsw) isEmpty() bool {
+	h.RLock()
+	defer h.RUnlock()
+
+	for _, node := range h.nodes {
+		if node != nil {
+			return false
+		}
+	}
+
+	return true
 }

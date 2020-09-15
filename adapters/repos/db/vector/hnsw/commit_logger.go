@@ -52,10 +52,15 @@ const (
 	setEntryPointMaxLevel
 	addLinkAtLevel
 	replaceLinksAtLevel
+	addTombstone
+	removeTombstone
+	clearLinks
+	deleteNode
+	resetIndex
 )
 
 // AddNode adds an empty node
-func (l *hnswCommitLogger) AddNode(node *hnswVertex) error {
+func (l *hnswCommitLogger) AddNode(node *vertex) error {
 	w := &bytes.Buffer{}
 	l.writeCommitType(w, addNode)
 	l.writeUint32(w, uint32(node.id))
@@ -95,6 +100,50 @@ func (l *hnswCommitLogger) ReplaceLinksAtLevel(nodeid int, level int, targets []
 	l.writeUint16(w, uint16(level))
 	l.writeUint16(w, uint16(len(targets)))
 	l.writeUint32Slice(w, targets)
+
+	l.events <- w.Bytes()
+	return nil
+}
+
+func (l *hnswCommitLogger) AddTombstone(nodeid int) error {
+	w := &bytes.Buffer{}
+	l.writeCommitType(w, addTombstone)
+	l.writeUint32(w, uint32(nodeid))
+
+	l.events <- w.Bytes()
+	return nil
+}
+
+func (l *hnswCommitLogger) RemoveTombstone(nodeid int) error {
+	w := &bytes.Buffer{}
+	l.writeCommitType(w, removeTombstone)
+	l.writeUint32(w, uint32(nodeid))
+
+	l.events <- w.Bytes()
+	return nil
+}
+
+func (l *hnswCommitLogger) ClearLinks(nodeid int) error {
+	w := &bytes.Buffer{}
+	l.writeCommitType(w, clearLinks)
+	l.writeUint32(w, uint32(nodeid))
+
+	l.events <- w.Bytes()
+	return nil
+}
+
+func (l *hnswCommitLogger) DeleteNode(nodeid int) error {
+	w := &bytes.Buffer{}
+	l.writeCommitType(w, deleteNode)
+	l.writeUint32(w, uint32(nodeid))
+
+	l.events <- w.Bytes()
+	return nil
+}
+
+func (l *hnswCommitLogger) Reset() error {
+	w := &bytes.Buffer{}
+	l.writeCommitType(w, resetIndex)
 
 	l.events <- w.Bytes()
 	return nil

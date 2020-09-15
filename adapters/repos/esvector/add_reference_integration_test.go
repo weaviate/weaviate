@@ -118,9 +118,10 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 	refreshAll(t, client)
 
 	t.Run("add reference between them", func(t *testing.T) {
-		err := repo.AddReference(context.Background(), kind.Thing, sourceID, "toTarget", &models.SingleRef{
-			Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", targetID)),
-		})
+		err := repo.AddReference(context.Background(), kind.Thing,
+			"AddingReferencesTestSource", sourceID, "toTarget", &models.SingleRef{
+				Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", targetID)),
+			})
 		assert.Nil(t, err)
 	})
 
@@ -146,9 +147,10 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 	})
 
 	t.Run("reference a second target", func(t *testing.T) {
-		err := repo.AddReference(context.Background(), kind.Thing, sourceID, "toTarget", &models.SingleRef{
-			Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", target2ID)),
-		})
+		err := repo.AddReference(context.Background(), kind.Thing,
+			"AddingReferencesTestSource", sourceID, "toTarget", &models.SingleRef{
+				Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", target2ID)),
+			})
 		assert.Nil(t, err)
 	})
 

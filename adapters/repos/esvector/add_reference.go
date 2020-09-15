@@ -21,31 +21,29 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
-func (r *Repo) classNameFromID(ctx context.Context, k kind.Kind, id strfmt.UUID) (string, error) {
-	var res *search.Result
-	var err error
-	switch k {
-	case kind.Thing:
-		res, err = r.ThingByID(ctx, id, nil, traverser.UnderscoreProperties{})
-	case kind.Action:
-		res, err = r.ActionByID(ctx, id, nil, traverser.UnderscoreProperties{})
-	default:
-		return "", fmt.Errorf("impossible kind: %v", k)
-	}
-	if err != nil {
-		return "", err
-	}
+// func (r *Repo) classNameFromID(ctx context.Context, k kind.Kind, id strfmt.UUID) (string, error) {
+// 	var res *search.Result
+// 	var err error
+// 	switch k {
+// 	case kind.Thing:
+// 		res, err = r.ThingByID(ctx, id, nil, traverser.UnderscoreProperties{})
+// 	case kind.Action:
+// 		res, err = r.ActionByID(ctx, id, nil, traverser.UnderscoreProperties{})
+// 	default:
+// 		return "", fmt.Errorf("impossible kind: %v", k)
+// 	}
+// 	if err != nil {
+// 		return "", err
+// 	}
 
-	if res == nil {
-		return "", fmt.Errorf("source not found")
-	}
+// 	if res == nil {
+// 		return "", fmt.Errorf("source not found")
+// 	}
 
-	return res.ClassName, nil
-}
+// 	return res.ClassName, nil
+// }
 
 func (r *Repo) upsertReferenceBucket(refProp string, ref *models.SingleRef) map[string]interface{} {
 	return map[string]interface{}{
@@ -69,19 +67,13 @@ func (r *Repo) upsertReferenceBucket(refProp string, ref *models.SingleRef) map[
 
 }
 
-func (r *Repo) AddReference(ctx context.Context, k kind.Kind, source strfmt.UUID,
-	refProp string, ref *models.SingleRef) error {
-	// we need to first search for the source, as we need the class name to
-	// reference the exact ES index
-	className, err := r.classNameFromID(ctx, k, source)
-	if err != nil {
-		return fmt.Errorf("look up class name: %v", err)
-	}
+func (r *Repo) AddReference(ctx context.Context, k kind.Kind, className string,
+	source strfmt.UUID, refProp string, ref *models.SingleRef) error {
 
 	body := r.upsertReferenceBucket(refProp, ref)
 
 	var buf bytes.Buffer
-	err = json.NewEncoder(&buf).Encode(body)
+	err := json.NewEncoder(&buf).Encode(body)
 	if err != nil {
 		return fmt.Errorf("index request: encode json: %v", err)
 	}

@@ -27,14 +27,16 @@ func newDeserializer() *deserializer {
 }
 
 type deserializationResult struct {
-	nodes      []*hnswVertex
+	nodes      []*vertex
 	entrypoint uint32
 	level      uint16
+	tombstones map[int]struct{}
 }
 
 func (c *deserializer) Do(fd *os.File) (*deserializationResult, error) {
 	out := &deserializationResult{
-		nodes: make([]*hnswVertex, importLimit), // assume fixed length for now, make growable later
+		nodes:      make([]*vertex, importLimit), // assume fixed length for now, make growable later
+		tombstones: make(map[int]struct{}),
 	}
 
 	for {
@@ -60,6 +62,18 @@ func (c *deserializer) Do(fd *os.File) (*deserializationResult, error) {
 			err = c.readLink(fd, out.nodes)
 		case replaceLinksAtLevel:
 			err = c.readLinks(fd, out.nodes)
+		case addTombstone:
+			err = c.readAddTombstone(fd, out.tombstones)
+		case removeTombstone:
+			err = c.readRemoveTombstone(fd, out.tombstones)
+		case clearLinks:
+			err = c.readClearLinks(fd, out.nodes)
+		case deleteNode:
+			err = c.readDeleteNode(fd, out.nodes)
+		case resetIndex:
+			out.entrypoint = 0
+			out.level = 0
+			out.nodes = make([]*vertex, importLimit) // TODO: make variable
 		default:
 			err = fmt.Errorf("unrecognized commit type %d", ct)
 		}
@@ -71,7 +85,7 @@ func (c *deserializer) Do(fd *os.File) (*deserializationResult, error) {
 	return out, nil
 }
 
-func (c *deserializer) readNode(r io.Reader, nodes []*hnswVertex) error {
+func (c *deserializer) readNode(r io.Reader, nodes []*vertex) error {
 	id, err := c.readUint32(r)
 	if err != nil {
 		return err
@@ -87,7 +101,7 @@ func (c *deserializer) readNode(r io.Reader, nodes []*hnswVertex) error {
 	}
 
 	if nodes[id] == nil {
-		nodes[id] = &hnswVertex{level: int(level), id: int(id), connections: make(map[int][]uint32)}
+		nodes[id] = &vertex{level: int(level), id: int(id), connections: make(map[int][]uint32)}
 	} else {
 		nodes[id].level = int(level)
 	}
@@ -108,7 +122,7 @@ func (c *deserializer) readEP(r io.Reader) (uint32, uint16, error) {
 	return id, level, nil
 }
 
-func (c *deserializer) readLink(r io.Reader, nodes []*hnswVertex) error {
+func (c *deserializer) readLink(r io.Reader, nodes []*vertex) error {
 	source, err := c.readUint32(r)
 	if err != nil {
 		return err
@@ -125,14 +139,14 @@ func (c *deserializer) readLink(r io.Reader, nodes []*hnswVertex) error {
 	}
 
 	if int(source) >= len(nodes) || nodes[int(source)] == nil {
-		nodes[int(source)] = &hnswVertex{id: int(source), connections: make(map[int][]uint32)}
+		nodes[int(source)] = &vertex{id: int(source), connections: make(map[int][]uint32)}
 	}
 
 	nodes[int(source)].connections[int(level)] = append(nodes[int(source)].connections[int(level)], target)
 	return nil
 }
 
-func (c *deserializer) readLinks(r io.Reader, nodes []*hnswVertex) error {
+func (c *deserializer) readLinks(r io.Reader, nodes []*vertex) error {
 	source, err := c.readUint32(r)
 	if err != nil {
 		return err
@@ -158,6 +172,64 @@ func (c *deserializer) readLinks(r io.Reader, nodes []*hnswVertex) error {
 	}
 
 	nodes[int(source)].connections[int(level)] = targets
+	return nil
+}
+
+func (c *deserializer) readAddTombstone(r io.Reader, tombstones map[int]struct{}) error {
+	id, err := c.readUint32(r)
+	if err != nil {
+		return err
+	}
+
+	tombstones[int(id)] = struct{}{}
+
+	return nil
+}
+
+func (c *deserializer) readRemoveTombstone(r io.Reader, tombstones map[int]struct{}) error {
+	id, err := c.readUint32(r)
+	if err != nil {
+		return err
+	}
+
+	delete(tombstones, int(id))
+
+	return nil
+}
+
+func (c *deserializer) readClearLinks(r io.Reader, nodes []*vertex) error {
+	id, err := c.readUint32(r)
+	if err != nil {
+		return err
+	}
+
+	if int(id) > len(nodes) {
+		// node is out of bounds, so it can't exist, nothing to do here
+		return nil
+	}
+
+	if nodes[id] == nil {
+		// node has been deleted or never existed, nothing to do
+		return nil
+	}
+
+	nodes[id].connections = map[int][]uint32{}
+	fmt.Printf("links cleared for node %d\n", id)
+	return nil
+}
+
+func (c *deserializer) readDeleteNode(r io.Reader, nodes []*vertex) error {
+	id, err := c.readUint32(r)
+	if err != nil {
+		return err
+	}
+
+	if int(id) > len(nodes) {
+		// node is out of bounds, so it can't exist, nothing to do here
+		return nil
+	}
+
+	nodes[id] = nil
 	return nil
 }
 
