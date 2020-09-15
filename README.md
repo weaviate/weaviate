@@ -12,6 +12,7 @@ Weaviate is a cloud-native, realtime vector search engine that allows you to bri
   - Installation
     - [Docker Compose](https://semi.technology/documentation/weaviate/current/getting-started/installation.html#docker-compose)
     - [Cloud Deployment](https://semi.technology/documentation/weaviate/current/getting-started/installation.html#cloud-deployment)
+    - [Weaviate Cluster Service (beta)](https://semi.technology/documentation/weaviate/current/getting-started/installation.html#weaviate-cluster-service)
     - [Kubernetes](https://semi.technology/documentation/weaviate/current/getting-started/installation.html#kubernetes)
   - Client Libraries
     - [Python](https://semi.technology/documentation/weaviate/current/client-libraries/python.html)
