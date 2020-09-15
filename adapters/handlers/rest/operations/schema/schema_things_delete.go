@@ -44,7 +44,7 @@ func NewSchemaThingsDelete(ctx *middleware.Context, handler SchemaThingsDeleteHa
 
 /*SchemaThingsDelete swagger:route DELETE /schema/things/{className} schema schemaThingsDelete
 
-Remove a Thing class (and all data in the instances) from the ontology.
+Remove a Thing class (and all data in the instances) from the schema.
 
 */
 type SchemaThingsDelete struct {
