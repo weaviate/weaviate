@@ -56,7 +56,7 @@ type ClientService interface {
 }
 
 /*
-  SchemaActionsCreate creates a new action class in the ontology
+  SchemaActionsCreate creates a new action class in the schema
 */
 func (a *Client) SchemaActionsCreate(params *SchemaActionsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -91,7 +91,7 @@ func (a *Client) SchemaActionsCreate(params *SchemaActionsCreateParams, authInfo
 }
 
 /*
-  SchemaActionsDelete removes an action class and all data in the instances from the ontology
+  SchemaActionsDelete removes an action class and all data in the instances from the schema
 */
 func (a *Client) SchemaActionsDelete(params *SchemaActionsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsDeleteOK, error) {
 	// TODO: Validate the params before sending
@@ -196,7 +196,7 @@ func (a *Client) SchemaDump(params *SchemaDumpParams, authInfo runtime.ClientAut
 }
 
 /*
-  SchemaThingsCreate creates a new thing class in the ontology
+  SchemaThingsCreate creates a new thing class in the schema
 */
 func (a *Client) SchemaThingsCreate(params *SchemaThingsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -231,7 +231,7 @@ func (a *Client) SchemaThingsCreate(params *SchemaThingsCreateParams, authInfo r
 }
 
 /*
-  SchemaThingsDelete removes a thing class and all data in the instances from the ontology
+  SchemaThingsDelete removes a thing class and all data in the instances from the schema
 */
 func (a *Client) SchemaThingsDelete(params *SchemaThingsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsDeleteOK, error) {
 	// TODO: Validate the params before sending

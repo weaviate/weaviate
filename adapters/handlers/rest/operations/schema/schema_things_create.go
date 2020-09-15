@@ -44,7 +44,7 @@ func NewSchemaThingsCreate(ctx *middleware.Context, handler SchemaThingsCreateHa
 
 /*SchemaThingsCreate swagger:route POST /schema/things schema schemaThingsCreate
 
-Create a new Thing class in the ontology.
+Create a new Thing class in the schema.
 
 */
 type SchemaThingsCreate struct {

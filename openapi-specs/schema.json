@@ -2374,7 +2374,7 @@
     },
     "/schema/actions": {
       "post": {
-        "summary": "Create a new Action class in the ontology.",
+        "summary": "Create a new Action class in the schema.",
         "operationId": "schema.actions.create",
         "x-serviceIds": ["weaviate.local.add.meta"],
         "tags": ["schema"],
@@ -2390,7 +2390,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Added the new Action class to the ontology.",
+            "description": "Added the new Action class to the schema.",
             "schema": {
               "$ref": "#/definitions/Class"
             }
@@ -2421,7 +2421,7 @@
     },
     "/schema/actions/{className}": {
       "delete": {
-        "summary": "Remove an Action class (and all data in the instances) from the ontology.",
+        "summary": "Remove an Action class (and all data in the instances) from the schema.",
         "operationId": "schema.actions.delete",
         "x-serviceIds": ["weaviate.local.manipulate.meta"],
         "tags": ["schema"],
@@ -2435,7 +2435,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Removed the Action class from the ontology."
+            "description": "Removed the Action class from the schema."
           },
           "400": {
             "description": "Could not delete the Action class.",
@@ -2516,7 +2516,7 @@
     },
     "/schema/things": {
       "post": {
-        "summary": "Create a new Thing class in the ontology.",
+        "summary": "Create a new Thing class in the schema.",
         "operationId": "schema.things.create",
         "x-serviceIds": ["weaviate.local.add.meta"],
         "tags": ["schema"],
@@ -2532,7 +2532,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Added the new Thing class to the ontology.",
+            "description": "Added the new Thing class to the schema.",
             "schema": {
               "$ref": "#/definitions/Class"
             }
@@ -2563,7 +2563,7 @@
     },
     "/schema/things/{className}": {
       "delete": {
-        "summary": "Remove a Thing class (and all data in the instances) from the ontology.",
+        "summary": "Remove a Thing class (and all data in the instances) from the schema.",
         "operationId": "schema.things.delete",
         "x-serviceIds": ["weaviate.local.manipulate.meta"],
         "tags": ["schema"],
@@ -2577,7 +2577,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Removed the Thing class from the ontology."
+            "description": "Removed the Thing class from the schema."
           },
           "400": {
             "description": "Could not delete the Thing class.",
@@ -3209,7 +3209,7 @@
     },
     "/c11y/words/{words}": {
       "get": {
-        "description": "Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase",
+        "description": "Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/schema-schema.md#camelcase",
         "operationId": "c11y.words",
         "x-serviceIds": ["weaviate.c11y.words.get"],
         "parameters": [
@@ -3261,7 +3261,7 @@
     },
     "/c11y/concepts/{concept}": {
       "get": {
-        "description": "Checks if a concept is part of the contextionary. Concepts should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase",
+        "description": "Checks if a concept is part of the contextionary. Concepts should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/schema-schema.md#camelcase",
         "operationId": "c11y.concepts",
         "x-serviceIds": ["weaviate.c11y.words.get"],
         "parameters": [

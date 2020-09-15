@@ -27,7 +27,7 @@ import (
 // SchemaThingsDeleteOKCode is the HTTP code returned for type SchemaThingsDeleteOK
 const SchemaThingsDeleteOKCode int = 200
 
-/*SchemaThingsDeleteOK Removed the Thing class from the ontology.
+/*SchemaThingsDeleteOK Removed the Thing class from the schema.
 
 swagger:response schemaThingsDeleteOK
 */
