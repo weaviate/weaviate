@@ -41,16 +41,14 @@ type GraphQL interface {
 }
 
 type graphQL struct {
-	schema         graphql.Schema
-	traverser      Traverser
-	requestsLogger RequestsLogger
-	networkPeers   peers.Peers
-	config         config.Config
+	schema       graphql.Schema
+	traverser    Traverser
+	networkPeers peers.Peers
+	config       config.Config
 }
 
 // Construct a GraphQL API from the database schema, and resolver interface.
 func Build(schema *schema.Schema, peers peers.Peers, traverser Traverser,
-	requestsLogger RequestsLogger,
 	logger logrus.FieldLogger, config config.Config) (GraphQL, error) {
 
 	logger.WithField("action", "graphql_rebuild").
@@ -64,11 +62,10 @@ func Build(schema *schema.Schema, peers peers.Peers, traverser Traverser,
 	}
 
 	return &graphQL{
-		schema:         graphqlSchema,
-		traverser:      traverser,
-		requestsLogger: requestsLogger,
-		networkPeers:   peers,
-		config:         config,
+		schema:       graphqlSchema,
+		traverser:    traverser,
+		networkPeers: peers,
+		config:       config,
 	}, nil
 }
 
@@ -79,7 +76,6 @@ func (g *graphQL) Resolve(context context.Context, query string, operationName s
 		RootObject: map[string]interface{}{
 			"Resolver":     g.traverser,
 			"NetworkPeers": g.networkPeers,
-			"RequestsLog":  g.requestsLogger,
 			"Config":       g.config,
 		},
 		RequestString:  query,

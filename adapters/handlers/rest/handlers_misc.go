@@ -24,7 +24,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/network"
-	"github.com/semi-technologies/weaviate/usecases/telemetry"
 )
 
 type schemaManager interface {
@@ -43,8 +42,8 @@ type c11yMetaProvider interface {
 	WordCount(ctx context.Context) (int64, error)
 }
 
-func setupMiscHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog,
-	serverConfig *config.WeaviateConfig, network network.Network, schemaManager schemaManager, c11y c11yMetaProvider) {
+func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.WeaviateConfig,
+	network network.Network, schemaManager schemaManager, c11y c11yMetaProvider) {
 
 	var swj swaggerJSON
 	err := json.Unmarshal(SwaggerJSON, &swj)
@@ -71,10 +70,6 @@ func setupMiscHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Reque
 			ContextionaryWordCount: c11yWordCount,
 		}
 
-		// Register the request
-		go func() {
-			requestsLog.Register(telemetry.TypeREST, telemetry.LocalQueryMeta)
-		}()
 		return meta.NewMetaGetOK().WithPayload(res)
 	})
 
