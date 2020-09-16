@@ -175,9 +175,5 @@ func (m *Manager) validateCanModifyReference(principal *models.Principal, k kind
 		return NewErrInvalidUserInput("property '%s' is a primitive datatype, not a reference-type", propertyName)
 	}
 
-	if prop.Cardinality == nil || *prop.Cardinality != "many" {
-		return NewErrInvalidUserInput("Property '%s' has a cardinality of atMostOne", propertyName)
-	}
-
 	return nil
 }
