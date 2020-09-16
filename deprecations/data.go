@@ -60,4 +60,13 @@ var ByID = map[string]models.Deprecation{
 		SinceVersion: "0.22.16",
 		SinceTime:    timeMust(time.Parse(time.RFC3339, "2020-09-08T09:46:00.000Z")),
 	},
+	"cardinality": models.Deprecation{
+		ID:           "cardinality",
+		Status:       "deprecated",
+		APIType:      "REST",
+		Mitigation:   "Omit this field. Starting in 0.22.7 it no longer has any effect.",
+		Msg:          "use of deprecated property option 'cardinality'",
+		SinceVersion: "0.22.17",
+		SinceTime:    timeMust(time.Parse(time.RFC3339, "2020-09-16T09:06:00.000Z")),
+	},
 }
