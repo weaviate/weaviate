@@ -247,9 +247,9 @@ func (a *Client) ThingsPatch(params *ThingsPatchParams, authInfo runtime.ClientA
 }
 
 /*
-  ThingsReferencesCreate adds a single reference to a class property when cardinality is set to has many
+  ThingsReferencesCreate adds a single reference to a class property
 
-  Add a single reference to a class-property when cardinality is set to 'hasMany'.
+  Add a single reference to a class-property.
 */
 func (a *Client) ThingsReferencesCreate(params *ThingsReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter) (*ThingsReferencesCreateOK, error) {
 	// TODO: Validate the params before sending
