@@ -20,6 +20,8 @@ if git rev-parse "$VERSION" >/dev/null 2>&1; then
   exit 1
 fi
 
+tools/gen-code-from-swagger.sh
+
 git commit -a -m "prepare release $VERSION"
 
 git tag -a "$VERSION" -m "release $VERSION - $MSG"
