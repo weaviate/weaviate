@@ -58,9 +58,8 @@ var SimpleSchema = schema.Schema{
 						DataType: []string{"SomeAction"},
 					},
 					&models.Property{
-						Name:        "hasActions",
-						DataType:    []string{"SomeAction"},
-						Cardinality: &many,
+						Name:     "hasActions",
+						DataType: []string{"SomeAction"},
 					},
 				},
 			},

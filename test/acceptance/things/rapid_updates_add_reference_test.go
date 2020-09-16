@@ -69,15 +69,13 @@ func Test_RapidlyAddingReferences(t *testing.T) {
 		})
 
 		t.Run("source class", func(t *testing.T) {
-			cardinalityMany := "many"
 			params := schema.NewSchemaThingsCreateParams().WithThingClass(
 				&models.Class{
 					Class: sourceClass,
 					Properties: []*models.Property{
 						&models.Property{
-							DataType:    []string{targetClass},
-							Name:        "toTarget",
-							Cardinality: &cardinalityMany,
+							DataType: []string{targetClass},
+							Name:     "toTarget",
 						},
 						&models.Property{
 							DataType: []string{"string"},

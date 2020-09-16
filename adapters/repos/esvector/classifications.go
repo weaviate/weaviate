@@ -338,7 +338,8 @@ func extractBeaconFromProp(prop interface{}) (string, error) {
 	}
 
 	if len(propSlice) != 1 {
-		return "", fmt.Errorf("expected refs to have len 1, got %d", len(propSlice))
+		return "", fmt.Errorf("training data item has more than 1 reference set, "+
+			"classification requires exactly one: got %d", len(propSlice))
 	}
 
 	ref := propSlice[0]
