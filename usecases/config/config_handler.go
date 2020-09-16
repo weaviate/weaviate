@@ -31,13 +31,6 @@ type Flags struct {
 	ConfigFile string `long:"config-file" description:"path to config file (default: ./weaviate.conf.json)"`
 }
 
-// Telemetry gives the outline of the telemetry parameters in the config file
-type Telemetry struct {
-	RemoteURL string `json:"remote_url" yaml:"remote_url"`
-	Interval  int    `json:"interval" yaml:"interval"`
-	Disabled  bool   `json:"disabled" yaml:"disabled"`
-}
-
 // Config outline of the config file
 type Config struct {
 	Name                 string          `json:"name" yaml:"name"`
@@ -50,7 +43,6 @@ type Config struct {
 	ConfigurationStorage ConfigStore     `json:"configuration_storage" yaml:"configuration_storage"`
 	Authentication       Authentication  `json:"authentication" yaml:"authentication"`
 	Authorization        Authorization   `json:"authorization" yaml:"authorization"`
-	Telemetry            Telemetry       `json:"telemetry" yaml:"telemetry"`
 	VectorIndex          VectorIndex     `json:"vector_index" yaml:"vector_index"`
 	Standalone           bool            `json:"standalone_mode" yaml:"standalone_mode"`
 	Origin               string          `json:"origin" yaml:"origin"`

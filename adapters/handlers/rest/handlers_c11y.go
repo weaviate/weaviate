@@ -16,7 +16,6 @@ import (
 
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/usecases/telemetry"
 
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/contextionary_api"
@@ -30,43 +29,30 @@ type c11yProxy interface {
 	AddExtension(ctx context.Context, extension *models.C11yExtension) error
 }
 
-func setupC11yHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog,
-	inspector inspector, proxy c11yProxy) {
-	/*
-	 * HANDLE C11Y
-	 */
-
+func setupC11yHandlers(api *operations.WeaviateAPI, inspector inspector, proxy c11yProxy) {
 	api.ContextionaryAPIC11yWordsHandler = contextionary_api.C11yWordsHandlerFunc(func(params contextionary_api.C11yWordsParams, principal *models.Principal) middleware.Responder {
 		ctx := params.HTTPRequest.Context()
-		// Register the request
 
 		res, err := inspector.GetWords(ctx, params.Words)
 		if err != nil {
 			return contextionary_api.NewC11yWordsBadRequest().WithPayload(errPayloadFromSingleErr(err))
 		}
 
-		go func() {
-			requestsLog.Register(telemetry.TypeREST, telemetry.LocalTools)
-		}()
-
 		return contextionary_api.NewC11yWordsOK().WithPayload(res)
 	})
 
-	api.ContextionaryAPIC11yConceptsHandler = contextionary_api.C11yConceptsHandlerFunc(func(params contextionary_api.C11yConceptsParams, principal *models.Principal) middleware.Responder {
-		ctx := params.HTTPRequest.Context()
-		// Register the request
+	api.ContextionaryAPIC11yConceptsHandler = contextionary_api.C11yConceptsHandlerFunc(
+		func(params contextionary_api.C11yConceptsParams, principal *models.Principal) middleware.Responder {
+			ctx := params.HTTPRequest.Context()
+			// Register the request
 
-		res, err := inspector.GetWords(ctx, params.Concept)
-		if err != nil {
-			return contextionary_api.NewC11yConceptsBadRequest().WithPayload(errPayloadFromSingleErr(err))
-		}
+			res, err := inspector.GetWords(ctx, params.Concept)
+			if err != nil {
+				return contextionary_api.NewC11yConceptsBadRequest().WithPayload(errPayloadFromSingleErr(err))
+			}
 
-		go func() {
-			requestsLog.Register(telemetry.TypeREST, telemetry.LocalTools)
-		}()
-
-		return contextionary_api.NewC11yConceptsOK().WithPayload(res)
-	})
+			return contextionary_api.NewC11yConceptsOK().WithPayload(res)
+		})
 
 	api.ContextionaryAPIC11yExtensionsHandler = contextionary_api.C11yExtensionsHandlerFunc(func(params contextionary_api.C11yExtensionsParams, principal *models.Principal) middleware.Responder {
 		ctx := params.HTTPRequest.Context()
@@ -77,10 +63,6 @@ func setupC11yHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Reque
 			return contextionary_api.NewC11yExtensionsBadRequest().WithPayload(
 				errPayloadFromSingleErr(err))
 		}
-
-		go func() {
-			requestsLog.Register(telemetry.TypeREST, telemetry.LocalTools)
-		}()
 
 		return contextionary_api.NewC11yExtensionsOK().WithPayload(params.Extension)
 	})
