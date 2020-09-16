@@ -45,7 +45,7 @@ type language struct {
 
 func printRelaeseNotes(languages []language, version string) {
 	fmt.Printf("Docker image/tag: `semitechnologies/weaviate:%s`\n", version)
-	fmt.Printf("See also: example docker-compose files in %s. ", makeLinks(languages))
+	fmt.Printf("See also: example docker-compose files in %s. ", makeLinks(languages, version))
 	fmt.Printf("If you need to configure additional settings, you can also generate " +
 		"a custom `docker-compose.yml` file [using the documentation]" +
 		"(https://www.semi.technology/documentation/weaviate/current/getting-started/installation.html#docker-compose).")
@@ -54,7 +54,7 @@ func printRelaeseNotes(languages []language, version string) {
 	fmt.Printf("\n## Fixes\n*none*\n")
 }
 
-func makeLinks(languages []language) string {
+func makeLinks(languages []language, version string) string {
 	var out string
 
 	for i, lang := range languages {
@@ -62,8 +62,8 @@ func makeLinks(languages []language) string {
 			out += ", "
 		}
 
-		link := fmt.Sprintf("%s/docker-compose?language=%s&contextionary_model=%s",
-			configurationAPIOrigin, lang.code, lang.model)
+		link := fmt.Sprintf("%s/docker-compose?weaviate_version=%s&language=%s&contextionary_model=%s",
+			configurationAPIOrigin, version, lang.code, lang.model)
 		out += fmt.Sprintf("[%s](%s)", lang.label, link)
 	}
 
