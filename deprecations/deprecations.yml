@@ -26,3 +26,19 @@ deprecations:
     plannedRemovalVersion: "0.23.0"
     removedIn: null
     removedTime: null
+  - id: cardinality
+    status: deprecated # switch to removed once feature is completely removed
+    apiType: REST
+    locations:
+    - GET /v1/schema
+    - POST /v1/schema/things
+    - POST /v1/schema/actions
+    - POST /v1/schema/things/{className}/properties
+    - POST /v1/schema/actions/{className}/properties
+    msg: "use of deprecated property option 'cardinality'"
+    mitigation: "Omit this field. Starting in 0.22.7 it no longer has any effect."
+    sinceVersion: "0.22.17"
+    sinceTime: "2020-09-16T09:06:00+00:00"
+    plannedRemovalVersion: "0.23.0"
+    removedIn: null
+    removedTime: null

@@ -595,11 +595,11 @@ func init() {
         ]
       },
       "post": {
-        "description": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
+        "description": "Add a single reference to a class-property.",
         "tags": [
           "actions"
         ],
-        "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
+        "summary": "Add a single reference to a class-property.",
         "operationId": "actions.references.create",
         "parameters": [
           {
@@ -2219,11 +2219,11 @@ func init() {
         ]
       },
       "post": {
-        "description": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
+        "description": "Add a single reference to a class-property.",
         "tags": [
           "things"
         ],
-        "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
+        "summary": "Add a single reference to a class-property.",
         "operationId": "things.references.create",
         "parameters": [
           {
@@ -3302,13 +3302,9 @@ func init() {
       "type": "object",
       "properties": {
         "cardinality": {
-          "description": "The cardinality of this property. If you want to store more than one value in a property, set this to 'many'. Defaults to 'atMostOne'. Note that by default properties can be empty in Weaviate.",
+          "description": "DEPRECATED - do not use anymore.",
           "type": "string",
-          "default": "atMostOne",
-          "enum": [
-            "atMostOne",
-            "many"
-          ]
+          "default": ""
         },
         "dataType": {
           "description": "Can be a reference to another type when it starts with a capital (for example Person), otherwise \"string\" or \"int\".",
@@ -4415,11 +4411,11 @@ func init() {
         ]
       },
       "post": {
-        "description": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
+        "description": "Add a single reference to a class-property.",
         "tags": [
           "actions"
         ],
-        "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
+        "summary": "Add a single reference to a class-property.",
         "operationId": "actions.references.create",
         "parameters": [
           {
@@ -6055,11 +6051,11 @@ func init() {
         ]
       },
       "post": {
-        "description": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
+        "description": "Add a single reference to a class-property.",
         "tags": [
           "things"
         ],
-        "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
+        "summary": "Add a single reference to a class-property.",
         "operationId": "things.references.create",
         "parameters": [
           {
@@ -7227,13 +7223,9 @@ func init() {
       "type": "object",
       "properties": {
         "cardinality": {
-          "description": "The cardinality of this property. If you want to store more than one value in a property, set this to 'many'. Defaults to 'atMostOne'. Note that by default properties can be empty in Weaviate.",
+          "description": "DEPRECATED - do not use anymore.",
           "type": "string",
-          "default": "atMostOne",
-          "enum": [
-            "atMostOne",
-            "many"
-          ]
+          "default": ""
         },
         "dataType": {
           "description": "Can be a reference to another type when it starts with a capital (for example Person), otherwise \"string\" or \"int\".",

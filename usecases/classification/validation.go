@@ -160,11 +160,11 @@ func (v *Validator) classifyProperty(class *models.Class, propName string) {
 		return
 	}
 
-	if c := schema.CardinalityOfProperty(prop); c == schema.CardinalityMany {
-		v.errors.addf("classifyProperties: property '%s'"+
-			" is of cardinality 'many', can only classifiy references of cardinality 'atMostOne'", propName)
-		return
-	}
+	// if c := schema.CardinalityOfProperty(prop); c == schema.CardinalityMany {
+	// 	v.errors.addf("classifyProperties: property '%s'"+
+	// 		" is of cardinality 'many', can only classifiy references of cardinality 'atMostOne'", propName)
+	// 	return
+	// }
 
 	if v.typeContextual() {
 		if len(dt.Classes()) > 1 {

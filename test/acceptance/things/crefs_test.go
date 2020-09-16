@@ -53,7 +53,6 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 	helper.AssertRequestOk(t, resp, err, nil)
 
 	t.Log("2. create ReferenceTestCity class with HasPlaces (many) cross-ref")
-	cardinalityMany := "many"
 	cityClass := &models.Class{
 		Class: "ReferenceTestCity",
 		Properties: []*models.Property{
@@ -62,9 +61,8 @@ func Test_CREFWithCardinalityMany_UsingPatch(t *testing.T) {
 				Name:     "name",
 			},
 			&models.Property{
-				DataType:    []string{"ReferenceTestPlace"},
-				Name:        "HasPlaces",
-				Cardinality: &cardinalityMany,
+				DataType: []string{"ReferenceTestPlace"},
+				Name:     "HasPlaces",
 			},
 		},
 	}
@@ -187,7 +185,6 @@ func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 	helper.AssertRequestOk(t, resp, err, nil)
 
 	t.Log("2. create ReferenceTestCity class with HasPlaces (many) cross-ref")
-	cardinalityMany := "many"
 	cityClass := &models.Class{
 		Class: "ReferenceTestCity",
 		Properties: []*models.Property{
@@ -196,9 +193,8 @@ func Test_CREFWithCardinalityMany_UsingPostReference(t *testing.T) {
 				Name:     "name",
 			},
 			&models.Property{
-				DataType:    []string{"ReferenceTestPlace"},
-				Name:        "HasPlaces",
-				Cardinality: &cardinalityMany,
+				DataType: []string{"ReferenceTestPlace"},
+				Name:     "HasPlaces",
 			},
 		},
 	}

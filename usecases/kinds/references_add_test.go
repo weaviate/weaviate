@@ -26,7 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_ReferencesAdd_CardinalityMany(t *testing.T) {
+func Test_ReferencesAdd(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 
@@ -81,7 +81,6 @@ func Test_ReferencesAdd_CardinalityMany(t *testing.T) {
 }
 
 func zooAnimalSchemaForTest() schema.Schema {
-	many := "many"
 	return schema.Schema{
 		Actions: &models.Schema{
 			Classes: []*models.Class{
@@ -109,9 +108,8 @@ func zooAnimalSchemaForTest() schema.Schema {
 							DataType: []string{"date"},
 						},
 						&models.Property{
-							Name:        "hasAnimals",
-							DataType:    []string{"AnimalAction"},
-							Cardinality: &many,
+							Name:     "hasAnimals",
+							DataType: []string{"AnimalAction"},
 						},
 					},
 				},
@@ -152,9 +150,8 @@ func zooAnimalSchemaForTest() schema.Schema {
 							DataType: []string{"date"},
 						},
 						&models.Property{
-							Name:        "hasAnimals",
-							DataType:    []string{"Animal"},
-							Cardinality: &many,
+							Name:     "hasAnimals",
+							DataType: []string{"Animal"},
 						},
 					},
 				},

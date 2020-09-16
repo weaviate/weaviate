@@ -44,9 +44,9 @@ func NewThingsReferencesCreate(ctx *middleware.Context, handler ThingsReferences
 
 /*ThingsReferencesCreate swagger:route POST /things/{id}/references/{propertyName} things thingsReferencesCreate
 
-Add a single reference to a class-property when cardinality is set to 'hasMany'.
+Add a single reference to a class-property.
 
-Add a single reference to a class-property when cardinality is set to 'hasMany'.
+Add a single reference to a class-property.
 
 */
 type ThingsReferencesCreate struct {
