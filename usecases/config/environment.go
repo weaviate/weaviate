@@ -108,25 +108,6 @@ func FromEnv(config *Config) error {
 		}
 	}
 
-	// Disable by default
-	config.Telemetry.Disabled = true
-	if v := os.Getenv("TELEMETRY_DISABLED"); v != "false" {
-		config.Telemetry.Disabled = false
-
-		if v := os.Getenv("TELEMETRY_INTERVAL"); v != "" {
-			asInt, err := strconv.Atoi(v)
-			if err != nil {
-				return errors.Wrapf(err, "parse TELEMETRY_INTERVAL as int")
-			}
-
-			config.Telemetry.Interval = asInt
-		}
-
-		if v := os.Getenv("TELEMETRY_REMOTE_URL"); v != "" {
-			config.Telemetry.RemoteURL = v
-		}
-	}
-
 	return nil
 }
 

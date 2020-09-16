@@ -26,7 +26,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/sempath"
-	"github.com/semi-technologies/weaviate/usecases/telemetry"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 
 	"github.com/graphql-go/graphql"
@@ -284,15 +283,6 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 			Group:                group,
 			UnderscoreProperties: underscore,
 		}
-
-		// Log the request
-		requestsLog, logOk := source["RequestsLog"].(RequestsLog)
-		if !logOk {
-			return nil, fmt.Errorf("expected source map to have a usable RequestsLog, but got %#v", source["RequestsLog"])
-		}
-		go func() {
-			requestsLog.Register(telemetry.TypeGQL, telemetry.LocalQuery)
-		}()
 
 		return func() (interface{}, error) {
 			return resolver.GetClass(p.Context, principalFromContext(p.Context), params)

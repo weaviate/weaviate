@@ -22,7 +22,6 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/locks"
 	"github.com/semi-technologies/weaviate/usecases/network"
-	"github.com/semi-technologies/weaviate/usecases/telemetry"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"github.com/sirupsen/logrus"
@@ -41,7 +40,6 @@ type State struct {
 	Logger           *logrus.Logger
 	GraphQL          graphql.GraphQL
 	Contextionary    contextionary
-	TelemetryLogger  *telemetry.RequestsLog
 	StopwordDetector stopwordDetector
 }
 

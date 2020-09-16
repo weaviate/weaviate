@@ -40,7 +40,6 @@ import (
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
 	"github.com/semi-technologies/weaviate/usecases/sempath"
-	"github.com/semi-technologies/weaviate/usecases/telemetry"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	libvectorizer "github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"github.com/sirupsen/logrus"
@@ -176,13 +175,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	appState.Network.RegisterSchemaGetter(schemaManager)
 
-	setupSchemaHandlers(api, appState.TelemetryLogger, schemaManager)
-	setupKindHandlers(api, appState.TelemetryLogger, kindsManager, appState.ServerConfig.Config, appState.Logger)
-	setupKindBatchHandlers(api, appState.TelemetryLogger, batchKindsManager)
-	setupC11yHandlers(api, appState.TelemetryLogger, vectorInspector, appState.Contextionary)
-	setupGraphQLHandlers(api, appState.TelemetryLogger, appState)
-	setupMiscHandlers(api, appState.TelemetryLogger, appState.ServerConfig, appState.Network, schemaManager, appState.Contextionary)
-	setupClassificationHandlers(api, appState.TelemetryLogger, classifier)
+	setupSchemaHandlers(api, schemaManager)
+	setupKindHandlers(api, kindsManager, appState.ServerConfig.Config, appState.Logger)
+	setupKindBatchHandlers(api, batchKindsManager)
+	setupC11yHandlers(api, vectorInspector, appState.Contextionary)
+	setupGraphQLHandlers(api, appState)
+	setupMiscHandlers(api, appState.ServerConfig, appState.Network, schemaManager, appState.Contextionary)
+	setupClassificationHandlers(api, classifier)
 
 	api.ServerShutdown = func() {}
 	configureServer = makeConfigureServer(appState)
@@ -267,8 +266,6 @@ func startupRoutine() (*state.State, *clientv3.Client, *elasticsearch.Client) {
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("created es client for vector index")
 
-	appState.TelemetryLogger = configureTelemetry(appState, etcdClient, logger)
-
 	// new lock
 	etcdLock, err := locks.NewEtcdLock(etcdClient, "/weaviate/schema-connector-rw-lock", logger)
 	if err != nil {
@@ -301,43 +298,6 @@ func startupRoutine() (*state.State, *clientv3.Client, *elasticsearch.Client) {
 	appState.Contextionary = c11y
 
 	return appState, etcdClient, esClient
-}
-
-func configureTelemetry(appState *state.State, etcdClient *clientv3.Client,
-	logger logrus.FieldLogger) *telemetry.RequestsLog {
-	// Extract environment variables needed for logging
-	mainLog := telemetry.NewLog()
-	loggingInterval := appState.ServerConfig.Config.Telemetry.Interval
-	loggingURL := appState.ServerConfig.Config.Telemetry.RemoteURL
-	loggingDisabled := true
-	loggingDebug := appState.ServerConfig.Config.Debug
-
-	if loggingURL == "" {
-		loggingURL = telemetry.DefaultURL
-	}
-
-	if loggingInterval == 0 {
-		loggingInterval = telemetry.DefaultInterval
-	}
-
-	// Propagate the peer name (if any), debug toggle and the enabled toggle to the requestsLog
-	if appState.ServerConfig.Config.Network != nil {
-		mainLog.PeerName = appState.ServerConfig.Config.Network.PeerName
-	}
-	mainLog.Debug = loggingDebug
-	mainLog.Disabled = loggingDisabled
-
-	// Initialize a non-expiring context for the reporter
-	reportingContext := context.Background()
-	// Initialize the reporter
-	reporter := telemetry.NewReporter(reportingContext, mainLog, loggingInterval, loggingURL, loggingDisabled, loggingDebug, etcdClient, logger)
-
-	// Start reporting
-	go func() {
-		reporter.Start()
-	}()
-
-	return mainLog
 }
 
 // logger does not parse the regular config object, as logging needs to be

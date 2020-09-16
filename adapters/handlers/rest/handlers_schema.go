@@ -21,18 +21,10 @@ import (
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/usecases/telemetry"
 )
 
 type schemaHandlers struct {
-	telemetry *telemetry.RequestsLog
-	manager   *schemaUC.Manager
-}
-
-func (s *schemaHandlers) telemetryLogAsync(requestType, identifier string) {
-	go func() {
-		s.telemetry.Register(requestType, identifier)
-	}()
+	manager *schemaUC.Manager
 }
 
 func (s *schemaHandlers) addAction(params schema.SchemaActionsCreateParams,
@@ -49,7 +41,6 @@ func (s *schemaHandlers) addAction(params schema.SchemaActionsCreateParams,
 		}
 	}
 
-	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalAddMeta)
 	return schema.NewSchemaActionsCreateOK().WithPayload(params.ActionClass)
 }
 
@@ -65,7 +56,6 @@ func (s *schemaHandlers) deleteAction(params schema.SchemaActionsDeleteParams, p
 		}
 	}
 
-	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
 	return schema.NewSchemaActionsDeleteOK()
 }
 
@@ -83,7 +73,6 @@ func (s *schemaHandlers) addActionProperty(params schema.SchemaActionsProperties
 		}
 	}
 
-	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
 	return schema.NewSchemaActionsPropertiesAddOK().WithPayload(params.Body)
 }
 
@@ -104,7 +93,6 @@ func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *mo
 		Things:  dbSchema.Things,
 	}
 
-	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
 	return schema.NewSchemaDumpOK().WithPayload(payload)
 }
 
@@ -121,7 +109,6 @@ func (s *schemaHandlers) addThing(params schema.SchemaThingsCreateParams, princi
 		}
 	}
 
-	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalAddMeta)
 	return schema.NewSchemaThingsCreateOK().WithPayload(params.ThingClass)
 }
 
@@ -137,7 +124,6 @@ func (s *schemaHandlers) deleteThing(params schema.SchemaThingsDeleteParams, pri
 		}
 	}
 
-	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
 	return schema.NewSchemaThingsDeleteOK()
 }
 
@@ -155,12 +141,11 @@ func (s *schemaHandlers) addThingProperty(params schema.SchemaThingsPropertiesAd
 		}
 	}
 
-	s.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulateMeta)
 	return schema.NewSchemaThingsPropertiesAddOK().WithPayload(params.Body)
 }
 
-func setupSchemaHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog, manager *schemaUC.Manager) {
-	h := &schemaHandlers{requestsLog, manager}
+func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager) {
+	h := &schemaHandlers{manager}
 
 	api.SchemaSchemaActionsCreateHandler = schema.
 		SchemaActionsCreateHandlerFunc(h.addAction)

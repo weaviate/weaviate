@@ -28,16 +28,14 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/semi-technologies/weaviate/usecases/projector"
-	"github.com/semi-technologies/weaviate/usecases/telemetry"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 )
 
 type kindHandlers struct {
-	manager     kindsManager
-	logger      logrus.FieldLogger
-	requestsLog requestLog
-	config      config.Config
+	manager kindsManager
+	logger  logrus.FieldLogger
+	config  config.Config
 }
 
 type requestLog interface {
@@ -89,7 +87,6 @@ func (h *kindHandlers) addThing(params things.ThingsCreateParams,
 		thing.Schema = h.extendSchemaWithAPILinks(schemaMap)
 	}
 
-	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalAdd)
 	return things.NewThingsCreateOK().WithPayload(thing)
 }
 
@@ -111,7 +108,6 @@ func (h *kindHandlers) validateThing(params things.ThingsValidateParams,
 		}
 	}
 
-	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalQueryMeta)
 	return things.NewThingsValidateOK()
 }
 
@@ -137,7 +133,6 @@ func (h *kindHandlers) addAction(params actions.ActionsCreateParams,
 		action.Schema = h.extendSchemaWithAPILinks(schemaMap)
 	}
 
-	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalAdd)
 	return actions.NewActionsCreateOK().WithPayload(action)
 }
 
@@ -159,7 +154,6 @@ func (h *kindHandlers) validateAction(params actions.ActionsValidateParams,
 		}
 	}
 
-	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalQueryMeta)
 	return actions.NewActionsValidateOK()
 }
 
@@ -198,7 +192,6 @@ func (h *kindHandlers) getThing(params things.ThingsGetParams,
 		thing.Schema = h.extendSchemaWithAPILinks(schemaMap)
 	}
 
-	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalQuery)
 	return things.NewThingsGetOK().WithPayload(thing)
 }
 
@@ -235,7 +228,6 @@ func (h *kindHandlers) getAction(params actions.ActionsGetParams,
 		action.Schema = h.extendSchemaWithAPILinks(schemaMap)
 	}
 
-	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalQuery)
 	return actions.NewActionsGetOK().WithPayload(action)
 }
 
@@ -277,7 +269,6 @@ func (h *kindHandlers) getThings(params things.ThingsListParams,
 		}
 	}
 
-	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalQuery)
 	return things.NewThingsListOK().
 		WithPayload(&models.ThingsListResponse{
 			Things:       list,
@@ -323,7 +314,6 @@ func (h *kindHandlers) getActions(params actions.ActionsListParams,
 		}
 	}
 
-	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalQuery)
 	return actions.NewActionsListOK().
 		WithPayload(&models.ActionsListResponse{
 			Actions:      list,
@@ -354,7 +344,6 @@ func (h *kindHandlers) updateThing(params things.ThingsUpdateParams,
 		thing.Schema = h.extendSchemaWithAPILinks(schemaMap)
 	}
 
-	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
 	return things.NewThingsUpdateOK().WithPayload(thing)
 }
 
@@ -380,7 +369,6 @@ func (h *kindHandlers) updateAction(params actions.ActionsUpdateParams,
 		action.Schema = h.extendSchemaWithAPILinks(schemaMap)
 	}
 
-	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
 	return actions.NewActionsUpdateOK().WithPayload(action)
 }
 
@@ -400,7 +388,6 @@ func (h *kindHandlers) deleteThing(params things.ThingsDeleteParams,
 		}
 	}
 
-	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
 	return things.NewThingsDeleteNoContent()
 }
 
@@ -420,7 +407,6 @@ func (h *kindHandlers) deleteAction(params actions.ActionsDeleteParams,
 		}
 	}
 
-	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
 	return actions.NewActionsDeleteNoContent()
 }
 
@@ -441,8 +427,6 @@ func (h *kindHandlers) patchThing(params things.ThingsPatchParams, principal *mo
 		}
 	}
 
-	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
-
 	return things.NewThingsPatchNoContent()
 }
 
@@ -461,8 +445,6 @@ func (h *kindHandlers) patchAction(params actions.ActionsPatchParams, principal 
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
-
-	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
 
 	return actions.NewActionsPatchNoContent()
 }
@@ -484,7 +466,6 @@ func (h *kindHandlers) addThingReference(params things.ThingsReferencesCreatePar
 		}
 	}
 
-	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
 	return things.NewThingsReferencesCreateOK()
 }
 
@@ -505,7 +486,6 @@ func (h *kindHandlers) addActionReference(params actions.ActionsReferencesCreate
 		}
 	}
 
-	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
 	return actions.NewActionsReferencesCreateOK()
 }
 
@@ -526,7 +506,6 @@ func (h *kindHandlers) updateActionReferences(params actions.ActionsReferencesUp
 		}
 	}
 
-	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
 	return actions.NewActionsReferencesUpdateOK()
 }
 
@@ -547,7 +526,6 @@ func (h *kindHandlers) updateThingReferences(params things.ThingsReferencesUpdat
 		}
 	}
 
-	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
 	return things.NewThingsReferencesUpdateOK()
 }
 
@@ -568,7 +546,6 @@ func (h *kindHandlers) deleteActionReference(params actions.ActionsReferencesDel
 		}
 	}
 
-	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
 	return actions.NewActionsReferencesDeleteNoContent()
 }
 
@@ -589,13 +566,12 @@ func (h *kindHandlers) deleteThingReference(params things.ThingsReferencesDelete
 		}
 	}
 
-	h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
 	return things.NewThingsReferencesDeleteNoContent()
 }
 
-func setupKindHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog,
+func setupKindHandlers(api *operations.WeaviateAPI,
 	manager *kinds.Manager, config config.Config, logger logrus.FieldLogger) {
-	h := &kindHandlers{manager, logger, requestsLog, config}
+	h := &kindHandlers{manager, logger, config}
 
 	api.ThingsThingsCreateHandler = things.
 		ThingsCreateHandlerFunc(h.addThing)
@@ -639,12 +615,6 @@ func setupKindHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Reque
 	api.ActionsActionsReferencesUpdateHandler = actions.
 		ActionsReferencesUpdateHandlerFunc(h.updateActionReferences)
 
-}
-
-func (h *kindHandlers) telemetryLogAsync(requestType, identifier string) {
-	go func() {
-		h.requestsLog.Register(requestType, identifier)
-	}()
 }
 
 func derefBool(in *bool) bool {
