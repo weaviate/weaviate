@@ -65,6 +65,8 @@ func (m *Manager) addClassProperty(ctx context.Context, principal *models.Princi
 		return err
 	}
 
+	m.handleDeprecatedFielsInProperty(prop)
+
 	class.Properties = append(class.Properties, prop)
 
 	err = m.saveSchema(ctx)
