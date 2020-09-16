@@ -68,6 +68,7 @@ func TestHnswPersistence(t *testing.T) {
 	})
 
 	// destory the index
+	time.Sleep(100 * time.Millisecond) // TODO: make commit log write consinstent
 	index = nil
 
 	// build a new index from the (uncondensed) commit log
@@ -143,6 +144,7 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 	dumpIndex(index, "without_cleanup_original_index_before_storage")
 
 	// destory the index
+	time.Sleep(100 * time.Millisecond) // TODO: make commit log write consinstent
 	index = nil
 
 	// build a new index from the (uncondensed) commit log
@@ -224,6 +226,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 	})
 
 	// destory the index
+	time.Sleep(100 * time.Millisecond) // TODO: make commit log write consinstent
 	index = nil
 
 	// build a new index from the (uncondensed) commit log
@@ -263,6 +266,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 
 	// dumpIndex(secondIndex)
 
+	time.Sleep(100 * time.Millisecond) // TODO: make commit log write consinstent
 	secondIndex = nil
 	// build a new index from the (uncondensed) commit log
 	thirdIndex, err := New(Config{
@@ -297,6 +301,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		require.Nil(t, err)
 	})
 
+	time.Sleep(100 * time.Millisecond) // TODO: make commit log write consinstent
 	thirdIndex = nil
 	// build a new index from the (uncondensed) commit log
 	fourthIndex, err := New(Config{
