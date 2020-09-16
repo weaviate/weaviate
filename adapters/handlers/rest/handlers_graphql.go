@@ -23,7 +23,6 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/graphql"
 	"github.com/semi-technologies/weaviate/entities/models"
-	"github.com/semi-technologies/weaviate/usecases/telemetry"
 )
 
 const error422 string = "The request is well-formed but was unable to be followed due to semantic errors."
@@ -37,7 +36,7 @@ type graphQLProvider interface {
 	GetGraphQL() libgraphql.GraphQL
 }
 
-func setupGraphQLHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog, gqlProvider graphQLProvider) {
+func setupGraphQLHandlers(api *operations.WeaviateAPI, gqlProvider graphQLProvider) {
 	api.GraphqlGraphqlPostHandler = graphql.GraphqlPostHandlerFunc(func(params graphql.GraphqlPostParams, principal *models.Principal) middleware.Responder {
 		errorResponse := &models.ErrorResponse{}
 
@@ -99,11 +98,6 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 			return graphql.NewGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
 		}
 
-		// Register the request
-		go func() {
-			requestsLog.Register(telemetry.TypeGQL, telemetry.LocalAdd)
-		}()
-
 		// Return the response
 		return graphql.NewGraphqlPostOK().WithPayload(graphQLResponse)
 	})
@@ -132,7 +126,7 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 		// Generate a goroutine for each separate request
 		for requestIndex, unbatchedRequest := range params.Body {
 			wg.Add(1)
-			go handleUnbatchedGraphQLRequest(ctx, wg, graphQL, unbatchedRequest, requestIndex, &requestResults, requestsLog)
+			go handleUnbatchedGraphQLRequest(ctx, wg, graphQL, unbatchedRequest, requestIndex, &requestResults)
 		}
 
 		wg.Wait()
@@ -151,7 +145,7 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Re
 }
 
 // Handle a single unbatched GraphQL request, return a tuple containing the index of the request in the batch and either the response or an error
-func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, graphQL libgraphql.GraphQL, unbatchedRequest *models.GraphQLQuery, requestIndex int, requestResults *chan gqlUnbatchedRequestResponse, requestsLog *telemetry.RequestsLog) {
+func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, graphQL libgraphql.GraphQL, unbatchedRequest *models.GraphQLQuery, requestIndex int, requestResults *chan gqlUnbatchedRequestResponse) {
 	defer wg.Done()
 
 	// Get all input from the body of the request

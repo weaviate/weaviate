@@ -27,14 +27,6 @@ services:
     environment:
       SCHEMA_PROVIDER_URL: etcd:2379
       OCCURRENCE_WEIGHT_LINEAR_FACTOR: 0.75
-  telemetry_mock_api: # used for telemetry logging acceptance testing
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: telemetry_mock_api
-    restart: on-failure:0
-    ports:
-      - "8087:8087"
   etcd:
     image: gcr.io/etcd-development/etcd:v3.3.8
     ports:

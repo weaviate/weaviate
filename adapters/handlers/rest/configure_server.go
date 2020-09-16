@@ -29,7 +29,6 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/network"
 	libnetworkFake "github.com/semi-technologies/weaviate/usecases/network/fake"
 	libnetworkP2P "github.com/semi-technologies/weaviate/usecases/network/p2p"
-	"github.com/semi-technologies/weaviate/usecases/telemetry"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 )
@@ -54,7 +53,6 @@ func makeUpdateSchemaCall(logger logrus.FieldLogger, appState *state.State, trav
 			appState.Network,
 			appState.ServerConfig.Config,
 			traverser,
-			appState.TelemetryLogger,
 		)
 		if err != nil {
 			logger.WithField("action", "graphql_rebuild").
@@ -65,14 +63,14 @@ func makeUpdateSchemaCall(logger logrus.FieldLogger, appState *state.State, trav
 }
 
 func rebuildGraphQL(updatedSchema schema.Schema, logger logrus.FieldLogger,
-	network network.Network, config config.Config, traverser *traverser.Traverser,
-	telemetryLogger *telemetry.RequestsLog) (graphql.GraphQL, error) {
+	network network.Network, config config.Config,
+	traverser *traverser.Traverser) (graphql.GraphQL, error) {
 	peers, err := network.ListPeers()
 	if err != nil {
 		return nil, fmt.Errorf("could not list network peers to regenerate schema: %v", err)
 	}
 
-	updatedGraphQL, err := graphql.Build(&updatedSchema, peers, traverser, telemetryLogger, logger, config)
+	updatedGraphQL, err := graphql.Build(&updatedSchema, peers, traverser, logger, config)
 	if err != nil {
 		return nil, fmt.Errorf("Could not re-generate GraphQL schema, because: %v", err)
 	}

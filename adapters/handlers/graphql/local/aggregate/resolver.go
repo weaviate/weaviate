@@ -18,7 +18,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/semi-technologies/weaviate/usecases/telemetry"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 
 	"github.com/graphql-go/graphql"
@@ -94,19 +93,6 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 			return nil, fmt.Errorf("could not extract filters: %s", err)
 		}
 
-		requestsLog, ok := source["RequestsLog"].(RequestsLog)
-		if !ok {
-			return nil, fmt.Errorf("expected source to contain a usable RequestsLog, but was %t", p.Source)
-		}
-		for _, property := range properties {
-			for _, aggregator := range property.Aggregators {
-				serviceID := fmt.Sprintf("%s[%s]", telemetry.LocalQuery, aggregator)
-				go func() {
-					requestsLog.Register(telemetry.TypeGQL, serviceID)
-				}()
-
-			}
-		}
 		analytics, err := common_filters.ExtractAnalyticsProps(p.Args, cfg.AnalyticsEngine)
 		if err != nil {
 			return nil, fmt.Errorf("could not extract filters: %s", err)
