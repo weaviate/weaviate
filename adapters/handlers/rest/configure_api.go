@@ -309,7 +309,7 @@ func configureTelemetry(appState *state.State, etcdClient *clientv3.Client,
 	mainLog := telemetry.NewLog()
 	loggingInterval := appState.ServerConfig.Config.Telemetry.Interval
 	loggingURL := appState.ServerConfig.Config.Telemetry.RemoteURL
-	loggingDisabled := appState.ServerConfig.Config.Telemetry.Disabled
+	loggingDisabled := true
 	loggingDebug := appState.ServerConfig.Config.Debug
 
 	if loggingURL == "" {

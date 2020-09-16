@@ -653,10 +653,9 @@
           "type": "array"
         },
         "cardinality": {
-          "description": "The cardinality of this property. If you want to store more than one value in a property, set this to 'many'. Defaults to 'atMostOne'. Note that by default properties can be empty in Weaviate.",
+          "description": "DEPRECATED - do not use anymore.",
           "type": "string",
-          "enum": ["atMostOne", "many"],
-          "default": "atMostOne"
+          "default": ""
         },
         "description": {
           "description": "Description of the property.",
@@ -1810,7 +1809,7 @@
     },
     "/actions/{id}/references/{propertyName}": {
       "post": {
-        "description": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
+        "description": "Add a single reference to a class-property.",
         "operationId": "actions.references.create",
         "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
@@ -1864,7 +1863,7 @@
             }
           }
         },
-        "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
+        "summary": "Add a single reference to a class-property.",
         "tags": ["actions"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
@@ -3027,7 +3026,7 @@
     },
     "/things/{id}/references/{propertyName}": {
       "post": {
-        "description": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
+        "description": "Add a single reference to a class-property.",
         "operationId": "things.references.create",
         "x-serviceIds": ["weaviate.local.manipulate"],
         "parameters": [
@@ -3081,7 +3080,7 @@
             }
           }
         },
-        "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
+        "summary": "Add a single reference to a class-property.",
         "tags": ["things"],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false

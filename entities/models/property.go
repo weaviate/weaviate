@@ -17,12 +17,9 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	"encoding/json"
-
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
-	"github.com/go-openapi/validate"
 )
 
 // Property property
@@ -30,9 +27,8 @@ import (
 // swagger:model Property
 type Property struct {
 
-	// The cardinality of this property. If you want to store more than one value in a property, set this to 'many'. Defaults to 'atMostOne'. Note that by default properties can be empty in Weaviate.
-	// Enum: [atMostOne many]
-	Cardinality *string `json:"cardinality,omitempty"`
+	// DEPRECATED - do not use anymore.
+	Cardinality string `json:"cardinality,omitempty"`
 
 	// Can be a reference to another type when it starts with a capital (for example Person), otherwise "string" or "int".
 	DataType []string `json:"dataType"`
@@ -57,10 +53,6 @@ type Property struct {
 func (m *Property) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateCardinality(formats); err != nil {
-		res = append(res, err)
-	}
-
 	if err := m.validateKeywords(formats); err != nil {
 		res = append(res, err)
 	}
@@ -68,49 +60,6 @@ func (m *Property) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
-	return nil
-}
-
-var propertyTypeCardinalityPropEnum []interface{}
-
-func init() {
-	var res []string
-	if err := json.Unmarshal([]byte(`["atMostOne","many"]`), &res); err != nil {
-		panic(err)
-	}
-	for _, v := range res {
-		propertyTypeCardinalityPropEnum = append(propertyTypeCardinalityPropEnum, v)
-	}
-}
-
-const (
-
-	// PropertyCardinalityAtMostOne captures enum value "atMostOne"
-	PropertyCardinalityAtMostOne string = "atMostOne"
-
-	// PropertyCardinalityMany captures enum value "many"
-	PropertyCardinalityMany string = "many"
-)
-
-// prop value enum
-func (m *Property) validateCardinalityEnum(path, location string, value string) error {
-	if err := validate.EnumCase(path, location, value, propertyTypeCardinalityPropEnum, true); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (m *Property) validateCardinality(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.Cardinality) { // not required
-		return nil
-	}
-
-	// value enum
-	if err := m.validateCardinalityEnum("cardinality", "body", *m.Cardinality); err != nil {
-		return err
-	}
-
 	return nil
 }
 

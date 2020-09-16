@@ -111,7 +111,8 @@ func (a *KnnAggregator) extractBeacons(properties []string) (neighborProps, erro
 			}
 
 			if len(refTyped) != 1 {
-				return nil, fmt.Errorf("expecteded element[%d].Schema.%s to have exactly one reference, got: %d",
+				return nil, fmt.Errorf("a knn training data object needs to have exactly one label: "+
+					"expecteded element[%d].Schema.%s to have exactly one reference, got: %d",
 					i, prop, len(refTyped))
 			}
 

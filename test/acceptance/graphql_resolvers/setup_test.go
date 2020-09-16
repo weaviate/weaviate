@@ -111,9 +111,8 @@ func addTestSchema(t *testing.T) {
 				DataType: []string{"phoneNumber"},
 			},
 			&models.Property{
-				Name:        "inCity",
-				DataType:    []string{"City"},
-				Cardinality: ptString("many"),
+				Name:     "inCity",
+				DataType: []string{"City"},
 			},
 		},
 	})
@@ -148,7 +147,6 @@ func addTestSchema(t *testing.T) {
 				Name:                  "livesIn",
 				DataType:              []string{"City"},
 				VectorizePropertyName: false,
-				Cardinality:           ptString("many"),
 			},
 		},
 	})

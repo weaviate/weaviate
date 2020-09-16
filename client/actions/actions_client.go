@@ -247,9 +247,9 @@ func (a *Client) ActionsPatch(params *ActionsPatchParams, authInfo runtime.Clien
 }
 
 /*
-  ActionsReferencesCreate adds a single reference to a class property when cardinality is set to has many
+  ActionsReferencesCreate adds a single reference to a class property
 
-  Add a single reference to a class-property when cardinality is set to 'hasMany'.
+  Add a single reference to a class-property.
 */
 func (a *Client) ActionsReferencesCreate(params *ActionsReferencesCreateParams, authInfo runtime.ClientAuthInfoWriter) (*ActionsReferencesCreateOK, error) {
 	// TODO: Validate the params before sending
