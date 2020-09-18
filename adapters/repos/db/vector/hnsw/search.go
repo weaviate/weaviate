@@ -18,6 +18,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
 func reasonableEfFromK(k int) int {
@@ -89,7 +90,7 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 	visited := newVisitedList(entrypoints)
 	candidates := &binarySearchTreeGeneric{}
 	results := &binarySearchTreeGeneric{}
-	distancer := newReusableDistancer(queryVector)
+	distancer := h.distancerProvider.New(queryVector)
 
 	h.insertViableEntrypointsAsCandidatesAndResults(entrypoints, candidates,
 		results, level, allowList)
@@ -176,7 +177,7 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 }
 
 func (h *hnsw) currentWorstResultDistance(results *binarySearchTreeGeneric,
-	distancer *reusableDistancer) (float32, error) {
+	distancer distancer.Distancer) (float32, error) {
 	if results.root != nil {
 		id := int32(results.maximum().index)
 		d, ok, err := h.distanceToNode(distancer, id)
@@ -200,7 +201,7 @@ func (h *hnsw) currentWorstResultDistance(results *binarySearchTreeGeneric,
 
 func (h *hnsw) extendCandidatesAndResultsFromNeighbors(candidates,
 	results *binarySearchTreeGeneric, connections []uint32,
-	visited map[uint32]struct{}, distancer *reusableDistancer, ef int,
+	visited map[uint32]struct{}, distancer distancer.Distancer, ef int,
 	level int, allowList inverted.AllowList, worstResultDistance float32) error {
 	for _, neighborID := range connections {
 		if _, ok := visited[neighborID]; ok {
@@ -251,7 +252,7 @@ func (h *hnsw) extendCandidatesAndResultsFromNeighbors(candidates,
 	return nil
 }
 
-func (h *hnsw) distanceToNode(distancer *reusableDistancer,
+func (h *hnsw) distanceToNode(distancer distancer.Distancer,
 	nodeID int32) (float32, bool, error) {
 	candidateVec, err := h.vectorForID(context.Background(), nodeID)
 	if err != nil {
@@ -265,7 +266,7 @@ func (h *hnsw) distanceToNode(distancer *reusableDistancer,
 		}
 	}
 
-	dist, err := distancer.distance(candidateVec)
+	dist, _, err := distancer.Distance(candidateVec)
 	if err != nil {
 		return 0, false, errors.Wrap(err, "calculate distance between candidate and query")
 	}
