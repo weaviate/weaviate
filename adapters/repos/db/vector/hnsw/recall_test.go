@@ -22,6 +22,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -148,7 +149,7 @@ func bruteForce(vectors [][]float32, query []float32, k int) []int {
 
 	var distances = make([]distanceAndIndex, len(vectors))
 
-	distancer := newReusableDistancer(query)
+	distancer := distancer.NewCosineProvider.New(query)
 	for i, vec := range vectors {
 		dist, _ := distancer.distance(vec)
 		distances[i] = distanceAndIndex{
