@@ -35,7 +35,7 @@ type deserializationResult struct {
 
 func (c *deserializer) Do(fd *os.File) (*deserializationResult, error) {
 	out := &deserializationResult{
-		nodes:      make([]*vertex, importLimit), // assume fixed length for now, make growable later
+		nodes:      make([]*vertex, initialSize), // assume fixed length for now, make growable later
 		tombstones: make(map[int]struct{}),
 	}
 
@@ -51,7 +51,7 @@ func (c *deserializer) Do(fd *os.File) (*deserializationResult, error) {
 
 		switch ct {
 		case addNode:
-			err = c.readNode(fd, out.nodes)
+			err = c.readNode(fd, out)
 		case setEntryPointMaxLevel:
 			var entrypoint uint32
 			var level uint16
@@ -73,7 +73,7 @@ func (c *deserializer) Do(fd *os.File) (*deserializationResult, error) {
 		case resetIndex:
 			out.entrypoint = 0
 			out.level = 0
-			out.nodes = make([]*vertex, importLimit) // TODO: make variable
+			out.nodes = make([]*vertex, initialSize)
 		default:
 			err = fmt.Errorf("unrecognized commit type %d", ct)
 		}
@@ -85,7 +85,7 @@ func (c *deserializer) Do(fd *os.File) (*deserializationResult, error) {
 	return out, nil
 }
 
-func (c *deserializer) readNode(r io.Reader, nodes []*vertex) error {
+func (c *deserializer) readNode(r io.Reader, res *deserializationResult) error {
 	id, err := c.readUint32(r)
 	if err != nil {
 		return err
@@ -96,14 +96,17 @@ func (c *deserializer) readNode(r io.Reader, nodes []*vertex) error {
 		return err
 	}
 
-	if int(id) >= len(nodes) {
-		return fmt.Errorf("node doesn't fit and growing is not implemented yet")
+	newNodes, err := growIndexToAccomodateNode(res.nodes, int(id))
+	if err != nil {
+		return err
 	}
 
-	if nodes[id] == nil {
-		nodes[id] = &vertex{level: int(level), id: int(id), connections: make(map[int][]uint32)}
+	res.nodes = newNodes
+
+	if res.nodes[id] == nil {
+		res.nodes[id] = &vertex{level: int(level), id: int(id), connections: make(map[int][]uint32)}
 	} else {
-		nodes[id].level = int(level)
+		res.nodes[id].level = int(level)
 	}
 	return nil
 }
