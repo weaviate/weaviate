@@ -80,7 +80,7 @@ type CommitLogger interface {
 	Reset() error
 }
 
-type MakeCommitLogger func() CommitLogger
+type MakeCommitLogger func() (CommitLogger, error)
 
 type VectorForID func(ctx context.Context, id int32) ([]float32, error)
 
@@ -117,7 +117,12 @@ func New(cfg Config) (*hnsw, error) {
 	}
 
 	// init commit logger for future writes
-	index.commitLog = cfg.MakeCommitLoggerThunk()
+	cl, err := cfg.MakeCommitLoggerThunk()
+	if err != nil {
+		return nil, errors.Wrap(err, "create commit logger")
+	}
+
+	index.commitLog = cl
 	index.registerMaintainence(cfg)
 
 	return index, nil
@@ -126,24 +131,20 @@ func New(cfg Config) (*hnsw, error) {
 // if a commit log is already present it will be read into memory, if not we
 // start with an empty model
 func (h *hnsw) restoreFromDisk() error {
-	fileName := commitLogFileName(h.rootPath, h.id)
-	if _, err := os.Stat(fileName); err != nil {
-		if os.IsNotExist(err) {
-			// nothing to do here we can return
-			return nil
-		}
-
-		return errors.Wrapf(err, "unexpected error checking for commit log file %q", fileName)
+	fileNames, err := getCommitFileNames(h.rootPath, h.id)
+	if len(fileNames) == 0 {
+		// nothing to do
+		return nil
 	}
 
-	fd, err := os.Open(fileName)
+	fd, err := os.Open(fileNames[0]) // TODO: support more than the first one
 	if err != nil {
-		return errors.Wrapf(err, "open commit log %q for reading", fileName)
+		return errors.Wrapf(err, "open commit log %q for reading", fileNames[0])
 	}
 
 	res, err := newDeserializer().Do(fd)
 	if err != nil {
-		return errors.Wrapf(err, "deserialize commit log %q", fileName)
+		return errors.Wrapf(err, "deserialize commit log %q", fileNames[0])
 	}
 
 	h.nodes = res.nodes

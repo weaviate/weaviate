@@ -27,8 +27,8 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 
 	t.Run("import the test vectors", func(t *testing.T) {
 		cl := &noopCommitLogger{}
-		makeCL := func() CommitLogger {
-			return cl
+		makeCL := func() (CommitLogger, error) {
+			return cl, nil
 		}
 
 		index, err := New(Config{
@@ -102,8 +102,8 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 
 	t.Run("import the test vectors", func(t *testing.T) {
 		cl := &noopCommitLogger{}
-		makeCL := func() CommitLogger {
-			return cl
+		makeCL := func() (CommitLogger, error) {
+			return cl, nil
 		}
 
 		index, err := New(Config{
@@ -187,8 +187,8 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 
 	t.Run("import the test vectors", func(t *testing.T) {
 		cl := &noopCommitLogger{}
-		makeCL := func() CommitLogger {
-			return cl
+		makeCL := func() (CommitLogger, error) {
+			return cl, nil
 		}
 
 		index, err := New(Config{
@@ -429,8 +429,8 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 	// The underlying test set can be found in vectors_for_test.go
 
 	cl := &noopCommitLogger{}
-	makeCL := func() CommitLogger {
-		return cl
+	makeCL := func() (CommitLogger, error) {
+		return cl, nil
 	}
 
 	index, err := New(Config{
