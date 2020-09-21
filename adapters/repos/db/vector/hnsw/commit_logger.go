@@ -16,28 +16,140 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
+	"sort"
+	"strconv"
+	"time"
+
+	"github.com/pkg/errors"
 )
 
-// TODO: adjust file path, it needs to contain timestamps. Possibly use a
-// directory as helpers
-func commitLogFileName(rootPath, name string) string {
-	return fmt.Sprintf("%s/%s.hnsw.commitlog", rootPath, name)
+func commitLogFileName(rootPath, indexName, fileName string) string {
+	return fmt.Sprintf("%s/%s", commitLogDirectory(rootPath, indexName), fileName)
 }
 
-func NewCommitLogger(rootPath, name string) *hnswCommitLogger {
+func commitLogDirectory(rootPath, name string) string {
+	return fmt.Sprintf("%s/%s.hnsw.commitlog.d", rootPath, name)
+}
+
+func NewCommitLogger(rootPath, name string) (*hnswCommitLogger, error) {
 	l := &hnswCommitLogger{
 		events: make(chan []byte),
 	}
 
-	fd, err := os.OpenFile(commitLogFileName(rootPath, name), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666)
+	fd, err := getLatestCommitFileOrCreate(rootPath, name)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	l.logFile = fd
 
 	l.StartLogging()
-	return l
+	return l, nil
+}
+
+func getLatestCommitFileOrCreate(rootPath, name string) (*os.File, error) {
+	dir := commitLogDirectory(rootPath, name)
+	err := os.MkdirAll(dir, os.ModePerm)
+	if err != nil {
+		return nil, errors.Wrap(err, "create commit logger directory")
+	}
+
+	fileName, ok, err := getCurrentCommitLogFileName(dir)
+	if err != nil {
+		return nil, errors.Wrap(err, "find commit logger file in directory")
+	}
+
+	if !ok {
+		// this is a new commit log, initialize with the current time stamp
+		fileName = fmt.Sprintf("%d", time.Now().Unix())
+	}
+
+	fd, err := os.OpenFile(commitLogFileName(rootPath, name, fileName),
+		os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666)
+	if err != nil {
+		return nil, errors.Wrap(err, "create commit log file")
+	}
+
+	return fd, nil
+}
+
+// getCommitFileNames in order, from old to new
+func getCommitFileNames(rootPath, name string) ([]string, error) {
+	dir := commitLogDirectory(rootPath, name)
+	err := os.MkdirAll(dir, os.ModePerm)
+	if err != nil {
+		return nil, errors.Wrap(err, "create commit logger directory")
+	}
+
+	files, err := ioutil.ReadDir(dir)
+	if err != nil {
+		return nil, errors.Wrap(err, "browse commit logger directory")
+	}
+
+	if len(files) == 0 {
+		return nil, nil
+	}
+
+	ec := &errorCompounder{}
+	sort.Slice(files, func(a, b int) bool {
+		ts1, err := asTimeStamp(files[a].Name())
+		if err != nil {
+			ec.add(err)
+		}
+
+		ts2, err := asTimeStamp(files[a].Name())
+		if err != nil {
+			ec.add(err)
+		}
+		return ts1 < ts2
+	})
+	if err := ec.toError(); err != nil {
+		return nil, err
+	}
+
+	out := make([]string, len(files))
+	for i, file := range files {
+		out[i] = commitLogFileName(rootPath, name, file.Name())
+	}
+
+	return out, nil
+}
+
+// getCurrentCommitLogFileName returns the fileName and true if a file was
+// present. If no file was present, the second arg is false.
+func getCurrentCommitLogFileName(dirPath string) (string, bool, error) {
+	files, err := ioutil.ReadDir(dirPath)
+	if err != nil {
+		return "", false, errors.Wrap(err, "browse commit logger directory")
+	}
+
+	if len(files) == 0 {
+		return "", false, nil
+	}
+
+	ec := &errorCompounder{}
+	sort.Slice(files, func(a, b int) bool {
+		ts1, err := asTimeStamp(files[a].Name())
+		if err != nil {
+			ec.add(err)
+		}
+
+		ts2, err := asTimeStamp(files[a].Name())
+		if err != nil {
+			ec.add(err)
+		}
+		return ts1 > ts2
+	})
+	if err := ec.toError(); err != nil {
+		return "", false, err
+	}
+
+	return files[0].Name(), true, nil
+}
+
+func asTimeStamp(in string) (int64, error) {
+	return strconv.ParseInt(in, 10, 64)
 }
 
 type hnswCommitLogger struct {

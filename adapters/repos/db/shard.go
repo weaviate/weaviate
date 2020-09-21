@@ -48,7 +48,7 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 	vi, err := hnsw.New(hnsw.Config{
 		RootPath: s.index.Config.RootPath,
 		ID:       s.ID(),
-		MakeCommitLoggerThunk: func() hnsw.CommitLogger {
+		MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
 			return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID())
 		},
 		MaximumConnections:       60,
