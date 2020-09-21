@@ -24,8 +24,6 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 )
 
-const importLimit = 200000 // TODO: make variable
-
 type hnsw struct {
 	sync.RWMutex
 
@@ -107,7 +105,7 @@ func New(cfg Config) (*hnsw, error) {
 		// inspired by c++ implementation
 		levelNormalizer: 1 / math.Log(float64(cfg.MaximumConnections)),
 		efConstruction:  cfg.EFConstruction,
-		nodes:           make([]*vertex, importLimit), // TODO: grow variably rather than fixed length
+		nodes:           make([]*vertex, initialSize),
 		vectorForID:     vectorCache.get,
 		id:              cfg.ID,
 		rootPath:        cfg.RootPath,
@@ -331,11 +329,16 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	h.Lock()
 	// m.addBuildingLocking(before)
 	nodeId := node.id
+	err := h.growIndexToAccomodateNode(node.id)
+	if err != nil {
+		h.Unlock()
+		return errors.Wrapf(err, "grow HNSW index to accomodate node %d", node.id)
+	}
 	h.nodes[nodeId] = node
 	h.commitLog.AddNode(node)
 	h.Unlock()
 
-	entryPointID, err := h.findBestEntrypointForNode(currentMaximumLayer, targetLevel,
+	entryPointID, err = h.findBestEntrypointForNode(currentMaximumLayer, targetLevel,
 		entryPointID, nodeVec)
 	if err != nil {
 		return errors.Wrap(err, "find best entrypoint")
