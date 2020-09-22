@@ -132,25 +132,32 @@ func New(cfg Config) (*hnsw, error) {
 // start with an empty model
 func (h *hnsw) restoreFromDisk() error {
 	fileNames, err := getCommitFileNames(h.rootPath, h.id)
+	if err != nil {
+		return err
+	}
+
 	if len(fileNames) == 0 {
 		// nothing to do
 		return nil
 	}
 
-	fd, err := os.Open(fileNames[0]) // TODO: support more than the first one
-	if err != nil {
-		return errors.Wrapf(err, "open commit log %q for reading", fileNames[0])
+	var state *deserializationResult
+	for _, fileName := range fileNames {
+		fd, err := os.Open(fileName)
+		if err != nil {
+			return errors.Wrapf(err, "open commit log %q for reading", fileName)
+		}
+
+		state, err = newDeserializer().Do(fd, state)
+		if err != nil {
+			return errors.Wrapf(err, "deserialize commit log %q", fileName)
+		}
 	}
 
-	res, err := newDeserializer().Do(fd)
-	if err != nil {
-		return errors.Wrapf(err, "deserialize commit log %q", fileNames[0])
-	}
-
-	h.nodes = res.nodes
-	h.currentMaximumLayer = int(res.level)
-	h.entryPointID = int(res.entrypoint)
-	h.tombstones = res.tombstones
+	h.nodes = state.nodes
+	h.currentMaximumLayer = int(state.level)
+	h.entryPointID = int(state.entrypoint)
+	h.tombstones = state.tombstones
 
 	return nil
 }
