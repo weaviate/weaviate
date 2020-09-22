@@ -157,7 +157,7 @@ func getCurrentCommitLogFileName(dirPath string) (string, bool, error) {
 }
 
 func asTimeStamp(in string) (int64, error) {
-	return strconv.ParseInt(in, 10, 64)
+	return strconv.ParseInt(strings.TrimSuffix(in, ".condensed"), 10, 64)
 }
 
 type condensor interface {
