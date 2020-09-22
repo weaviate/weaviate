@@ -33,10 +33,14 @@ type deserializationResult struct {
 	tombstones map[int]struct{}
 }
 
-func (c *deserializer) Do(fd *os.File) (*deserializationResult, error) {
-	out := &deserializationResult{
-		nodes:      make([]*vertex, initialSize), // assume fixed length for now, make growable later
-		tombstones: make(map[int]struct{}),
+func (c *deserializer) Do(fd *os.File,
+	initialState *deserializationResult) (*deserializationResult, error) {
+	out := initialState
+	if out == nil {
+		out = &deserializationResult{
+			nodes:      make([]*vertex, initialSize),
+			tombstones: make(map[int]struct{}),
+		}
 	}
 
 	for {

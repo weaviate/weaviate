@@ -25,6 +25,8 @@ import (
 	"github.com/pkg/errors"
 )
 
+const maxUncondensedCommitLogSize = 50 * 1024 * 1024
+
 func commitLogFileName(rootPath, indexName, fileName string) string {
 	return fmt.Sprintf("%s/%s", commitLogDirectory(rootPath, indexName), fileName)
 }
@@ -35,7 +37,9 @@ func commitLogDirectory(rootPath, name string) string {
 
 func NewCommitLogger(rootPath, name string) (*hnswCommitLogger, error) {
 	l := &hnswCommitLogger{
-		events: make(chan []byte),
+		events:   make(chan []byte),
+		rootPath: rootPath,
+		id:       name,
 	}
 
 	fd, err := getLatestCommitFileOrCreate(rootPath, name)
@@ -98,7 +102,7 @@ func getCommitFileNames(rootPath, name string) ([]string, error) {
 			ec.add(err)
 		}
 
-		ts2, err := asTimeStamp(files[a].Name())
+		ts2, err := asTimeStamp(files[b].Name())
 		if err != nil {
 			ec.add(err)
 		}
@@ -135,7 +139,7 @@ func getCurrentCommitLogFileName(dirPath string) (string, bool, error) {
 			ec.add(err)
 		}
 
-		ts2, err := asTimeStamp(files[a].Name())
+		ts2, err := asTimeStamp(files[b].Name())
 		if err != nil {
 			ec.add(err)
 		}
@@ -153,8 +157,10 @@ func asTimeStamp(in string) (int64, error) {
 }
 
 type hnswCommitLogger struct {
-	events  chan []byte
-	logFile *os.File
+	events   chan []byte
+	logFile  *os.File
+	rootPath string
+	id       string
 }
 
 type hnswCommitType uint8 // 256 options, plenty of room for future extensions
@@ -262,12 +268,46 @@ func (l *hnswCommitLogger) Reset() error {
 }
 
 func (l *hnswCommitLogger) StartLogging() {
+	maintainance := time.Tick(10 * time.Second)
 	go func() {
 		for {
-			event := <-l.events
-			l.logFile.Write(event)
+			select {
+			case event := <-l.events:
+				l.logFile.Write(event)
+			case <-maintainance:
+				if err := l.maintainance(); err != nil {
+					// TODO: use structured logging
+					fmt.Printf("maintainance failed: %v\n", err)
+				}
+			}
 		}
 	}()
+}
+
+func (l *hnswCommitLogger) maintainance() error {
+	i, err := l.logFile.Stat()
+	if err != nil {
+		return err
+	}
+
+	if i.Size() > maxUncondensedCommitLogSize {
+		l.logFile.Close()
+
+		fmt.Printf("switching because old (%s) size is %d\n", i.Name(), i.Size())
+
+		// this is a new commit log, initialize with the current time stamp
+		fileName := fmt.Sprintf("%d", time.Now().Unix())
+
+		fd, err := os.OpenFile(commitLogFileName(l.rootPath, l.id, fileName),
+			os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666)
+		if err != nil {
+			return errors.Wrap(err, "create commit log file")
+		}
+
+		l.logFile = fd
+	}
+
+	return nil
 }
 
 func (l *hnswCommitLogger) writeUint32(w io.Writer, in uint32) error {
