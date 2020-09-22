@@ -20,6 +20,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -35,11 +36,14 @@ func commitLogDirectory(rootPath, name string) string {
 	return fmt.Sprintf("%s/%s.hnsw.commitlog.d", rootPath, name)
 }
 
-func NewCommitLogger(rootPath, name string) (*hnswCommitLogger, error) {
+func NewCommitLogger(rootPath, name string,
+	maintainenceInterval time.Duration) (*hnswCommitLogger, error) {
 	l := &hnswCommitLogger{
-		events:   make(chan []byte),
-		rootPath: rootPath,
-		id:       name,
+		events:               make(chan []byte),
+		rootPath:             rootPath,
+		id:                   name,
+		maintainenceInterval: maintainenceInterval,
+		condensor:            NewMemoryCondensor(),
 	}
 
 	fd, err := getLatestCommitFileOrCreate(rootPath, name)
@@ -156,11 +160,17 @@ func asTimeStamp(in string) (int64, error) {
 	return strconv.ParseInt(in, 10, 64)
 }
 
+type condensor interface {
+	Do(filename string) error
+}
+
 type hnswCommitLogger struct {
-	events   chan []byte
-	logFile  *os.File
-	rootPath string
-	id       string
+	events               chan []byte
+	logFile              *os.File
+	rootPath             string
+	id                   string
+	condensor            condensor
+	maintainenceInterval time.Duration
 }
 
 type hnswCommitType uint8 // 256 options, plenty of room for future extensions
@@ -268,8 +278,13 @@ func (l *hnswCommitLogger) Reset() error {
 }
 
 func (l *hnswCommitLogger) StartLogging() {
-	maintainance := time.Tick(10 * time.Second)
+	// switch log
 	go func() {
+		if l.maintainenceInterval == 0 {
+			fmt.Printf("commit log switching explitictly turned off\n")
+		}
+		maintainance := time.Tick(l.maintainenceInterval)
+
 		for {
 			select {
 			case event := <-l.events:
@@ -279,6 +294,21 @@ func (l *hnswCommitLogger) StartLogging() {
 					// TODO: use structured logging
 					fmt.Printf("maintainance failed: %v\n", err)
 				}
+			}
+		}
+	}()
+
+	// condense old logs
+	go func() {
+		if l.maintainenceInterval == 0 {
+			fmt.Printf("commit log condensing explitictly turned off\n")
+		}
+		maintainance := time.Tick(l.maintainenceInterval)
+		for {
+			<-maintainance
+			if err := l.condenseOldLogs(); err != nil {
+				// TODO: use structured logging
+				fmt.Printf("condensing failed: %v\n", err)
 			}
 		}
 	}()
@@ -305,6 +335,33 @@ func (l *hnswCommitLogger) maintainance() error {
 		}
 
 		l.logFile = fd
+	}
+
+	return nil
+}
+
+func (l *hnswCommitLogger) condenseOldLogs() error {
+	files, err := getCommitFileNames(l.rootPath, l.id)
+	if err != nil {
+		return err
+	}
+
+	if len(files) <= 1 {
+		// if there are no files there is nothing to do
+		// if there is only a single file, it must still be in use, we can't do
+		// anything yet
+	}
+
+	// cut off last element, as that's never a candidate
+	candidates := files[:len(files)-1]
+
+	for _, candidate := range candidates {
+		if strings.HasSuffix(candidate, ".condensed") {
+			// don't attempt to condense logs which are already condensed
+			continue
+		}
+
+		return l.condensor.Do(candidate)
 	}
 
 	return nil

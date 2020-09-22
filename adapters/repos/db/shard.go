@@ -42,14 +42,14 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 	s := &Shard{
 		index:            index,
 		name:             shardName,
-		invertedRowCache: inverted.NewRowCacher(10 * 1024 * 1024),
+		invertedRowCache: inverted.NewRowCacher(50 * 1024 * 1024),
 	}
 
 	vi, err := hnsw.New(hnsw.Config{
 		RootPath: s.index.Config.RootPath,
 		ID:       s.ID(),
 		MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
-			return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID())
+			return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), 10*time.Second)
 		},
 		MaximumConnections:       60,
 		EFConstruction:           128,
