@@ -188,6 +188,9 @@ func (c *deserializer) readLinks(r io.Reader, res *deserializationResult) error 
 
 	res.nodes = newNodes
 
+	if res.nodes[int(source)] == nil {
+		res.nodes[int(source)] = &vertex{id: int(source), connections: map[int][]uint32{}}
+	}
 	res.nodes[int(source)].connections[int(level)] = targets
 	return nil
 }
