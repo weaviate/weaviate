@@ -63,17 +63,17 @@ func (c *deserializer) Do(fd *os.File,
 			out.entrypoint = entrypoint
 			out.level = level
 		case addLinkAtLevel:
-			err = c.readLink(fd, out.nodes)
+			err = c.readLink(fd, out)
 		case replaceLinksAtLevel:
-			err = c.readLinks(fd, out.nodes)
+			err = c.readLinks(fd, out)
 		case addTombstone:
 			err = c.readAddTombstone(fd, out.tombstones)
 		case removeTombstone:
 			err = c.readRemoveTombstone(fd, out.tombstones)
 		case clearLinks:
-			err = c.readClearLinks(fd, out.nodes)
+			err = c.readClearLinks(fd, out)
 		case deleteNode:
-			err = c.readDeleteNode(fd, out.nodes)
+			err = c.readDeleteNode(fd, out)
 		case resetIndex:
 			out.entrypoint = 0
 			out.level = 0
@@ -129,7 +129,7 @@ func (c *deserializer) readEP(r io.Reader) (uint32, uint16, error) {
 	return id, level, nil
 }
 
-func (c *deserializer) readLink(r io.Reader, nodes []*vertex) error {
+func (c *deserializer) readLink(r io.Reader, res *deserializationResult) error {
 	source, err := c.readUint32(r)
 	if err != nil {
 		return err
@@ -145,15 +145,22 @@ func (c *deserializer) readLink(r io.Reader, nodes []*vertex) error {
 		return err
 	}
 
-	if int(source) >= len(nodes) || nodes[int(source)] == nil {
-		nodes[int(source)] = &vertex{id: int(source), connections: make(map[int][]uint32)}
+	newNodes, err := growIndexToAccomodateNode(res.nodes, int(source))
+	if err != nil {
+		return err
 	}
 
-	nodes[int(source)].connections[int(level)] = append(nodes[int(source)].connections[int(level)], target)
+	res.nodes = newNodes
+
+	if res.nodes[int(source)] == nil {
+		res.nodes[int(source)] = &vertex{id: int(source), connections: make(map[int][]uint32)}
+	}
+
+	res.nodes[int(source)].connections[int(level)] = append(res.nodes[int(source)].connections[int(level)], target)
 	return nil
 }
 
-func (c *deserializer) readLinks(r io.Reader, nodes []*vertex) error {
+func (c *deserializer) readLinks(r io.Reader, res *deserializationResult) error {
 	source, err := c.readUint32(r)
 	if err != nil {
 		return err
@@ -174,11 +181,14 @@ func (c *deserializer) readLinks(r io.Reader, nodes []*vertex) error {
 		return err
 	}
 
-	if int(source) >= len(nodes) || nodes[int(source)] == nil {
-		return fmt.Errorf("source node does not exist")
+	newNodes, err := growIndexToAccomodateNode(res.nodes, int(source))
+	if err != nil {
+		return err
 	}
 
-	nodes[int(source)].connections[int(level)] = targets
+	res.nodes = newNodes
+
+	res.nodes[int(source)].connections[int(level)] = targets
 	return nil
 }
 
@@ -204,39 +214,39 @@ func (c *deserializer) readRemoveTombstone(r io.Reader, tombstones map[int]struc
 	return nil
 }
 
-func (c *deserializer) readClearLinks(r io.Reader, nodes []*vertex) error {
+func (c *deserializer) readClearLinks(r io.Reader, res *deserializationResult) error {
 	id, err := c.readUint32(r)
 	if err != nil {
 		return err
 	}
 
-	if int(id) > len(nodes) {
+	if int(id) > len(res.nodes) {
 		// node is out of bounds, so it can't exist, nothing to do here
 		return nil
 	}
 
-	if nodes[id] == nil {
+	if res.nodes[id] == nil {
 		// node has been deleted or never existed, nothing to do
 		return nil
 	}
 
-	nodes[id].connections = map[int][]uint32{}
+	res.nodes[id].connections = map[int][]uint32{}
 	fmt.Printf("links cleared for node %d\n", id)
 	return nil
 }
 
-func (c *deserializer) readDeleteNode(r io.Reader, nodes []*vertex) error {
+func (c *deserializer) readDeleteNode(r io.Reader, res *deserializationResult) error {
 	id, err := c.readUint32(r)
 	if err != nil {
 		return err
 	}
 
-	if int(id) > len(nodes) {
+	if int(id) > len(res.nodes) {
 		// node is out of bounds, so it can't exist, nothing to do here
 		return nil
 	}
 
-	nodes[id] = nil
+	res.nodes[id] = nil
 	return nil
 }
 
