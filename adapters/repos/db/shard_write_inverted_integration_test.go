@@ -112,3 +112,88 @@ func TestExtendInvertedIndexWithFrequency(t *testing.T) {
 	assert.Equal(t, uint32(15), newDocID)
 	assert.Equal(t, float32(0.5), newFrequency)
 }
+
+func TestExtendInvertedIndexWithOutFrequency(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+	os.MkdirAll(dirName, 0777)
+	defer func() {
+		err := os.RemoveAll(dirName)
+		fmt.Println(err)
+	}()
+
+	shard, err := NewShard("extend_invert_benchmark_no_frequency", &Index{Config: IndexConfig{
+		RootPath: dirName, Kind: kind.Thing, ClassName: "Test"}})
+	require.Nil(t, err)
+
+	prop := []byte("testprop")
+	var before []byte
+
+	err = shard.db.Update(func(tx *bolt.Tx) error {
+		bucket, err := tx.CreateBucketIfNotExists([]byte("testbucket"))
+		if err != nil {
+			return err
+		}
+
+		b := bytes.NewBuffer(nil)
+
+		// checksum
+		_, err = b.Write([]uint8{0, 0, 0, 0})
+		if err != nil {
+			return err
+		}
+
+		fakeEntries := 625000
+		// doc count
+		count := uint32(fakeEntries)
+		err = binary.Write(b, binary.LittleEndian, &count)
+		if err != nil {
+			return err
+		}
+
+		for i := 0; i < fakeEntries; i++ {
+			// doc id
+			_, err = b.Write([]uint8{1, 2, 3, 4})
+			if err != nil {
+				return err
+			}
+		}
+
+		before = b.Bytes()
+		bucket.Put(prop, before)
+		return nil
+	})
+	require.Nil(t, err)
+
+	var after []byte
+	err = shard.db.Update(func(tx *bolt.Tx) error {
+		// before := time.Now()
+		bucket := tx.Bucket([]byte("testbucket"))
+		err := shard.extendInvertedIndexItem(bucket, inverted.Countable{Data: prop}, 32)
+		if err != nil {
+			return err
+		}
+
+		after = bucket.Get(prop)
+
+		return nil
+	})
+	require.Nil(t, err)
+
+	var updatedDocCount uint32
+	r := bytes.NewReader(after[4:])
+	err = binary.Read(r, binary.LittleEndian, &updatedDocCount)
+	require.Nil(t, err)
+
+	assert.Equal(t, uint32(625001), updatedDocCount)
+
+	assert.Equal(t, before[8:], after[8:(len(after))-4],
+		"without the meta and the extension, the rest should be unchanged")
+
+	r = bytes.NewReader(after[len(after)-4:])
+	var newDocID uint32
+	err = binary.Read(r, binary.LittleEndian, &newDocID)
+	require.Nil(t, err)
+
+	assert.Equal(t, uint32(32), newDocID)
+}
