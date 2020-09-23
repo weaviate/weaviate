@@ -222,15 +222,11 @@ func (s *Shard) extendInvertedIndexItemWithFrequency(b *bolt.Bucket,
 	updated := bytes.NewBuffer(data)
 	if len(data) == 0 {
 		// this is the first time someones writing this row, initalize counter in
-		// beginning as zero
+		// beginning as zero, and a dummy checksum
+		updated.Write([]uint8{0, 0, 0, 0}) // dummy checksum
 		docCount := uint32(0)
 		binary.Write(updated, binary.LittleEndian, &docCount)
-	} else {
-		// remove the old checksum
-		data = data[4:]
-		updated = bytes.NewBuffer(data)
 	}
-
 	// append current document
 	if err := binary.Write(updated, binary.LittleEndian, &docID); err != nil {
 		return errors.Wrap(err, "write doc id")
@@ -238,34 +234,45 @@ func (s *Shard) extendInvertedIndexItemWithFrequency(b *bolt.Bucket,
 	if err := binary.Write(updated, binary.LittleEndian, &freq); err != nil {
 		return errors.Wrap(err, "write doc frequency")
 	}
+
 	extended := updated.Bytes()
 
 	// read and increase doc count
-	reader := bytes.NewReader(extended)
+	reader := bytes.NewReader(extended[4:])
 	var docCount uint32
 	binary.Read(reader, binary.LittleEndian, &docCount)
 	docCount++
-	countBytes := bytes.NewBuffer(make([]byte, 0, 4))
-	binary.Write(countBytes, binary.LittleEndian, &docCount)
+	countBuf := bytes.NewBuffer(make([]byte, 0, 4))
+	binary.Write(countBuf, binary.LittleEndian, &docCount)
 
-	// combine back together
-	combined := append(countBytes.Bytes(), extended[4:]...)
+	// overwrite old doc count
+
+	startPos := 4 // first 4 bytes are checksum, so 4-7 is count
+	countBytes := countBuf.Bytes()
+	for i := 0; i < 4; i++ {
+		extended[startPos+i] = countBytes[i]
+	}
 
 	// finally calculate the checksum and prepend one more time.
-	chksum, err := s.checksum(combined)
+	chksum, err := s.checksum(extended[4:])
 	if err != nil {
 		return err
 	}
 
-	combined = append(chksum, combined...)
-	if len(combined) != 0 && len(combined) > 8 && (len(combined)-8)%8 != 0 {
+	// overwrite first four bytes with checksum
+	startPos = 0 // first 4 bytes are checksum
+	for i := 0; i < 4; i++ {
+		extended[startPos+i] = chksum[i]
+	}
+
+	if len(extended) != 0 && len(extended) > 8 && (len(extended)-8)%8 != 0 {
 		// -8 to remove the checksum and doc count
 		// module 8 for 4 bytes of docID + frequency
 		return fmt.Errorf("sanity check: invert row has invalid updated length %d"+
-			"with original length %d", len(combined), len(data))
+			"with original length %d", len(extended), len(data))
 	}
 
-	err = b.Put(item.Data, combined)
+	err = b.Put(item.Data, extended)
 	if err != nil {
 		return err
 	}
