@@ -32,6 +32,9 @@ func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) m
 	docIDs := map[strfmt.UUID]uint32{}
 	errs := map[int]error{} // int represents original index
 
+	duplicates := findDuplicatesInBatchObjects(objects)
+	_ = duplicates
+
 	var wg = &sync.WaitGroup{}
 	for i := 0; i < len(objects); i += maxPerTransaction {
 		end := i + maxPerTransaction
@@ -50,7 +53,10 @@ func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) m
 					affectedIndices = append(affectedIndices, i+j)
 				}
 
-				for _, object := range batch {
+				for j, object := range batch {
+					if _, ok := duplicates[i+j]; ok {
+						continue
+					}
 					uuidParsed, err := uuid.Parse(object.ID().String())
 					if err != nil {
 						return errors.Wrap(err, "invalid id")
@@ -92,6 +98,10 @@ func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) m
 			// had an error prior, ignore
 			continue
 		}
+		if _, ok := duplicates[i]; ok {
+			// is a duplicate, ignore
+			continue
+		}
 
 		wg.Add(1)
 		docID := int(docIDs[object.ID()])
@@ -108,6 +118,24 @@ func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) m
 	wg.Wait()
 
 	return errs
+}
+
+// returns the originalIndexIDs to be ignored
+func findDuplicatesInBatchObjects(in []*storobj.Object) map[int]struct{} {
+	count := map[strfmt.UUID]int{}
+	for _, obj := range in {
+		count[obj.ID()] = count[obj.ID()] + 1
+	}
+
+	ignore := map[int]struct{}{}
+	for i, obj := range in {
+		if c := count[obj.ID()]; c > 1 {
+			count[obj.ID()] = c - 1
+			ignore[i] = struct{}{}
+		}
+	}
+
+	return ignore
 }
 
 // return value map[int]error gives the error for the index as it received it

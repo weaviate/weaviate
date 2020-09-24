@@ -21,6 +21,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
+	uuid "github.com/satori/go.uuid"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -243,6 +245,103 @@ func testBatchImportThings(repo *DB) func(t *testing.T) {
 
 			t.Run("does not contain third element (es error)", func(t *testing.T) {
 				_, ok := findID(res, batch[2].Thing.ID)
+				require.Equal(t, false, ok, "results should not contain our desired id")
+			})
+		})
+
+		t.Run("with a duplicate UUID", func(t *testing.T) {
+			// it should ignore the first one as the second one would overwrite the
+			// first one anyway
+			batch := make(kinds.BatchThings, 53)
+
+			batch[0] = kinds.BatchThing{
+				OriginalIndex: 0,
+				Err:           nil,
+				Vector:        []float32{7, 8, 9},
+				Thing: &models.Thing{
+					Class: "ThingForBatching",
+					Schema: map[string]interface{}{
+						"stringProp": "first element",
+					},
+					ID: "79aebd44-7486-4fed-9334-3a74cc09a1c3",
+				},
+				UUID: "79aebd44-7486-4fed-9334-3a74cc09a1c3",
+			}
+
+			// add 50 more nonsensical items, so we cross the transaction threshold
+
+			for i := 1; i < 51; i++ {
+				uuid, err := uuid.NewV4()
+				require.Nil(t, err)
+				id := strfmt.UUID(uuid.String())
+				batch[i] = kinds.BatchThing{
+					OriginalIndex: i,
+					Err:           nil,
+					Vector:        []float32{0.05, 0.1, 0.2},
+					Thing: &models.Thing{
+						Class: "ThingForBatching",
+						Schema: map[string]interface{}{
+							"stringProp": "ignore me",
+						},
+						ID: id,
+					},
+					UUID: id,
+				}
+			}
+
+			batch[51] = kinds.BatchThing{
+				OriginalIndex: 51,
+				Err:           fmt.Errorf("already had a prior error"),
+				Vector:        []float32{3, 2, 1},
+				Thing: &models.Thing{
+					Class: "ThingForBatching",
+					Schema: map[string]interface{}{
+						"stringProp": "first element",
+					},
+					ID: "1c2d8ce6-32da-4081-9794-a81e23e673e4",
+				},
+				UUID: "1c2d8ce6-32da-4081-9794-a81e23e673e4",
+			}
+			batch[52] = kinds.BatchThing{
+				OriginalIndex: 52,
+				Err:           nil,
+				Vector:        []float32{1, 2, 3},
+				Thing: &models.Thing{
+					Class: "ThingForBatching",
+					Schema: map[string]interface{}{
+						"stringProp": "first element, imported a second time",
+					},
+					ID: "79aebd44-7486-4fed-9334-3a74cc09a1c3", // note the duplicate id with item 1
+				},
+				UUID: "79aebd44-7486-4fed-9334-3a74cc09a1c3", // note the duplicate id with item 1
+			}
+
+			t.Run("can import", func(t *testing.T) {
+				batchRes, err := repo.BatchPutThings(context.Background(), batch)
+				require.Nil(t, err, "there shouldn't be an overall error, only inividual ones")
+
+				t.Run("element errors are marked correctly", func(t *testing.T) {
+					require.Len(t, batchRes, 53)
+					assert.NotNil(t, batchRes[51].Err) // from validation
+				})
+			})
+
+			params := traverser.GetParams{
+				Kind:       kind.Thing,
+				ClassName:  "ThingForBatching",
+				Pagination: &filters.Pagination{Limit: 10},
+				Filters:    nil,
+			}
+			res, err := repo.ClassSearch(context.Background(), params)
+			require.Nil(t, err)
+
+			t.Run("does not contain second element (validation error)", func(t *testing.T) {
+				_, ok := findID(res, batch[51].Thing.ID)
+				require.Equal(t, false, ok, "results should not contain our desired id")
+			})
+
+			t.Run("does not contain third element (es error)", func(t *testing.T) {
+				_, ok := findID(res, batch[52].Thing.ID)
 				require.Equal(t, false, ok, "results should not contain our desired id")
 			})
 		})
