@@ -18,14 +18,21 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 )
 
+func reasonableEfFromK(k int) int {
+	ef := k * 8
+	if ef > 100 {
+		ef = 100
+	}
+
+	return ef
+}
+
 func (h *hnsw) SearchByID(id int, k int) ([]int, error) {
-	// TODO: make ef configurable
-	return h.knnSearch(id, k, 8*k)
+	return h.knnSearch(id, k, reasonableEfFromK(k))
 }
 
 func (h *hnsw) SearchByVector(vector []float32, k int, allowList inverted.AllowList) ([]int, error) {
-	// TODO: make ef configurable
-	return h.knnSearchByVector(vector, k, k*8, allowList)
+	return h.knnSearchByVector(vector, k, reasonableEfFromK(k), allowList)
 }
 
 func (h *hnsw) knnSearch(queryNodeID int, k int, ef int) ([]int, error) {
