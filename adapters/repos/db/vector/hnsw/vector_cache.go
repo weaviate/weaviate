@@ -26,39 +26,59 @@ type vectorCache struct {
 	count         int32
 	maxSize       int
 	getFromSource VectorForID
+	sync.RWMutex
 }
 
 func newCache(getFromSource VectorForID) *vectorCache {
-	return &vectorCache{
+	vc := &vectorCache{
 		cache:         sync.Map{},
 		count:         0,
-		maxSize:       200000, // TODO: make configurable
+		maxSize:       50000, // TODO: make configurable
 		getFromSource: getFromSource,
 	}
 
+	vc.watchForDeletion()
+	return vc
 }
 
+func (c *vectorCache) watchForDeletion() {
+	go func() {
+		t := time.Tick(10 * time.Second)
+		for {
+			<-t
+			c.replaceMapIfFull()
+		}
+
+	}()
+}
+
+func (c *vectorCache) replaceMapIfFull() {
+	if c.count >= int32(c.maxSize) {
+		c.Lock()
+		// TODO: structured logging
+		fmt.Printf("deleting cache because its full %s\n", time.Now())
+		c.cache = sync.Map{}
+		atomic.StoreInt32(&c.count, 0)
+		c.Unlock()
+	} else {
+		// TODO: structured logging
+		fmt.Printf("not deleting cache because it's only %d\n", c.count)
+	}
+
+}
 func (c *vectorCache) get(ctx context.Context, id int32) ([]float32, error) {
-	// before := time.Now()
+	c.RLock()
 	vec, ok := c.cache.Load(id)
-	// m.addCacheReadLocking(before)
+	c.RUnlock()
 	if !ok {
 		vec, err := c.getFromSource(ctx, id)
 		if err != nil {
 			return nil, errors.Wrapf(err, "fill cache with id %d", id)
 		}
 
-		if c.count >= int32(c.maxSize) {
-			fmt.Printf("deleting cache because its full %s\n", time.Now())
-			c.cache.Range(func(key, value interface{}) bool {
-				c.cache.Delete(key)
-				atomic.AddInt32(&c.count, -1)
-
-				return true
-			})
-		}
-
+		c.RLock()
 		c.cache.Store(id, vec)
+		c.RUnlock()
 		atomic.AddInt32(&c.count, 1)
 		return vec, nil
 	}
