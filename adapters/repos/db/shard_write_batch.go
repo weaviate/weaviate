@@ -94,7 +94,10 @@ func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) m
 	// to open no more threads than we have cpu cores?
 	wg = &sync.WaitGroup{}
 	for i, object := range objects {
-		if _, ok := errs[i]; ok {
+		m.Lock()
+		_, ok := errs[i]
+		m.Unlock()
+		if ok {
 			// had an error prior, ignore
 			continue
 		}
