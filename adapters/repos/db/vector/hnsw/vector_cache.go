@@ -60,11 +60,7 @@ func (c *vectorCache) replaceMapIfFull() {
 		c.cache = sync.Map{}
 		atomic.StoreInt32(&c.count, 0)
 		c.Unlock()
-	} else {
-		// TODO: structured logging
-		fmt.Printf("not deleting cache because it's only %d\n", c.count)
 	}
-
 }
 func (c *vectorCache) get(ctx context.Context, id int32) ([]float32, error) {
 	c.RLock()

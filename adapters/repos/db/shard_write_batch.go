@@ -29,7 +29,7 @@ func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) m
 	maxPerTransaction := 30
 
 	m := &sync.Mutex{}
-	docIDs := map[strfmt.UUID]uint32{}
+	statuses := map[strfmt.UUID]objectInsertStatus{}
 	errs := map[int]error{} // int represents original index
 
 	duplicates := findDuplicatesInBatchObjects(objects)
@@ -73,7 +73,7 @@ func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) m
 					}
 
 					m.Lock()
-					docIDs[object.ID()] = status.docID
+					statuses[object.ID()] = status
 					m.Unlock()
 				}
 				return nil
@@ -107,16 +107,16 @@ func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) m
 		}
 
 		wg.Add(1)
-		docID := int(docIDs[object.ID()])
-		go func(object *storobj.Object, docID int, index int) {
+		status := statuses[object.ID()]
+		go func(object *storobj.Object, status objectInsertStatus, index int) {
 			defer wg.Done()
 
-			if err := s.vectorIndex.Add(docID, object.Vector); err != nil {
+			if err := s.updateVectorIndex(object.Vector, status); err != nil {
 				m.Lock()
 				errs[index] = errors.Wrap(err, "insert to vector index")
 				m.Unlock()
 			}
-		}(object, docID, i)
+		}(object, status, i)
 	}
 	wg.Wait()
 
