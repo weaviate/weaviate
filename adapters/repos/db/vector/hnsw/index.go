@@ -479,7 +479,7 @@ func (h *hnsw) findAndConnectNeighbors(node *vertex,
 				continue
 			}
 
-			if h.hasTombstone(neighbor.id) {
+			if neighbor == nil || h.hasTombstone(neighbor.id) {
 				// don't connect to tombstoned nodes. This would only increase the
 				// cleanup that needs to be done. Even worse: A tombstoned node can be
 				// cleaned up at any time, also while we are connecting to it. So,
