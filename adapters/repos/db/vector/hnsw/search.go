@@ -13,9 +13,11 @@ package hnsw
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 )
 
 func reasonableEfFromK(k int) int {
@@ -104,7 +106,21 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 
 		dist, err := h.distanceToNode(distancer, int32(candidate.index))
 		if err != nil {
-			return nil, errors.Wrap(err, "calculate distance between candidate and query")
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				// the underlying object seems to have been deleted, to recover from
+				// this situation let's add a tombstone to the deleted object, so it
+				// will be cleaned up and skip this candidate in the current search
+
+				h.addTombstone(int(e.DocID))
+				// TODO: Use structured logging, log level WARNING
+				fmt.Printf("WARNING: skipping node %d as we couldn't find a vector for it. Original Error: %v\n",
+					e.DocID, e.Error())
+				continue
+			} else {
+				// not a typed error, we can recover from, return with err
+				return nil, errors.Wrap(err, "calculate distance between candidate and query")
+			}
 		}
 
 		if dist > worstResultDistance {
@@ -204,7 +220,21 @@ func (h *hnsw) extendCandidatesAndResultsFromNeighbors(candidates,
 
 		distance, err := h.distanceToNode(distancer, int32(neighborID))
 		if err != nil {
-			return errors.Wrap(err, "calculate distance between neighbor and query")
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				// the underlying object seems to have been deleted, to recover from
+				// this situation let's add a tombstone to the deleted object, so it
+				// will be cleaned up and skip this candidate in the current search
+
+				h.addTombstone(int(e.DocID))
+				// TODO: Use structured logging, log level WARNING
+				fmt.Printf("WARNING: skipping node %d as we couldn't find a vector for it. Original Error: %v\n",
+					e.DocID, e.Error())
+				continue
+			} else {
+				// not a typed error, we can recover from, return with err
+				return errors.Wrap(err, "calculate distance between candidate and query")
+			}
 		}
 
 		resLenBefore := results.len() // calculating just once saves a bit of time
@@ -324,7 +354,21 @@ func (h *hnsw) selectNeighborsSimpleFromId(nodeId int, ids []uint32,
 	for _, id := range ids {
 		dist, err := h.distBetweenNodes(int(id), nodeId)
 		if err != nil {
-			return nil, errors.Wrap(err, "select neighbors simple from id")
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				// the underlying object seems to have been deleted, to recover from
+				// this situation let's add a tombstone to the deleted object, so it
+				// will be cleaned up and skip this candidate in the current search
+
+				h.addTombstone(int(e.DocID))
+				// TODO: Use structured logging, log level WARNING
+				fmt.Printf("WARNING: skipping node %d as we couldn't find a vector for it. Original Error: %v\n",
+					e.DocID, e.Error())
+				continue
+			} else {
+				// not a typed error, we can recover from, return with err
+				return nil, errors.Wrap(err, "select neighbors simple from id")
+			}
 		}
 		bst.insert(int(id), dist)
 	}

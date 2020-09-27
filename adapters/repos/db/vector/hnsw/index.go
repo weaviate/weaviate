@@ -418,6 +418,8 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 	return entryPointID, nil
 }
 
+// TODO: split up. It's not as bad as it looks at first, as it has quite some
+// long comments, however, it should still be made prettier
 func (h *hnsw) findAndConnectNeighbors(node *vertex,
 	entryPointID int, nodeVec []float32, targetLevel, currentMaxLevel int,
 	denyList inverted.AllowList) error {
@@ -474,6 +476,15 @@ func (h *hnsw) findAndConnectNeighbors(node *vertex,
 
 			if neighbor == node {
 				// don't connect to self
+				continue
+			}
+
+			if h.hasTombstone(neighbor.id) {
+				// don't connect to tombstoned nodes. This would only increase the
+				// cleanup that needs to be done. Even worse: A tombstoned node can be
+				// cleaned up at any time, also while we are connecting to it. So,
+				// while the node still exists right now, it might already be nil in
+				// the next line, which would lead to a nil-pointer panic.
 				continue
 			}
 
