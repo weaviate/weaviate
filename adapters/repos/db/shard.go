@@ -54,7 +54,7 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 		MaximumConnections:       60,
 		EFConstruction:           128,
 		VectorForIDThunk:         s.vectorByIndexID,
-		TombstoneCleanupInterval: 1 * time.Minute,
+		TombstoneCleanupInterval: 5 * time.Minute,
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
