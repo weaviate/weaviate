@@ -54,27 +54,27 @@ func (c *Deserializer) Do(fd *os.File,
 		}
 
 		switch ct {
-		case addNode:
+		case AddNode:
 			err = c.ReadNode(fd, out)
-		case setEntryPointMaxLevel:
+		case SetEntryPointMaxLevel:
 			var entrypoint uint32
 			var level uint16
 			entrypoint, level, err = c.ReadEP(fd)
 			out.entrypoint = entrypoint
 			out.level = level
-		case addLinkAtLevel:
+		case AddLinkAtLevel:
 			err = c.ReadLink(fd, out)
-		case replaceLinksAtLevel:
+		case ReplaceLinksAtLevel:
 			err = c.ReadLinks(fd, out)
-		case addTombstone:
+		case AddTombstone:
 			err = c.ReadAddTombstone(fd, out.tombstones)
-		case removeTombstone:
+		case RemoveTombstone:
 			err = c.ReadRemoveTombstone(fd, out.tombstones)
-		case clearLinks:
+		case ClearLinks:
 			err = c.ReadClearLinks(fd, out)
-		case deleteNode:
+		case DeleteNode:
 			err = c.ReadDeleteNode(fd, out)
-		case resetIndex:
+		case ResetIndex:
 			out.entrypoint = 0
 			out.level = 0
 			out.nodes = make([]*vertex, initialSize)
@@ -273,14 +273,14 @@ func (c *Deserializer) readUint16(r io.Reader) (uint16, error) {
 	return value, nil
 }
 
-func (c *Deserializer) ReadCommitType(r io.Reader) (hnswCommitType, error) {
+func (c *Deserializer) ReadCommitType(r io.Reader) (HnswCommitType, error) {
 	var value uint8
 	err := binary.Read(r, binary.LittleEndian, &value)
 	if err != nil {
 		return 0, errors.Wrapf(err, "reading commit type (uint8)")
 	}
 
-	return hnswCommitType(value), nil
+	return HnswCommitType(value), nil
 }
 
 func (c *Deserializer) readUint32Slice(r io.Reader, length int) ([]uint32, error) {

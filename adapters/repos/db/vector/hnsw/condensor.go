@@ -91,7 +91,7 @@ func (c *MemoryCondensor) writeUint16(w io.Writer, in uint16) error {
 	return nil
 }
 
-func (c *MemoryCondensor) writeCommitType(w io.Writer, in hnswCommitType) error {
+func (c *MemoryCondensor) writeCommitType(w io.Writer, in HnswCommitType) error {
 	err := binary.Write(w, binary.LittleEndian, &in)
 	if err != nil {
 		return fmt.Errorf("writing commit type: %v", err)
@@ -112,7 +112,7 @@ func (c *MemoryCondensor) writeUint32Slice(w io.Writer, in []uint32) error {
 // AddNode adds an empty node
 func (c *MemoryCondensor) AddNode(node *vertex) error {
 	ec := &errorCompounder{}
-	ec.add(c.writeCommitType(c.newLog, addNode))
+	ec.add(c.writeCommitType(c.newLog, AddNode))
 	ec.add(c.writeUint32(c.newLog, uint32(node.id)))
 	ec.add(c.writeUint16(c.newLog, uint16(node.level)))
 
@@ -121,7 +121,7 @@ func (c *MemoryCondensor) AddNode(node *vertex) error {
 
 func (c *MemoryCondensor) SetLinksAtLevel(nodeid int, level int, targets []uint32) error {
 	ec := &errorCompounder{}
-	ec.add(c.writeCommitType(c.newLog, replaceLinksAtLevel))
+	ec.add(c.writeCommitType(c.newLog, ReplaceLinksAtLevel))
 	ec.add(c.writeUint32(c.newLog, uint32(nodeid)))
 	ec.add(c.writeUint16(c.newLog, uint16(level)))
 	ec.add(c.writeUint16(c.newLog, uint16(len(targets))))
@@ -132,7 +132,7 @@ func (c *MemoryCondensor) SetLinksAtLevel(nodeid int, level int, targets []uint3
 
 func (c *MemoryCondensor) SetEntryPointWithMaxLayer(id int, level int) error {
 	ec := &errorCompounder{}
-	ec.add(c.writeCommitType(c.newLog, setEntryPointMaxLevel))
+	ec.add(c.writeCommitType(c.newLog, SetEntryPointMaxLevel))
 	ec.add(c.writeUint32(c.newLog, uint32(id)))
 	ec.add(c.writeUint16(c.newLog, uint16(level)))
 
@@ -141,7 +141,7 @@ func (c *MemoryCondensor) SetEntryPointWithMaxLayer(id int, level int) error {
 
 func (c *MemoryCondensor) AddTombstone(nodeid int) error {
 	ec := &errorCompounder{}
-	ec.add(c.writeCommitType(c.newLog, addTombstone))
+	ec.add(c.writeCommitType(c.newLog, AddTombstone))
 	ec.add(c.writeUint32(c.newLog, uint32(nodeid)))
 
 	return ec.toError()
