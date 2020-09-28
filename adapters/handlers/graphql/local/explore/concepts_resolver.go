@@ -37,8 +37,7 @@ type RequestsLog interface {
 }
 
 type resources struct {
-	resolver    Resolver
-	requestsLog RequestsLog
+	resolver Resolver
 }
 
 func newResources(s interface{}) (*resources, error) {
@@ -52,14 +51,8 @@ func newResources(s interface{}) (*resources, error) {
 		return nil, fmt.Errorf("expected source to contain a usable Resolver, but was %#v", source)
 	}
 
-	requestsLog, ok := source["RequestsLog"].(RequestsLog)
-	if !ok {
-		return nil, fmt.Errorf("expected source to contain a usable RequestsLog, but was %#v", source)
-	}
-
 	return &resources{
-		resolver:    resolver,
-		requestsLog: requestsLog,
+		resolver: resolver,
 	}, nil
 }
 
