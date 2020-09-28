@@ -129,6 +129,56 @@ func TestCondensor(t *testing.T) {
 	})
 }
 
+func TestCondensorWithoutEntrypoint(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	rootPath := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+	os.MkdirAll(rootPath, 0777)
+	defer func() {
+		err := os.RemoveAll(rootPath)
+		fmt.Println(err)
+	}()
+
+	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", 0)
+	require.Nil(t, err)
+
+	t.Run("add data, but do not set an entrypoint", func(t *testing.T) {
+		uncondensed.AddNode(&vertex{id: 0, level: 3})
+
+		time.Sleep(100 * time.Millisecond) // make sure evertyhing is flushed
+	})
+
+	t.Run("condense the original and verify it doesn't overwrite the EP", func(t *testing.T) {
+		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		err = NewMemoryCondensor().Do(commitLogFileName(rootPath, "uncondensed", input))
+		require.Nil(t, err)
+
+		actual, ok, err := getCurrentCommitLogFileName(
+			commitLogDirectory(rootPath, "uncondensed"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		assert.True(t, strings.HasSuffix(actual, ".condensed"),
+			"commit log is now saved as condensed")
+
+		initialState := DeserializationResult{
+			Nodes:      nil,
+			Entrypoint: 17,
+			Level:      3,
+		}
+		fd, err := os.Open(commitLogFileName(rootPath, "uncondensed", actual))
+		require.Nil(t, err)
+		res, err := NewDeserializer().Do(fd, &initialState)
+		require.Nil(t, err)
+
+		assert.Contains(t, res.Nodes, &vertex{id: 0, level: 3, connections: map[int][]uint32{}})
+		assert.Equal(t, uint32(17), res.Entrypoint)
+		assert.Equal(t, uint16(3), res.Level)
+	})
+}
+
 func dumpIndexFromCommitLog(t *testing.T, fileName string) {
 	fd, err := os.Open(fileName)
 	require.Nil(t, err)
@@ -136,10 +186,10 @@ func dumpIndexFromCommitLog(t *testing.T, fileName string) {
 	require.Nil(t, err)
 
 	index := &hnsw{
-		nodes:               res.nodes,
-		currentMaximumLayer: int(res.level),
-		entryPointID:        int(res.entrypoint),
-		tombstones:          res.tombstones,
+		nodes:               res.Nodes,
+		currentMaximumLayer: int(res.Level),
+		entryPointID:        int(res.Entrypoint),
+		tombstones:          res.Tombstones,
 	}
 
 	dumpIndex(index)

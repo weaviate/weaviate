@@ -27,10 +27,11 @@ func NewDeserializer() *Deserializer {
 }
 
 type DeserializationResult struct {
-	nodes      []*vertex
-	entrypoint uint32
-	level      uint16
-	tombstones map[int]struct{}
+	Nodes             []*vertex
+	Entrypoint        uint32
+	Level             uint16
+	Tombstones        map[int]struct{}
+	EntrypointChanged bool
 }
 
 func (c *Deserializer) Do(fd *os.File,
@@ -38,8 +39,8 @@ func (c *Deserializer) Do(fd *os.File,
 	out := initialState
 	if out == nil {
 		out = &DeserializationResult{
-			nodes:      make([]*vertex, initialSize),
-			tombstones: make(map[int]struct{}),
+			Nodes:      make([]*vertex, initialSize),
+			Tombstones: make(map[int]struct{}),
 		}
 	}
 
@@ -60,24 +61,25 @@ func (c *Deserializer) Do(fd *os.File,
 			var entrypoint uint32
 			var level uint16
 			entrypoint, level, err = c.ReadEP(fd)
-			out.entrypoint = entrypoint
-			out.level = level
+			out.Entrypoint = entrypoint
+			out.Level = level
+			out.EntrypointChanged = true
 		case AddLinkAtLevel:
 			err = c.ReadLink(fd, out)
 		case ReplaceLinksAtLevel:
 			err = c.ReadLinks(fd, out)
 		case AddTombstone:
-			err = c.ReadAddTombstone(fd, out.tombstones)
+			err = c.ReadAddTombstone(fd, out.Tombstones)
 		case RemoveTombstone:
-			err = c.ReadRemoveTombstone(fd, out.tombstones)
+			err = c.ReadRemoveTombstone(fd, out.Tombstones)
 		case ClearLinks:
 			err = c.ReadClearLinks(fd, out)
 		case DeleteNode:
 			err = c.ReadDeleteNode(fd, out)
 		case ResetIndex:
-			out.entrypoint = 0
-			out.level = 0
-			out.nodes = make([]*vertex, initialSize)
+			out.Entrypoint = 0
+			out.Level = 0
+			out.Nodes = make([]*vertex, initialSize)
 		default:
 			err = fmt.Errorf("unrecognized commit type %d", ct)
 		}
@@ -100,17 +102,17 @@ func (c *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 		return err
 	}
 
-	newNodes, err := growIndexToAccomodateNode(res.nodes, int(id))
+	newNodes, err := growIndexToAccomodateNode(res.Nodes, int(id))
 	if err != nil {
 		return err
 	}
 
-	res.nodes = newNodes
+	res.Nodes = newNodes
 
-	if res.nodes[id] == nil {
-		res.nodes[id] = &vertex{level: int(level), id: int(id), connections: make(map[int][]uint32)}
+	if res.Nodes[id] == nil {
+		res.Nodes[id] = &vertex{level: int(level), id: int(id), connections: make(map[int][]uint32)}
 	} else {
-		res.nodes[id].level = int(level)
+		res.Nodes[id].level = int(level)
 	}
 	return nil
 }
@@ -145,18 +147,18 @@ func (c *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
 		return err
 	}
 
-	newNodes, err := growIndexToAccomodateNode(res.nodes, int(source))
+	newNodes, err := growIndexToAccomodateNode(res.Nodes, int(source))
 	if err != nil {
 		return err
 	}
 
-	res.nodes = newNodes
+	res.Nodes = newNodes
 
-	if res.nodes[int(source)] == nil {
-		res.nodes[int(source)] = &vertex{id: int(source), connections: make(map[int][]uint32)}
+	if res.Nodes[int(source)] == nil {
+		res.Nodes[int(source)] = &vertex{id: int(source), connections: make(map[int][]uint32)}
 	}
 
-	res.nodes[int(source)].connections[int(level)] = append(res.nodes[int(source)].connections[int(level)], target)
+	res.Nodes[int(source)].connections[int(level)] = append(res.Nodes[int(source)].connections[int(level)], target)
 	return nil
 }
 
@@ -181,17 +183,17 @@ func (c *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult) error 
 		return err
 	}
 
-	newNodes, err := growIndexToAccomodateNode(res.nodes, int(source))
+	newNodes, err := growIndexToAccomodateNode(res.Nodes, int(source))
 	if err != nil {
 		return err
 	}
 
-	res.nodes = newNodes
+	res.Nodes = newNodes
 
-	if res.nodes[int(source)] == nil {
-		res.nodes[int(source)] = &vertex{id: int(source), connections: map[int][]uint32{}}
+	if res.Nodes[int(source)] == nil {
+		res.Nodes[int(source)] = &vertex{id: int(source), connections: map[int][]uint32{}}
 	}
-	res.nodes[int(source)].connections[int(level)] = targets
+	res.Nodes[int(source)].connections[int(level)] = targets
 	return nil
 }
 
@@ -223,17 +225,17 @@ func (c *Deserializer) ReadClearLinks(r io.Reader, res *DeserializationResult) e
 		return err
 	}
 
-	if int(id) > len(res.nodes) {
+	if int(id) > len(res.Nodes) {
 		// node is out of bounds, so it can't exist, nothing to do here
 		return nil
 	}
 
-	if res.nodes[id] == nil {
+	if res.Nodes[id] == nil {
 		// node has been deleted or never existed, nothing to do
 		return nil
 	}
 
-	res.nodes[id].connections = map[int][]uint32{}
+	res.Nodes[id].connections = map[int][]uint32{}
 	fmt.Printf("links cleared for node %d\n", id)
 	return nil
 }
@@ -244,12 +246,12 @@ func (c *Deserializer) ReadDeleteNode(r io.Reader, res *DeserializationResult) e
 		return err
 	}
 
-	if int(id) > len(res.nodes) {
+	if int(id) > len(res.Nodes) {
 		// node is out of bounds, so it can't exist, nothing to do here
 		return nil
 	}
 
-	res.nodes[id] = nil
+	res.Nodes[id] = nil
 	return nil
 }
 

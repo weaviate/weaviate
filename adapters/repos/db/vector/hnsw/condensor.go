@@ -32,12 +32,7 @@ func (c *MemoryCondensor) Do(fileName string) error {
 
 	c.newLog = newLog
 
-	if err := c.SetEntryPointWithMaxLayer(int(res.entrypoint),
-		int(res.level)); err != nil {
-		return errors.Wrap(err, "write entrypoint to commit log")
-	}
-
-	for _, node := range res.nodes {
+	for _, node := range res.Nodes {
 		if node == nil {
 			// nil nodes occur when we've grown, but not inserted anything yet
 			continue
@@ -55,7 +50,14 @@ func (c *MemoryCondensor) Do(fileName string) error {
 		}
 	}
 
-	for ts := range res.tombstones {
+	if res.EntrypointChanged {
+		if err := c.SetEntryPointWithMaxLayer(int(res.Entrypoint),
+			int(res.Level)); err != nil {
+			return errors.Wrap(err, "write entrypoint to commit log")
+		}
+	}
+
+	for ts := range res.Tombstones {
 		if err := c.AddTombstone(ts); err != nil {
 			return errors.Wrapf(err,
 				"write tombstone for node %d to commit log", ts)

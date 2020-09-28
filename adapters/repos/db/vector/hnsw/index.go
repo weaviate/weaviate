@@ -154,10 +154,10 @@ func (h *hnsw) restoreFromDisk() error {
 		}
 	}
 
-	h.nodes = state.nodes
-	h.currentMaximumLayer = int(state.level)
-	h.entryPointID = int(state.entrypoint)
-	h.tombstones = state.tombstones
+	h.nodes = state.Nodes
+	h.currentMaximumLayer = int(state.Level)
+	h.entryPointID = int(state.Entrypoint)
+	h.tombstones = state.Tombstones
 
 	return nil
 }
