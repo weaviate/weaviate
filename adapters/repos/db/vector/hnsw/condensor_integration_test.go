@@ -132,7 +132,7 @@ func TestCondensor(t *testing.T) {
 func dumpIndexFromCommitLog(t *testing.T, fileName string) {
 	fd, err := os.Open(fileName)
 	require.Nil(t, err)
-	res, err := newDeserializer().Do(fd, nil)
+	res, err := NewDeserializer().Do(fd, nil)
 	require.Nil(t, err)
 
 	index := &hnsw{

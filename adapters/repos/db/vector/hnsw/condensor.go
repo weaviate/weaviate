@@ -19,7 +19,7 @@ func (c *MemoryCondensor) Do(fileName string) error {
 		return errors.Wrap(err, "open commit log to be condensed")
 	}
 
-	res, err := newDeserializer().Do(fd, nil)
+	res, err := NewDeserializer().Do(fd, nil)
 	if err != nil {
 		return errors.Wrap(err, "read commit log to be condensed")
 	}

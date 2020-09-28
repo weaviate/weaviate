@@ -141,14 +141,14 @@ func (h *hnsw) restoreFromDisk() error {
 		return nil
 	}
 
-	var state *deserializationResult
+	var state *DeserializationResult
 	for _, fileName := range fileNames {
 		fd, err := os.Open(fileName)
 		if err != nil {
 			return errors.Wrapf(err, "open commit log %q for reading", fileName)
 		}
 
-		state, err = newDeserializer().Do(fd, state)
+		state, err = NewDeserializer().Do(fd, state)
 		if err != nil {
 			return errors.Wrapf(err, "deserialize commit log %q", fileName)
 		}

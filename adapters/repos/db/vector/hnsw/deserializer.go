@@ -20,31 +20,31 @@ import (
 	"github.com/pkg/errors"
 )
 
-type deserializer struct{}
+type Deserializer struct{}
 
-func newDeserializer() *deserializer {
-	return &deserializer{}
+func NewDeserializer() *Deserializer {
+	return &Deserializer{}
 }
 
-type deserializationResult struct {
+type DeserializationResult struct {
 	nodes      []*vertex
 	entrypoint uint32
 	level      uint16
 	tombstones map[int]struct{}
 }
 
-func (c *deserializer) Do(fd *os.File,
-	initialState *deserializationResult) (*deserializationResult, error) {
+func (c *Deserializer) Do(fd *os.File,
+	initialState *DeserializationResult) (*DeserializationResult, error) {
 	out := initialState
 	if out == nil {
-		out = &deserializationResult{
+		out = &DeserializationResult{
 			nodes:      make([]*vertex, initialSize),
 			tombstones: make(map[int]struct{}),
 		}
 	}
 
 	for {
-		ct, err := c.readCommitType(fd)
+		ct, err := c.ReadCommitType(fd)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break
@@ -55,25 +55,25 @@ func (c *deserializer) Do(fd *os.File,
 
 		switch ct {
 		case addNode:
-			err = c.readNode(fd, out)
+			err = c.ReadNode(fd, out)
 		case setEntryPointMaxLevel:
 			var entrypoint uint32
 			var level uint16
-			entrypoint, level, err = c.readEP(fd)
+			entrypoint, level, err = c.ReadEP(fd)
 			out.entrypoint = entrypoint
 			out.level = level
 		case addLinkAtLevel:
-			err = c.readLink(fd, out)
+			err = c.ReadLink(fd, out)
 		case replaceLinksAtLevel:
-			err = c.readLinks(fd, out)
+			err = c.ReadLinks(fd, out)
 		case addTombstone:
-			err = c.readAddTombstone(fd, out.tombstones)
+			err = c.ReadAddTombstone(fd, out.tombstones)
 		case removeTombstone:
-			err = c.readRemoveTombstone(fd, out.tombstones)
+			err = c.ReadRemoveTombstone(fd, out.tombstones)
 		case clearLinks:
-			err = c.readClearLinks(fd, out)
+			err = c.ReadClearLinks(fd, out)
 		case deleteNode:
-			err = c.readDeleteNode(fd, out)
+			err = c.ReadDeleteNode(fd, out)
 		case resetIndex:
 			out.entrypoint = 0
 			out.level = 0
@@ -89,7 +89,7 @@ func (c *deserializer) Do(fd *os.File,
 	return out, nil
 }
 
-func (c *deserializer) readNode(r io.Reader, res *deserializationResult) error {
+func (c *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 	id, err := c.readUint32(r)
 	if err != nil {
 		return err
@@ -115,7 +115,7 @@ func (c *deserializer) readNode(r io.Reader, res *deserializationResult) error {
 	return nil
 }
 
-func (c *deserializer) readEP(r io.Reader) (uint32, uint16, error) {
+func (c *Deserializer) ReadEP(r io.Reader) (uint32, uint16, error) {
 	id, err := c.readUint32(r)
 	if err != nil {
 		return 0, 0, err
@@ -129,7 +129,7 @@ func (c *deserializer) readEP(r io.Reader) (uint32, uint16, error) {
 	return id, level, nil
 }
 
-func (c *deserializer) readLink(r io.Reader, res *deserializationResult) error {
+func (c *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
 	source, err := c.readUint32(r)
 	if err != nil {
 		return err
@@ -160,7 +160,7 @@ func (c *deserializer) readLink(r io.Reader, res *deserializationResult) error {
 	return nil
 }
 
-func (c *deserializer) readLinks(r io.Reader, res *deserializationResult) error {
+func (c *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult) error {
 	source, err := c.readUint32(r)
 	if err != nil {
 		return err
@@ -195,7 +195,7 @@ func (c *deserializer) readLinks(r io.Reader, res *deserializationResult) error 
 	return nil
 }
 
-func (c *deserializer) readAddTombstone(r io.Reader, tombstones map[int]struct{}) error {
+func (c *Deserializer) ReadAddTombstone(r io.Reader, tombstones map[int]struct{}) error {
 	id, err := c.readUint32(r)
 	if err != nil {
 		return err
@@ -206,7 +206,7 @@ func (c *deserializer) readAddTombstone(r io.Reader, tombstones map[int]struct{}
 	return nil
 }
 
-func (c *deserializer) readRemoveTombstone(r io.Reader, tombstones map[int]struct{}) error {
+func (c *Deserializer) ReadRemoveTombstone(r io.Reader, tombstones map[int]struct{}) error {
 	id, err := c.readUint32(r)
 	if err != nil {
 		return err
@@ -217,7 +217,7 @@ func (c *deserializer) readRemoveTombstone(r io.Reader, tombstones map[int]struc
 	return nil
 }
 
-func (c *deserializer) readClearLinks(r io.Reader, res *deserializationResult) error {
+func (c *Deserializer) ReadClearLinks(r io.Reader, res *DeserializationResult) error {
 	id, err := c.readUint32(r)
 	if err != nil {
 		return err
@@ -238,7 +238,7 @@ func (c *deserializer) readClearLinks(r io.Reader, res *deserializationResult) e
 	return nil
 }
 
-func (c *deserializer) readDeleteNode(r io.Reader, res *deserializationResult) error {
+func (c *Deserializer) ReadDeleteNode(r io.Reader, res *DeserializationResult) error {
 	id, err := c.readUint32(r)
 	if err != nil {
 		return err
@@ -253,7 +253,7 @@ func (c *deserializer) readDeleteNode(r io.Reader, res *deserializationResult) e
 	return nil
 }
 
-func (c *deserializer) readUint32(r io.Reader) (uint32, error) {
+func (c *Deserializer) readUint32(r io.Reader) (uint32, error) {
 	var value uint32
 	err := binary.Read(r, binary.LittleEndian, &value)
 	if err != nil {
@@ -263,7 +263,7 @@ func (c *deserializer) readUint32(r io.Reader) (uint32, error) {
 	return value, nil
 }
 
-func (c *deserializer) readUint16(r io.Reader) (uint16, error) {
+func (c *Deserializer) readUint16(r io.Reader) (uint16, error) {
 	var value uint16
 	err := binary.Read(r, binary.LittleEndian, &value)
 	if err != nil {
@@ -273,7 +273,7 @@ func (c *deserializer) readUint16(r io.Reader) (uint16, error) {
 	return value, nil
 }
 
-func (c *deserializer) readCommitType(r io.Reader) (hnswCommitType, error) {
+func (c *Deserializer) ReadCommitType(r io.Reader) (hnswCommitType, error) {
 	var value uint8
 	err := binary.Read(r, binary.LittleEndian, &value)
 	if err != nil {
@@ -283,7 +283,7 @@ func (c *deserializer) readCommitType(r io.Reader) (hnswCommitType, error) {
 	return hnswCommitType(value), nil
 }
 
-func (c *deserializer) readUint32Slice(r io.Reader, length int) ([]uint32, error) {
+func (c *Deserializer) readUint32Slice(r io.Reader, length int) ([]uint32, error) {
 	value := make([]uint32, length)
 	err := binary.Read(r, binary.LittleEndian, &value)
 	if err != nil {
