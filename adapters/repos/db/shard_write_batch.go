@@ -48,6 +48,10 @@ func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) m
 			defer wg.Done()
 			var affectedIndices []int
 			if err := s.db.Batch(func(tx *bolt.Tx) error {
+				if err := ctx.Err(); err != nil {
+					return errors.Wrapf(err, "begin transaction %d of batch", i)
+				}
+
 				for j := range batch {
 					// so we can reference potential errors
 					affectedIndices = append(affectedIndices, i+j)
@@ -75,6 +79,10 @@ func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) m
 					m.Lock()
 					statuses[object.ID()] = status
 					m.Unlock()
+
+					if err := ctx.Err(); err != nil {
+						return errors.Wrapf(err, "end transaction %d of batch", i)
+					}
 				}
 				return nil
 			}); err != nil {
@@ -89,6 +97,18 @@ func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) m
 
 	}
 	wg.Wait()
+
+	if err := ctx.Err(); err != nil {
+		for i, err := range errs {
+			if err == nil {
+				// already has an error, ignore
+				continue
+			}
+
+			errs[i] = errors.Wrapf(err,
+				"inverted indexing complete, about to start vector indexing")
+		}
+	}
 
 	// TODO: is it smart to let them all run in parallel? wouldn't it be better
 	// to open no more threads than we have cpu cores?
@@ -110,6 +130,11 @@ func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) m
 		status := statuses[object.ID()]
 		go func(object *storobj.Object, status objectInsertStatus, index int) {
 			defer wg.Done()
+			if err := ctx.Err(); err != nil {
+				m.Lock()
+				errs[index] = errors.Wrap(err, "insert to vector index")
+				m.Unlock()
+			}
 
 			if err := s.updateVectorIndex(object.Vector, status); err != nil {
 				m.Lock()
