@@ -17,6 +17,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 )
 
 // Delete attaches a tombstone to an item so it can be periodically cleaned up
@@ -136,7 +137,21 @@ func (h *hnsw) reassignNeighborsOf(deleteList inverted.AllowList) error {
 
 		neighborVec, err := h.vectorForID(context.Background(), int32(neighbor))
 		if err != nil {
-			return errors.Wrap(err, "get neighbor vec")
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				// the underlying object seems to have been deleted, to recover from
+				// this situation let's add a tombstone to the deleted object, so it
+				// will be cleaned up and skip this candidate in the current search
+
+				h.addTombstone(int(e.DocID))
+				// TODO: Use structured logging, log level WARNING
+				fmt.Printf("WARNING: skipping node %d as we couldn't find a vector for it. Original Error: %v\n",
+					e.DocID, e.Error())
+				continue
+			} else {
+				// not a typed error, we can recover from, return with err
+				return errors.Wrap(err, "get neighbor vec")
+			}
 		}
 		neighborNode.RLock()
 		neighborLevel := neighborNode.level
