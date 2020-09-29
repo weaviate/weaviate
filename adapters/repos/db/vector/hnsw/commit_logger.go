@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math"
 	"os"
 	"sort"
 	"strconv"
@@ -226,8 +227,14 @@ func (l *hnswCommitLogger) ReplaceLinksAtLevel(nodeid int, level int, targets []
 	l.writeCommitType(w, ReplaceLinksAtLevel)
 	l.writeUint32(w, uint32(nodeid))
 	l.writeUint16(w, uint16(level))
-	l.writeUint16(w, uint16(len(targets)))
-	l.writeUint32Slice(w, targets)
+	targetLength := len(targets)
+	if targetLength > math.MaxUint16 {
+		// TODO: investigate why we get such massive connections
+		targetLength = math.MaxUint16
+		fmt.Printf("WARNING: (commit logger) length of connections would overflow uint16, cutting off\n")
+	}
+	l.writeUint16(w, uint16(targetLength))
+	l.writeUint32Slice(w, targets[:targetLength])
 
 	l.events <- w.Bytes()
 	return nil
