@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"os"
 
 	"github.com/pkg/errors"
@@ -126,8 +127,15 @@ func (c *MemoryCondensor) SetLinksAtLevel(nodeid int, level int, targets []uint3
 	ec.add(c.writeCommitType(c.newLog, ReplaceLinksAtLevel))
 	ec.add(c.writeUint32(c.newLog, uint32(nodeid)))
 	ec.add(c.writeUint16(c.newLog, uint16(level)))
-	ec.add(c.writeUint16(c.newLog, uint16(len(targets))))
-	ec.add(c.writeUint32Slice(c.newLog, targets))
+
+	targetLength := len(targets)
+	if targetLength > math.MaxUint16 {
+		// TODO: investigate why we get such massive connections
+		targetLength = math.MaxUint16
+		fmt.Printf("WARNING: (condensor) length of connections would overflow uint16, cutting off\n")
+	}
+	ec.add(c.writeUint16(c.newLog, uint16(targetLength)))
+	ec.add(c.writeUint32Slice(c.newLog, targets[:targetLength]))
 
 	return ec.toError()
 }
