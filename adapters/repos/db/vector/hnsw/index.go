@@ -555,7 +555,15 @@ func (h *hnsw) distBetweenNodes(a, b int) (float32, bool, error) {
 	// ones
 	vecA, err := h.vectorForID(context.Background(), int32(a))
 	if err != nil {
-		return 0, false, errors.Wrapf(err, "could not get vector of object at docID %d", a)
+		var e storobj.ErrNotFound
+		if errors.As(err, &e) {
+			h.handleDeletedNode(e.DocID)
+			return 0, false, nil
+		} else {
+			// not a typed error, we can recover from, return with err
+			return 0, false, errors.Wrapf(err,
+				"could not get vector of object at docID %d", a)
+		}
 	}
 
 	if vecA == nil || len(vecA) == 0 {
@@ -564,7 +572,15 @@ func (h *hnsw) distBetweenNodes(a, b int) (float32, bool, error) {
 
 	vecB, err := h.vectorForID(context.Background(), int32(b))
 	if err != nil {
-		return 0, false, errors.Wrapf(err, "could not get vector of object at docID %d", b)
+		var e storobj.ErrNotFound
+		if errors.As(err, &e) {
+			h.handleDeletedNode(e.DocID)
+			return 0, false, nil
+		} else {
+			// not a typed error, we can recover from, return with err
+			return 0, false, errors.Wrapf(err,
+				"could not get vector of object at docID %d", b)
+		}
 	}
 
 	if vecB == nil || len(vecB) == 0 {
@@ -573,14 +589,7 @@ func (h *hnsw) distBetweenNodes(a, b int) (float32, bool, error) {
 
 	d, err := cosineDist(vecA, vecB)
 	if err != nil {
-		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
-			return 0, false, nil
-		} else {
-			// not a typed error, we can recover from, return with err
-			return 0, false, errors.Wrap(err, "select neighbors simple from id")
-		}
+		return 0, false, errors.Wrap(err, "calculate cosine dist")
 	}
 
 	return d, true, nil
@@ -591,8 +600,15 @@ func (h *hnsw) distBetweenNodeAndVec(node int, vecB []float32) (float32, bool, e
 	// ones
 	vecA, err := h.vectorForID(context.Background(), int32(node))
 	if err != nil {
-		return 0, false, errors.Wrapf(err,
-			"could not get vector of object at docID %d", node)
+		var e storobj.ErrNotFound
+		if errors.As(err, &e) {
+			h.handleDeletedNode(e.DocID)
+			return 0, false, nil
+		} else {
+			// not a typed error, we can recover from, return with err
+			return 0, false, errors.Wrapf(err,
+				"could not get vector of object at docID %d", node)
+		}
 	}
 
 	if vecA == nil || len(vecA) == 0 {
@@ -607,14 +623,7 @@ func (h *hnsw) distBetweenNodeAndVec(node int, vecB []float32) (float32, bool, e
 
 	d, err := cosineDist(vecA, vecB)
 	if err != nil {
-		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
-			return 0, false, nil
-		} else {
-			// not a typed error, we can recover from, return with err
-			return 0, false, errors.Wrap(err, "select neighbors simple from id")
-		}
+		return 0, false, errors.Wrap(err, "calculate cosine dist")
 	}
 
 	return d, true, nil
