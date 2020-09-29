@@ -22,6 +22,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 )
 
 type hnsw struct {
@@ -540,28 +541,40 @@ func min(a, b int) int {
 	return b
 }
 
-func (h *hnsw) distBetweenNodes(a, b int) (float32, error) {
+func (h *hnsw) distBetweenNodes(a, b int) (float32, bool, error) {
 	// TODO: introduce single search/transaction context instead of spawning new
 	// ones
 	vecA, err := h.vectorForID(context.Background(), int32(a))
 	if err != nil {
-		return 0, errors.Wrapf(err, "could not get vector of object at docID %d", a)
+		return 0, false, errors.Wrapf(err, "could not get vector of object at docID %d", a)
 	}
 
 	if vecA == nil || len(vecA) == 0 {
-		return 0, fmt.Errorf("got a nil or zero-length vector at docID %d", a)
+		return 0, false, fmt.Errorf("got a nil or zero-length vector at docID %d", a)
 	}
 
 	vecB, err := h.vectorForID(context.Background(), int32(b))
 	if err != nil {
-		return 0, errors.Wrapf(err, "could not get vector of object at docID %d", b)
+		return 0, false, errors.Wrapf(err, "could not get vector of object at docID %d", b)
 	}
 
 	if vecB == nil || len(vecB) == 0 {
-		return 0, fmt.Errorf("got a nil or zero-length vector at docID %d", b)
+		return 0, false, fmt.Errorf("got a nil or zero-length vector at docID %d", b)
 	}
 
-	return cosineDist(vecA, vecB)
+	d, err := cosineDist(vecA, vecB)
+	if err != nil {
+		var e storobj.ErrNotFound
+		if errors.As(err, &e) {
+			h.handleDeletedNode(e.DocID)
+			return 0, false, nil
+		} else {
+			// not a typed error, we can recover from, return with err
+			return 0, false, errors.Wrap(err, "select neighbors simple from id")
+		}
+	}
+
+	return d, true, nil
 }
 
 func (h *hnsw) distBetweenNodeAndVec(node int, vecB []float32) (float32, error) {

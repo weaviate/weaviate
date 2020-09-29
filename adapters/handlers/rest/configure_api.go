@@ -43,11 +43,17 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	libvectorizer "github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"github.com/sirupsen/logrus"
+
+	_ "net/http/pprof"
 )
 
 const MinimumRequiredContextionaryVersion = "0.4.19"
 
 func makeConfigureServer(appState *state.State) func(*http.Server, string, string) {
+	go func() {
+		http.ListenAndServe(":6060", nil)
+	}()
+
 	return func(s *http.Server, scheme, addr string) {
 		// Add properties to the config
 		appState.ServerConfig.Hostname = addr
