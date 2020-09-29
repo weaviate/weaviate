@@ -39,8 +39,8 @@ func (h *hnsw) SearchByVector(vector []float32, k int, allowList inverted.AllowL
 
 func (h *hnsw) knnSearch(queryNodeID int, k int, ef int) ([]int, error) {
 	entryPointID := h.entryPointID
-	entryPointDistance, err := h.distBetweenNodes(entryPointID, queryNodeID)
-	if err != nil {
+	entryPointDistance, ok, err := h.distBetweenNodes(entryPointID, queryNodeID)
+	if err != nil || !ok {
 		return nil, errors.Wrap(err, "knn search: distance between entrypint and query node")
 	}
 
@@ -104,23 +104,13 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 			return nil, errors.Wrapf(err, "calculate distance of current last result")
 		}
 
-		dist, err := h.distanceToNode(distancer, int32(candidate.index))
+		dist, ok, err := h.distanceToNode(distancer, int32(candidate.index))
 		if err != nil {
-			var e storobj.ErrNotFound
-			if errors.As(err, &e) {
-				// the underlying object seems to have been deleted, to recover from
-				// this situation let's add a tombstone to the deleted object, so it
-				// will be cleaned up and skip this candidate in the current search
+			return nil, errors.Wrap(err, "calculate distance between candidate and query")
+		}
 
-				h.addTombstone(int(e.DocID))
-				// TODO: Use structured logging, log level WARNING
-				fmt.Printf("WARNING: skipping node %d as we couldn't find a vector for it. Original Error: %v\n",
-					e.DocID, e.Error())
-				continue
-			} else {
-				// not a typed error, we can recover from, return with err
-				return nil, errors.Wrap(err, "calculate distance between candidate and query")
-			}
+		if !ok {
+			continue
 		}
 
 		if dist > worstResultDistance {
@@ -190,10 +180,14 @@ func (h *hnsw) currentWorstResultDistance(results *binarySearchTreeGeneric,
 	distancer *reusableDistancer) (float32, error) {
 	if results.root != nil {
 		id := int32(results.maximum().index)
-		d, err := h.distanceToNode(distancer, id)
+		d, ok, err := h.distanceToNode(distancer, id)
 		if err != nil {
 			return 0, errors.Wrap(err,
 				"calculated distance between worst result and query")
+		}
+
+		if !ok {
+			return 9001, nil
 		}
 		return d, nil
 	} else {
@@ -218,23 +212,14 @@ func (h *hnsw) extendCandidatesAndResultsFromNeighbors(candidates,
 		// make sure we never visit this neighbor again
 		visited[neighborID] = struct{}{}
 
-		distance, err := h.distanceToNode(distancer, int32(neighborID))
+		distance, ok, err := h.distanceToNode(distancer, int32(neighborID))
 		if err != nil {
-			var e storobj.ErrNotFound
-			if errors.As(err, &e) {
-				// the underlying object seems to have been deleted, to recover from
-				// this situation let's add a tombstone to the deleted object, so it
-				// will be cleaned up and skip this candidate in the current search
+			return errors.Wrap(err, "calculate distance between candidate and query")
+		}
 
-				h.addTombstone(int(e.DocID))
-				// TODO: Use structured logging, log level WARNING
-				fmt.Printf("WARNING: skipping node %d as we couldn't find a vector for it. Original Error: %v\n",
-					e.DocID, e.Error())
-				continue
-			} else {
-				// not a typed error, we can recover from, return with err
-				return errors.Wrap(err, "calculate distance between candidate and query")
-			}
+		if !ok {
+			// node was deleted in the underlying object store
+			continue
 		}
 
 		resLenBefore := results.len() // calculating just once saves a bit of time
@@ -268,19 +253,42 @@ func (h *hnsw) extendCandidatesAndResultsFromNeighbors(candidates,
 }
 
 func (h *hnsw) distanceToNode(distancer *reusableDistancer,
-	nodeID int32) (float32, error) {
+	nodeID int32) (float32, bool, error) {
 
 	candidateVec, err := h.vectorForID(context.Background(), nodeID)
 	if err != nil {
-		return 0, errors.Wrapf(err, "could not get vector of object at docID %d",
+		return 0, false, errors.Wrapf(err, "could not get vector of object at docID %d",
 			nodeID)
 	}
 	dist, err := distancer.distance(candidateVec)
 	if err != nil {
-		return 0, err
+		var e storobj.ErrNotFound
+		if errors.As(err, &e) {
+			h.handleDeletedNode(e.DocID)
+			return 0, false, nil
+		} else {
+			// not a typed error, we can recover from, return with err
+			return 0, false, errors.Wrap(err, "calculate distance between candidate and query")
+		}
 	}
 
-	return dist, nil
+	return dist, true, nil
+}
+
+// the underlying object seems to have been deleted, to recover from
+// this situation let's add a tombstone to the deleted object, so it
+// will be cleaned up and skip this candidate in the current search
+func (h *hnsw) handleDeletedNode(docID int32) {
+	if h.hasTombstone(int(docID)) {
+		// nothing to do, this node already has a tombstone, it will be cleaned up
+		// in the next deletion cycle
+		return
+	}
+
+	h.addTombstone(int(docID))
+	// TODO: Use structured logging, log level WARNING
+	fmt.Printf("WARNING: Found a deleted node (%d) without a tombstone, "+
+		"tombstone was added", docID)
 }
 
 func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
@@ -352,23 +360,14 @@ func (h *hnsw) selectNeighborsSimpleFromId(nodeId int, ids []uint32,
 	max int, denyList inverted.AllowList) ([]uint32, error) {
 	bst := &binarySearchTreeGeneric{}
 	for _, id := range ids {
-		dist, err := h.distBetweenNodes(int(id), nodeId)
+		dist, ok, err := h.distBetweenNodes(int(id), nodeId)
 		if err != nil {
-			var e storobj.ErrNotFound
-			if errors.As(err, &e) {
-				// the underlying object seems to have been deleted, to recover from
-				// this situation let's add a tombstone to the deleted object, so it
-				// will be cleaned up and skip this candidate in the current search
+			return nil, errors.Wrap(err, "select neighbors simple from id")
+		}
 
-				h.addTombstone(int(e.DocID))
-				// TODO: Use structured logging, log level WARNING
-				fmt.Printf("WARNING: skipping node %d as we couldn't find a vector for it. Original Error: %v\n",
-					e.DocID, e.Error())
-				continue
-			} else {
-				// not a typed error, we can recover from, return with err
-				return nil, errors.Wrap(err, "select neighbors simple from id")
-			}
+		if !ok {
+			// node was deleted in the underlying object store
+			continue
 		}
 		bst.insert(int(id), dist)
 	}
