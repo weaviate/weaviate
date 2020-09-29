@@ -402,11 +402,15 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 	// each layer for a better candidate and update the candidate
 	for level := currentMaxLevel; level > targetLevel; level-- {
 		tmpBST := &binarySearchTreeGeneric{}
-		dist, err := h.distBetweenNodeAndVec(entryPointID, nodeVec)
+		dist, ok, err := h.distBetweenNodeAndVec(entryPointID, nodeVec)
 		if err != nil {
 			return 0, errors.Wrapf(err,
 				"calculate distance between insert node and entry point at level %d", level)
 		}
+		if !ok {
+			continue
+		}
+
 		tmpBST.insert(entryPointID, dist)
 		res, err := h.searchLayerByVector(nodeVec, *tmpBST, 1, level, nil)
 		if err != nil {
@@ -425,10 +429,15 @@ func (h *hnsw) findAndConnectNeighbors(node *vertex,
 	entryPointID int, nodeVec []float32, targetLevel, currentMaxLevel int,
 	denyList inverted.AllowList) error {
 	var results = &binarySearchTreeGeneric{}
-	dist, err := h.distBetweenNodeAndVec(entryPointID, nodeVec)
+	dist, ok, err := h.distBetweenNodeAndVec(entryPointID, nodeVec)
 	if err != nil {
 		return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
 	}
+	if !ok {
+		return fmt.Errorf("entrypoint was deleted in the object strore, " +
+			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
+	}
+
 	results.insert(entryPointID, dist)
 
 	// neighborsAtLevel := make(map[int][]uint32) // for distributed spike
@@ -577,23 +586,38 @@ func (h *hnsw) distBetweenNodes(a, b int) (float32, bool, error) {
 	return d, true, nil
 }
 
-func (h *hnsw) distBetweenNodeAndVec(node int, vecB []float32) (float32, error) {
+func (h *hnsw) distBetweenNodeAndVec(node int, vecB []float32) (float32, bool, error) {
 	// TODO: introduce single search/transaction context instead of spawning new
 	// ones
 	vecA, err := h.vectorForID(context.Background(), int32(node))
 	if err != nil {
-		return 0, errors.Wrapf(err, "could not get vector of object at docID %d", node)
+		return 0, false, errors.Wrapf(err,
+			"could not get vector of object at docID %d", node)
 	}
 
 	if vecA == nil || len(vecA) == 0 {
-		return 0, fmt.Errorf("got a nil or zero-length vector at docID %d", node)
+		return 0, false, fmt.Errorf(
+			"got a nil or zero-length vector at docID %d", node)
 	}
 
 	if vecB == nil || len(vecB) == 0 {
-		return 0, fmt.Errorf("got a nil or zero-length vector as search vector")
+		return 0, false, fmt.Errorf(
+			"got a nil or zero-length vector as search vector")
 	}
 
-	return cosineDist(vecA, vecB)
+	d, err := cosineDist(vecA, vecB)
+	if err != nil {
+		var e storobj.ErrNotFound
+		if errors.As(err, &e) {
+			h.handleDeletedNode(e.DocID)
+			return 0, false, nil
+		} else {
+			// not a typed error, we can recover from, return with err
+			return 0, false, errors.Wrap(err, "select neighbors simple from id")
+		}
+	}
+
+	return d, true, nil
 }
 
 func (h *hnsw) Stats() {

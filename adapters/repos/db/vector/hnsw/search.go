@@ -295,9 +295,14 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	ef int, allowList inverted.AllowList) ([]int, error) {
 
 	entryPointID := h.entryPointID
-	entryPointDistance, err := h.distBetweenNodeAndVec(entryPointID, searchVec)
+	entryPointDistance, ok, err := h.distBetweenNodeAndVec(entryPointID, searchVec)
 	if err != nil {
 		return nil, errors.Wrap(err, "knn search: distance between entrypint and query node")
+	}
+
+	if !ok {
+		return nil, fmt.Errorf("entrypoint was deleted in the object strore, " +
+			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
 	}
 
 	// stop at layer 1, not 0!
