@@ -139,14 +139,7 @@ func (h *hnsw) reassignNeighborsOf(deleteList inverted.AllowList) error {
 		if err != nil {
 			var e storobj.ErrNotFound
 			if errors.As(err, &e) {
-				// the underlying object seems to have been deleted, to recover from
-				// this situation let's add a tombstone to the deleted object, so it
-				// will be cleaned up and skip this candidate in the current search
-
-				h.addTombstone(int(e.DocID))
-				// TODO: Use structured logging, log level WARNING
-				fmt.Printf("WARNING: skipping node %d as we couldn't find a vector for it. Original Error: %v\n",
-					e.DocID, e.Error())
+				h.handleDeletedNode(e.DocID)
 				continue
 			} else {
 				// not a typed error, we can recover from, return with err

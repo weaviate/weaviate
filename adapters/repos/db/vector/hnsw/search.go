@@ -257,19 +257,19 @@ func (h *hnsw) distanceToNode(distancer *reusableDistancer,
 
 	candidateVec, err := h.vectorForID(context.Background(), nodeID)
 	if err != nil {
-		return 0, false, errors.Wrapf(err, "could not get vector of object at docID %d",
-			nodeID)
-	}
-	dist, err := distancer.distance(candidateVec)
-	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
 			h.handleDeletedNode(e.DocID)
 			return 0, false, nil
 		} else {
 			// not a typed error, we can recover from, return with err
-			return 0, false, errors.Wrap(err, "calculate distance between candidate and query")
+			return 0, false, errors.Wrapf(err, "get vector of docID %d", nodeID)
 		}
+	}
+
+	dist, err := distancer.distance(candidateVec)
+	if err != nil {
+		return 0, false, errors.Wrap(err, "calculate distance between candidate and query")
 	}
 
 	return dist, true, nil
