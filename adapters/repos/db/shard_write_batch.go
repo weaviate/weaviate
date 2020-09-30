@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -75,7 +76,7 @@ func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) m
 						return err
 					}
 
-					status, err := s.putObjectInTx(tx, object, idBytes)
+					status, err := s.putObjectInTx(tx, object, idBytes, false)
 					if err != nil {
 						return err
 					}
@@ -102,6 +103,13 @@ func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) m
 	}
 	wg.Wait()
 	s.metrics.ObjectStore(beforeObjectStore)
+
+	err := s.spikeBatchedInverted(objects, duplicates, statuses, errs)
+	if err != nil {
+		// TODO: find affected
+		fmt.Printf("\n\nERROR: %v\n\n", err)
+
+	}
 
 	if err := ctx.Err(); err != nil {
 		for i, err := range errs {
