@@ -36,6 +36,7 @@ type Shard struct {
 	counter          *indexcounter.Counter
 	vectorIndex      VectorIndex
 	invertedRowCache *inverted.RowCacher
+	metrics          *Metrics
 }
 
 func NewShard(shardName string, index *Index) (*Shard, error) {
@@ -43,6 +44,7 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 		index:            index,
 		name:             shardName,
 		invertedRowCache: inverted.NewRowCacher(50 * 1024 * 1024),
+		metrics:          NewMetrics(index.logger),
 	}
 
 	vi, err := hnsw.New(hnsw.Config{

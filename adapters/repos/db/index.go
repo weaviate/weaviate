@@ -27,6 +27,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/kinds"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
+	"github.com/sirupsen/logrus"
 )
 
 // Index is the logical unit which contains all the data for one particular
@@ -36,6 +37,7 @@ type Index struct {
 	Shards    map[string]*Shard
 	Config    IndexConfig
 	getSchema schemaUC.SchemaGetter
+	logger    logrus.FieldLogger
 }
 
 func (i Index) ID() string {
@@ -43,11 +45,13 @@ func (i Index) ID() string {
 }
 
 // NewIndex - for now - always creates a single-shard index
-func NewIndex(config IndexConfig, sg schemaUC.SchemaGetter) (*Index, error) {
+func NewIndex(config IndexConfig, sg schemaUC.SchemaGetter,
+	logger logrus.FieldLogger) (*Index, error) {
 	index := &Index{
 		Config:    config,
 		Shards:    map[string]*Shard{},
 		getSchema: sg,
+		logger:    logger,
 	}
 
 	// use explicit shard name "single" to indicate it's currently the only
