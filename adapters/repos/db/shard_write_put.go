@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"time"
 
 	"github.com/boltdb/bolt"
 	"github.com/google/uuid"
@@ -77,6 +78,9 @@ func (s *Shard) updateVectorIndex(vector []float32,
 
 func (s *Shard) putObjectInTx(tx *bolt.Tx, object *storobj.Object,
 	idBytes []byte) (objectInsertStatus, error) {
+	before := time.Now()
+	defer s.metrics.PutObject(before)
+
 	bucket := tx.Bucket(helpers.ObjectsBucket)
 	previous := bucket.Get([]byte(idBytes))
 
@@ -91,17 +95,23 @@ func (s *Shard) putObjectInTx(tx *bolt.Tx, object *storobj.Object,
 		return status, errors.Wrapf(err, "marshal object %s to binary", object.ID())
 	}
 
+	before = time.Now()
 	if err := s.upsertObjectData(bucket, idBytes, data); err != nil {
 		return status, errors.Wrap(err, "upsert object data")
 	}
+	s.metrics.PutObjectUpsertObject(before)
 
+	before = time.Now()
 	if err := s.updateIndexIDLookup(tx, idBytes, status); err != nil {
 		return status, errors.Wrap(err, "add/update docID->UUID index")
 	}
+	s.metrics.PutObjectUpdateIndexID(before)
 
+	before = time.Now()
 	if err := s.updateInvertedIndex(tx, object, status, previous); err != nil {
 		return status, errors.Wrap(err, "udpate inverted indices")
 	}
+	s.metrics.PutObjectUpdateInverted(before)
 
 	return status, nil
 }
@@ -199,27 +209,33 @@ func (s Shard) updateInvertedIndex(tx *bolt.Tx, object *storobj.Object,
 
 		if status.docIDChanged {
 			// doc ID has changed, delete all old, add all new
+			before := time.Now()
 			err = s.deleteFromInvertedIndices(tx, previousInvertProps, status.oldDocID)
 			if err != nil {
 				return errors.Wrap(err, "delete obsolete inverted pointers")
 			}
+			s.metrics.InvertedDeleteOld(before)
 
 		} else {
 			// doc ID has not changed, only handle the delta
+			before := time.Now()
 			delta := inverted.Delta(previousInvertProps, nextInvertProps)
 			err = s.deleteFromInvertedIndices(tx, delta.ToDelete, status.docID)
 			if err != nil {
 				return errors.Wrap(err, "delete obsolete inverted pointers")
 			}
+			s.metrics.InvertedDeleteDelta(before)
 
 			invertPropsToAdd = delta.ToAdd
 		}
 	}
 
+	before := time.Now()
 	err = s.extendInvertedIndices(tx, invertPropsToAdd, status.docID)
 	if err != nil {
 		return errors.Wrap(err, "put inverted indices props")
 	}
+	s.metrics.InvertedExtend(before)
 
 	return nil
 }

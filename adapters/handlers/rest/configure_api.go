@@ -110,7 +110,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		repo := db.New(appState.Logger, db.Config{
 			RootPath: appState.ServerConfig.Config.Persistence.DataPath,
 		})
-		vectorMigrator = db.NewMigrator(repo)
+		vectorMigrator = db.NewMigrator(repo, appState.Logger)
 		vectorRepo = repo
 		migrator = vectorMigrator
 		vectorizer = libvectorizer.New(appState.Contextionary, nil)
@@ -317,9 +317,12 @@ func logger() *logrus.Logger {
 	if os.Getenv("LOG_FORMAT") != "text" {
 		logger.SetFormatter(&logrus.JSONFormatter{})
 	}
-	if os.Getenv("LOG_LEVEL") == "debug" {
+	switch os.Getenv("LOG_LEVEL") {
+	case "debug":
 		logger.SetLevel(logrus.DebugLevel)
-	} else {
+	case "trace":
+		logger.SetLevel(logrus.TraceLevel)
+	default:
 		logger.SetLevel(logrus.InfoLevel)
 	}
 

@@ -26,6 +26,9 @@ import (
 
 // return value map[int]error gives the error for the index as it received it
 func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) map[int]error {
+	beforeBatch := time.Now()
+	defer s.metrics.BatchObject(beforeBatch, len(objects))
+
 	maxPerTransaction := 30
 
 	m := &sync.Mutex{}
@@ -35,6 +38,7 @@ func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) m
 	duplicates := findDuplicatesInBatchObjects(objects)
 	_ = duplicates
 
+	beforeObjectStore := time.Now()
 	var wg = &sync.WaitGroup{}
 	for i := 0; i < len(objects); i += maxPerTransaction {
 		end := i + maxPerTransaction
@@ -97,6 +101,7 @@ func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) m
 
 	}
 	wg.Wait()
+	s.metrics.ObjectStore(beforeObjectStore)
 
 	if err := ctx.Err(); err != nil {
 		for i, err := range errs {
@@ -110,8 +115,7 @@ func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) m
 		}
 	}
 
-	// TODO: is it smart to let them all run in parallel? wouldn't it be better
-	// to open no more threads than we have cpu cores?
+	beforeVectorIndex := time.Now()
 	wg = &sync.WaitGroup{}
 	for i, object := range objects {
 		m.Lock()
@@ -144,6 +148,7 @@ func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) m
 		}(object, status, i)
 	}
 	wg.Wait()
+	s.metrics.VectorIndex(beforeVectorIndex)
 
 	return errs
 }
