@@ -35,7 +35,7 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 	var status objectInsertStatus
 
 	if err := s.db.Batch(func(tx *bolt.Tx) error {
-		s, err := s.putObjectInTx(tx, object, idBytes)
+		s, err := s.putObjectInTx(tx, object, idBytes, true)
 		if err != nil {
 			return err
 		}
@@ -77,7 +77,7 @@ func (s *Shard) updateVectorIndex(vector []float32,
 }
 
 func (s *Shard) putObjectInTx(tx *bolt.Tx, object *storobj.Object,
-	idBytes []byte) (objectInsertStatus, error) {
+	idBytes []byte, indexInverted bool) (objectInsertStatus, error) {
 	before := time.Now()
 	defer s.metrics.PutObject(before)
 
@@ -107,11 +107,13 @@ func (s *Shard) putObjectInTx(tx *bolt.Tx, object *storobj.Object,
 	}
 	s.metrics.PutObjectUpdateIndexID(before)
 
-	before = time.Now()
-	if err := s.updateInvertedIndex(tx, object, status, previous); err != nil {
-		return status, errors.Wrap(err, "udpate inverted indices")
+	if indexInverted {
+		before = time.Now()
+		if err := s.updateInvertedIndex(tx, object, status, previous); err != nil {
+			return status, errors.Wrap(err, "udpate inverted indices")
+		}
+		s.metrics.PutObjectUpdateInverted(before)
 	}
-	s.metrics.PutObjectUpdateInverted(before)
 
 	return status, nil
 }
