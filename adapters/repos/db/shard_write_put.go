@@ -235,7 +235,7 @@ func (s Shard) updateInvertedIndex(tx *bolt.Tx, object *storobj.Object,
 	if err != nil {
 		return errors.Wrap(err, "put inverted indices props")
 	}
-	s.metrics.InvertedExtend(before)
+	s.metrics.InvertedExtend(before, len(invertPropsToAdd))
 
 	return nil
 }

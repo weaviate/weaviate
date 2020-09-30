@@ -36,7 +36,7 @@ func (m *Metrics) VectorIndex(start time.Time) {
 	took := time.Since(start)
 	m.logger.WithField("action", "store_vector_index").
 		WithField("took", took).
-		Tracef("storing objects in KV/inverted store took %s", took)
+		Tracef("storing objects vector index took %s", took)
 }
 
 func (m *Metrics) PutObject(start time.Time) {
@@ -81,9 +81,10 @@ func (m *Metrics) InvertedDeleteDelta(start time.Time) {
 		Tracef("deleting delta entries from inverted index %s", took)
 }
 
-func (m *Metrics) InvertedExtend(start time.Time) {
+func (m *Metrics) InvertedExtend(start time.Time, propCount int) {
 	took := time.Since(start)
 	m.logger.WithField("action", "inverted_extend").
 		WithField("took", took).
+		WithField("prop_count", propCount).
 		Tracef("extending inverted index took %s", took)
 }
