@@ -22,8 +22,8 @@ import (
 
 func TestPeriodicTombstoneRemoval(t *testing.T) {
 	cl := &noopCommitLogger{}
-	makeCL := func() CommitLogger {
-		return cl
+	makeCL := func() (CommitLogger, error) {
+		return cl, nil
 	}
 
 	index, err := New(Config{

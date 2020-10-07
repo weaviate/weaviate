@@ -94,7 +94,7 @@ func validConfig() Config {
 	return Config{
 		RootPath:              "some path",
 		ID:                    "someid",
-		MakeCommitLoggerThunk: func() CommitLogger { return nil },
+		MakeCommitLoggerThunk: func() (CommitLogger, error) { return nil, nil },
 		VectorForIDThunk:      func(context.Context, int32) ([]float32, error) { return nil, nil },
 		EFConstruction:        17,
 		MaximumConnections:    50,

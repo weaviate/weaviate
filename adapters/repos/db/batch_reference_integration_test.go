@@ -49,7 +49,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(30 * time.Second)
 	require.Nil(t, err)
-	migrator := NewMigrator(repo)
+	migrator := NewMigrator(repo, logger)
 
 	schema := schema.Schema{
 		Things: &models.Schema{
