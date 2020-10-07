@@ -77,7 +77,6 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-
 				fakeManager := &fakeManager{
 					addThingReturn: test.thing,
 				}
@@ -145,7 +144,6 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-
 				fakeManager := &fakeManager{
 					addThingReturn: test.thing,
 				}
@@ -212,7 +210,6 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-
 				fakeManager := &fakeManager{
 					getThingReturn: test.thing,
 				}
@@ -299,7 +296,6 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-
 				fakeManager := &fakeManager{
 					getThingsReturn: test.thing,
 				}
@@ -362,7 +358,6 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-
 				fakeManager := &fakeManager{
 					updateThingReturn: test.thing,
 				}
@@ -428,7 +423,6 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-
 				fakeManager := &fakeManager{
 					addActionReturn: test.action,
 				}
@@ -494,7 +488,6 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-
 				fakeManager := &fakeManager{
 					getActionReturn: test.action,
 				}
@@ -581,7 +574,6 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-
 				fakeManager := &fakeManager{
 					getActionsReturn: test.action,
 				}
@@ -644,7 +636,6 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-
 				fakeManager := &fakeManager{
 					updateActionReturn: test.action,
 				}
@@ -659,7 +650,6 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 			})
 		}
 	})
-
 }
 
 type fakeManager struct {

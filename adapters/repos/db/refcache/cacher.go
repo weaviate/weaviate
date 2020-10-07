@@ -179,7 +179,6 @@ func (c *Cacher) extractAndParseBeacon(item *models.SingleRef) (*crossref.Ref, e
 
 func (c *Cacher) ReplaceInitialPropertiesWithSpecific(obj search.Result,
 	properties traverser.SelectProperties) (traverser.SelectProperties, error) {
-
 	if properties != nil {
 		// don't overwrite the properties if the caller has explicitly set them,
 		// this can only mean they're at the root level
@@ -209,7 +208,6 @@ func (c *Cacher) findJob(si multi.Identifier) (cacherJob, bool) {
 	for _, job := range c.jobs {
 		if job.si == si {
 			return job, true
-
 		}
 	}
 

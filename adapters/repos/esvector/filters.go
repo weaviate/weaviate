@@ -61,7 +61,6 @@ func (r *Repo) singleQueryFromClause(ctx context.Context, clause *filters.Clause
 }
 
 func (r *Repo) filterFromClause(ctx context.Context, clause *filters.Clause) (map[string]interface{}, error) {
-
 	if clause.On.Child != nil {
 		sqb := newSubQueryBuilder(r)
 		res, err := sqb.fromClause(ctx, clause)
@@ -72,7 +71,6 @@ func (r *Repo) filterFromClause(ctx context.Context, clause *filters.Clause) (ma
 
 			default:
 				return nil, fmt.Errorf("sub query: %v", err)
-
 			}
 		}
 
@@ -145,7 +143,6 @@ func primitiveFilterFromClause(clause *filters.Clause) (map[string]interface{}, 
 			},
 		},
 	}, nil
-
 }
 
 func refGeoFilterFromClause(clause *filters.Clause) (map[string]interface{}, error) {

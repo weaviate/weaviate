@@ -59,7 +59,6 @@ func (d *DB) init() error {
 
 			d.indices[idx.ID()] = idx
 		}
-
 	}
 	return nil
 }

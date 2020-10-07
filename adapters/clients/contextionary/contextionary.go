@@ -119,7 +119,6 @@ func kindFromProto(k pb.Kind) kind.Kind {
 }
 
 func keywordsToProto(kws models.Keywords) []*pb.Keyword {
-
 	output := make([]*pb.Keyword, len(kws), len(kws))
 	for i, kw := range kws {
 		output[i] = &pb.Keyword{
@@ -243,7 +242,6 @@ func (c *Client) extractNeighbors(elem *pb.NearestWords) []*models.NearestNeighb
 			Distance: elem.Distances[i],
 			Vector:   vec,
 		}
-
 	}
 	return out
 }

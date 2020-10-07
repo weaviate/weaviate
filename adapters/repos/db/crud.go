@@ -53,7 +53,6 @@ func (d *DB) putObject(ctx context.Context, object *storobj.Object) error {
 	}
 
 	return nil
-
 }
 
 func (d *DB) DeleteAction(ctx context.Context, className string,
@@ -138,7 +137,6 @@ func (d *DB) MultiGet(ctx context.Context,
 // objectByID checks every index of the particular kind for the ID
 func (d *DB) objectByID(ctx context.Context, kind kind.Kind, id strfmt.UUID,
 	props traverser.SelectProperties, meta bool) (*search.Result, error) {
-
 	var result *search.Result
 	// TODO: Search in parallel, rather than sequentially or this will be
 	// painfully slow on large schemas
@@ -167,7 +165,6 @@ func (d *DB) objectByID(ctx context.Context, kind kind.Kind, id strfmt.UUID,
 
 func (d *DB) enrichRefsForSingle(ctx context.Context, obj *search.Result,
 	props traverser.SelectProperties, meta bool) (*search.Result, error) {
-
 	res, err := refcache.NewResolver(refcache.NewCacher(d, d.logger)).
 		Do(ctx, []search.Result{*obj}, props, meta)
 

@@ -50,10 +50,6 @@ func (m *mockResolver) Explore(ctx context.Context,
 	return args.Get(0).([]search.Result), args.Error(1)
 }
 
-func newMockContextionary() *mockContextionary {
-	return &mockContextionary{}
-}
-
 type mockContextionary struct {
 	mock.Mock
 }

@@ -77,7 +77,6 @@ func TestAnalyzer(t *testing.T) {
 				},
 			})
 		})
-
 	})
 
 	t.Run("with string", func(t *testing.T) {
@@ -205,5 +204,4 @@ func TestAnalyzer(t *testing.T) {
 		sort.Slice(afterSort, func(a, b int) bool { return bytes.Compare(afterSort[a], afterSort[b]) == -1 })
 		assert.Equal(t, results, afterSort)
 	})
-
 }

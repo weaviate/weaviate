@@ -24,7 +24,6 @@ import (
 // DeleteActionReference from connected DB
 func (m *Manager) DeleteActionReference(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
-
 	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("actions/%s", id.String()))
 	if err != nil {
 		return err
@@ -41,7 +40,6 @@ func (m *Manager) DeleteActionReference(ctx context.Context, principal *models.P
 
 func (m *Manager) deleteActionReferenceFromConnector(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
-
 	// get action to see if it exists
 	actionRes, err := m.getActionFromRepo(ctx, id, traverser.UnderscoreProperties{})
 	if err != nil {
@@ -74,7 +72,6 @@ func (m *Manager) deleteActionReferenceFromConnector(ctx context.Context, princi
 // DeleteThingReference from connected DB
 func (m *Manager) DeleteThingReference(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
-
 	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("things/%s", id.String()))
 	if err != nil {
 		return err
@@ -91,7 +88,6 @@ func (m *Manager) DeleteThingReference(ctx context.Context, principal *models.Pr
 
 func (m *Manager) deleteThingReferenceFromConnector(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
-
 	// get thing to see if it exists
 	thingRes, err := m.getThingFromRepo(ctx, id, traverser.UnderscoreProperties{})
 	if err != nil {
@@ -123,7 +119,6 @@ func (m *Manager) deleteThingReferenceFromConnector(ctx context.Context, princip
 
 func (m *Manager) removeReferenceFromClassProps(props interface{}, propertyName string,
 	property *models.SingleRef) (interface{}, error) {
-
 	if props == nil {
 		props = map[string]interface{}{}
 	}

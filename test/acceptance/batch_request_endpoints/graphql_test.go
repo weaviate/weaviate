@@ -37,7 +37,6 @@ import (
 // Check if batch results are returned in the correct order by comparing result equality to predefined outcomes.
 // This includes testing whether individual requests and the batch request are handled correctly
 func gqlResultsOrder(t *testing.T) {
-
 	queryOneName := "testQuery"
 	queryTwoName := "testQuery2"
 	expectedResult := "Syntax Error GraphQL request (1:1) Unexpected Name \"%s\"\n\n1: %s\n   ^\n"

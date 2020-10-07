@@ -96,7 +96,6 @@ func TestDownloadSchemaFromPeer(t *testing.T) {
 
 		cleanUp()
 	})
-
 }
 
 type requestMatcher func(t *testing.T, r *http.Request)

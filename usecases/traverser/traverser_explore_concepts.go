@@ -21,7 +21,6 @@ import (
 // Explore through unstructured search terms
 func (t *Traverser) Explore(ctx context.Context,
 	principal *models.Principal, params ExploreParams) ([]search.Result, error) {
-
 	if params.Limit == 0 {
 		params.Limit = 20
 	}

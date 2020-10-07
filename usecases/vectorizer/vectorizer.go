@@ -148,7 +148,6 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 // Corpi takes any list of strings and builds a common vector for all of them
 func (v *Vectorizer) Corpi(ctx context.Context, corpi []string,
 ) ([]float32, error) {
-
 	for i, corpus := range corpi {
 		corpi[i] = camelCaseToLower(corpus)
 	}

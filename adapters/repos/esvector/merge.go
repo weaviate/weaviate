@@ -23,7 +23,6 @@ import (
 )
 
 func (r *Repo) Merge(ctx context.Context, merge kinds.MergeDocument) error {
-
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	err := r.encodeMerge(enc, merge)

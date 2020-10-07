@@ -78,7 +78,6 @@ func (m *Manager) DeleteThing(ctx context.Context, principal *models.Principal, 
 }
 
 func (m *Manager) deleteThingFromRepo(ctx context.Context, id strfmt.UUID) error {
-
 	thingRes, err := m.getThingFromRepo(ctx, id, traverser.UnderscoreProperties{})
 	if err != nil {
 		return err

@@ -74,5 +74,4 @@ func TestGetWithNetworkRef(t *testing.T) {
 
 	query := "{ Get { Things { SomeThing { NetworkRefField { ... on OtherInstance__SomeRemoteClass { bestString } } } } } }"
 	resolver.AssertResolve(t, query)
-
 }

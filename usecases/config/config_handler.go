@@ -52,7 +52,6 @@ type Config struct {
 // Validate the non-nested parameters. Nested objects must provide their own
 // validation methods
 func (c Config) Validate() error {
-
 	return nil
 }
 
@@ -209,7 +208,6 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 		if err := f.Config.Persistence.Validate(); err != nil {
 			return fmt.Errorf("invalid config: %v", err)
 		}
-
 	}
 
 	return nil

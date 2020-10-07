@@ -27,7 +27,6 @@ import (
 )
 
 func Test_ReferencesAdd(t *testing.T) {
-
 	logger, _ := test.NewNullLogger()
 
 	var (
@@ -167,5 +166,4 @@ func zooAnimalSchemaForTest() schema.Schema {
 			},
 		},
 	}
-
 }

@@ -28,23 +28,6 @@ var testVectors = [][]float32{
 	{0.8, 0.7},
 }
 
-var testLabels = []string{
-	// light reds
-	"pinot noir",
-	"nebbiolo",
-	"gamay",
-
-	// whites
-	"riesling",
-	"chardonnay",
-	"sauvignon blanc",
-
-	// heavy reds
-	"merlot",
-	"cabernet sauvignon",
-	"cabernet franc",
-}
-
 func testVectorForID(ctx context.Context, id int32) ([]float32, error) {
 	return testVectors[int(id)], nil
 }

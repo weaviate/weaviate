@@ -49,7 +49,6 @@ func (c *vectorCache) watchForDeletion() {
 			<-t
 			c.replaceMapIfFull()
 		}
-
 	}()
 }
 

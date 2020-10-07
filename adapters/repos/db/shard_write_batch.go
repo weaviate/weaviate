@@ -98,7 +98,6 @@ func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) m
 				m.Unlock()
 			}
 		}(i, batch)
-
 	}
 	wg.Wait()
 	s.metrics.ObjectStore(beforeObjectStore)
@@ -227,7 +226,6 @@ func (s *Shard) addReferencesBatch(ctx context.Context,
 				m.Unlock()
 			}
 		}(i, batch)
-
 	}
 	wg.Wait()
 

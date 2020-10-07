@@ -26,7 +26,6 @@ import (
 // Aggregate resolves meta queries
 func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 	params *AggregateParams) (interface{}, error) {
-
 	err := t.authorizer.Authorize(principal, "get", "traversal/*")
 	if err != nil {
 		return nil, err
@@ -125,7 +124,6 @@ type AggregateProperty struct {
 // us from ever retrieving a cached result that was generated with the
 // 'forceRecalculate' option on.
 func (p AggregateParams) AnalyticsHash() (string, error) {
-
 	// make sure to copy the params, so that we don't accidentally mutate the
 	// original
 	params := p
@@ -149,7 +147,6 @@ func (p AggregateParams) md5() (string, error) {
 
 func ParseAggregatorProp(name string) (Aggregator, error) {
 	switch name {
-
 	// common
 	case CountAggregator.String():
 		return CountAggregator, nil

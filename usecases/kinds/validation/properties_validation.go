@@ -173,7 +173,6 @@ func (v *Validator) cRef(ctx context.Context, propertyName string, pv interface{
 	case []interface{}:
 		crefs := models.MultipleRef{}
 		for _, ref := range refValue {
-
 			refTyped, ok := ref.(map[string]interface{})
 			if !ok {
 				return nil, fmt.Errorf("Multiple references in %s.%s should be a list of maps, but we got: %T",
@@ -368,7 +367,6 @@ func parseCoordinate(raw interface{}) (float64, error) {
 
 func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName string,
 	pvcr map[string]interface{}, className string) (*models.SingleRef, error) {
-
 	if _, ok := pvcr["href"]; ok {
 		// delete read only field href
 		delete(pvcr, "href")
@@ -414,7 +412,6 @@ func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName 
 // NOTE: We are not validating the semantic correctness of the equations
 // themselves, as they are in the contextinoary's resopnsibility
 func (v *Validator) validateVectorWeights(in interface{}) (map[string]string, error) {
-
 	asMap, ok := in.(map[string]interface{})
 	if !ok {
 		return nil, fmt.Errorf("must be key/value object with strings as keys and values, got %#v", in)

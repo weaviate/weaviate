@@ -67,7 +67,6 @@ func Test_Classifier_KNN(t *testing.T) {
 
 			assert.Len(t, class.ID, 36, "an id was assigned")
 			id = class.ID
-
 		})
 
 		t.Run("retrieving the same classificiation by id", func(t *testing.T) {
@@ -142,7 +141,6 @@ func Test_Classifier_KNN(t *testing.T) {
 
 			assert.Len(t, class.ID, 36, "an id was assigned")
 			id = class.ID
-
 		})
 
 		waitForStatusToNoLongerBeRunning(t, classifier, id)
@@ -190,7 +188,6 @@ func Test_Classifier_KNN(t *testing.T) {
 
 			assert.Len(t, class.ID, 36, "an id was assigned")
 			id = class.ID
-
 		})
 
 		waitForStatusToNoLongerBeRunning(t, classifier, id)
@@ -309,7 +306,6 @@ func Test_Classifier_Contextual(t *testing.T) {
 
 			assert.Len(t, class.ID, 36, "an id was assigned")
 			id = class.ID
-
 		})
 
 		waitForStatusToNoLongerBeRunning(t, classifier, id)
@@ -356,7 +352,6 @@ func Test_Classifier_Contextual(t *testing.T) {
 
 			assert.Len(t, class.ID, 36, "an id was assigned")
 			id = class.ID
-
 		})
 
 		waitForStatusToNoLongerBeRunning(t, classifier, id)

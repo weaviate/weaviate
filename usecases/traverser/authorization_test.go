@@ -29,7 +29,6 @@ import (
 // potentially protected with the Authorization plugin
 
 func Test_Traverser_Authorization(t *testing.T) {
-
 	type testCase struct {
 		methodName       string
 		additionalArgs   []interface{}

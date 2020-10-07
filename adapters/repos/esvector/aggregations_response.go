@@ -96,7 +96,6 @@ func (sr searchResponse) groupedAggregations(rawBuckets []interface{}, path []st
 	}
 
 	return buckets.result(path)
-
 }
 
 type aggregationBucket struct {
@@ -117,7 +116,6 @@ type aggregatorAndValue struct {
 type aggregationBuckets []aggregationBucket
 
 func (sr searchResponse) parseAggBuckets(input map[string]interface{}) (aggregationBuckets, error) {
-
 	groupedValue := input["key"]
 	if groupedValue == nil {
 		groupedValue = input["key_as_string"]
@@ -182,7 +180,6 @@ func parseAggBucketsPayload(input map[string]interface{}, groupedValue interface
 
 func getOrInitBucket(buckets map[string]aggregationBucket, property string,
 	groupedValue interface{}, outsideCount *int) aggregationBucket {
-
 	var count int
 	if outsideCount != nil {
 		count = *outsideCount
@@ -268,7 +265,6 @@ func addBooleanAggregationsToBucket(bucket *aggregationBucket, value interface{}
 }
 
 func extractBooleanAggregation(value interface{}) (aggregation.Boolean, error) {
-
 	return parseAggBucketPropertyValueAsBoolean(value)
 }
 

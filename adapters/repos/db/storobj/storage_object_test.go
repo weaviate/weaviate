@@ -169,5 +169,4 @@ func TestNewStorageObject(t *testing.T) {
 				assert.Equal(t, so, alt)
 			})
 	})
-
 }

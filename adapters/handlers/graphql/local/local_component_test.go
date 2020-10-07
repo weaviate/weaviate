@@ -36,7 +36,6 @@ import (
 // tests.
 
 func Test_GraphQLNetworkBuild(t *testing.T) {
-
 	tests := testCases{
 
 		// This tests asserts that an action-only schema doesn't lead to errors.

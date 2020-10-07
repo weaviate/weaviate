@@ -42,8 +42,6 @@ func TestOperators(t *testing.T) {
 		t.Run(test.expectedName, func(t *testing.T) {
 			assert.Equal(t, test.expectedName, test.op.Name(), "name must match")
 			assert.Equal(t, test.expectedOnValue, test.op.OnValue(), "onValue must match")
-
 		})
 	}
-
 }

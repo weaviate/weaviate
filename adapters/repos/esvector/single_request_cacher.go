@@ -182,7 +182,6 @@ func (c *cacher) extractAndParseBeacon(item interface{}) (*crossref.Ref, error) 
 
 func (c *cacher) replaceInitialPropertiesWithSpecific(hit hit,
 	properties traverser.SelectProperties) (traverser.SelectProperties, error) {
-
 	if properties != nil {
 		// don't overwrite the properties if the caller has explicitly set them,
 		// this can only mean they're at the root level
@@ -216,7 +215,6 @@ func (c *cacher) findJob(si storageIdentifier) (cacherJob, bool) {
 	for _, job := range c.jobs {
 		if job.si == si {
 			return job, true
-
 		}
 	}
 
@@ -413,7 +411,6 @@ func mgetResToSearchResponse(in mgetResponse) searchResponse {
 }
 
 func removeEmptyResults(in []hit) []hit {
-
 	out := make([]hit, len(in))
 	n := 0
 	for _, hit := range in {
@@ -451,7 +448,6 @@ func jobListToMgetBody(jobs []cacherJob) mgetBody {
 			Index: classIndexFromClassName(job.si.kind, job.si.className),
 			ID:    job.si.id,
 		}
-
 	}
 
 	return mgetBody{docs}

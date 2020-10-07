@@ -25,7 +25,6 @@ import (
 )
 
 func TestDownloadPeersWithChanges(t *testing.T) {
-
 	var (
 		initialPeers    peers.Peers
 		updatedPeers    peers.Peers

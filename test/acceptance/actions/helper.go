@@ -16,14 +16,11 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/client/actions"
-	"github.com/semi-technologies/weaviate/client/schema"
 	"github.com/semi-technologies/weaviate/client/things"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 	testhelper "github.com/semi-technologies/weaviate/test/helper"
 )
-
-const fakeActionId strfmt.UUID = "11111111-1111-1111-1111-111111111111"
 
 func assertCreateAction(t *testing.T, className string, schema map[string]interface{}) strfmt.UUID {
 	params := actions.NewActionsCreateParams().WithBody(
@@ -131,36 +128,4 @@ func assertCreateThing(t *testing.T, className string, schema map[string]interfa
 	})
 
 	return thingID
-}
-
-func assertGetSchema(t *testing.T) *schema.SchemaDumpOKBody {
-	getResp, err := helper.Client(t).Schema.SchemaDump(schema.NewSchemaDumpParams(), nil)
-	var schema *schema.SchemaDumpOKBody
-	helper.AssertRequestOk(t, getResp, err, func() {
-		schema = getResp.Payload
-	})
-
-	return schema
-}
-
-func assertClassInSchema(t *testing.T, schema *models.Schema, className string) *models.Class {
-	for _, class := range schema.Classes {
-		if class.Class == className {
-			return class
-		}
-	}
-
-	t.Fatalf("class %s not found in schema", className)
-	return nil
-}
-
-func assertPropertyInClass(t *testing.T, class *models.Class, propertyName string) *models.Property {
-	for _, prop := range class.Properties {
-		if prop.Name == propertyName {
-			return prop
-		}
-	}
-
-	t.Fatalf("property %s not found in class", propertyName)
-	return nil
 }

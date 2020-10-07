@@ -23,7 +23,6 @@ import (
 // AddActionProperty to an existing Action
 func (m *Manager) AddActionProperty(ctx context.Context, principal *models.Principal,
 	class string, property *models.Property) error {
-
 	err := m.authorizer.Authorize(principal, "update", "schema/actions")
 	if err != nil {
 		return err
@@ -35,7 +34,6 @@ func (m *Manager) AddActionProperty(ctx context.Context, principal *models.Princ
 // AddThingProperty to an existing Thing
 func (m *Manager) AddThingProperty(ctx context.Context, principal *models.Principal,
 	class string, property *models.Property) error {
-
 	err := m.authorizer.Authorize(principal, "update", "schema/things")
 	if err != nil {
 		return err

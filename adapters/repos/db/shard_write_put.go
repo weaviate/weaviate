@@ -55,18 +55,15 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 
 func (s *Shard) updateVectorIndex(vector []float32,
 	status objectInsertStatus) error {
-
 	if status.isUpdate && !status.docIDChanged {
 		// nothing has changed, nothing to do for us
 		return nil
-
 	}
 
 	if status.docIDChanged {
 		if err := s.vectorIndex.Delete(int(status.oldDocID)); err != nil {
 			return errors.Wrapf(err, "delete doc id %q from vector index", status.oldDocID)
 		}
-
 	}
 
 	if err := s.vectorIndex.Add(int(status.docID), vector); err != nil {
@@ -215,7 +212,6 @@ func (s Shard) updateInvertedIndex(tx *bolt.Tx, object *storobj.Object,
 				return errors.Wrap(err, "delete obsolete inverted pointers")
 			}
 			s.metrics.InvertedDeleteOld(before)
-
 		} else {
 			// doc ID has not changed, only handle the delta
 			before := time.Now()

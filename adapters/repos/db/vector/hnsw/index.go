@@ -408,7 +408,6 @@ func targetContained(haystack []uint32, needle uint32) bool {
 
 func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 	entryPointID int, nodeVec []float32) (int, error) {
-
 	// in case the new target is lower than the current max, we need to search
 	// each layer for a better candidate and update the candidate
 	for level := currentMaxLevel; level > targetLevel; level-- {
@@ -665,7 +664,6 @@ func (h *hnsw) Stats() {
 	for level, count := range perLevelCount {
 		fmt.Printf("unique count on level %d: %d\n", level, count)
 	}
-
 }
 
 func (h *hnsw) isEmpty() bool {

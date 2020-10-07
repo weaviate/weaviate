@@ -116,7 +116,6 @@ func (s *Schema) FindPropertyDataType(dataType []string) (PropertyDataType, erro
 		someDataType := dataType[0]
 		if len(someDataType) == 0 {
 			return nil, fmt.Errorf("dataType cannot be an empty string")
-
 		}
 		firstLetter := rune(someDataType[0])
 		if unicode.IsLower(firstLetter) {

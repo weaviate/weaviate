@@ -168,7 +168,6 @@ func Test_Validation_ClassNames(t *testing.T) {
 
 	t.Run("adding a class", func(t *testing.T) {
 		t.Run("different class names without keywords or properties", func(t *testing.T) {
-
 			for _, test := range tests {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
 					class := &models.Class{
@@ -291,7 +290,6 @@ func Test_Validation_ClassNames(t *testing.T) {
 
 	t.Run("updating an existing class", func(t *testing.T) {
 		t.Run("different class names without keywords or properties", func(t *testing.T) {
-
 			for _, test := range tests {
 				originalName := "ValidOriginalName"
 				t.Run(test.name+" as thing class", func(t *testing.T) {
@@ -360,7 +358,6 @@ func Test_Validation_ClassNames(t *testing.T) {
 					classNames := testGetClassNames(m, kind.Action)
 					assert.Contains(t, classNames, test.storedAs, "class should be stored correctly")
 				})
-
 			}
 		})
 
@@ -585,7 +582,6 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 	t.Run("when adding a new class", func(t *testing.T) {
 		t.Run("different property names without keywords for the prop", func(t *testing.T) {
-
 			for _, test := range tests {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
 					class := &models.Class{
@@ -640,7 +636,6 @@ func Test_Validation_PropertyNames(t *testing.T) {
 		})
 
 		t.Run("different property names  with valid keywords for the prop", func(t *testing.T) {
-
 			for _, test := range tests {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
 					class := &models.Class{
@@ -699,7 +694,6 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 	t.Run("when updating an existing class with a new property", func(t *testing.T) {
 		t.Run("different property names without keywords for the prop", func(t *testing.T) {
-
 			for _, test := range tests {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
 					class := &models.Class{
@@ -768,12 +762,10 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					propName := schema.Actions.Classes[0].Properties[1].Name
 					assert.Equal(t, propName, test.storedAs, "class should be stored correctly")
 				})
-
 			}
 		})
 
 		t.Run("different property names  with valid keywords for the prop", func(t *testing.T) {
-
 			for _, test := range tests {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
 					class := &models.Class{
@@ -832,7 +824,6 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 	t.Run("when updating an existing property with a new prop name", func(t *testing.T) {
 		t.Run("different property names without keywords for the prop", func(t *testing.T) {
-
 			for _, test := range tests {
 				originalName := "validPropertyName"
 
@@ -903,12 +894,10 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					propName := schema.Actions.Classes[0].Properties[0].Name
 					assert.Equal(t, propName, test.storedAs, "class should be stored correctly")
 				})
-
 			}
 		})
 
 		t.Run("different property names  with valid keywords for the prop", func(t *testing.T) {
-
 			for _, test := range tests {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
 					class := &models.Class{

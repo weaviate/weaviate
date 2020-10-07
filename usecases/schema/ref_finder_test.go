@@ -21,7 +21,6 @@ import (
 )
 
 func TestRefFinder(t *testing.T) {
-
 	t.Run("on an empty schema", func(t *testing.T) {
 		s := schema.Schema{
 			Actions: &models.Schema{
@@ -247,7 +246,6 @@ func TestRefFinder(t *testing.T) {
 			},
 		}, res)
 	})
-
 }
 
 type fakeSchemaGetterForRefFinder struct {

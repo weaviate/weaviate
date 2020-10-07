@@ -64,7 +64,6 @@ func Delta(previous, next []Property) DeltaResults {
 	}
 
 	return out
-
 }
 
 func countableDelta(prev, next []Countable) ([]Countable, []Countable) {

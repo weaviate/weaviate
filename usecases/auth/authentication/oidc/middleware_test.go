@@ -24,7 +24,6 @@ import (
 )
 
 func Test_Middleware_NotConfigured(t *testing.T) {
-
 	cfg := config.Config{
 		Authentication: config.Authentication{
 			OIDC: config.OIDC{

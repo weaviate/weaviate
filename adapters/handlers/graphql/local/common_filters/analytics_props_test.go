@@ -22,7 +22,6 @@ import (
 )
 
 func Test_ExtractAnalyticsProps(t *testing.T) {
-
 	t.Run("when the analytics engine is turned off globally", func(t *testing.T) {
 		cfg := config.AnalyticsEngine{
 			Enabled:                   false,
@@ -115,5 +114,4 @@ func Test_ExtractAnalyticsProps(t *testing.T) {
 		assert.Equal(t, fmt.Errorf("invalid arguments: 'forceRecalculate' cannot be set to true if "+
 			"'useAnalyticsEngine' is set to false"), err)
 	})
-
 }

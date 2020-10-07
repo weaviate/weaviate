@@ -233,7 +233,6 @@ func extractLimit(args map[string]interface{}) (*int, error) {
 }
 
 func extractLimitFromArgs(args []*ast.Argument) *int {
-
 	for _, arg := range args {
 		if arg.Name.Value != "limit" {
 			continue
@@ -244,7 +243,6 @@ func extractLimitFromArgs(args []*ast.Argument) *int {
 			asInt, _ := strconv.Atoi(v)
 			return &asInt
 		}
-
 	}
 
 	return nil

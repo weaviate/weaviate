@@ -128,7 +128,6 @@ func Test_Source_ParsingFromString(t *testing.T) {
 	})
 
 	t.Run("with formatting errors", func(t *testing.T) {
-
 		type testCaseError struct {
 			name string
 			uri  string

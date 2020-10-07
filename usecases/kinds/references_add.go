@@ -28,7 +28,6 @@ import (
 // include this particular network ref class.
 func (m *Manager) AddActionReference(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
-
 	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("actions/%s", id.String()))
 	if err != nil {
 		return err
@@ -45,7 +44,6 @@ func (m *Manager) AddActionReference(ctx context.Context, principal *models.Prin
 
 func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
-
 	// get action to see if it exists
 	actionRes, err := m.getActionFromRepo(ctx, id, traverser.UnderscoreProperties{})
 	if err != nil {
@@ -84,7 +82,6 @@ func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, pr
 // include this particular network ref class.
 func (m *Manager) AddThingReference(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
-
 	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("things/%s", id.String()))
 	if err != nil {
 		return err
@@ -101,7 +98,6 @@ func (m *Manager) AddThingReference(ctx context.Context, principal *models.Princ
 
 func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
-
 	// get thing to see if it exists
 	thingRes, err := m.getThingFromRepo(ctx, id, traverser.UnderscoreProperties{})
 	if err != nil {

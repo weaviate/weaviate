@@ -36,7 +36,6 @@ func (i *typeInspector) WithTypes(res *aggregation.Result, params AggregateParam
 	}
 
 	for _, prop := range params.Properties {
-
 		if !i.hasTypeAggregator(prop.Aggregators) {
 			// nothing to do for us
 			continue

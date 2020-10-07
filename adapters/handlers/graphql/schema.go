@@ -50,7 +50,6 @@ type graphQL struct {
 // Construct a GraphQL API from the database schema, and resolver interface.
 func Build(schema *schema.Schema, peers peers.Peers, traverser Traverser,
 	logger logrus.FieldLogger, config config.Config) (GraphQL, error) {
-
 	logger.WithField("action", "graphql_rebuild").
 		WithField("peers", peers).
 		WithField("schema", schema).

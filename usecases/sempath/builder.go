@@ -132,7 +132,6 @@ func (f *PathBuilder) addSearchNeighbors(params *Params) ([]*models.NearestNeigh
 // TODO: document behavior if it actually stays like this
 func (f *PathBuilder) vectorsToMatrix(obj search.Result, allObjects []search.Result, dims int,
 	params *Params, searchNeighbors []*models.NearestNeighbor) (*mat.Dense, []*models.NearestNeighbor, error) {
-
 	items := 1 // the initial object
 	var neighbors []*models.NearestNeighbor
 	neighbors = f.extractNeighbors(allObjects)
@@ -333,7 +332,6 @@ func copyNeighbors(in []*models.NearestNeighbor) []*models.NearestNeighbor {
 
 func (f *PathBuilder) addDistancesToPath(path *models.SemanticPath, neighbors []*models.NearestNeighbor,
 	searchVector, targetVector []float32) (*models.SemanticPath, error) {
-
 	for i, elem := range path.Path {
 		vec, ok := neighborVecByConcept(neighbors, elem.Concept)
 		if !ok {

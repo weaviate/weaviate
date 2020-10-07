@@ -44,7 +44,6 @@ type schemaManager interface {
 // include this particular network ref class.
 func (m *Manager) AddAction(ctx context.Context, principal *models.Principal,
 	class *models.Action) (*models.Action, error) {
-
 	err := m.authorizer.Authorize(principal, "create", "actions")
 	if err != nil {
 		return nil, err
@@ -166,7 +165,6 @@ func (m *Manager) exists(ctx context.Context, k kind.Kind, id strfmt.UUID) (bool
 // include this particular network ref class.
 func (m *Manager) AddThing(ctx context.Context, principal *models.Principal,
 	class *models.Thing) (*models.Thing, error) {
-
 	err := m.authorizer.Authorize(principal, "create", "things")
 	if err != nil {
 		return nil, err

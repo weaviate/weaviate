@@ -92,7 +92,6 @@ func (h *kindHandlers) addThing(params things.ThingsCreateParams,
 
 func (h *kindHandlers) validateThing(params things.ThingsValidateParams,
 	principal *models.Principal) middleware.Responder {
-
 	err := h.manager.ValidateThing(params.HTTPRequest.Context(), principal, params.Body)
 	if err != nil {
 		switch err.(type) {
@@ -138,7 +137,6 @@ func (h *kindHandlers) addAction(params actions.ActionsCreateParams,
 
 func (h *kindHandlers) validateAction(params actions.ActionsValidateParams,
 	principal *models.Principal) middleware.Responder {
-
 	err := h.manager.ValidateAction(params.HTTPRequest.Context(), principal, params.Body)
 	if err != nil {
 		switch err.(type) {
@@ -159,7 +157,6 @@ func (h *kindHandlers) validateAction(params actions.ActionsValidateParams,
 
 func (h *kindHandlers) getThing(params things.ThingsGetParams,
 	principal *models.Principal) middleware.Responder {
-
 	underscores, err := parseIncludeParam(params.Include)
 	if err != nil {
 		return things.NewThingsGetBadRequest().
@@ -411,7 +408,6 @@ func (h *kindHandlers) deleteAction(params actions.ActionsDeleteParams,
 }
 
 func (h *kindHandlers) patchThing(params things.ThingsPatchParams, principal *models.Principal) middleware.Responder {
-
 	err := h.manager.MergeThing(params.HTTPRequest.Context(), principal, params.ID, params.Body)
 	if err != nil {
 		switch err.(type) {
@@ -614,7 +610,6 @@ func setupKindHandlers(api *operations.WeaviateAPI,
 		ActionsReferencesDeleteHandlerFunc(h.deleteActionReference)
 	api.ActionsActionsReferencesUpdateHandler = actions.
 		ActionsReferencesUpdateHandlerFunc(h.updateActionReferences)
-
 }
 
 func derefBool(in *bool) bool {
@@ -650,7 +645,6 @@ func (h *kindHandlers) extendReferencesWithAPILinks(refs models.MultipleRef) mod
 }
 
 func (h *kindHandlers) extendReferenceWithAPILink(ref *models.SingleRef) *models.SingleRef {
-
 	parsed, err := crossref.Parse(ref.Beacon.String())
 	if err != nil {
 		// ignore return unchanged

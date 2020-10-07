@@ -153,7 +153,6 @@ func (s *Shard) vectorByIndexID(ctx context.Context, indexID int32) ([]float32, 
 
 func (s *Shard) objectSearch(ctx context.Context, limit int,
 	filters *filters.LocalFilter, meta bool) ([]*storobj.Object, error) {
-
 	if filters == nil {
 		return s.objectList(ctx, limit, meta)
 	}
@@ -165,7 +164,6 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 
 func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32,
 	limit int, filters *filters.LocalFilter, meta bool) ([]*storobj.Object, error) {
-
 	var allowList inverted.AllowList
 	if filters != nil {
 		list, err := inverted.NewSearcher(

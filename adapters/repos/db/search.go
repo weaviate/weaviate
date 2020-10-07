@@ -121,7 +121,6 @@ func (d *DB) ActionSearch(ctx context.Context, limit int, filters *filters.Local
 func (d *DB) objectSearch(ctx context.Context, kind kind.Kind, limit int,
 	filters *filters.LocalFilter,
 	underscore traverser.UnderscoreProperties) (search.Results, error) {
-
 	var found search.Results
 
 	// TODO: Search in parallel, rather than sequentially or this will be
@@ -153,7 +152,6 @@ func (d *DB) objectSearch(ctx context.Context, kind kind.Kind, limit int,
 
 func (d *DB) enrichRefsForList(ctx context.Context, objs search.Results,
 	props traverser.SelectProperties, meta bool) (search.Results, error) {
-
 	res, err := refcache.NewResolver(refcache.NewCacher(d, d.logger)).
 		Do(ctx, objs, props, meta)
 

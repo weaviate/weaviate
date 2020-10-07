@@ -123,7 +123,6 @@ func (sp SelectProperties) ShouldResolve(path []string) (bool, error) {
 
 		// we are done and found the path
 		return true, nil
-
 	}
 
 	return false, nil

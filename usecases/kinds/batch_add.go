@@ -30,7 +30,6 @@ import (
 // AddActions Class Instances in batch to the connected DB
 func (b *BatchManager) AddActions(ctx context.Context, principal *models.Principal,
 	classes []*models.Action, fields []*string) (BatchActions, error) {
-
 	err := b.authorizer.Authorize(principal, "create", "batch/actions")
 	if err != nil {
 		return nil, err
@@ -47,7 +46,6 @@ func (b *BatchManager) AddActions(ctx context.Context, principal *models.Princip
 
 func (b *BatchManager) addActions(ctx context.Context, principal *models.Principal,
 	classes []*models.Action, fields []*string) (BatchActions, error) {
-
 	if err := b.validateActionForm(classes); err != nil {
 		return nil, NewErrInvalidUserInput("invalid param 'actions': %v", err)
 	}
@@ -194,7 +192,6 @@ func (b *BatchManager) AddThings(ctx context.Context, principal *models.Principa
 
 func (b *BatchManager) addThings(ctx context.Context, principal *models.Principal,
 	classes []*models.Thing, fields []*string) (BatchThings, error) {
-
 	if err := b.validateThingForm(classes); err != nil {
 		return nil, NewErrInvalidUserInput("invalid param 'things': %v", err)
 	}

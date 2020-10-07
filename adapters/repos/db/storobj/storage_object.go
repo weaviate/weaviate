@@ -152,7 +152,6 @@ func (ko *Object) UnderscoreProperties() *models.UnderscoreProperties {
 	default:
 		panic("impossible kind")
 	}
-
 }
 func (ko *Object) Schema() models.PropertySchema {
 	switch ko.Kind {
@@ -174,7 +173,6 @@ func (ko *Object) SetSchema(schema models.PropertySchema) {
 	default:
 		panic("impossible kind")
 	}
-
 }
 func (ko *Object) VectorWeights() models.VectorWeights {
 	switch ko.Kind {
@@ -413,7 +411,6 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 
 func (ko *Object) parseKind(uuid strfmt.UUID, create, update int64, className string,
 	schemaB []byte, underscoreB []byte, vectorWeightsB []byte) error {
-
 	var schema map[string]interface{}
 	if err := json.Unmarshal(schemaB, &schema); err != nil {
 		return err

@@ -97,7 +97,6 @@ func classFields(databaseSchema []*models.Class, k kind.Kind,
 
 func classField(k kind.Kind, class *models.Class, description string,
 	config config.Config) (*graphql.Field, error) {
-
 	if len(class.Properties) == 0 {
 		// if we don't have class properties, we can't build this particular class,
 		// as it would not have any fields. So we have to return (without an

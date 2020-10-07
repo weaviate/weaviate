@@ -15,9 +15,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/filters"
-	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
 	libprojector "github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/sempath"
@@ -47,11 +45,6 @@ type vectorClassSearch interface {
 		filters *filters.LocalFilter) ([]search.Result, error)
 }
 
-type explorerRepo interface {
-	GetThing(context.Context, strfmt.UUID, *models.Thing) error
-	GetAction(context.Context, strfmt.UUID, *models.Action) error
-}
-
 type nnExtender interface {
 	Multi(ctx context.Context, in []search.Result, limit *int) ([]search.Result, error)
 }
@@ -74,7 +67,6 @@ func NewExplorer(search vectorClassSearch, vectorizer CorpiVectorizer,
 // GetClass from search and connector repo
 func (e *Explorer) GetClass(ctx context.Context,
 	params GetParams) ([]interface{}, error) {
-
 	if params.Pagination == nil {
 		params.Pagination = &filters.Pagination{
 			Limit: 100,
@@ -145,7 +137,6 @@ func (e *Explorer) getClassExploration(ctx context.Context,
 
 func (e *Explorer) getClassList(ctx context.Context,
 	params GetParams) ([]interface{}, error) {
-
 	res, err := e.search.ClassSearch(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("explorer: get class: search: %v", err)
@@ -264,7 +255,6 @@ func (e *Explorer) Concepts(ctx context.Context,
 
 func (e *Explorer) vectorFromExploreParams(ctx context.Context,
 	params *ExploreParams) ([]float32, error) {
-
 	vector, err := e.vectorizer.Corpi(ctx, params.Values)
 	if err != nil {
 		return nil, fmt.Errorf("vectorize keywords: %v", err)
@@ -302,5 +292,4 @@ func (e *Explorer) vectorFromExploreParams(ctx context.Context,
 
 func beacon(res search.Result) string {
 	return fmt.Sprintf("weaviate://localhost/%ss/%s", res.Kind.Name(), res.ID)
-
 }

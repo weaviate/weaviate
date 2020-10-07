@@ -155,7 +155,6 @@ func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, grap
 
 	// Return an unprocessable error if the query is empty
 	if query == "" {
-
 		// Regular error messages are returned as an error code in the request header, but that doesn't work for batched requests
 		errorCode := strconv.Itoa(graphql.GraphqlBatchUnprocessableEntityCode)
 		errorMessage := fmt.Sprintf("%s: %s", errorCode, error422)
@@ -166,7 +165,6 @@ func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, grap
 			&graphQLResponse,
 		}
 	} else {
-
 		// Extract any variables from the request
 		var variables map[string]interface{}
 		if unbatchedRequest.Variables != nil {
@@ -180,7 +178,6 @@ func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, grap
 
 		// Return an unprocessable error if marshalling the result to JSON failed
 		if jsonErr != nil {
-
 			// Regular error messages are returned as an error code in the request header, but that doesn't work for batched requests
 			errorCode := strconv.Itoa(graphql.GraphqlBatchUnprocessableEntityCode)
 			errorMessage := fmt.Sprintf("%s: %s", errorCode, error422)
@@ -191,13 +188,11 @@ func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, grap
 				&graphQLResponse,
 			}
 		} else {
-
 			// Put the result data in a response ready object
 			marshallErr := json.Unmarshal(resultJSON, graphQLResponse)
 
 			// Return an unprocessable error if unmarshalling the result to JSON failed
 			if marshallErr != nil {
-
 				// Regular error messages are returned as an error code in the request header, but that doesn't work for batched requests
 				errorCode := strconv.Itoa(graphql.GraphqlBatchUnprocessableEntityCode)
 				errorMessage := fmt.Sprintf("%s: %s", errorCode, error422)

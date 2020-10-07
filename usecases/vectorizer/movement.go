@@ -49,5 +49,4 @@ func move(source []float32, target []float32, weight float32, direction directio
 	}
 
 	return res, nil
-
 }

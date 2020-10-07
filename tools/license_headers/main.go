@@ -42,7 +42,6 @@ func main() {
 	for _, fname := range fileNames {
 		fatal(processSingleFile(fname))
 	}
-
 }
 
 func processSingleFile(name string) error {

@@ -157,7 +157,6 @@ func TestVectorizingThings(t *testing.T) {
 			actual := strings.Split(client.lastInput[0], " ")
 			assert.ElementsMatch(t, expected, actual)
 		})
-
 	}
 }
 
@@ -250,9 +249,7 @@ func TestVectorizingActions(t *testing.T) {
 			expected := strings.Split(test.expectedClientCall[0], " ")
 			actual := strings.Split(client.lastInput[0], " ")
 			assert.ElementsMatch(t, expected, actual)
-
 		})
-
 	}
 }
 

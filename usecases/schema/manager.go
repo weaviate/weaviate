@@ -14,7 +14,6 @@ package schema
 import (
 	"context"
 	"fmt"
-	"log"
 
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -92,13 +91,6 @@ type authorizer interface {
 
 type unlocker interface {
 	Unlock() error
-}
-
-func unlock(l unlocker) {
-	err := l.Unlock()
-	if err != nil {
-		log.Fatal(err)
-	}
 }
 
 // State is a cached copy of the schema that can also be saved into a remote
