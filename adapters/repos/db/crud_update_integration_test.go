@@ -55,7 +55,7 @@ func TestUpdateJourney(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(30 * time.Second)
 	require.Nil(t, err)
-	migrator := NewMigrator(repo)
+	migrator := NewMigrator(repo, logger)
 
 	schema := libschema.Schema{
 		Things: &models.Schema{

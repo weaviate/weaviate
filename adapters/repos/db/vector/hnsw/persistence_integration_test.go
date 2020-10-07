@@ -34,9 +34,9 @@ func TestHnswPersistence(t *testing.T) {
 		fmt.Println(err)
 	}()
 
-	cl := NewCommitLogger(dirName, indexID)
-	makeCL := func() CommitLogger {
-		return cl
+	cl, clErr := NewCommitLogger(dirName, indexID, 0)
+	makeCL := func() (CommitLogger, error) {
+		return cl, clErr
 	}
 	index, err := New(Config{
 		RootPath:              dirName,
@@ -101,9 +101,9 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 		fmt.Println(err)
 	}()
 
-	cl := NewCommitLogger(dirName, indexID)
-	makeCL := func() CommitLogger {
-		return cl
+	cl, clErr := NewCommitLogger(dirName, indexID, 0)
+	makeCL := func() (CommitLogger, error) {
+		return cl, clErr
 	}
 	index, err := New(Config{
 		RootPath:              dirName,
@@ -178,9 +178,8 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		fmt.Println(err)
 	}()
 
-	cl := NewCommitLogger(dirName, indexID)
-	makeCL := func() CommitLogger {
-		return cl
+	makeCL := func() (CommitLogger, error) {
+		return NewCommitLogger(dirName, indexID, 0)
 	}
 	index, err := New(Config{
 		RootPath:              dirName,

@@ -47,7 +47,7 @@ func TestRefFilters(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(30 * time.Second)
 	require.Nil(t, err)
-	migrator := NewMigrator(repo)
+	migrator := NewMigrator(repo, logger)
 
 	t.Run("adding all classes to the schema", func(t *testing.T) {
 		schemaGetter.schema.Things = &models.Schema{}
