@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/boltdb/bolt"
@@ -84,48 +83,41 @@ func (s *Shard) spikeBatchedInverted(objects []*storobj.Object,
 }
 
 func (s *Shard) batchExtendInvertedIndices(props map[string]batchProp) error {
-	wg := &sync.WaitGroup{}
 	for _, prop := range props {
-		wg.Add(1)
 
-		go func(prop batchProp) {
-			defer wg.Done()
-
-			before := time.Now()
-			if err := s.db.Batch(func(tx *bolt.Tx) error {
-				b := tx.Bucket(helpers.BucketFromPropName(prop.Name))
-				if b == nil {
-					return fmt.Errorf("no bucket for prop '%s' found", prop.Name)
-				}
-
-				if prop.HasFrequency {
-					for _, item := range prop.Items {
-						if err := s.batchExtendInvertedIndexItemWithFrequency(b, item,
-							item.Docs); err != nil {
-							return errors.Wrapf(err, "extend index with item '%s'",
-								string(item.Data))
-						}
-					}
-				} else {
-					for _, item := range prop.Items {
-						if err := s.batchExtendInvertedIndexItemWithoutFrequency(b, item,
-							item.Docs); err != nil {
-							return errors.Wrapf(err, "extend index with item '%s'",
-								string(item.Data))
-						}
-
-					}
-				}
-
-				return nil
-			}); err != nil {
-				fmt.Printf("\n\nERROR: %v\n\n", errors.Wrap(err, "batch invert props"))
+		// TODO: try concurrent
+		before := time.Now()
+		if err := s.db.Batch(func(tx *bolt.Tx) error {
+			b := tx.Bucket(helpers.BucketFromPropName(prop.Name))
+			if b == nil {
+				return fmt.Errorf("no bucket for prop '%s' found", prop.Name)
 			}
-			fmt.Printf("prop %s took %s\n", prop.Name, time.Since(before))
-		}(prop)
-	}
 
-	wg.Wait()
+			if prop.HasFrequency {
+				for _, item := range prop.Items {
+					if err := s.batchExtendInvertedIndexItemWithFrequency(b, item,
+						item.Docs); err != nil {
+						return errors.Wrapf(err, "extend index with item '%s'",
+							string(item.Data))
+					}
+				}
+			} else {
+				for _, item := range prop.Items {
+					if err := s.batchExtendInvertedIndexItemWithoutFrequency(b, item,
+						item.Docs); err != nil {
+						return errors.Wrapf(err, "extend index with item '%s'",
+							string(item.Data))
+					}
+
+				}
+			}
+
+			return nil
+		}); err != nil {
+			return errors.Wrap(err, "batch invert props")
+		}
+		fmt.Printf("prop %s took %s\n", prop.Name, time.Since(before))
+	}
 
 	return nil
 }
