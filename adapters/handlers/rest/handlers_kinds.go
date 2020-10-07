@@ -38,10 +38,6 @@ type kindHandlers struct {
 	config  config.Config
 }
 
-type requestLog interface {
-	Register(string, string)
-}
-
 type kindsManager interface {
 	AddThing(context.Context, *models.Principal, *models.Thing) (*models.Thing, error)
 	AddAction(context.Context, *models.Principal, *models.Action) (*models.Action, error)

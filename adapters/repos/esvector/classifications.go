@@ -108,9 +108,9 @@ func (r *Repo) unclassifiedSearchResponse(ctx context.Context, res *esapi.Respon
 		return nil, fmt.Errorf("vector search: decode json: %v", err)
 	}
 
-	// if err := checkClassificationCount(sr.Aggregations); err != nil {
-	// 	return nil, err
-	// }
+	if err := checkClassificationCount(sr.Aggregations); err != nil {
+		return nil, err
+	}
 
 	requestCacher := newCacher(r)
 	err = requestCacher.build(ctx, sr, properties, false)

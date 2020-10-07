@@ -9,6 +9,8 @@
 //  CONTACT: hello@semi.technology
 //
 
+// +build integrationTest
+
 package esvector
 
 import (

@@ -24,16 +24,6 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/vectorizer"
 )
 
-type addAndGetRepo interface {
-	addRepo
-}
-
-type addRepo interface {
-	AddAction(ctx context.Context, class *models.Action, id strfmt.UUID) error
-	AddThing(ctx context.Context, class *models.Thing, id strfmt.UUID) error
-	ClassExists(ctx context.Context, id strfmt.UUID) (bool, error)
-}
-
 type schemaManager interface {
 	UpdatePropertyAddDataType(context.Context, *models.Principal, kind.Kind, string, string, string) error
 	GetSchema(principal *models.Principal) (schema.Schema, error)

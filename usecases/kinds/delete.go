@@ -20,16 +20,6 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
-type deleteAndGetRepo interface {
-	deleteRepo
-}
-
-type deleteRepo interface {
-	// TODO: Delete unnecessary 2nd arg
-	DeleteThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error
-	DeleteAction(ctx context.Context, thing *models.Action, UUID strfmt.UUID) error
-}
-
 // DeleteAction Class Instance from the conncected DB
 func (m *Manager) DeleteAction(ctx context.Context, principal *models.Principal, id strfmt.UUID) error {
 	err := m.authorizer.Authorize(principal, "delete", fmt.Sprintf("actions/%s", id.String()))

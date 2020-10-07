@@ -18,7 +18,6 @@ package kinds
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -123,17 +122,6 @@ func NewManager(locks locks, schemaManager schemaManager,
 		nnExtender:    nnExtender,
 		timeSource:    defaultTimeSource{},
 		projector:     projector,
-	}
-}
-
-type unlocker interface {
-	Unlock() error
-}
-
-func unlock(l unlocker) {
-	err := l.Unlock()
-	if err != nil {
-		log.Fatal(err)
 	}
 }
 
