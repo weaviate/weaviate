@@ -69,7 +69,7 @@ func TestHnswPersistence(t *testing.T) {
 		assert.Equal(t, expectedResults, res)
 	})
 
-	// destory the index
+	// destroy the index
 	time.Sleep(100 * time.Millisecond) // TODO: make commit log write consinstent
 	index = nil
 
@@ -146,7 +146,7 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 
 	dumpIndex(index, "without_cleanup_original_index_before_storage")
 
-	// destory the index
+	// destroy the index
 	time.Sleep(100 * time.Millisecond) // TODO: make commit log write consinstent
 	index = nil
 
@@ -228,7 +228,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		assert.Equal(t, expectedResults, res)
 	})
 
-	// destory the index
+	// destroy the index
 	time.Sleep(100 * time.Millisecond) // TODO: make commit log write consinstent
 	index = nil
 
