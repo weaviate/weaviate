@@ -115,7 +115,7 @@ func TestNestedReferences(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(30 * time.Second)
 	require.Nil(t, err)
-	migrator := NewMigrator(repo)
+	migrator := NewMigrator(repo, logger)
 
 	t.Run("adding all classes to the schema", func(t *testing.T) {
 		for _, class := range refSchema.Things.Classes {
@@ -448,7 +448,7 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(30 * time.Second)
 	require.Nil(t, err)
-	migrator := NewMigrator(repo)
+	migrator := NewMigrator(repo, logger)
 
 	t.Run("add required classes", func(t *testing.T) {
 		for _, class := range schema.Things.Classes {
