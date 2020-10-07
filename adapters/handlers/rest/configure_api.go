@@ -26,9 +26,11 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
 	"github.com/semi-technologies/weaviate/adapters/locks"
+	"github.com/semi-technologies/weaviate/adapters/repos/classifications"
 	"github.com/semi-technologies/weaviate/adapters/repos/db"
 	"github.com/semi-technologies/weaviate/adapters/repos/esvector"
 	"github.com/semi-technologies/weaviate/adapters/repos/etcd"
+	schemarepo "github.com/semi-technologies/weaviate/adapters/repos/schema"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/classification"
@@ -101,6 +103,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	nnExtender := nearestneighbors.NewExtender(appState.Contextionary)
 	featureProjector := projector.New()
 	pathBuilder := sempath.New(appState.Contextionary)
+	var schemaRepo schemaUC.Repo
+	var classifierRepo classification.Repo
 
 	if appState.ServerConfig.Config.Standalone {
 		repo := db.New(appState.Logger, db.Config{
@@ -112,6 +116,22 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		vectorizer = libvectorizer.New(appState.Contextionary, nil)
 		explorer = traverser.NewExplorer(repo, vectorizer, libvectorizer.NormalizedDistance,
 			appState.Logger, nnExtender, featureProjector, pathBuilder)
+		var err error
+		schemaRepo, err = schemarepo.NewRepo("./data", appState.Logger)
+		if err != nil {
+			appState.Logger.
+				WithField("action", "startup").WithError(err).
+				Fatal("could not initialize schema repo")
+			os.Exit(1)
+		}
+
+		classifierRepo, err = classifications.NewRepo("./data", appState.Logger)
+		if err != nil {
+			appState.Logger.
+				WithField("action", "startup").WithError(err).
+				Fatal("could not initialize classifications repo")
+			os.Exit(1)
+		}
 	} else {
 		repo := esvector.NewRepo(esClient, appState.Logger, nil,
 			*appState.ServerConfig.Config.VectorIndex.NumberOfShards,     // guaranteed not to be nil as there are defaults
@@ -123,10 +143,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		vectorizer = libvectorizer.New(appState.Contextionary, nil)
 		explorer = traverser.NewExplorer(repo, vectorizer, libvectorizer.NormalizedDistance,
 			appState.Logger, nnExtender, featureProjector, pathBuilder)
+		schemaRepo = etcd.NewSchemaRepo(etcdClient)
+		classifierRepo = etcd.NewClassificationRepo(etcdClient)
 	}
-
-	schemaRepo := etcd.NewSchemaRepo(etcdClient)
-	classifierRepo := etcd.NewClassificationRepo(etcdClient)
 
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Locks, appState.Network, appState.Logger, appState.Contextionary,
@@ -247,37 +266,43 @@ func startupRoutine() (*state.State, *clientv3.Client, *elasticsearch.Client) {
 		logger.Exit(1)
 	}
 
-	// Construct a distributed lock
-	etcdClient, err := clientv3.New(clientv3.Config{Endpoints: []string{configStore.String()}})
-	if err != nil {
-		logger.WithField("action", "startup").
-			WithError(err).Error("cannot construct distributed lock with etcd")
-		logger.Exit(1)
-	}
-	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
-		Debug("created etcd client")
+	var etcdClient *clientv3.Client
+	var esClient *elasticsearch.Client
 
-	esClient, err := elasticsearch.NewClient(elasticsearch.Config{
-		Addresses: []string{serverConfig.Config.VectorIndex.URL},
-	})
-	if err != nil {
-		logger.WithField("action", "startup").
-			WithError(err).Error("cannot create es client for vector index")
-		logger.Exit(1)
-	}
-	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
-		Debug("created es client for vector index")
+	if appState.ServerConfig.Config.Standalone {
+		appState.Locks = &dummyLock{}
+	} else {
+		var err error
+		// Construct a distributed lock
+		etcdClient, err = clientv3.New(clientv3.Config{Endpoints: []string{configStore.String()}})
+		if err != nil {
+			logger.WithField("action", "startup").
+				WithError(err).Error("cannot construct distributed lock with etcd")
+			logger.Exit(1)
+		}
+		logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
+			Debug("created etcd client")
 
-	// new lock
-	etcdLock, err := locks.NewEtcdLock(etcdClient, "/weaviate/schema-connector-rw-lock", logger)
-	if err != nil {
-		logger.WithField("action", "startup").
-			WithError(err).Error("cannot create etcd-based lock")
-		logger.Exit(1)
-	}
-	appState.Locks = etcdLock
+		esClient, err = elasticsearch.NewClient(elasticsearch.Config{
+			Addresses: []string{serverConfig.Config.VectorIndex.URL},
+		})
+		if err != nil {
+			logger.WithField("action", "startup").
+				WithError(err).Error("cannot create es client for vector index")
+			logger.Exit(1)
+		}
+		logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
+			Debug("created es client for vector index")
 
-	// appState.Locks = &dummyLock{}
+		// new lock
+		etcdLock, err := locks.NewEtcdLock(etcdClient, "/weaviate/schema-connector-rw-lock", logger)
+		if err != nil {
+			logger.WithField("action", "startup").
+				WithError(err).Error("cannot create etcd-based lock")
+			logger.Exit(1)
+		}
+		appState.Locks = etcdLock
+	}
 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("created etcd session")
