@@ -24,9 +24,9 @@ const LocalMeta = "Get Meta information about Things or Actions on a local Weavi
 
 const MetaPropertyType = "The datatype of this property"
 const MetaPropertyCount = "The total amount of found instances for this property" // TODO check this with @lauraham
-const MetaPropertyTopOccurrences = "An object containing data about the most frequently occuring values for this property"
+const MetaPropertyTopOccurrences = "An object containing data about the most frequently occurring values for this property"
 const MetaPropertyTopOccurrencesValue = "The most frequently occurring value for this property"
-const MetaPropertyTopOccurrencesOccurs = "How often the most frequently occuring value for this property occurs" // TODO check this with @lauraham
+const MetaPropertyTopOccurrencesOccurs = "How often the most frequently occurring value for this property occurs" // TODO check this with @lauraham
 const MetaPropertyMinimum = "The minimum value for this property"
 const MetaPropertyMaximum = "The maximum value for this property"
 const MetaPropertyMean = "The mean of all values for this property"
@@ -35,9 +35,9 @@ const MetaPropertyObject = "An object containing meta information about this pro
 
 const AggregatePropertyType = "The datatype of this property"
 const AggregatePropertyCount = "The total amount of found instances for this property" // TODO check this with @lauraham
-const AggregatePropertyTopOccurrences = "An object containing data about the most frequently occuring values for this property"
+const AggregatePropertyTopOccurrences = "An object containing data about the most frequently occurring values for this property"
 const AggregatePropertyTopOccurrencesValue = "The most frequently occurring value for this property"
-const AggregatePropertyTopOccurrencesOccurs = "How often the most frequently occuring value for this property occurs" // TODO check this with @lauraham
+const AggregatePropertyTopOccurrencesOccurs = "How often the most frequently occurring value for this property occurs" // TODO check this with @lauraham
 const AggregatePropertyMinimum = "The minimum value for this property"
 const AggregatePropertyMaximum = "The maximum value for this property"
 const AggregatePropertyMean = "The mean of all values for this property"

@@ -56,6 +56,6 @@ func JSONNumberResolver(p graphql.ResolveParams) (interface{}, error) {
 		}
 
 	default:
-		return nil, fmt.Errorf("json number resolver: unusuable type %T", p.Source)
+		return nil, fmt.Errorf("json number resolver: unusable type %T", p.Source)
 	}
 }

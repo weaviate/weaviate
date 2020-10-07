@@ -300,17 +300,17 @@ func (l *hnswCommitLogger) StartLogging() {
 				WithField("id", l.id).
 				Info("commit log switching explitictly turned off")
 		}
-		maintainance := time.Tick(l.maintainenceInterval)
+		maintenance := time.Tick(l.maintainenceInterval)
 
 		for {
 			select {
 			case event := <-l.events:
 				l.logFile.Write(event)
-			case <-maintainance:
-				if err := l.maintainance(); err != nil {
+			case <-maintenance:
+				if err := l.maintenance(); err != nil {
 					l.logger.WithError(err).
-						WithField("action", "hsnw_commit_log_maintainance").
-						Error("hnsw commit log maintainance failed")
+						WithField("action", "hsnw_commit_log_maintenance").
+						Error("hnsw commit log maintenance failed")
 				}
 			}
 		}
@@ -323,19 +323,19 @@ func (l *hnswCommitLogger) StartLogging() {
 				WithField("id", l.id).
 				Info("commit log switching explitictly turned off")
 		}
-		maintainance := time.Tick(l.maintainenceInterval)
+		maintenance := time.Tick(l.maintainenceInterval)
 		for {
-			<-maintainance
+			<-maintenance
 			if err := l.condenseOldLogs(); err != nil {
 				l.logger.WithError(err).
 					WithField("action", "hsnw_commit_log_condensing").
-					Error("hnsw commit log maintainance failed")
+					Error("hnsw commit log maintenance failed")
 			}
 		}
 	}()
 }
 
-func (l *hnswCommitLogger) maintainance() error {
+func (l *hnswCommitLogger) maintenance() error {
 	i, err := l.logFile.Stat()
 	if err != nil {
 		return err

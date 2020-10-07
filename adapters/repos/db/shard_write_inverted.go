@@ -209,7 +209,7 @@ func (s *Shard) extendInvertedIndexItemWithOptionalFrequency(b *bolt.Bucket,
 
 	updated := bytes.NewBuffer(data)
 	if len(data) == 0 {
-		// this is the first time someones writing this row, initalize counter in
+		// this is the first time someones writing this row, initialize counter in
 		// beginning as zero, and a dummy checksum
 		updated.Write([]uint8{0, 0, 0, 0}) // dummy checksum
 		docCount := uint32(0)

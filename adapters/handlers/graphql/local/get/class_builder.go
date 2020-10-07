@@ -56,7 +56,7 @@ func (b *classBuilder) initRefs() {
 	networkRefs := extractNetworkRefClassNames(b.schema)
 	knownRefClasses, err := refclasses.FromPeers(b.peers, networkRefs)
 	if err != nil {
-		msg := "an error occured while trying to build known network ref classes, " +
+		msg := "an error occurred while trying to build known network ref classes, " +
 			"this kind of error won't block the graphql api, but it does mean that the mentioned refs " +
 			"will not be available. This error is expected when the network is not ready yet. If so, " +
 			"it should not reappear after a peer update"

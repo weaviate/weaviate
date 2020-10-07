@@ -52,7 +52,7 @@ func (m *Manager) AddAction(ctx context.Context, principal *models.Principal,
 
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
-		return nil, NewErrInternal("could not aquire lock: %v", err)
+		return nil, NewErrInternal("could not acquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -174,7 +174,7 @@ func (m *Manager) AddThing(ctx context.Context, principal *models.Principal,
 
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
-		return nil, NewErrInternal("could not aquire lock: %v", err)
+		return nil, NewErrInternal("could not acquire lock: %v", err)
 	}
 	defer unlock()
 

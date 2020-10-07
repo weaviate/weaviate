@@ -352,7 +352,7 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	err := h.growIndexToAccomodateNode(node.id, h.logger)
 	if err != nil {
 		h.Unlock()
-		return errors.Wrapf(err, "grow HNSW index to accomodate node %d", node.id)
+		return errors.Wrapf(err, "grow HNSW index to accommodate node %d", node.id)
 	}
 	h.nodes[nodeId] = node
 	h.commitLog.AddNode(node)
@@ -471,7 +471,7 @@ func (h *hnsw) findAndConnectNeighbors(node *vertex,
 			// preparation for the re-assignment.
 			//
 			// So why is it so bad to have ourselves (without connections) as an
-			// entrypoint? Because the exit condidtion in searchLayerByVector is if
+			// entrypoint? Because the exit condition in searchLayerByVector is if
 			// the candidates distance is worse than the current worst distance.
 			// Naturally, the node itself has the best distance (=0) to itself, so
 			// we'd ignore all other elements. However, since the node - as outlined

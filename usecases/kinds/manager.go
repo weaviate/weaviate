@@ -12,7 +12,7 @@
 // Package kinds provides managers for all kind-related items, such as things
 // and actions. Manager provides methods for "regular" interaction, such as
 // add, get, delete, update, etc. Additionally BatchManager allows for
-// effecient batch-adding of thing/action instances and references.
+// efficient batch-adding of thing/action instances and references.
 package kinds
 
 import (

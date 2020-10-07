@@ -290,7 +290,7 @@ func TestExtractPhoneNumberField(t *testing.T) {
 }
 
 func TestExtractUnderscoreFields(t *testing.T) {
-	// We don't need to explicilty test every subselection as we did on
+	// We don't need to explicitly test every subselection as we did on
 	// phoneNumber as these fields have fixed keys. So we can simply check for
 	// the prop
 

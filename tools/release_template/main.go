@@ -149,6 +149,6 @@ func languageFullName(code string) (string, error) {
 	case "nl":
 		return "Dutch", nil
 	default:
-		return "", fmt.Errorf("unknown langauge %s", code)
+		return "", fmt.Errorf("unknown language %s", code)
 	}
 }

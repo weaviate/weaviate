@@ -11,7 +11,7 @@
 
 package filters
 
-// Pagination for now only contains a limit paramter, but might be extended in
+// Pagination for now only contains a limit parameter, but might be extended in
 // the future
 type Pagination struct {
 	Limit int

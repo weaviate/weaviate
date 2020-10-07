@@ -29,7 +29,7 @@ func searchNeighbors(t *testing.T) {
 
 	extractNeighbor := func(in *models.Thing) []interface{} {
 		// marshalling to JSON and back into an untyped map to make sure we assert
-		// on the actual JSON structure. This way if we accidentaly change the
+		// on the actual JSON structure. This way if we accidentally change the
 		// goswagger generation so it affects both the client and the server in the
 		// same way, this test should catch it
 		b, err := json.Marshal(in)
@@ -53,7 +53,7 @@ func featureProjection(t *testing.T) {
 
 	extractProjection := func(in *models.Thing) []interface{} {
 		// marshalling to JSON and back into an untyped map to make sure we assert
-		// on the actual JSON structure. This way if we accidentaly change the
+		// on the actual JSON structure. This way if we accidentally change the
 		// goswagger generation so it affects both the client and the server in the
 		// same way, this test should catch it
 		b, err := json.Marshal(in)

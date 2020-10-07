@@ -60,7 +60,7 @@ func NewEtcdLock(client *clientv3.Client, key string, logger logrus.FieldLogger)
 	//	// now discard m2!
 	//
 	// The above example might not be immediately intuitive, because when using
-	// local mutexes it is extremly important to pass them by reference,
+	// local mutexes it is extremely important to pass them by reference,
 	// otherwise no syncing is possible. However on this remote lock it's exactly
 	// the opposite.
 	//
