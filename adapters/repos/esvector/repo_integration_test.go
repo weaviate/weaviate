@@ -366,7 +366,7 @@ func findID(list []search.Result, id strfmt.UUID) (search.Result, bool) {
 	return search.Result{}, false
 }
 
-// not the most effecient way, but reduces the wait time in tests
+// not the most efficient way, but reduces the wait time in tests
 func refreshAll(t *testing.T, c *elasticsearch.Client) {
 	req := esapi.IndicesRefreshRequest{
 		Index: []string{allClassIndices},
