@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 // Config for a new HSNW index
@@ -26,6 +28,7 @@ type Config struct {
 	MaximumConnections    int
 	EFConstruction        int
 	VectorForIDThunk      VectorForID
+	Logger                logrus.FieldLogger
 
 	// Optional, no period clean up will be scheduled if interval is not set
 	TombstoneCleanupInterval time.Duration

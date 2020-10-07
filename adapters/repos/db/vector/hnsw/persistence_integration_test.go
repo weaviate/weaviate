@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,7 +35,8 @@ func TestHnswPersistence(t *testing.T) {
 		fmt.Println(err)
 	}()
 
-	cl, clErr := NewCommitLogger(dirName, indexID, 0)
+	logger, _ := test.NewNullLogger()
+	cl, clErr := NewCommitLogger(dirName, indexID, 0, logger)
 	makeCL := func() (CommitLogger, error) {
 		return cl, clErr
 	}
@@ -101,7 +103,8 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 		fmt.Println(err)
 	}()
 
-	cl, clErr := NewCommitLogger(dirName, indexID, 0)
+	logger, _ := test.NewNullLogger()
+	cl, clErr := NewCommitLogger(dirName, indexID, 0, logger)
 	makeCL := func() (CommitLogger, error) {
 		return cl, clErr
 	}
@@ -178,8 +181,9 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		fmt.Println(err)
 	}()
 
+	logger, _ := test.NewNullLogger()
 	makeCL := func() (CommitLogger, error) {
-		return NewCommitLogger(dirName, indexID, 0)
+		return NewCommitLogger(dirName, indexID, 0, logger)
 	}
 	index, err := New(Config{
 		RootPath:              dirName,

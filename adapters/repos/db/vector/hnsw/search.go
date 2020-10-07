@@ -286,9 +286,10 @@ func (h *hnsw) handleDeletedNode(docID int32) {
 	}
 
 	h.addTombstone(int(docID))
-	// TODO: Use structured logging, log level WARNING
-	fmt.Printf("WARNING: Found a deleted node (%d) without a tombstone, "+
-		"tombstone was added", docID)
+	h.logger.WithField("action", "attach_tombstone_to_deleted_node").
+		WithField("node_id", docID).
+		Info("found a deleted node (%d) without a tombstone, "+
+			"tombstone was added", docID)
 }
 
 func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
