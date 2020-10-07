@@ -76,6 +76,5 @@ func TestBatchThingsCreateResultsOrder(t *testing.T) {
 			fullExpectedOutcomeTwo := fmt.Sprintf(expectedResult, classTwoName)
 			assert.Contains(t, responseTwo, fullExpectedOutcomeTwo)
 		}
-
 	})
 }

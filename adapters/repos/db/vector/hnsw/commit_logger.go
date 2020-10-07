@@ -205,7 +205,6 @@ func (l *hnswCommitLogger) AddNode(node *vertex) error {
 }
 
 func (l *hnswCommitLogger) SetEntryPointWithMaxLayer(id int, level int) error {
-
 	w := &bytes.Buffer{}
 	l.writeCommitType(w, SetEntryPointMaxLevel)
 	l.writeUint32(w, uint32(id))

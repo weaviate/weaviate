@@ -86,13 +86,6 @@ type TraverserRepo interface {
 	Aggregate(context.Context, *AggregateParams) (interface{}, error)
 }
 
-// c11y is a local abstraction on the contextionary that needs to be
-// provided to the graphQL API in order to resolve Local.Fetch queries.
-type c11y interface {
-	SchemaSearch(ctx context.Context, p SearchParams) (SearchResults, error)
-	SafeGetSimilarWordsWithCertainty(ctx context.Context, word string, certainty float32) ([]string, error)
-}
-
 // SearchResult is a single search result. See wrapping Search Results for the Type
 type SearchResult struct {
 	Name      string

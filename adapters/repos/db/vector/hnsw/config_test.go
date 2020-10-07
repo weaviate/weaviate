@@ -90,7 +90,6 @@ func Test_InValidConfig(t *testing.T) {
 }
 
 func validConfig() Config {
-
 	return Config{
 		RootPath:              "some path",
 		ID:                    "someid",

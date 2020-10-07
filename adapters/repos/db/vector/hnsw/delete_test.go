@@ -92,7 +92,6 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 
 		assert.Equal(t, control, res)
 	})
-
 }
 
 func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
@@ -177,7 +176,6 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
 		assert.Len(t, vectorIndex.tombstones, 0)
 	})
-
 }
 
 func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
@@ -292,7 +290,6 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 		require.Nil(t, err)
 		assert.ElementsMatch(t, []int{0, 1, 2, 3, 4}, res)
 	})
-
 }
 
 // we need a certain number of elements so that we can make sure that nodes
@@ -535,5 +532,4 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 	})
 
 	// t.Fail()
-
 }

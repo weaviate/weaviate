@@ -68,5 +68,4 @@ func TestPeriodicTombstoneRemoval(t *testing.T) {
 			return ts == 0
 		}, "wait until tombstones have been cleaned up")
 	})
-
 }

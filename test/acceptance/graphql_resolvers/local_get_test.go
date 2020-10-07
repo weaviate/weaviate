@@ -12,7 +12,6 @@
 package test
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
@@ -50,9 +49,4 @@ func gettingObjects(t *testing.T) {
 
 		assert.ElementsMatch(t, expected, cities)
 	})
-}
-
-func jsonify(stuff interface{}) string {
-	j, _ := json.Marshal(stuff)
-	return string(j)
 }

@@ -159,7 +159,6 @@ func (b *classBuilder) underscoreFields(classProperties graphql.Fields, kindName
 	classProperties["_nearestNeighbors"] = b.underscoreNNField(kindName, class)
 	classProperties["_featureProjection"] = b.underscoreFeatureProjectionField(kindName, class)
 	classProperties["_semanticPath"] = b.underscoreSemanticPathField(kindName, class)
-
 }
 
 func (b *classBuilder) underscoreClassificationField(kindName string, class *models.Class) *graphql.Field {

@@ -195,7 +195,6 @@ func Test_ResolveExplore(t *testing.T) {
 func (tests testCases) AssertExtraction(t *testing.T) {
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-
 			resolver := newMockResolver()
 
 			resolver.On("Explore", testCase.expectedParamsToTraverser).

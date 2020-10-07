@@ -23,7 +23,6 @@ import (
 // UpdateActionProperty of an existing Action Property
 func (m *Manager) UpdateActionProperty(ctx context.Context, principal *models.Principal,
 	class string, name string, property *models.Property) error {
-
 	err := m.authorizer.Authorize(principal, "update", "schema/actions")
 	if err != nil {
 		return err
@@ -35,7 +34,6 @@ func (m *Manager) UpdateActionProperty(ctx context.Context, principal *models.Pr
 // UpdateThingProperty of an existing Thing Property
 func (m *Manager) UpdateThingProperty(ctx context.Context, principal *models.Principal,
 	class string, name string, property *models.Property) error {
-
 	err := m.authorizer.Authorize(principal, "update", "schema/things")
 	if err != nil {
 		return err
@@ -114,7 +112,6 @@ func (m *Manager) updateClassProperty(ctx context.Context, className string, nam
 // UpdatePropertyAddDataType adds another data type to a property. Warning: It does not lock on its own, assumes that it is called from when a schema lock is already held!
 func (m *Manager) UpdatePropertyAddDataType(ctx context.Context, principal *models.Principal,
 	kind kind.Kind, className string, propName string, newDataType string) error {
-
 	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("schema/%ss", kind.Name()))
 	if err != nil {
 		return err

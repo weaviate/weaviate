@@ -83,7 +83,6 @@ func (f *FeatureProjector) Reduce(in []search.Result, params *Params) ([]search.
 }
 
 func (f *FeatureProjector) vectorsToMatrix(in []search.Result, dims int, params *Params) (*mat.Dense, error) {
-
 	items := len(in)
 	var neighbors []*models.NearestNeighbor
 	if params.IncludeNeighbors {

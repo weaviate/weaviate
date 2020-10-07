@@ -64,12 +64,10 @@ func (r *Repo) upsertReferenceBucket(refProp string, ref *models.SingleRef) map[
 			},
 		},
 	}
-
 }
 
 func (r *Repo) AddReference(ctx context.Context, k kind.Kind, className string,
 	source strfmt.UUID, refProp string, ref *models.SingleRef) error {
-
 	body := r.upsertReferenceBucket(refProp, ref)
 
 	var buf bytes.Buffer

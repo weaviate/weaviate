@@ -105,16 +105,12 @@ func (h *hnsw) countOutgoing(label string, needle int) {
 					count++
 					ids = append(ids, node.id)
 				}
-
 			}
-
 		}
-
 	}
 }
 
 func (h *hnsw) reassignNeighborsOf(deleteList inverted.AllowList) error {
-
 	h.RLock()
 	size := len(h.nodes)
 	currentEntrypoint := h.entryPointID

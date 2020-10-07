@@ -44,7 +44,6 @@ type c11yMetaProvider interface {
 
 func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.WeaviateConfig,
 	network network.Network, schemaManager schemaManager, c11y c11yMetaProvider) {
-
 	var swj swaggerJSON
 	err := json.Unmarshal(SwaggerJSON, &swj)
 	if err != nil {

@@ -16,8 +16,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
-var many = "many"
-
 var SimpleSchema = schema.Schema{
 	Things: &models.Schema{
 		Classes: []*models.Class{

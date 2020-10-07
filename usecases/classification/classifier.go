@@ -210,7 +210,6 @@ func (c *Classifier) setDefaultValuesForOptionalFields(params *models.Classifica
 	if *params.Type == "contextual" {
 		c.setDefaultsForContextual(params)
 	}
-
 }
 
 func (c *Classifier) setDefaultsForKNN(params *models.Classification) {
@@ -240,5 +239,4 @@ func (c *Classifier) setDefaultsForContextual(params *models.Classification) {
 		defaultParam := int32(80)
 		params.TfidfCutoffPercentile = &defaultParam
 	}
-
 }

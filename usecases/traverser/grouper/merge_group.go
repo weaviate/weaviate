@@ -281,7 +281,6 @@ func mergeReferenceProps(in []interface{}) ([]interface{}, error) {
 			out = append(out, asRef)
 			seenID[id.(string)] = struct{}{} // make sure we skip this next time
 		}
-
 	}
 
 	return out, nil

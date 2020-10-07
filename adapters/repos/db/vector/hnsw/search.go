@@ -86,7 +86,6 @@ func (h *hnsw) knnSearch(queryNodeID int, k int, ef int) ([]int, error) {
 func (h *hnsw) searchLayerByVector(queryVector []float32,
 	entrypoints binarySearchTreeGeneric, ef int, level int,
 	allowList inverted.AllowList) (*binarySearchTreeGeneric, error) {
-
 	visited := newVisitedList(entrypoints)
 	candidates := &binarySearchTreeGeneric{}
 	results := &binarySearchTreeGeneric{}
@@ -254,7 +253,6 @@ func (h *hnsw) extendCandidatesAndResultsFromNeighbors(candidates,
 
 func (h *hnsw) distanceToNode(distancer *reusableDistancer,
 	nodeID int32) (float32, bool, error) {
-
 	candidateVec, err := h.vectorForID(context.Background(), nodeID)
 	if err != nil {
 		var e storobj.ErrNotFound
@@ -294,7 +292,6 @@ func (h *hnsw) handleDeletedNode(docID int32) {
 
 func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	ef int, allowList inverted.AllowList) ([]int, error) {
-
 	entryPointID := h.entryPointID
 	entryPointDistance, ok, err := h.distBetweenNodeAndVec(entryPointID, searchVec)
 	if err != nil {

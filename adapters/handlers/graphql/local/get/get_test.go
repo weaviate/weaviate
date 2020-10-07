@@ -617,7 +617,6 @@ func TestExploreRanker(t *testing.T) {
 
 		resolver.AssertResolve(t, query)
 	})
-
 }
 
 func TestExtractPagination(t *testing.T) {

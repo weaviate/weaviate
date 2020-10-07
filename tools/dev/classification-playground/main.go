@@ -156,7 +156,6 @@ func convertBase64ToArray(base64Str string) ([]float32, error) {
 }
 
 func main() {
-
 	unclassified := getUnclassified(9999)
 
 	var countFineCorrect int

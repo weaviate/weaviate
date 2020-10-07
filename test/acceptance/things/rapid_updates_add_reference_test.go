@@ -147,5 +147,4 @@ func Test_RapidlyAddingReferences(t *testing.T) {
 		schema.NewSchemaThingsDeleteParams().WithClassName(sourceClass), nil)
 	helper.Client(t).Schema.SchemaThingsDelete(
 		schema.NewSchemaThingsDeleteParams().WithClassName(targetClass), nil)
-
 }

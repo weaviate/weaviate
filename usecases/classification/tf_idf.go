@@ -50,7 +50,6 @@ func (c *TfIdfCalculator) AddDoc(doc string) error {
 }
 
 func (c *TfIdfCalculator) Calculate() {
-
 	for i := range c.documents {
 		c.analyzeDoc(i)
 	}
@@ -190,14 +189,4 @@ func (c *TfIdfCalculator) lowerCaseAndDedup(list []string) []string {
 	}
 
 	return out[:i]
-}
-
-func findTfScore(list []TermWithTfIdf, term string) (float32, error) {
-	for _, item := range list {
-		if item.Term == term {
-			return item.RelativeScore, nil
-		}
-	}
-
-	return -1000, fmt.Errorf("term not in tf idf list: %s", term)
 }

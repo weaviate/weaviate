@@ -70,5 +70,4 @@ func setupC11yHandlers(api *operations.WeaviateAPI, inspector inspector, proxy c
 	api.ContextionaryAPIC11yCorpusGetHandler = contextionary_api.C11yCorpusGetHandlerFunc(func(params contextionary_api.C11yCorpusGetParams, principal *models.Principal) middleware.Responder {
 		return middleware.NotImplemented("operation contextionary_api.C11yCorpusGet has not yet been implemented")
 	})
-
 }

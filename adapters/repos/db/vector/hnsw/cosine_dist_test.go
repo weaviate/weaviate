@@ -27,5 +27,4 @@ func TestReusableDistancer(t *testing.T) {
 	control, err := cosineDist(vec1, vec2)
 	require.Nil(t, err)
 	assert.Equal(t, control, dist)
-
 }

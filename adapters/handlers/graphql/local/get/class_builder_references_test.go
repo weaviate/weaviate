@@ -131,7 +131,6 @@ func TestGetWithNetworkRefResolvesCorrectly(t *testing.T) {
 	}
 
 	assert.Equal(t, expectedResult, result, "should resolve the network cross-ref correctly")
-
 }
 
 func TestGetNoNetworkRequestIsMadeWhenUserDoesntWantNetworkRef(t *testing.T) {
@@ -202,5 +201,4 @@ func TestGetNoNetworkRequestIsMadeWhenUserDoesntWantNetworkRef(t *testing.T) {
 	}
 
 	assert.Equal(t, expectedResult, result, "should resolve the network cross-ref correctly")
-
 }

@@ -47,7 +47,6 @@ func (r *Resolver) Do(ctx context.Context, objects []search.Result,
 
 func (r *Resolver) parseObjects(objects []search.Result, properties traverser.SelectProperties,
 	meta bool) ([]search.Result, error) {
-
 	for i, obj := range objects {
 		parsed, err := r.parseObject(obj, properties, meta)
 		if err != nil {
@@ -62,7 +61,6 @@ func (r *Resolver) parseObjects(objects []search.Result, properties traverser.Se
 
 func (r *Resolver) parseObject(object search.Result, properties traverser.SelectProperties,
 	meta bool) (search.Result, error) {
-
 	if object.Schema == nil {
 		return object, nil
 	}
@@ -84,7 +82,6 @@ func (r *Resolver) parseObject(object search.Result, properties traverser.Select
 func (r *Resolver) parseSchema(schema map[string]interface{}, properties traverser.SelectProperties,
 	meta bool) (map[string]interface{}, error) {
 	for propName, value := range schema {
-
 		refs, ok := value.(models.MultipleRef)
 		if !ok {
 			// not a ref, not interesting for us

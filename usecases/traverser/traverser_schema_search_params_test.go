@@ -162,7 +162,6 @@ func (s schemaSearchTests) AssertValidation(t *testing.T) {
 
 			// assert error
 			assert.Equal(t, test.expectedError, err, "should match the expected error")
-
 		})
 	}
 }

@@ -67,7 +67,6 @@ func parseValueFilter(in *models.WhereFilter,
 
 func parseNestedFilter(in *models.WhereFilter,
 	operator filters.Operator) (*filters.LocalFilter, error) {
-
 	if in.Path != nil {
 		return nil, fmt.Errorf(
 			"operator '%s' not compatible with field 'path', remove 'path' "+

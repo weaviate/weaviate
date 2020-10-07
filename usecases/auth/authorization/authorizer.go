@@ -26,7 +26,6 @@ type Authorizer interface {
 
 // New Authorizer based on the application-wide config
 func New(cfg config.Config) Authorizer {
-
 	if cfg.Authorization.AdminList.Enabled {
 		return adminlist.New(cfg.Authorization.AdminList)
 	}

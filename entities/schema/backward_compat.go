@@ -30,9 +30,6 @@ type WeaviateSchema struct {
 }
 
 const (
-	// validationErrorMessage is a constant for returning the same message
-	validationErrorMessage string = "All predicates with the same name across different classes should contain the same kind of data"
-
 	// ErrorNoSuchClass message
 	ErrorNoSuchClass string = "no such class with name '%s' found in the schema. Check your schema files for which classes are available"
 	// ErrorNoSuchProperty message
@@ -50,7 +47,6 @@ func GetClassByName(s *models.Schema, className string) (*models.Class, error) {
 	}
 	// For each class
 	for _, class := range s.Classes {
-
 		// Check if the name of the class is the given name, that's the class we need
 		if class.Class == className {
 			return class, nil
@@ -64,7 +60,6 @@ func GetClassByName(s *models.Schema, className string) (*models.Class, error) {
 func GetPropertyByName(c *models.Class, propName string) (*models.Property, error) {
 	// For each class-property
 	for _, prop := range c.Properties {
-
 		// Check if the name of the property is the given name, that's the property we need
 		if prop.Name == strings.Split(propName, ".")[0] {
 			return prop, nil

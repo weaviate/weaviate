@@ -109,7 +109,6 @@ func main() {
 			updatePeerWithList()
 			time.Sleep(backOff * time.Second)
 		}
-
 	}()
 
 	http.HandleFunc("/peers/"+id+"/ping", func(w http.ResponseWriter, req *http.Request) {

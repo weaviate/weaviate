@@ -79,9 +79,7 @@ func (s *Shard) extendInvertedIndices(tx *bolt.Tx, props []inverted.Property,
 				return errors.Wrapf(err, "extend index with item '%s'",
 					string(prop.Items[0].Data))
 			}
-
 		}
-
 	}
 
 	return nil
@@ -161,11 +159,8 @@ func (s *Shard) deleteFromInvertedIndicesProp(b *bolt.Bucket,
 		if hasFrequency {
 			if _, err := newRow.Write(frequencyBytes); err != nil {
 				return errors.Wrap(err, "write frequency")
-
 			}
-
 		}
-
 	}
 
 	countBytes := bytes.NewBuffer(make([]byte, 4))
@@ -283,7 +278,6 @@ func (s *Shard) extendInvertedIndexItemWithOptionalFrequency(b *bolt.Bucket,
 // (n-3)..n | doc id of last doc
 func (s *Shard) extendInvertedIndexItem(b *bolt.Bucket, item inverted.Countable,
 	docID uint32) error {
-
 	return s.extendInvertedIndexItemWithOptionalFrequency(b, item, docID, nil)
 }
 

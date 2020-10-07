@@ -364,7 +364,6 @@ func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.De
 		if !property.IsPrimitive {
 			// We can interpret this property in different ways
 			for _, subSelection := range field.SelectionSet.Selections {
-
 				switch s := subSelection.(type) {
 				case *ast.Field:
 					// Is it a field with the name __typename?
@@ -509,7 +508,6 @@ func parseFeatureProjectionArguments(args []*ast.Argument) *projector.Params {
 		default:
 			// ignore what we don't recognize
 		}
-
 	}
 
 	return out

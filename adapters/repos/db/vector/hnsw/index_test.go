@@ -85,7 +85,6 @@ func TestHnswIndex(t *testing.T) {
 			2, 1, 0, // cluster 1
 		}, res)
 	})
-
 }
 
 type noopCommitLogger struct{}

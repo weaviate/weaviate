@@ -81,7 +81,6 @@ func (s *subQueryBuilder) fromClause(ctx context.Context, clause *filters.Clause
 
 func (s *subQueryBuilder) buildBodyAndDoRequest(ctx context.Context,
 	filterQuery map[string]interface{}, k kind.Kind, index string) (*esapi.Response, error) {
-
 	body := map[string]interface{}{
 		"query":   filterQuery,
 		"size":    10000,

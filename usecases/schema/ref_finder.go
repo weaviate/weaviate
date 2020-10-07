@@ -100,7 +100,6 @@ func (r *RefFinder) hasRefTo(needle libschema.ClassName, class *models.Class,
 		for _, haystack := range dt.Classes() {
 			refs := r.refsPerClass(needle, class, prop.Name, haystack, schema, depth)
 			out = append(out, refs...)
-
 		}
 	}
 

@@ -37,7 +37,6 @@ type MergeDocument struct {
 
 func (m *Manager) MergeAction(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, updated *models.Action) error {
-
 	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("actions/%s", id.String()))
 	if err != nil {
 		return err
@@ -78,7 +77,6 @@ func (m *Manager) MergeAction(ctx context.Context, principal *models.Principal,
 
 func (m *Manager) retrievePreviousAndValidateMergeAction(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, updated *models.Action) (*search.Result, error) {
-
 	if updated.Class == "" {
 		return nil, fmt.Errorf("class is a required (and immutable) field")
 	}
@@ -134,7 +132,6 @@ func (m *Manager) mergeActionSchemasAndVectorize(ctx context.Context, className 
 
 func (m *Manager) MergeThing(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, updated *models.Thing) error {
-
 	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("things/%s", id.String()))
 	if err != nil {
 		return err
@@ -175,7 +172,6 @@ func (m *Manager) MergeThing(ctx context.Context, principal *models.Principal,
 
 func (m *Manager) retrievePreviousAndValidateMergeThing(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, updated *models.Thing) (*search.Result, error) {
-
 	if updated.Class == "" {
 		return nil, fmt.Errorf("class is a required (and immutable) field")
 	}
@@ -244,7 +240,6 @@ func (m *Manager) splitPrimitiveAndRefs(in map[string]interface{}, sourceClass s
 		}
 
 		for _, ref := range refs {
-
 			target, _ := crossref.Parse(ref.Beacon.String())
 			// safe to ignore error as validation has already been passed
 

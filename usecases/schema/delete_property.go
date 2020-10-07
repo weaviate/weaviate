@@ -21,7 +21,6 @@ import (
 // DeleteActionProperty to an existing Action
 func (m *Manager) DeleteActionProperty(ctx context.Context, principal *models.Principal,
 	class string, property string) error {
-
 	err := m.authorizer.Authorize(principal, "update", "schema/actions")
 	if err != nil {
 		return err
@@ -35,7 +34,6 @@ func (m *Manager) DeleteActionProperty(ctx context.Context, principal *models.Pr
 // DeleteThingProperty to an existing Thing
 func (m *Manager) DeleteThingProperty(ctx context.Context, principal *models.Principal,
 	class string, property string) error {
-
 	err := m.authorizer.Authorize(principal, "update", "schema/things")
 	if err != nil {
 		return err

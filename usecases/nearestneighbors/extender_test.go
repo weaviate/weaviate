@@ -27,7 +27,6 @@ func TestExtender(t *testing.T) {
 	e := NewExtender(f)
 
 	t.Run("with empty results", func(t *testing.T) {
-
 		testData := []search.Result(nil)
 		expectedResults := []search.Result(nil)
 
@@ -37,7 +36,6 @@ func TestExtender(t *testing.T) {
 	})
 
 	t.Run("with a single result", func(t *testing.T) {
-
 		testData := &search.Result{
 			Schema: map[string]interface{}{"name": "item1"},
 			Vector: []float32{0.1, 0.3, 0.5},
@@ -190,7 +188,6 @@ type fakeContextionary struct {
 }
 
 func (f *fakeContextionary) MultiNearestWordsByVector(ctx context.Context, vectors [][]float32, k, n int) ([]*models.NearestNeighbors, error) {
-
 	f.calledWithVectors = vectors
 	out := []*models.NearestNeighbors{
 		&models.NearestNeighbors{

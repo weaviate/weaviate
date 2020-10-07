@@ -14,15 +14,12 @@ package test
 import (
 	"testing"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/semi-technologies/weaviate/client/schema"
-	"github.com/semi-technologies/weaviate/client/things"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
-	testhelper "github.com/semi-technologies/weaviate/test/helper"
 )
 
 // this test prevents a regression on
@@ -36,7 +33,6 @@ func TestInvalidDataTypeInProperty(t *testing.T) {
 	})
 
 	t.Run("trying to import empty string as data type", func(t *testing.T) {
-
 		c := &models.Class{
 			Class: className,
 			Properties: []*models.Property{
@@ -55,9 +51,7 @@ func TestInvalidDataTypeInProperty(t *testing.T) {
 			assert.Equal(t, "property 'someProperty': invalid dataType: dataType cannot be an empty string",
 				parsed.Payload.Error[0].Message)
 		})
-
 	})
-
 }
 
 func TestAddAndRemoveThingClass(t *testing.T) {
@@ -186,28 +180,6 @@ func TestAddAndRemoveThingClass(t *testing.T) {
 // 	// And verify that the class does not exist anymore.
 // 	assert.NotContains(t, GetThingClassNames(t), randomThingClassName)
 // }
-
-func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.Thing {
-	var (
-		resp *things.ThingsGetOK
-		err  error
-	)
-
-	checkThunk := func() interface{} {
-		resp, err = helper.Client(t).Things.ThingsGet(things.NewThingsGetParams().WithID(uuid), nil)
-		return err == nil
-	}
-
-	testhelper.AssertEventuallyEqual(t, true, checkThunk)
-
-	var thing *models.Thing
-
-	helper.AssertRequestOk(t, resp, err, func() {
-		thing = resp.Payload
-	})
-
-	return thing
-}
 
 func ptBool(in bool) *bool {
 	return &in

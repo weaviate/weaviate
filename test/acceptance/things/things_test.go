@@ -295,11 +295,3 @@ func creatingThings(t *testing.T) {
 		}
 	})
 }
-
-func cleanupThing(uuid strfmt.UUID) {
-	params := things.NewThingsDeleteParams().WithID(uuid)
-	resp, err := helper.Client(nil).Things.ThingsDelete(params, nil)
-	if err != nil {
-		panic(fmt.Sprintf("Could not clean up thing '%s', because %v. Response: %#v", string(uuid), err, resp))
-	}
-}

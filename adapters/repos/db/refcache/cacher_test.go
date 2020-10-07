@@ -398,7 +398,6 @@ func TestCacher(t *testing.T) {
 		assert.Equal(t, 2, repo.counter, "required the expected amount of lookup queries")
 		assert.Equal(t, 2, repo.counter, "required the expected amount of objects on the lookup queries")
 	})
-
 }
 
 type fakeRepo struct {

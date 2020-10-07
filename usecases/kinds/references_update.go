@@ -28,7 +28,6 @@ import (
 // include this particular network ref class.
 func (m *Manager) UpdateActionReferences(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, propertyName string, refs models.MultipleRef) error {
-
 	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("actions/%s", id.String()))
 	if err != nil {
 		return err
@@ -45,7 +44,6 @@ func (m *Manager) UpdateActionReferences(ctx context.Context, principal *models.
 
 func (m *Manager) updateActionReferenceToConnectorAndSchema(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, propertyName string, refs models.MultipleRef) error {
-
 	// get action to see if it exists
 	actionRes, err := m.getActionFromRepo(ctx, id, traverser.UnderscoreProperties{})
 	if err != nil {
@@ -89,7 +87,6 @@ func (m *Manager) updateActionReferenceToConnectorAndSchema(ctx context.Context,
 // include this particular network ref class.
 func (m *Manager) UpdateThingReferences(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, propertyName string, refs models.MultipleRef) error {
-
 	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("things/%s", id.String()))
 	if err != nil {
 		return err
@@ -106,7 +103,6 @@ func (m *Manager) UpdateThingReferences(ctx context.Context, principal *models.P
 
 func (m *Manager) updateThingReferenceToConnectorAndSchema(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, propertyName string, refs models.MultipleRef) error {
-
 	// get thing to see if it exists
 	thingRes, err := m.getThingFromRepo(ctx, id, traverser.UnderscoreProperties{})
 	if err != nil {
@@ -157,7 +153,6 @@ func (m *Manager) validateReferences(ctx context.Context, references models.Mult
 
 func (m *Manager) replaceClassPropReferences(props interface{}, propertyName string,
 	refs models.MultipleRef) (interface{}, error) {
-
 	if props == nil {
 		props = map[string]interface{}{}
 	}

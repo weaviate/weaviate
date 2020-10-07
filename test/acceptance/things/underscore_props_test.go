@@ -22,7 +22,6 @@ import (
 )
 
 func searchNeighbors(t *testing.T) {
-
 	listParams := things.NewThingsListParams().WithInclude(ptString("_nearestNeighbors"))
 	res, err := helper.Client(t).Things.ThingsList(listParams, nil)
 	require.Nil(t, err, "should not error")
@@ -46,7 +45,6 @@ func searchNeighbors(t *testing.T) {
 }
 
 func featureProjection(t *testing.T) {
-
 	listParams := things.NewThingsListParams().WithInclude(ptString("_featureProjection"))
 	res, err := helper.Client(t).Things.ThingsList(listParams, nil)
 	require.Nil(t, err, "should not error")

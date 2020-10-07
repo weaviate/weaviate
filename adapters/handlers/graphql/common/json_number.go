@@ -52,7 +52,6 @@ func JSONNumberResolver(p graphql.ResolveParams) (interface{}, error) {
 
 		default:
 			return nil, fmt.Errorf("fieldName '%s' does not match text aggregation", p.Info.FieldName)
-
 		}
 
 	default:

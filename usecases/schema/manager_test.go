@@ -63,6 +63,7 @@ var schemaTests = []struct {
 	{name: "UpdateMeta", fn: testUpdateMeta},
 	{name: "AddThingClass", fn: testAddThingClass},
 	{name: "AddThingClassWithDeprecatedFields", fn: testAddThingClassWithDeprecatedFields},
+	{name: "AddThingClassWithVectorizedName", fn: testAddThingClassWithVectorizedName},
 	{name: "RemoveThingClass", fn: testRemoveThingClass},
 	{name: "CantAddSameClassTwice", fn: testCantAddSameClassTwice},
 	{name: "CantAddSameClassTwiceDifferentKind", fn: testCantAddSameClassTwiceDifferentKinds},
@@ -443,7 +444,6 @@ func testAddPropertyDuringCreation(t *testing.T, lsm *Manager) {
 
 	assert.True(t, lsm.VectorizePropertyName("Car", "color"), "color prop should be vectorized")
 	assert.False(t, lsm.VectorizePropertyName("Car", "content"), "content prop should not be vectorized")
-
 }
 
 func pointerToFalse() *bool {
@@ -734,7 +734,6 @@ func TestSchema(t *testing.T) {
 	// (that can be run in parallel) have finished, before cleaning up the temp directory.
 	t.Run("group", func(t *testing.T) {
 		for _, testCase := range schemaTests {
-
 			// Create a test case, and inject the etcd schema manager in there
 			// to reduce boilerplate in each separate test.
 			t.Run(testCase.name, func(t *testing.T) {

@@ -103,7 +103,6 @@ const metaCountField = "_metaCountField"
 func innerAggs(properties []traverser.AggregateProperty, includeCount bool) (map[string]interface{}, error) {
 	inner := map[string]interface{}{}
 	for _, property := range properties {
-
 		if containsBooleanAggregators(property.Aggregators) {
 			// this is a special case as, we only need to do a single aggregation no
 			// matter if one or all boolean aggregators are set, therefore we're not
@@ -179,7 +178,6 @@ func lookupAgg(input traverser.Aggregator) (string, error) {
 
 func aggValue(prop schema.PropertyName, agg traverser.Aggregator) (map[string]interface{}, error) {
 	switch agg.String() {
-
 	case traverser.TypeAggregator.String(), traverser.PointingToAggregator.String():
 		// handled outside of the repo
 		return nil, nil

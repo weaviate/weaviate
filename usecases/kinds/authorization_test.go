@@ -31,7 +31,6 @@ import (
 // potentially protected with the Authorization plugin
 
 func Test_Kinds_Authorization(t *testing.T) {
-
 	type testCase struct {
 		methodName       string
 		additionalArgs   []interface{}
@@ -207,7 +206,6 @@ func Test_Kinds_Authorization(t *testing.T) {
 }
 
 func Test_BatchKinds_Authorization(t *testing.T) {
-
 	type testCase struct {
 		methodName       string
 		additionalArgs   []interface{}

@@ -98,5 +98,4 @@ func TestRowCacher(t *testing.T) {
 			_, ok := cacher.Load(tooBig, []uint8{0, 1, 2, 3})
 			assert.False(t, ok)
 		})
-
 }

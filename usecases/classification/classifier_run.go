@@ -97,7 +97,6 @@ func (c *Classifier) prepareRun(kind kind.Kind, params models.Classification, fi
 // depending on the available CPUs
 func (c *Classifier) runItems(classifyItem classifyItemFn, kind kind.Kind, params models.Classification, filters filters,
 	items []search.Result) (models.Classification, error) {
-
 	workerCount := runtime.GOMAXPROCS(0)
 	if len(items) < workerCount {
 		workerCount = len(items)
@@ -132,7 +131,6 @@ func (c *Classifier) failRunWithError(params models.Classification, err error) {
 	err = c.repo.Put(context.Background(), params)
 	if err != nil {
 		c.logExecutionError("store failed run", err, params)
-
 	}
 	c.logFinish(params)
 }
