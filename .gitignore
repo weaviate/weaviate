@@ -90,6 +90,8 @@ c.out
 esbackups/
 adapters/repos/db/testdata/
 adapters/repos/db/vector/hnsw/testdata
+adapters/repos/classifications/testdata
+adapters/repos/schema/testdata
 
 # coverage files
 coverage*.txt

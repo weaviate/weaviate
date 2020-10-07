@@ -1,6 +1,6 @@
 // +build integrationTest
 
-package main
+package classifications
 
 import (
 	"context"
