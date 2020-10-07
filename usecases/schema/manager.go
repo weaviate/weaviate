@@ -89,10 +89,6 @@ type authorizer interface {
 	Authorize(principal *models.Principal, verb, resource string) error
 }
 
-type unlocker interface {
-	Unlock() error
-}
-
 // State is a cached copy of the schema that can also be saved into a remote
 // storage, as specified by Repo
 type State struct {

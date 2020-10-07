@@ -12,8 +12,6 @@
 package rest
 
 import (
-	"log"
-
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/schema"
@@ -163,15 +161,4 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager)
 
 	api.SchemaSchemaDumpHandler = schema.
 		SchemaDumpHandlerFunc(h.getSchema)
-}
-
-type unlocker interface {
-	Unlock() error
-}
-
-func unlock(l unlocker) {
-	err := l.Unlock()
-	if err != nil {
-		log.Fatal(err)
-	}
 }

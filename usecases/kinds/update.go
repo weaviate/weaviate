@@ -21,17 +21,6 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
-type updateAndGetRepo interface {
-
-	// methods to update new items
-	updateRepo
-}
-
-type updateRepo interface {
-	UpdateAction(ctx context.Context, class *models.Action, id strfmt.UUID) error
-	UpdateThing(ctx context.Context, class *models.Thing, id strfmt.UUID) error
-}
-
 // UpdateAction Class Instance to the connected DB. If the class contains a network
 // ref, it has a side-effect on the schema: The schema will be updated to
 // include this particular network ref class.

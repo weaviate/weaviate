@@ -14,7 +14,6 @@ package esvector
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -145,22 +144,23 @@ func primitiveFilterFromClause(clause *filters.Clause) (map[string]interface{}, 
 	}, nil
 }
 
-func refGeoFilterFromClause(clause *filters.Clause) (map[string]interface{}, error) {
-	geoRange, ok := clause.Value.Value.(filters.GeoRange)
-	if !ok {
-		return nil, fmt.Errorf("got WithinGeoRange operator, but value was not a GeoRange")
-	}
+// TODO: why is this unused?
+// func refGeoFilterFromClause(clause *filters.Clause) (map[string]interface{}, error) {
+// 	geoRange, ok := clause.Value.Value.(filters.GeoRange)
+// 	if !ok {
+// 		return nil, fmt.Errorf("got WithinGeoRange operator, but value was not a GeoRange")
+// 	}
 
-	return map[string]interface{}{
-		"geo_distance": map[string]interface{}{
-			"distance": geoRange.Distance,
-			innerPath(clause.On): map[string]interface{}{
-				"lat": geoRange.Latitude,
-				"lon": geoRange.Longitude,
-			},
-		},
-	}, nil
-}
+// 	return map[string]interface{}{
+// 		"geo_distance": map[string]interface{}{
+// 			"distance": geoRange.Distance,
+// 			innerPath(clause.On): map[string]interface{}{
+// 				"lat": geoRange.Latitude,
+// 				"lon": geoRange.Longitude,
+// 			},
+// 		},
+// 	}, nil
+// }
 
 func referenceCountFilterFromClause(clause *filters.Clause) (map[string]interface{}, error) {
 	if clause.Value.Type != schema.DataTypeInt {
@@ -273,6 +273,6 @@ func negateFilter(f map[string]interface{}) map[string]interface{} {
 	}
 }
 
-func innerPath(p *filters.Path) string {
-	return strings.Join(p.SliceNonTitleized(), ".")
-}
+// func innerPath(p *filters.Path) string {
+// 	return strings.Join(p.SliceNonTitleized(), ".")
+// }
