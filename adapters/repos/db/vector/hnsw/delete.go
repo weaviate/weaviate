@@ -91,25 +91,6 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 	return nil
 }
 
-func (h *hnsw) countOutgoing(label string, needle int) {
-	count := 0
-	var ids []int
-
-	for _, node := range h.nodes {
-		if node == nil || node.connections == nil {
-			continue
-		}
-		for _, connectionsAtLevel := range node.connections {
-			for _, outgoing := range connectionsAtLevel {
-				if int(outgoing) == needle {
-					count++
-					ids = append(ids, node.id)
-				}
-			}
-		}
-	}
-}
-
 func (h *hnsw) reassignNeighborsOf(deleteList inverted.AllowList) error {
 	h.RLock()
 	size := len(h.nodes)

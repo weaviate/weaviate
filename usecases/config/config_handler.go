@@ -172,9 +172,7 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 
 	// Read config file
 	file, err := ioutil.ReadFile(configFileName)
-	if err != nil {
-		// explicitly ignore
-	}
+	_ = err // explicitly ignore
 
 	if len(file) > 0 {
 		config, err := f.parseConfigFile(file, configFileName)

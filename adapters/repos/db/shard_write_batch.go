@@ -212,9 +212,6 @@ func (s *Shard) addReferencesBatch(ctx context.Context,
 					if err != nil {
 						return err
 					}
-
-					m.Lock()
-					m.Unlock()
 				}
 				return nil
 			}); err != nil {

@@ -112,7 +112,6 @@ func BootstrapNetwork(logger logrus.FieldLogger, genesisURL strfmt.URI, publicUR
 }
 
 func (n *network) bootstrap() {
-	time.Sleep(10) //TODO: Use channel close to listen for when complete configuration is done.
 	n.logger.WithField("action", "network_bootstrap").Debug("network bootstrapping beginning")
 
 	newPeer := genesismodels.PeerUpdate{

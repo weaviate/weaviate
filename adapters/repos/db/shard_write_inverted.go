@@ -116,7 +116,7 @@ func (s *Shard) deleteFromInvertedIndicesProp(b *bolt.Bucket,
 	data = data[8:]
 	r := bytes.NewReader(data)
 
-	newDocCount := 0
+	newDocCount := uint32(0)
 	newRow := bytes.NewBuffer(nil)
 	for {
 		nextDocIDBytes := make([]byte, 4)
@@ -163,7 +163,7 @@ func (s *Shard) deleteFromInvertedIndicesProp(b *bolt.Bucket,
 		}
 	}
 
-	countBytes := bytes.NewBuffer(make([]byte, 4))
+	countBytes := bytes.NewBuffer(make([]byte, 0, 4))
 	binary.Write(countBytes, binary.LittleEndian, &newDocCount)
 
 	// combine back together
