@@ -13,10 +13,10 @@ package hnsw
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 )
 
 // Delete attaches a tombstone to an item so it can be periodically cleaned up
@@ -100,11 +100,10 @@ func (h *hnsw) countOutgoing(label string, needle int) {
 			continue
 		}
 		for _, connectionsAtLevel := range node.connections {
-			for level, outgoing := range connectionsAtLevel {
+			for _, outgoing := range connectionsAtLevel {
 				if int(outgoing) == needle {
 					count++
 					ids = append(ids, node.id)
-					fmt.Printf("node id: %d, all connections at level %d: %v\n", node.id, level, connectionsAtLevel)
 				}
 
 			}
@@ -112,10 +111,6 @@ func (h *hnsw) countOutgoing(label string, needle int) {
 		}
 
 	}
-
-	fmt.Printf("%s: %d with node to be deleted: %d\n ", label, count, needle)
-	fmt.Printf("probelamtic ids: %v\n", ids)
-
 }
 
 func (h *hnsw) reassignNeighborsOf(deleteList inverted.AllowList) error {
@@ -136,7 +131,14 @@ func (h *hnsw) reassignNeighborsOf(deleteList inverted.AllowList) error {
 
 		neighborVec, err := h.vectorForID(context.Background(), int32(neighbor))
 		if err != nil {
-			return errors.Wrap(err, "get neighbor vec")
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				h.handleDeletedNode(e.DocID)
+				continue
+			} else {
+				// not a typed error, we can recover from, return with err
+				return errors.Wrap(err, "get neighbor vec")
+			}
 		}
 		neighborNode.RLock()
 		neighborLevel := neighborNode.level

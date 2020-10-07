@@ -13,25 +13,34 @@ package hnsw
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 )
 
+func reasonableEfFromK(k int) int {
+	ef := k * 8
+	if ef > 100 {
+		ef = 100
+	}
+
+	return ef
+}
+
 func (h *hnsw) SearchByID(id int, k int) ([]int, error) {
-	// TODO: make ef configurable
-	return h.knnSearch(id, k, 8*k)
+	return h.knnSearch(id, k, reasonableEfFromK(k))
 }
 
 func (h *hnsw) SearchByVector(vector []float32, k int, allowList inverted.AllowList) ([]int, error) {
-	// TODO: make ef configurable
-	return h.knnSearchByVector(vector, k, k*8, allowList)
+	return h.knnSearchByVector(vector, k, reasonableEfFromK(k), allowList)
 }
 
 func (h *hnsw) knnSearch(queryNodeID int, k int, ef int) ([]int, error) {
 	entryPointID := h.entryPointID
-	entryPointDistance, err := h.distBetweenNodes(entryPointID, queryNodeID)
-	if err != nil {
+	entryPointDistance, ok, err := h.distBetweenNodes(entryPointID, queryNodeID)
+	if err != nil || !ok {
 		return nil, errors.Wrap(err, "knn search: distance between entrypint and query node")
 	}
 
@@ -95,9 +104,13 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 			return nil, errors.Wrapf(err, "calculate distance of current last result")
 		}
 
-		dist, err := h.distanceToNode(distancer, int32(candidate.index))
+		dist, ok, err := h.distanceToNode(distancer, int32(candidate.index))
 		if err != nil {
 			return nil, errors.Wrap(err, "calculate distance between candidate and query")
+		}
+
+		if !ok {
+			continue
 		}
 
 		if dist > worstResultDistance {
@@ -167,10 +180,14 @@ func (h *hnsw) currentWorstResultDistance(results *binarySearchTreeGeneric,
 	distancer *reusableDistancer) (float32, error) {
 	if results.root != nil {
 		id := int32(results.maximum().index)
-		d, err := h.distanceToNode(distancer, id)
+		d, ok, err := h.distanceToNode(distancer, id)
 		if err != nil {
 			return 0, errors.Wrap(err,
 				"calculated distance between worst result and query")
+		}
+
+		if !ok {
+			return 9001, nil
 		}
 		return d, nil
 	} else {
@@ -195,9 +212,14 @@ func (h *hnsw) extendCandidatesAndResultsFromNeighbors(candidates,
 		// make sure we never visit this neighbor again
 		visited[neighborID] = struct{}{}
 
-		distance, err := h.distanceToNode(distancer, int32(neighborID))
+		distance, ok, err := h.distanceToNode(distancer, int32(neighborID))
 		if err != nil {
-			return errors.Wrap(err, "calculate distance between neighbor and query")
+			return errors.Wrap(err, "calculate distance between candidate and query")
+		}
+
+		if !ok {
+			// node was deleted in the underlying object store
+			continue
 		}
 
 		resLenBefore := results.len() // calculating just once saves a bit of time
@@ -231,28 +253,57 @@ func (h *hnsw) extendCandidatesAndResultsFromNeighbors(candidates,
 }
 
 func (h *hnsw) distanceToNode(distancer *reusableDistancer,
-	nodeID int32) (float32, error) {
+	nodeID int32) (float32, bool, error) {
 
 	candidateVec, err := h.vectorForID(context.Background(), nodeID)
 	if err != nil {
-		return 0, errors.Wrapf(err, "could not get vector of object at docID %d",
-			nodeID)
-	}
-	dist, err := distancer.distance(candidateVec)
-	if err != nil {
-		return 0, err
+		var e storobj.ErrNotFound
+		if errors.As(err, &e) {
+			h.handleDeletedNode(e.DocID)
+			return 0, false, nil
+		} else {
+			// not a typed error, we can recover from, return with err
+			return 0, false, errors.Wrapf(err, "get vector of docID %d", nodeID)
+		}
 	}
 
-	return dist, nil
+	dist, err := distancer.distance(candidateVec)
+	if err != nil {
+		return 0, false, errors.Wrap(err, "calculate distance between candidate and query")
+	}
+
+	return dist, true, nil
+}
+
+// the underlying object seems to have been deleted, to recover from
+// this situation let's add a tombstone to the deleted object, so it
+// will be cleaned up and skip this candidate in the current search
+func (h *hnsw) handleDeletedNode(docID int32) {
+	if h.hasTombstone(int(docID)) {
+		// nothing to do, this node already has a tombstone, it will be cleaned up
+		// in the next deletion cycle
+		return
+	}
+
+	h.addTombstone(int(docID))
+	h.logger.WithField("action", "attach_tombstone_to_deleted_node").
+		WithField("node_id", docID).
+		Info("found a deleted node (%d) without a tombstone, "+
+			"tombstone was added", docID)
 }
 
 func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	ef int, allowList inverted.AllowList) ([]int, error) {
 
 	entryPointID := h.entryPointID
-	entryPointDistance, err := h.distBetweenNodeAndVec(entryPointID, searchVec)
+	entryPointDistance, ok, err := h.distBetweenNodeAndVec(entryPointID, searchVec)
 	if err != nil {
 		return nil, errors.Wrap(err, "knn search: distance between entrypint and query node")
+	}
+
+	if !ok {
+		return nil, fmt.Errorf("entrypoint was deleted in the object strore, " +
+			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
 	}
 
 	// stop at layer 1, not 0!
@@ -315,9 +366,14 @@ func (h *hnsw) selectNeighborsSimpleFromId(nodeId int, ids []uint32,
 	max int, denyList inverted.AllowList) ([]uint32, error) {
 	bst := &binarySearchTreeGeneric{}
 	for _, id := range ids {
-		dist, err := h.distBetweenNodes(int(id), nodeId)
+		dist, ok, err := h.distBetweenNodes(int(id), nodeId)
 		if err != nil {
 			return nil, errors.Wrap(err, "select neighbors simple from id")
+		}
+
+		if !ok {
+			// node was deleted in the underlying object store
+			continue
 		}
 		bst.insert(int(id), dist)
 	}

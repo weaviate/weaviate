@@ -48,7 +48,7 @@ func TestClassifications(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(30 * time.Second)
 	require.Nil(t, err)
-	migrator := NewMigrator(repo)
+	migrator := NewMigrator(repo, logger)
 
 	t.Run("importing classification schema", func(t *testing.T) {
 		for _, class := range classificationTestSchema() {

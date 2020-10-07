@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,9 +35,10 @@ func TestHnswPersistence(t *testing.T) {
 		fmt.Println(err)
 	}()
 
-	cl := NewCommitLogger(dirName, indexID)
-	makeCL := func() CommitLogger {
-		return cl
+	logger, _ := test.NewNullLogger()
+	cl, clErr := NewCommitLogger(dirName, indexID, 0, logger)
+	makeCL := func() (CommitLogger, error) {
+		return cl, clErr
 	}
 	index, err := New(Config{
 		RootPath:              dirName,
@@ -101,9 +103,10 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 		fmt.Println(err)
 	}()
 
-	cl := NewCommitLogger(dirName, indexID)
-	makeCL := func() CommitLogger {
-		return cl
+	logger, _ := test.NewNullLogger()
+	cl, clErr := NewCommitLogger(dirName, indexID, 0, logger)
+	makeCL := func() (CommitLogger, error) {
+		return cl, clErr
 	}
 	index, err := New(Config{
 		RootPath:              dirName,
@@ -178,9 +181,9 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		fmt.Println(err)
 	}()
 
-	cl := NewCommitLogger(dirName, indexID)
-	makeCL := func() CommitLogger {
-		return cl
+	logger, _ := test.NewNullLogger()
+	makeCL := func() (CommitLogger, error) {
+		return NewCommitLogger(dirName, indexID, 0, logger)
 	}
 	index, err := New(Config{
 		RootPath:              dirName,

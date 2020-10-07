@@ -14,6 +14,7 @@ package hnsw
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"math"
 	"math/rand"
 	"os"
@@ -22,9 +23,9 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
+	"github.com/sirupsen/logrus"
 )
-
-const importLimit = 200000 // TODO: make variable
 
 type hnsw struct {
 	sync.RWMutex
@@ -68,6 +69,8 @@ type hnsw struct {
 
 	id       string
 	rootPath string
+
+	logger logrus.FieldLogger
 }
 
 type CommitLogger interface {
@@ -82,7 +85,7 @@ type CommitLogger interface {
 	Reset() error
 }
 
-type MakeCommitLogger func() CommitLogger
+type MakeCommitLogger func() (CommitLogger, error)
 
 type VectorForID func(ctx context.Context, id int32) ([]float32, error)
 
@@ -97,7 +100,13 @@ func New(cfg Config) (*hnsw, error) {
 		return nil, errors.Wrap(err, "invalid config")
 	}
 
-	vectorCache := newCache(cfg.VectorForIDThunk)
+	if cfg.Logger == nil {
+		logger := logrus.New()
+		logger.Out = ioutil.Discard
+		cfg.Logger = logger
+	}
+
+	vectorCache := newCache(cfg.VectorForIDThunk, cfg.Logger)
 	index := &hnsw{
 		maximumConnections: cfg.MaximumConnections,
 
@@ -107,11 +116,12 @@ func New(cfg Config) (*hnsw, error) {
 		// inspired by c++ implementation
 		levelNormalizer: 1 / math.Log(float64(cfg.MaximumConnections)),
 		efConstruction:  cfg.EFConstruction,
-		nodes:           make([]*vertex, importLimit), // TODO: grow variably rather than fixed length
+		nodes:           make([]*vertex, initialSize),
 		vectorForID:     vectorCache.get,
 		id:              cfg.ID,
 		rootPath:        cfg.RootPath,
 		tombstones:      map[int]struct{}{},
+		logger:          cfg.Logger,
 	}
 
 	if err := index.restoreFromDisk(); err != nil {
@@ -119,7 +129,12 @@ func New(cfg Config) (*hnsw, error) {
 	}
 
 	// init commit logger for future writes
-	index.commitLog = cfg.MakeCommitLoggerThunk()
+	cl, err := cfg.MakeCommitLoggerThunk()
+	if err != nil {
+		return nil, errors.Wrap(err, "create commit logger")
+	}
+
+	index.commitLog = cl
 	index.registerMaintainence(cfg)
 
 	return index, nil
@@ -128,30 +143,33 @@ func New(cfg Config) (*hnsw, error) {
 // if a commit log is already present it will be read into memory, if not we
 // start with an empty model
 func (h *hnsw) restoreFromDisk() error {
-	fileName := commitLogFileName(h.rootPath, h.id)
-	if _, err := os.Stat(fileName); err != nil {
-		if os.IsNotExist(err) {
-			// nothing to do here we can return
-			return nil
+	fileNames, err := getCommitFileNames(h.rootPath, h.id)
+	if err != nil {
+		return err
+	}
+
+	if len(fileNames) == 0 {
+		// nothing to do
+		return nil
+	}
+
+	var state *DeserializationResult
+	for _, fileName := range fileNames {
+		fd, err := os.Open(fileName)
+		if err != nil {
+			return errors.Wrapf(err, "open commit log %q for reading", fileName)
 		}
 
-		return errors.Wrapf(err, "unexpected error checking for commit log file %q", fileName)
+		state, err = NewDeserializer(h.logger).Do(fd, state)
+		if err != nil {
+			return errors.Wrapf(err, "deserialize commit log %q", fileName)
+		}
 	}
 
-	fd, err := os.Open(fileName)
-	if err != nil {
-		return errors.Wrapf(err, "open commit log %q for reading", fileName)
-	}
-
-	res, err := newDeserializer().Do(fd)
-	if err != nil {
-		return errors.Wrapf(err, "deserialize commit log %q", fileName)
-	}
-
-	h.nodes = res.nodes
-	h.currentMaximumLayer = int(res.level)
-	h.entryPointID = int(res.entrypoint)
-	h.tombstones = res.tombstones
+	h.nodes = state.Nodes
+	h.currentMaximumLayer = int(state.Level)
+	h.entryPointID = int(state.Entrypoint)
+	h.tombstones = state.Tombstones
 
 	return nil
 }
@@ -173,8 +191,8 @@ func (h *hnsw) registerTombstoneCleanup(cfg Config) {
 			time.Sleep(cfg.TombstoneCleanupInterval)
 			err := h.CleanUpTombstonedNodes()
 			if err != nil {
-				// TODO: log properly
-				fmt.Printf("tombstone cleanup errored: %v\n", err)
+				h.logger.WithField("action", "hnsw_tombstone_cleanup").
+					WithError(err).Error("tombstone cleanup errord")
 			}
 		}
 	}()
@@ -331,11 +349,16 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	h.Lock()
 	// m.addBuildingLocking(before)
 	nodeId := node.id
+	err := h.growIndexToAccomodateNode(node.id, h.logger)
+	if err != nil {
+		h.Unlock()
+		return errors.Wrapf(err, "grow HNSW index to accomodate node %d", node.id)
+	}
 	h.nodes[nodeId] = node
 	h.commitLog.AddNode(node)
 	h.Unlock()
 
-	entryPointID, err := h.findBestEntrypointForNode(currentMaximumLayer, targetLevel,
+	entryPointID, err = h.findBestEntrypointForNode(currentMaximumLayer, targetLevel,
 		entryPointID, nodeVec)
 	if err != nil {
 		return errors.Wrap(err, "find best entrypoint")
@@ -390,11 +413,15 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 	// each layer for a better candidate and update the candidate
 	for level := currentMaxLevel; level > targetLevel; level-- {
 		tmpBST := &binarySearchTreeGeneric{}
-		dist, err := h.distBetweenNodeAndVec(entryPointID, nodeVec)
+		dist, ok, err := h.distBetweenNodeAndVec(entryPointID, nodeVec)
 		if err != nil {
 			return 0, errors.Wrapf(err,
 				"calculate distance between insert node and entry point at level %d", level)
 		}
+		if !ok {
+			continue
+		}
+
 		tmpBST.insert(entryPointID, dist)
 		res, err := h.searchLayerByVector(nodeVec, *tmpBST, 1, level, nil)
 		if err != nil {
@@ -407,14 +434,21 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 	return entryPointID, nil
 }
 
+// TODO: split up. It's not as bad as it looks at first, as it has quite some
+// long comments, however, it should still be made prettier
 func (h *hnsw) findAndConnectNeighbors(node *vertex,
 	entryPointID int, nodeVec []float32, targetLevel, currentMaxLevel int,
 	denyList inverted.AllowList) error {
 	var results = &binarySearchTreeGeneric{}
-	dist, err := h.distBetweenNodeAndVec(entryPointID, nodeVec)
+	dist, ok, err := h.distBetweenNodeAndVec(entryPointID, nodeVec)
 	if err != nil {
 		return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
 	}
+	if !ok {
+		return fmt.Errorf("entrypoint was deleted in the object strore, " +
+			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
+	}
+
 	results.insert(entryPointID, dist)
 
 	// neighborsAtLevel := make(map[int][]uint32) // for distributed spike
@@ -463,6 +497,15 @@ func (h *hnsw) findAndConnectNeighbors(node *vertex,
 
 			if neighbor == node {
 				// don't connect to self
+				continue
+			}
+
+			if neighbor == nil || h.hasTombstone(neighbor.id) {
+				// don't connect to tombstoned nodes. This would only increase the
+				// cleanup that needs to be done. Even worse: A tombstoned node can be
+				// cleaned up at any time, also while we are connecting to it. So,
+				// while the node still exists right now, it might already be nil in
+				// the next line, which would lead to a nil-pointer panic.
 				continue
 			}
 
@@ -518,47 +561,83 @@ func min(a, b int) int {
 	return b
 }
 
-func (h *hnsw) distBetweenNodes(a, b int) (float32, error) {
+func (h *hnsw) distBetweenNodes(a, b int) (float32, bool, error) {
 	// TODO: introduce single search/transaction context instead of spawning new
 	// ones
 	vecA, err := h.vectorForID(context.Background(), int32(a))
 	if err != nil {
-		return 0, errors.Wrapf(err, "could not get vector of object at docID %d", a)
+		var e storobj.ErrNotFound
+		if errors.As(err, &e) {
+			h.handleDeletedNode(e.DocID)
+			return 0, false, nil
+		} else {
+			// not a typed error, we can recover from, return with err
+			return 0, false, errors.Wrapf(err,
+				"could not get vector of object at docID %d", a)
+		}
 	}
 
 	if vecA == nil || len(vecA) == 0 {
-		return 0, fmt.Errorf("got a nil or zero-length vector at docID %d", a)
+		return 0, false, fmt.Errorf("got a nil or zero-length vector at docID %d", a)
 	}
 
 	vecB, err := h.vectorForID(context.Background(), int32(b))
 	if err != nil {
-		return 0, errors.Wrapf(err, "could not get vector of object at docID %d", b)
+		var e storobj.ErrNotFound
+		if errors.As(err, &e) {
+			h.handleDeletedNode(e.DocID)
+			return 0, false, nil
+		} else {
+			// not a typed error, we can recover from, return with err
+			return 0, false, errors.Wrapf(err,
+				"could not get vector of object at docID %d", b)
+		}
 	}
 
 	if vecB == nil || len(vecB) == 0 {
-		return 0, fmt.Errorf("got a nil or zero-length vector at docID %d", b)
+		return 0, false, fmt.Errorf("got a nil or zero-length vector at docID %d", b)
 	}
 
-	return cosineDist(vecA, vecB)
+	d, err := cosineDist(vecA, vecB)
+	if err != nil {
+		return 0, false, errors.Wrap(err, "calculate cosine dist")
+	}
+
+	return d, true, nil
 }
 
-func (h *hnsw) distBetweenNodeAndVec(node int, vecB []float32) (float32, error) {
+func (h *hnsw) distBetweenNodeAndVec(node int, vecB []float32) (float32, bool, error) {
 	// TODO: introduce single search/transaction context instead of spawning new
 	// ones
 	vecA, err := h.vectorForID(context.Background(), int32(node))
 	if err != nil {
-		return 0, errors.Wrapf(err, "could not get vector of object at docID %d", node)
+		var e storobj.ErrNotFound
+		if errors.As(err, &e) {
+			h.handleDeletedNode(e.DocID)
+			return 0, false, nil
+		} else {
+			// not a typed error, we can recover from, return with err
+			return 0, false, errors.Wrapf(err,
+				"could not get vector of object at docID %d", node)
+		}
 	}
 
 	if vecA == nil || len(vecA) == 0 {
-		return 0, fmt.Errorf("got a nil or zero-length vector at docID %d", node)
+		return 0, false, fmt.Errorf(
+			"got a nil or zero-length vector at docID %d", node)
 	}
 
 	if vecB == nil || len(vecB) == 0 {
-		return 0, fmt.Errorf("got a nil or zero-length vector as search vector")
+		return 0, false, fmt.Errorf(
+			"got a nil or zero-length vector as search vector")
 	}
 
-	return cosineDist(vecA, vecB)
+	d, err := cosineDist(vecA, vecB)
+	if err != nil {
+		return 0, false, errors.Wrap(err, "calculate cosine dist")
+	}
+
+	return d, true, nil
 }
 
 func (h *hnsw) Stats() {
