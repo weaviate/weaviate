@@ -32,7 +32,7 @@ func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Prin
 
 	unlock, err := b.locks.LockSchema()
 	if err != nil {
-		return nil, NewErrInternal("could not aquire lock: %v", err)
+		return nil, NewErrInternal("could not acquire lock: %v", err)
 	}
 	defer unlock()
 

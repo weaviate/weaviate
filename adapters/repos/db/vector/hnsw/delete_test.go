@@ -232,7 +232,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 	t.Run("deleting every even element", func(t *testing.T) {
 		for i := range vectors {
 			if i%10 == 0 {
-				// occassionally run clean up
+				// occasionally run clean up
 				err := vectorIndex.CleanUpTombstonedNodes()
 				require.Nil(t, err)
 			}
@@ -395,7 +395,7 @@ func vectorsForDeleteTest() [][]float32 {
 
 func TestDelete_EntrypointIssues(t *testing.T) {
 	// This test is motivated by flakyness of other tests. We seemed to have
-	// experienced a failure with the folowing structure
+	// experienced a failure with the following structure
 	//
 	// Entrypoint: 6
 	// Max Level: 1

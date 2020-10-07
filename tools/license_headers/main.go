@@ -56,7 +56,7 @@ func processSingleFile(name string) error {
 		if err != nil {
 			return fmt.Errorf("%s: %v", name, err)
 		}
-		fmt.Printf("🖋️  succesfully created header: %s\n", name)
+		fmt.Printf("🖋️  successfully created header: %s\n", name)
 		return nil
 	}
 
@@ -66,7 +66,7 @@ func processSingleFile(name string) error {
 			return fmt.Errorf("%s: %v", name, err)
 		}
 
-		fmt.Printf("👷 succesfully updated: %s\n", name)
+		fmt.Printf("👷 successfully updated: %s\n", name)
 	} else {
 		fmt.Printf("✅ already up to date: %s\n", name)
 	}

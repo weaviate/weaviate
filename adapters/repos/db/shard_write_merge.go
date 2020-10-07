@@ -94,7 +94,7 @@ func (s *Shard) mergeObjectData(previous []byte,
 
 	var previousObj *storobj.Object
 	if previous == nil || len(previous) == 0 {
-		// DocID must be overwritted after status check, simply set to initial
+		// DocID must be overwrite after status check, simply set to initial
 		// value
 		previousObj = storobj.New(merge.Kind, 0)
 		previousObj.SetClass(merge.Class)

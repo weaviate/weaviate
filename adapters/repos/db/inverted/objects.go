@@ -136,7 +136,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 }
 
 func (a *Analyzer) analyzeRefProp(prop *models.Property, value interface{}) (*Property, error) {
-	// TODO: return mutliple properties when support ref-indexing. For now we
+	// TODO: return multiple properties when support ref-indexing. For now we
 	// only support counting the refs
 
 	asRefs, ok := value.(models.MultipleRef)

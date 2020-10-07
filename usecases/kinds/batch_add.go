@@ -38,7 +38,7 @@ func (b *BatchManager) AddActions(ctx context.Context, principal *models.Princip
 
 	unlock, err := b.locks.LockConnector()
 	if err != nil {
-		return nil, NewErrInternal("could not aquire lock: %v", err)
+		return nil, NewErrInternal("could not acquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -185,7 +185,7 @@ func (b *BatchManager) AddThings(ctx context.Context, principal *models.Principa
 
 	unlock, err := b.locks.LockConnector()
 	if err != nil {
-		return nil, NewErrInternal("could not aquire lock: %v", err)
+		return nil, NewErrInternal("could not acquire lock: %v", err)
 	}
 	defer unlock()
 

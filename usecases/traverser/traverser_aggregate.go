@@ -120,13 +120,13 @@ type AggregateProperty struct {
 // AnalyticsHash is a special hash for use with an external analytics engine
 // which has caching capabilities. Anything that would produce a different
 // result, such as new or different properties or different analytics props
-// will create a different hash. Chaning anayltics-meta information, such as
+// will create a different hash. Chaning analytics-meta information, such as
 // 'forceRecalculate' however, will not change the hash. Doing so would prevent
-// us from ever retrieving a cached result that wass generated with the
+// us from ever retrieving a cached result that was generated with the
 // 'forceRecalculate' option on.
 func (p AggregateParams) AnalyticsHash() (string, error) {
 
-	// make sure to copy the params, so that we don't accidentaly mutate the
+	// make sure to copy the params, so that we don't accidentally mutate the
 	// original
 	params := p
 	// always override analytical props to make sure they don't influence the

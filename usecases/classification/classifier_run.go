@@ -93,7 +93,7 @@ func (c *Classifier) prepareRun(kind kind.Kind, params models.Classification, fi
 	return classifyItem, nil
 }
 
-// runItems splits the job list into batches that can be worked on parallely
+// runItems splits the job list into batches that can be worked on parallelly
 // depending on the available CPUs
 func (c *Classifier) runItems(classifyItem classifyItemFn, kind kind.Kind, params models.Classification, filters filters,
 	items []search.Result) (models.Classification, error) {
@@ -121,7 +121,7 @@ func (c *Classifier) succeedRun(params models.Classification) {
 	defer cancel()
 	err := c.repo.Put(ctx, params)
 	if err != nil {
-		c.logExecutionError("store succeded run", err, params)
+		c.logExecutionError("store succeeded run", err, params)
 	}
 	c.logFinish(params)
 }
@@ -199,13 +199,13 @@ func (c *Classifier) logItemsFetched(params models.Classification, items search.
 func (c *Classifier) logBeginClassifyItem(params models.Classification, item search.Result) {
 	c.logBase(params, "classification_item_begin").
 		WithField("uuid", item.ID).
-		Debug("begin classifiy item")
+		Debug("begin classify item")
 }
 
 func (c *Classifier) logFinishClassifyItem(params models.Classification, item search.Result) {
 	c.logBase(params, "classification_item_finish").
 		WithField("uuid", item.ID).
-		Debug("finish classifiy item")
+		Debug("finish classify item")
 }
 
 func (c *Classifier) logBeginPreparation(params models.Classification) {

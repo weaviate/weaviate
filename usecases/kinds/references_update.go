@@ -36,7 +36,7 @@ func (m *Manager) UpdateActionReferences(ctx context.Context, principal *models.
 
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
-		return NewErrInternal("could not aquire lock: %v", err)
+		return NewErrInternal("could not acquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -97,7 +97,7 @@ func (m *Manager) UpdateThingReferences(ctx context.Context, principal *models.P
 
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
-		return NewErrInternal("could not aquire lock: %v", err)
+		return NewErrInternal("could not acquire lock: %v", err)
 	}
 	defer unlock()
 

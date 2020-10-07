@@ -32,7 +32,7 @@ func (m *Manager) DeleteActionReference(ctx context.Context, principal *models.P
 
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
-		return NewErrInternal("could not aquire lock: %v", err)
+		return NewErrInternal("could not acquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -82,7 +82,7 @@ func (m *Manager) DeleteThingReference(ctx context.Context, principal *models.Pr
 
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
-		return NewErrInternal("could not aquire lock: %v", err)
+		return NewErrInternal("could not acquire lock: %v", err)
 	}
 	defer unlock()
 

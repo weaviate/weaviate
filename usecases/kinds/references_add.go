@@ -36,7 +36,7 @@ func (m *Manager) AddActionReference(ctx context.Context, principal *models.Prin
 
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
-		return NewErrInternal("could not aquire lock: %v", err)
+		return NewErrInternal("could not acquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -92,7 +92,7 @@ func (m *Manager) AddThingReference(ctx context.Context, principal *models.Princ
 
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
-		return NewErrInternal("could not aquire lock: %v", err)
+		return NewErrInternal("could not acquire lock: %v", err)
 	}
 	defer unlock()
 

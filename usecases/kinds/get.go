@@ -37,7 +37,7 @@ func (m *Manager) GetThing(ctx context.Context, principal *models.Principal,
 
 	unlock, err := m.locks.LockConnector()
 	if err != nil {
-		return nil, NewErrInternal("could not aquire lock: %v", err)
+		return nil, NewErrInternal("could not acquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -59,7 +59,7 @@ func (m *Manager) GetThings(ctx context.Context, principal *models.Principal,
 
 	unlock, err := m.locks.LockConnector()
 	if err != nil {
-		return nil, NewErrInternal("could not aquire lock: %v", err)
+		return nil, NewErrInternal("could not acquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -80,7 +80,7 @@ func (m *Manager) GetAction(ctx context.Context, principal *models.Principal,
 
 	unlock, err := m.locks.LockConnector()
 	if err != nil {
-		return nil, NewErrInternal("could not aquire lock: %v", err)
+		return nil, NewErrInternal("could not acquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -102,7 +102,7 @@ func (m *Manager) GetActions(ctx context.Context, principal *models.Principal,
 
 	unlock, err := m.locks.LockConnector()
 	if err != nil {
-		return nil, NewErrInternal("could not aquire lock: %v", err)
+		return nil, NewErrInternal("could not acquire lock: %v", err)
 	}
 	defer unlock()
 

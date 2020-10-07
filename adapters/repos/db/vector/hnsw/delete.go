@@ -267,7 +267,7 @@ func (h *hnsw) findNewEntrypoint(denyList inverted.AllowList, targetLevel int) (
 	}
 
 	// we made it thorugh the entire graph and didn't find a new entrypoint all
-	// the way down to level 0. This can only mean the graph is emtpy, which is
+	// the way down to level 0. This can only mean the graph is empty, which is
 	// unexpected.
 	panic("findNewEntrypoint called on an empty hnsw graph")
 }

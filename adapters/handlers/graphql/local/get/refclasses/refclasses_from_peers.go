@@ -79,7 +79,7 @@ func graphqlObjectFromClass(name string, networkClassName string, class *models.
 					// this schema from a remote instance is not fully in our control, if
 					// we don't understand the datatype it could be down to an
 					// out-of-date schema, different versions (e.g. a newer version of
-					// weaviate could have added a new primitive type) or anythign else
+					// weaviate could have added a new primitive type) or anything else
 					// that's out of our control. We thus choose to skip this property,
 					// rather than panicking and preventing all other network refs from
 					// being built as well.

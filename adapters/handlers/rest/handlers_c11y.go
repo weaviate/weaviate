@@ -59,7 +59,7 @@ func setupC11yHandlers(api *operations.WeaviateAPI, inspector inspector, proxy c
 
 		err := proxy.AddExtension(ctx, params.Extension)
 		if err != nil {
-			// TODO: distuingish between 400 and 500, right now the grpc client always returns the same kind of error
+			// TODO: distinguish between 400 and 500, right now the grpc client always returns the same kind of error
 			return contextionary_api.NewC11yExtensionsBadRequest().WithPayload(
 				errPayloadFromSingleErr(err))
 		}

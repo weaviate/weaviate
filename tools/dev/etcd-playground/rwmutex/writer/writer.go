@@ -38,7 +38,7 @@ func main() {
 	m1 := recipe.NewRWMutex(s1, "my-rw-lock")
 
 	// acquire lock for s1
-	log.Println("about to aquire lock")
+	log.Println("about to acquire lock")
 	if err := m1.Lock(); err != nil {
 		log.Fatal(err)
 	}
