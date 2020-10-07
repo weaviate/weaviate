@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,10 +35,11 @@ func TestCondensor(t *testing.T) {
 		fmt.Println(err)
 	}()
 
-	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", 0)
+	logger, _ := test.NewNullLogger()
+	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", 0, logger)
 	require.Nil(t, err)
 
-	perfect, err := NewCommitLogger(rootPath, "perfect", 0)
+	perfect, err := NewCommitLogger(rootPath, "perfect", 0, logger)
 	require.Nil(t, err)
 
 	t.Run("add redundant data to the original log", func(t *testing.T) {
@@ -111,7 +113,7 @@ func TestCondensor(t *testing.T) {
 		require.Nil(t, err)
 		require.True(t, ok)
 
-		err = NewMemoryCondensor().Do(commitLogFileName(rootPath, "uncondensed", input))
+		err = NewMemoryCondensor(logger).Do(commitLogFileName(rootPath, "uncondensed", input))
 		require.Nil(t, err)
 
 		control, ok, err := getCurrentCommitLogFileName(
@@ -149,7 +151,8 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 		fmt.Println(err)
 	}()
 
-	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", 0)
+	logger, _ := test.NewNullLogger()
+	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", 0, logger)
 	require.Nil(t, err)
 
 	t.Run("add data, but do not set an entrypoint", func(t *testing.T) {
@@ -163,7 +166,7 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 		require.Nil(t, err)
 		require.True(t, ok)
 
-		err = NewMemoryCondensor().Do(commitLogFileName(rootPath, "uncondensed", input))
+		err = NewMemoryCondensor(logger).Do(commitLogFileName(rootPath, "uncondensed", input))
 		require.Nil(t, err)
 
 		actual, ok, err := getCurrentCommitLogFileName(
@@ -181,7 +184,7 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 		}
 		fd, err := os.Open(commitLogFileName(rootPath, "uncondensed", actual))
 		require.Nil(t, err)
-		res, err := NewDeserializer().Do(fd, &initialState)
+		res, err := NewDeserializer(logger).Do(fd, &initialState)
 		require.Nil(t, err)
 
 		assert.Contains(t, res.Nodes, &vertex{id: 0, level: 3, connections: map[int][]uint32{}})
@@ -193,7 +196,8 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 func dumpIndexFromCommitLog(t *testing.T, fileName string) {
 	fd, err := os.Open(fileName)
 	require.Nil(t, err)
-	res, err := NewDeserializer().Do(fd, nil)
+	logger, _ := test.NewNullLogger()
+	res, err := NewDeserializer(logger).Do(fd, nil)
 	require.Nil(t, err)
 
 	index := &hnsw{

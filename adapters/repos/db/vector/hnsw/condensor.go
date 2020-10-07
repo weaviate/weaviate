@@ -19,10 +19,12 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 type MemoryCondensor struct {
 	newLog *os.File
+	logger logrus.FieldLogger
 }
 
 func (c *MemoryCondensor) Do(fileName string) error {
@@ -31,7 +33,7 @@ func (c *MemoryCondensor) Do(fileName string) error {
 		return errors.Wrap(err, "open commit log to be condensed")
 	}
 
-	res, err := NewDeserializer().Do(fd, nil)
+	res, err := NewDeserializer(c.logger).Do(fd, nil)
 	if err != nil {
 		return errors.Wrap(err, "read commit log to be condensed")
 	}
@@ -143,7 +145,10 @@ func (c *MemoryCondensor) SetLinksAtLevel(nodeid int, level int, targets []uint3
 	if targetLength > math.MaxUint16 {
 		// TODO: investigate why we get such massive connections
 		targetLength = math.MaxUint16
-		fmt.Printf("WARNING: (condensor) length of connections would overflow uint16, cutting off\n")
+		c.logger.WithField("action", "condense_commit_log").
+			WithField("original_length", len(targets)).
+			WithField("maximum_length", targetLength).
+			Warning("condensor length of connections would overflow uint16, cutting off")
 	}
 	ec.add(c.writeUint16(c.newLog, uint16(targetLength)))
 	ec.add(c.writeUint32Slice(c.newLog, targets[:targetLength]))
@@ -168,6 +173,6 @@ func (c *MemoryCondensor) AddTombstone(nodeid int) error {
 	return ec.toError()
 }
 
-func NewMemoryCondensor() *MemoryCondensor {
-	return &MemoryCondensor{}
+func NewMemoryCondensor(logger logrus.FieldLogger) *MemoryCondensor {
+	return &MemoryCondensor{logger: logger}
 }

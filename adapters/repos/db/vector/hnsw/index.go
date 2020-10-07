@@ -14,6 +14,7 @@ package hnsw
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"math"
 	"math/rand"
 	"os"
@@ -23,6 +24,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
+	"github.com/sirupsen/logrus"
 )
 
 type hnsw struct {
@@ -67,6 +69,8 @@ type hnsw struct {
 
 	id       string
 	rootPath string
+
+	logger logrus.FieldLogger
 }
 
 type CommitLogger interface {
@@ -96,7 +100,13 @@ func New(cfg Config) (*hnsw, error) {
 		return nil, errors.Wrap(err, "invalid config")
 	}
 
-	vectorCache := newCache(cfg.VectorForIDThunk)
+	if cfg.Logger == nil {
+		logger := logrus.New()
+		logger.Out = ioutil.Discard
+		cfg.Logger = logger
+	}
+
+	vectorCache := newCache(cfg.VectorForIDThunk, cfg.Logger)
 	index := &hnsw{
 		maximumConnections: cfg.MaximumConnections,
 
@@ -111,6 +121,7 @@ func New(cfg Config) (*hnsw, error) {
 		id:              cfg.ID,
 		rootPath:        cfg.RootPath,
 		tombstones:      map[int]struct{}{},
+		logger:          cfg.Logger,
 	}
 
 	if err := index.restoreFromDisk(); err != nil {
@@ -149,7 +160,7 @@ func (h *hnsw) restoreFromDisk() error {
 			return errors.Wrapf(err, "open commit log %q for reading", fileName)
 		}
 
-		state, err = NewDeserializer().Do(fd, state)
+		state, err = NewDeserializer(h.logger).Do(fd, state)
 		if err != nil {
 			return errors.Wrapf(err, "deserialize commit log %q", fileName)
 		}
@@ -180,8 +191,8 @@ func (h *hnsw) registerTombstoneCleanup(cfg Config) {
 			time.Sleep(cfg.TombstoneCleanupInterval)
 			err := h.CleanUpTombstonedNodes()
 			if err != nil {
-				// TODO: log properly
-				fmt.Printf("tombstone cleanup errored: %v\n", err)
+				h.logger.WithField("action", "hnsw_tombstone_cleanup").
+					WithError(err).Error("tombstone cleanup errord")
 			}
 		}
 	}()
@@ -338,7 +349,7 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	h.Lock()
 	// m.addBuildingLocking(before)
 	nodeId := node.id
-	err := h.growIndexToAccomodateNode(node.id)
+	err := h.growIndexToAccomodateNode(node.id, h.logger)
 	if err != nil {
 		h.Unlock()
 		return errors.Wrapf(err, "grow HNSW index to accomodate node %d", node.id)

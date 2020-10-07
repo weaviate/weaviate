@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 const maxUncondensedCommitLogSize = 50 * 1024 * 1024
@@ -38,13 +39,15 @@ func commitLogDirectory(rootPath, name string) string {
 }
 
 func NewCommitLogger(rootPath, name string,
-	maintainenceInterval time.Duration) (*hnswCommitLogger, error) {
+	maintainenceInterval time.Duration,
+	logger logrus.FieldLogger) (*hnswCommitLogger, error) {
 	l := &hnswCommitLogger{
 		events:               make(chan []byte),
 		rootPath:             rootPath,
 		id:                   name,
 		maintainenceInterval: maintainenceInterval,
-		condensor:            NewMemoryCondensor(),
+		condensor:            NewMemoryCondensor(logger),
+		logger:               logger,
 	}
 
 	fd, err := getLatestCommitFileOrCreate(rootPath, name)
@@ -172,6 +175,7 @@ type hnswCommitLogger struct {
 	id                   string
 	condensor            condensor
 	maintainenceInterval time.Duration
+	logger               logrus.FieldLogger
 }
 
 type HnswCommitType uint8 // 256 options, plenty of room for future extensions
@@ -231,7 +235,11 @@ func (l *hnswCommitLogger) ReplaceLinksAtLevel(nodeid int, level int, targets []
 	if targetLength > math.MaxUint16 {
 		// TODO: investigate why we get such massive connections
 		targetLength = math.MaxUint16
-		fmt.Printf("WARNING: (commit logger) length of connections would overflow uint16, cutting off\n")
+		l.logger.WithField("action", "hnsw_current_commit_log").
+			WithField("id", l.id).
+			WithField("original_length", len(targets)).
+			WithField("maximum_length", targetLength).
+			Warning("condensor length of connections would overflow uint16, cutting off")
 	}
 	l.writeUint16(w, uint16(targetLength))
 	l.writeUint32Slice(w, targets[:targetLength])
@@ -288,7 +296,9 @@ func (l *hnswCommitLogger) StartLogging() {
 	// switch log
 	go func() {
 		if l.maintainenceInterval == 0 {
-			fmt.Printf("commit log switching explitictly turned off\n")
+			l.logger.WithField("action", "commit_logging_skipped").
+				WithField("id", l.id).
+				Info("commit log switching explitictly turned off")
 		}
 		maintainance := time.Tick(l.maintainenceInterval)
 
@@ -298,8 +308,9 @@ func (l *hnswCommitLogger) StartLogging() {
 				l.logFile.Write(event)
 			case <-maintainance:
 				if err := l.maintainance(); err != nil {
-					// TODO: use structured logging
-					fmt.Printf("maintainance failed: %v\n", err)
+					l.logger.WithError(err).
+						WithField("action", "hsnw_commit_log_maintainance").
+						Error("hnsw commit log maintainance failed")
 				}
 			}
 		}
@@ -308,14 +319,17 @@ func (l *hnswCommitLogger) StartLogging() {
 	// condense old logs
 	go func() {
 		if l.maintainenceInterval == 0 {
-			fmt.Printf("commit log condensing explitictly turned off\n")
+			l.logger.WithField("action", "commit_logging_skipped").
+				WithField("id", l.id).
+				Info("commit log switching explitictly turned off")
 		}
 		maintainance := time.Tick(l.maintainenceInterval)
 		for {
 			<-maintainance
 			if err := l.condenseOldLogs(); err != nil {
-				// TODO: use structured logging
-				fmt.Printf("condensing failed: %v\n", err)
+				l.logger.WithError(err).
+					WithField("action", "hsnw_commit_log_condensing").
+					Error("hnsw commit log maintainance failed")
 			}
 		}
 	}()
@@ -330,10 +344,15 @@ func (l *hnswCommitLogger) maintainance() error {
 	if i.Size() > maxUncondensedCommitLogSize {
 		l.logFile.Close()
 
-		fmt.Printf("switching because old (%s) size is %d\n", i.Name(), i.Size())
-
 		// this is a new commit log, initialize with the current time stamp
 		fileName := fmt.Sprintf("%d", time.Now().Unix())
+
+		l.logger.WithField("action", "commit_log_file_switched").
+			WithField("id", l.id).
+			WithField("old_file_name", i.Name()).
+			WithField("old_file_size", i.Size()).
+			WithField("new_file_name", fileName).
+			Info("commit log size crossed threshold, switching to new file")
 
 		fd, err := os.OpenFile(commitLogFileName(l.rootPath, l.id, fileName),
 			os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666)

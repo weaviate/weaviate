@@ -13,7 +13,6 @@ package hnsw
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
@@ -101,11 +100,10 @@ func (h *hnsw) countOutgoing(label string, needle int) {
 			continue
 		}
 		for _, connectionsAtLevel := range node.connections {
-			for level, outgoing := range connectionsAtLevel {
+			for _, outgoing := range connectionsAtLevel {
 				if int(outgoing) == needle {
 					count++
 					ids = append(ids, node.id)
-					fmt.Printf("node id: %d, all connections at level %d: %v\n", node.id, level, connectionsAtLevel)
 				}
 
 			}
@@ -113,10 +111,6 @@ func (h *hnsw) countOutgoing(label string, needle int) {
 		}
 
 	}
-
-	fmt.Printf("%s: %d with node to be deleted: %d\n ", label, count, needle)
-	fmt.Printf("probelamtic ids: %v\n", ids)
-
 }
 
 func (h *hnsw) reassignNeighborsOf(deleteList inverted.AllowList) error {

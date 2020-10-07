@@ -12,8 +12,9 @@
 package hnsw
 
 import (
-	"fmt"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 const initialSize = 10000
@@ -23,8 +24,8 @@ const defaultIndexGrowthDelta = 10000
 // function growing the index of the hnsw struct. It does not do any locking on
 // its own, make sure that this function is called from a single-thread or
 // locked situation
-func (h *hnsw) growIndexToAccomodateNode(id int) error {
-	newIndex, err := growIndexToAccomodateNode(h.nodes, id)
+func (h *hnsw) growIndexToAccomodateNode(id int, logger logrus.FieldLogger) error {
+	newIndex, err := growIndexToAccomodateNode(h.nodes, id, logger)
 	if err != nil {
 		return err
 	}
@@ -39,7 +40,8 @@ func (h *hnsw) growIndexToAccomodateNode(id int) error {
 // growIndexToAccomodateNode is ever called outside of such an operation, the
 // caller must make sure to lock the graph as concurrent reads/write would
 // otherwise be possible
-func growIndexToAccomodateNode(index []*vertex, id int) ([]*vertex, error) {
+func growIndexToAccomodateNode(index []*vertex, id int,
+	logger logrus.FieldLogger) ([]*vertex, error) {
 	before := time.Now()
 	previousSize := len(index)
 	if id < previousSize {
@@ -62,7 +64,11 @@ func growIndexToAccomodateNode(index []*vertex, id int) ([]*vertex, error) {
 	newIndex := make([]*vertex, newSize)
 	copy(newIndex, index)
 
-	fmt.Printf("index grown from %d to %d, took %s\n", previousSize, newSize,
-		time.Since(before))
+	took := time.Since(before)
+	logger.WithField("action", "hnsw_grow_index").
+		WithField("took", took).
+		WithField("previous_size", previousSize).
+		WithField("new_size", newSize).
+		Debugf("index grown from %d to %d, took %s\n", previousSize, newSize, took)
 	return newIndex, nil
 }

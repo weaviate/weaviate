@@ -13,12 +13,12 @@ package hnsw
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 type vectorCache struct {
@@ -26,10 +26,11 @@ type vectorCache struct {
 	count         int32
 	maxSize       int
 	getFromSource VectorForID
+	logger        logrus.FieldLogger
 	sync.RWMutex
 }
 
-func newCache(getFromSource VectorForID) *vectorCache {
+func newCache(getFromSource VectorForID, logger logrus.FieldLogger) *vectorCache {
 	vc := &vectorCache{
 		cache:         sync.Map{},
 		count:         0,
@@ -55,8 +56,8 @@ func (c *vectorCache) watchForDeletion() {
 func (c *vectorCache) replaceMapIfFull() {
 	if c.count >= int32(c.maxSize) {
 		c.Lock()
-		// TODO: structured logging
-		fmt.Printf("deleting cache because its full %s\n", time.Now())
+		c.logger.WithField("action", "hnsw_delete_vector_cache").
+			Debug("deleting full vector cache")
 		c.cache = sync.Map{}
 		atomic.StoreInt32(&c.count, 0)
 		c.Unlock()

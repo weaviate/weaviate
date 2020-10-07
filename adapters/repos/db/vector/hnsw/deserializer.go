@@ -18,12 +18,15 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
-type Deserializer struct{}
+type Deserializer struct {
+	logger logrus.FieldLogger
+}
 
-func NewDeserializer() *Deserializer {
-	return &Deserializer{}
+func NewDeserializer(logger logrus.FieldLogger) *Deserializer {
+	return &Deserializer{logger: logger}
 }
 
 type DeserializationResult struct {
@@ -102,7 +105,7 @@ func (c *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 		return err
 	}
 
-	newNodes, err := growIndexToAccomodateNode(res.Nodes, int(id))
+	newNodes, err := growIndexToAccomodateNode(res.Nodes, int(id), c.logger)
 	if err != nil {
 		return err
 	}
@@ -147,7 +150,7 @@ func (c *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
 		return err
 	}
 
-	newNodes, err := growIndexToAccomodateNode(res.Nodes, int(source))
+	newNodes, err := growIndexToAccomodateNode(res.Nodes, int(source), c.logger)
 	if err != nil {
 		return err
 	}
@@ -183,7 +186,7 @@ func (c *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult) error 
 		return err
 	}
 
-	newNodes, err := growIndexToAccomodateNode(res.Nodes, int(source))
+	newNodes, err := growIndexToAccomodateNode(res.Nodes, int(source), c.logger)
 	if err != nil {
 		return err
 	}
@@ -236,7 +239,6 @@ func (c *Deserializer) ReadClearLinks(r io.Reader, res *DeserializationResult) e
 	}
 
 	res.Nodes[id].connections = map[int][]uint32{}
-	fmt.Printf("links cleared for node %d\n", id)
 	return nil
 }
 
