@@ -17,6 +17,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 )
 
 // Delete attaches a tombstone to an item so it can be periodically cleaned up
@@ -136,7 +137,14 @@ func (h *hnsw) reassignNeighborsOf(deleteList inverted.AllowList) error {
 
 		neighborVec, err := h.vectorForID(context.Background(), int32(neighbor))
 		if err != nil {
-			return errors.Wrap(err, "get neighbor vec")
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				h.handleDeletedNode(e.DocID)
+				continue
+			} else {
+				// not a typed error, we can recover from, return with err
+				return errors.Wrap(err, "get neighbor vec")
+			}
 		}
 		neighborNode.RLock()
 		neighborLevel := neighborNode.level

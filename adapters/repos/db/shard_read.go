@@ -15,7 +15,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"fmt"
 
 	"github.com/boltdb/bolt"
 	"github.com/go-openapi/strfmt"
@@ -127,12 +126,14 @@ func (s *Shard) vectorByIndexID(ctx context.Context, indexID int32) ([]float32, 
 	err := s.db.View(func(tx *bolt.Tx) error {
 		uuid := tx.Bucket(helpers.IndexIDBucket).Get(key)
 		if uuid == nil {
-			return fmt.Errorf("index id %d resolved to a nil object-id", indexID)
+			return storobj.NewErrNotFoundf(indexID,
+				"doc id inverted resolved to a nil object, i.e. no uuid found")
 		}
 
 		bytes := tx.Bucket(helpers.ObjectsBucket).Get(uuid)
 		if bytes == nil {
-			return fmt.Errorf("uuid resolved to a nil object")
+			return storobj.NewErrNotFoundf(indexID,
+				"uuid found for docID, but object is nil")
 		}
 
 		obj, err := storobj.FromBinary(bytes)

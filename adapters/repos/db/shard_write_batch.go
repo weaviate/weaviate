@@ -26,12 +26,19 @@ import (
 
 // return value map[int]error gives the error for the index as it received it
 func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) map[int]error {
+	beforeBatch := time.Now()
+	defer s.metrics.BatchObject(beforeBatch, len(objects))
+
 	maxPerTransaction := 30
 
 	m := &sync.Mutex{}
-	docIDs := map[strfmt.UUID]uint32{}
+	statuses := map[strfmt.UUID]objectInsertStatus{}
 	errs := map[int]error{} // int represents original index
 
+	duplicates := findDuplicatesInBatchObjects(objects)
+	_ = duplicates
+
+	beforeObjectStore := time.Now()
 	var wg = &sync.WaitGroup{}
 	for i := 0; i < len(objects); i += maxPerTransaction {
 		end := i + maxPerTransaction
@@ -45,12 +52,19 @@ func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) m
 			defer wg.Done()
 			var affectedIndices []int
 			if err := s.db.Batch(func(tx *bolt.Tx) error {
+				if err := ctx.Err(); err != nil {
+					return errors.Wrapf(err, "begin transaction %d of batch", i)
+				}
+
 				for j := range batch {
 					// so we can reference potential errors
 					affectedIndices = append(affectedIndices, i+j)
 				}
 
-				for _, object := range batch {
+				for j, object := range batch {
+					if _, ok := duplicates[i+j]; ok {
+						continue
+					}
 					uuidParsed, err := uuid.Parse(object.ID().String())
 					if err != nil {
 						return errors.Wrap(err, "invalid id")
@@ -67,8 +81,12 @@ func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) m
 					}
 
 					m.Lock()
-					docIDs[object.ID()] = status.docID
+					statuses[object.ID()] = status
 					m.Unlock()
+
+					if err := ctx.Err(); err != nil {
+						return errors.Wrapf(err, "end transaction %d of batch", i)
+					}
 				}
 				return nil
 			}); err != nil {
@@ -83,31 +101,74 @@ func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) m
 
 	}
 	wg.Wait()
+	s.metrics.ObjectStore(beforeObjectStore)
 
-	// TODO: is it smart to let them all run in parallel? wouldn't it be better
-	// to open no more threads than we have cpu cores?
+	if err := ctx.Err(); err != nil {
+		for i, err := range errs {
+			if err == nil {
+				// already has an error, ignore
+				continue
+			}
+
+			errs[i] = errors.Wrapf(err,
+				"inverted indexing complete, about to start vector indexing")
+		}
+	}
+
+	beforeVectorIndex := time.Now()
 	wg = &sync.WaitGroup{}
 	for i, object := range objects {
-		if _, ok := errs[i]; ok {
+		m.Lock()
+		_, ok := errs[i]
+		m.Unlock()
+		if ok {
 			// had an error prior, ignore
+			continue
+		}
+		if _, ok := duplicates[i]; ok {
+			// is a duplicate, ignore
 			continue
 		}
 
 		wg.Add(1)
-		docID := int(docIDs[object.ID()])
-		go func(object *storobj.Object, docID int, index int) {
+		status := statuses[object.ID()]
+		go func(object *storobj.Object, status objectInsertStatus, index int) {
 			defer wg.Done()
-
-			if err := s.vectorIndex.Add(docID, object.Vector); err != nil {
+			if err := ctx.Err(); err != nil {
 				m.Lock()
 				errs[index] = errors.Wrap(err, "insert to vector index")
 				m.Unlock()
 			}
-		}(object, docID, i)
+
+			if err := s.updateVectorIndex(object.Vector, status); err != nil {
+				m.Lock()
+				errs[index] = errors.Wrap(err, "insert to vector index")
+				m.Unlock()
+			}
+		}(object, status, i)
 	}
 	wg.Wait()
+	s.metrics.VectorIndex(beforeVectorIndex)
 
 	return errs
+}
+
+// returns the originalIndexIDs to be ignored
+func findDuplicatesInBatchObjects(in []*storobj.Object) map[int]struct{} {
+	count := map[strfmt.UUID]int{}
+	for _, obj := range in {
+		count[obj.ID()] = count[obj.ID()] + 1
+	}
+
+	ignore := map[int]struct{}{}
+	for i, obj := range in {
+		if c := count[obj.ID()]; c > 1 {
+			count[obj.ID()] = c - 1
+			ignore[i] = struct{}{}
+		}
+	}
+
+	return ignore
 }
 
 // return value map[int]error gives the error for the index as it received it
