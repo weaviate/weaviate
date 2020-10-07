@@ -50,10 +50,6 @@ import (
 const MinimumRequiredContextionaryVersion = "0.4.19"
 
 func makeConfigureServer(appState *state.State) func(*http.Server, string, string) {
-	go func() {
-		http.ListenAndServe(":6060", nil)
-	}()
-
 	return func(s *http.Server, scheme, addr string) {
 		// Add properties to the config
 		appState.ServerConfig.Hostname = addr
