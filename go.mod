@@ -40,7 +40,7 @@ require (
 	github.com/square/go-jose v2.3.0+incompatible
 	github.com/stretchr/testify v1.6.1
 	github.com/ugorji/go/codec v0.0.0-20190309163734-c4a1c341dc93
-	go.mongodb.org/mongo-driver v1.4.1 // indirect
+	go.mongodb.org/mongo-driver v1.4.2 // indirect
 	go.uber.org/atomic v1.5.0
 	golang.org/x/net v0.0.0-20200822124328-c89045814202
 	golang.org/x/tools v0.0.0-20201007032633-0806396f153e // indirect
