@@ -4,7 +4,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/semi-technologies/weaviate)](https://goreportcard.com/report/github.com/semi-technologies/weaviate)
 [![Coverage Status](https://codecov.io/gh/semi-technologies/weaviate/branch/master/graph/badge.svg)](https://codecov.io/gh/semi-technologies/weaviate)
 
-<a href="https://semi.technology/documentation/weaviate/current/" target="_blank"><img src="https://www.semi.technology/img/weaviate-demo.gif?i=3" alt="Demo of Weaviate" width="100%"></a>
+<a href="https://semi.technology/documentation/weaviate/current/" target="_blank"><img src="https://www.semi.technology/img/weaviate-demo.gif?i=4" alt="Demo of Weaviate" width="100%"></a>
 
 ## Description
 
