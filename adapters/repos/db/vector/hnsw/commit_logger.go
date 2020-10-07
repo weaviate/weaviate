@@ -375,6 +375,7 @@ func (l *hnswCommitLogger) condenseOldLogs() error {
 		// if there are no files there is nothing to do
 		// if there is only a single file, it must still be in use, we can't do
 		// anything yet
+		return nil
 	}
 
 	// cut off last element, as that's never a candidate

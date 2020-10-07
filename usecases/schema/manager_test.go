@@ -398,6 +398,7 @@ func testUpdateClassKeywords(t *testing.T, lsm *Manager) {
 	}
 
 	err = lsm.UpdateThing(context.Background(), nil, "Car", &updatedKeywords)
+	require.Nil(t, err)
 
 	thingClasses := testGetClasses(lsm, kind.Thing)
 	require.Len(t, thingClasses, 1)

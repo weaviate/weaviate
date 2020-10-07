@@ -238,8 +238,6 @@ func (n *binarySearchNodeGeneric) replaceNode(parent, replacement *binarySearchN
 	} else if parent.right == n {
 		// vice versa for right
 		parent.right = replacement
-		if replacement != nil {
-		}
 	} else {
 		panic("impossible replacement")
 	}
