@@ -24,7 +24,6 @@ import (
 type BatchManager struct {
 	network       network
 	config        *config.WeaviateConfig
-	repo          batchAndGetRepo
 	locks         locks
 	schemaManager schemaManager
 	logger        logrus.FieldLogger

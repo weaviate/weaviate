@@ -21,11 +21,9 @@ import (
 )
 
 type schemaSearchTest struct {
-	name           string
-	words          map[string][]float32
-	searchParams   SearchParams
-	expectedResult SearchResults
-	expectedError  error
+	name          string
+	searchParams  SearchParams
+	expectedError error
 }
 
 type schemaSearchTests []schemaSearchTest
