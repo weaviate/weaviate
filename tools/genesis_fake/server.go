@@ -63,6 +63,7 @@ func updatePeerWithList() {
 		log.Printf("could send put request: %s", err)
 		return
 	}
+	defer res.Body.Close()
 
 	if res.StatusCode != http.StatusOK {
 		log.Printf("could not send peer list: response status was %s", res.Status)

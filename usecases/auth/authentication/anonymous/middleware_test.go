@@ -41,6 +41,7 @@ func Test_AnonymousMiddleware_Enabled(t *testing.T) {
 
 	New(cfg).Middleware(next).ServeHTTP(w, r)
 	response := w.Result()
+	defer response.Body.Close()
 
 	assert.Equal(t, response.StatusCode, 900)
 }
@@ -67,6 +68,7 @@ func Test_AnonymousMiddleware_Disabled(t *testing.T) {
 
 		New(cfg).Middleware(next).ServeHTTP(w, r)
 		response := w.Result()
+		defer response.Body.Close()
 
 		assert.Equal(t, response.StatusCode, 401)
 	})
@@ -93,6 +95,7 @@ func Test_AnonymousMiddleware_Disabled(t *testing.T) {
 
 		New(cfg).Middleware(next).ServeHTTP(w, r)
 		response := w.Result()
+		defer response.Body.Close()
 
 		assert.Equal(t, response.StatusCode, 900)
 	})
