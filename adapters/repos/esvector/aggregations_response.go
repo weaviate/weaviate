@@ -434,7 +434,7 @@ func parseAggBucketPropertyValueAsTO(input interface{}) (aggregation.Text, error
 }
 
 func parseTextOccurrences(buckets []interface{}, sum float64) (aggregation.Text, error) {
-	list := make([]aggregation.TextOccurrence, len(buckets), len(buckets))
+	list := make([]aggregation.TextOccurrence, len(buckets))
 
 	for i, bucket := range buckets {
 		asMap, ok := bucket.(map[string]interface{})
@@ -571,7 +571,7 @@ func (b aggregationBucket) numerical() (map[string]float64, error) {
 }
 
 func interfaceToStringSlice(input []interface{}) []string {
-	output := make([]string, len(input), len(input))
+	output := make([]string, len(input))
 	for i, value := range input {
 		output[i] = value.(string)
 	}
@@ -580,7 +580,7 @@ func interfaceToStringSlice(input []interface{}) []string {
 }
 
 func groupsMapToSlice(groups map[interface{}]aggregation.Group) []aggregation.Group {
-	output := make([]aggregation.Group, len(groups), len(groups))
+	output := make([]aggregation.Group, len(groups))
 
 	i := 0
 	for _, group := range groups {
@@ -613,7 +613,7 @@ func groupsMapToSlice(groups map[interface{}]aggregation.Group) []aggregation.Gr
 }
 
 func bucketMapToSlice(buckets map[string]aggregationBucket) aggregationBuckets {
-	output := make(aggregationBuckets, len(buckets), len(buckets))
+	output := make(aggregationBuckets, len(buckets))
 
 	i := 0
 	for _, b := range buckets {

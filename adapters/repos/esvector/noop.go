@@ -92,11 +92,9 @@ func (r *NoOpRepo) DeleteAction(ctx context.Context, className string, id strfmt
 }
 
 func (r *NoOpRepo) SetSchemaGetter(sg schema.SchemaGetter) {
-	return
 }
 
 func (r *NoOpRepo) InitCacheIndexing(size int, waitOnIdle, waitOnBusy time.Duration) {
-	return
 }
 
 func (r *NoOpRepo) WaitForStartup(time.Duration) error {

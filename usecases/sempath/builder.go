@@ -44,7 +44,7 @@ type c11y interface {
 }
 
 func (f *PathBuilder) CalculatePath(in []search.Result, params *Params) ([]search.Result, error) {
-	if in == nil || len(in) == 0 {
+	if len(in) == 0 {
 		return nil, nil
 	}
 

@@ -244,7 +244,7 @@ func getUnclassified(size int) []post {
 		panic(err)
 	}
 
-	out := make([]post, len(parsed.Hits.Hits), len(parsed.Hits.Hits))
+	out := make([]post, len(parsed.Hits.Hits))
 	for i, hit := range parsed.Hits.Hits {
 		out[i] = hit.Source
 	}
@@ -352,7 +352,7 @@ type searchRes struct {
 type hit map[string]interface{}
 
 func printVector(v []float32) string {
-	var asStrings = make([]string, len(v), len(v))
+	var asStrings = make([]string, len(v))
 	for i, number := range v {
 		asStrings[i] = fmt.Sprintf("%f", number)
 	}

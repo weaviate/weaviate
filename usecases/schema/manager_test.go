@@ -761,9 +761,7 @@ func testGetClasses(l *Manager, k kind.Kind) []*models.Class {
 	var classes []*models.Class
 	schema, _ := l.GetSchema(nil)
 
-	for _, class := range schema.SemanticSchemaFor(k).Classes {
-		classes = append(classes, class)
-	}
+	classes = append(classes, schema.SemanticSchemaFor(k).Classes...)
 
 	return classes
 }

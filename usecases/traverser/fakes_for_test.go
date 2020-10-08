@@ -95,7 +95,7 @@ func (f *fakeVectorizer) Corpi(ctx context.Context, corpi []string) ([]float32, 
 }
 
 func (f *fakeVectorizer) MoveTo(source []float32, target []float32, weight float32) ([]float32, error) {
-	res := make([]float32, len(source), len(source))
+	res := make([]float32, len(source))
 	for i, v := range source {
 		res[i] = v + 1
 	}
@@ -103,7 +103,7 @@ func (f *fakeVectorizer) MoveTo(source []float32, target []float32, weight float
 }
 
 func (f *fakeVectorizer) MoveAwayFrom(source []float32, target []float32, weight float32) ([]float32, error) {
-	res := make([]float32, len(source), len(source))
+	res := make([]float32, len(source))
 	for i, v := range source {
 		res[i] = v - 0.5
 	}

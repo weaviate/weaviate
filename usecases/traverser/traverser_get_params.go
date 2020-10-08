@@ -84,7 +84,7 @@ type SelectProperties []SelectProperty
 
 func (sp SelectProperties) HasRefs() bool {
 	for _, p := range sp {
-		if p.IsPrimitive == false {
+		if !p.IsPrimitive {
 			return true
 		}
 	}

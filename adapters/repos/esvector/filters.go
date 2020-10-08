@@ -192,7 +192,7 @@ func referenceCountFilterFromClause(clause *filters.Clause) (map[string]interfac
 }
 
 func (r *Repo) compoundQueryFromClause(ctx context.Context, clause *filters.Clause) (map[string]interface{}, error) {
-	filters := make([]map[string]interface{}, len(clause.Operands), len(clause.Operands))
+	filters := make([]map[string]interface{}, len(clause.Operands))
 	for i, operand := range clause.Operands {
 		filter, err := r.queryFromClause(ctx, &operand)
 		if err != nil {

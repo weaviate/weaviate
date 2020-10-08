@@ -35,7 +35,7 @@ type FeatureProjector struct {
 }
 
 func (f *FeatureProjector) Reduce(in []search.Result, params *Params) ([]search.Result, error) {
-	if in == nil || len(in) == 0 {
+	if len(in) == 0 {
 		return nil, nil
 	}
 

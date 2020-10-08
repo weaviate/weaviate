@@ -180,7 +180,7 @@ func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32,
 		return nil, errors.Wrap(err, "vector search")
 	}
 
-	if ids == nil || len(ids) == 0 {
+	if len(ids) == 0 {
 		return nil, nil
 	}
 

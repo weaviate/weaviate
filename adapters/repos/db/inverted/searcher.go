@@ -91,7 +91,7 @@ func ObjectsFromDocIDsInTx(tx *bolt.Tx,
 		binary.Write(keyBuf, binary.LittleEndian, &pointerUint32)
 		key := keyBuf.Bytes()
 		uuid := b.Get(key)
-		if uuid == nil || len(uuid) == 0 {
+		if len(uuid) == 0 {
 			// TODO: Log this as a warning
 			// There is no legitimate reason for this to happen. This essentially
 			// means that we received a doc Pointer that is not (or no longer)

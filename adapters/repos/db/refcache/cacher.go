@@ -219,7 +219,7 @@ func (c *Cacher) incompleteJobs() []cacherJob {
 	out := make([]cacherJob, len(c.jobs))
 	n := 0
 	for _, job := range c.jobs {
-		if job.complete == false {
+		if !job.complete {
 			out[n] = job
 			n++
 		}
@@ -233,7 +233,7 @@ func (c *Cacher) completeJobs() []cacherJob {
 	out := make([]cacherJob, len(c.jobs))
 	n := 0
 	for _, job := range c.jobs {
-		if job.complete == true {
+		if job.complete {
 			out[n] = job
 			n++
 		}

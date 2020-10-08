@@ -93,7 +93,7 @@ func (g group) mergeVectors() ([]float32, error) {
 	}
 
 	dimensions := len(g.Elements[0].Vector)
-	out := make([]float32, dimensions, dimensions)
+	out := make([]float32, dimensions)
 
 	// sum up
 	for _, groupElement := range g.Elements {

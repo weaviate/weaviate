@@ -32,7 +32,7 @@ func ExtractAnalyticsProps(args map[string]interface{}, cfg config.AnalyticsEngi
 	res.UseAnaltyicsEngine = args["useAnalyticsEngine"].(bool)
 	res.ForceRecalculate = args["forceRecalculate"].(bool)
 
-	if res.UseAnaltyicsEngine == false && res.ForceRecalculate == true {
+	if !res.UseAnaltyicsEngine && res.ForceRecalculate {
 		return res, fmt.Errorf("invalid arguments: 'forceRecalculate' cannot be set to true if " +
 			"'useAnalyticsEngine' is set to false")
 	}

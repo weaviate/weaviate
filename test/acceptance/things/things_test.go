@@ -268,7 +268,7 @@ func creatingThings(t *testing.T) {
 			},
 			errorCheck: func(t *testing.T, err *models.ErrorResponse) {
 				assert.Contains(t,
-					fmt.Sprintf("invalid thing: invalid string property 'testString' on class 'TestThing': not a string, but json.Number"),
+					"invalid thing: invalid string property 'testString' on class 'TestThing': not a string, but json.Number",
 					err.Error[0].Message)
 			},
 		},
