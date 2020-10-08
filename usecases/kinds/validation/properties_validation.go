@@ -243,7 +243,7 @@ func intVal(val interface{}) (interface{}, error) {
 	errInvalidIntegerConvertion := "the JSON number '%v' could not be converted to an int"
 
 	// Return err when the input can not be casted to json.Number
-	if data, ok = val.(json.Number); !ok {
+	if _, ok = val.(json.Number); !ok {
 		// If value is not a json.Number, it could be an int, which is fine
 		if data, ok = val.(int64); !ok {
 			// If value is not a json.Number, it could be an int, which is fine when the float does not contain a decimal
@@ -273,7 +273,7 @@ func numberVal(val interface{}) (interface{}, error) {
 	errInvalidFloat := "requires a float, the given value is '%v'"
 	errInvalidFloatConvertion := "the JSON number '%v' could not be converted to a float."
 
-	if data, ok = val.(json.Number); !ok {
+	if _, ok = val.(json.Number); !ok {
 		if data, ok = val.(float64); !ok {
 			return nil, fmt.Errorf(errInvalidFloat, val)
 		}

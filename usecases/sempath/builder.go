@@ -234,12 +234,6 @@ func (ec *errorCompounder) addf(msg string, args ...interface{}) {
 	ec.errors = append(ec.errors, fmt.Errorf(msg, args...))
 }
 
-func (ec *errorCompounder) add(err error) {
-	if err != nil {
-		ec.errors = append(ec.errors, err)
-	}
-}
-
 func (ec *errorCompounder) toError() error {
 	if len(ec.errors) == 0 {
 		return nil
