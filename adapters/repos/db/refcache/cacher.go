@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -311,19 +310,6 @@ func (c *Cacher) logSkipFetchJobs() {
 				"action": "request_cacher_fetch_jobs_skip",
 			}).
 		Trace("skip fetch jobs, have no incomplete jobs")
-}
-
-func (c *Cacher) logCompleteFetchJobs(start time.Time, amount int) {
-	took := time.Since(start)
-
-	c.logger.
-		WithFields(
-			logrus.Fields{
-				"action": "request_cacher_fetch_jobs_complete",
-				"took":   took,
-				"jobs":   amount,
-			}).
-		Trace("fetch jobs complete")
 }
 
 // parseAndStore parses the results for nested refs. Since it is already a

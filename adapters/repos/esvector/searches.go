@@ -107,11 +107,6 @@ func (r *Repo) forceRefresh(ctx context.Context) error {
 	return nil
 }
 
-func (r *Repo) byIndexAndID(ctx context.Context, index string, id strfmt.UUID,
-	params traverser.SelectProperties) (*search.Result, error) {
-	return r.searchByID(ctx, index, id, params, traverser.UnderscoreProperties{})
-}
-
 func (r *Repo) searchByID(ctx context.Context, index string, id strfmt.UUID,
 	properties traverser.SelectProperties, underscore traverser.UnderscoreProperties) (*search.Result, error) {
 	filters := &filters.LocalFilter{

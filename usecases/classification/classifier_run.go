@@ -194,18 +194,6 @@ func (c *Classifier) logItemsFetched(params models.Classification, items search.
 		Debug("fetched source items")
 }
 
-func (c *Classifier) logBeginClassifyItem(params models.Classification, item search.Result) {
-	c.logBase(params, "classification_item_begin").
-		WithField("uuid", item.ID).
-		Debug("begin classify item")
-}
-
-func (c *Classifier) logFinishClassifyItem(params models.Classification, item search.Result) {
-	c.logBase(params, "classification_item_finish").
-		WithField("uuid", item.ID).
-		Debug("finish classify item")
-}
-
 func (c *Classifier) logBeginPreparation(params models.Classification) {
 	c.logBase(params, "classification_preparation_begin").
 		Debug("begin run preparation")
