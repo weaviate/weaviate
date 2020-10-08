@@ -140,7 +140,7 @@ func (e *Explorer) getClassExploration(ctx context.Context,
 		res = withPath
 	}
 
-	return e.searchResultsToGetResponse(ctx, res, params.Explore.Certainty, searchVector)
+	return e.searchResultsToGetResponse(ctx, res, params.Explore.Certainty, searchVector, params)
 }
 
 func (e *Explorer) getClassList(ctx context.Context,
@@ -182,12 +182,12 @@ func (e *Explorer) getClassList(ctx context.Context,
 		return nil, fmt.Errorf("semantic path not possible on 'list' queries, only on 'explore' queries")
 	}
 
-	return e.searchResultsToGetResponse(ctx, res, 0, nil)
+	return e.searchResultsToGetResponse(ctx, res, 0, nil, params)
 }
 
 func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 	input []search.Result, requiredCertainty float64,
-	searchVector []float32) ([]interface{}, error) {
+	searchVector []float32, params GetParams) ([]interface{}, error) {
 	output := make([]interface{}, 0, len(input))
 
 	for _, res := range input {
@@ -221,6 +221,10 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 
 			if 1-(dist) < float32(requiredCertainty) {
 				continue
+			}
+
+			if params.UnderscoreProperties.Certainty {
+				res.Schema.(map[string]interface{})["_certainty"] = dist
 			}
 		}
 
