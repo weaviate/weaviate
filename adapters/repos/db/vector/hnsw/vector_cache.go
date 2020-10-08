@@ -44,9 +44,9 @@ func newCache(getFromSource VectorForID, logger logrus.FieldLogger) *vectorCache
 
 func (c *vectorCache) watchForDeletion() {
 	go func() {
-		t := time.NewTicker(10 * time.Second)
+		t := time.Tick(10 * time.Second)
 		for {
-			<-t.C
+			<-t
 			c.replaceMapIfFull()
 		}
 	}()

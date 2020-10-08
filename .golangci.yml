@@ -10,3 +10,6 @@ issues:
     - linters:
         - staticcheck
       text: "SA1029:"
+    - linters:
+        - staticcheck
+      text: "SA1015:"
