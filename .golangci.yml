@@ -3,3 +3,10 @@ linters:
     - errcheck
   enable:
     - misspell
+
+issues:
+  exclude-rules:
+    # Exclude some staticcheck messages
+    - linters:
+        - staticcheck
+      text: "SA1029:"

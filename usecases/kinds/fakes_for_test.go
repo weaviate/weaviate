@@ -115,15 +115,6 @@ func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource s
 	return nil
 }
 
-type fakeC11y struct{}
-
-func (f *fakeC11y) IsWordPresent(ctx context.Context, word string) (bool, error) {
-	panic("not implemented")
-}
-func (f *fakeC11y) SafeGetSimilarWordsWithCertainty(ctx context.Context, word string, certainty float32) ([]string, error) {
-	panic("not implemented")
-}
-
 type fakeVectorRepo struct {
 	mock.Mock
 }

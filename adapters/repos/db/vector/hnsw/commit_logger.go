@@ -299,13 +299,13 @@ func (l *hnswCommitLogger) StartLogging() {
 				WithField("id", l.id).
 				Info("commit log switching explitictly turned off")
 		}
-		maintenance := time.Tick(l.maintainenceInterval)
+		maintenance := time.NewTicker(l.maintainenceInterval)
 
 		for {
 			select {
 			case event := <-l.events:
 				l.logFile.Write(event)
-			case <-maintenance:
+			case <-maintenance.C:
 				if err := l.maintenance(); err != nil {
 					l.logger.WithError(err).
 						WithField("action", "hsnw_commit_log_maintenance").
@@ -322,9 +322,9 @@ func (l *hnswCommitLogger) StartLogging() {
 				WithField("id", l.id).
 				Info("commit log switching explitictly turned off")
 		}
-		maintenance := time.Tick(l.maintainenceInterval)
+		maintenance := time.NewTicker(l.maintainenceInterval)
 		for {
-			<-maintenance
+			<-maintenance.C
 			if err := l.condenseOldLogs(); err != nil {
 				l.logger.WithError(err).
 					WithField("action", "hsnw_commit_log_condensing").

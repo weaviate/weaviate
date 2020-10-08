@@ -14,7 +14,6 @@ package kinds
 import (
 	"context"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus"
 )
@@ -41,10 +40,6 @@ type batchRepoNew interface {
 	BatchPutThings(ctx context.Context, things BatchThings) (BatchThings, error)
 	BatchPutActions(ctx context.Context, actions BatchActions) (BatchActions, error)
 	AddBatchReferences(ctx context.Context, references BatchReferences) (BatchReferences, error)
-}
-
-type batchAndGetRepo interface {
-	ClassExists(ctx context.Context, id strfmt.UUID) (bool, error)
 }
 
 // NewBatchManager creates a new manager

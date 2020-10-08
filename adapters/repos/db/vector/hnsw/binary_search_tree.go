@@ -34,10 +34,6 @@ func (t *binarySearchTreeGeneric) insert(index int, dist float32) {
 	t.root.insert(index, dist)
 }
 
-func (t *binarySearchTreeGeneric) printInOrder() {
-	t.root.printInOrder()
-}
-
 func (t *binarySearchTreeGeneric) contains(index int, dist float32) bool {
 	// before := time.Now()
 	// defer m.addContains(before)
@@ -147,20 +143,6 @@ func (n *binarySearchNodeGeneric) insert(index int, dist float32) {
 			}
 			return
 		}
-	}
-}
-
-func (n *binarySearchNodeGeneric) printInOrder() {
-	if n == nil {
-		return
-	}
-
-	if n.left != nil {
-		n.left.printInOrder()
-	}
-
-	if n.right != nil {
-		n.right.printInOrder()
 	}
 }
 

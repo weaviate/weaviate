@@ -19,56 +19,11 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	libprojector "github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/sempath"
 	"github.com/stretchr/testify/mock"
 )
-
-type fakeRepo struct {
-	GetThingResponse     *models.Thing
-	UpdateThingParameter *models.Thing
-}
-
-func (f *fakeRepo) Aggregate(ctx context.Context, params *AggregateParams) (interface{}, error) {
-	panic("not implemented")
-}
-
-func (f *fakeRepo) GetClass(ctx context.Context, params *GetParams) (interface{}, error) {
-	panic("not implemented")
-}
-
-type fakeSchemaManager struct {
-	CalledWith struct {
-		kind      kind.Kind
-		fromClass string
-		property  string
-		toClass   string
-	}
-	GetSchemaResponse schema.Schema
-}
-
-func (f *fakeSchemaManager) UpdatePropertyAddDataType(ctx context.Context, principal *models.Principal,
-	k kind.Kind, fromClass, property, toClass string) error {
-	f.CalledWith = struct {
-		kind      kind.Kind
-		fromClass string
-		property  string
-		toClass   string
-	}{
-		kind:      k,
-		fromClass: fromClass,
-		property:  property,
-		toClass:   toClass,
-	}
-	return nil
-}
-
-func (f *fakeSchemaManager) GetSchema(principal *models.Principal) (schema.Schema, error) {
-	return f.GetSchemaResponse, nil
-}
 
 type fakeLocks struct{}
 
@@ -146,46 +101,10 @@ func (f *fakeVectorSearcher) ClassSearch(ctx context.Context,
 	return args.Get(0).([]search.Result), args.Error(1)
 }
 
-type fakeNetwork struct {
-	peerURI string
-}
-
-func (f *fakeNetwork) ListPeers() (peers.Peers, error) {
-	myPeers := peers.Peers{
-		peers.Peer{
-			Name: "BestWeaviate",
-			URI:  strfmt.URI(f.peerURI),
-			Schema: schema.Schema{
-				Things: &models.Schema{
-					Classes: []*models.Class{
-						&models.Class{
-							Class: "BestThing",
-						},
-					},
-				},
-			},
-		},
-	}
-
-	return myPeers, nil
-}
-
 type fakeAuthorizer struct{}
 
 func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {
 	return nil
-}
-
-type fakeC11y struct{}
-
-func (f *fakeC11y) IsWordPresent(ctx context.Context, word string) (bool, error) {
-	panic("not implemented")
-}
-func (f *fakeC11y) SafeGetSimilarWordsWithCertainty(ctx context.Context, word string, certainty float32) ([]string, error) {
-	panic("not implemented")
-}
-func (f *fakeC11y) SchemaSearch(ctx context.Context, p SearchParams) (SearchResults, error) {
-	panic("not implemented")
 }
 
 type fakeVectorRepo struct {
