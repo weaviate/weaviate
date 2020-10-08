@@ -41,6 +41,7 @@ func (r *NoOpRepo) VectorSearch(ctx context.Context, vector []float32, limit int
 	filters *filters.LocalFilter) ([]search.Result, error) {
 	panic("no op repo: not implemented")
 }
+
 func (r *NoOpRepo) ThingByID(ctx context.Context, id strfmt.UUID, props traverser.SelectProperties) (*search.Result, error) {
 	panic("no op repo: not implemented")
 }
@@ -71,7 +72,7 @@ func (r *NoOpRepo) BatchPutThings(ctx context.Context, batch kinds.BatchThings) 
 	return nil, nil
 }
 
-//DeleteThing does nothing, but doesn't error either
+// DeleteThing does nothing, but doesn't error either
 func (r *NoOpRepo) DeleteThing(ctx context.Context, className string, id strfmt.UUID) error {
 	return nil
 }
@@ -86,7 +87,7 @@ func (r *NoOpRepo) BatchPutActions(ctx context.Context, batch kinds.BatchActions
 	return nil, nil
 }
 
-//DeleteAction does nothing, but doesn't error either
+// DeleteAction does nothing, but doesn't error either
 func (r *NoOpRepo) DeleteAction(ctx context.Context, className string, id strfmt.UUID) error {
 	return nil
 }

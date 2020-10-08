@@ -79,7 +79,7 @@ func (m *Manager) validateClassNameAndKeywords(ctx context.Context, knd kind.Kin
 			"Make sure at least one keyword in the list is not a stop word", className)
 	}
 
-	//class name
+	// class name
 	if !vectorizeClass {
 		// if the user chooses not to vectorize the class, we don't need to check
 		// if its c11y-valid or not

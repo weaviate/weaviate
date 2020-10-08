@@ -138,7 +138,6 @@ func parseOperandsOp(args map[string]interface{}, operator filters.Operator, roo
 		}
 
 		operand, err := parseClause(rawOperandMap, rootClass)
-
 		if err != nil {
 			return nil, err
 		}
@@ -185,7 +184,6 @@ func ParseValue(args map[string]interface{}) (*filters.Value, error) {
 
 	for _, extractor := range valueExtractors {
 		foundValue, err := extractor(args)
-
 		// Abort if we found a value, but it's for being passed a string to an int value.
 		if err != nil {
 			return nil, err
@@ -335,7 +333,6 @@ var valueExtractors [](func(args map[string]interface{}) (*filters.Value, error)
 		}
 
 		date, err := time.Parse(time.RFC3339, stringVal)
-
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse the value '%s' as a date in valueDate", stringVal)
 		}

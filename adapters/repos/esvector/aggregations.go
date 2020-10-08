@@ -66,7 +66,7 @@ func aggBody(query map[string]interface{}, params traverser.AggregateParams) (ma
 		includeCount = true
 	}
 
-	var limit = 100 // default or overwrite if set
+	limit := 100 // default or overwrite if set
 	if params.Limit != nil {
 		limit = *params.Limit
 	}

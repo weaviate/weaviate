@@ -115,10 +115,12 @@ func (f *fakeVectorRepo) PutThing(ctx context.Context, index string,
 	concept *models.Thing, vector []float32) error {
 	return nil
 }
+
 func (f *fakeVectorRepo) PutAction(ctx context.Context, index string,
 	concept *models.Action, vector []float32) error {
 	return nil
 }
+
 func (f *fakeVectorRepo) VectorSearch(ctx context.Context,
 	vector []float32, limit int, filters *filters.LocalFilter) ([]search.Result, error) {
 	return nil, nil

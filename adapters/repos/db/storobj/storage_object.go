@@ -96,6 +96,7 @@ func (ko *Object) CreationTimeUnix() int64 {
 		panic("impossible kind")
 	}
 }
+
 func (ko *Object) ID() strfmt.UUID {
 	switch ko.Kind {
 	case kind.Thing:
@@ -139,6 +140,7 @@ func (ko *Object) LastUpdateTimeUnix() int64 {
 		panic("impossible kind")
 	}
 }
+
 func (ko *Object) Meta() *models.UnderscoreProperties {
 	return ko.UnderscoreProperties()
 }
@@ -153,6 +155,7 @@ func (ko *Object) UnderscoreProperties() *models.UnderscoreProperties {
 		panic("impossible kind")
 	}
 }
+
 func (ko *Object) Schema() models.PropertySchema {
 	switch ko.Kind {
 	case kind.Thing:
@@ -174,6 +177,7 @@ func (ko *Object) SetSchema(schema models.PropertySchema) {
 		panic("impossible kind")
 	}
 }
+
 func (ko *Object) VectorWeights() models.VectorWeights {
 	switch ko.Kind {
 	case kind.Thing:

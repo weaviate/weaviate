@@ -163,7 +163,7 @@ func creatingThings(t *testing.T) {
 	})
 
 	// Examples of how a Thing can be invalid.
-	var invalidThingTestCases = []struct {
+	invalidThingTestCases := []struct {
 		// What is wrong in this example
 		mistake string
 

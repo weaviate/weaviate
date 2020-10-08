@@ -119,9 +119,11 @@ func classIndexFromClassName(kind kind.Kind, className string) string {
 		indexPrefix, kind.Name(), strings.ToLower(className))
 }
 
-const allThingIndices = indexPrefix + "thing_*"
-const allActionIndices = indexPrefix + "action_*"
-const allClassIndices = indexPrefix + "*"
+const (
+	allThingIndices  = indexPrefix + "thing_*"
+	allActionIndices = indexPrefix + "action_*"
+	allClassIndices  = indexPrefix + "*"
+)
 
 func (m *Migrator) setMappings(ctx context.Context, index string,
 	props []*models.Property) error {

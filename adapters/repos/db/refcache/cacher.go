@@ -145,7 +145,8 @@ func (c *Cacher) findJobsFromResponse(objects []search.Result, properties traver
 					c.addJob(multi.Identifier{
 						ID:        ref.TargetID.String(),
 						Kind:      ref.Kind,
-						ClassName: selectPropRef.ClassName}, innerProperties)
+						ClassName: selectPropRef.ClassName,
+					}, innerProperties)
 				}
 			}
 		}

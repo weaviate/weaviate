@@ -266,7 +266,7 @@ func (f *fakeVectorRepoContextual) VectorClassSearch(ctx context.Context,
 		return nil, f.errorOnAggregate
 	}
 
-	var out = []search.Result{
+	out := []search.Result{
 		results[0],
 	}
 

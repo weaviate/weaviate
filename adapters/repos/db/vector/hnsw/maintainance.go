@@ -17,8 +17,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const initialSize = 10000
-const defaultIndexGrowthDelta = 10000
+const (
+	initialSize             = 10000
+	defaultIndexGrowthDelta = 10000
+)
 
 // growIndexToAccomodateNode is a wrapper around the growIndexToAccomodateNode
 // function growing the index of the hnsw struct. It does not do any locking on

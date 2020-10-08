@@ -33,6 +33,7 @@ type NilMigrator struct{}
 func (n *NilMigrator) AddClass(ctx context.Context, kind kind.Kind, class *models.Class) error {
 	return nil
 }
+
 func (n *NilMigrator) DropClass(ctx context.Context, kind kind.Kind, className string) error {
 	return nil
 }
@@ -48,6 +49,7 @@ func (n *NilMigrator) AddProperty(ctx context.Context, kind kind.Kind, className
 func (n *NilMigrator) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string, newKeywords *models.Keywords) error {
 	return nil
 }
+
 func (n *NilMigrator) UpdatePropertyAddDataType(ctx context.Context, kind kind.Kind, className string, propName string, newDataType string) error {
 	return nil
 }
@@ -388,7 +390,7 @@ func testUpdateClassKeywords(t *testing.T, lsm *Manager) {
 	})
 	assert.Nil(t, err)
 
-	//Now update just the keyword
+	// Now update just the keyword
 	updatedKeywords := models.Class{
 		Class:              "Car",
 		VectorizeClassName: ptBool(true),
@@ -484,7 +486,7 @@ func testAddPropertyWithInvalidKeywordWeightsDuringCreation(t *testing.T, lsm *M
 	t.Parallel()
 
 	// keyword larger than 1
-	var properties = []*models.Property{
+	properties := []*models.Property{
 		{
 			Name:     "color",
 			DataType: []string{"string"},
@@ -676,7 +678,7 @@ func testUpdatePropertyAddDataTypeNew(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
 	// Create a class & property
-	var properties = []*models.Property{
+	properties := []*models.Property{
 		{Name: "madeBy", DataType: []string{"RemoteInstance/Manufacturer"}},
 	}
 
@@ -705,7 +707,7 @@ func testUpdatePropertyAddDataTypeExisting(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
 	// Create a class & property
-	var properties = []*models.Property{
+	properties := []*models.Property{
 		{Name: "madeBy", DataType: []string{"RemoteInstance/Manufacturer"}},
 	}
 

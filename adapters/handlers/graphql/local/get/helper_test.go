@@ -28,7 +28,6 @@ import (
 type mockRequestsLog struct{}
 
 func (m *mockRequestsLog) Register(first string, second string) {
-
 }
 
 type mockResolver struct {

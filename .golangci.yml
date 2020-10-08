@@ -4,6 +4,7 @@ linters:
   enable:
     - misspell
     - bodyclose
+    - gofumpt
 
 issues:
   exclude-rules:

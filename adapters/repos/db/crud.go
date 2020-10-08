@@ -167,7 +167,6 @@ func (d *DB) enrichRefsForSingle(ctx context.Context, obj *search.Result,
 	props traverser.SelectProperties, meta bool) (*search.Result, error) {
 	res, err := refcache.NewResolver(refcache.NewCacher(d, d.logger)).
 		Do(ctx, []search.Result{*obj}, props, meta)
-
 	if err != nil {
 		return nil, errors.Wrap(err, "resolve cross-refs")
 	}

@@ -91,7 +91,8 @@ func TestGetKindHappyPathWithThings(t *testing.T) {
 				assert.Equal(t, "GET", r.Method, "should be a GET request")
 				assert.Equal(t, "/v1/things/best-uuid", r.URL.String(),
 					"should match the right path")
-			}, happyPathHandler}
+			}, happyPathHandler,
+		}
 		peers.RemoteKind(thing)
 	})
 }
@@ -147,7 +148,8 @@ func TestGetKindHappyPathWithActions(t *testing.T) {
 				assert.Equal(t, "GET", r.Method, "should be a GET request")
 				assert.Equal(t, "/v1/actions/best-uuid-2", r.URL.String(),
 					"should match the right path")
-			}, happyPathHandler}
+			}, happyPathHandler,
+		}
 		peers.RemoteKind(action)
 	})
 }

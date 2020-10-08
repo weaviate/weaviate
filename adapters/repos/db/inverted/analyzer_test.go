@@ -107,7 +107,7 @@ func TestAnalyzer(t *testing.T) {
 			return in[0].Data
 		}
 
-		var results = [][]byte{
+		results := [][]byte{
 			getData(a.Float(math.MinInt64)),
 			getData(a.Int(-1000000)),
 			getData(a.Int(-400000)),
@@ -129,7 +129,7 @@ func TestAnalyzer(t *testing.T) {
 			getData(a.Float(math.MaxInt64)),
 		}
 
-		var afterSort = make([][]byte, len(results))
+		afterSort := make([][]byte, len(results))
 		copy(afterSort, results)
 		sort.Slice(afterSort, func(a, b int) bool { return bytes.Compare(afterSort[a], afterSort[b]) == -1 })
 		assert.Equal(t, results, afterSort)
@@ -141,7 +141,7 @@ func TestAnalyzer(t *testing.T) {
 			return in[0].Data
 		}
 
-		var results = [][]byte{
+		results := [][]byte{
 			getData(a.Float(-math.MaxFloat64)),
 			getData(a.Float(-1000000)),
 			getData(a.Float(-400000)),
@@ -175,7 +175,7 @@ func TestAnalyzer(t *testing.T) {
 			getData(a.Float(math.MaxFloat64)),
 		}
 
-		var afterSort = make([][]byte, len(results))
+		afterSort := make([][]byte, len(results))
 		copy(afterSort, results)
 		sort.Slice(afterSort, func(a, b int) bool { return bytes.Compare(afterSort[a], afterSort[b]) == -1 })
 		assert.Equal(t, results, afterSort)
@@ -187,7 +187,7 @@ func TestAnalyzer(t *testing.T) {
 			return in[0].Data
 		}
 
-		var results = [][]byte{
+		results := [][]byte{
 			getData(a.RefCount(make(models.MultipleRef, 0))),
 			getData(a.RefCount(make(models.MultipleRef, 1))),
 			getData(a.RefCount(make(models.MultipleRef, 2))),
@@ -199,7 +199,7 @@ func TestAnalyzer(t *testing.T) {
 			getData(a.RefCount(make(models.MultipleRef, 456))),
 		}
 
-		var afterSort = make([][]byte, len(results))
+		afterSort := make([][]byte, len(results))
 		copy(afterSort, results)
 		sort.Slice(afterSort, func(a, b int) bool { return bytes.Compare(afterSort[a], afterSort[b]) == -1 })
 		assert.Equal(t, results, afterSort)

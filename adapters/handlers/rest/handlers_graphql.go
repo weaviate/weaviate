@@ -49,7 +49,8 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI, gqlProvider graphQLProvid
 			errorResponse.Error = []*models.ErrorResponseErrorItems0{
 				&models.ErrorResponseErrorItems0{
 					Message: "query cannot be empty",
-				}}
+				},
+			}
 			return graphql.NewGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
 		}
 
@@ -65,7 +66,8 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI, gqlProvider graphQLProvid
 				&models.ErrorResponseErrorItems0{
 					Message: "no graphql provider present, " +
 						"this is most likely because no schema is present. Import a schema first!",
-				}}
+				},
+			}
 			return graphql.NewGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
 		}
 
@@ -81,7 +83,8 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI, gqlProvider graphQLProvid
 			errorResponse.Error = []*models.ErrorResponseErrorItems0{
 				&models.ErrorResponseErrorItems0{
 					Message: fmt.Sprintf("couldn't marshal json: %s", jsonErr),
-				}}
+				},
+			}
 			return graphql.NewGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
 		}
 
@@ -94,7 +97,8 @@ func setupGraphQLHandlers(api *operations.WeaviateAPI, gqlProvider graphQLProvid
 			errorResponse.Error = []*models.ErrorResponseErrorItems0{
 				&models.ErrorResponseErrorItems0{
 					Message: fmt.Sprintf("couldn't unmarshal json: %s\noriginal result was %#v", marshallErr, result),
-				}}
+				},
+			}
 			return graphql.NewGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
 		}
 

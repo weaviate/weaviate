@@ -154,6 +154,7 @@ func (f *fakeVectorRepo) PutThing(ctx context.Context,
 	args := f.Called(concept, vector)
 	return args.Error(0)
 }
+
 func (f *fakeVectorRepo) PutAction(ctx context.Context,
 	concept *models.Action, vector []float32) error {
 	args := f.Called(concept, vector)

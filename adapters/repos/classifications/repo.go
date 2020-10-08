@@ -77,6 +77,7 @@ func (r *Repo) init() error {
 
 	return nil
 }
+
 func (r *Repo) Put(ctx context.Context, classification models.Classification) error {
 	classificationJSON, err := json.Marshal(classification)
 	if err != nil {

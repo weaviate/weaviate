@@ -138,7 +138,8 @@ func (c *cacher) findJobsFromResponse(sr searchResponse, properties traverser.Se
 					c.addJob(storageIdentifier{
 						id:        ref.TargetID.String(),
 						kind:      ref.Kind,
-						className: selectPropRef.ClassName}, innerProperties)
+						className: selectPropRef.ClassName,
+					}, innerProperties)
 				}
 			}
 		}

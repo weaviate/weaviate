@@ -53,6 +53,7 @@ func (db *DB) ClassSearch(ctx context.Context,
 	return db.enrichRefsForList(ctx, storobj.SearchResults(res), params.Properties,
 		params.UnderscoreProperties.RefMeta)
 }
+
 func (db *DB) VectorClassSearch(ctx context.Context,
 	params traverser.GetParams) ([]search.Result, error) {
 	if params.SearchVector == nil {
@@ -74,6 +75,7 @@ func (db *DB) VectorClassSearch(ctx context.Context,
 	return db.enrichRefsForList(ctx, storobj.SearchResults(res), params.Properties,
 		params.UnderscoreProperties.RefMeta)
 }
+
 func (db *DB) VectorSearch(ctx context.Context, vector []float32, limit int,
 	filters *filters.LocalFilter) ([]search.Result, error) {
 	var found search.Results
@@ -154,7 +156,6 @@ func (d *DB) enrichRefsForList(ctx context.Context, objs search.Results,
 	props traverser.SelectProperties, meta bool) (search.Results, error) {
 	res, err := refcache.NewResolver(refcache.NewCacher(d, d.logger)).
 		Do(ctx, objs, props, meta)
-
 	if err != nil {
 		return nil, errors.Wrap(err, "resolve cross-refs")
 	}

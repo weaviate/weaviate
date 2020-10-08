@@ -90,7 +90,7 @@ func ParsePath(pathElements []interface{}, rootClass string) (*Path, error) {
 	var sentinel Path
 
 	// Keep track of where we are in the path (e.g. always points to latest Path segment)
-	var current = &sentinel
+	current := &sentinel
 
 	// Now go through the path elements, step over it in increments of two.
 	// Simple case:      ClassName -> property
@@ -117,7 +117,6 @@ func ParsePath(pathElements []interface{}, rootClass string) (*Path, error) {
 		}
 
 		propertyName, err := schema.ValidatePropertyName(rawPropertyName)
-
 		// Invalid property name?
 		// Try to parse it as as a reference.
 		if err != nil {

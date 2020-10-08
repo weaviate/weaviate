@@ -93,9 +93,7 @@ func (b *BatchManager) validateAction(ctx context.Context, principal *models.Pri
 	wg *sync.WaitGroup, concept *models.Action, originalIndex int, resultsC *chan BatchAction, fieldsToKeep map[string]int) {
 	defer wg.Done()
 
-	var (
-		id strfmt.UUID
-	)
+	var id strfmt.UUID
 
 	ec := &errorCompounder{}
 
@@ -239,9 +237,7 @@ func (b *BatchManager) validateThing(ctx context.Context, principal *models.Prin
 	wg *sync.WaitGroup, concept *models.Thing, originalIndex int, resultsC *chan BatchThing, fieldsToKeep map[string]int) {
 	defer wg.Done()
 
-	var (
-		id strfmt.UUID
-	)
+	var id strfmt.UUID
 
 	ec := &errorCompounder{}
 

@@ -45,8 +45,10 @@ var PrimitiveDataTypes []DataType = []DataType{DataTypeString, DataTypeText, Dat
 
 type PropertyKind int
 
-const PropertyKindPrimitive PropertyKind = 1
-const PropertyKindRef PropertyKind = 2
+const (
+	PropertyKindPrimitive PropertyKind = 1
+	PropertyKindRef       PropertyKind = 2
+)
 
 type PropertyDataType interface {
 	Kind() PropertyKind

@@ -73,7 +73,6 @@ func GetPropertyByName(c *models.Class, propName string) (*models.Property, erro
 func GetPropertyDataType(class *models.Class, propertyName string) (*DataType, error) {
 	// Get the class-property
 	prop, err := GetPropertyByName(class, propertyName)
-
 	if err != nil {
 		return nil, err
 	}

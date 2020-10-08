@@ -564,22 +564,23 @@ func Test_Resolve(t *testing.T) {
 				},
 			},
 			expectedGroupBy: groupCarByMadeByManufacturerName(),
-			expectedResults: []result{{
-				pathToField: []string{"Aggregate", "Things", "Car"},
-				expectedValue: []interface{}{
-					map[string]interface{}{
-						"horsepower": map[string]interface{}{
-							"maximum": 610.0,
-							"minimum": 89.0,
-							"mean":    275.7,
-							"median":  289.0,
-							"mode":    115.0,
-							"count":   23,
-							"sum":     6343.0,
+			expectedResults: []result{
+				{
+					pathToField: []string{"Aggregate", "Things", "Car"},
+					expectedValue: []interface{}{
+						map[string]interface{}{
+							"horsepower": map[string]interface{}{
+								"maximum": 610.0,
+								"minimum": 89.0,
+								"mean":    275.7,
+								"median":  289.0,
+								"mode":    115.0,
+								"count":   23,
+								"sum":     6343.0,
+							},
 						},
 					},
 				},
-			},
 			},
 		},
 
