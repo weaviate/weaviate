@@ -74,11 +74,7 @@ func processSingleFile(name string) error {
 
 func headerNeedsUpdate(content []byte) bool {
 	current := headerSectionRe.Find(content)
-	if bytes.Equal(bytes.TrimSpace(current), targetHeader) {
-		return false
-	}
-
-	return true
+	return !bytes.Equal(bytes.TrimSpace(current), targetHeader)
 }
 
 func extendWithHeader(name string, content []byte) error {
@@ -109,13 +105,10 @@ func hasNoHeader(content []byte, name string) bool {
 	}
 
 	lines := bytes.Split(h, []byte("\n"))
-	if len(lines) < 4 {
-		// this comment is so short, this is most likely not a header section,
-		// let's add a header in front of it instead
-		return true
-	}
 
-	return false
+	// this comment is so short, this is most likely not a header section,
+	// let's add a header in front of it instead
+	return len(lines) < 4
 }
 
 func startsWithBuildTag(content []byte) bool {

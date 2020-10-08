@@ -165,7 +165,7 @@ func (b *BatchManager) exists(ctx context.Context, k kind.Kind, id strfmt.UUID) 
 }
 
 func actionsChanToSlice(c chan BatchAction) BatchActions {
-	result := make([]BatchAction, len(c), len(c))
+	result := make([]BatchAction, len(c))
 	for action := range c {
 		result[action.OriginalIndex] = action
 	}
@@ -299,7 +299,7 @@ func (b *BatchManager) validateThing(ctx context.Context, principal *models.Prin
 }
 
 func thingsChanToSlice(c chan BatchThing) BatchThings {
-	result := make([]BatchThing, len(c), len(c))
+	result := make([]BatchThing, len(c))
 	for thing := range c {
 		result[thing.OriginalIndex] = thing
 	}

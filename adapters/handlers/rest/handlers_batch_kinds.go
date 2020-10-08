@@ -48,7 +48,7 @@ func (h *batchKindHandlers) addThings(params batching.BatchingThingsCreateParams
 }
 
 func (h *batchKindHandlers) thingsResponse(input kinds.BatchThings) []*models.ThingsGetResponse {
-	response := make([]*models.ThingsGetResponse, len(input), len(input))
+	response := make([]*models.ThingsGetResponse, len(input))
 	for i, thing := range input {
 		var errorResponse *models.ErrorResponse
 		if thing.Err != nil {
@@ -90,7 +90,7 @@ func (h *batchKindHandlers) addActions(params batching.BatchingActionsCreatePara
 }
 
 func (h *batchKindHandlers) actionsResponse(input kinds.BatchActions) []*models.ActionsGetResponse {
-	response := make([]*models.ActionsGetResponse, len(input), len(input))
+	response := make([]*models.ActionsGetResponse, len(input))
 	for i, action := range input {
 		var errorResponse *models.ErrorResponse
 		if action.Err != nil {
@@ -131,7 +131,7 @@ func (h *batchKindHandlers) addReferences(params batching.BatchingReferencesCrea
 }
 
 func (h *batchKindHandlers) referencesResponse(input kinds.BatchReferences) []*models.BatchReferenceResponse {
-	response := make([]*models.BatchReferenceResponse, len(input), len(input))
+	response := make([]*models.BatchReferenceResponse, len(input))
 	for i, ref := range input {
 		var errorResponse *models.ErrorResponse
 		var reference models.BatchReference

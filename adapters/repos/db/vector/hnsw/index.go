@@ -298,7 +298,7 @@ func (h *hnsw) registerTombstoneCleanup(cfg Config) {
 // }
 
 func (h *hnsw) Add(id int, vector []float32) error {
-	if vector == nil || len(vector) == 0 {
+	if len(vector) == 0 {
 		return fmt.Errorf("insert called with nil-vector")
 	}
 
@@ -576,7 +576,7 @@ func (h *hnsw) distBetweenNodes(a, b int) (float32, bool, error) {
 		}
 	}
 
-	if vecA == nil || len(vecA) == 0 {
+	if len(vecA) == 0 {
 		return 0, false, fmt.Errorf("got a nil or zero-length vector at docID %d", a)
 	}
 
@@ -593,7 +593,7 @@ func (h *hnsw) distBetweenNodes(a, b int) (float32, bool, error) {
 		}
 	}
 
-	if vecB == nil || len(vecB) == 0 {
+	if len(vecB) == 0 {
 		return 0, false, fmt.Errorf("got a nil or zero-length vector at docID %d", b)
 	}
 
@@ -621,12 +621,12 @@ func (h *hnsw) distBetweenNodeAndVec(node int, vecB []float32) (float32, bool, e
 		}
 	}
 
-	if vecA == nil || len(vecA) == 0 {
+	if len(vecA) == 0 {
 		return 0, false, fmt.Errorf(
 			"got a nil or zero-length vector at docID %d", node)
 	}
 
-	if vecB == nil || len(vecB) == 0 {
+	if len(vecB) == 0 {
 		return 0, false, fmt.Errorf(
 			"got a nil or zero-length vector as search vector")
 	}

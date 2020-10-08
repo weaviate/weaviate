@@ -43,7 +43,7 @@ func move(source []float32, target []float32, weight float32, direction directio
 		return nil, fmt.Errorf("movement: force must be between 0 and 1: got %f", weight)
 	}
 
-	res := make([]float32, len(source), len(source))
+	res := make([]float32, len(source))
 	for i, sourceItem := range source {
 		res[i] = sourceItem*(1-weight*multiplier) + float32(direction)*target[i]*(weight*multiplier)
 	}

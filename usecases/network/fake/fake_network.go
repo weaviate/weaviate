@@ -40,7 +40,6 @@ func (fn FakeNetwork) UpdatePeers(new_peers peers.Peers) error {
 }
 
 func (fn FakeNetwork) RegisterUpdatePeerCallback(callbackFn network.PeerUpdateCallback) {
-	return
 }
 
 // RegisterSchemaGetter does nothing, since it's a fake network

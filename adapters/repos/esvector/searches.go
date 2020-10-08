@@ -326,7 +326,7 @@ func (r *Repo) searchResponse(ctx context.Context, res *esapi.Response,
 func (sr searchResponse) toResults(r *Repo, properties traverser.SelectProperties,
 	underscoreProps traverser.UnderscoreProperties, requestCacher *cacher) ([]search.Result, error) {
 	hits := sr.Hits.Hits
-	output := make([]search.Result, len(hits), len(hits))
+	output := make([]search.Result, len(hits))
 
 	for i, hit := range hits {
 		var err error

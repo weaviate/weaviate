@@ -139,7 +139,7 @@ func (m *Migrator) esPropsFromClassProps(props []*models.Property, depth int) (m
 	for _, prop := range props {
 		// index everything unless explicitly turned off
 		index := true
-		if prop.Index != nil && *prop.Index == false {
+		if prop.Index != nil && !*prop.Index {
 			index = false
 		}
 

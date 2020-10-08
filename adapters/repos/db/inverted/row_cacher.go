@@ -53,10 +53,7 @@ func (rc *RowCacher) deleteExistingEntries(sizeToDelete uint64) {
 		rc.rowStore.Delete(key)
 		deleted += size
 		atomic.AddUint64(&rc.currentSize, -size)
-		if deleted >= sizeToDelete {
-			return false
-		}
-		return true
+		return deleted <= sizeToDelete
 	})
 }
 

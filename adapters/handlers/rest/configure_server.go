@@ -105,7 +105,7 @@ func configureAuthorizer(appState *state.State) authorization.Authorizer {
 
 func timeTillDeadline(ctx context.Context) string {
 	dl, _ := ctx.Deadline()
-	return fmt.Sprintf("%s", time.Until(dl))
+	return time.Until(dl).String()
 }
 
 func connectToNetwork(logger *logrus.Logger, config config.Config) network.Network {

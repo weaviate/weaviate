@@ -102,7 +102,7 @@ func parseNestedFilter(in *models.WhereFilter,
 }
 
 func parseOperands(ops []*models.WhereFilter) ([]filters.Clause, error) {
-	out := make([]filters.Clause, len(ops), len(ops))
+	out := make([]filters.Clause, len(ops))
 	for i, operand := range ops {
 		res, err := Parse(operand)
 		if err != nil {
@@ -146,11 +146,11 @@ func parseOperator(in string) (filters.Operator, error) {
 }
 
 func parsePath(in []string) (*filters.Path, error) {
-	if in == nil || len(in) == 0 {
+	if len(in) == 0 {
 		return nil, fmt.Errorf("field 'path': must have at least one element")
 	}
 
-	asInterface := make([]interface{}, len(in), len(in))
+	asInterface := make([]interface{}, len(in))
 	for i, elem := range in {
 		asInterface[i] = elem
 	}

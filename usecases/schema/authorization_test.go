@@ -130,7 +130,7 @@ func Test_Schema_Authorization(t *testing.T) {
 
 	t.Run("verify that a test for every public method exists", func(t *testing.T) {
 		// t.Skip()
-		testedMethods := make([]string, len(tests), len(tests))
+		testedMethods := make([]string, len(tests))
 		for i, test := range tests {
 			testedMethods[i] = test.methodName
 		}

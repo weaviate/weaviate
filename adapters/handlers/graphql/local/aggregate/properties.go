@@ -259,7 +259,7 @@ func stringPropertyFields(class *models.Class,
 			Description: descriptions.AggregatePropertyTopOccurrences,
 			Type:        graphql.NewList(stringTopOccurrences(class, property, prefix)),
 			Resolve: textResolver(func(text aggregation.Text) (interface{}, error) {
-				list := make([]interface{}, len(text.Items), len(text.Items))
+				list := make([]interface{}, len(text.Items))
 				for i, to := range text.Items {
 					list[i] = to
 				}

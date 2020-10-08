@@ -167,11 +167,7 @@ type propertyIndexer struct {
 }
 
 func (p *propertyIndexer) Indexed(className, property string) bool {
-	if property == p.noIndex {
-		return false
-	}
-
-	return true
+	return property != p.noIndex
 }
 
 func (p *propertyIndexer) VectorizeClassName(class string) bool {

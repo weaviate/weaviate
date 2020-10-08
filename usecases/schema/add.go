@@ -91,7 +91,7 @@ func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Pri
 			return err
 		}
 
-		if foundNames[property.Name] == true {
+		if foundNames[property.Name] {
 			return fmt.Errorf("name '%s' already in use as a property name for class '%s'", property.Name, class.Class)
 		}
 

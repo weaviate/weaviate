@@ -92,7 +92,7 @@ func (s *Shard) mergeObjectInTx(tx *bolt.Tx, merge kinds.MergeDocument,
 func (s *Shard) mergeObjectData(previous []byte,
 	merge kinds.MergeDocument) (*storobj.Object, error) {
 	var previousObj *storobj.Object
-	if previous == nil || len(previous) == 0 {
+	if len(previous) == 0 {
 		// DocID must be overwrite after status check, simply set to initial
 		// value
 		previousObj = storobj.New(merge.Kind, 0)

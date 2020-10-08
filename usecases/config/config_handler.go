@@ -214,7 +214,7 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 func (f *WeaviateConfig) parseConfigFile(file []byte, name string) (Config, error) {
 	var config Config
 
-	m := regexp.MustCompile(".*\\.(\\w+)$").FindStringSubmatch(name)
+	m := regexp.MustCompile(`.*\.(\w+)$`).FindStringSubmatch(name)
 	if len(m) < 2 {
 		return config, fmt.Errorf("config file does not have a file ending, got '%s'", name)
 	}

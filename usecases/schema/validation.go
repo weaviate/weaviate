@@ -80,7 +80,7 @@ func (m *Manager) validateClassNameAndKeywords(ctx context.Context, knd kind.Kin
 	}
 
 	//class name
-	if vectorizeClass == false {
+	if !vectorizeClass {
 		// if the user chooses not to vectorize the class, we don't need to check
 		// if its c11y-valid or not
 		return nil
@@ -175,7 +175,7 @@ func (m *Manager) validatePropertyNameAndKeywords(ctx context.Context, className
 			"Make sure at least one keyword in the list is not a stop word", propertyName)
 	}
 
-	if vectorizeProperty == false {
+	if !vectorizeProperty {
 		// user does not want to vectorize this property name, so we don't have to
 		// validate it
 		return nil
@@ -270,7 +270,7 @@ func (m *Manager) validatePropertyIndexState(ctx context.Context, class *models.
 			continue
 		}
 
-		if prop.Index == nil || *prop.Index == true {
+		if prop.Index == nil || *prop.Index {
 			// found at least one, this is a valid schema
 			return nil
 		}

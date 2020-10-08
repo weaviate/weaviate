@@ -110,7 +110,7 @@ func (b *BatchManager) validateReference(wg *sync.WaitGroup, ref *models.BatchRe
 }
 
 func referencesChanToSlice(c chan BatchReference) BatchReferences {
-	result := make([]BatchReference, len(c), len(c))
+	result := make([]BatchReference, len(c))
 	for reference := range c {
 		result[reference.OriginalIndex] = reference
 	}

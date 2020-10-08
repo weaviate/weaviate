@@ -147,7 +147,7 @@ func TestResolver(t *testing.T) {
 				"primitive": "foobar",
 				"ignoredRef": models.MultipleRef{
 					&models.SingleRef{
-						Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/things/ignoreMe")),
+						Beacon: strfmt.URI("weaviate://localhost/things/ignoreMe"),
 					},
 				},
 				"nestedRef": models.MultipleRef{
@@ -221,7 +221,7 @@ func TestResolver(t *testing.T) {
 								"primitive": "foobar",
 								"ignoredRef": models.MultipleRef{
 									&models.SingleRef{
-										Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/things/ignoreMe")),
+										Beacon: strfmt.URI("weaviate://localhost/things/ignoreMe"),
 									},
 								},
 								"NestedRef": []interface{}{

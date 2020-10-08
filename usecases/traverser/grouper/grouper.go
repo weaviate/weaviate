@@ -119,7 +119,7 @@ func (gs groups) flatten(strategy string) (out []search.Result, err error) {
 }
 
 func (gs groups) flattenClosest() ([]search.Result, error) {
-	out := make([]search.Result, len(gs.Elements), len(gs.Elements))
+	out := make([]search.Result, len(gs.Elements))
 	for i, group := range gs.Elements {
 		out[i] = group.Elements[0] // hard-code "closest" strategy for now
 	}
@@ -128,7 +128,7 @@ func (gs groups) flattenClosest() ([]search.Result, error) {
 }
 
 func (gs groups) flattenMerge() ([]search.Result, error) {
-	out := make([]search.Result, len(gs.Elements), len(gs.Elements))
+	out := make([]search.Result, len(gs.Elements))
 	for i, group := range gs.Elements {
 		merged, err := group.flattenMerge()
 		if err != nil {
