@@ -3,6 +3,7 @@ linters:
     - errcheck
   enable:
     - misspell
+    - bodyclose
 
 issues:
   exclude-rules:
