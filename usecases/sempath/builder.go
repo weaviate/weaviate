@@ -255,7 +255,7 @@ func (f *PathBuilder) buildPath(neighbors []*models.NearestNeighbor, searchVecto
 	target []float32) *models.SemanticPath {
 	var path []*models.SemanticPathElement
 
-	var minDist = float32(math.MaxFloat32)
+	minDist := float32(math.MaxFloat32)
 
 	current := searchVector // initial search point
 

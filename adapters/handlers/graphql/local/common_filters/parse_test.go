@@ -52,6 +52,7 @@ func TestExtractFilterToplevelField(t *testing.T) {
 	query := `{ SomeAction(where: { path: ["intField"], operator: Equal, valueInt: 42}) }`
 	resolver.AssertResolve(t, query)
 }
+
 func TestExtractFilterLike(t *testing.T) {
 	t.Parallel()
 
@@ -78,6 +79,7 @@ func TestExtractFilterLike(t *testing.T) {
 		}) }`
 	resolver.AssertResolve(t, query)
 }
+
 func TestExtractFilterLike_ValueText(t *testing.T) {
 	t.Parallel()
 
@@ -213,17 +215,18 @@ func TestExtractOperand(t *testing.T) {
 
 	expectedParams := &filters.LocalFilter{Root: &filters.Clause{
 		Operator: filters.OperatorAnd,
-		Operands: []filters.Clause{filters.Clause{
-			Operator: filters.OperatorEqual,
-			On: &filters.Path{
-				Class:    schema.AssertValidClassName("SomeAction"),
-				Property: schema.AssertValidPropertyName("intField"),
+		Operands: []filters.Clause{
+			filters.Clause{
+				Operator: filters.OperatorEqual,
+				On: &filters.Path{
+					Class:    schema.AssertValidClassName("SomeAction"),
+					Property: schema.AssertValidPropertyName("intField"),
+				},
+				Value: &filters.Value{
+					Value: 42,
+					Type:  schema.DataTypeInt,
+				},
 			},
-			Value: &filters.Value{
-				Value: 42,
-				Type:  schema.DataTypeInt,
-			},
-		},
 			filters.Clause{
 				Operator: filters.OperatorEqual,
 				On: &filters.Path{
@@ -239,7 +242,8 @@ func TestExtractOperand(t *testing.T) {
 					Type:  schema.DataTypeInt,
 				},
 			},
-		}}}
+		},
+	}}
 
 	resolver.On("ReportFilters", expectedParams).
 		Return(test_helper.EmptyList(), nil).Once()

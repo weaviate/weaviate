@@ -20,7 +20,7 @@ import (
 
 // ExtractAnalyticsProps from GraphQL arguments
 func ExtractAnalyticsProps(args map[string]interface{}, cfg config.AnalyticsEngine) (filters.AnalyticsProps, error) {
-	var res = filters.AnalyticsProps{}
+	res := filters.AnalyticsProps{}
 
 	if !cfg.Enabled {
 		return res, nil

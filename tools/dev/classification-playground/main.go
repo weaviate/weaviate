@@ -31,7 +31,7 @@ type category struct {
 }
 
 func categoryLookup(id string) string {
-	var includedCategories = []category{
+	includedCategories := []category{
 		category{
 			"f0102af9-c45a-447a-8c06-2bec2f96a5c6",
 			"comp.graphics",
@@ -352,7 +352,7 @@ type searchRes struct {
 type hit map[string]interface{}
 
 func printVector(v []float32) string {
-	var asStrings = make([]string, len(v))
+	asStrings := make([]string, len(v))
 	for i, number := range v {
 		asStrings[i] = fmt.Sprintf("%f", number)
 	}

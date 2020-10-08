@@ -42,7 +42,8 @@ func TestExtractSchemaWithPrimitiveActions(t *testing.T) {
 							Name:     "bestStringProp",
 						},
 					},
-				}},
+				},
+			},
 		},
 		Things: nil,
 	}
@@ -63,7 +64,8 @@ func TestExtractSchemaWithPrimitiveThings(t *testing.T) {
 							Name:     "bestStringProp",
 						},
 					},
-				}},
+				},
+			},
 		},
 		Actions: nil,
 	}
@@ -84,7 +86,8 @@ func TestExtractSchemaWithThingsWithLocalRefs(t *testing.T) {
 							Name:     "BestReference",
 						},
 					},
-				}},
+				},
+			},
 		},
 		Actions: nil,
 	}

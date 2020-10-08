@@ -19,7 +19,6 @@ import (
 func (s *Schema) GetClass(k kind.Kind, className ClassName) *models.Class {
 	schema := s.SemanticSchemaFor(k)
 	class, err := GetClassByName(schema, string(className))
-
 	if err != nil {
 		return nil
 	}

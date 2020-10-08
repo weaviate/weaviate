@@ -63,7 +63,7 @@ func (c *Client) IsWordPresent(ctx context.Context, word string) (bool, error) {
 	return res.Present, nil
 }
 
-//SafeGetSimilarWordsWithCertainty will always return a list words - unless there is a network error
+// SafeGetSimilarWordsWithCertainty will always return a list words - unless there is a network error
 func (c *Client) SafeGetSimilarWordsWithCertainty(ctx context.Context, word string, certainty float32) ([]string, error) {
 	res, err := c.grpcClient.SafeGetSimilarWordsWithCertainty(ctx, &pb.SimilarWordsParams{Word: word, Certainty: certainty})
 	if err != nil {

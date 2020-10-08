@@ -29,7 +29,6 @@ func (c *Classifier) classifyItemUsingKNN(item search.Result, itemIndex int, kin
 	res, err := c.vectorRepo.AggregateNeighbors(ctx, item.Vector,
 		kind, item.ClassName,
 		params.ClassifyProperties, int(*params.K), filters.trainingSet)
-
 	if err != nil {
 		return fmt.Errorf("classify %s/%s: %v", item.ClassName, item.ID, err)
 	}

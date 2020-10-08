@@ -214,7 +214,7 @@ func mergeUserFilterWithRefCountFilter(userFilter *libfilters.LocalFilter, class
 		}
 	}
 
-	var rootFilter = &libfilters.LocalFilter{}
+	rootFilter := &libfilters.LocalFilter{}
 	if userFilter == nil {
 		rootFilter.Root = &countRootClause
 	} else {

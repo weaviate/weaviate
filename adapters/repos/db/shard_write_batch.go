@@ -39,7 +39,7 @@ func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) m
 	_ = duplicates
 
 	beforeObjectStore := time.Now()
-	var wg = &sync.WaitGroup{}
+	wg := &sync.WaitGroup{}
 	for i := 0; i < len(objects); i += maxPerTransaction {
 		end := i + maxPerTransaction
 		if end > len(objects) {
@@ -178,7 +178,7 @@ func (s *Shard) addReferencesBatch(ctx context.Context,
 	m := &sync.Mutex{}
 	errs := map[int]error{} // int represents original index
 
-	var wg = &sync.WaitGroup{}
+	wg := &sync.WaitGroup{}
 	for i := 0; i < len(refs); i += maxPerTransaction {
 		end := i + maxPerTransaction
 		if end > len(refs) {

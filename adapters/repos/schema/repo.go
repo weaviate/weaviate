@@ -24,8 +24,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-var schemaBucket = []byte("schema")
-var schemaKey = []byte("schema")
+var (
+	schemaBucket = []byte("schema")
+	schemaKey    = []byte("schema")
+)
 
 type Repo struct {
 	logger  logrus.FieldLogger

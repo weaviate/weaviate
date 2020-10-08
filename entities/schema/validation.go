@@ -16,9 +16,11 @@ import (
 	"regexp"
 )
 
-var validateClassNameRegex *regexp.Regexp
-var validatePropertyNameRegex *regexp.Regexp
-var validateNetworkClassRegex *regexp.Regexp
+var (
+	validateClassNameRegex    *regexp.Regexp
+	validatePropertyNameRegex *regexp.Regexp
+	validateNetworkClassRegex *regexp.Regexp
+)
 
 func init() {
 	validateClassNameRegex = regexp.MustCompile(`^([A-Z][a-z]+)+$`)

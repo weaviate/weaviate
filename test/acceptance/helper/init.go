@@ -25,10 +25,12 @@ import (
 )
 
 // Configuration flags provided by the user that runs an acceptance test.
-var ServerPort string
-var ServerHost string
-var ServerScheme string
-var DebugHTTP bool
+var (
+	ServerPort   string
+	ServerHost   string
+	ServerScheme string
+	DebugHTTP    bool
+)
 
 // Credentials for the root key
 var RootAuth runtime.ClientAuthInfoWriterFunc

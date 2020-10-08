@@ -18,7 +18,7 @@ import (
 )
 
 func extractNetworkRefClassNames(schema *schema.Schema) []crossrefs.NetworkClass {
-	var result = []crossrefs.NetworkClass{}
+	result := []crossrefs.NetworkClass{}
 
 	if schema.Actions != nil {
 		result = append(result, extractFromClasses(schema.Actions.Classes)...)
@@ -32,7 +32,7 @@ func extractNetworkRefClassNames(schema *schema.Schema) []crossrefs.NetworkClass
 }
 
 func extractFromClasses(classes []*models.Class) []crossrefs.NetworkClass {
-	var result = []crossrefs.NetworkClass{}
+	result := []crossrefs.NetworkClass{}
 	for _, class := range classes {
 		result = append(result, extractFromProperties(class.Properties)...)
 	}
@@ -41,7 +41,7 @@ func extractFromClasses(classes []*models.Class) []crossrefs.NetworkClass {
 }
 
 func extractFromProperties(props []*models.Property) []crossrefs.NetworkClass {
-	var result = []crossrefs.NetworkClass{}
+	result := []crossrefs.NetworkClass{}
 	for _, prop := range props {
 		result = append(result, extractFromDataTypes(prop.DataType)...)
 	}
@@ -50,7 +50,7 @@ func extractFromProperties(props []*models.Property) []crossrefs.NetworkClass {
 }
 
 func extractFromDataTypes(types []string) []crossrefs.NetworkClass {
-	var result = []crossrefs.NetworkClass{}
+	result := []crossrefs.NetworkClass{}
 	for _, t := range types {
 		if class, err := crossrefs.ParseClass(t); err == nil {
 			result = append(result, class)

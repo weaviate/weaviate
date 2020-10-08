@@ -367,7 +367,7 @@ func (sr searchResponse) toResults(r *Repo, properties traverser.SelectPropertie
 		if underscoreProps.Classification ||
 			underscoreProps.Vector ||
 			underscoreProps.Interpretation {
-			var underscores = &models.UnderscoreProperties{}
+			underscores := &models.UnderscoreProperties{}
 			storedUnderscores := r.extractUnderscoreProps(hit.Source)
 
 			if underscoreProps.Vector {

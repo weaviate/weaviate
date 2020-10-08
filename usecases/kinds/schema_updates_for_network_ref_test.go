@@ -72,7 +72,7 @@ func TestSchemaUpdaterWithSingleNetworkRefFromThingToThing(t *testing.T) {
 			},
 		})
 
-	//assert
+	// assert
 	t.Run("does not error", func(t *testing.T) {
 		require.Nil(t, err, "it does not error with a primitive schema")
 	})
@@ -103,7 +103,7 @@ func TestSchemaUpdaterWithSingleNetworkRefFromActinToThing(t *testing.T) {
 			},
 		})
 
-	//assert
+	// assert
 	t.Run("does not error", func(t *testing.T) {
 		assert.Nil(t, err, "it does not error with a primitive schema")
 	})

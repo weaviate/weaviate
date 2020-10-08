@@ -92,12 +92,15 @@ type noopCommitLogger struct{}
 func (n *noopCommitLogger) AddNode(node *vertex) error {
 	return nil
 }
+
 func (n *noopCommitLogger) SetEntryPointWithMaxLayer(id int, level int) error {
 	return nil
 }
+
 func (n *noopCommitLogger) AddLinkAtLevel(nodeid int, level int, target uint32) error {
 	return nil
 }
+
 func (n *noopCommitLogger) ReplaceLinksAtLevel(nodeid int, level int, targets []uint32) error {
 	return nil
 }

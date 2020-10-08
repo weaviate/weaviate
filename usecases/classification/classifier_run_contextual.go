@@ -166,7 +166,7 @@ func (c *contextualItemClassifier) property(propName string) (string, error) {
 }
 
 func (c *contextualItemClassifier) findClosestTarget(query []float32, targetProp string) (*search.Result, float32, error) {
-	var minimum = float32(100000)
+	minimum := float32(100000)
 	var prediction search.Result
 
 	for _, item := range c.context.targets[targetProp] {

@@ -183,7 +183,7 @@ func (s Shard) updateInvertedIndex(tx *bolt.Tx, object *storobj.Object,
 		return errors.Wrap(err, "analyze next object")
 	}
 
-	var invertPropsToAdd = nextInvertProps
+	invertPropsToAdd := nextInvertProps
 	if status.isUpdate {
 		// since this is an update, we need to analyze the old object, calculate
 		// the delta, then delete the "toBeDeleted" and overwrite the "toAdds" with
