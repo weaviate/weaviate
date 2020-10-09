@@ -335,6 +335,25 @@ func TestExtractUnderscoreFields(t *testing.T) {
 			},
 		},
 		test{
+			name:  "with _certainty",
+			query: "{ Get { Actions { SomeAction { _certainty } } } }",
+			expectedParams: traverser.GetParams{
+				Kind:      kind.Action,
+				ClassName: "SomeAction",
+				UnderscoreProperties: traverser.UnderscoreProperties{
+					Certainty: true,
+				},
+			},
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"_certainty": 0.69,
+				},
+			},
+			expectedResult: map[string]interface{}{
+				"_certainty": 0.69,
+			},
+		},
+		test{
 			name:  "with _interpretation",
 			query: "{ Get { Actions { SomeAction { _interpretation { source { concept weight occurrence } }  } } } }",
 			expectedParams: traverser.GetParams{
