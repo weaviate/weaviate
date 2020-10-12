@@ -304,7 +304,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		explorer := NewExplorer(search, vectorizer, newFakeDistancer69(), log, extender, projector, pathBuilder)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = []float32{1.0, 2.0, 3.0}
-		//expectedParamsToSearch.SearchVector = nil
+		// expectedParamsToSearch.SearchVector = nil
 		search.
 			On("VectorClassSearch", expectedParamsToSearch).
 			Return(searchResults, nil)
