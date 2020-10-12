@@ -303,7 +303,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 		log, _ := test.NewNullLogger()
 		projector := &fakeProjector{}
 		pathBuilder := &fakePathBuilder{}
-		explorer := NewExplorer(search, vectorizer, newFakeDistancer(), log, extender, projector, pathBuilder)
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer69(), log, extender, projector, pathBuilder)
 		expectedParamsToSearch := params
 		expectedParamsToSearch.SearchVector = []float32{1.0, 2.0, 3.0}
 		//expectedParamsToSearch.SearchVector = nil
@@ -327,7 +327,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			assert.Equal(t, 200, resMap["age"])
 			assert.Contains(t, resMap, "_certainty")
 			// Certainty is fixed to 0.5 in this mock
-			assert.InEpsilon(t, 0.5, resMap["_certainty"], 0.000001)
+			assert.InEpsilon(t, 0.31, resMap["_certainty"], 0.000001)
 		})
 	})
 
@@ -784,6 +784,13 @@ func Test_Explorer_GetClass(t *testing.T) {
 func newFakeDistancer() func(a, b []float32) (float32, error) {
 	return func(source, target []float32) (float32, error) {
 		return 0.5, nil
+	}
+}
+
+// newFakeDistancer69 return 0.69 to allow the assertion of certainty vs distance.
+func newFakeDistancer69() func(a, b []float32) (float32, error) {
+	return func(source, target []float32) (float32, error) {
+		return 0.69, nil
 	}
 }
 
