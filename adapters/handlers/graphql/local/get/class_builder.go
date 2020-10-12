@@ -159,7 +159,7 @@ func (b *classBuilder) underscoreFields(classProperties graphql.Fields, kindName
 	classProperties["_nearestNeighbors"] = b.underscoreNNField(kindName, class)
 	classProperties["_featureProjection"] = b.underscoreFeatureProjectionField(kindName, class)
 	classProperties["_semanticPath"] = b.underscoreSemanticPathField(kindName, class)
-	classProperties["_certainty"] = b.underscor
+	classProperties["_certainty"] = b.underscoreCertaintyField(kindName, class)
 
 }
 
@@ -268,6 +268,13 @@ func (b *classBuilder) underscoreSemanticPathField(kindName string, class *model
 
 func (b *classBuilder) underscoreCertaintyField(kindName string, class *models.Class) *graphql.Field {
 	return &graphql.Field{
-		Type: graphql.NewObject(graphql),
+		Type: graphql.Float,
+		//Type: graphql.NewObject(graphql.ObjectConfig{
+		//	Name: fmt.Sprintf("%sUnnderscoreCertainty", class.Class),
+		//	Fields: graphql.Field{
+		//		Name:              "_certainty",
+		//		Type:              graphql.Float,
+		//	},
+		//}),
 	}
 }
