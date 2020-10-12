@@ -16,7 +16,6 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/notimplemented"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/refcache"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
@@ -29,8 +28,13 @@ import (
 
 func (db *DB) Aggregate(ctx context.Context,
 	params traverser.AggregateParams) (*aggregation.Result, error) {
-	return nil, fmt.Errorf("aggregations not supported yet in standalone mode, "+
-		"see %s for details", notimplemented.Link)
+	idx := db.GetIndex(params.Kind, schema.ClassName(params.ClassName))
+	if idx == nil {
+		return nil, fmt.Errorf("tried to browse non-existing index for %s/%s",
+			params.Kind, params.ClassName)
+	}
+
+	return idx.aggregate(ctx, params)
 }
 
 func (db *DB) ClassSearch(ctx context.Context,

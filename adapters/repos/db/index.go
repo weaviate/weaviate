@@ -19,6 +19,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
+	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/multi"
@@ -211,4 +212,20 @@ func (i *Index) mergeObject(ctx context.Context, merge kinds.MergeDocument) erro
 	}
 
 	return nil
+}
+
+func (i *Index) aggregate(ctx context.Context,
+	params traverser.AggregateParams) (*aggregation.Result, error) {
+	// TODO: don't ignore meta
+
+	// TODO: search across all shards, rather than hard-coded "single" shard
+	// TODO: can we improve this by hashing so we know the target shard?
+
+	shard := i.Shards["single"]
+	obj, err := shard.aggregate(ctx, params)
+	if err != nil {
+		return nil, errors.Wrapf(err, "shard %s", shard.ID())
+	}
+
+	return obj, nil
 }
