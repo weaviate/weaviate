@@ -324,7 +324,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			assert.Contains(t, resMap, "age")
 			assert.Equal(t, 200, resMap["age"])
 			assert.Contains(t, resMap, "_certainty")
-			// Certainty is fixed to 0.5 in this mock
+			// Certainty is fixed to 0.69 in this mock
 			assert.InEpsilon(t, 0.31, resMap["_certainty"], 0.000001)
 		})
 	})

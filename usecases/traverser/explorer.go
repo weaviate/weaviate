@@ -132,7 +132,7 @@ func (e *Explorer) getClassExploration(ctx context.Context,
 		res = withPath
 	}
 
-	return e.searchResultsToGetResponse(ctx, res, params.Explore.Certainty, searchVector, params)
+	return e.searchResultsToGetResponse(ctx, res, searchVector, params)
 }
 
 func (e *Explorer) getClassList(ctx context.Context,
@@ -173,11 +173,11 @@ func (e *Explorer) getClassList(ctx context.Context,
 		return nil, fmt.Errorf("semantic path not possible on 'list' queries, only on 'explore' queries")
 	}
 
-	return e.searchResultsToGetResponse(ctx, res, 0, nil, params)
+	return e.searchResultsToGetResponse(ctx, res, nil, params)
 }
 
 func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
-	input []search.Result, requiredCertainty float64,
+	input []search.Result,
 	searchVector []float32, params GetParams) ([]interface{}, error) {
 	output := make([]interface{}, 0, len(input))
 
@@ -210,7 +210,7 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 				return nil, fmt.Errorf("explorer: calculate distance: %v", err)
 			}
 
-			if 1-(dist) < float32(requiredCertainty) {
+			if 1-(dist) < float32(params.Explore.Certainty) {
 				continue
 			}
 
