@@ -419,6 +419,8 @@ func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.De
 				underscoreProps.SemanticPath = &sempath.Params{}
 			case "_featureProjection":
 				underscoreProps.FeatureProjection = parseFeatureProjectionArguments(field.Arguments)
+			case "_certainty":
+				underscoreProps.Certainty = true
 			}
 		} else {
 			properties = append(properties, property)
