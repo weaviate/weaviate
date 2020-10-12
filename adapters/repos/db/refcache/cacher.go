@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -146,7 +145,8 @@ func (c *Cacher) findJobsFromResponse(objects []search.Result, properties traver
 					c.addJob(multi.Identifier{
 						ID:        ref.TargetID.String(),
 						Kind:      ref.Kind,
-						ClassName: selectPropRef.ClassName}, innerProperties)
+						ClassName: selectPropRef.ClassName,
+					}, innerProperties)
 				}
 			}
 		}
@@ -179,7 +179,6 @@ func (c *Cacher) extractAndParseBeacon(item *models.SingleRef) (*crossref.Ref, e
 
 func (c *Cacher) ReplaceInitialPropertiesWithSpecific(obj search.Result,
 	properties traverser.SelectProperties) (traverser.SelectProperties, error) {
-
 	if properties != nil {
 		// don't overwrite the properties if the caller has explicitly set them,
 		// this can only mean they're at the root level
@@ -209,7 +208,6 @@ func (c *Cacher) findJob(si multi.Identifier) (cacherJob, bool) {
 	for _, job := range c.jobs {
 		if job.si == si {
 			return job, true
-
 		}
 	}
 
@@ -221,7 +219,7 @@ func (c *Cacher) incompleteJobs() []cacherJob {
 	out := make([]cacherJob, len(c.jobs))
 	n := 0
 	for _, job := range c.jobs {
-		if job.complete == false {
+		if !job.complete {
 			out[n] = job
 			n++
 		}
@@ -235,7 +233,7 @@ func (c *Cacher) completeJobs() []cacherJob {
 	out := make([]cacherJob, len(c.jobs))
 	n := 0
 	for _, job := range c.jobs {
-		if job.complete == true {
+		if job.complete {
 			out[n] = job
 			n++
 		}
@@ -313,19 +311,6 @@ func (c *Cacher) logSkipFetchJobs() {
 				"action": "request_cacher_fetch_jobs_skip",
 			}).
 		Trace("skip fetch jobs, have no incomplete jobs")
-}
-
-func (c *Cacher) logCompleteFetchJobs(start time.Time, amount int) {
-	took := time.Since(start)
-
-	c.logger.
-		WithFields(
-			logrus.Fields{
-				"action": "request_cacher_fetch_jobs_complete",
-				"took":   took,
-				"jobs":   amount,
-			}).
-		Trace("fetch jobs complete")
 }
 
 // parseAndStore parses the results for nested refs. Since it is already a

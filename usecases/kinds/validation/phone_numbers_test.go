@@ -25,7 +25,6 @@ import (
 )
 
 func TestPropertyOfTypePhoneNumberValidation(t *testing.T) {
-
 	type test struct {
 		name           string
 		phone          interface{} // "phone" property in schema

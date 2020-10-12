@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
@@ -35,20 +36,30 @@ type Shard struct {
 	counter          *indexcounter.Counter
 	vectorIndex      VectorIndex
 	invertedRowCache *inverted.RowCacher
+	metrics          *Metrics
 }
 
 func NewShard(shardName string, index *Index) (*Shard, error) {
 	s := &Shard{
 		index:            index,
 		name:             shardName,
-		invertedRowCache: inverted.NewRowCacher(10 * 1024 * 1024),
+		invertedRowCache: inverted.NewRowCacher(50 * 1024 * 1024),
+		metrics:          NewMetrics(index.logger),
 	}
 
-	makeCommitLogger := func() hnsw.CommitLogger {
-		return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID())
-	}
-	vi, err := hnsw.New(s.index.Config.RootPath, s.ID(), makeCommitLogger,
-		60, 128, s.vectorByIndexID)
+	vi, err := hnsw.New(hnsw.Config{
+		Logger:   index.logger,
+		RootPath: s.index.Config.RootPath,
+		ID:       s.ID(),
+		MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
+			return hnsw.NewCommitLogger(s.index.Config.RootPath, s.ID(), 10*time.Second,
+				index.logger)
+		},
+		MaximumConnections:       60,
+		EFConstruction:           128,
+		VectorForIDThunk:         s.vectorByIndexID,
+		TombstoneCleanupInterval: 5 * time.Minute,
+	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
 	}

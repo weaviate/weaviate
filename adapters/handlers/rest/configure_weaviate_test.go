@@ -27,5 +27,4 @@ func TestCreateErrorResponseObject(t *testing.T) {
 	} else {
 		t.Error("Wrong struct used, should be ErrorResponse but is: ", typeName.Name())
 	}
-
 }

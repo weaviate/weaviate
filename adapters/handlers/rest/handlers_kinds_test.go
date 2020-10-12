@@ -77,12 +77,10 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-
 				fakeManager := &fakeManager{
 					addThingReturn: test.thing,
 				}
-				fakeRequestLog := &fakeRequestLog{}
-				h := &kindHandlers{manager: fakeManager, requestsLog: fakeRequestLog}
+				h := &kindHandlers{manager: fakeManager}
 				res := h.addThing(things.ThingsCreateParams{
 					HTTPRequest: httptest.NewRequest("POST", "/v1/things", nil),
 					Body:        test.thing,
@@ -146,13 +144,11 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-
 				fakeManager := &fakeManager{
 					addThingReturn: test.thing,
 				}
-				fakeRequestLog := &fakeRequestLog{}
 				config := config.Config{Origin: "https://awesomehost.com"}
-				h := &kindHandlers{manager: fakeManager, requestsLog: fakeRequestLog, config: config}
+				h := &kindHandlers{manager: fakeManager, config: config}
 				res := h.addThing(things.ThingsCreateParams{
 					HTTPRequest: httptest.NewRequest("POST", "/v1/things", nil),
 					Body:        test.thing,
@@ -214,12 +210,10 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-
 				fakeManager := &fakeManager{
 					getThingReturn: test.thing,
 				}
-				fakeRequestLog := &fakeRequestLog{}
-				h := &kindHandlers{manager: fakeManager, requestsLog: fakeRequestLog}
+				h := &kindHandlers{manager: fakeManager}
 				res := h.getThing(things.ThingsGetParams{HTTPRequest: httptest.NewRequest("GET", "/v1/things", nil)}, nil)
 				parsed, ok := res.(*things.ThingsGetOK)
 				require.True(t, ok)
@@ -302,12 +296,10 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-
 				fakeManager := &fakeManager{
 					getThingsReturn: test.thing,
 				}
-				fakeRequestLog := &fakeRequestLog{}
-				h := &kindHandlers{manager: fakeManager, requestsLog: fakeRequestLog}
+				h := &kindHandlers{manager: fakeManager}
 				res := h.getThings(things.ThingsListParams{HTTPRequest: httptest.NewRequest("GET", "/v1/things", nil)}, nil)
 				parsed, ok := res.(*things.ThingsListOK)
 				require.True(t, ok)
@@ -366,12 +358,10 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-
 				fakeManager := &fakeManager{
 					updateThingReturn: test.thing,
 				}
-				fakeRequestLog := &fakeRequestLog{}
-				h := &kindHandlers{manager: fakeManager, requestsLog: fakeRequestLog}
+				h := &kindHandlers{manager: fakeManager}
 				res := h.updateThing(things.ThingsUpdateParams{
 					HTTPRequest: httptest.NewRequest("POST", "/v1/things", nil),
 					Body:        test.thing,
@@ -433,12 +423,10 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-
 				fakeManager := &fakeManager{
 					addActionReturn: test.action,
 				}
-				fakeRequestLog := &fakeRequestLog{}
-				h := &kindHandlers{manager: fakeManager, requestsLog: fakeRequestLog}
+				h := &kindHandlers{manager: fakeManager}
 				res := h.addAction(actions.ActionsCreateParams{
 					HTTPRequest: httptest.NewRequest("POST", "/v1/actions", nil),
 					Body:        test.action,
@@ -500,12 +488,10 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-
 				fakeManager := &fakeManager{
 					getActionReturn: test.action,
 				}
-				fakeRequestLog := &fakeRequestLog{}
-				h := &kindHandlers{manager: fakeManager, requestsLog: fakeRequestLog}
+				h := &kindHandlers{manager: fakeManager}
 				res := h.getAction(actions.ActionsGetParams{HTTPRequest: httptest.NewRequest("GET", "/v1/actions", nil)}, nil)
 				parsed, ok := res.(*actions.ActionsGetOK)
 				require.True(t, ok)
@@ -588,12 +574,10 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-
 				fakeManager := &fakeManager{
 					getActionsReturn: test.action,
 				}
-				fakeRequestLog := &fakeRequestLog{}
-				h := &kindHandlers{manager: fakeManager, requestsLog: fakeRequestLog}
+				h := &kindHandlers{manager: fakeManager}
 				res := h.getActions(actions.ActionsListParams{HTTPRequest: httptest.NewRequest("GET", "/v1/actions", nil)}, nil)
 				parsed, ok := res.(*actions.ActionsListOK)
 				require.True(t, ok)
@@ -652,12 +636,10 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-
 				fakeManager := &fakeManager{
 					updateActionReturn: test.action,
 				}
-				fakeRequestLog := &fakeRequestLog{}
-				h := &kindHandlers{manager: fakeManager, requestsLog: fakeRequestLog}
+				h := &kindHandlers{manager: fakeManager}
 				res := h.updateAction(actions.ActionsUpdateParams{
 					HTTPRequest: httptest.NewRequest("POST", "/v1/actions", nil),
 					Body:        test.action,
@@ -668,7 +650,6 @@ func TestEnrichObjectsWithLinks(t *testing.T) {
 			})
 		}
 	})
-
 }
 
 type fakeManager struct {
@@ -761,7 +742,3 @@ func (f *fakeManager) DeleteThingReference(_ context.Context, _ *models.Principa
 func (f *fakeManager) DeleteActionReference(_ context.Context, _ *models.Principal, _ strfmt.UUID, _ string, _ *models.SingleRef) error {
 	panic("not implemented") // TODO: Implement
 }
-
-type fakeRequestLog struct{}
-
-func (f *fakeRequestLog) Register(_ string, _ string) {}

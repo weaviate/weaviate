@@ -42,7 +42,6 @@ func main() {
 	for _, fname := range fileNames {
 		fatal(processSingleFile(fname))
 	}
-
 }
 
 func processSingleFile(name string) error {
@@ -56,7 +55,7 @@ func processSingleFile(name string) error {
 		if err != nil {
 			return fmt.Errorf("%s: %v", name, err)
 		}
-		fmt.Printf("🖋️  succesfully created header: %s\n", name)
+		fmt.Printf("🖋️  successfully created header: %s\n", name)
 		return nil
 	}
 
@@ -66,7 +65,7 @@ func processSingleFile(name string) error {
 			return fmt.Errorf("%s: %v", name, err)
 		}
 
-		fmt.Printf("👷 succesfully updated: %s\n", name)
+		fmt.Printf("👷 successfully updated: %s\n", name)
 	} else {
 		fmt.Printf("✅ already up to date: %s\n", name)
 	}
@@ -75,11 +74,7 @@ func processSingleFile(name string) error {
 
 func headerNeedsUpdate(content []byte) bool {
 	current := headerSectionRe.Find(content)
-	if bytes.Equal(bytes.TrimSpace(current), targetHeader) {
-		return false
-	}
-
-	return true
+	return !bytes.Equal(bytes.TrimSpace(current), targetHeader)
 }
 
 func extendWithHeader(name string, content []byte) error {
@@ -110,13 +105,10 @@ func hasNoHeader(content []byte, name string) bool {
 	}
 
 	lines := bytes.Split(h, []byte("\n"))
-	if len(lines) < 4 {
-		// this comment is so short, this is most likely not a header section,
-		// let's add a header in front of it instead
-		return true
-	}
 
-	return false
+	// this comment is so short, this is most likely not a header section,
+	// let's add a header in front of it instead
+	return len(lines) < 4
 }
 
 func startsWithBuildTag(content []byte) bool {

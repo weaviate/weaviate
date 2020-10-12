@@ -38,7 +38,7 @@ func main() {
 	m1 := concurrency.NewMutex(s1, "/my-lock")
 
 	// acquire lock for s1
-	log.Println("about to aquire lock")
+	log.Println("about to acquire lock")
 	if err := m1.Lock(context.TODO()); err != nil {
 		log.Fatal(err)
 	}

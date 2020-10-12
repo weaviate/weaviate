@@ -56,7 +56,7 @@ func (b *classBuilder) initRefs() {
 	networkRefs := extractNetworkRefClassNames(b.schema)
 	knownRefClasses, err := refclasses.FromPeers(b.peers, networkRefs)
 	if err != nil {
-		msg := "an error occured while trying to build known network ref classes, " +
+		msg := "an error occurred while trying to build known network ref classes, " +
 			"this kind of error won't block the graphql api, but it does mean that the mentioned refs " +
 			"will not be available. This error is expected when the network is not ready yet. If so, " +
 			"it should not reappear after a peer update"
@@ -160,7 +160,6 @@ func (b *classBuilder) underscoreFields(classProperties graphql.Fields, kindName
 	classProperties["_featureProjection"] = b.underscoreFeatureProjectionField(kindName, class)
 	classProperties["_semanticPath"] = b.underscoreSemanticPathField(kindName, class)
 	classProperties["_certainty"] = b.underscoreCertaintyField(kindName, class)
-
 }
 
 func (b *classBuilder) underscoreClassificationField(kindName string, class *models.Class) *graphql.Field {
@@ -269,12 +268,5 @@ func (b *classBuilder) underscoreSemanticPathField(kindName string, class *model
 func (b *classBuilder) underscoreCertaintyField(kindName string, class *models.Class) *graphql.Field {
 	return &graphql.Field{
 		Type: graphql.Float,
-		//Type: graphql.NewObject(graphql.ObjectConfig{
-		//	Name: fmt.Sprintf("%sUnnderscoreCertainty", class.Class),
-		//	Fields: graphql.Field{
-		//		Name:              "_certainty",
-		//		Type:              graphql.Float,
-		//	},
-		//}),
 	}
 }

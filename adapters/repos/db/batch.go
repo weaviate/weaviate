@@ -86,5 +86,31 @@ func (db *DB) BatchPutActions(ctx context.Context, actions kinds.BatchActions) (
 }
 
 func (db *DB) AddBatchReferences(ctx context.Context, references kinds.BatchReferences) (kinds.BatchReferences, error) {
-	return nil, nil
+	byIndex := map[string]kinds.BatchReferences{}
+	for _, item := range references {
+		for _, index := range db.indices {
+			if index.Config.Kind != item.From.Kind ||
+				index.Config.ClassName != item.From.Class {
+				continue
+			}
+
+			if item.Err != nil {
+				// item has a validation error or another reason to ignore
+				continue
+			}
+
+			queue := byIndex[index.ID()]
+			queue = append(queue, item)
+			byIndex[index.ID()] = queue
+		}
+	}
+
+	for indexID, queue := range byIndex {
+		errs := db.indices[indexID].addReferencesBatch(ctx, queue)
+		for index, err := range errs {
+			references[queue[index].OriginalIndex].Err = err
+		}
+	}
+
+	return references, nil
 }

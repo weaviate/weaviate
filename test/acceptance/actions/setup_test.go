@@ -61,7 +61,6 @@ func Test_Actions(t *testing.T) {
 				},
 			},
 		})
-		many := "many"
 		createActionClass(t, &models.Class{
 			Class:              "TestActionTwo",
 			VectorizeClassName: ptBool(true),
@@ -71,9 +70,8 @@ func Test_Actions(t *testing.T) {
 					DataType: []string{"TestAction"},
 				},
 				&models.Property{
-					Name:        "testReferences",
-					DataType:    []string{"TestAction"},
-					Cardinality: &many,
+					Name:     "testReferences",
+					DataType: []string{"TestAction"},
 				},
 				&models.Property{
 					Name:     "testString",

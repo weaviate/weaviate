@@ -28,7 +28,6 @@ import (
 func makeSetupMiddlewares(appState *state.State) func(http.Handler) http.Handler {
 	return func(handler http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-
 			if r.URL.String() == "/v1/.well-known/openid-configuration" {
 				handler.ServeHTTP(w, r)
 				return
@@ -36,7 +35,6 @@ func makeSetupMiddlewares(appState *state.State) func(http.Handler) http.Handler
 			appState.AnonymousAccess.Middleware(handler).ServeHTTP(w, r)
 		})
 	}
-
 }
 
 func addHandleRoot(next http.Handler) http.Handler {
@@ -88,7 +86,6 @@ func makeAddLogging(logger logrus.FieldLogger) func(http.Handler) http.Handler {
 
 func addPreflight(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-
 		if r.Method == "OPTIONS" {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 			w.Header().Set("Access-Control-Allow-Methods", "*")
@@ -102,7 +99,6 @@ func addPreflight(next http.Handler) http.Handler {
 
 func addLiveAndReadyness(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-
 		if r.URL.String() == "/v1/.well-known/live" {
 			w.WriteHeader(http.StatusOK)
 			return

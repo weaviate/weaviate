@@ -13,20 +13,30 @@
 package descriptions
 
 // NETWORK
-const NetworkIntrospect = "Get Introspection information about Things, Actions and/or Beacons in a Weaviate network"
-const NetworkIntrospectObj = "An object used to perform an Introspection query on a Weaviate network"
+const (
+	NetworkIntrospect    = "Get Introspection information about Things, Actions and/or Beacons in a Weaviate network"
+	NetworkIntrospectObj = "An object used to perform an Introspection query on a Weaviate network"
+)
 
-const NetworkIntrospectActions = "Introspect Actions in a Weaviate network"
-const NetworkIntrospectThings = "Introspect Things in a Weaviate network"
-const NetworkIntrospectBeacon = "Introspect Beacons in a Weaviate network"
+const (
+	NetworkIntrospectActions = "Introspect Actions in a Weaviate network"
+	NetworkIntrospectThings  = "Introspect Things in a Weaviate network"
+	NetworkIntrospectBeacon  = "Introspect Beacons in a Weaviate network"
+)
 
-const NetworkIntrospectWeaviate = "The Weaviate instance that the current Thing, Action or Beacon belongs to"
-const NetworkIntrospectClassName = "The name of the current Thing, Action or Beacon's class"
-const NetworkIntrospectCertainty = "The degree of similarity between a(n) Thing, Action or Beacon and the filter input"
+const (
+	NetworkIntrospectWeaviate  = "The Weaviate instance that the current Thing, Action or Beacon belongs to"
+	NetworkIntrospectClassName = "The name of the current Thing, Action or Beacon's class"
+	NetworkIntrospectCertainty = "The degree of similarity between a(n) Thing, Action or Beacon and the filter input"
+)
 
-const NetworkIntrospectActionsObj = "An object used to Introspect Actions on a Weaviate network"
-const NetworkIntrospectThingsObj = "An object used to Introspect Things on a Weaviate network"
-const NetworkIntrospectBeaconObj = "An object used to Introspect Beacons on a Weaviate network"
+const (
+	NetworkIntrospectActionsObj = "An object used to Introspect Actions on a Weaviate network"
+	NetworkIntrospectThingsObj  = "An object used to Introspect Things on a Weaviate network"
+	NetworkIntrospectBeaconObj  = "An object used to Introspect Beacons on a Weaviate network"
+)
 
-const NetworkIntrospectBeaconProperties = "The properties of a Beacon"
-const NetworkIntrospectBeaconPropertiesPropertyName = "The names of the properties of a Beacon"
+const (
+	NetworkIntrospectBeaconProperties             = "The properties of a Beacon"
+	NetworkIntrospectBeaconPropertiesPropertyName = "The names of the properties of a Beacon"
+)

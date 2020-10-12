@@ -34,10 +34,6 @@ func (t *binarySearchTreeGeneric) insert(index int, dist float32) {
 	t.root.insert(index, dist)
 }
 
-func (t *binarySearchTreeGeneric) printInOrder() {
-	t.root.printInOrder()
-}
-
 func (t *binarySearchTreeGeneric) contains(index int, dist float32) bool {
 	// before := time.Now()
 	// defer m.addContains(before)
@@ -150,20 +146,6 @@ func (n *binarySearchNodeGeneric) insert(index int, dist float32) {
 	}
 }
 
-func (n *binarySearchNodeGeneric) printInOrder() {
-	if n == nil {
-		return
-	}
-
-	if n.left != nil {
-		n.left.printInOrder()
-	}
-
-	if n.right != nil {
-		n.right.printInOrder()
-	}
-}
-
 func (n *binarySearchNodeGeneric) contains(index int, dist float32) bool {
 	if n.index == index {
 		return true
@@ -181,7 +163,6 @@ func (n *binarySearchNodeGeneric) contains(index int, dist float32) bool {
 		}
 
 		return n.right.contains(index, dist)
-
 	}
 }
 
@@ -239,8 +220,6 @@ func (n *binarySearchNodeGeneric) replaceNode(parent, replacement *binarySearchN
 	} else if parent.right == n {
 		// vice versa for right
 		parent.right = replacement
-		if replacement != nil {
-		}
 	} else {
 		panic("impossible replacement")
 	}
@@ -248,7 +227,6 @@ func (n *binarySearchNodeGeneric) replaceNode(parent, replacement *binarySearchN
 
 // delete is inspired by the great explanation at https://appliedgo.net/bintree/
 func (n *binarySearchNodeGeneric) delete(index int, dist float32, parent *binarySearchNodeGeneric) {
-
 	if n == nil {
 		panic(fmt.Sprintf("trying to delete nil node %v of parent %v", index, parent))
 	}
@@ -264,7 +242,6 @@ func (n *binarySearchNodeGeneric) delete(index int, dist float32, parent *binary
 
 		// if the node has just one child, simply swap with it's child
 		if n.left == nil {
-
 			n.replaceNode(parent, n.right)
 			return
 		}
@@ -303,7 +280,6 @@ func (n *binarySearchNodeGeneric) delete(index int, dist float32, parent *binary
 	} else {
 		n.right.delete(index, dist, n)
 	}
-
 }
 
 func (n *binarySearchNodeGeneric) flattenInOrder() []*binarySearchNodeGeneric {

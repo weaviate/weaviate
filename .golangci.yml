@@ -1,0 +1,17 @@
+linters:
+  disable:
+    - errcheck
+  enable:
+    - misspell
+    - bodyclose
+    - gofumpt
+
+issues:
+  exclude-rules:
+    # Exclude some staticcheck messages
+    - linters:
+        - staticcheck
+      text: "SA1029:"
+    - linters:
+        - staticcheck
+      text: "SA1015:"

@@ -51,6 +51,12 @@ func Test_Source_ParsingFromString(t *testing.T) {
 		t.Run("the property name is correct", func(t *testing.T) {
 			assert.Equal(t, ref.Property, schema.PropertyName("myRefProp"))
 		})
+
+		t.Run("assembling a new source and comparing if the match", func(t *testing.T) {
+			alt := NewSource(kind.Thing, "MyClassName", "myRefProp",
+				"c2cd3f91-0160-477e-869a-8da8829e0a4d")
+			assert.Equal(t, ref, alt)
+		})
 	})
 
 	t.Run("from a local action ref that is well-formed", func(t *testing.T) {
@@ -81,6 +87,12 @@ func Test_Source_ParsingFromString(t *testing.T) {
 
 		t.Run("the property name is correct", func(t *testing.T) {
 			assert.Equal(t, ref.Property, schema.PropertyName("myRefProp"))
+		})
+
+		t.Run("assembling a new source and comparing if the match", func(t *testing.T) {
+			alt := NewSource(kind.Action, "MyActionClass", "myRefProp",
+				"c2cd3f91-0160-477e-869a-8da8829e0a4d")
+			assert.Equal(t, ref, alt)
 		})
 	})
 
@@ -116,7 +128,6 @@ func Test_Source_ParsingFromString(t *testing.T) {
 	})
 
 	t.Run("with formatting errors", func(t *testing.T) {
-
 		type testCaseError struct {
 			name string
 			uri  string

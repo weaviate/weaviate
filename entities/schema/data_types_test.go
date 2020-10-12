@@ -61,7 +61,6 @@ func TestExistingClassSingleRef(t *testing.T) {
 	})
 
 	pdt, err := s.FindPropertyDataType([]string{"ExistingClass"})
-
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,13 +71,13 @@ func TestExistingClassSingleRef(t *testing.T) {
 }
 
 func TestGetPropertyDataType(t *testing.T) {
-
 	class := &models.Class{Class: "TestClass"}
-	dataTypes := []string{"string", "text", "int", "number", "boolean",
-		"date", "geoCoordinates", "phoneNumber", "Ref", "invalid"}
+	dataTypes := []string{
+		"string", "text", "int", "number", "boolean",
+		"date", "geoCoordinates", "phoneNumber", "Ref", "invalid",
+	}
 	class.Properties = make([]*models.Property, len(dataTypes))
 	for i, dtString := range dataTypes {
-
 		class.Properties[i] = &models.Property{
 			Name:     dtString + "Prop",
 			DataType: []string{dtString},

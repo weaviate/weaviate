@@ -14,7 +14,6 @@ package kinds
 import (
 	"context"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/sirupsen/logrus"
 )
@@ -24,7 +23,6 @@ import (
 type BatchManager struct {
 	network       network
 	config        *config.WeaviateConfig
-	repo          batchAndGetRepo
 	locks         locks
 	schemaManager schemaManager
 	logger        logrus.FieldLogger
@@ -42,10 +40,6 @@ type batchRepoNew interface {
 	BatchPutThings(ctx context.Context, things BatchThings) (BatchThings, error)
 	BatchPutActions(ctx context.Context, actions BatchActions) (BatchActions, error)
 	AddBatchReferences(ctx context.Context, references BatchReferences) (BatchReferences, error)
-}
-
-type batchAndGetRepo interface {
-	ClassExists(ctx context.Context, id strfmt.UUID) (bool, error)
 }
 
 // NewBatchManager creates a new manager

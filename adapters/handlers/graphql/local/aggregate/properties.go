@@ -207,7 +207,6 @@ func booleanPropertyFields(class *models.Class,
 type booleanExtractorFunc func(aggregation.Boolean) interface{}
 
 func booleanResolver(extractor booleanExtractorFunc) func(p graphql.ResolveParams) (interface{}, error) {
-
 	return func(p graphql.ResolveParams) (interface{}, error) {
 		boolean, err := extractBooleanAggregation(p.Source)
 		if err != nil {
@@ -260,7 +259,7 @@ func stringPropertyFields(class *models.Class,
 			Description: descriptions.AggregatePropertyTopOccurrences,
 			Type:        graphql.NewList(stringTopOccurrences(class, property, prefix)),
 			Resolve: textResolver(func(text aggregation.Text) (interface{}, error) {
-				list := make([]interface{}, len(text.Items), len(text.Items))
+				list := make([]interface{}, len(text.Items))
 				for i, to := range text.Items {
 					list[i] = to
 				}
@@ -286,7 +285,6 @@ func stringPropertyFields(class *models.Class,
 type textExtractorFunc func(aggregation.Text) (interface{}, error)
 
 func textResolver(extractor textExtractorFunc) func(p graphql.ResolveParams) (interface{}, error) {
-
 	return func(p graphql.ResolveParams) (interface{}, error) {
 		text, err := extractTextAggregation(p.Source)
 		if err != nil {
@@ -326,7 +324,6 @@ func stringTopOccurrences(class *models.Class,
 type textOccurrenceExtractorFunc func(aggregation.TextOccurrence) interface{}
 
 func textOccurrenceResolver(extractor textOccurrenceExtractorFunc) func(p graphql.ResolveParams) (interface{}, error) {
-
 	return func(p graphql.ResolveParams) (interface{}, error) {
 		textOccurrence, ok := p.Source.(aggregation.TextOccurrence)
 		if !ok {
@@ -384,7 +381,6 @@ func groupedByProperty(class *models.Class) *graphql.Object {
 type groupedByExtractorFunc func(*aggregation.GroupedBy) interface{}
 
 func groupedByResolver(extractor groupedByExtractorFunc) func(p graphql.ResolveParams) (interface{}, error) {
-
 	return func(p graphql.ResolveParams) (interface{}, error) {
 		groupedBy, ok := p.Source.(*aggregation.GroupedBy)
 		if !ok {

@@ -45,8 +45,10 @@ var PrimitiveDataTypes []DataType = []DataType{DataTypeString, DataTypeText, Dat
 
 type PropertyKind int
 
-const PropertyKindPrimitive PropertyKind = 1
-const PropertyKindRef PropertyKind = 2
+const (
+	PropertyKindPrimitive PropertyKind = 1
+	PropertyKindRef       PropertyKind = 2
+)
 
 type PropertyDataType interface {
 	Kind() PropertyKind
@@ -116,7 +118,6 @@ func (s *Schema) FindPropertyDataType(dataType []string) (PropertyDataType, erro
 		someDataType := dataType[0]
 		if len(someDataType) == 0 {
 			return nil, fmt.Errorf("dataType cannot be an empty string")
-
 		}
 		firstLetter := rune(someDataType[0])
 		if unicode.IsLower(firstLetter) {

@@ -67,7 +67,6 @@ func Test_Classifier_KNN(t *testing.T) {
 
 			assert.Len(t, class.ID, 36, "an id was assigned")
 			id = class.ID
-
 		})
 
 		t.Run("retrieving the same classificiation by id", func(t *testing.T) {
@@ -142,7 +141,6 @@ func Test_Classifier_KNN(t *testing.T) {
 
 			assert.Len(t, class.ID, 36, "an id was assigned")
 			id = class.ID
-
 		})
 
 		waitForStatusToNoLongerBeRunning(t, classifier, id)
@@ -190,7 +188,6 @@ func Test_Classifier_KNN(t *testing.T) {
 
 			assert.Len(t, class.ID, 36, "an id was assigned")
 			id = class.ID
-
 		})
 
 		waitForStatusToNoLongerBeRunning(t, classifier, id)
@@ -309,7 +306,6 @@ func Test_Classifier_Contextual(t *testing.T) {
 
 			assert.Len(t, class.ID, 36, "an id was assigned")
 			id = class.ID
-
 		})
 
 		waitForStatusToNoLongerBeRunning(t, classifier, id)
@@ -319,7 +315,8 @@ func Test_Classifier_Contextual(t *testing.T) {
 			require.Nil(t, err)
 			require.NotNil(t, class)
 			assert.Equal(t, models.ClassificationStatusFailed, class.Status)
-			expectedErrStrings := []string{"classification failed: ",
+			expectedErrStrings := []string{
+				"classification failed: ",
 				"classify Article/75ba35af-6a08-40ae-b442-3bec69b355f9: something went wrong",
 				"classify Article/f850439a-d3cd-4f17-8fbf-5a64405645cd: something went wrong",
 				"classify Article/a2bbcbdc-76e1-477d-9e72-a6d2cfb50109: something went wrong",
@@ -356,7 +353,6 @@ func Test_Classifier_Contextual(t *testing.T) {
 
 			assert.Len(t, class.ID, 36, "an id was assigned")
 			id = class.ID
-
 		})
 
 		waitForStatusToNoLongerBeRunning(t, classifier, id)

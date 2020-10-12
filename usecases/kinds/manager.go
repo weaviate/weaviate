@@ -12,13 +12,12 @@
 // Package kinds provides managers for all kind-related items, such as things
 // and actions. Manager provides methods for "regular" interaction, such as
 // add, get, delete, update, etc. Additionally BatchManager allows for
-// effecient batch-adding of thing/action instances and references.
+// efficient batch-adding of thing/action instances and references.
 package kinds
 
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -101,7 +100,8 @@ type VectorRepo interface {
 
 	Exists(ctx context.Context, id strfmt.UUID) (bool, error)
 
-	AddReference(ctx context.Context, kind kind.Kind, source strfmt.UUID, propName string, ref *models.SingleRef) error
+	AddReference(ctx context.Context, kind kind.Kind, className string,
+		source strfmt.UUID, propName string, ref *models.SingleRef) error
 	Merge(ctx context.Context, merge MergeDocument) error
 }
 
@@ -122,17 +122,6 @@ func NewManager(locks locks, schemaManager schemaManager,
 		nnExtender:    nnExtender,
 		timeSource:    defaultTimeSource{},
 		projector:     projector,
-	}
-}
-
-type unlocker interface {
-	Unlock() error
-}
-
-func unlock(l unlocker) {
-	err := l.Unlock()
-	if err != nil {
-		log.Fatal(err)
 	}
 }
 

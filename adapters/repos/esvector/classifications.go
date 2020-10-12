@@ -29,7 +29,6 @@ import (
 
 func (r *Repo) GetUnclassified(ctx context.Context, kind kind.Kind,
 	class string, properties []string, filter *filters.LocalFilter) ([]search.Result, error) {
-
 	mustNot := []map[string]interface{}{}
 	for _, prop := range properties {
 		mustNot = append(mustNot, map[string]interface{}{
@@ -109,9 +108,9 @@ func (r *Repo) unclassifiedSearchResponse(ctx context.Context, res *esapi.Respon
 		return nil, fmt.Errorf("vector search: decode json: %v", err)
 	}
 
-	// if err := checkClassificationCount(sr.Aggregations); err != nil {
-	// 	return nil, err
-	// }
+	if err := checkClassificationCount(sr.Aggregations); err != nil {
+		return nil, err
+	}
 
 	requestCacher := newCacher(r)
 	err = requestCacher.build(ctx, sr, properties, false)
@@ -123,7 +122,6 @@ func (r *Repo) unclassifiedSearchResponse(ctx context.Context, res *esapi.Respon
 }
 
 func checkClassificationCount(res map[string]interface{}) error {
-
 	count, ok := res["count"]
 	if !ok {
 		return fmt.Errorf("get unclassified: expected 'count' aggregation, but got %v", res)
@@ -149,7 +147,6 @@ func checkClassificationCount(res map[string]interface{}) error {
 func (r *Repo) AggregateNeighbors(ctx context.Context, vector []float32,
 	kind kind.Kind, class string, properties []string, k int,
 	filter *filters.LocalFilter) ([]classification.NeighborRef, error) {
-
 	mustQueries := []map[string]interface{}{}
 	var propNames []string
 	for _, prop := range properties {
@@ -276,7 +273,6 @@ func aggregateRefNeighbors(props map[string]map[string][]float32) ([]classificat
 			WinningDistance: winning,
 			LosingDistance:  losing,
 		})
-
 	}
 
 	return out, nil
@@ -338,7 +334,8 @@ func extractBeaconFromProp(prop interface{}) (string, error) {
 	}
 
 	if len(propSlice) != 1 {
-		return "", fmt.Errorf("expected refs to have len 1, got %d", len(propSlice))
+		return "", fmt.Errorf("training data item has more than 1 reference set, "+
+			"classification requires exactly one: got %d", len(propSlice))
 	}
 
 	ref := propSlice[0]
@@ -356,12 +353,10 @@ func extractBeaconFromProp(prop interface{}) (string, error) {
 }
 
 func extractWinningAndLoosingDistances(beacons map[string][]float32, winner string) (float32, *float32) {
-
 	var winningDistances []float32
 	var losingDistances []float32
 
 	for beacon, distances := range beacons {
-
 		if beacon == winner {
 			winningDistances = distances
 		} else {

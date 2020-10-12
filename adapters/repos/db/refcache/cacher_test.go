@@ -164,7 +164,7 @@ func TestCacher(t *testing.T) {
 				"primitive": "foobar",
 				"ignoredRef": models.MultipleRef{
 					&models.SingleRef{
-						Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/things/ignoreMe")),
+						Beacon: strfmt.URI("weaviate://localhost/things/ignoreMe"),
 					},
 				},
 				"nestedRef": models.MultipleRef{
@@ -236,7 +236,7 @@ func TestCacher(t *testing.T) {
 				"primitive": "foobar",
 				"ignoredRef": models.MultipleRef{
 					&models.SingleRef{
-						Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/things/ignoreMe")),
+						Beacon: strfmt.URI("weaviate://localhost/things/ignoreMe"),
 					},
 				},
 				"nestedRef": models.MultipleRef{
@@ -398,7 +398,6 @@ func TestCacher(t *testing.T) {
 		assert.Equal(t, 2, repo.counter, "required the expected amount of lookup queries")
 		assert.Equal(t, 2, repo.counter, "required the expected amount of objects on the lookup queries")
 	})
-
 }
 
 type fakeRepo struct {

@@ -127,7 +127,7 @@ func makeResolveRefField(peers peers.Peers) graphql.FieldResolveFn {
 		}
 
 		items := p.Source.(map[string]interface{})[p.Info.FieldName].([]interface{})
-		results := make([]interface{}, len(items), len(items))
+		results := make([]interface{}, len(items))
 		for i, item := range items {
 			switch v := item.(type) {
 			case search.LocalRef:
@@ -159,7 +159,7 @@ func makeResolveRefField(peers peers.Peers) graphql.FieldResolveFn {
 				results[i] = networkRef
 
 			default:
-				return nil, fmt.Errorf("unsupported type, expeced search.LocalRef or NetworkRef, got %T", v)
+				return nil, fmt.Errorf("unsupported type, expected search.LocalRef or NetworkRef, got %T", v)
 			}
 		}
 		return results, nil

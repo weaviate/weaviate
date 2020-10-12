@@ -52,10 +52,9 @@ func JSONNumberResolver(p graphql.ResolveParams) (interface{}, error) {
 
 		default:
 			return nil, fmt.Errorf("fieldName '%s' does not match text aggregation", p.Info.FieldName)
-
 		}
 
 	default:
-		return nil, fmt.Errorf("json number resolver: unusuable type %T", p.Source)
+		return nil, fmt.Errorf("json number resolver: unusable type %T", p.Source)
 	}
 }

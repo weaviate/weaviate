@@ -28,7 +28,6 @@ import (
 // include this particular network ref class.
 func (m *Manager) AddActionReference(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
-
 	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("actions/%s", id.String()))
 	if err != nil {
 		return err
@@ -36,7 +35,7 @@ func (m *Manager) AddActionReference(ctx context.Context, principal *models.Prin
 
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
-		return NewErrInternal("could not aquire lock: %v", err)
+		return NewErrInternal("could not acquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -45,7 +44,6 @@ func (m *Manager) AddActionReference(ctx context.Context, principal *models.Prin
 
 func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
-
 	// get action to see if it exists
 	actionRes, err := m.getActionFromRepo(ctx, id, traverser.UnderscoreProperties{})
 	if err != nil {
@@ -70,7 +68,8 @@ func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, pr
 		return NewErrInternal("could not update schema for network refs: %v", err)
 	}
 
-	err = m.vectorRepo.AddReference(ctx, kind.Action, action.ID, propertyName, property)
+	err = m.vectorRepo.AddReference(ctx, kind.Action, action.Class, action.ID,
+		propertyName, property)
 	if err != nil {
 		return NewErrInternal("add reference to vector repo: %v", err)
 	}
@@ -83,7 +82,6 @@ func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, pr
 // include this particular network ref class.
 func (m *Manager) AddThingReference(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
-
 	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("things/%s", id.String()))
 	if err != nil {
 		return err
@@ -91,7 +89,7 @@ func (m *Manager) AddThingReference(ctx context.Context, principal *models.Princ
 
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
-		return NewErrInternal("could not aquire lock: %v", err)
+		return NewErrInternal("could not acquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -100,7 +98,6 @@ func (m *Manager) AddThingReference(ctx context.Context, principal *models.Princ
 
 func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
-
 	// get thing to see if it exists
 	thingRes, err := m.getThingFromRepo(ctx, id, traverser.UnderscoreProperties{})
 	if err != nil {
@@ -124,7 +121,8 @@ func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, pri
 		return NewErrInternal("could not update schema for network refs: %v", err)
 	}
 
-	err = m.vectorRepo.AddReference(ctx, kind.Thing, thing.ID, propertyName, property)
+	err = m.vectorRepo.AddReference(ctx, kind.Thing, thing.Class, thing.ID,
+		propertyName, property)
 	if err != nil {
 		return NewErrInternal("add reference to vector repo: %v", err)
 	}
@@ -171,10 +169,6 @@ func (m *Manager) validateCanModifyReference(principal *models.Principal, k kind
 
 	if propertyDataType.IsPrimitive() {
 		return NewErrInvalidUserInput("property '%s' is a primitive datatype, not a reference-type", propertyName)
-	}
-
-	if prop.Cardinality == nil || *prop.Cardinality != "many" {
-		return NewErrInvalidUserInput("Property '%s' has a cardinality of atMostOne", propertyName)
 	}
 
 	return nil

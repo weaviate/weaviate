@@ -9,6 +9,8 @@
 //  CONTACT: hello@semi.technology
 //
 
+// +build integrationTest
+
 package esvector
 
 import (
@@ -79,7 +81,7 @@ func beaconRef(target string) *models.SingleRef {
 }
 
 func classificationTestCategories() search.Results {
-	// using search.Results, becuase it's the perfect grouping of object and
+	// using search.Results, because it's the perfect grouping of object and
 	// vector
 	return search.Results{
 
@@ -130,7 +132,7 @@ func classificationTestCategories() search.Results {
 }
 
 func classificationTestArticles() search.Results {
-	// using search.Results, becuase it's the perfect grouping of object and
+	// using search.Results, because it's the perfect grouping of object and
 	// vector
 	return search.Results{
 

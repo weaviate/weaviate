@@ -62,11 +62,11 @@ func (r *Repo) Aggregate(ctx context.Context, params traverser.AggregateParams) 
 func aggBody(query map[string]interface{}, params traverser.AggregateParams) (map[string]interface{}, error) {
 	var includeCount bool
 
-	if params.GroupBy == nil && params.IncludeMetaCount == true {
+	if params.GroupBy == nil && params.IncludeMetaCount {
 		includeCount = true
 	}
 
-	var limit = 100 // default or overwrite if set
+	limit := 100 // default or overwrite if set
 	if params.Limit != nil {
 		limit = *params.Limit
 	}
@@ -103,7 +103,6 @@ const metaCountField = "_metaCountField"
 func innerAggs(properties []traverser.AggregateProperty, includeCount bool) (map[string]interface{}, error) {
 	inner := map[string]interface{}{}
 	for _, property := range properties {
-
 		if containsBooleanAggregators(property.Aggregators) {
 			// this is a special case as, we only need to do a single aggregation no
 			// matter if one or all boolean aggregators are set, therefore we're not
@@ -132,7 +131,7 @@ func innerAggs(properties []traverser.AggregateProperty, includeCount bool) (map
 		}
 	}
 
-	if includeCount == true {
+	if includeCount {
 		inner[metaCountField] = map[string]interface{}{
 			"value_count": map[string]interface{}{
 				"field": "_id",
@@ -179,7 +178,6 @@ func lookupAgg(input traverser.Aggregator) (string, error) {
 
 func aggValue(prop schema.PropertyName, agg traverser.Aggregator) (map[string]interface{}, error) {
 	switch agg.String() {
-
 	case traverser.TypeAggregator.String(), traverser.PointingToAggregator.String():
 		// handled outside of the repo
 		return nil, nil

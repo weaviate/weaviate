@@ -20,7 +20,7 @@ func ExtractExplore(source map[string]interface{}) traverser.ExploreParams {
 
 	// keywords is a required argument, so we don't need to check for its existing
 	keywords := source["concepts"].([]interface{})
-	args.Values = make([]string, len(keywords), len(keywords))
+	args.Values = make([]string, len(keywords))
 	for i, value := range keywords {
 		args.Values[i] = value.(string)
 	}
@@ -68,7 +68,7 @@ func extractMovement(input interface{}) traverser.ExploreMove {
 	res.Force = float32(moveToMap["force"].(float64))
 
 	keywords := moveToMap["concepts"].([]interface{})
-	res.Values = make([]string, len(keywords), len(keywords))
+	res.Values = make([]string, len(keywords))
 	for i, value := range keywords {
 		res.Values[i] = value.(string)
 	}

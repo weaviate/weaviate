@@ -144,12 +144,11 @@ func (p *contextualPreparer) findTargets(class schema.ClassName, kind kind.Kind)
 			},
 		},
 	})
-
 	if err != nil {
 		return nil, fmt.Errorf("search closest target: %v", err)
 	}
 
-	if res == nil || len(res) == 0 {
+	if len(res) == 0 {
 		return nil, fmt.Errorf("no potential targets found of class '%s' (%s)", class, kind)
 	}
 

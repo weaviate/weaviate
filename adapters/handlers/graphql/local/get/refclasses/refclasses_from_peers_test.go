@@ -89,7 +89,7 @@ func TestWithClassWithPrimitiveProp(t *testing.T) {
 	// act
 	result, err := FromPeers(peers, classes)
 
-	//assert
+	// assert
 	require.Nil(t, err, "should not error")
 	obj := result[expectedKey]
 	require.NotNil(t, obj, "should contain the class")
@@ -142,7 +142,7 @@ func TestWithClassWithReferenceProps(t *testing.T) {
 	// act
 	result, err := FromPeers(peers, classes)
 
-	//assert
+	// assert
 	require.Nil(t, err, "should not error")
 	fields := result[expectedKey].Fields()
 	require.Len(t, fields, 2, "should omit all ref props")

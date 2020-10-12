@@ -46,7 +46,7 @@ func (p *Path) Slice() []string {
 
 func (p *Path) SliceInterface() []interface{} {
 	path := appendNestedPath(p, true, true)
-	out := make([]interface{}, len(path), len(path))
+	out := make([]interface{}, len(path))
 	for i, element := range path {
 		out[i] = element
 	}
@@ -90,7 +90,7 @@ func ParsePath(pathElements []interface{}, rootClass string) (*Path, error) {
 	var sentinel Path
 
 	// Keep track of where we are in the path (e.g. always points to latest Path segment)
-	var current = &sentinel
+	current := &sentinel
 
 	// Now go through the path elements, step over it in increments of two.
 	// Simple case:      ClassName -> property
@@ -117,11 +117,10 @@ func ParsePath(pathElements []interface{}, rootClass string) (*Path, error) {
 		}
 
 		propertyName, err := schema.ValidatePropertyName(rawPropertyName)
-
 		// Invalid property name?
 		// Try to parse it as as a reference.
 		if err != nil {
-			untitlizedPropertyName := strings.ToLower(rawPropertyName[0:1]) + rawPropertyName[1:len(rawPropertyName)]
+			untitlizedPropertyName := strings.ToLower(rawPropertyName[0:1]) + rawPropertyName[1:]
 			propertyName, err = schema.ValidatePropertyName(untitlizedPropertyName)
 			if err != nil {
 				return nil, fmt.Errorf("Expected a valid property name in 'path' field for the filter, but got '%s'", rawPropertyName)

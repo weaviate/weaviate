@@ -94,7 +94,7 @@ func mergeAnd(children []*propValuePair) (*docPointers, error) {
 	found := map[uint32]int{} // map[id]count
 	for _, set := range sets {
 		for _, pointer := range set.docIDs {
-			count, _ := found[pointer.id]
+			count := found[pointer.id]
 			count++
 			found[pointer.id] = count
 		}
@@ -140,7 +140,7 @@ func mergeOr(children []*propValuePair) (*docPointers, error) {
 	found := map[uint32]int{} // map[id]count
 	for _, set := range sets {
 		for _, pointer := range set.docIDs {
-			count, _ := found[pointer.id]
+			count := found[pointer.id]
 			count++
 			found[pointer.id] = count
 		}
@@ -167,7 +167,7 @@ func checksumsIdentical(sets []*docPointers) bool {
 		return true
 	}
 
-	var lastChecksum = sets[0].checksum
+	lastChecksum := sets[0].checksum
 	for _, set := range sets {
 		if !bytes.Equal(set.checksum, lastChecksum) {
 			return false

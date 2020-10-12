@@ -60,7 +60,6 @@ func TestGetExistingPeer(t *testing.T) {
 			t.Errorf("%s does not match, wanted %s, gut got %s", "URI", peer.URI, actual.URI)
 		}
 	})
-
 }
 
 func TestGetWrongPeer(t *testing.T) {
@@ -166,7 +165,6 @@ func TestPingPeer(t *testing.T) {
 		act()
 		cleanUp()
 	})
-
 }
 
 type dummySchemaGetter struct {

@@ -173,7 +173,6 @@ func (v *Validator) cRef(ctx context.Context, propertyName string, pv interface{
 	case []interface{}:
 		crefs := models.MultipleRef{}
 		for _, ref := range refValue {
-
 			refTyped, ok := ref.(map[string]interface{})
 			if !ok {
 				return nil, fmt.Errorf("Multiple references in %s.%s should be a list of maps, but we got: %T",
@@ -244,7 +243,7 @@ func intVal(val interface{}) (interface{}, error) {
 	errInvalidIntegerConvertion := "the JSON number '%v' could not be converted to an int"
 
 	// Return err when the input can not be casted to json.Number
-	if data, ok = val.(json.Number); !ok {
+	if _, ok = val.(json.Number); !ok {
 		// If value is not a json.Number, it could be an int, which is fine
 		if data, ok = val.(int64); !ok {
 			// If value is not a json.Number, it could be an int, which is fine when the float does not contain a decimal
@@ -274,7 +273,7 @@ func numberVal(val interface{}) (interface{}, error) {
 	errInvalidFloat := "requires a float, the given value is '%v'"
 	errInvalidFloatConvertion := "the JSON number '%v' could not be converted to a float."
 
-	if data, ok = val.(json.Number); !ok {
+	if _, ok = val.(json.Number); !ok {
 		if data, ok = val.(float64); !ok {
 			return nil, fmt.Errorf(errInvalidFloat, val)
 		}
@@ -368,11 +367,7 @@ func parseCoordinate(raw interface{}) (float64, error) {
 
 func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName string,
 	pvcr map[string]interface{}, className string) (*models.SingleRef, error) {
-
-	if _, ok := pvcr["href"]; ok {
-		// delete read only field href
-		delete(pvcr, "href")
-	}
+	delete(pvcr, "href")
 
 	// Return different types of errors for cref input
 	if len(pvcr) != 1 {
@@ -414,7 +409,6 @@ func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName 
 // NOTE: We are not validating the semantic correctness of the equations
 // themselves, as they are in the contextinoary's resopnsibility
 func (v *Validator) validateVectorWeights(in interface{}) (map[string]string, error) {
-
 	asMap, ok := in.(map[string]interface{})
 	if !ok {
 		return nil, fmt.Errorf("must be key/value object with strings as keys and values, got %#v", in)

@@ -19,12 +19,10 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
-	"github.com/semi-technologies/weaviate/usecases/telemetry"
 )
 
 type batchKindHandlers struct {
-	manager     *kinds.BatchManager
-	requestsLog *telemetry.RequestsLog
+	manager *kinds.BatchManager
 }
 
 func (h *batchKindHandlers) addThings(params batching.BatchingThingsCreateParams,
@@ -45,15 +43,12 @@ func (h *batchKindHandlers) addThings(params batching.BatchingThingsCreateParams
 		}
 	}
 
-	for range params.Body.Things {
-		h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalAdd)
-	}
 	return batching.NewBatchingThingsCreateOK().
 		WithPayload(h.thingsResponse(things))
 }
 
 func (h *batchKindHandlers) thingsResponse(input kinds.BatchThings) []*models.ThingsGetResponse {
-	response := make([]*models.ThingsGetResponse, len(input), len(input))
+	response := make([]*models.ThingsGetResponse, len(input))
 	for i, thing := range input {
 		var errorResponse *models.ErrorResponse
 		if thing.Err != nil {
@@ -90,15 +85,12 @@ func (h *batchKindHandlers) addActions(params batching.BatchingActionsCreatePara
 		}
 	}
 
-	for range params.Body.Actions {
-		h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalAdd)
-	}
 	return batching.NewBatchingActionsCreateOK().
 		WithPayload(h.actionsResponse(actions))
 }
 
 func (h *batchKindHandlers) actionsResponse(input kinds.BatchActions) []*models.ActionsGetResponse {
-	response := make([]*models.ActionsGetResponse, len(input), len(input))
+	response := make([]*models.ActionsGetResponse, len(input))
 	for i, action := range input {
 		var errorResponse *models.ErrorResponse
 		if action.Err != nil {
@@ -134,15 +126,12 @@ func (h *batchKindHandlers) addReferences(params batching.BatchingReferencesCrea
 		}
 	}
 
-	for range params.Body {
-		h.telemetryLogAsync(telemetry.TypeREST, telemetry.LocalManipulate)
-	}
 	return batching.NewBatchingReferencesCreateOK().
 		WithPayload(h.referencesResponse(references))
 }
 
 func (h *batchKindHandlers) referencesResponse(input kinds.BatchReferences) []*models.BatchReferenceResponse {
-	response := make([]*models.BatchReferenceResponse, len(input), len(input))
+	response := make([]*models.BatchReferenceResponse, len(input))
 	for i, ref := range input {
 		var errorResponse *models.ErrorResponse
 		var reference models.BatchReference
@@ -168,8 +157,8 @@ func (h *batchKindHandlers) referencesResponse(input kinds.BatchReferences) []*m
 	return response
 }
 
-func setupKindBatchHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog, manager *kinds.BatchManager) {
-	h := &batchKindHandlers{manager, requestsLog}
+func setupKindBatchHandlers(api *operations.WeaviateAPI, manager *kinds.BatchManager) {
+	h := &batchKindHandlers{manager}
 
 	api.BatchingBatchingThingsCreateHandler = batching.
 		BatchingThingsCreateHandlerFunc(h.addThings)
@@ -177,10 +166,4 @@ func setupKindBatchHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.
 		BatchingActionsCreateHandlerFunc(h.addActions)
 	api.BatchingBatchingReferencesCreateHandler = batching.
 		BatchingReferencesCreateHandlerFunc(h.addReferences)
-}
-
-func (h *batchKindHandlers) telemetryLogAsync(requestType, identifier string) {
-	go func() {
-		h.requestsLog.Register(requestType, identifier)
-	}()
 }

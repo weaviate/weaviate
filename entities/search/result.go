@@ -106,7 +106,7 @@ func (r Result) Action() *models.Action {
 }
 
 func (rs Results) Things() []*models.Thing {
-	things := make([]*models.Thing, len(rs), len(rs))
+	things := make([]*models.Thing, len(rs))
 	for i, res := range rs {
 		things[i] = res.Thing()
 	}
@@ -115,7 +115,7 @@ func (rs Results) Things() []*models.Thing {
 }
 
 func (rs Results) Actions() []*models.Action {
-	actions := make([]*models.Action, len(rs), len(rs))
+	actions := make([]*models.Action, len(rs))
 	for i, res := range rs {
 		actions[i] = res.Action()
 	}

@@ -146,7 +146,6 @@ func (i *Inspector) individualWords(ctx context.Context,
 
 func (i *Inspector) individualWord(ctx context.Context,
 	word string) (*models.C11yWordsResponseIndividualWordsItems0, error) {
-
 	ok, err := i.client.IsWordPresent(ctx, word)
 	if err != nil {
 		return nil, fmt.Errorf("could not check word presence:  %v", err)

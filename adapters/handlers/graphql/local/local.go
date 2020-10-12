@@ -33,7 +33,6 @@ func Build(dbSchema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger
 	aggregateField, err := aggregate.Build(dbSchema, config)
 	if err != nil {
 		return nil, err
-
 	}
 	exploreField := explore.Build()
 

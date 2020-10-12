@@ -88,7 +88,6 @@ func mainCategoryById(id strfmt.UUID) mainCategory {
 		if cat.ID == id {
 			return cat
 		}
-
 	}
 
 	panic("main cat not found by id")

@@ -13,12 +13,12 @@ package config
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"regexp"
 
 	"github.com/go-openapi/swag"
+	"github.com/semi-technologies/weaviate/deprecations"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 )
@@ -29,13 +29,6 @@ const DefaultConfigFile string = "./weaviate.conf.json"
 // Flags are input options
 type Flags struct {
 	ConfigFile string `long:"config-file" description:"path to config file (default: ./weaviate.conf.json)"`
-}
-
-// Telemetry gives the outline of the telemetry parameters in the config file
-type Telemetry struct {
-	RemoteURL string `json:"remote_url" yaml:"remote_url"`
-	Interval  int    `json:"interval" yaml:"interval"`
-	Disabled  bool   `json:"disabled" yaml:"disabled"`
 }
 
 // Config outline of the config file
@@ -50,12 +43,16 @@ type Config struct {
 	ConfigurationStorage ConfigStore     `json:"configuration_storage" yaml:"configuration_storage"`
 	Authentication       Authentication  `json:"authentication" yaml:"authentication"`
 	Authorization        Authorization   `json:"authorization" yaml:"authorization"`
-	Telemetry            Telemetry       `json:"telemetry" yaml:"telemetry"`
 	VectorIndex          VectorIndex     `json:"vector_index" yaml:"vector_index"`
-	EsvectorOnly         bool            `json:"esvectorOnly" yaml:"esvectorOnly"`
-	CustomDB             bool            `json:"customdb" yaml:"customdb"`
+	Standalone           bool            `json:"standalone_mode" yaml:"standalone_mode"`
 	Origin               string          `json:"origin" yaml:"origin"`
 	Persistence          Persistence     `json:"persistence" yaml:"persistence"`
+}
+
+// Validate the non-nested parameters. Nested objects must provide their own
+// validation methods
+func (c Config) Validate() error {
+	return nil
 }
 
 // QueryDefaults for optional parameters
@@ -175,16 +172,25 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 
 	// Read config file
 	file, err := ioutil.ReadFile(configFileName)
-	if err != nil {
-		return errors.New("config file '" + configFileName + "' not found.")
+	_ = err // explicitly ignore
+
+	if len(file) > 0 {
+		config, err := f.parseConfigFile(file, configFileName)
+		if err != nil {
+			return err
+		}
+		f.Config = config
+
+		deprecations.Log(logger, "config-files")
 	}
 
-	config, err := f.parseConfigFile(file, configFileName)
-	if err != nil {
+	if err := FromEnv(&f.Config); err != nil {
 		return err
 	}
 
-	f.Config = config
+	if err := f.Config.Validate(); err != nil {
+		return fmt.Errorf("invalid config: %v", err)
+	}
 
 	if err := f.Config.Authentication.Validate(); err != nil {
 		return fmt.Errorf("invalid config: %v", err)
@@ -196,11 +202,10 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 
 	(&f.Config.VectorIndex).SetDefaults()
 
-	if f.Config.CustomDB {
+	if f.Config.Standalone {
 		if err := f.Config.Persistence.Validate(); err != nil {
 			return fmt.Errorf("invalid config: %v", err)
 		}
-
 	}
 
 	return nil
@@ -209,7 +214,7 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 func (f *WeaviateConfig) parseConfigFile(file []byte, name string) (Config, error) {
 	var config Config
 
-	m := regexp.MustCompile(".*\\.(\\w+)$").FindStringSubmatch(name)
+	m := regexp.MustCompile(`.*\.(\w+)$`).FindStringSubmatch(name)
 	if len(m) < 2 {
 		return config, fmt.Errorf("config file does not have a file ending, got '%s'", name)
 	}

@@ -18,15 +18,12 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/classifications"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/classification"
-	"github.com/semi-technologies/weaviate/usecases/telemetry"
 )
 
 func setupClassificationHandlers(api *operations.WeaviateAPI,
-	requestsLog *telemetry.RequestsLog, classifier *classification.Classifier) {
-
+	classifier *classification.Classifier) {
 	api.ClassificationsClassificationsGetHandler = classifications.ClassificationsGetHandlerFunc(
 		func(params classifications.ClassificationsGetParams, principal *models.Principal) middleware.Responder {
-
 			res, err := classifier.Get(params.HTTPRequest.Context(), principal, strfmt.UUID(params.ID))
 			if err != nil {
 				return classifications.NewClassificationsGetInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -42,7 +39,6 @@ func setupClassificationHandlers(api *operations.WeaviateAPI,
 
 	api.ClassificationsClassificationsPostHandler = classifications.ClassificationsPostHandlerFunc(
 		func(params classifications.ClassificationsPostParams, principal *models.Principal) middleware.Responder {
-
 			res, err := classifier.Schedule(params.HTTPRequest.Context(), principal, *params.Params)
 			if err != nil {
 				return classifications.NewClassificationsPostBadRequest().WithPayload(errPayloadFromSingleErr(err))

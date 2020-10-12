@@ -21,8 +21,10 @@ import (
 	"time"
 )
 
-var id = "d2a9b5be-4cfc-4929-963c-185c7f9c8697"
-var weaviateFakeID = "e90effd8-dac7-40af-9a15-6eb8f2f7bcab"
+var (
+	id             = "d2a9b5be-4cfc-4929-963c-185c7f9c8697"
+	weaviateFakeID = "e90effd8-dac7-40af-9a15-6eb8f2f7bcab"
+)
 
 func getEnvOrDefault(envName string, defaultValue string) string {
 	value := os.Getenv(envName)
@@ -63,6 +65,7 @@ func updatePeerWithList() {
 		log.Printf("could send put request: %s", err)
 		return
 	}
+	defer res.Body.Close()
 
 	if res.StatusCode != http.StatusOK {
 		log.Printf("could not send peer list: response status was %s", res.Status)
@@ -109,7 +112,6 @@ func main() {
 			updatePeerWithList()
 			time.Sleep(backOff * time.Second)
 		}
-
 	}()
 
 	http.HandleFunc("/peers/"+id+"/ping", func(w http.ResponseWriter, req *http.Request) {

@@ -43,7 +43,6 @@ func (ko *Object) enrichSchemaTypes(schema map[string]interface{}) error {
 		default:
 			continue
 		}
-
 	}
 
 	return nil

@@ -19,14 +19,11 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/meta"
-	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/p2_p"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/well_known"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/network"
-	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
-	"github.com/semi-technologies/weaviate/usecases/telemetry"
 )
 
 type schemaManager interface {
@@ -45,9 +42,8 @@ type c11yMetaProvider interface {
 	WordCount(ctx context.Context) (int64, error)
 }
 
-func setupMiscHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog,
-	serverConfig *config.WeaviateConfig, network network.Network, schemaManager schemaManager, c11y c11yMetaProvider) {
-
+func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.WeaviateConfig,
+	network network.Network, schemaManager schemaManager, c11y c11yMetaProvider) {
 	var swj swaggerJSON
 	err := json.Unmarshal(SwaggerJSON, &swj)
 	if err != nil {
@@ -73,42 +69,7 @@ func setupMiscHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Reque
 			ContextionaryWordCount: c11yWordCount,
 		}
 
-		// Register the request
-		go func() {
-			requestsLog.Register(telemetry.TypeREST, telemetry.LocalQueryMeta)
-		}()
 		return meta.NewMetaGetOK().WithPayload(res)
-	})
-
-	api.P2pP2pGenesisUpdateHandler = p2_p.P2pGenesisUpdateHandlerFunc(func(params p2_p.P2pGenesisUpdateParams) middleware.Responder {
-		newPeers := make([]peers.Peer, 0)
-
-		for _, genesisPeer := range params.Peers {
-			peer := peers.Peer{
-				ID:         genesisPeer.ID,
-				Name:       genesisPeer.Name,
-				URI:        genesisPeer.URI,
-				SchemaHash: genesisPeer.SchemaHash,
-			}
-
-			newPeers = append(newPeers, peer)
-		}
-
-		err := network.UpdatePeers(newPeers)
-
-		if err == nil {
-			// Register the request
-			go func() {
-				requestsLog.Register(telemetry.TypeREST, telemetry.NetworkQueryMeta)
-			}()
-			return p2_p.NewP2pGenesisUpdateOK()
-		}
-		return p2_p.NewP2pGenesisUpdateInternalServerError()
-	})
-
-	api.P2pP2pHealthHandler = p2_p.P2pHealthHandlerFunc(func(params p2_p.P2pHealthParams) middleware.Responder {
-		// For now, always just return success.
-		return middleware.NotImplemented("operation P2PP2pHealth has not yet been implemented")
 	})
 
 	api.WellKnownGetWellKnownOpenidConfigurationHandler = well_known.GetWellKnownOpenidConfigurationHandlerFunc(

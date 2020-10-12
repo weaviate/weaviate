@@ -25,11 +25,6 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/network/crossrefs"
 )
 
-type getRepo interface {
-	GetThing(context.Context, strfmt.UUID, *models.Thing) error
-	GetAction(context.Context, strfmt.UUID, *models.Action) error
-}
-
 type exists func(context.Context, kind.Kind, strfmt.UUID) (bool, error)
 
 type peerLister interface {
@@ -112,15 +107,9 @@ func validateClass(class string) error {
 	return nil
 }
 
-// validateRefType validates the reference type with one of the existing reference types
-func validateRefType(s string) bool {
-	return (s == "things" || s == "actions")
-}
-
 // ValidateSingleRef validates a single ref based on location URL and existence of the object in the database
 func (v *Validator) ValidateSingleRef(ctx context.Context, cref *models.SingleRef,
 	errorVal string) error {
-
 	ref, err := crossref.ParseSingleRef(cref)
 	if err != nil {
 		return fmt.Errorf("invalid reference: %s", err)

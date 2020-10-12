@@ -354,37 +354,38 @@ func Test_ExtractFlatFilters(t *testing.T) {
 							[]string{"hasAction", "SomeAction", "intField"}),
 					},
 				},
-				expectedFilter: &filters.LocalFilter{Root: &filters.Clause{
-					Operator: filters.OperatorAnd,
-					Operands: []filters.Clause{
-						filters.Clause{
-							Operator: filters.OperatorEqual,
-							On: &filters.Path{
-								Class:    schema.AssertValidClassName("Todo"),
-								Property: schema.AssertValidPropertyName("intField"),
-							},
-							Value: &filters.Value{
-								Value: 42,
-								Type:  schema.DataTypeInt,
-							},
-						},
-						filters.Clause{
-							Operator: filters.OperatorEqual,
-							On: &filters.Path{
-								Class:    schema.AssertValidClassName("Todo"),
-								Property: schema.AssertValidPropertyName("hasAction"),
-								Child: &filters.Path{
-									Class:    schema.AssertValidClassName("SomeAction"),
+				expectedFilter: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorAnd,
+						Operands: []filters.Clause{
+							filters.Clause{
+								Operator: filters.OperatorEqual,
+								On: &filters.Path{
+									Class:    schema.AssertValidClassName("Todo"),
 									Property: schema.AssertValidPropertyName("intField"),
 								},
+								Value: &filters.Value{
+									Value: 42,
+									Type:  schema.DataTypeInt,
+								},
 							},
-							Value: &filters.Value{
-								Value: 43,
-								Type:  schema.DataTypeInt,
+							filters.Clause{
+								Operator: filters.OperatorEqual,
+								On: &filters.Path{
+									Class:    schema.AssertValidClassName("Todo"),
+									Property: schema.AssertValidPropertyName("hasAction"),
+									Child: &filters.Path{
+										Class:    schema.AssertValidClassName("SomeAction"),
+										Property: schema.AssertValidPropertyName("intField"),
+									},
+								},
+								Value: &filters.Value{
+									Value: 43,
+									Type:  schema.DataTypeInt,
+								},
 							},
 						},
 					},
-				},
 				},
 			},
 			test{
@@ -397,37 +398,38 @@ func Test_ExtractFlatFilters(t *testing.T) {
 							[]string{"hasAction", "SomeAction", "intField"}),
 					},
 				},
-				expectedFilter: &filters.LocalFilter{Root: &filters.Clause{
-					Operator: filters.OperatorOr,
-					Operands: []filters.Clause{
-						filters.Clause{
-							Operator: filters.OperatorEqual,
-							On: &filters.Path{
-								Class:    schema.AssertValidClassName("Todo"),
-								Property: schema.AssertValidPropertyName("intField"),
-							},
-							Value: &filters.Value{
-								Value: 42,
-								Type:  schema.DataTypeInt,
-							},
-						},
-						filters.Clause{
-							Operator: filters.OperatorEqual,
-							On: &filters.Path{
-								Class:    schema.AssertValidClassName("Todo"),
-								Property: schema.AssertValidPropertyName("hasAction"),
-								Child: &filters.Path{
-									Class:    schema.AssertValidClassName("SomeAction"),
+				expectedFilter: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorOr,
+						Operands: []filters.Clause{
+							filters.Clause{
+								Operator: filters.OperatorEqual,
+								On: &filters.Path{
+									Class:    schema.AssertValidClassName("Todo"),
 									Property: schema.AssertValidPropertyName("intField"),
 								},
+								Value: &filters.Value{
+									Value: 42,
+									Type:  schema.DataTypeInt,
+								},
 							},
-							Value: &filters.Value{
-								Value: 43,
-								Type:  schema.DataTypeInt,
+							filters.Clause{
+								Operator: filters.OperatorEqual,
+								On: &filters.Path{
+									Class:    schema.AssertValidClassName("Todo"),
+									Property: schema.AssertValidPropertyName("hasAction"),
+									Child: &filters.Path{
+										Class:    schema.AssertValidClassName("SomeAction"),
+										Property: schema.AssertValidPropertyName("intField"),
+									},
+								},
+								Value: &filters.Value{
+									Value: 43,
+									Type:  schema.DataTypeInt,
+								},
 							},
 						},
 					},
-				},
 				},
 			},
 		}

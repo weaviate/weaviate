@@ -111,9 +111,8 @@ func addTestSchema(t *testing.T) {
 				DataType: []string{"phoneNumber"},
 			},
 			&models.Property{
-				Name:        "inCity",
-				DataType:    []string{"City"},
-				Cardinality: ptString("many"),
+				Name:     "inCity",
+				DataType: []string{"City"},
 			},
 		},
 	})
@@ -148,7 +147,6 @@ func addTestSchema(t *testing.T) {
 				Name:                  "livesIn",
 				DataType:              []string{"City"},
 				VectorizePropertyName: false,
-				Cardinality:           ptString("many"),
 			},
 		},
 	})
@@ -169,7 +167,6 @@ const (
 )
 
 func addTestDataCityAirport(t *testing.T) {
-
 	// countries
 	createThing(t, &models.Thing{
 		Class: "Country",
@@ -357,7 +354,6 @@ func addTestDataCompanies(t *testing.T) {
 
 	// companies
 	for _, company := range companies {
-
 		inCity := []interface{}{}
 		for _, c := range company.inCity {
 			inCity = append(inCity,
@@ -402,7 +398,6 @@ func addTestDataPersons(t *testing.T) {
 
 	// companies
 	for _, person := range companies {
-
 		livesIn := []interface{}{}
 		for _, c := range person.livesIn {
 			livesIn = append(livesIn,
@@ -425,9 +420,5 @@ func addTestDataPersons(t *testing.T) {
 }
 
 func ptBool(in bool) *bool {
-	return &in
-}
-
-func ptString(in string) *string {
 	return &in
 }

@@ -38,6 +38,18 @@ type RefSource struct {
 	Kind     kind.Kind
 }
 
+func NewSource(kind kind.Kind, className schema.ClassName,
+	property schema.PropertyName, id strfmt.UUID) *RefSource {
+	return &RefSource{
+		Local:    true,
+		PeerName: "localhost",
+		Class:    className,
+		TargetID: id,
+		Kind:     kind,
+		Property: property,
+	}
+}
+
 // ParseSource is a safe way to generate a RefSource, as it will error if any
 // of the input parameters are not as expected.
 func ParseSource(uriString string) (*RefSource, error) {

@@ -31,7 +31,6 @@ import (
 // potentially protected with the Authorization plugin
 
 func Test_Kinds_Authorization(t *testing.T) {
-
 	type testCase struct {
 		methodName       string
 		additionalArgs   []interface{}
@@ -168,7 +167,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 	}
 
 	t.Run("verify that a test for every public method exists", func(t *testing.T) {
-		testedMethods := make([]string, len(tests), len(tests))
+		testedMethods := make([]string, len(tests))
 		for i, test := range tests {
 			testedMethods[i] = test.methodName
 		}
@@ -207,7 +206,6 @@ func Test_Kinds_Authorization(t *testing.T) {
 }
 
 func Test_BatchKinds_Authorization(t *testing.T) {
-
 	type testCase struct {
 		methodName       string
 		additionalArgs   []interface{}
@@ -239,7 +237,7 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 	}
 
 	t.Run("verify that a test for every public method exists", func(t *testing.T) {
-		testedMethods := make([]string, len(tests), len(tests))
+		testedMethods := make([]string, len(tests))
 		for i, test := range tests {
 			testedMethods[i] = test.methodName
 		}

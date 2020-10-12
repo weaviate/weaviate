@@ -25,7 +25,6 @@ import (
 )
 
 func TestDownloadPeersWithChanges(t *testing.T) {
-
 	var (
 		initialPeers    peers.Peers
 		updatedPeers    peers.Peers
@@ -38,7 +37,7 @@ func TestDownloadPeersWithChanges(t *testing.T) {
 	)
 
 	arrange := func(p1matchers, p2matchers, p3matchers []requestMatcher) {
-		p1updatedSchema = schemaWithThingClasses("shouldnot", "matter")
+		p1updatedSchema = schemaWithThingClasses("shouldnt", "matter")
 		p2updatedSchema = schemaWithThingClasses("p2newClass1", "p2NewClass2")
 		p3updatedSchema = schemaWithThingClasses("p3newClass1", "p3NewClass2")
 		p1server = schemaEndpoint(t, p1updatedSchema, p1matchers...)
@@ -140,7 +139,7 @@ func TestDownloadPeersWithChanges(t *testing.T) {
 }
 
 func schemaWithThingClasses(names ...string) schema.Schema {
-	classes := make([]*models.Class, len(names), len(names))
+	classes := make([]*models.Class, len(names))
 	for _, class := range names {
 		classes = append(classes,
 			&models.Class{
