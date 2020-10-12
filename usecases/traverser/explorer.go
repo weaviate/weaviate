@@ -215,7 +215,7 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context,
 			}
 
 			if params.UnderscoreProperties.Certainty {
-				res.Schema.(map[string]interface{})["_certainty"] = 1-dist
+				res.Schema.(map[string]interface{})["_certainty"] = 1 - dist
 			}
 		}
 
