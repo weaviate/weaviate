@@ -437,40 +437,41 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 			require.NotNil(t, res)
 			assert.Equal(t, expectedResult.Groups, res.Groups)
 		})
-		// t.Run("single field, single aggregator", func(t *testing.T) {
-		// 	params := traverser.AggregateParams{
-		// 		Kind:      kind.Thing,
-		// 		ClassName: schema.ClassName(companyClass.Class),
-		// 		GroupBy:   nil, // explicitly set to nil
-		// 		Properties: []traverser.AggregateProperty{
-		// 			traverser.AggregateProperty{
-		// 				Name:        schema.PropertyName("dividendYield"),
-		// 				Aggregators: []traverser.Aggregator{traverser.MeanAggregator},
-		// 			},
-		// 		},
-		// 	}
 
-		// 	res, err := repo.Aggregate(context.Background(), params)
-		// 	require.Nil(t, err)
+		t.Run("single field, single aggregator", func(t *testing.T) {
+			params := traverser.AggregateParams{
+				Kind:      kind.Thing,
+				ClassName: schema.ClassName(companyClass.Class),
+				GroupBy:   nil, // explicitly set to nil
+				Properties: []traverser.AggregateProperty{
+					traverser.AggregateProperty{
+						Name:        schema.PropertyName("dividendYield"),
+						Aggregators: []traverser.Aggregator{traverser.MeanAggregator},
+					},
+				},
+			}
 
-		// 	expectedResult := &aggregation.Result{
-		// 		Groups: []aggregation.Group{
-		// 			aggregation.Group{
-		// 				GroupedBy: nil,
-		// 				Properties: map[string]aggregation.Property{
-		// 					"dividendYield": aggregation.Property{
-		// 						Type: aggregation.PropertyTypeNumerical,
-		// 						NumericalAggregations: map[string]float64{
-		// 							"mean": 2.11111,
-		// 						},
-		// 					},
-		// 				},
-		// 			},
-		// 		},
-		// 	}
+			res, err := repo.Aggregate(context.Background(), params)
+			require.Nil(t, err)
 
-		// 	assert.Equal(t, expectedResult.Groups, res.Groups)
-		// })
+			expectedResult := &aggregation.Result{
+				Groups: []aggregation.Group{
+					aggregation.Group{
+						GroupedBy: nil,
+						Properties: map[string]aggregation.Property{
+							"dividendYield": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
+								NumericalAggregations: map[string]float64{
+									"mean": 2.11111,
+								},
+							},
+						},
+					},
+				},
+			}
+
+			assert.Equal(t, expectedResult.Groups, res.Groups)
+		})
 
 		// t.Run("multiple fields, multiple aggregators", func(t *testing.T) {
 		// 	params := traverser.AggregateParams{
