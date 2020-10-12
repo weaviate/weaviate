@@ -146,4 +146,5 @@ type UnderscoreProperties struct {
 	NearestNeighbors  bool
 	SemanticPath      *sempath.Params
 	FeatureProjection *libprojector.Params
+	Certainty         bool
 }

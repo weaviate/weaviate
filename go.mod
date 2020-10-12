@@ -40,7 +40,7 @@ require (
 	go.mongodb.org/mongo-driver v1.4.2 // indirect
 	go.uber.org/atomic v1.5.0
 	golang.org/x/net v0.0.0-20200822124328-c89045814202
-	golang.org/x/tools v0.0.0-20201010145503-6e5c6d77ddcc // indirect
+	golang.org/x/tools v0.0.0-20201011145850-ed2f50202694 // indirect
 	gonum.org/v1/gonum v0.7.0
 	google.golang.org/grpc v1.24.0
 	gopkg.in/square/go-jose.v2 v2.5.1 // indirect
