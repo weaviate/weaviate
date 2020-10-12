@@ -48,7 +48,7 @@ func TestClassifications(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(30 * time.Second)
 	require.Nil(t, err)
-	migrator := NewMigrator(repo)
+	migrator := NewMigrator(repo, logger)
 
 	t.Run("importing classification schema", func(t *testing.T) {
 		for _, class := range classificationTestSchema() {
@@ -250,7 +250,7 @@ func beaconRef(target string) *models.SingleRef {
 }
 
 func classificationTestCategories() search.Results {
-	// using search.Results, becuase it's the perfect grouping of object and
+	// using search.Results, because it's the perfect grouping of object and
 	// vector
 	return search.Results{
 
@@ -301,7 +301,7 @@ func classificationTestCategories() search.Results {
 }
 
 func classificationTestArticles() search.Results {
-	// using search.Results, becuase it's the perfect grouping of object and
+	// using search.Results, because it's the perfect grouping of object and
 	// vector
 	return search.Results{
 

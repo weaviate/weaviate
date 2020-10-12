@@ -107,11 +107,6 @@ func (r *Repo) forceRefresh(ctx context.Context) error {
 	return nil
 }
 
-func (r *Repo) byIndexAndID(ctx context.Context, index string, id strfmt.UUID,
-	params traverser.SelectProperties) (*search.Result, error) {
-	return r.searchByID(ctx, index, id, params, traverser.UnderscoreProperties{})
-}
-
 func (r *Repo) searchByID(ctx context.Context, index string, id strfmt.UUID,
 	properties traverser.SelectProperties, underscore traverser.UnderscoreProperties) (*search.Result, error) {
 	filters := &filters.LocalFilter{
@@ -205,7 +200,6 @@ func (r *Repo) VectorSearch(ctx context.Context, vector []float32,
 func (r *Repo) search(ctx context.Context, index string,
 	vector []float32, limit int,
 	filters *filters.LocalFilter, params traverser.GetParams) ([]search.Result, error) {
-
 	r.logger.
 		WithField("action", "esvector_search").
 		WithField("index", index).
@@ -327,7 +321,7 @@ func (r *Repo) searchResponse(ctx context.Context, res *esapi.Response,
 func (sr searchResponse) toResults(r *Repo, properties traverser.SelectProperties,
 	underscoreProps traverser.UnderscoreProperties, requestCacher *cacher) ([]search.Result, error) {
 	hits := sr.Hits.Hits
-	output := make([]search.Result, len(hits), len(hits))
+	output := make([]search.Result, len(hits))
 
 	for i, hit := range hits {
 		var err error
@@ -373,7 +367,7 @@ func (sr searchResponse) toResults(r *Repo, properties traverser.SelectPropertie
 		if underscoreProps.Classification ||
 			underscoreProps.Vector ||
 			underscoreProps.Interpretation {
-			var underscores = &models.UnderscoreProperties{}
+			underscores := &models.UnderscoreProperties{}
 			storedUnderscores := r.extractUnderscoreProps(hit.Source)
 
 			if underscoreProps.Vector {

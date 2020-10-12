@@ -19,7 +19,6 @@ import (
 func (s *Schema) GetClass(k kind.Kind, className ClassName) *models.Class {
 	schema := s.SemanticSchemaFor(k)
 	class, err := GetClassByName(schema, string(className))
-
 	if err != nil {
 		return nil
 	}
@@ -79,14 +78,10 @@ func (s *Schema) GetProperty(kind kind.Kind, className ClassName, propName Prope
 }
 
 func (s *Schema) GetPropsOfType(propType string) []ClassAndProperty {
-	var result []ClassAndProperty
-
-	result = append(
+	return append(
 		extractAllOfPropType(s.Actions.Classes, propType),
 		extractAllOfPropType(s.Things.Classes, propType)...,
 	)
-
-	return result
 }
 
 func extractAllOfPropType(classes []*models.Class, propType string) []ClassAndProperty {

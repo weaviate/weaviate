@@ -48,7 +48,7 @@ func TestFilters(t *testing.T) {
 	err := repo.WaitForStartup(30 * time.Second)
 	require.Nil(t, err)
 
-	migrator := NewMigrator(repo)
+	migrator := NewMigrator(repo, logger)
 	t.Run("prepare test schema and data ",
 		prepareCarTestSchemaAndData(repo, migrator, schemaGetter))
 

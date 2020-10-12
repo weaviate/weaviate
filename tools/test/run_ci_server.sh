@@ -7,11 +7,9 @@ function main() {
   echo "Pull images..."
   surpress_on_success docker pull golang:1.11-alpine
   echo "Build containers (this will take the longest)..."
-  docker-compose -f docker-compose-test.yml build weaviate telemetry_mock_api \
-     esvector
+  docker-compose -f docker-compose-test.yml build weaviate esvector
   echo "Start up docker-compose setup..."
   surpress_on_success docker-compose -f docker-compose-test.yml up --force-recreate -d weaviate \
-    esvector telemetry_mock_api \
     contextionary 
 
   MAX_WAIT_SECONDS=60

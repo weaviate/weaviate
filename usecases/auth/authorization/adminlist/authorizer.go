@@ -53,7 +53,7 @@ func (a *Authorizer) Authorize(principal *models.Principal, verb, resource strin
 }
 
 func (a *Authorizer) addAdminUserList(users []string) {
-	// build a map for more effecient lookup on long lists
+	// build a map for more efficient lookup on long lists
 	if a.adminUsers == nil {
 		a.adminUsers = map[string]int{}
 	}
@@ -64,7 +64,7 @@ func (a *Authorizer) addAdminUserList(users []string) {
 }
 
 func (a *Authorizer) addReadOnlyUserList(users []string) {
-	// build a map for more effecient lookup on long lists
+	// build a map for more efficient lookup on long lists
 	if a.readOnlyUsers == nil {
 		a.readOnlyUsers = map[string]int{}
 	}

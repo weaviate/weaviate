@@ -35,7 +35,7 @@ type FeatureProjector struct {
 }
 
 func (f *FeatureProjector) Reduce(in []search.Result, params *Params) ([]search.Result, error) {
-	if in == nil || len(in) == 0 {
+	if len(in) == 0 {
 		return nil, nil
 	}
 
@@ -83,7 +83,6 @@ func (f *FeatureProjector) Reduce(in []search.Result, params *Params) ([]search.
 }
 
 func (f *FeatureProjector) vectorsToMatrix(in []search.Result, dims int, params *Params) (*mat.Dense, error) {
-
 	items := len(in)
 	var neighbors []*models.NearestNeighbor
 	if params.IncludeNeighbors {
@@ -232,12 +231,6 @@ type errorCompounder struct {
 
 func (ec *errorCompounder) addf(msg string, args ...interface{}) {
 	ec.errors = append(ec.errors, fmt.Errorf(msg, args...))
-}
-
-func (ec *errorCompounder) add(err error) {
-	if err != nil {
-		ec.errors = append(ec.errors, err)
-	}
 }
 
 func (ec *errorCompounder) toError() error {

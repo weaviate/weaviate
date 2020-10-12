@@ -82,6 +82,12 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 		items = a.String(asString)
 	case schema.DataTypeInt:
 		hasFrequency = false
+		if asFloat, ok := value.(float64); ok {
+			// unmarshaling from json into a dynamic schema will assume every number
+			// is a float64
+			value = int64(asFloat)
+		}
+
 		asInt, ok := value.(int64)
 		if !ok {
 			return nil, fmt.Errorf("expected property %s to be of type int64, but got %T", prop.Name, value)
@@ -130,7 +136,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 }
 
 func (a *Analyzer) analyzeRefProp(prop *models.Property, value interface{}) (*Property, error) {
-	// TODO: return mutliple properties when support ref-indexing. For now we
+	// TODO: return multiple properties when support ref-indexing. For now we
 	// only support counting the refs
 
 	asRefs, ok := value.(models.MultipleRef)

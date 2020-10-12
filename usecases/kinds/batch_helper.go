@@ -18,7 +18,6 @@ func determineResponseFields(fields []*string) map[string]int {
 	fieldsToKeep := map[string]int{"class": 0, "schema": 0, "creationtimeunix": 0, "key": 0, "id": 0}
 
 	if len(fields) > 0 {
-
 		// check if "ALL" option is provided
 		for _, field := range fields {
 			fieldToKeep := strings.ToLower(*field)

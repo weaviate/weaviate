@@ -128,16 +128,6 @@ func Test_ValidateUserInput(t *testing.T) {
 		},
 
 		testcase{
-			name: "classifyProperties has cardinality many",
-			input: models.Classification{
-				Class:              "Article",
-				BasedOnProperties:  []string{"description"},
-				ClassifyProperties: []string{"categories"},
-			},
-			expectedError: fmt.Errorf("invalid classification: classifyProperties: property 'categories' is of cardinality 'many', can only classifiy references of cardinality 'atMostOne'"),
-		},
-
-		testcase{
 			name:          "multiple missing fields (aborts early as we can't validate properties if class is not set)",
 			input:         models.Classification{},
 			expectedError: fmt.Errorf("invalid classification: class must be set"),

@@ -18,7 +18,7 @@ var (
 	IndexIDBucket []byte = []byte("index_ids")
 )
 
-// BucketFromPropName creates the byte-represenation used as the bucket name
+// BucketFromPropName creates the byte-representation used as the bucket name
 // for a partiular prop in the inverted index
 func BucketFromPropName(propName string) []byte {
 	return []byte(fmt.Sprintf("property_%s", propName))

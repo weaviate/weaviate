@@ -29,11 +29,8 @@ ENTRYPOINT ["./tools/dev/telemetry_mock_api.sh"]
 
 ###############################################################################
 # Weaviate (no differentiation between dev/test/prod - 12 factor!)
-# It has a development-friendly config file by default, but the config
-# can of course be overwritten through any mounted config file.
 FROM alpine AS weaviate
 ENTRYPOINT ["/bin/weaviate"]
-COPY ./tools/dev/config.docker.yaml /weaviate.conf.yaml
 COPY --from=server_builder /weaviate-server /bin/weaviate
 COPY --from=build_base /etc/ssl/certs /etc/ssl/certs
-CMD [ "--host", "0.0.0.0", "--port", "8080", "--scheme", "http", "--config-file", "./weaviate.conf.yaml" ]
+CMD [ "--host", "0.0.0.0", "--port", "8080", "--scheme", "http"]

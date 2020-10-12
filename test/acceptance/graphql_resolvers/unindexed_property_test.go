@@ -53,7 +53,6 @@ func Test_UnindexedProperty(t *testing.T) {
 		params := schema.NewSchemaThingsCreateParams().WithThingClass(c)
 		resp, err := helper.Client(t).Schema.SchemaThingsCreate(params, nil)
 		helper.AssertRequestOk(t, resp, err, nil)
-
 	})
 
 	t.Run("creating an object", func(t *testing.T) {

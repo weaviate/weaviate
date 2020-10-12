@@ -24,11 +24,18 @@ func TestHnswIndex(t *testing.T) {
 	// is tested in a separate integration test that takes care of providing and
 	// cleaning up the correct place on disk to write test files
 	cl := &noopCommitLogger{}
-	makeCL := func() CommitLogger {
-		return cl
+	makeCL := func() (CommitLogger, error) {
+		return cl, nil
 	}
 
-	index, err := New("doesnt-matter-as-committlogger-is-mocked-out", "unittest", makeCL, 30, 60, testVectorForID)
+	index, err := New(Config{
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    "unittest",
+		MakeCommitLoggerThunk: makeCL,
+		MaximumConnections:    30,
+		EFConstruction:        60,
+		VectorForIDThunk:      testVectorForID,
+	})
 	require.Nil(t, err)
 
 	for i, vec := range testVectors {
@@ -78,20 +85,42 @@ func TestHnswIndex(t *testing.T) {
 			2, 1, 0, // cluster 1
 		}, res)
 	})
-
 }
 
 type noopCommitLogger struct{}
 
-func (n *noopCommitLogger) AddNode(node *hnswVertex) error {
+func (n *noopCommitLogger) AddNode(node *vertex) error {
 	return nil
 }
+
 func (n *noopCommitLogger) SetEntryPointWithMaxLayer(id int, level int) error {
 	return nil
 }
+
 func (n *noopCommitLogger) AddLinkAtLevel(nodeid int, level int, target uint32) error {
 	return nil
 }
+
 func (n *noopCommitLogger) ReplaceLinksAtLevel(nodeid int, level int, targets []uint32) error {
+	return nil
+}
+
+func (n *noopCommitLogger) AddTombstone(nodeid int) error {
+	return nil
+}
+
+func (n *noopCommitLogger) RemoveTombstone(nodeid int) error {
+	return nil
+}
+
+func (n *noopCommitLogger) DeleteNode(nodeid int) error {
+	return nil
+}
+
+func (n *noopCommitLogger) ClearLinks(nodeid int) error {
+	return nil
+}
+
+func (n *noopCommitLogger) Reset() error {
 	return nil
 }

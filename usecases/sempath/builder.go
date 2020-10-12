@@ -44,7 +44,7 @@ type c11y interface {
 }
 
 func (f *PathBuilder) CalculatePath(in []search.Result, params *Params) ([]search.Result, error) {
-	if in == nil || len(in) == 0 {
+	if len(in) == 0 {
 		return nil, nil
 	}
 
@@ -132,7 +132,6 @@ func (f *PathBuilder) addSearchNeighbors(params *Params) ([]*models.NearestNeigh
 // TODO: document behavior if it actually stays like this
 func (f *PathBuilder) vectorsToMatrix(obj search.Result, allObjects []search.Result, dims int,
 	params *Params, searchNeighbors []*models.NearestNeighbor) (*mat.Dense, []*models.NearestNeighbor, error) {
-
 	items := 1 // the initial object
 	var neighbors []*models.NearestNeighbor
 	neighbors = f.extractNeighbors(allObjects)
@@ -235,12 +234,6 @@ func (ec *errorCompounder) addf(msg string, args ...interface{}) {
 	ec.errors = append(ec.errors, fmt.Errorf(msg, args...))
 }
 
-func (ec *errorCompounder) add(err error) {
-	if err != nil {
-		ec.errors = append(ec.errors, err)
-	}
-}
-
 func (ec *errorCompounder) toError() error {
 	if len(ec.errors) == 0 {
 		return nil
@@ -262,7 +255,7 @@ func (f *PathBuilder) buildPath(neighbors []*models.NearestNeighbor, searchVecto
 	target []float32) *models.SemanticPath {
 	var path []*models.SemanticPathElement
 
-	var minDist = float32(math.MaxFloat32)
+	minDist := float32(math.MaxFloat32)
 
 	current := searchVector // initial search point
 
@@ -333,7 +326,6 @@ func copyNeighbors(in []*models.NearestNeighbor) []*models.NearestNeighbor {
 
 func (f *PathBuilder) addDistancesToPath(path *models.SemanticPath, neighbors []*models.NearestNeighbor,
 	searchVector, targetVector []float32) (*models.SemanticPath, error) {
-
 	for i, elem := range path.Path {
 		vec, ok := neighborVecByConcept(neighbors, elem.Concept)
 		if !ok {

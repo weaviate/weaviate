@@ -34,8 +34,7 @@ func (d *DB) init() error {
 				Kind:      kind.Thing,
 				ClassName: schema.ClassName(class.Class),
 				RootPath:  d.config.RootPath,
-			}, d.schemaGetter)
-
+			}, d.schemaGetter, d.logger)
 			if err != nil {
 				return errors.Wrap(err, "create index")
 			}
@@ -51,15 +50,13 @@ func (d *DB) init() error {
 				Kind:      kind.Action,
 				ClassName: schema.ClassName(class.Class),
 				RootPath:  d.config.RootPath,
-			}, d.schemaGetter)
-
+			}, d.schemaGetter, d.logger)
 			if err != nil {
 				return errors.Wrap(err, "create index")
 			}
 
 			d.indices[idx.ID()] = idx
 		}
-
 	}
 	return nil
 }

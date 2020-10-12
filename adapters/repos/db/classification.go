@@ -32,7 +32,6 @@ import (
 // move out of here!
 func (db *DB) GetUnclassified(ctx context.Context, kind kind.Kind, class string,
 	properties []string, filter *libfilters.LocalFilter) ([]search.Result, error) {
-
 	mergedFilter := mergeUserFilterWithRefCountFilter(filter, class, properties,
 		libfilters.OperatorEqual, 0)
 	res, err := db.ClassSearch(ctx, traverser.GetParams{
@@ -52,7 +51,6 @@ func (db *DB) GetUnclassified(ctx context.Context, kind kind.Kind, class string,
 func (db *DB) AggregateNeighbors(ctx context.Context, vector []float32,
 	kind kind.Kind, class string, properties []string, k int,
 	filter *libfilters.LocalFilter) ([]classification.NeighborRef, error) {
-
 	mergedFilter := mergeUserFilterWithRefCountFilter(filter, class, properties,
 		libfilters.OperatorGreaterThan, 0)
 	res, err := db.VectorClassSearch(ctx, traverser.GetParams{
@@ -82,7 +80,6 @@ func NewKnnAggregator(input search.Results, sourceVector []float32) *KnnAggregat
 }
 
 func (a *KnnAggregator) Aggregate(k int, properties []string) ([]classification.NeighborRef, error) {
-
 	neighbors, err := a.extractBeacons(properties)
 	if err != nil {
 		return nil, errors.Wrap(err, "aggregate: extract beacons from neighbors")
@@ -111,7 +108,8 @@ func (a *KnnAggregator) extractBeacons(properties []string) (neighborProps, erro
 			}
 
 			if len(refTyped) != 1 {
-				return nil, fmt.Errorf("expecteded element[%d].Schema.%s to have exactly one reference, got: %d",
+				return nil, fmt.Errorf("a knn training data object needs to have exactly one label: "+
+					"expecteded element[%d].Schema.%s to have exactly one reference, got: %d",
 					i, prop, len(refTyped))
 			}
 
@@ -155,7 +153,6 @@ func (a *KnnAggregator) aggregateBeacons(props neighborProps) ([]classification.
 			WinningDistance: winning,
 			LosingDistance:  losing,
 		})
-
 	}
 
 	return out, nil
@@ -166,7 +163,6 @@ func (a *KnnAggregator) calculateWinningAndLoosingDistances(beacons neighborBeac
 	var losingDistances []float32
 
 	for beacon, distances := range beacons {
-
 		if beacon == winner {
 			winningDistances = distances
 		} else {
@@ -218,7 +214,7 @@ func mergeUserFilterWithRefCountFilter(userFilter *libfilters.LocalFilter, class
 		}
 	}
 
-	var rootFilter = &libfilters.LocalFilter{}
+	rootFilter := &libfilters.LocalFilter{}
 	if userFilter == nil {
 		rootFilter.Root = &countRootClause
 	} else {

@@ -26,9 +26,11 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
 	"github.com/semi-technologies/weaviate/adapters/locks"
+	"github.com/semi-technologies/weaviate/adapters/repos/classifications"
 	"github.com/semi-technologies/weaviate/adapters/repos/db"
 	"github.com/semi-technologies/weaviate/adapters/repos/esvector"
 	"github.com/semi-technologies/weaviate/adapters/repos/etcd"
+	schemarepo "github.com/semi-technologies/weaviate/adapters/repos/schema"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/classification"
@@ -40,13 +42,14 @@ import (
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
 	"github.com/semi-technologies/weaviate/usecases/sempath"
-	"github.com/semi-technologies/weaviate/usecases/telemetry"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	libvectorizer "github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"github.com/sirupsen/logrus"
+
+	_ "net/http/pprof"
 )
 
-const MinimumRequiredContextionaryVersion = "0.4.15"
+const MinimumRequiredContextionaryVersion = "0.4.19"
 
 func makeConfigureServer(appState *state.State) func(*http.Server, string, string) {
 	return func(s *http.Server, scheme, addr string) {
@@ -100,17 +103,35 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	nnExtender := nearestneighbors.NewExtender(appState.Contextionary)
 	featureProjector := projector.New()
 	pathBuilder := sempath.New(appState.Contextionary)
+	var schemaRepo schemaUC.Repo
+	var classifierRepo classification.Repo
 
-	if appState.ServerConfig.Config.CustomDB {
+	if appState.ServerConfig.Config.Standalone {
 		repo := db.New(appState.Logger, db.Config{
 			RootPath: appState.ServerConfig.Config.Persistence.DataPath,
 		})
-		vectorMigrator = db.NewMigrator(repo)
+		vectorMigrator = db.NewMigrator(repo, appState.Logger)
 		vectorRepo = repo
 		migrator = vectorMigrator
 		vectorizer = libvectorizer.New(appState.Contextionary, nil)
 		explorer = traverser.NewExplorer(repo, vectorizer, libvectorizer.NormalizedDistance,
 			appState.Logger, nnExtender, featureProjector, pathBuilder)
+		var err error
+		schemaRepo, err = schemarepo.NewRepo("./data", appState.Logger)
+		if err != nil {
+			appState.Logger.
+				WithField("action", "startup").WithError(err).
+				Fatal("could not initialize schema repo")
+			os.Exit(1)
+		}
+
+		classifierRepo, err = classifications.NewRepo("./data", appState.Logger)
+		if err != nil {
+			appState.Logger.
+				WithField("action", "startup").WithError(err).
+				Fatal("could not initialize classifications repo")
+			os.Exit(1)
+		}
 	} else {
 		repo := esvector.NewRepo(esClient, appState.Logger, nil,
 			*appState.ServerConfig.Config.VectorIndex.NumberOfShards,     // guaranteed not to be nil as there are defaults
@@ -122,10 +143,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		vectorizer = libvectorizer.New(appState.Contextionary, nil)
 		explorer = traverser.NewExplorer(repo, vectorizer, libvectorizer.NormalizedDistance,
 			appState.Logger, nnExtender, featureProjector, pathBuilder)
+		schemaRepo = etcd.NewSchemaRepo(etcdClient)
+		classifierRepo = etcd.NewClassificationRepo(etcdClient)
 	}
-
-	schemaRepo := etcd.NewSchemaRepo(etcdClient)
-	classifierRepo := etcd.NewClassificationRepo(etcdClient)
 
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
 		appState.Locks, appState.Network, appState.Logger, appState.Contextionary,
@@ -176,13 +196,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	appState.Network.RegisterSchemaGetter(schemaManager)
 
-	setupSchemaHandlers(api, appState.TelemetryLogger, schemaManager)
-	setupKindHandlers(api, appState.TelemetryLogger, kindsManager, appState.ServerConfig.Config, appState.Logger)
-	setupKindBatchHandlers(api, appState.TelemetryLogger, batchKindsManager)
-	setupC11yHandlers(api, appState.TelemetryLogger, vectorInspector, appState.Contextionary)
-	setupGraphQLHandlers(api, appState.TelemetryLogger, appState)
-	setupMiscHandlers(api, appState.TelemetryLogger, appState.ServerConfig, appState.Network, schemaManager, appState.Contextionary)
-	setupClassificationHandlers(api, appState.TelemetryLogger, classifier)
+	setupSchemaHandlers(api, schemaManager)
+	setupKindHandlers(api, kindsManager, appState.ServerConfig.Config, appState.Logger)
+	setupKindBatchHandlers(api, batchKindsManager)
+	setupC11yHandlers(api, vectorInspector, appState.Contextionary)
+	setupGraphQLHandlers(api, appState)
+	setupMiscHandlers(api, appState.ServerConfig, appState.Network, schemaManager, appState.Contextionary)
+	setupClassificationHandlers(api, classifier)
 
 	api.ServerShutdown = func() {}
 	configureServer = makeConfigureServer(appState)
@@ -246,39 +266,43 @@ func startupRoutine() (*state.State, *clientv3.Client, *elasticsearch.Client) {
 		logger.Exit(1)
 	}
 
-	// Construct a distributed lock
-	etcdClient, err := clientv3.New(clientv3.Config{Endpoints: []string{configStore.String()}})
-	if err != nil {
-		logger.WithField("action", "startup").
-			WithError(err).Error("cannot construct distributed lock with etcd")
-		logger.Exit(1)
+	var etcdClient *clientv3.Client
+	var esClient *elasticsearch.Client
+
+	if appState.ServerConfig.Config.Standalone {
+		appState.Locks = &dummyLock{}
+	} else {
+		var err error
+		// Construct a distributed lock
+		etcdClient, err = clientv3.New(clientv3.Config{Endpoints: []string{configStore.String()}})
+		if err != nil {
+			logger.WithField("action", "startup").
+				WithError(err).Error("cannot construct distributed lock with etcd")
+			logger.Exit(1)
+		}
+		logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
+			Debug("created etcd client")
+
+		esClient, err = elasticsearch.NewClient(elasticsearch.Config{
+			Addresses: []string{serverConfig.Config.VectorIndex.URL},
+		})
+		if err != nil {
+			logger.WithField("action", "startup").
+				WithError(err).Error("cannot create es client for vector index")
+			logger.Exit(1)
+		}
+		logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
+			Debug("created es client for vector index")
+
+		// new lock
+		etcdLock, err := locks.NewEtcdLock(etcdClient, "/weaviate/schema-connector-rw-lock", logger)
+		if err != nil {
+			logger.WithField("action", "startup").
+				WithError(err).Error("cannot create etcd-based lock")
+			logger.Exit(1)
+		}
+		appState.Locks = etcdLock
 	}
-	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
-		Debug("created etcd client")
-
-	esClient, err := elasticsearch.NewClient(elasticsearch.Config{
-		Addresses: []string{serverConfig.Config.VectorIndex.URL},
-	})
-	if err != nil {
-		logger.WithField("action", "startup").
-			WithError(err).Error("cannot create es client for vector index")
-		logger.Exit(1)
-	}
-	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
-		Debug("created es client for vector index")
-
-	appState.TelemetryLogger = configureTelemetry(appState, etcdClient, logger)
-
-	// new lock
-	etcdLock, err := locks.NewEtcdLock(etcdClient, "/weaviate/schema-connector-rw-lock", logger)
-	if err != nil {
-		logger.WithField("action", "startup").
-			WithError(err).Error("cannot create etcd-based lock")
-		logger.Exit(1)
-	}
-	appState.Locks = etcdLock
-
-	// appState.Locks = &dummyLock{}
 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("created etcd session")
@@ -303,43 +327,6 @@ func startupRoutine() (*state.State, *clientv3.Client, *elasticsearch.Client) {
 	return appState, etcdClient, esClient
 }
 
-func configureTelemetry(appState *state.State, etcdClient *clientv3.Client,
-	logger logrus.FieldLogger) *telemetry.RequestsLog {
-	// Extract environment variables needed for logging
-	mainLog := telemetry.NewLog()
-	loggingInterval := appState.ServerConfig.Config.Telemetry.Interval
-	loggingURL := appState.ServerConfig.Config.Telemetry.RemoteURL
-	loggingDisabled := appState.ServerConfig.Config.Telemetry.Disabled
-	loggingDebug := appState.ServerConfig.Config.Debug
-
-	if loggingURL == "" {
-		loggingURL = telemetry.DefaultURL
-	}
-
-	if loggingInterval == 0 {
-		loggingInterval = telemetry.DefaultInterval
-	}
-
-	// Propagate the peer name (if any), debug toggle and the enabled toggle to the requestsLog
-	if appState.ServerConfig.Config.Network != nil {
-		mainLog.PeerName = appState.ServerConfig.Config.Network.PeerName
-	}
-	mainLog.Debug = loggingDebug
-	mainLog.Disabled = loggingDisabled
-
-	// Initialize a non-expiring context for the reporter
-	reportingContext := context.Background()
-	// Initialize the reporter
-	reporter := telemetry.NewReporter(reportingContext, mainLog, loggingInterval, loggingURL, loggingDisabled, loggingDebug, etcdClient, logger)
-
-	// Start reporting
-	go func() {
-		reporter.Start()
-	}()
-
-	return mainLog
-}
-
 // logger does not parse the regular config object, as logging needs to be
 // configured before the configuration is even loaded/parsed. We are thus
 // "manually" reading the desired env vars and set reasonable defaults if they
@@ -351,9 +338,12 @@ func logger() *logrus.Logger {
 	if os.Getenv("LOG_FORMAT") != "text" {
 		logger.SetFormatter(&logrus.JSONFormatter{})
 	}
-	if os.Getenv("LOG_LEVEL") == "debug" {
+	switch os.Getenv("LOG_LEVEL") {
+	case "debug":
 		logger.SetLevel(logrus.DebugLevel)
-	} else {
+	case "trace":
+		logger.SetLevel(logrus.TraceLevel)
+	default:
 		logger.SetLevel(logrus.InfoLevel)
 	}
 

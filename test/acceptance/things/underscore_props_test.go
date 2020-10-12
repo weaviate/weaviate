@@ -22,14 +22,13 @@ import (
 )
 
 func searchNeighbors(t *testing.T) {
-
 	listParams := things.NewThingsListParams().WithInclude(ptString("_nearestNeighbors"))
 	res, err := helper.Client(t).Things.ThingsList(listParams, nil)
 	require.Nil(t, err, "should not error")
 
 	extractNeighbor := func(in *models.Thing) []interface{} {
 		// marshalling to JSON and back into an untyped map to make sure we assert
-		// on the actual JSON structure. This way if we accidentaly change the
+		// on the actual JSON structure. This way if we accidentally change the
 		// goswagger generation so it affects both the client and the server in the
 		// same way, this test should catch it
 		b, err := json.Marshal(in)
@@ -46,14 +45,13 @@ func searchNeighbors(t *testing.T) {
 }
 
 func featureProjection(t *testing.T) {
-
 	listParams := things.NewThingsListParams().WithInclude(ptString("_featureProjection"))
 	res, err := helper.Client(t).Things.ThingsList(listParams, nil)
 	require.Nil(t, err, "should not error")
 
 	extractProjection := func(in *models.Thing) []interface{} {
 		// marshalling to JSON and back into an untyped map to make sure we assert
-		// on the actual JSON structure. This way if we accidentaly change the
+		// on the actual JSON structure. This way if we accidentally change the
 		// goswagger generation so it affects both the client and the server in the
 		// same way, this test should catch it
 		b, err := json.Marshal(in)

@@ -115,15 +115,6 @@ func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource s
 	return nil
 }
 
-type fakeC11y struct{}
-
-func (f *fakeC11y) IsWordPresent(ctx context.Context, word string) (bool, error) {
-	panic("not implemented")
-}
-func (f *fakeC11y) SafeGetSimilarWordsWithCertainty(ctx context.Context, word string, certainty float32) ([]string, error) {
-	panic("not implemented")
-}
-
 type fakeVectorRepo struct {
 	mock.Mock
 }
@@ -163,6 +154,7 @@ func (f *fakeVectorRepo) PutThing(ctx context.Context,
 	args := f.Called(concept, vector)
 	return args.Error(0)
 }
+
 func (f *fakeVectorRepo) PutAction(ctx context.Context,
 	concept *models.Action, vector []float32) error {
 	args := f.Called(concept, vector)
@@ -201,7 +193,8 @@ func (f *fakeVectorRepo) DeleteThing(ctx context.Context,
 	return args.Error(0)
 }
 
-func (f *fakeVectorRepo) AddReference(ctx context.Context, kind kind.Kind, source strfmt.UUID, prop string,
+func (f *fakeVectorRepo) AddReference(ctx context.Context, kind kind.Kind,
+	class string, source strfmt.UUID, prop string,
 	ref *models.SingleRef) error {
 	args := f.Called(kind, source, prop, ref)
 	return args.Error(0)

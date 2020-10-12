@@ -41,7 +41,6 @@ func TestGetParams(t *testing.T) {
 		resolve, err := sp.ShouldResolve([]string{"inCountry", "Country"})
 		require.Nil(t, err)
 		assert.Equal(t, false, resolve)
-
 	})
 
 	t.Run("with a ref prop", func(t *testing.T) {
@@ -119,5 +118,4 @@ func TestGetParams(t *testing.T) {
 			assert.Equal(t, prop, &sp[1])
 		})
 	})
-
 }

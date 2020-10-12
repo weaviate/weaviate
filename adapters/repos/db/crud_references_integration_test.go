@@ -115,7 +115,7 @@ func TestNestedReferences(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	err := repo.WaitForStartup(30 * time.Second)
 	require.Nil(t, err)
-	migrator := NewMigrator(repo)
+	migrator := NewMigrator(repo, logger)
 
 	t.Run("adding all classes to the schema", func(t *testing.T) {
 		for _, class := range refSchema.Things.Classes {
@@ -195,7 +195,8 @@ func TestNestedReferences(t *testing.T) {
 
 		for _, thing := range objects {
 			t.Run(fmt.Sprintf("add %s", thing.ID), func(t *testing.T) {
-				err := repo.PutThing(context.Background(), &thing, []float32{1, 2, 3, 4, 5, 6, 7})
+				err := repo.PutThing(context.Background(), &thing,
+					[]float32{1, 2, 3, 4, 5, 6, 7})
 				require.Nil(t, err)
 			})
 		}
@@ -402,4 +403,157 @@ func (c *testCounter) reset() {
 	defer c.Unlock()
 
 	c.count = 0
+}
+
+func Test_AddingReferenceOneByOne(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+	os.MkdirAll(dirName, 0777)
+	defer func() {
+		err := os.RemoveAll(dirName)
+		fmt.Println(err)
+	}()
+
+	schema := schema.Schema{
+		Things: &models.Schema{
+			Classes: []*models.Class{
+				&models.Class{
+					Class: "AddingReferencesTestTarget",
+					Properties: []*models.Property{
+						&models.Property{
+							Name:     "name",
+							DataType: []string{"string"},
+						},
+					},
+				},
+				&models.Class{
+					Class: "AddingReferencesTestSource",
+					Properties: []*models.Property{
+						&models.Property{
+							Name:     "name",
+							DataType: []string{"string"},
+						},
+						&models.Property{
+							Name:     "toTarget",
+							DataType: []string{"AddingReferencesTestTarget"},
+						},
+					},
+				},
+			},
+		},
+	}
+	logger := logrus.New()
+	schemaGetter := &fakeSchemaGetter{}
+	repo := New(logger, Config{RootPath: dirName})
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(30 * time.Second)
+	require.Nil(t, err)
+	migrator := NewMigrator(repo, logger)
+
+	t.Run("add required classes", func(t *testing.T) {
+		for _, class := range schema.Things.Classes {
+			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
+				err := migrator.AddClass(context.Background(), kind.Thing, class)
+				require.Nil(t, err)
+			})
+		}
+	})
+
+	schemaGetter.schema = schema
+	targetID := strfmt.UUID("a4a92239-e748-4e55-bbbd-f606926619a7")
+	target2ID := strfmt.UUID("325084e7-4faa-43a5-b2b1-56e207be169a")
+	sourceID := strfmt.UUID("0826c61b-85c1-44ac-aebb-cfd07ace6a57")
+
+	t.Run("add objects", func(t *testing.T) {
+		err := repo.PutThing(context.Background(), &models.Thing{
+			ID:    sourceID,
+			Class: "AddingReferencesTestSource",
+			Schema: map[string]interface{}{
+				"name": "source item",
+			},
+		}, []float32{0.5})
+		require.Nil(t, err)
+
+		err = repo.PutThing(context.Background(), &models.Thing{
+			ID:    targetID,
+			Class: "AddingReferencesTestTarget",
+			Schema: map[string]interface{}{
+				"name": "target item",
+			},
+		}, []float32{0.5})
+
+		err = repo.PutThing(context.Background(), &models.Thing{
+			ID:    target2ID,
+			Class: "AddingReferencesTestTarget",
+			Schema: map[string]interface{}{
+				"name": "another target item",
+			},
+		}, []float32{0.5})
+		require.Nil(t, err)
+	})
+
+	t.Run("add reference between them", func(t *testing.T) {
+		err := repo.AddReference(context.Background(), kind.Thing,
+			"AddingReferencesTestSource", sourceID, "toTarget", &models.SingleRef{
+				Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", targetID)),
+			})
+		assert.Nil(t, err)
+	})
+
+	t.Run("check reference was added", func(t *testing.T) {
+		source, err := repo.ThingByID(context.Background(), sourceID, nil,
+			traverser.UnderscoreProperties{})
+		require.Nil(t, err)
+		require.NotNil(t, source)
+		require.NotNil(t, source.Thing())
+		require.NotNil(t, source.Thing().Schema)
+
+		refs := source.Thing().Schema.(map[string]interface{})["toTarget"]
+		refsSlice, ok := refs.(models.MultipleRef)
+		require.True(t, ok,
+			fmt.Sprintf("toTarget must be models.MultipleRef, but got %#v", refs))
+
+		foundBeacons := []string{}
+		for _, ref := range refsSlice {
+			foundBeacons = append(foundBeacons, ref.Beacon.String())
+		}
+		expectedBeacons := []string{
+			fmt.Sprintf("weaviate://localhost/things/%s", targetID),
+		}
+
+		assert.ElementsMatch(t, foundBeacons, expectedBeacons)
+	})
+
+	t.Run("reference a second target", func(t *testing.T) {
+		err := repo.AddReference(context.Background(), kind.Thing,
+			"AddingReferencesTestSource", sourceID, "toTarget", &models.SingleRef{
+				Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", target2ID)),
+			})
+		assert.Nil(t, err)
+	})
+
+	t.Run("check both references are now present", func(t *testing.T) {
+		source, err := repo.ThingByID(context.Background(), sourceID, nil,
+			traverser.UnderscoreProperties{})
+		require.Nil(t, err)
+		require.NotNil(t, source)
+		require.NotNil(t, source.Thing())
+		require.NotNil(t, source.Thing().Schema)
+
+		refs := source.Thing().Schema.(map[string]interface{})["toTarget"]
+		refsSlice, ok := refs.(models.MultipleRef)
+		require.True(t, ok,
+			fmt.Sprintf("toTarget must be models.MultipleRef, but got %#v", refs))
+
+		foundBeacons := []string{}
+		for _, ref := range refsSlice {
+			foundBeacons = append(foundBeacons, ref.Beacon.String())
+		}
+		expectedBeacons := []string{
+			fmt.Sprintf("weaviate://localhost/things/%s", targetID),
+			fmt.Sprintf("weaviate://localhost/things/%s", target2ID),
+		}
+
+		assert.ElementsMatch(t, foundBeacons, expectedBeacons)
+	})
 }

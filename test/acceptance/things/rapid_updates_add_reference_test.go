@@ -27,7 +27,7 @@ import (
 
 // This aimes to prevent a regression on
 // https://github.com/semi-technologies/weaviate/issues/1016
-// The issue was that rapid POST .../references/... request in succesion would
+// The issue was that rapid POST .../references/... request in succession would
 // overwrite each other due to the eventual consistency nature of the used
 // backend (esvector). This bug is considered fix if n items can be rapidly
 // added and a subsequent GET request of the source resource contains all
@@ -69,15 +69,13 @@ func Test_RapidlyAddingReferences(t *testing.T) {
 		})
 
 		t.Run("source class", func(t *testing.T) {
-			cardinalityMany := "many"
 			params := schema.NewSchemaThingsCreateParams().WithThingClass(
 				&models.Class{
 					Class: sourceClass,
 					Properties: []*models.Property{
 						&models.Property{
-							DataType:    []string{targetClass},
-							Name:        "toTarget",
-							Cardinality: &cardinalityMany,
+							DataType: []string{targetClass},
+							Name:     "toTarget",
 						},
 						&models.Property{
 							DataType: []string{"string"},
@@ -149,5 +147,4 @@ func Test_RapidlyAddingReferences(t *testing.T) {
 		schema.NewSchemaThingsDeleteParams().WithClassName(sourceClass), nil)
 	helper.Client(t).Schema.SchemaThingsDelete(
 		schema.NewSchemaThingsDeleteParams().WithClassName(targetClass), nil)
-
 }

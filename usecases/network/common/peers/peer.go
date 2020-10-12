@@ -56,7 +56,7 @@ type Peers []Peer
 // This is to not expose internals in cases where
 // only the names matter, such as in the GraphQL API
 func (p Peers) Names() []string {
-	names := make([]string, len(p), len(p))
+	names := make([]string, len(p))
 	for i, peer := range p {
 		names[i] = peer.Name
 	}

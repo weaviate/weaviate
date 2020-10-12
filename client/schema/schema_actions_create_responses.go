@@ -77,7 +77,7 @@ func NewSchemaActionsCreateOK() *SchemaActionsCreateOK {
 
 /*SchemaActionsCreateOK handles this case with default header values.
 
-Added the new Action class to the ontology.
+Added the new Action class to the schema.
 */
 type SchemaActionsCreateOK struct {
 	Payload *models.Class

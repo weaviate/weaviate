@@ -48,11 +48,11 @@ func main() {
 
 		parsed := removeAllWhiteSpace(body["query"])
 
-		getQuery := fmt.Sprintf("%s", `{ Local { Get { Things { Instruments { name } } } } }`)
-		getMetaQuery := fmt.Sprintf("%s", `{ Local { Meta { Things { Instruments { volume { maximum minimum mean } } } } } }`)
-		aggregateQuery := fmt.Sprintf("%s", ` { Local { Aggregate { Things { Instruments(groupBy:["name"]) { volume { count } } } } } }`)
-		fetchQuery := fmt.Sprintf("%s", ` { Local { Fetch { Things(where: { class: { name: "bestclass" certainty: 0.8 keywords: [{value: "foo", weight: 0.9}] }, properties: { name: "bestproperty" certainty: 0.8 keywords: [{value: "bar", weight: 0.9}] operator: Equal valueString: "some-value" }, }) { beacon certainty } } } }`)
-		fetchFuzzyQuery := fmt.Sprintf("%s", ` { Local { Fetch { Fuzzy(value:"something", certainty:0.5) { beacon certainty } } } }`)
+		getQuery := `{ Local { Get { Things { Instruments { name } } } } }`
+		getMetaQuery := `{ Local { Meta { Things { Instruments { volume { maximum minimum mean } } } } } }`
+		aggregateQuery := ` { Local { Aggregate { Things { Instruments(groupBy:["name"]) { volume { count } } } } } }`
+		fetchQuery := ` { Local { Fetch { Things(where: { class: { name: "bestclass" certainty: 0.8 keywords: [{value: "foo", weight: 0.9}] }, properties: { name: "bestproperty" certainty: 0.8 keywords: [{value: "bar", weight: 0.9}] operator: Equal valueString: "some-value" }, }) { beacon certainty } } } }`
+		fetchFuzzyQuery := ` { Local { Fetch { Fuzzy(value:"something", certainty:0.5) { beacon certainty } } } }`
 		switch parsed {
 		case removeAllWhiteSpace(getQuery):
 			w.Header().Set("Content-Type", "application/json")

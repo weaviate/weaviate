@@ -103,7 +103,6 @@ func removeDollarElements(in *models.NearestNeighbors) *models.NearestNeighbors 
 
 		neighbors[i] = elem
 		i++
-
 	}
 
 	return &models.NearestNeighbors{

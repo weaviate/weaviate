@@ -57,7 +57,6 @@ func (m *Manager) Indexed(className, propertyName string) bool {
 
 			return *prop.Index
 		}
-
 	}
 
 	return false
@@ -90,7 +89,6 @@ func (m *Manager) VectorizePropertyName(className, propertyName string) bool {
 		if prop.Name == propertyName {
 			return prop.VectorizePropertyName
 		}
-
 	}
 
 	return false

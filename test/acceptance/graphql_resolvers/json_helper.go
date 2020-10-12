@@ -18,7 +18,6 @@ import (
 func parseJSONSlice(text string) []interface{} {
 	var result []interface{}
 	err := json.Unmarshal([]byte(text), &result)
-
 	if err != nil {
 		panic(err)
 	}

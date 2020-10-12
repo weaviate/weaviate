@@ -22,7 +22,6 @@ import (
 )
 
 func Test_Composer(t *testing.T) {
-
 	m1 := &mockMigrator{}
 	m2 := &mockMigrator{}
 

@@ -22,7 +22,6 @@ import (
 )
 
 func TestInspector(t *testing.T) {
-
 	type test struct {
 		name           string
 		input          string
@@ -186,5 +185,4 @@ func TestInspector(t *testing.T) {
 		require.Equal(t, err, test.expectedErr)
 		assert.Equal(t, res, test.expectedOutput)
 	}
-
 }

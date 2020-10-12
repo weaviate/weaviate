@@ -27,7 +27,7 @@ import (
 // SchemaActionsCreateOKCode is the HTTP code returned for type SchemaActionsCreateOK
 const SchemaActionsCreateOKCode int = 200
 
-/*SchemaActionsCreateOK Added the new Action class to the ontology.
+/*SchemaActionsCreateOK Added the new Action class to the schema.
 
 swagger:response schemaActionsCreateOK
 */

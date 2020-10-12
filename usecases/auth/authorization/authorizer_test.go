@@ -34,7 +34,6 @@ func Test_Authorizer(t *testing.T) {
 			err := authorizer.Authorize(nil, "delete", "the/world")
 			assert.Nil(t, err)
 		})
-
 	})
 
 	t.Run("when adminlist is configured", func(t *testing.T) {
@@ -51,5 +50,4 @@ func Test_Authorizer(t *testing.T) {
 		_, ok := authorizer.(*adminlist.Authorizer)
 		assert.Equal(t, true, ok)
 	})
-
 }

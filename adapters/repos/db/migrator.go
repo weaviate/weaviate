@@ -19,10 +19,12 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/sirupsen/logrus"
 )
 
 type Migrator struct {
-	db *DB
+	db     *DB
+	logger logrus.FieldLogger
 }
 
 func (m *Migrator) AddClass(ctx context.Context, kind kind.Kind, class *models.Class) error {
@@ -30,7 +32,7 @@ func (m *Migrator) AddClass(ctx context.Context, kind kind.Kind, class *models.C
 		Kind:      kind,
 		ClassName: schema.ClassName(class.Class),
 		RootPath:  m.db.config.RootPath,
-	}, m.db.schemaGetter)
+	}, m.db.schemaGetter, m.logger)
 	if err != nil {
 		return errors.Wrap(err, "create index")
 	}
@@ -76,6 +78,6 @@ func (m *Migrator) UpdatePropertyAddDataType(ctx context.Context, kind kind.Kind
 	return fmt.Errorf("changing a property not (yet) supported")
 }
 
-func NewMigrator(db *DB) *Migrator {
-	return &Migrator{db: db}
+func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
+	return &Migrator{db: db, logger: logger}
 }

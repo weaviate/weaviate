@@ -30,7 +30,6 @@ import (
 // AddActions Class Instances in batch to the connected DB
 func (b *BatchManager) AddActions(ctx context.Context, principal *models.Principal,
 	classes []*models.Action, fields []*string) (BatchActions, error) {
-
 	err := b.authorizer.Authorize(principal, "create", "batch/actions")
 	if err != nil {
 		return nil, err
@@ -38,7 +37,7 @@ func (b *BatchManager) AddActions(ctx context.Context, principal *models.Princip
 
 	unlock, err := b.locks.LockConnector()
 	if err != nil {
-		return nil, NewErrInternal("could not aquire lock: %v", err)
+		return nil, NewErrInternal("could not acquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -47,7 +46,6 @@ func (b *BatchManager) AddActions(ctx context.Context, principal *models.Princip
 
 func (b *BatchManager) addActions(ctx context.Context, principal *models.Principal,
 	classes []*models.Action, fields []*string) (BatchActions, error) {
-
 	if err := b.validateActionForm(classes); err != nil {
 		return nil, NewErrInvalidUserInput("invalid param 'actions': %v", err)
 	}
@@ -95,9 +93,7 @@ func (b *BatchManager) validateAction(ctx context.Context, principal *models.Pri
 	wg *sync.WaitGroup, concept *models.Action, originalIndex int, resultsC *chan BatchAction, fieldsToKeep map[string]int) {
 	defer wg.Done()
 
-	var (
-		id strfmt.UUID
-	)
+	var id strfmt.UUID
 
 	ec := &errorCompounder{}
 
@@ -167,7 +163,7 @@ func (b *BatchManager) exists(ctx context.Context, k kind.Kind, id strfmt.UUID) 
 }
 
 func actionsChanToSlice(c chan BatchAction) BatchActions {
-	result := make([]BatchAction, len(c), len(c))
+	result := make([]BatchAction, len(c))
 	for action := range c {
 		result[action.OriginalIndex] = action
 	}
@@ -185,7 +181,7 @@ func (b *BatchManager) AddThings(ctx context.Context, principal *models.Principa
 
 	unlock, err := b.locks.LockConnector()
 	if err != nil {
-		return nil, NewErrInternal("could not aquire lock: %v", err)
+		return nil, NewErrInternal("could not acquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -194,7 +190,6 @@ func (b *BatchManager) AddThings(ctx context.Context, principal *models.Principa
 
 func (b *BatchManager) addThings(ctx context.Context, principal *models.Principal,
 	classes []*models.Thing, fields []*string) (BatchThings, error) {
-
 	if err := b.validateThingForm(classes); err != nil {
 		return nil, NewErrInvalidUserInput("invalid param 'things': %v", err)
 	}
@@ -242,9 +237,7 @@ func (b *BatchManager) validateThing(ctx context.Context, principal *models.Prin
 	wg *sync.WaitGroup, concept *models.Thing, originalIndex int, resultsC *chan BatchThing, fieldsToKeep map[string]int) {
 	defer wg.Done()
 
-	var (
-		id strfmt.UUID
-	)
+	var id strfmt.UUID
 
 	ec := &errorCompounder{}
 
@@ -302,7 +295,7 @@ func (b *BatchManager) validateThing(ctx context.Context, principal *models.Prin
 }
 
 func thingsChanToSlice(c chan BatchThing) BatchThings {
-	result := make([]BatchThing, len(c), len(c))
+	result := make([]BatchThing, len(c))
 	for thing := range c {
 		result[thing.OriginalIndex] = thing
 	}

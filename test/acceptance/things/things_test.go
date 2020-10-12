@@ -163,7 +163,7 @@ func creatingThings(t *testing.T) {
 	})
 
 	// Examples of how a Thing can be invalid.
-	var invalidThingTestCases = []struct {
+	invalidThingTestCases := []struct {
 		// What is wrong in this example
 		mistake string
 
@@ -268,7 +268,7 @@ func creatingThings(t *testing.T) {
 			},
 			errorCheck: func(t *testing.T, err *models.ErrorResponse) {
 				assert.Contains(t,
-					fmt.Sprintf("invalid thing: invalid string property 'testString' on class 'TestThing': not a string, but json.Number"),
+					"invalid thing: invalid string property 'testString' on class 'TestThing': not a string, but json.Number",
 					err.Error[0].Message)
 			},
 		},
@@ -294,12 +294,4 @@ func creatingThings(t *testing.T) {
 			})
 		}
 	})
-}
-
-func cleanupThing(uuid strfmt.UUID) {
-	params := things.NewThingsDeleteParams().WithID(uuid)
-	resp, err := helper.Client(nil).Things.ThingsDelete(params, nil)
-	if err != nil {
-		panic(fmt.Sprintf("Could not clean up thing '%s', because %v. Response: %#v", string(uuid), err, resp))
-	}
 }

@@ -15,8 +15,6 @@ if [[ "$*" == *--spark* ]]; then
   ADDITIONAL_SERVICES+=('janus')
   ADDITIONAL_SERVICES+=('db')
   ADDITIONAL_SERVICES+=('index')
-  ADDITIONAL_SERVICES+=('genesis_fake')
-  ADDITIONAL_SERVICES+=('weaviate_b_fake')
 elif [[ "$*" == *--keycloak* ]]; then
   DOCKER_COMPOSE_FILE=docker-compose.yml
   ADDITIONAL_SERVICES+=('keycloak')
@@ -26,8 +24,6 @@ elif [[ "$*" == *--customdb* ]]; then
   DOCKER_COMPOSE_FILE=docker-compose-customdb.yml
 else
   DOCKER_COMPOSE_FILE=docker-compose.yml
-  ADDITIONAL_SERVICES+=('genesis_fake')
-  ADDITIONAL_SERVICES+=('weaviate_b_fake')
 fi
 
 docker-compose -f $DOCKER_COMPOSE_FILE down --remove-orphans

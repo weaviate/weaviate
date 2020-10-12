@@ -24,12 +24,16 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
 
+// TODO: These tests don't match the overall testing style in Weaviate.
+// Refactor!
+
 // The etcd manager requires a backend for now (to prevent lots of nil checks).
 type NilMigrator struct{}
 
 func (n *NilMigrator) AddClass(ctx context.Context, kind kind.Kind, class *models.Class) error {
 	return nil
 }
+
 func (n *NilMigrator) DropClass(ctx context.Context, kind kind.Kind, className string) error {
 	return nil
 }
@@ -45,6 +49,7 @@ func (n *NilMigrator) AddProperty(ctx context.Context, kind kind.Kind, className
 func (n *NilMigrator) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string, newKeywords *models.Keywords) error {
 	return nil
 }
+
 func (n *NilMigrator) UpdatePropertyAddDataType(ctx context.Context, kind kind.Kind, className string, propName string, newDataType string) error {
 	return nil
 }
@@ -59,6 +64,8 @@ var schemaTests = []struct {
 }{
 	{name: "UpdateMeta", fn: testUpdateMeta},
 	{name: "AddThingClass", fn: testAddThingClass},
+	{name: "AddThingClassWithDeprecatedFields", fn: testAddThingClassWithDeprecatedFields},
+	{name: "AddThingClassWithVectorizedName", fn: testAddThingClassWithVectorizedName},
 	{name: "RemoveThingClass", fn: testRemoveThingClass},
 	{name: "CantAddSameClassTwice", fn: testCantAddSameClassTwice},
 	{name: "CantAddSameClassTwiceDifferentKind", fn: testCantAddSameClassTwiceDifferentKinds},
@@ -77,6 +84,7 @@ var schemaTests = []struct {
 	{name: "UpdatePropertyKeywords", fn: testUpdatePropertyKeywords},
 	{name: "UpdatePropertyAddDataTypeNew", fn: testUpdatePropertyAddDataTypeNew},
 	{name: "UpdatePropertyAddDataTypeExisting", fn: testUpdatePropertyAddDataTypeExisting},
+	{name: "AddProperty with deprecated fields", fn: testAddPropertyWithDeprecatedFields},
 }
 
 func testUpdateMeta(t *testing.T, lsm *Manager) {
@@ -116,6 +124,75 @@ func testAddThingClass(t *testing.T, lsm *Manager) {
 	thingClasses = testGetClassNames(lsm, kind.Thing)
 	assert.Contains(t, thingClasses, "Car")
 	assert.False(t, lsm.VectorizeClassName("Car"), "class name should not be vectorized")
+}
+
+func testAddThingClassWithDeprecatedFields(t *testing.T, lsm *Manager) {
+	t.Parallel()
+
+	// create own manager, so we can hook into the logger
+	logger, hook := test.NewNullLogger()
+	sm, err := NewManager(&NilMigrator{}, newFakeRepo(), newFakeLocks(), nil,
+		logger, &fakeC11y{}, &fakeAuthorizer{}, &fakeStopwordDetector{})
+	require.Nil(t, err)
+
+	thingClasses := testGetClassNames(sm, kind.Thing)
+	assert.NotContains(t, thingClasses, "CarDeprecated")
+
+	err = sm.AddThing(context.Background(), nil, &models.Class{
+		Class: "CarDeprecated",
+		Properties: []*models.Property{{
+			DataType:    []string{"string"},
+			Name:        "dummy",
+			Cardinality: "foo",
+		}},
+	})
+
+	assert.Nil(t, err)
+
+	require.Len(t, hook.Entries, 1)
+	assert.Contains(t, hook.LastEntry().Message, "cardinality")
+	assert.Contains(t, hook.LastEntry().Message, "deprecated")
+	class := testGetClassByName(sm, kind.Thing, "CarDeprecated")
+	require.NotNil(t, class)
+	prop := testGetPropertyOfClass(class, "dummy")
+	require.NotNil(t, prop)
+	assert.Equal(t, "", prop.Cardinality)
+}
+
+func testAddPropertyWithDeprecatedFields(t *testing.T, lsm *Manager) {
+	t.Parallel()
+
+	// create own manager, so we can hook into the logger
+	logger, hook := test.NewNullLogger()
+	sm, err := NewManager(&NilMigrator{}, newFakeRepo(), newFakeLocks(), nil,
+		logger, &fakeC11y{}, &fakeAuthorizer{}, &fakeStopwordDetector{})
+	require.Nil(t, err)
+
+	thingClasses := testGetClassNames(sm, kind.Thing)
+	assert.NotContains(t, thingClasses, "CarPropDeprecated")
+
+	err = sm.AddThing(context.Background(), nil, &models.Class{
+		Class: "CarPropDeprecated",
+	})
+
+	assert.Nil(t, err)
+
+	err = sm.AddThingProperty(context.Background(), nil, "CarPropDeprecated",
+		&models.Property{
+			DataType:    []string{"string"},
+			Name:        "dummy",
+			Cardinality: "foo",
+		})
+	assert.Nil(t, err)
+
+	require.Len(t, hook.Entries, 1)
+	assert.Contains(t, hook.LastEntry().Message, "cardinality")
+	assert.Contains(t, hook.LastEntry().Message, "deprecated")
+	class := testGetClassByName(sm, kind.Thing, "CarPropDeprecated")
+	require.NotNil(t, class)
+	prop := testGetPropertyOfClass(class, "dummy")
+	require.NotNil(t, prop)
+	assert.Equal(t, "", prop.Cardinality)
 }
 
 func testAddThingClassWithVectorizedName(t *testing.T, lsm *Manager) {
@@ -313,7 +390,7 @@ func testUpdateClassKeywords(t *testing.T, lsm *Manager) {
 	})
 	assert.Nil(t, err)
 
-	//Now update just the keyword
+	// Now update just the keyword
 	updatedKeywords := models.Class{
 		Class:              "Car",
 		VectorizeClassName: ptBool(true),
@@ -323,6 +400,7 @@ func testUpdateClassKeywords(t *testing.T, lsm *Manager) {
 	}
 
 	err = lsm.UpdateThing(context.Background(), nil, "Car", &updatedKeywords)
+	require.Nil(t, err)
 
 	thingClasses := testGetClasses(lsm, kind.Thing)
 	require.Len(t, thingClasses, 1)
@@ -369,7 +447,6 @@ func testAddPropertyDuringCreation(t *testing.T, lsm *Manager) {
 
 	assert.True(t, lsm.VectorizePropertyName("Car", "color"), "color prop should be vectorized")
 	assert.False(t, lsm.VectorizePropertyName("Car", "content"), "content prop should not be vectorized")
-
 }
 
 func pointerToFalse() *bool {
@@ -409,7 +486,7 @@ func testAddPropertyWithInvalidKeywordWeightsDuringCreation(t *testing.T, lsm *M
 	t.Parallel()
 
 	// keyword larger than 1
-	var properties = []*models.Property{
+	properties := []*models.Property{
 		{
 			Name:     "color",
 			DataType: []string{"string"},
@@ -601,7 +678,7 @@ func testUpdatePropertyAddDataTypeNew(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
 	// Create a class & property
-	var properties = []*models.Property{
+	properties := []*models.Property{
 		{Name: "madeBy", DataType: []string{"RemoteInstance/Manufacturer"}},
 	}
 
@@ -630,7 +707,7 @@ func testUpdatePropertyAddDataTypeExisting(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
 	// Create a class & property
-	var properties = []*models.Property{
+	properties := []*models.Property{
 		{Name: "madeBy", DataType: []string{"RemoteInstance/Manufacturer"}},
 	}
 
@@ -660,7 +737,6 @@ func TestSchema(t *testing.T) {
 	// (that can be run in parallel) have finished, before cleaning up the temp directory.
 	t.Run("group", func(t *testing.T) {
 		for _, testCase := range schemaTests {
-
 			// Create a test case, and inject the etcd schema manager in there
 			// to reduce boilerplate in each separate test.
 			t.Run(testCase.name, func(t *testing.T) {
@@ -687,11 +763,31 @@ func testGetClasses(l *Manager, k kind.Kind) []*models.Class {
 	var classes []*models.Class
 	schema, _ := l.GetSchema(nil)
 
-	for _, class := range schema.SemanticSchemaFor(k).Classes {
-		classes = append(classes, class)
-	}
+	classes = append(classes, schema.SemanticSchemaFor(k).Classes...)
 
 	return classes
+}
+
+func testGetClassByName(l *Manager, k kind.Kind, name string) *models.Class {
+	classes := testGetClasses(l, k)
+	for _, class := range classes {
+		if class.Class == name {
+			return class
+		}
+	}
+
+	return nil
+}
+
+func testGetPropertyOfClass(class *models.Class,
+	propName string) *models.Property {
+	for _, prop := range class.Properties {
+		if prop.Name == propName {
+			return prop
+		}
+	}
+
+	return nil
 }
 
 func testGetClassNames(l *Manager, k kind.Kind) []string {

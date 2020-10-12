@@ -77,7 +77,7 @@ func NewSchemaThingsDeleteOK() *SchemaThingsDeleteOK {
 
 /*SchemaThingsDeleteOK handles this case with default header values.
 
-Removed the Thing class from the ontology.
+Removed the Thing class from the schema.
 */
 type SchemaThingsDeleteOK struct {
 }

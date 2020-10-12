@@ -119,9 +119,11 @@ func classIndexFromClassName(kind kind.Kind, className string) string {
 		indexPrefix, kind.Name(), strings.ToLower(className))
 }
 
-const allThingIndices = indexPrefix + "thing_*"
-const allActionIndices = indexPrefix + "action_*"
-const allClassIndices = indexPrefix + "*"
+const (
+	allThingIndices  = indexPrefix + "thing_*"
+	allActionIndices = indexPrefix + "action_*"
+	allClassIndices  = indexPrefix + "*"
+)
 
 func (m *Migrator) setMappings(ctx context.Context, index string,
 	props []*models.Property) error {
@@ -139,7 +141,7 @@ func (m *Migrator) esPropsFromClassProps(props []*models.Property, depth int) (m
 	for _, prop := range props {
 		// index everything unless explicitly turned off
 		index := true
-		if prop.Index != nil && *prop.Index == false {
+		if prop.Index != nil && !*prop.Index {
 			index = false
 		}
 

@@ -19,13 +19,11 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	libfilters "github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type contextualItemClassifier struct {
@@ -168,7 +166,7 @@ func (c *contextualItemClassifier) property(propName string) (string, error) {
 }
 
 func (c *contextualItemClassifier) findClosestTarget(query []float32, targetProp string) (*search.Result, float32, error) {
-	var minimum = float32(100000)
+	minimum := float32(100000)
 	var prediction search.Result
 
 	for _, item := range c.context.targets[targetProp] {
@@ -352,61 +350,6 @@ func avg(in []float32) float32 {
 	}
 
 	return sum / float32(len(in))
-}
-
-func (c *contextualItemClassifier) classAndKindOfTarget(propName string) (schema.ClassName, kind.Kind, error) {
-	prop, err := c.schema.GetProperty(c.kind, schema.ClassName(c.params.Class), schema.PropertyName(propName))
-	if err != nil {
-		return "", "", fmt.Errorf("get target prop '%s': %v", propName, err)
-	}
-
-	dataType, err := c.schema.FindPropertyDataType(prop.DataType)
-	if err != nil {
-		return "", "", fmt.Errorf("extract dataType of prop '%s': %v", propName, err)
-	}
-
-	// we have passed validation, so it is safe to assume that this is a ref prop
-	targetClasses := dataType.Classes()
-
-	// len=1 is guaranteed from validation
-	targetClass := targetClasses[0]
-	targetKind, _ := c.schema.GetKindOfClass(targetClass)
-
-	return targetClass, targetKind, nil
-}
-
-func (c *contextualItemClassifier) findTarget(targetClass schema.ClassName, targetKind kind.Kind) (*search.Result, error) {
-	ctx, cancel := contextWithTimeout(2 * time.Second)
-	defer cancel()
-
-	res, err := c.classifier.vectorRepo.VectorClassSearch(ctx, traverser.GetParams{
-		SearchVector: c.item.Vector,
-		ClassName:    targetClass.String(),
-		Kind:         targetKind,
-		Pagination: &libfilters.Pagination{
-			Limit: 1,
-		},
-		Filters: c.filters.target,
-		Properties: traverser.SelectProperties{
-			traverser.SelectProperty{
-				Name: "uuid",
-			},
-		},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("search closest target: %v", err)
-	}
-
-	if res == nil || len(res) == 0 {
-		return nil, fmt.Errorf("no potential targets found of class '%s' (%s)", targetClass, targetKind)
-	}
-
-	return &res[0], nil
-}
-
-func (c *contextualItemClassifier) distance(target []float32) (float64, error) {
-	dist, err := c.classifier.distancer(c.item.Vector, target)
-	return float64(dist), err
 }
 
 func (c *contextualItemClassifier) isInIgPercentile(percentage int, needle string, target string) bool {

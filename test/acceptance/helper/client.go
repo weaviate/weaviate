@@ -44,8 +44,8 @@ import (
 func Client(t *testing.T) *apiclient.Weaviate {
 	transport := httptransport.New(fmt.Sprintf("%s:%s", ServerHost, ServerPort), "/v1", []string{ServerScheme})
 
-	// If a test case is provided, and we want to dump HTTP trafic,
-	// create a simple logger that logs HTTP trafic to the test case.
+	// If a test case is provided, and we want to dump HTTP traffic,
+	// create a simple logger that logs HTTP traffic to the test case.
 	if t != nil && DebugHTTP {
 		transport.SetDebug(true)
 		transport.SetLogger(&testLogger{t: t})

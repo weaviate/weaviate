@@ -51,7 +51,6 @@ func TestNetworkCrossRefNames(t *testing.T) {
 }
 
 func TestParseClass(t *testing.T) {
-
 	t.Run("a valid class name", func(t *testing.T) {
 		ref, err := ParseClass("WeaviateB/Car")
 		assert.Equal(t, nil, err, "should not error")

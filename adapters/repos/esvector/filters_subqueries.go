@@ -81,7 +81,6 @@ func (s *subQueryBuilder) fromClause(ctx context.Context, clause *filters.Clause
 
 func (s *subQueryBuilder) buildBodyAndDoRequest(ctx context.Context,
 	filterQuery map[string]interface{}, k kind.Kind, index string) (*esapi.Response, error) {
-
 	body := map[string]interface{}{
 		"query":   filterQuery,
 		"size":    10000,
@@ -116,7 +115,7 @@ func (s subQueryBuilder) extractStorageIdentifierFromResults(res *esapi.Response
 		return nil, SubQueryNoResultsErr{}
 	}
 
-	out := make([]storageIdentifier, len(sr.Hits.Hits), len(sr.Hits.Hits))
+	out := make([]storageIdentifier, len(sr.Hits.Hits))
 	for i, hit := range sr.Hits.Hits {
 		k, err := kind.Parse(hit.Source[keyKind.String()].(string))
 		if err != nil {
@@ -140,7 +139,7 @@ func (s *subQueryBuilder) kindOfClass(className string) kind.Kind {
 }
 
 func storageIdentifiersToBeaconBoolFilter(in []storageIdentifier, propName string) map[string]interface{} {
-	shoulds := make([]interface{}, len(in), len(in))
+	shoulds := make([]interface{}, len(in))
 	for i, sid := range in {
 		shoulds[i] = map[string]interface{}{
 			"match": map[string]interface{}{

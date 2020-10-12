@@ -20,16 +20,6 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
-type deleteAndGetRepo interface {
-	deleteRepo
-}
-
-type deleteRepo interface {
-	// TODO: Delete unnecessary 2nd arg
-	DeleteThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error
-	DeleteAction(ctx context.Context, thing *models.Action, UUID strfmt.UUID) error
-}
-
 // DeleteAction Class Instance from the conncected DB
 func (m *Manager) DeleteAction(ctx context.Context, principal *models.Principal, id strfmt.UUID) error {
 	err := m.authorizer.Authorize(principal, "delete", fmt.Sprintf("actions/%s", id.String()))
@@ -39,7 +29,7 @@ func (m *Manager) DeleteAction(ctx context.Context, principal *models.Principal,
 
 	unlock, err := m.locks.LockConnector()
 	if err != nil {
-		return NewErrInternal("could not aquire lock: %v", err)
+		return NewErrInternal("could not acquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -70,7 +60,7 @@ func (m *Manager) DeleteThing(ctx context.Context, principal *models.Principal, 
 
 	unlock, err := m.locks.LockConnector()
 	if err != nil {
-		return NewErrInternal("could not aquire lock: %v", err)
+		return NewErrInternal("could not acquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -78,7 +68,6 @@ func (m *Manager) DeleteThing(ctx context.Context, principal *models.Principal, 
 }
 
 func (m *Manager) deleteThingFromRepo(ctx context.Context, id strfmt.UUID) error {
-
 	thingRes, err := m.getThingFromRepo(ctx, id, traverser.UnderscoreProperties{})
 	if err != nil {
 		return err

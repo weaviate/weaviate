@@ -24,16 +24,6 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/vectorizer"
 )
 
-type addAndGetRepo interface {
-	addRepo
-}
-
-type addRepo interface {
-	AddAction(ctx context.Context, class *models.Action, id strfmt.UUID) error
-	AddThing(ctx context.Context, class *models.Thing, id strfmt.UUID) error
-	ClassExists(ctx context.Context, id strfmt.UUID) (bool, error)
-}
-
 type schemaManager interface {
 	UpdatePropertyAddDataType(context.Context, *models.Principal, kind.Kind, string, string, string) error
 	GetSchema(principal *models.Principal) (schema.Schema, error)
@@ -44,7 +34,6 @@ type schemaManager interface {
 // include this particular network ref class.
 func (m *Manager) AddAction(ctx context.Context, principal *models.Principal,
 	class *models.Action) (*models.Action, error) {
-
 	err := m.authorizer.Authorize(principal, "create", "actions")
 	if err != nil {
 		return nil, err
@@ -52,7 +41,7 @@ func (m *Manager) AddAction(ctx context.Context, principal *models.Principal,
 
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
-		return nil, NewErrInternal("could not aquire lock: %v", err)
+		return nil, NewErrInternal("could not acquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -166,7 +155,6 @@ func (m *Manager) exists(ctx context.Context, k kind.Kind, id strfmt.UUID) (bool
 // include this particular network ref class.
 func (m *Manager) AddThing(ctx context.Context, principal *models.Principal,
 	class *models.Thing) (*models.Thing, error) {
-
 	err := m.authorizer.Authorize(principal, "create", "things")
 	if err != nil {
 		return nil, err
@@ -174,7 +162,7 @@ func (m *Manager) AddThing(ctx context.Context, principal *models.Principal,
 
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
-		return nil, NewErrInternal("could not aquire lock: %v", err)
+		return nil, NewErrInternal("could not acquire lock: %v", err)
 	}
 	defer unlock()
 

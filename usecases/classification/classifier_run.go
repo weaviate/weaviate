@@ -45,7 +45,7 @@ func (c *Classifier) run(params models.Classification, kind kind.Kind,
 		return
 	}
 
-	if unclassifiedItems == nil || len(unclassifiedItems) == 0 {
+	if len(unclassifiedItems) == 0 {
 		c.failRunWithError(params,
 			fmt.Errorf("no classes to be classified - did you run a previous classification already?"))
 		return
@@ -93,11 +93,10 @@ func (c *Classifier) prepareRun(kind kind.Kind, params models.Classification, fi
 	return classifyItem, nil
 }
 
-// runItems splits the job list into batches that can be worked on parallely
+// runItems splits the job list into batches that can be worked on parallelly
 // depending on the available CPUs
 func (c *Classifier) runItems(classifyItem classifyItemFn, kind kind.Kind, params models.Classification, filters filters,
 	items []search.Result) (models.Classification, error) {
-
 	workerCount := runtime.GOMAXPROCS(0)
 	if len(items) < workerCount {
 		workerCount = len(items)
@@ -121,7 +120,7 @@ func (c *Classifier) succeedRun(params models.Classification) {
 	defer cancel()
 	err := c.repo.Put(ctx, params)
 	if err != nil {
-		c.logExecutionError("store succeded run", err, params)
+		c.logExecutionError("store succeeded run", err, params)
 	}
 	c.logFinish(params)
 }
@@ -132,7 +131,6 @@ func (c *Classifier) failRunWithError(params models.Classification, err error) {
 	err = c.repo.Put(context.Background(), params)
 	if err != nil {
 		c.logExecutionError("store failed run", err, params)
-
 	}
 	c.logFinish(params)
 }
@@ -194,18 +192,6 @@ func (c *Classifier) logItemsFetched(params models.Classification, items search.
 		WithField("status", params.Status).
 		WithField("item_count", len(items)).
 		Debug("fetched source items")
-}
-
-func (c *Classifier) logBeginClassifyItem(params models.Classification, item search.Result) {
-	c.logBase(params, "classification_item_begin").
-		WithField("uuid", item.ID).
-		Debug("begin classifiy item")
-}
-
-func (c *Classifier) logFinishClassifyItem(params models.Classification, item search.Result) {
-	c.logBase(params, "classification_item_finish").
-		WithField("uuid", item.ID).
-		Debug("finish classifiy item")
 }
 
 func (c *Classifier) logBeginPreparation(params models.Classification) {

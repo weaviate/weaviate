@@ -27,7 +27,7 @@ import (
 // SchemaThingsCreateOKCode is the HTTP code returned for type SchemaThingsCreateOK
 const SchemaThingsCreateOKCode int = 200
 
-/*SchemaThingsCreateOK Added the new Thing class to the ontology.
+/*SchemaThingsCreateOK Added the new Thing class to the schema.
 
 swagger:response schemaThingsCreateOK
 */

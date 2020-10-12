@@ -26,7 +26,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/sempath"
-	"github.com/semi-technologies/weaviate/usecases/telemetry"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 
 	"github.com/graphql-go/graphql"
@@ -285,15 +284,6 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 			UnderscoreProperties: underscore,
 		}
 
-		// Log the request
-		requestsLog, logOk := source["RequestsLog"].(RequestsLog)
-		if !logOk {
-			return nil, fmt.Errorf("expected source map to have a usable RequestsLog, but got %#v", source["RequestsLog"])
-		}
-		go func() {
-			requestsLog.Register(telemetry.TypeGQL, telemetry.LocalQuery)
-		}()
-
 		return func() (interface{}, error) {
 			return resolver.GetClass(p.Context, principalFromContext(p.Context), params)
 		}, nil
@@ -374,7 +364,6 @@ func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.De
 		if !property.IsPrimitive {
 			// We can interpret this property in different ways
 			for _, subSelection := range field.SelectionSet.Selections {
-
 				switch s := subSelection.(type) {
 				case *ast.Field:
 					// Is it a field with the name __typename?
@@ -521,7 +510,6 @@ func parseFeatureProjectionArguments(args []*ast.Argument) *projector.Params {
 		default:
 			// ignore what we don't recognize
 		}
-
 	}
 
 	return out

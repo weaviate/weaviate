@@ -24,9 +24,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-const first int = 0
-const second int = 1
-
 // Test if batching is working correctly. Sends an OK batch containing two batched requests that refer to non-existing classes.
 // The expected outcome is a 200 batch response containing two batched responses. These batched responses should both contain errors.
 func TestBatchActionsCreateResultsOrder(t *testing.T) {
@@ -62,7 +59,6 @@ func TestBatchActionsCreateResultsOrder(t *testing.T) {
 	resp, err := helper.BatchingClient(t).BatchingActionsCreate(params, nil)
 	// ensure that the response is OK
 	helper.AssertRequestOk(t, resp, err, func() {
-
 		actionsCreateResponse := resp.Payload
 
 		// check if the batch response contains two batched responses
@@ -79,6 +75,5 @@ func TestBatchActionsCreateResultsOrder(t *testing.T) {
 			fullExpectedOutcomeTwo := fmt.Sprintf(expectedResult, classTwoName)
 			assert.Contains(t, responseTwo, fullExpectedOutcomeTwo)
 		}
-
 	})
 }

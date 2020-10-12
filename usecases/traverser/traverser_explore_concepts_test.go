@@ -26,7 +26,6 @@ import (
 
 func Test_ExploreConcepts(t *testing.T) {
 	t.Run("with network exploration", func(t *testing.T) {
-
 		authorizer := &fakeAuthorizer{}
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
@@ -50,7 +49,6 @@ func Test_ExploreConcepts(t *testing.T) {
 			"explorer: network exploration currently not supported"), err)
 	})
 	t.Run("with no movements set", func(t *testing.T) {
-
 		authorizer := &fakeAuthorizer{}
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
@@ -105,7 +103,6 @@ func Test_ExploreConcepts(t *testing.T) {
 	})
 
 	t.Run("with minimum certainty set to 0.6", func(t *testing.T) {
-
 		authorizer := &fakeAuthorizer{}
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()
@@ -145,7 +142,6 @@ func Test_ExploreConcepts(t *testing.T) {
 	})
 
 	t.Run("with movements set", func(t *testing.T) {
-
 		authorizer := &fakeAuthorizer{}
 		locks := &fakeLocks{}
 		logger, _ := test.NewNullLogger()

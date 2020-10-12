@@ -63,14 +63,14 @@ func (c *Client) IsWordPresent(ctx context.Context, word string) (bool, error) {
 	return res.Present, nil
 }
 
-//SafeGetSimilarWordsWithCertainty will alwasy return a list words - unless there is a network error
+// SafeGetSimilarWordsWithCertainty will always return a list words - unless there is a network error
 func (c *Client) SafeGetSimilarWordsWithCertainty(ctx context.Context, word string, certainty float32) ([]string, error) {
 	res, err := c.grpcClient.SafeGetSimilarWordsWithCertainty(ctx, &pb.SimilarWordsParams{Word: word, Certainty: certainty})
 	if err != nil {
 		return nil, err
 	}
 
-	output := make([]string, len(res.Words), len(res.Words))
+	output := make([]string, len(res.Words))
 	for i, word := range res.Words {
 		output[i] = word.Word
 	}
@@ -119,8 +119,7 @@ func kindFromProto(k pb.Kind) kind.Kind {
 }
 
 func keywordsToProto(kws models.Keywords) []*pb.Keyword {
-
-	output := make([]*pb.Keyword, len(kws), len(kws))
+	output := make([]*pb.Keyword, len(kws))
 	for i, kw := range kws {
 		output[i] = &pb.Keyword{
 			Keyword: kw.Keyword,
@@ -161,7 +160,7 @@ func schemaSearchResultsFromProto(res *pb.SchemaSearchResults) traverser.SearchR
 }
 
 func searchResultsFromProto(input []*pb.SchemaSearchResult) []traverser.SearchResult {
-	output := make([]traverser.SearchResult, len(input), len(input))
+	output := make([]traverser.SearchResult, len(input))
 	for i, res := range input {
 		output[i] = traverser.SearchResult{
 			Certainty: res.Certainty,
@@ -243,13 +242,12 @@ func (c *Client) extractNeighbors(elem *pb.NearestWords) []*models.NearestNeighb
 			Distance: elem.Distances[i],
 			Vector:   vec,
 		}
-
 	}
 	return out
 }
 
 func vectorFromProto(in *pb.Vector) ([]float32, []vectorizer.InputElement, error) {
-	output := make([]float32, len(in.Entries), len(in.Entries))
+	output := make([]float32, len(in.Entries))
 	for i, entry := range in.Entries {
 		output[i] = entry.Entry
 	}
@@ -321,7 +319,7 @@ func (c *Client) AddExtension(ctx context.Context, extension *models.C11yExtensi
 }
 
 func vectorToProto(in []float32) *pb.Vector {
-	output := make([]*pb.VectorEntry, len(in), len(in))
+	output := make([]*pb.VectorEntry, len(in))
 	for i, entry := range in {
 		output[i] = &pb.VectorEntry{
 			Entry: entry,

@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "0.22.14"
+    "version": "0.22.18"
   },
   "basePath": "/v1",
   "paths": {
@@ -595,11 +595,11 @@ func init() {
         ]
       },
       "post": {
-        "description": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
+        "description": "Add a single reference to a class-property.",
         "tags": [
           "actions"
         ],
-        "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
+        "summary": "Add a single reference to a class-property.",
         "operationId": "actions.references.create",
         "parameters": [
           {
@@ -949,7 +949,7 @@ func init() {
     },
     "/c11y/concepts/{concept}": {
       "get": {
-        "description": "Checks if a concept is part of the contextionary. Concepts should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase",
+        "description": "Checks if a concept is part of the contextionary. Concepts should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/schema-schema.md#camelcase",
         "tags": [
           "contextionary-API"
         ],
@@ -1097,7 +1097,7 @@ func init() {
     },
     "/c11y/words/{words}": {
       "get": {
-        "description": "Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase",
+        "description": "Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/schema-schema.md#camelcase",
         "tags": [
           "contextionary-API"
         ],
@@ -1406,72 +1406,6 @@ func init() {
         ]
       }
     },
-    "/p2p/genesis": {
-      "put": {
-        "security": [],
-        "description": "Receive an update from the Genesis server.",
-        "tags": [
-          "P2P"
-        ],
-        "operationId": "p2p.genesis_update",
-        "parameters": [
-          {
-            "name": "peers",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/PeerUpdateList"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Alive and kicking!"
-          },
-          "401": {
-            "description": "Unauthorized update."
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false,
-        "x-serviceIds": [
-          "weaviate.network.query.meta"
-        ]
-      }
-    },
-    "/p2p/health": {
-      "get": {
-        "security": [],
-        "description": "Check if a peer is alive and healthy.",
-        "tags": [
-          "P2P"
-        ],
-        "summary": "Check if a peer is alive.",
-        "operationId": "p2p.health",
-        "responses": {
-          "200": {
-            "description": "Alive and kicking!"
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false,
-        "x-serviceIds": [
-          "weaviate.network.query.meta"
-        ]
-      }
-    },
     "/schema": {
       "get": {
         "tags": [
@@ -1520,7 +1454,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Create a new Action class in the ontology.",
+        "summary": "Create a new Action class in the schema.",
         "operationId": "schema.actions.create",
         "parameters": [
           {
@@ -1534,7 +1468,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added the new Action class to the ontology.",
+            "description": "Added the new Action class to the schema.",
             "schema": {
               "$ref": "#/definitions/Class"
             }
@@ -1567,63 +1501,11 @@ func init() {
       }
     },
     "/schema/actions/{className}": {
-      "put": {
-        "tags": [
-          "schema"
-        ],
-        "summary": "Rename, or replace the keywords of the Action.",
-        "operationId": "schema.actions.update",
-        "parameters": [
-          {
-            "type": "string",
-            "name": "className",
-            "in": "path",
-            "required": true
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/Class"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Changes applied."
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "422": {
-            "description": "Invalid update.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.local.manipulate.meta"
-        ]
-      },
       "delete": {
         "tags": [
           "schema"
         ],
-        "summary": "Remove an Action class (and all data in the instances) from the ontology.",
+        "summary": "Remove an Action class (and all data in the instances) from the schema.",
         "operationId": "schema.actions.delete",
         "parameters": [
           {
@@ -1635,7 +1517,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Removed the Action class from the ontology."
+            "description": "Removed the Action class from the schema."
           },
           "400": {
             "description": "Could not delete the Action class.",
@@ -1721,116 +1603,12 @@ func init() {
         ]
       }
     },
-    "/schema/actions/{className}/properties/{propertyName}": {
-      "put": {
-        "tags": [
-          "schema"
-        ],
-        "summary": "Rename, or replace the keywords of the property.",
-        "operationId": "schema.actions.properties.update",
-        "parameters": [
-          {
-            "type": "string",
-            "name": "className",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "name": "propertyName",
-            "in": "path",
-            "required": true
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/Property"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Changes applied."
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "422": {
-            "description": "Invalid update.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.local.manipulate.meta"
-        ]
-      },
-      "delete": {
-        "tags": [
-          "schema"
-        ],
-        "summary": "Remove a property from an Action class.",
-        "operationId": "schema.actions.properties.delete",
-        "parameters": [
-          {
-            "type": "string",
-            "name": "className",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "name": "propertyName",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Removed the property from the ontology."
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.local.manipulate.meta"
-        ]
-      }
-    },
     "/schema/things": {
       "post": {
         "tags": [
           "schema"
         ],
-        "summary": "Create a new Thing class in the ontology.",
+        "summary": "Create a new Thing class in the schema.",
         "operationId": "schema.things.create",
         "parameters": [
           {
@@ -1844,7 +1622,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added the new Thing class to the ontology.",
+            "description": "Added the new Thing class to the schema.",
             "schema": {
               "$ref": "#/definitions/Class"
             }
@@ -1877,62 +1655,11 @@ func init() {
       }
     },
     "/schema/things/{className}": {
-      "put": {
-        "tags": [
-          "schema"
-        ],
-        "summary": "Rename, or replace the keywords of the Thing.",
-        "operationId": "schema.things.update",
-        "parameters": [
-          {
-            "type": "string",
-            "name": "className",
-            "in": "path",
-            "required": true
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "schema": {
-              "$ref": "#/definitions/Class"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Changes applied."
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "422": {
-            "description": "Invalid update.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.local.manipulate.meta"
-        ]
-      },
       "delete": {
         "tags": [
           "schema"
         ],
-        "summary": "Remove a Thing class (and all data in the instances) from the ontology.",
+        "summary": "Remove a Thing class (and all data in the instances) from the schema.",
         "operationId": "schema.things.delete",
         "parameters": [
           {
@@ -1944,7 +1671,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Removed the Thing class from the ontology."
+            "description": "Removed the Thing class from the schema."
           },
           "400": {
             "description": "Could not delete the Thing class.",
@@ -2014,110 +1741,6 @@ func init() {
           },
           "422": {
             "description": "Invalid property.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.local.manipulate.meta"
-        ]
-      }
-    },
-    "/schema/things/{className}/properties/{propertyName}": {
-      "put": {
-        "tags": [
-          "schema"
-        ],
-        "summary": "Rename, or replace the keywords of the property.",
-        "operationId": "schema.things.properties.update",
-        "parameters": [
-          {
-            "type": "string",
-            "name": "className",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "name": "propertyName",
-            "in": "path",
-            "required": true
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/Property"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Changes applied."
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "422": {
-            "description": "Invalid update.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.local.manipulate.meta"
-        ]
-      },
-      "delete": {
-        "tags": [
-          "schema"
-        ],
-        "summary": "Remove a property from a Thing class.",
-        "operationId": "schema.things.properties.delete",
-        "parameters": [
-          {
-            "type": "string",
-            "name": "className",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "name": "propertyName",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Removed the property from the ontology."
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2596,11 +2219,11 @@ func init() {
         ]
       },
       "post": {
-        "description": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
+        "description": "Add a single reference to a class-property.",
         "tags": [
           "things"
         ],
-        "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
+        "summary": "Add a single reference to a class-property.",
         "operationId": "things.references.create",
         "parameters": [
           {
@@ -3679,13 +3302,9 @@ func init() {
       "type": "object",
       "properties": {
         "cardinality": {
-          "description": "The cardinality of this property. If you want to store more than one value in a property, set this to 'many'. Defaults to 'atMostOne'. Note that by default properties can be empty in Weaviate.",
+          "description": "DEPRECATED - do not use anymore.",
           "type": "string",
-          "default": "atMostOne",
-          "enum": [
-            "atMostOne",
-            "many"
-          ]
+          "default": ""
         },
         "dataType": {
           "description": "Can be a reference to another type when it starts with a capital (for example Person), otherwise \"string\" or \"int\".",
@@ -4229,7 +3848,7 @@ func init() {
       "url": "https://github.com/semi-technologies",
       "email": "hello@semi.technology"
     },
-    "version": "0.22.14"
+    "version": "0.22.18"
   },
   "basePath": "/v1",
   "paths": {
@@ -4792,11 +4411,11 @@ func init() {
         ]
       },
       "post": {
-        "description": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
+        "description": "Add a single reference to a class-property.",
         "tags": [
           "actions"
         ],
-        "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
+        "summary": "Add a single reference to a class-property.",
         "operationId": "actions.references.create",
         "parameters": [
           {
@@ -5146,7 +4765,7 @@ func init() {
     },
     "/c11y/concepts/{concept}": {
       "get": {
-        "description": "Checks if a concept is part of the contextionary. Concepts should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase",
+        "description": "Checks if a concept is part of the contextionary. Concepts should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/schema-schema.md#camelcase",
         "tags": [
           "contextionary-API"
         ],
@@ -5294,7 +4913,7 @@ func init() {
     },
     "/c11y/words/{words}": {
       "get": {
-        "description": "Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase",
+        "description": "Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/schema-schema.md#camelcase",
         "tags": [
           "contextionary-API"
         ],
@@ -5603,72 +5222,6 @@ func init() {
         ]
       }
     },
-    "/p2p/genesis": {
-      "put": {
-        "security": [],
-        "description": "Receive an update from the Genesis server.",
-        "tags": [
-          "P2P"
-        ],
-        "operationId": "p2p.genesis_update",
-        "parameters": [
-          {
-            "name": "peers",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/PeerUpdateList"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Alive and kicking!"
-          },
-          "401": {
-            "description": "Unauthorized update."
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false,
-        "x-serviceIds": [
-          "weaviate.network.query.meta"
-        ]
-      }
-    },
-    "/p2p/health": {
-      "get": {
-        "security": [],
-        "description": "Check if a peer is alive and healthy.",
-        "tags": [
-          "P2P"
-        ],
-        "summary": "Check if a peer is alive.",
-        "operationId": "p2p.health",
-        "responses": {
-          "200": {
-            "description": "Alive and kicking!"
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false,
-        "x-serviceIds": [
-          "weaviate.network.query.meta"
-        ]
-      }
-    },
     "/schema": {
       "get": {
         "tags": [
@@ -5717,7 +5270,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Create a new Action class in the ontology.",
+        "summary": "Create a new Action class in the schema.",
         "operationId": "schema.actions.create",
         "parameters": [
           {
@@ -5731,7 +5284,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added the new Action class to the ontology.",
+            "description": "Added the new Action class to the schema.",
             "schema": {
               "$ref": "#/definitions/Class"
             }
@@ -5764,63 +5317,11 @@ func init() {
       }
     },
     "/schema/actions/{className}": {
-      "put": {
-        "tags": [
-          "schema"
-        ],
-        "summary": "Rename, or replace the keywords of the Action.",
-        "operationId": "schema.actions.update",
-        "parameters": [
-          {
-            "type": "string",
-            "name": "className",
-            "in": "path",
-            "required": true
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/Class"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Changes applied."
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "422": {
-            "description": "Invalid update.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.local.manipulate.meta"
-        ]
-      },
       "delete": {
         "tags": [
           "schema"
         ],
-        "summary": "Remove an Action class (and all data in the instances) from the ontology.",
+        "summary": "Remove an Action class (and all data in the instances) from the schema.",
         "operationId": "schema.actions.delete",
         "parameters": [
           {
@@ -5832,7 +5333,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Removed the Action class from the ontology."
+            "description": "Removed the Action class from the schema."
           },
           "400": {
             "description": "Could not delete the Action class.",
@@ -5918,116 +5419,12 @@ func init() {
         ]
       }
     },
-    "/schema/actions/{className}/properties/{propertyName}": {
-      "put": {
-        "tags": [
-          "schema"
-        ],
-        "summary": "Rename, or replace the keywords of the property.",
-        "operationId": "schema.actions.properties.update",
-        "parameters": [
-          {
-            "type": "string",
-            "name": "className",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "name": "propertyName",
-            "in": "path",
-            "required": true
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/Property"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Changes applied."
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "422": {
-            "description": "Invalid update.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.local.manipulate.meta"
-        ]
-      },
-      "delete": {
-        "tags": [
-          "schema"
-        ],
-        "summary": "Remove a property from an Action class.",
-        "operationId": "schema.actions.properties.delete",
-        "parameters": [
-          {
-            "type": "string",
-            "name": "className",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "name": "propertyName",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Removed the property from the ontology."
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.local.manipulate.meta"
-        ]
-      }
-    },
     "/schema/things": {
       "post": {
         "tags": [
           "schema"
         ],
-        "summary": "Create a new Thing class in the ontology.",
+        "summary": "Create a new Thing class in the schema.",
         "operationId": "schema.things.create",
         "parameters": [
           {
@@ -6041,7 +5438,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added the new Thing class to the ontology.",
+            "description": "Added the new Thing class to the schema.",
             "schema": {
               "$ref": "#/definitions/Class"
             }
@@ -6074,62 +5471,11 @@ func init() {
       }
     },
     "/schema/things/{className}": {
-      "put": {
-        "tags": [
-          "schema"
-        ],
-        "summary": "Rename, or replace the keywords of the Thing.",
-        "operationId": "schema.things.update",
-        "parameters": [
-          {
-            "type": "string",
-            "name": "className",
-            "in": "path",
-            "required": true
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "schema": {
-              "$ref": "#/definitions/Class"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Changes applied."
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "422": {
-            "description": "Invalid update.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.local.manipulate.meta"
-        ]
-      },
       "delete": {
         "tags": [
           "schema"
         ],
-        "summary": "Remove a Thing class (and all data in the instances) from the ontology.",
+        "summary": "Remove a Thing class (and all data in the instances) from the schema.",
         "operationId": "schema.things.delete",
         "parameters": [
           {
@@ -6141,7 +5487,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Removed the Thing class from the ontology."
+            "description": "Removed the Thing class from the schema."
           },
           "400": {
             "description": "Could not delete the Thing class.",
@@ -6211,110 +5557,6 @@ func init() {
           },
           "422": {
             "description": "Invalid property.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.local.manipulate.meta"
-        ]
-      }
-    },
-    "/schema/things/{className}/properties/{propertyName}": {
-      "put": {
-        "tags": [
-          "schema"
-        ],
-        "summary": "Rename, or replace the keywords of the property.",
-        "operationId": "schema.things.properties.update",
-        "parameters": [
-          {
-            "type": "string",
-            "name": "className",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "name": "propertyName",
-            "in": "path",
-            "required": true
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/Property"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Changes applied."
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "422": {
-            "description": "Invalid update.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "x-serviceIds": [
-          "weaviate.local.manipulate.meta"
-        ]
-      },
-      "delete": {
-        "tags": [
-          "schema"
-        ],
-        "summary": "Remove a property from a Thing class.",
-        "operationId": "schema.things.properties.delete",
-        "parameters": [
-          {
-            "type": "string",
-            "name": "className",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "name": "propertyName",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Removed the property from the ontology."
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6809,11 +6051,11 @@ func init() {
         ]
       },
       "post": {
-        "description": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
+        "description": "Add a single reference to a class-property.",
         "tags": [
           "things"
         ],
-        "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
+        "summary": "Add a single reference to a class-property.",
         "operationId": "things.references.create",
         "parameters": [
           {
@@ -7981,13 +7223,9 @@ func init() {
       "type": "object",
       "properties": {
         "cardinality": {
-          "description": "The cardinality of this property. If you want to store more than one value in a property, set this to 'many'. Defaults to 'atMostOne'. Note that by default properties can be empty in Weaviate.",
+          "description": "DEPRECATED - do not use anymore.",
           "type": "string",
-          "default": "atMostOne",
-          "enum": [
-            "atMostOne",
-            "many"
-          ]
+          "default": ""
         },
         "dataType": {
           "description": "Can be a reference to another type when it starts with a capital (for example Person), otherwise \"string\" or \"int\".",

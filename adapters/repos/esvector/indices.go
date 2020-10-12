@@ -22,7 +22,6 @@ import (
 
 // PutIndex idempotently creates an index
 func (r *Repo) PutIndex(ctx context.Context, index string) error {
-
 	ok, err := r.indexExists(ctx, index)
 	if err != nil {
 		return fmt.Errorf("create index: %v", err)

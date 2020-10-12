@@ -17,11 +17,12 @@ import (
 	"strconv"
 )
 
-const inputVersionRegexString = `^.*-v(?P<Major>[0-9]+)\.(?P<Minor>[0-9]+)\.(?P<Patch>[0-9]+)$`
-const minimumVersionRegexString = `^(?P<Major>[0-9]+)\.(?P<Minor>[0-9])+\.(?P<Patch>[0-9]+)$`
+const (
+	inputVersionRegexString   = `^.*-v(?P<Major>[0-9]+)\.(?P<Minor>[0-9]+)\.(?P<Patch>[0-9]+)$`
+	minimumVersionRegexString = `^(?P<Major>[0-9]+)\.(?P<Minor>[0-9])+\.(?P<Patch>[0-9]+)$`
+)
 
 func extractVersionAndCompare(input, requiredMin string) (bool, error) {
-
 	inputRegexp := regexp.MustCompile(inputVersionRegexString)
 	minimumRegexp := regexp.MustCompile(minimumVersionRegexString)
 
@@ -47,7 +48,6 @@ func extractVersionAndCompare(input, requiredMin string) (bool, error) {
 }
 
 func compareSemver(iMaj, iMin, iPat, rMaj, rMin, rPat int) bool {
-
 	if iMaj > rMaj {
 		return true
 	}
@@ -73,5 +73,4 @@ func compareSemver(iMaj, iMin, iPat, rMaj, rMin, rPat int) bool {
 	}
 
 	return true
-
 }

@@ -84,7 +84,7 @@ type SelectProperties []SelectProperty
 
 func (sp SelectProperties) HasRefs() bool {
 	for _, p := range sp {
-		if p.IsPrimitive == false {
+		if !p.IsPrimitive {
 			return true
 		}
 	}
@@ -123,7 +123,6 @@ func (sp SelectProperties) ShouldResolve(path []string) (bool, error) {
 
 		// we are done and found the path
 		return true, nil
-
 	}
 
 	return false, nil

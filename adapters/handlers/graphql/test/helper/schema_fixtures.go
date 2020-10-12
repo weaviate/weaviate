@@ -16,8 +16,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
-var many = "many"
-
 var SimpleSchema = schema.Schema{
 	Things: &models.Schema{
 		Classes: []*models.Class{
@@ -58,9 +56,8 @@ var SimpleSchema = schema.Schema{
 						DataType: []string{"SomeAction"},
 					},
 					&models.Property{
-						Name:        "hasActions",
-						DataType:    []string{"SomeAction"},
-						Cardinality: &many,
+						Name:     "hasActions",
+						DataType: []string{"SomeAction"},
 					},
 				},
 			},

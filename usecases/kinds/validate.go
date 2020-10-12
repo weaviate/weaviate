@@ -21,7 +21,6 @@ import (
 // async validation before submitting
 func (m *Manager) ValidateThing(ctx context.Context, principal *models.Principal,
 	class *models.Thing) error {
-
 	err := m.authorizer.Authorize(principal, "validate", "things")
 	if err != nil {
 		return err
@@ -45,7 +44,6 @@ func (m *Manager) ValidateThing(ctx context.Context, principal *models.Principal
 // async validation before submitting
 func (m *Manager) ValidateAction(ctx context.Context, principal *models.Principal,
 	class *models.Action) error {
-
 	err := m.authorizer.Authorize(principal, "validate", "actions")
 	if err != nil {
 		return err

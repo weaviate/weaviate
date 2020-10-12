@@ -24,7 +24,6 @@ import (
 // AddReferences Class Instances in batch to the connected DB
 func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Principal,
 	refs []*models.BatchReference) (BatchReferences, error) {
-
 	err := b.authorizer.Authorize(principal, "update", "batch/*")
 	if err != nil {
 		return nil, err
@@ -32,7 +31,7 @@ func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Prin
 
 	unlock, err := b.locks.LockSchema()
 	if err != nil {
-		return nil, NewErrInternal("could not aquire lock: %v", err)
+		return nil, NewErrInternal("could not acquire lock: %v", err)
 	}
 	defer unlock()
 
@@ -40,7 +39,6 @@ func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Prin
 }
 
 func (b *BatchManager) addReferences(ctx context.Context, refs []*models.BatchReference) (BatchReferences, error) {
-
 	if err := b.validateReferenceForm(refs); err != nil {
 		return nil, NewErrInvalidUserInput("invalid params: %v", err)
 	}
@@ -112,7 +110,7 @@ func (b *BatchManager) validateReference(wg *sync.WaitGroup, ref *models.BatchRe
 }
 
 func referencesChanToSlice(c chan BatchReference) BatchReferences {
-	result := make([]BatchReference, len(c), len(c))
+	result := make([]BatchReference, len(c))
 	for reference := range c {
 		result[reference.OriginalIndex] = reference
 	}

@@ -32,7 +32,6 @@ func QueryGraphQL(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, operation
 	var vars interface{} = variables
 	params := graphql_client.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{OperationName: operation, Query: query, Variables: vars})
 	response, err := helper.Client(t).Graphql.GraphqlPost(params, nil)
-
 	if err != nil {
 		return nil, err
 	}

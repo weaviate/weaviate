@@ -9,6 +9,8 @@
 //  CONTACT: hello@semi.technology
 //
 
+// +build integrationTest
+
 package db
 
 import "github.com/semi-technologies/weaviate/entities/schema"

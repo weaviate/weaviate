@@ -52,7 +52,7 @@ type ClientService interface {
 /*
   C11yConcepts checks if a concept is part of the contextionary
 
-  Checks if a concept is part of the contextionary. Concepts should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase
+  Checks if a concept is part of the contextionary. Concepts should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/schema-schema.md#camelcase
 */
 func (a *Client) C11yConcepts(params *C11yConceptsParams, authInfo runtime.ClientAuthInfoWriter) (*C11yConceptsOK, error) {
 	// TODO: Validate the params before sending
@@ -156,7 +156,7 @@ func (a *Client) C11yExtensions(params *C11yExtensionsParams, authInfo runtime.C
 /*
   C11yWords checks if a word or word string is part of the contextionary
 
-  Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/ontology-schema.md#camelcase
+  Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/schema-schema.md#camelcase
 */
 func (a *Client) C11yWords(params *C11yWordsParams, authInfo runtime.ClientAuthInfoWriter) (*C11yWordsOK, error) {
 	// TODO: Validate the params before sending

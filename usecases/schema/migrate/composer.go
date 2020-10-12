@@ -32,7 +32,6 @@ func New(migrators ...Migrator) *Composer {
 // AddClass calls all internal AddClass methods and composes the errors
 func (c *Composer) AddClass(ctx context.Context, kind kind.Kind,
 	class *models.Class) error {
-
 	ec := newErrorComposer()
 	for _, m := range c.migrators {
 		ec.Add(m.AddClass(ctx, kind, class))
@@ -44,7 +43,6 @@ func (c *Composer) AddClass(ctx context.Context, kind kind.Kind,
 // DropClass calls all internal DropClass methods and composes the errors
 func (c *Composer) DropClass(ctx context.Context, kind kind.Kind,
 	class string) error {
-
 	ec := newErrorComposer()
 	for _, m := range c.migrators {
 		ec.Add(m.DropClass(ctx, kind, class))
@@ -56,7 +54,6 @@ func (c *Composer) DropClass(ctx context.Context, kind kind.Kind,
 // UpdateClass calls all internal UpdateClass methods and composes the errors
 func (c *Composer) UpdateClass(ctx context.Context, kind kind.Kind,
 	class string, newName *string, newKeywords *models.Keywords) error {
-
 	ec := newErrorComposer()
 	for _, m := range c.migrators {
 		ec.Add(m.UpdateClass(ctx, kind, class, newName, newKeywords))
@@ -68,7 +65,6 @@ func (c *Composer) UpdateClass(ctx context.Context, kind kind.Kind,
 // AddProperty calls all internal AddProperty methods and composes the errors
 func (c *Composer) AddProperty(ctx context.Context, kind kind.Kind,
 	class string, prop *models.Property) error {
-
 	ec := newErrorComposer()
 	for _, m := range c.migrators {
 		ec.Add(m.AddProperty(ctx, kind, class, prop))
@@ -80,7 +76,6 @@ func (c *Composer) AddProperty(ctx context.Context, kind kind.Kind,
 // DropProperty calls all internal DropProperty methods and composes the errors
 func (c *Composer) DropProperty(ctx context.Context, kind kind.Kind,
 	class string, prop string) error {
-
 	ec := newErrorComposer()
 	for _, m := range c.migrators {
 		ec.Add(m.DropProperty(ctx, kind, class, prop))
@@ -93,7 +88,6 @@ func (c *Composer) DropProperty(ctx context.Context, kind kind.Kind,
 func (c *Composer) UpdateProperty(ctx context.Context, kind kind.Kind,
 	class string, prop string, newName *string,
 	newKeywords *models.Keywords) error {
-
 	ec := newErrorComposer()
 	for _, m := range c.migrators {
 		ec.Add(m.UpdateProperty(ctx, kind, class, prop, newName, newKeywords))
@@ -105,7 +99,6 @@ func (c *Composer) UpdateProperty(ctx context.Context, kind kind.Kind,
 // UpdatePropertyAddDataType calls all internal UpdatePropertyAddDataType methods and composes the errors
 func (c *Composer) UpdatePropertyAddDataType(ctx context.Context, kind kind.Kind,
 	class string, prop string, dataType string) error {
-
 	ec := newErrorComposer()
 	for _, m := range c.migrators {
 		ec.Add(m.UpdatePropertyAddDataType(ctx, kind, class, prop, dataType))

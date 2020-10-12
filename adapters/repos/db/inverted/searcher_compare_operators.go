@@ -19,6 +19,7 @@ import (
 
 	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/notimplemented"
 	"github.com/semi-technologies/weaviate/entities/filters"
 )
 
@@ -39,7 +40,8 @@ func (fs *Searcher) docPointers(id []byte, operator filters.Operator,
 	case filters.OperatorLessThanEqual:
 		return fs.docPointersLessThan(id, b, value, limit, hasFrequency, true)
 	default:
-		return docPointers{}, fmt.Errorf("operator not supported (yet)")
+		return docPointers{}, fmt.Errorf("operator not supported (yet) in standalone "+
+			"mode, see %s for details", notimplemented.Link)
 	}
 }
 
@@ -156,7 +158,7 @@ func rowID(prop, value []byte) []byte {
 // on Operators GreaterThan (Equal) & LessThan (Equal), we don't just read a
 // single row in the inverted index, but several (e.g. for greater than 5, we
 // right read the row containing 5, 6, 7 and so on. Since a field contains just
-// one value the docIDs are guarnateed to be unique, we can simply append them.
+// one value the docIDs are guaranteed to be unique, we can simply append them.
 // But to be able to recognize this read operation further than the line (e.g.
 // when merging independent filter) we need a new checksum describing exactly
 // this request. Thus we simply treat the existing checksums as an input string

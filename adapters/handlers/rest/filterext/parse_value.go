@@ -25,7 +25,6 @@ func parseValue(in *models.WhereFilter) (*filters.Value, error) {
 
 	for _, extractor := range valueExtractors {
 		foundValue, err := extractor(in)
-
 		// Abort if we found a value, but it's for being passed a string to an int value.
 		if err != nil {
 			return nil, err

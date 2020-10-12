@@ -27,7 +27,6 @@ import (
 // required types. It also retrieves refs from the provided cacher
 func (r *Repo) parseSchema(input map[string]interface{}, properties traverser.SelectProperties,
 	underscore traverser.UnderscoreProperties, requestCacher *cacher) (map[string]interface{}, error) {
-
 	output := map[string]interface{}{}
 
 	for key, value := range input {

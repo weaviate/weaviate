@@ -47,7 +47,7 @@ func (m *Manager) deleteClass(ctx context.Context, className string, k kind.Kind
 	defer unlock()
 
 	semanticSchema := m.state.SchemaFor(k)
-	var classIdx = -1
+	classIdx := -1
 	for idx, class := range semanticSchema.Classes {
 		if class.Class == className {
 			classIdx = idx
@@ -69,5 +69,5 @@ func (m *Manager) deleteClass(ctx context.Context, className string, k kind.Kind
 	}
 
 	return m.migrator.DropClass(ctx, k, className)
-	//TODO gh-846: rollback state update if migration fails
+	// TODO gh-846: rollback state update if migration fails
 }

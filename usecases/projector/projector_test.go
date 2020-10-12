@@ -22,7 +22,6 @@ import (
 )
 
 func TestProjector(t *testing.T) {
-
 	p := New()
 
 	t.Run("with multiple results", func(t *testing.T) {

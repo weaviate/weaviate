@@ -157,7 +157,6 @@ func TestVectorizingThings(t *testing.T) {
 			actual := strings.Split(client.lastInput[0], " ")
 			assert.ElementsMatch(t, expected, actual)
 		})
-
 	}
 }
 
@@ -168,11 +167,7 @@ type propertyIndexer struct {
 }
 
 func (p *propertyIndexer) Indexed(className, property string) bool {
-	if property == p.noIndex {
-		return false
-	}
-
-	return true
+	return property != p.noIndex
 }
 
 func (p *propertyIndexer) VectorizeClassName(class string) bool {
@@ -250,9 +245,7 @@ func TestVectorizingActions(t *testing.T) {
 			expected := strings.Split(test.expectedClientCall[0], " ")
 			actual := strings.Split(client.lastInput[0], " ")
 			assert.ElementsMatch(t, expected, actual)
-
 		})
-
 	}
 }
 
