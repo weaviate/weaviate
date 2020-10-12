@@ -43,8 +43,7 @@ type UnderscoreProperties struct {
 	SemanticPath *SemanticPath `json:"semanticPath,omitempty"`
 
 	// This object's position in the Contextionary vector space
- 	Vector C11yVector `json:"vector,omitempty"`
-
+	Vector C11yVector `json:"vector,omitempty"`
 }
 
 // Validate validates this underscore properties

@@ -267,8 +267,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 		})
 	})
 
-
-
 	t.Run("when the _certainty prop is set", func(t *testing.T) {
 		params := GetParams{
 			Kind:         kind.Thing,
@@ -277,9 +275,9 @@ func Test_Explorer_GetClass(t *testing.T) {
 			Pagination:   &filters.Pagination{Limit: 100},
 			SearchVector: []float32{1.0, 2.0, 3.0},
 			Explore: &ExploreParams{
-				Values:       []string{"foobar"},
-				Limit:        100,
-				Certainty:    0,
+				Values:    []string{"foobar"},
+				Limit:     100,
+				Certainty: 0,
 			},
 			UnderscoreProperties: UnderscoreProperties{
 				Certainty: true,
