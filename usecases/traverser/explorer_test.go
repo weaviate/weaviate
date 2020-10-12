@@ -267,6 +267,68 @@ func Test_Explorer_GetClass(t *testing.T) {
 		})
 	})
 
+	t.Run("when the _certainty prop is set", func(t *testing.T) {
+		params := GetParams{
+			Kind:         kind.Thing,
+			Filters:      nil,
+			ClassName:    "BestClass",
+			Pagination:   &filters.Pagination{Limit: 100},
+			SearchVector: []float32{1.0, 2.0, 3.0},
+			Explore: &ExploreParams{
+				Values:    []string{"foobar"},
+				Limit:     100,
+				Certainty: 0,
+			},
+			UnderscoreProperties: UnderscoreProperties{
+				Certainty: true,
+			},
+		}
+
+		searchResults := []search.Result{
+			{
+				Kind: kind.Action,
+				ID:   "id2",
+				Schema: map[string]interface{}{
+					"age": 200,
+				},
+				Vector: []float32{0.5, 1.5, 0.0},
+			},
+		}
+
+		search := &fakeVectorSearcher{}
+		vectorizer := &fakeVectorizer{}
+		extender := &fakeExtender{}
+		log, _ := test.NewNullLogger()
+		projector := &fakeProjector{}
+		pathBuilder := &fakePathBuilder{}
+		explorer := NewExplorer(search, vectorizer, newFakeDistancer69(), log, extender, projector, pathBuilder)
+		expectedParamsToSearch := params
+		expectedParamsToSearch.SearchVector = []float32{1.0, 2.0, 3.0}
+		//expectedParamsToSearch.SearchVector = nil
+		search.
+			On("VectorClassSearch", expectedParamsToSearch).
+			Return(searchResults, nil)
+
+		res, err := explorer.GetClass(context.Background(), params)
+
+		t.Run("class search must be called with right params", func(t *testing.T) {
+			assert.Nil(t, err)
+			search.AssertExpectations(t)
+		})
+
+		t.Run("response must contain concepts", func(t *testing.T) {
+			require.Len(t, res, 1)
+
+			resMap := res[0].(map[string]interface{})
+			assert.Equal(t, 2, len(resMap))
+			assert.Contains(t, resMap, "age")
+			assert.Equal(t, 200, resMap["age"])
+			assert.Contains(t, resMap, "_certainty")
+			// Certainty is fixed to 0.5 in this mock
+			assert.InEpsilon(t, 0.31, resMap["_certainty"], 0.000001)
+		})
+	})
+
 	t.Run("when the _interpretation prop is set", func(t *testing.T) {
 		params := GetParams{
 			Kind:       kind.Thing,
@@ -720,6 +782,13 @@ func Test_Explorer_GetClass(t *testing.T) {
 func newFakeDistancer() func(a, b []float32) (float32, error) {
 	return func(source, target []float32) (float32, error) {
 		return 0.5, nil
+	}
+}
+
+// newFakeDistancer69 return 0.69 to allow the assertion of certainty vs distance.
+func newFakeDistancer69() func(a, b []float32) (float32, error) {
+	return func(source, target []float32) (float32, error) {
+		return 0.69, nil
 	}
 }
 

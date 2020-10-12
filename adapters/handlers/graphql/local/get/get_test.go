@@ -14,6 +14,8 @@
 package get
 
 import (
+	"github.com/semi-technologies/weaviate/usecases/projector"
+	"github.com/semi-technologies/weaviate/usecases/sempath"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -21,8 +23,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/projector"
-	"github.com/semi-technologies/weaviate/usecases/sempath"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/stretchr/testify/assert"
 )
@@ -303,6 +303,25 @@ func TestExtractUnderscoreFields(t *testing.T) {
 	}
 
 	tests := []test{
+		test{
+			name:  "with _certainty",
+			query: "{ Get { Actions { SomeAction { _certainty } } } }",
+			expectedParams: traverser.GetParams{
+				Kind:      kind.Action,
+				ClassName: "SomeAction",
+				UnderscoreProperties: traverser.UnderscoreProperties{
+					Certainty: true,
+				},
+			},
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"_certainty": 0.69,
+				},
+			},
+			expectedResult: map[string]interface{}{
+				"_certainty": 0.69,
+			},
+		},
 		test{
 			name:  "with _classification",
 			query: "{ Get { Actions { SomeAction { _classification { id completed classifiedFields scope basedOn }  } } } }",
