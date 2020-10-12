@@ -14,9 +14,10 @@
 package get
 
 import (
+	"testing"
+
 	"github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/sempath"
-	"testing"
 
 	"github.com/go-openapi/strfmt"
 	test_helper "github.com/semi-technologies/weaviate/adapters/handlers/graphql/test/helper"
