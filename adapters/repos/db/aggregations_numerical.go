@@ -10,6 +10,7 @@ import (
 	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
@@ -80,12 +81,10 @@ type numericalAggregator struct {
 }
 
 func (a *numericalAggregator) AddFloat64(number, count []byte) error {
-	var numberParsed float64
 	var countParsed uint32
 
-	// TODO: use lexicographically sortable for correct value
-	if err := binary.Read(bytes.NewReader(number), binary.BigEndian,
-		&numberParsed); err != nil {
+	numberParsed, err := inverted.ParseLexicographicallySortableFloat64(number)
+	if err != nil {
 		return errors.Wrap(err, "read float64")
 	}
 
@@ -102,7 +101,7 @@ func (a *numericalAggregator) AddFloat64(number, count []byte) error {
 	// TODO: compare min/max
 
 	a.count += countParsed
-	a.sum += numberParsed
+	a.sum += numberParsed * float64(countParsed)
 	return nil
 }
 
