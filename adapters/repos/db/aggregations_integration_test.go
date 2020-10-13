@@ -24,10 +24,9 @@ import (
 )
 
 func Test_Aggregations(t *testing.T) {
-
 	rand.Seed(time.Now().UnixNano())
 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0777)
+	os.MkdirAll(dirName, 0o777)
 	defer func() {
 		err := os.RemoveAll(dirName)
 		fmt.Println(err)
@@ -52,8 +51,8 @@ func Test_Aggregations(t *testing.T) {
 
 	// t.Run("clean up",
 	// 	cleanupCompanyTestSchemaAndData(repo, migrator))
-
 }
+
 func prepareCompanyTestSchemaAndData(repo *DB,
 	migrator *Migrator, schemaGetter *fakeSchemaGetter) func(t *testing.T) {
 	return func(t *testing.T) {
@@ -86,7 +85,6 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 					repo.PutThing(context.Background(), &fixture, []float32{0.1, 0.1, 0.1, 0.1}))
 			})
 		}
-
 	}
 }
 
@@ -462,7 +460,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 							"dividendYield": aggregation.Property{
 								Type: aggregation.PropertyTypeNumerical,
 								NumericalAggregations: map[string]float64{
-									"mean": 2.11111,
+									"mean": 2.111111111111111,
 								},
 							},
 						},

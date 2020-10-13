@@ -75,6 +75,10 @@ func (a *Aggregator) addMetaCount(ctx context.Context,
 
 func (a *Aggregator) properties(
 	ctx context.Context) (map[string]aggregation.Property, error) {
+	if len(a.params.Properties) == 0 {
+		return nil, nil
+	}
+
 	out := map[string]aggregation.Property{}
 
 	for _, prop := range a.params.Properties {

@@ -14,6 +14,7 @@ package inverted
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"math"
 
 	"github.com/pkg/errors"
@@ -49,6 +50,42 @@ func LexicographicallySortableFloat64(in float64) ([]byte, error) {
 	return out, nil
 }
 
+// ParseLexicographicallySortableFloat64 reverses the changes in
+// LexicographicallySortableFloat64
+func ParseLexicographicallySortableFloat64(in []byte) (float64, error) {
+	if len(in) != 8 {
+		return 0, fmt.Errorf("float64 must be 8 bytes long, got: %d", len(in))
+	}
+
+	flipped := make([]byte, 8)
+	if in[0]&0x80 == 0x80 {
+		// encoded as negative means it was originally positive, so we only need to
+		// flip the sign
+		flipped[0] = in[0] ^ 0x80
+
+		// the remainder can be copied
+		for i := 1; i < 8; i++ {
+			flipped[i] = in[i]
+		}
+	} else {
+		// encoded as positive means it was originally negative, so we need to flip
+		// everything
+		for i := 0; i < 8; i++ {
+			flipped[i] = in[i] ^ 0xFF
+		}
+	}
+
+	r := bytes.NewReader(flipped)
+	var value float64
+
+	err := binary.Read(r, binary.BigEndian, &value)
+	if err != nil {
+		return 0, errors.Wrap(err, "deserialize float64 value as big endian")
+	}
+
+	return value, nil
+}
+
 // LexicographicallySortableInt64 performs a conversion to a lexicographically
 // sortable byte slice. Fro this, big endian notation is required and the sign
 // must be flipped
@@ -67,9 +104,26 @@ func LexicographicallySortableInt64(in int64) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// ParseLexicographicallySortableInt64 reverses the changes in
+// LexicographicallySortableInt64
+func ParseLexicographicallySortableInt64(in []byte) (int64, error) {
+	if len(in) != 8 {
+		return 0, fmt.Errorf("int64 must be 8 bytes long, got: %d", len(in))
+	}
+
+	r := bytes.NewReader(in)
+	var value int64
+
+	err := binary.Read(r, binary.BigEndian, &value)
+	if err != nil {
+		return 0, errors.Wrap(err, "deserialize int64 value as big endian")
+	}
+
+	return value ^ math.MinInt64, nil
+}
+
 // LexicographicallySortableUint32 performs a conversion to a lexicographically
-// sortable byte slice. Fro this, big endian notation is required and the sign
-// must be flipped
+// sortable byte slice. For this, big endian notation is required.
 func LexicographicallySortableUint32(in uint32) ([]byte, error) {
 	buf := bytes.NewBuffer(nil)
 
@@ -80,4 +134,22 @@ func LexicographicallySortableUint32(in uint32) ([]byte, error) {
 	}
 
 	return buf.Bytes(), nil
+}
+
+// ParseLexicographicallySortableUint32 reverses the changes in
+// LexicographicallySortableUint32
+func ParseLexicographicallySortableUint32(in []byte) (uint32, error) {
+	if len(in) != 4 {
+		return 0, fmt.Errorf("uint32 must be 4 bytes long, got: %d", len(in))
+	}
+
+	r := bytes.NewReader(in)
+	var value uint32
+
+	err := binary.Read(r, binary.BigEndian, &value)
+	if err != nil {
+		return 0, errors.Wrap(err, "deserialize uint32 value as big endian")
+	}
+
+	return value, nil
 }
