@@ -101,43 +101,48 @@ func (a *Aggregator) property(ctx context.Context,
 	prop traverser.AggregateProperty) (aggregation.Property, error) {
 	out := aggregation.Property{}
 
-	aggType, err := a.aggTypeOfProperty(prop.Name)
+	aggType, dt, err := a.aggTypeOfProperty(prop.Name)
 	if err != nil {
 		return out, err
 	}
 
 	switch aggType {
 	case aggregation.PropertyTypeNumerical:
-		return a.numericalProperty(ctx, prop)
+		if dt == schema.DataTypeNumber {
+			return a.floatProperty(ctx, prop)
+		} else {
+			return a.intProperty(ctx, prop)
+		}
 	default:
 		return out, fmt.Errorf("aggreation type %s not supported yet", aggType)
 	}
 }
 
 func (a *Aggregator) aggTypeOfProperty(
-	name schema.PropertyName) (aggregation.PropertyType, error) {
+	name schema.PropertyName) (aggregation.PropertyType, schema.DataType, error) {
 	s := a.getSchema.GetSchemaSkipAuth()
 	schemaProp, err := s.GetProperty(a.params.Kind, a.params.ClassName, name)
 	if err != nil {
-		return "", errors.Wrapf(err, "property %s", name)
+		return "", "", errors.Wrapf(err, "property %s", name)
 	}
 
 	if schema.IsRefDataType(schemaProp.DataType) {
-		return aggregation.PropertyTypeReference, nil
+		return aggregation.PropertyTypeReference, "", nil
 	}
 
-	switch schema.DataType(schemaProp.DataType[0]) {
+	dt := schema.DataType(schemaProp.DataType[0])
+	switch dt {
 	case schema.DataTypeInt, schema.DataTypeNumber:
-		return aggregation.PropertyTypeNumerical, nil
+		return aggregation.PropertyTypeNumerical, dt, nil
 	case schema.DataTypeBoolean:
-		return aggregation.PropertyTypeBoolean, nil
+		return aggregation.PropertyTypeBoolean, dt, nil
 	case schema.DataTypeText, schema.DataTypeString:
-		return aggregation.PropertyTypeText, nil
+		return aggregation.PropertyTypeText, dt, nil
 	case schema.DataTypeGeoCoordinates:
-		return "", fmt.Errorf("dataType geoCoordinates can't be aggregated")
+		return "", "", fmt.Errorf("dataType geoCoordinates can't be aggregated")
 	case schema.DataTypePhoneNumber:
-		return "", fmt.Errorf("dataType phoneNumber can't be aggregated")
+		return "", "", fmt.Errorf("dataType phoneNumber can't be aggregated")
 	default:
-		return "", fmt.Errorf("unrecoginzed dataType %v", schemaProp.DataType[0])
+		return "", "", fmt.Errorf("unrecoginzed dataType %v", schemaProp.DataType[0])
 	}
 }

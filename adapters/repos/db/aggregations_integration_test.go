@@ -490,18 +490,18 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 							traverser.CountAggregator,
 						},
 					},
-					// traverser.AggregateProperty{
-					// 	Name: schema.PropertyName("price"),
-					// 	Aggregators: []traverser.Aggregator{
-					// 		traverser.MeanAggregator,
-					// 		traverser.MaximumAggregator,
-					// 		traverser.MinimumAggregator,
-					// 		traverser.SumAggregator,
-					// 		traverser.ModeAggregator,
-					// 		traverser.MedianAggregator,
-					// 		traverser.CountAggregator,
-					// 	},
-					// },
+					traverser.AggregateProperty{
+						Name: schema.PropertyName("price"),
+						Aggregators: []traverser.Aggregator{
+							traverser.MeanAggregator,
+							traverser.MaximumAggregator,
+							traverser.MinimumAggregator,
+							traverser.SumAggregator,
+							traverser.ModeAggregator,
+							traverser.MedianAggregator,
+							traverser.CountAggregator,
+						},
+					},
 					// traverser.AggregateProperty{
 					// 	Name: schema.PropertyName("listedInIndex"),
 					// 	Aggregators: []traverser.Aggregator{
@@ -547,18 +547,18 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 									"count":   9,
 								},
 							},
-							// "price": aggregation.Property{
-							// 	Type: aggregation.PropertyTypeNumerical,
-							// 	NumericalAggregations: map[string]float64{
-							// 		"mean":    234.11111,
-							// 		"maximum": 800,
-							// 		"minimum": 10,
-							// 		"sum":     2107,
-							// 		"mode":    70,
-							// 		"median":  150,
-							// 		"count":   9,
-							// 	},
-							// },
+							"price": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
+								NumericalAggregations: map[string]float64{
+									"mean":    234.11111111111111,
+									"maximum": 800,
+									"minimum": 10,
+									"sum":     2107,
+									"mode":    70,
+									"median":  150,
+									"count":   9,
+								},
+							},
 							// "listedInIndex": aggregation.Property{
 							// 	Type: aggregation.PropertyTypeBoolean,
 							// 	BooleanAggregation: aggregation.Boolean{
