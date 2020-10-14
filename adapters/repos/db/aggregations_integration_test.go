@@ -511,10 +511,18 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 							traverser.TotalFalseAggregator,
 						},
 					},
+					traverser.AggregateProperty{
+						Name: schema.PropertyName("location"),
+						Aggregators: []traverser.Aggregator{
+							// limit is so high, it's not really restrictive
+							traverser.NewTopOccurrencesAggregator(ptInt(10)),
+						},
+					},
 					// traverser.AggregateProperty{
-					// 	Name: schema.PropertyName("location"),
+					// 	Name: schema.PropertyName("sector"),
 					// 	Aggregators: []traverser.Aggregator{
-					// 		traverser.NewTopOccurrencesAggregator(ptInt(5)),
+					// 		// limit is very restrictive
+					// 		traverser.NewTopOccurrencesAggregator(ptInt(2)),
 					// 	},
 					// },
 					// traverser.AggregateProperty{
@@ -569,34 +577,34 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 									Count:           9,
 								},
 							},
-							// "location": aggregation.Property{
-							// 	Type: aggregation.PropertyTypeText,
-							// 	TextAggregation: aggregation.Text{
-							// 		Count: 9,
-							// 		Items: []aggregation.TextOccurrence{
-							// 			aggregation.TextOccurrence{
-							// 				Value:  "New York",
-							// 				Occurs: 3,
-							// 			},
-							// 			aggregation.TextOccurrence{
-							// 				Value:  "Atlanta",
-							// 				Occurs: 2,
-							// 			},
-							// 			aggregation.TextOccurrence{
-							// 				Value:  "San Francisco",
-							// 				Occurs: 2,
-							// 			},
-							// 			aggregation.TextOccurrence{
-							// 				Value:  "Detroit",
-							// 				Occurs: 1,
-							// 			},
-							// 			aggregation.TextOccurrence{
-							// 				Value:  "Los Angeles",
-							// 				Occurs: 1,
-							// 			},
-							// 		},
-							// 	},
-							// },
+							"location": aggregation.Property{
+								Type: aggregation.PropertyTypeText,
+								TextAggregation: aggregation.Text{
+									Count: 9,
+									Items: []aggregation.TextOccurrence{
+										aggregation.TextOccurrence{
+											Value:  "New York",
+											Occurs: 3,
+										},
+										aggregation.TextOccurrence{
+											Value:  "Atlanta",
+											Occurs: 2,
+										},
+										aggregation.TextOccurrence{
+											Value:  "San Francisco",
+											Occurs: 2,
+										},
+										aggregation.TextOccurrence{
+											Value:  "Detroit",
+											Occurs: 1,
+										},
+										aggregation.TextOccurrence{
+											Value:  "Los Angeles",
+											Occurs: 1,
+										},
+									},
+								},
+							},
 						},
 					},
 				},

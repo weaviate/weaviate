@@ -110,6 +110,8 @@ func (a *Aggregator) property(ctx context.Context,
 		}
 	case aggregation.PropertyTypeBoolean:
 		return a.boolProperty(ctx, prop)
+	case aggregation.PropertyTypeText:
+		return a.textProperty(ctx, prop)
 	default:
 		return out, fmt.Errorf("aggreation type %s not supported yet", aggType)
 	}

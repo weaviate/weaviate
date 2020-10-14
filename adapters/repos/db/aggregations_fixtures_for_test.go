@@ -17,7 +17,7 @@ var companyClass = &models.Class{
 		},
 		&models.Property{
 			Name:     "location",
-			DataType: []string{"string"},
+			DataType: []string{"text"},
 		},
 		&models.Property{
 			Name:     "dividendYield",
