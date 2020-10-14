@@ -488,6 +488,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 							traverser.ModeAggregator,
 							traverser.MedianAggregator,
 							traverser.CountAggregator,
+							traverser.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
 					traverser.AggregateProperty{
@@ -500,6 +501,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 							traverser.ModeAggregator,
 							traverser.MedianAggregator,
 							traverser.CountAggregator,
+							traverser.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
 					traverser.AggregateProperty{
@@ -509,6 +511,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 							traverser.PercentageFalseAggregator,
 							traverser.TotalTrueAggregator,
 							traverser.TotalFalseAggregator,
+							traverser.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
 					traverser.AggregateProperty{
@@ -516,6 +519,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 						Aggregators: []traverser.Aggregator{
 							// limit is so high, it's not really restrictive
 							traverser.NewTopOccurrencesAggregator(ptInt(10)),
+							traverser.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
 					traverser.AggregateProperty{
@@ -523,15 +527,19 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 						Aggregators: []traverser.Aggregator{
 							// limit is very restrictive
 							traverser.NewTopOccurrencesAggregator(ptInt(1)),
+							traverser.TypeAggregator, // ignored in the repo, but can't block
 						},
 					},
-					// traverser.AggregateProperty{
-					// 	Name: schema.PropertyName("makesProduct"),
-					// 	Aggregators: []traverser.Aggregator{
-					// 		traverser.PointingToAggregator,
-					// 		traverser.TypeAggregator,
-					// 	},
-					// },
+					// we are not expecting any result from the following agg, as this is
+					// handled in the usecase. However, we at least want to make sure it
+					// doesn't block or lead to any errors
+					traverser.AggregateProperty{
+						Name: schema.PropertyName("makesProduct"),
+						Aggregators: []traverser.Aggregator{
+							traverser.PointingToAggregator,
+							traverser.TypeAggregator,
+						},
+					},
 				},
 			}
 

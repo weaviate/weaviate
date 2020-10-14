@@ -16,7 +16,7 @@ import (
 )
 
 func (a *Aggregator) floatProperty(ctx context.Context,
-	prop traverser.AggregateProperty) (aggregation.Property, error) {
+	prop traverser.AggregateProperty) (*aggregation.Property, error) {
 	out := aggregation.Property{
 		Type:                  aggregation.PropertyTypeNumerical,
 		NumericalAggregations: map[string]float64{},
@@ -40,14 +40,14 @@ func (a *Aggregator) floatProperty(ctx context.Context,
 
 		return nil
 	}); err != nil {
-		return out, err
+		return nil, err
 	}
 
-	return out, nil
+	return &out, nil
 }
 
 func (a *Aggregator) intProperty(ctx context.Context,
-	prop traverser.AggregateProperty) (aggregation.Property, error) {
+	prop traverser.AggregateProperty) (*aggregation.Property, error) {
 	out := aggregation.Property{
 		Type:                  aggregation.PropertyTypeNumerical,
 		NumericalAggregations: map[string]float64{},
@@ -71,10 +71,10 @@ func (a *Aggregator) intProperty(ctx context.Context,
 
 		return nil
 	}); err != nil {
-		return out, err
+		return nil, err
 	}
 
-	return out, nil
+	return &out, nil
 }
 
 func (a *Aggregator) parseAndAddFloatRow(agg *numericalAggregator, k, v []byte) error {
