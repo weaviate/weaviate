@@ -86,19 +86,21 @@ func (a *Aggregator) properties(
 			return nil, errors.Wrapf(err, "property %s", prop.Name)
 		}
 
-		out[prop.Name.String()] = analyzed
+		if analyzed == nil {
+			continue
+		}
+
+		out[prop.Name.String()] = *analyzed
 	}
 
 	return out, nil
 }
 
 func (a *Aggregator) property(ctx context.Context,
-	prop traverser.AggregateProperty) (aggregation.Property, error) {
-	out := aggregation.Property{}
-
+	prop traverser.AggregateProperty) (*aggregation.Property, error) {
 	aggType, dt, err := a.aggTypeOfProperty(prop.Name)
 	if err != nil {
-		return out, err
+		return nil, err
 	}
 
 	switch aggType {
@@ -112,8 +114,11 @@ func (a *Aggregator) property(ctx context.Context,
 		return a.boolProperty(ctx, prop)
 	case aggregation.PropertyTypeText:
 		return a.textProperty(ctx, prop)
+	case aggregation.PropertyTypeReference:
+		// ignore, as this is handled outside the repo in the uc
+		return nil, nil
 	default:
-		return out, fmt.Errorf("aggreation type %s not supported yet", aggType)
+		return nil, fmt.Errorf("aggreation type %s not supported yet", aggType)
 	}
 }
 

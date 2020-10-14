@@ -15,7 +15,7 @@ import (
 )
 
 func (a *Aggregator) textProperty(ctx context.Context,
-	prop traverser.AggregateProperty) (aggregation.Property, error) {
+	prop traverser.AggregateProperty) (*aggregation.Property, error) {
 	out := aggregation.Property{
 		Type:            aggregation.PropertyTypeText,
 		TextAggregation: aggregation.Text{},
@@ -41,10 +41,10 @@ func (a *Aggregator) textProperty(ctx context.Context,
 
 		return nil
 	}); err != nil {
-		return out, err
+		return nil, err
 	}
 
-	return out, nil
+	return &out, nil
 }
 
 func extractLimitFromTopOccs(aggs []traverser.Aggregator) int {
