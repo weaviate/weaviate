@@ -132,7 +132,7 @@ func TestMoveVectorToAnother(t *testing.T) {
 				source:         []float32{1.0, 1.0},
 				target:         []float32{1.2, 0.8},
 				weight:         1,
-				expectedResult: []float32{0.8, 1.2},
+				expectedResult: []float32{0.9, 1.1},
 				expectedError:  nil,
 			},
 
@@ -141,7 +141,7 @@ func TestMoveVectorToAnother(t *testing.T) {
 				source:         []float32{0, 1, 2, 3, 4},
 				target:         []float32{1, 1, 1, 1, 1},
 				weight:         0.25,
-				expectedResult: []float32{-0.25, 1, 2.25, 3.5, 4.75},
+				expectedResult: []float32{-0.125, 1, 2.125, 3.25, 4.375},
 				expectedError:  nil,
 			},
 		}
