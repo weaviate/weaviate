@@ -1,4 +1,4 @@
-package db
+package aggregator
 
 import (
 	"bytes"
@@ -22,7 +22,7 @@ func (a *Aggregator) floatProperty(ctx context.Context,
 		NumericalAggregations: map[string]float64{},
 	}
 
-	if err := a.shard.db.View(func(tx *bolt.Tx) error {
+	if err := a.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(helpers.BucketFromPropName(prop.Name.String()))
 		if b == nil {
 			return fmt.Errorf("could not find bucket for prop %s", prop.Name)
@@ -53,7 +53,7 @@ func (a *Aggregator) intProperty(ctx context.Context,
 		NumericalAggregations: map[string]float64{},
 	}
 
-	if err := a.shard.db.View(func(tx *bolt.Tx) error {
+	if err := a.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(helpers.BucketFromPropName(prop.Name.String()))
 		if b == nil {
 			return fmt.Errorf("could not find bucket for prop %s", prop.Name)
