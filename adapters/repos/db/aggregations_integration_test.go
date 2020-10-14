@@ -502,15 +502,15 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 							traverser.CountAggregator,
 						},
 					},
-					// traverser.AggregateProperty{
-					// 	Name: schema.PropertyName("listedInIndex"),
-					// 	Aggregators: []traverser.Aggregator{
-					// 		traverser.PercentageTrueAggregator,
-					// 		traverser.PercentageFalseAggregator,
-					// 		traverser.TotalTrueAggregator,
-					// 		traverser.TotalFalseAggregator,
-					// 	},
-					// },
+					traverser.AggregateProperty{
+						Name: schema.PropertyName("listedInIndex"),
+						Aggregators: []traverser.Aggregator{
+							traverser.PercentageTrueAggregator,
+							traverser.PercentageFalseAggregator,
+							traverser.TotalTrueAggregator,
+							traverser.TotalFalseAggregator,
+						},
+					},
 					// traverser.AggregateProperty{
 					// 	Name: schema.PropertyName("location"),
 					// 	Aggregators: []traverser.Aggregator{
@@ -559,16 +559,16 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 									"count":   9,
 								},
 							},
-							// "listedInIndex": aggregation.Property{
-							// 	Type: aggregation.PropertyTypeBoolean,
-							// 	BooleanAggregation: aggregation.Boolean{
-							// 		TotalTrue:       8,
-							// 		TotalFalse:      1,
-							// 		PercentageTrue:  0.88889,
-							// 		PercentageFalse: 0.11111,
-							// 		Count:           9,
-							// 	},
-							// },
+							"listedInIndex": aggregation.Property{
+								Type: aggregation.PropertyTypeBoolean,
+								BooleanAggregation: aggregation.Boolean{
+									TotalTrue:       8,
+									TotalFalse:      1,
+									PercentageTrue:  0.8888888888888888,
+									PercentageFalse: 0.1111111111111111,
+									Count:           9,
+								},
+							},
 							// "location": aggregation.Property{
 							// 	Type: aggregation.PropertyTypeText,
 							// 	TextAggregation: aggregation.Text{
