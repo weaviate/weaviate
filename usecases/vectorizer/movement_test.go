@@ -105,10 +105,10 @@ func TestMoveVectorToAnother(t *testing.T) {
 		tests := []testCase{
 			{
 				name:           "no force",
-				source:         []float32{0, 1, 2, 3, 4},
-				target:         []float32{0, 0, 0, 0, 0},
+				source:         []float32{1, 2, 3, 4},
+				target:         []float32{0, 0, 0, 0},
 				weight:         0,
-				expectedResult: []float32{0, 1, 2, 3, 4},
+				expectedResult: []float32{1, 2, 3, 4},
 				expectedError:  nil,
 			},
 			{
@@ -117,15 +117,7 @@ func TestMoveVectorToAnother(t *testing.T) {
 				target:         []float32{0, 0, 0, 0},
 				weight:         0,
 				expectedResult: nil,
-				expectedError:  fmt.Errorf("movement: vector lengths don't match: got 5 and 4"),
-			},
-			{
-				name:           "force larger 1",
-				source:         []float32{0, 1, 2, 3, 4},
-				target:         []float32{0, 0, 0, 0, 0},
-				weight:         1.5,
-				expectedResult: nil,
-				expectedError:  fmt.Errorf("movement: force must be between 0 and 1: got 1.500000"),
+				expectedError:  fmt.Errorf("movement (moveAwayFrom): vector lengths don't match: got 5 and 4"),
 			},
 			{
 				name:           "force smaller 0",
@@ -133,22 +125,23 @@ func TestMoveVectorToAnother(t *testing.T) {
 				target:         []float32{0, 0, 0, 0, 0},
 				weight:         -0.2,
 				expectedResult: nil,
-				expectedError:  fmt.Errorf("movement: force must be between 0 and 1: got -0.200000"),
+				expectedError:  fmt.Errorf("movement (moveAwayFrom): force must be 0 or positive: got -0.200000"),
 			},
 			{
-				name:           "force equals 1",
-				source:         []float32{0, 1, 2, 3, 4},
-				target:         []float32{1, 1, 1, 1, 1},
+				name:           "reproducing example from investigation period",
+				source:         []float32{1.0, 1.0},
+				target:         []float32{1.2, 0.8},
 				weight:         1,
-				expectedResult: []float32{-0.5, 0, 0.5, 1, 1.5},
+				expectedResult: []float32{0.8, 1.2},
 				expectedError:  nil,
 			},
+
 			{
 				name:           "force equals 0.25",
 				source:         []float32{0, 1, 2, 3, 4},
 				target:         []float32{1, 1, 1, 1, 1},
 				weight:         0.25,
-				expectedResult: []float32{-0.125, 0.75, 1.625, 2.5, 3.375},
+				expectedResult: []float32{-0.25, 1, 2.25, 3.5, 4.75},
 				expectedError:  nil,
 			},
 		}
@@ -160,7 +153,9 @@ func TestMoveVectorToAnother(t *testing.T) {
 				v := New(client, indexer)
 				res, err := v.MoveAwayFrom(test.source, test.target, test.weight)
 				assert.Equal(t, test.expectedError, err)
-				assert.Equal(t, test.expectedResult, res)
+				for i := range test.expectedResult {
+					assert.InEpsilon(t, test.expectedResult[i], res[i], 0.01)
+				}
 			})
 		}
 	})
