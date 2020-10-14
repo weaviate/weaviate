@@ -21,13 +21,15 @@ func (a *Aggregator) textProperty(ctx context.Context,
 		TextAggregation: aggregation.Text{},
 	}
 
+	limit := extractLimitFromTopOccs(prop.Aggregators)
+
 	if err := a.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(helpers.ObjectsBucket)
 		if b == nil {
 			return fmt.Errorf("could not find bucket for prop %s", prop.Name)
 		}
 
-		agg := newTextAggregator()
+		agg := newTextAggregator(limit)
 
 		if err := b.ForEach(func(_, v []byte) error {
 			return a.parseAndAddTextRow(agg, v, prop.Name)
@@ -45,11 +47,23 @@ func (a *Aggregator) textProperty(ctx context.Context,
 	return out, nil
 }
 
-func newTextAggregator() *textAggregator {
-	return &textAggregator{itemCounter: map[string]int{}}
+func extractLimitFromTopOccs(aggs []traverser.Aggregator) int {
+	for _, agg := range aggs {
+		if agg.Type == traverser.TopOccurrencesType && agg.Limit != nil {
+			return *agg.Limit
+		}
+	}
+
+	// we couldn't extract a limit, default to something reasonable
+	return 5
+}
+
+func newTextAggregator(limit int) *textAggregator {
+	return &textAggregator{itemCounter: map[string]int{}, max: limit}
 }
 
 type textAggregator struct {
+	max   int
 	count uint32
 
 	itemCounter map[string]int
@@ -112,7 +126,11 @@ func (a *textAggregator) insertOrdered(elem aggregation.TextOccurrence) {
 		break
 	}
 
-	if !added {
+	if len(a.topPairs) > a.max {
+		a.topPairs = a.topPairs[:len(a.topPairs)-1]
+	}
+
+	if !added && len(a.topPairs) < a.max {
 		a.topPairs = append(a.topPairs, elem)
 	}
 }

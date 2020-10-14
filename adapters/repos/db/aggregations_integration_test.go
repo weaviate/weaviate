@@ -518,13 +518,13 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 							traverser.NewTopOccurrencesAggregator(ptInt(10)),
 						},
 					},
-					// traverser.AggregateProperty{
-					// 	Name: schema.PropertyName("sector"),
-					// 	Aggregators: []traverser.Aggregator{
-					// 		// limit is very restrictive
-					// 		traverser.NewTopOccurrencesAggregator(ptInt(2)),
-					// 	},
-					// },
+					traverser.AggregateProperty{
+						Name: schema.PropertyName("sector"),
+						Aggregators: []traverser.Aggregator{
+							// limit is very restrictive
+							traverser.NewTopOccurrencesAggregator(ptInt(1)),
+						},
+					},
 					// traverser.AggregateProperty{
 					// 	Name: schema.PropertyName("makesProduct"),
 					// 	Aggregators: []traverser.Aggregator{
@@ -601,6 +601,18 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 										aggregation.TextOccurrence{
 											Value:  "Los Angeles",
 											Occurs: 1,
+										},
+									},
+								},
+							},
+							"sector": aggregation.Property{
+								Type: aggregation.PropertyTypeText,
+								TextAggregation: aggregation.Text{
+									Count: 9,
+									Items: []aggregation.TextOccurrence{
+										aggregation.TextOccurrence{
+											Value:  "Food",
+											Occurs: 6,
 										},
 									},
 								},
