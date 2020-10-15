@@ -38,7 +38,11 @@ func NewRowReader(bucket *bolt.Bucket, value []byte,
 // data-value as in "less than 17" where 17 would be the "value" is in the key
 // variable "k". The value will contain the docCount, hash and list of pointers
 // (with optional frequency) to the docIDs
-type ReadFn func(k, v []byte) error
+//
+// The boolean return argument is a way to stop iteration (e.g. when a limit is
+// reached) without producing an error. In normal operation always return true,
+// if false is returned once, the loop is broken.
+type ReadFn func(k, v []byte) (bool, error)
 
 func (rr *RowReader) Read(ctx context.Context, readFn ReadFn) error {
 	switch rr.operator {
@@ -68,7 +72,8 @@ func (rr *RowReader) equal(ctx context.Context, readFn ReadFn) error {
 	}
 
 	v := rr.bucket.Get(rr.value)
-	return readFn(rr.value, v)
+	_, err := readFn(rr.value, v)
+	return err
 }
 
 // greaterThan reads from the specified value to the end. The first row is only
@@ -86,8 +91,13 @@ func (rr *RowReader) greaterThan(ctx context.Context, readFn ReadFn,
 			continue
 		}
 
-		if err := readFn(k, v); err != nil {
+		continueReading, err := readFn(k, v)
+		if err != nil {
 			return err
+		}
+
+		if !continueReading {
+			break
 		}
 	}
 
@@ -110,8 +120,13 @@ func (rr *RowReader) lessThan(ctx context.Context, readFn ReadFn,
 			continue
 		}
 
-		if err := readFn(k, v); err != nil {
+		continueReading, err := readFn(k, v)
+		if err != nil {
 			return err
+		}
+
+		if !continueReading {
+			break
 		}
 	}
 
@@ -131,10 +146,14 @@ func (rr *RowReader) notEqual(ctx context.Context, readFn ReadFn) error {
 			continue
 		}
 
-		if err := readFn(k, v); err != nil {
+		continueReading, err := readFn(k, v)
+		if err != nil {
 			return err
 		}
 
+		if !continueReading {
+			break
+		}
 	}
 
 	return nil

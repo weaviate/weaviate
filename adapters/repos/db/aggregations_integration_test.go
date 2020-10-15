@@ -632,9 +632,188 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 
 			assert.Equal(t, expectedResult.Groups, res.Groups)
 		})
+
+		t.Run("multiple fields, multiple aggregators, single-level filter", func(t *testing.T) {
+			params := traverser.AggregateParams{
+				Kind:             kind.Thing,
+				ClassName:        schema.ClassName(companyClass.Class),
+				GroupBy:          nil, // explicitly set to nil,
+				Filters:          sectorEqualsFoodFilter(),
+				IncludeMetaCount: true,
+				Properties: []traverser.AggregateProperty{
+					traverser.AggregateProperty{
+						Name: schema.PropertyName("dividendYield"),
+						Aggregators: []traverser.Aggregator{
+							traverser.MeanAggregator,
+							traverser.MaximumAggregator,
+							traverser.MinimumAggregator,
+							traverser.SumAggregator,
+							traverser.ModeAggregator,
+							traverser.MedianAggregator,
+							traverser.CountAggregator,
+							traverser.TypeAggregator, // ignored in the repo, but can't block
+						},
+					},
+					traverser.AggregateProperty{
+						Name: schema.PropertyName("price"),
+						Aggregators: []traverser.Aggregator{
+							traverser.MeanAggregator,
+							traverser.MaximumAggregator,
+							traverser.MinimumAggregator,
+							traverser.SumAggregator,
+							traverser.ModeAggregator,
+							traverser.MedianAggregator,
+							traverser.CountAggregator,
+							traverser.TypeAggregator, // ignored in the repo, but can't block
+						},
+					},
+					traverser.AggregateProperty{
+						Name: schema.PropertyName("listedInIndex"),
+						Aggregators: []traverser.Aggregator{
+							traverser.PercentageTrueAggregator,
+							traverser.PercentageFalseAggregator,
+							traverser.TotalTrueAggregator,
+							traverser.TotalFalseAggregator,
+							traverser.TypeAggregator, // ignored in the repo, but can't block
+						},
+					},
+					traverser.AggregateProperty{
+						Name: schema.PropertyName("location"),
+						Aggregators: []traverser.Aggregator{
+							// limit is so high, it's not really restrictive
+							traverser.NewTopOccurrencesAggregator(ptInt(10)),
+							traverser.TypeAggregator, // ignored in the repo, but can't block
+						},
+					},
+					traverser.AggregateProperty{
+						Name: schema.PropertyName("sector"),
+						Aggregators: []traverser.Aggregator{
+							// limit is very restrictive
+							traverser.NewTopOccurrencesAggregator(ptInt(1)),
+							traverser.TypeAggregator, // ignored in the repo, but can't block
+						},
+					},
+					// we are not expecting any result from the following agg, as this is
+					// handled in the usecase. However, we at least want to make sure it
+					// doesn't block or lead to any errors
+					traverser.AggregateProperty{
+						Name: schema.PropertyName("makesProduct"),
+						Aggregators: []traverser.Aggregator{
+							traverser.PointingToAggregator,
+							traverser.TypeAggregator,
+						},
+					},
+				},
+			}
+
+			res, err := repo.Aggregate(context.Background(), params)
+			require.Nil(t, err)
+
+			expectedResult := &aggregation.Result{
+				Groups: []aggregation.Group{
+					aggregation.Group{
+						Count: 9, // because includeMetaCount was set
+						Properties: map[string]aggregation.Property{
+							"dividendYield": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
+								NumericalAggregations: map[string]float64{
+									"mean":    2.111111111111111,
+									"maximum": 8.0,
+									"minimum": 0.0,
+									"sum":     19,
+									"mode":    1.3,
+									"median":  1.3,
+									"count":   9,
+								},
+							},
+							"price": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
+								NumericalAggregations: map[string]float64{
+									"mean":    234.11111111111111,
+									"maximum": 800,
+									"minimum": 10,
+									"sum":     2107,
+									"mode":    70,
+									"median":  150,
+									"count":   9,
+								},
+							},
+							"listedInIndex": aggregation.Property{
+								Type: aggregation.PropertyTypeBoolean,
+								BooleanAggregation: aggregation.Boolean{
+									TotalTrue:       8,
+									TotalFalse:      1,
+									PercentageTrue:  0.8888888888888888,
+									PercentageFalse: 0.1111111111111111,
+									Count:           9,
+								},
+							},
+							"location": aggregation.Property{
+								Type: aggregation.PropertyTypeText,
+								TextAggregation: aggregation.Text{
+									Count: 9,
+									Items: []aggregation.TextOccurrence{
+										aggregation.TextOccurrence{
+											Value:  "New York",
+											Occurs: 3,
+										},
+										aggregation.TextOccurrence{
+											Value:  "Atlanta",
+											Occurs: 2,
+										},
+										aggregation.TextOccurrence{
+											Value:  "San Francisco",
+											Occurs: 2,
+										},
+										aggregation.TextOccurrence{
+											Value:  "Detroit",
+											Occurs: 1,
+										},
+										aggregation.TextOccurrence{
+											Value:  "Los Angeles",
+											Occurs: 1,
+										},
+									},
+								},
+							},
+							"sector": aggregation.Property{
+								Type: aggregation.PropertyTypeText,
+								TextAggregation: aggregation.Text{
+									Count: 9,
+									Items: []aggregation.TextOccurrence{
+										aggregation.TextOccurrence{
+											Value:  "Food",
+											Occurs: 6,
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+
+			assert.Equal(t, expectedResult.Groups, res.Groups)
+		})
 	}
 }
 
 func ptInt(in int) *int {
 	return &in
+}
+
+func sectorEqualsFoodFilter() *filters.LocalFilter {
+	return &filters.LocalFilter{
+		Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			On: &filters.Path{
+				Class:    "Company",
+				Property: "sector",
+			},
+			Value: &filters.Value{
+				Value: "Food",
+				Type:  schema.DataTypeString,
+			},
+		},
+	}
 }
