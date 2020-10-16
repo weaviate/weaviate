@@ -110,7 +110,7 @@ type ObjectScanFn func(obj *storobj.Object) (bool, error)
 // ScanObjectsFromDocIDsInTx calls the provided scanFn on each object for the
 // specified pointer. If a pointer does not resolve to an object-id, the item
 // will be skipped. The number of times scanFn is called can therefore be
-// smaller than the input lenght of pointers.
+// smaller than the input length of pointers.
 func ScanObjectsFromDocIDsInTx(tx *bolt.Tx,
 	pointers []uint32, scan ObjectScanFn) error {
 	uuidKeys := make([][]byte, len(pointers))
