@@ -712,82 +712,82 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 			expectedResult := &aggregation.Result{
 				Groups: []aggregation.Group{
 					aggregation.Group{
-						Count: 9, // because includeMetaCount was set
+						Count: 6, // because includeMetaCount was set
 						Properties: map[string]aggregation.Property{
-							"dividendYield": aggregation.Property{
-								Type: aggregation.PropertyTypeNumerical,
-								NumericalAggregations: map[string]float64{
-									"mean":    2.111111111111111,
-									"maximum": 8.0,
-									"minimum": 0.0,
-									"sum":     19,
-									"mode":    1.3,
-									"median":  1.3,
-									"count":   9,
-								},
-							},
-							"price": aggregation.Property{
-								Type: aggregation.PropertyTypeNumerical,
-								NumericalAggregations: map[string]float64{
-									"mean":    234.11111111111111,
-									"maximum": 800,
-									"minimum": 10,
-									"sum":     2107,
-									"mode":    70,
-									"median":  150,
-									"count":   9,
-								},
-							},
+							// "dividendYield": aggregation.Property{
+							// 	Type: aggregation.PropertyTypeNumerical,
+							// 	NumericalAggregations: map[string]float64{
+							// 		"mean":    3.7166666667,
+							// 		"maximum": 8.0,
+							// 		"minimum": 0.0,
+							// 		"sum":     12.4,
+							// 		"mode":    0.0,
+							// 		"median":  1.1,
+							// 		"count":   6,
+							// 	},
+							// },
+							// "price": aggregation.Property{
+							// 	Type: aggregation.PropertyTypeNumerical,
+							// 	NumericalAggregations: map[string]float64{
+							// 		"mean":    218.3333333333,
+							// 		"maximum": 800,
+							// 		"minimum": 10,
+							// 		"sum":     1310,
+							// 		"mode":    70,
+							// 		"median":  70,
+							// 		"count":   6,
+							// 	},
+							// },
 							"listedInIndex": aggregation.Property{
 								Type: aggregation.PropertyTypeBoolean,
 								BooleanAggregation: aggregation.Boolean{
-									TotalTrue:       8,
+									TotalTrue:       5,
 									TotalFalse:      1,
-									PercentageTrue:  0.8888888888888888,
-									PercentageFalse: 0.1111111111111111,
-									Count:           9,
+									PercentageTrue:  0.8333333333333334,
+									PercentageFalse: 0.16666666666666666,
+									Count:           6,
 								},
 							},
-							"location": aggregation.Property{
-								Type: aggregation.PropertyTypeText,
-								TextAggregation: aggregation.Text{
-									Count: 9,
-									Items: []aggregation.TextOccurrence{
-										aggregation.TextOccurrence{
-											Value:  "New York",
-											Occurs: 3,
-										},
-										aggregation.TextOccurrence{
-											Value:  "Atlanta",
-											Occurs: 2,
-										},
-										aggregation.TextOccurrence{
-											Value:  "San Francisco",
-											Occurs: 2,
-										},
-										aggregation.TextOccurrence{
-											Value:  "Detroit",
-											Occurs: 1,
-										},
-										aggregation.TextOccurrence{
-											Value:  "Los Angeles",
-											Occurs: 1,
-										},
-									},
-								},
-							},
-							"sector": aggregation.Property{
-								Type: aggregation.PropertyTypeText,
-								TextAggregation: aggregation.Text{
-									Count: 9,
-									Items: []aggregation.TextOccurrence{
-										aggregation.TextOccurrence{
-											Value:  "Food",
-											Occurs: 6,
-										},
-									},
-								},
-							},
+							// "location": aggregation.Property{
+							// 	Type: aggregation.PropertyTypeText,
+							// 	TextAggregation: aggregation.Text{
+							// 		Count: 9,
+							// 		Items: []aggregation.TextOccurrence{
+							// 			aggregation.TextOccurrence{
+							// 				Value:  "Atlanta",
+							// 				Occurs: 2,
+							// 			},
+							// 			aggregation.TextOccurrence{
+							// 				Value:  "Detroit",
+							// 				Occurs: 1,
+							// 			},
+							// 			aggregation.TextOccurrence{
+							// 				Value:  "Los Angeles",
+							// 				Occurs: 1,
+							// 			},
+							// 			aggregation.TextOccurrence{
+							// 				Value:  "New York",
+							// 				Occurs: 1,
+							// 			},
+							// 			aggregation.TextOccurrence{
+							// 				Value:  "San Francisco",
+							// 				Occurs: 1,
+							// 			},
+							// 		},
+							// 	},
+							// },
+							// "sector": aggregation.Property{
+							// 	Type: aggregation.PropertyTypeText,
+							// 	TextAggregation: aggregation.Text{
+							// 		Count: 6,
+							// 		Items: []aggregation.TextOccurrence{
+							// 			aggregation.TextOccurrence{
+							// 				Value:  "Food",
+							// 				Occurs: 6,
+							// 			},
+							// 		},
+							// 	},
+							// },
 						},
 					},
 				},
