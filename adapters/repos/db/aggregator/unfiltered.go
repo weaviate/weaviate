@@ -118,32 +118,3 @@ func (ua unfilteredAggregator) property(ctx context.Context,
 		return nil, fmt.Errorf("aggreation type %s not supported yet", aggType)
 	}
 }
-
-func (ua unfilteredAggregator) aggTypeOfProperty(
-	name schema.PropertyName) (aggregation.PropertyType, schema.DataType, error) {
-	s := ua.getSchema.GetSchemaSkipAuth()
-	schemaProp, err := s.GetProperty(ua.params.Kind, ua.params.ClassName, name)
-	if err != nil {
-		return "", "", errors.Wrapf(err, "property %s", name)
-	}
-
-	if schema.IsRefDataType(schemaProp.DataType) {
-		return aggregation.PropertyTypeReference, "", nil
-	}
-
-	dt := schema.DataType(schemaProp.DataType[0])
-	switch dt {
-	case schema.DataTypeInt, schema.DataTypeNumber:
-		return aggregation.PropertyTypeNumerical, dt, nil
-	case schema.DataTypeBoolean:
-		return aggregation.PropertyTypeBoolean, dt, nil
-	case schema.DataTypeText, schema.DataTypeString:
-		return aggregation.PropertyTypeText, dt, nil
-	case schema.DataTypeGeoCoordinates:
-		return "", "", fmt.Errorf("dataType geoCoordinates can't be aggregated")
-	case schema.DataTypePhoneNumber:
-		return "", "", fmt.Errorf("dataType phoneNumber can't be aggregated")
-	default:
-		return "", "", fmt.Errorf("unrecoginzed dataType %v", schemaProp.DataType[0])
-	}
-}

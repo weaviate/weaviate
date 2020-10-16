@@ -17,7 +17,7 @@ type boolAggregator struct {
 	countFalse uint32
 }
 
-func (a *boolAggregator) AddBool(value, count []byte) error {
+func (a *boolAggregator) AddBoolRow(value, count []byte) error {
 	var countParsed uint32
 
 	var valueParsed bool
@@ -41,6 +41,16 @@ func (a *boolAggregator) AddBool(value, count []byte) error {
 		a.countTrue += countParsed
 	} else {
 		a.countFalse += countParsed
+	}
+
+	return nil
+}
+
+func (a *boolAggregator) AddBool(value bool) error {
+	if value {
+		a.countTrue++
+	} else {
+		a.countFalse++
 	}
 
 	return nil

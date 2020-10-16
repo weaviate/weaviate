@@ -54,7 +54,7 @@ func (ua unfilteredAggregator) parseAndAddBoolRow(agg *boolAggregator, k, v []by
 			"expected at least 8: got %d", len(k))
 	}
 
-	if err := agg.AddBool(k, v[4:8]); err != nil {
+	if err := agg.AddBoolRow(k, v[4:8]); err != nil {
 		return err
 	}
 
