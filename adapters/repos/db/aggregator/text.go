@@ -1,51 +1,14 @@
 package aggregator
 
 import (
-	"context"
-	"fmt"
 	"sort"
 
-	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
-
-func (a *Aggregator) textProperty(ctx context.Context,
-	prop traverser.AggregateProperty) (*aggregation.Property, error) {
-	out := aggregation.Property{
-		Type:            aggregation.PropertyTypeText,
-		TextAggregation: aggregation.Text{},
-	}
-
-	limit := extractLimitFromTopOccs(prop.Aggregators)
-
-	if err := a.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(helpers.ObjectsBucket)
-		if b == nil {
-			return fmt.Errorf("could not find bucket for prop %s", prop.Name)
-		}
-
-		agg := newTextAggregator(limit)
-
-		if err := b.ForEach(func(_, v []byte) error {
-			return a.parseAndAddTextRow(agg, v, prop.Name)
-		}); err != nil {
-			return err
-		}
-
-		out.TextAggregation = agg.Res()
-
-		return nil
-	}); err != nil {
-		return nil, err
-	}
-
-	return &out, nil
-}
 
 func extractLimitFromTopOccs(aggs []traverser.Aggregator) int {
 	for _, agg := range aggs {
