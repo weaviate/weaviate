@@ -2,124 +2,14 @@ package aggregator
 
 import (
 	"bytes"
-	"context"
 	"encoding/binary"
-	"fmt"
 	"math"
 
-	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
-
-func (a *Aggregator) floatProperty(ctx context.Context,
-	prop traverser.AggregateProperty) (*aggregation.Property, error) {
-	out := aggregation.Property{
-		Type:                  aggregation.PropertyTypeNumerical,
-		NumericalAggregations: map[string]float64{},
-	}
-
-	if err := a.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(helpers.BucketFromPropName(prop.Name.String()))
-		if b == nil {
-			return fmt.Errorf("could not find bucket for prop %s", prop.Name)
-		}
-
-		agg := newNumericalAggregator()
-
-		if err := b.ForEach(func(k, v []byte) error {
-			return a.parseAndAddFloatRow(agg, k, v)
-		}); err != nil {
-			return err
-		}
-
-		a.addNumericalAggregations(&out, prop.Aggregators, agg)
-
-		return nil
-	}); err != nil {
-		return nil, err
-	}
-
-	return &out, nil
-}
-
-func (a *Aggregator) intProperty(ctx context.Context,
-	prop traverser.AggregateProperty) (*aggregation.Property, error) {
-	out := aggregation.Property{
-		Type:                  aggregation.PropertyTypeNumerical,
-		NumericalAggregations: map[string]float64{},
-	}
-
-	if err := a.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(helpers.BucketFromPropName(prop.Name.String()))
-		if b == nil {
-			return fmt.Errorf("could not find bucket for prop %s", prop.Name)
-		}
-
-		agg := newNumericalAggregator()
-
-		if err := b.ForEach(func(k, v []byte) error {
-			return a.parseAndAddIntRow(agg, k, v)
-		}); err != nil {
-			return err
-		}
-
-		a.addNumericalAggregations(&out, prop.Aggregators, agg)
-
-		return nil
-	}); err != nil {
-		return nil, err
-	}
-
-	return &out, nil
-}
-
-func (a *Aggregator) parseAndAddFloatRow(agg *numericalAggregator, k, v []byte) error {
-	if len(k) != 8 {
-		// we expect to see either an int64 or a float64, so any non-8 length
-		// is unexpected
-		return fmt.Errorf("unexpected key length on inverted index, "+
-			"expected 8: got %d", len(k))
-	}
-
-	if len(v) < 8 {
-		// we expect to see a at least a checksum (4 bytes) and a count
-		// (uint32), if that's not the case, then the row is corrupt
-		return fmt.Errorf("unexpected value length on inverted index, "+
-			"expected at least 8: got %d", len(k))
-	}
-
-	if err := agg.AddFloat64(k, v[4:8]); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (a *Aggregator) parseAndAddIntRow(agg *numericalAggregator, k, v []byte) error {
-	if len(k) != 8 {
-		// we expect to see either an int64 or a float64, so any non-8 length
-		// is unexpected
-		return fmt.Errorf("unexpected key length on inverted index, "+
-			"expected 8: got %d", len(k))
-	}
-
-	if len(v) < 8 {
-		// we expect to see a at least a checksum (4 bytes) and a count
-		// (uint32), if that's not the case, then the row is corrupt
-		return fmt.Errorf("unexpected value length on inverted index, "+
-			"expected at least 8: got %d", len(k))
-	}
-
-	if err := agg.AddInt64(k, v[4:8]); err != nil {
-		return err
-	}
-
-	return nil
-}
 
 func (a *Aggregator) addNumericalAggregations(prop *aggregation.Property,
 	aggs []traverser.Aggregator, agg *numericalAggregator) {
