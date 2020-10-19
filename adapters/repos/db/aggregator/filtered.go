@@ -88,18 +88,28 @@ func (fa *filteredAggregator) analyzeObject(ctx context.Context,
 			continue
 		}
 
-		switch prop.aggType {
-		case aggregation.PropertyTypeBoolean:
-			asBool, ok := value.(bool)
-			if !ok {
-				continue
-			}
-			prop.boolAgg.AddBool(asBool)
-		default:
-		}
+		fa.addPropValue(prop, value)
 	}
 
 	return nil
+}
+
+func (fa *filteredAggregator) addPropValue(prop propAgg, value interface{}) {
+	switch prop.aggType {
+	case aggregation.PropertyTypeBoolean:
+		asBool, ok := value.(bool)
+		if !ok {
+			return
+		}
+		prop.boolAgg.AddBool(asBool)
+	case aggregation.PropertyTypeNumerical:
+		asFloat, ok := value.(float64)
+		if !ok {
+			return
+		}
+		prop.numericalAgg.AddFloat64(asFloat)
+	default:
+	}
 }
 
 // a helper type to select the right aggreagtor for a prop
@@ -150,8 +160,13 @@ func (pa propAggs) results() (map[string]aggregation.Property, error) {
 			aggProp.BooleanAggregation = prop.boolAgg.Res()
 			out[prop.name.String()] = aggProp
 
-		case aggregation.PropertyTypeText:
 		case aggregation.PropertyTypeNumerical:
+			prop.numericalAgg.buildPairsFromCounts()
+			addNumericalAggregations(&aggProp, prop.specifiedAggregators,
+				prop.numericalAgg)
+			out[prop.name.String()] = aggProp
+
+		case aggregation.PropertyTypeText:
 		default:
 		}
 	}

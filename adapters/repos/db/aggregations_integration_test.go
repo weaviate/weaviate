@@ -714,30 +714,30 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 					aggregation.Group{
 						Count: 6, // because includeMetaCount was set
 						Properties: map[string]aggregation.Property{
-							// "dividendYield": aggregation.Property{
-							// 	Type: aggregation.PropertyTypeNumerical,
-							// 	NumericalAggregations: map[string]float64{
-							// 		"mean":    3.7166666667,
-							// 		"maximum": 8.0,
-							// 		"minimum": 0.0,
-							// 		"sum":     12.4,
-							// 		"mode":    0.0,
-							// 		"median":  1.1,
-							// 		"count":   6,
-							// 	},
-							// },
-							// "price": aggregation.Property{
-							// 	Type: aggregation.PropertyTypeNumerical,
-							// 	NumericalAggregations: map[string]float64{
-							// 		"mean":    218.3333333333,
-							// 		"maximum": 800,
-							// 		"minimum": 10,
-							// 		"sum":     1310,
-							// 		"mode":    70,
-							// 		"median":  70,
-							// 		"count":   6,
-							// 	},
-							// },
+							"dividendYield": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
+								NumericalAggregations: map[string]float64{
+									"mean":    2.066666666666667,
+									"maximum": 8.0,
+									"minimum": 0.0,
+									"sum":     12.4,
+									"mode":    0.0,
+									"median":  1.1,
+									"count":   6,
+								},
+							},
+							"price": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
+								NumericalAggregations: map[string]float64{
+									"mean":    218.33333333333334,
+									"maximum": 800,
+									"minimum": 10,
+									"sum":     1310,
+									"mode":    70,
+									"median":  70,
+									"count":   6,
+								},
+							},
 							"listedInIndex": aggregation.Property{
 								Type: aggregation.PropertyTypeBoolean,
 								BooleanAggregation: aggregation.Boolean{
