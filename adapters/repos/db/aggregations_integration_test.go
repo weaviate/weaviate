@@ -748,46 +748,46 @@ func testNumericalAggregationsWithoutGrouping(repo *DB) func(t *testing.T) {
 									Count:           6,
 								},
 							},
-							// "location": aggregation.Property{
-							// 	Type: aggregation.PropertyTypeText,
-							// 	TextAggregation: aggregation.Text{
-							// 		Count: 9,
-							// 		Items: []aggregation.TextOccurrence{
-							// 			aggregation.TextOccurrence{
-							// 				Value:  "Atlanta",
-							// 				Occurs: 2,
-							// 			},
-							// 			aggregation.TextOccurrence{
-							// 				Value:  "Detroit",
-							// 				Occurs: 1,
-							// 			},
-							// 			aggregation.TextOccurrence{
-							// 				Value:  "Los Angeles",
-							// 				Occurs: 1,
-							// 			},
-							// 			aggregation.TextOccurrence{
-							// 				Value:  "New York",
-							// 				Occurs: 1,
-							// 			},
-							// 			aggregation.TextOccurrence{
-							// 				Value:  "San Francisco",
-							// 				Occurs: 1,
-							// 			},
-							// 		},
-							// 	},
-							// },
-							// "sector": aggregation.Property{
-							// 	Type: aggregation.PropertyTypeText,
-							// 	TextAggregation: aggregation.Text{
-							// 		Count: 6,
-							// 		Items: []aggregation.TextOccurrence{
-							// 			aggregation.TextOccurrence{
-							// 				Value:  "Food",
-							// 				Occurs: 6,
-							// 			},
-							// 		},
-							// 	},
-							// },
+							"location": aggregation.Property{
+								Type: aggregation.PropertyTypeText,
+								TextAggregation: aggregation.Text{
+									Count: 6,
+									Items: []aggregation.TextOccurrence{
+										aggregation.TextOccurrence{
+											Value:  "Atlanta",
+											Occurs: 2,
+										},
+										aggregation.TextOccurrence{
+											Value:  "Detroit",
+											Occurs: 1,
+										},
+										aggregation.TextOccurrence{
+											Value:  "Los Angeles",
+											Occurs: 1,
+										},
+										aggregation.TextOccurrence{
+											Value:  "New York",
+											Occurs: 1,
+										},
+										aggregation.TextOccurrence{
+											Value:  "San Francisco",
+											Occurs: 1,
+										},
+									},
+								},
+							},
+							"sector": aggregation.Property{
+								Type: aggregation.PropertyTypeText,
+								TextAggregation: aggregation.Text{
+									Count: 6,
+									Items: []aggregation.TextOccurrence{
+										aggregation.TextOccurrence{
+											Value:  "Food",
+											Occurs: 6,
+										},
+									},
+								},
+							},
 						},
 					},
 				},

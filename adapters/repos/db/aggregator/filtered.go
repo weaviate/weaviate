@@ -108,6 +108,12 @@ func (fa *filteredAggregator) addPropValue(prop propAgg, value interface{}) {
 			return
 		}
 		prop.numericalAgg.AddFloat64(asFloat)
+	case aggregation.PropertyTypeText:
+		asString, ok := value.(string)
+		if !ok {
+			return
+		}
+		prop.textAgg.AddText(asString)
 	default:
 	}
 }
@@ -160,13 +166,16 @@ func (pa propAggs) results() (map[string]aggregation.Property, error) {
 			aggProp.BooleanAggregation = prop.boolAgg.Res()
 			out[prop.name.String()] = aggProp
 
+		case aggregation.PropertyTypeText:
+			aggProp.TextAggregation = prop.textAgg.Res()
+			out[prop.name.String()] = aggProp
+
 		case aggregation.PropertyTypeNumerical:
 			prop.numericalAgg.buildPairsFromCounts()
 			addNumericalAggregations(&aggProp, prop.specifiedAggregators,
 				prop.numericalAgg)
 			out[prop.name.String()] = aggProp
 
-		case aggregation.PropertyTypeText:
 		default:
 		}
 	}
