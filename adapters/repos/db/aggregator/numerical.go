@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"math"
+	"sort"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
@@ -11,8 +12,12 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
-func (a *Aggregator) addNumericalAggregations(prop *aggregation.Property,
+func addNumericalAggregations(prop *aggregation.Property,
 	aggs []traverser.Aggregator, agg *numericalAggregator) {
+	if prop.NumericalAggregations == nil {
+		prop.NumericalAggregations = map[string]float64{}
+	}
+
 	for _, aProp := range aggs {
 		switch aProp {
 		case traverser.MeanAggregator:
@@ -38,19 +43,21 @@ func (a *Aggregator) addNumericalAggregations(prop *aggregation.Property,
 
 func newNumericalAggregator() *numericalAggregator {
 	return &numericalAggregator{
-		min: math.MaxFloat64,
-		max: math.SmallestNonzeroFloat64,
+		min:          math.MaxFloat64,
+		max:          math.SmallestNonzeroFloat64,
+		valueCounter: map[float64]uint32{},
 	}
 }
 
 type numericalAggregator struct {
-	count    uint32
-	min      float64
-	max      float64
-	sum      float64
-	maxCount uint32
-	mode     float64
-	pairs    []floatCountPair // for median calculation
+	count        uint32
+	min          float64
+	max          float64
+	sum          float64
+	maxCount     uint32
+	mode         float64
+	pairs        []floatCountPair   // for row-based median calculation
+	valueCounter map[float64]uint32 // for individual median calculation
 }
 
 type floatCountPair struct {
@@ -58,7 +65,40 @@ type floatCountPair struct {
 	count uint32
 }
 
-func (a *numericalAggregator) AddFloat64(number, count []byte) error {
+func (a *numericalAggregator) AddFloat64(value float64) error {
+	a.count++
+	a.sum += value
+	if value < a.min {
+		a.min = value
+	}
+
+	if value > a.max {
+		a.max = value
+	}
+
+	count := a.valueCounter[value]
+	count++
+	a.valueCounter[value] = count
+
+	return nil
+}
+
+// turns the value counter into a sorted list, as well as identifying the mode
+func (a *numericalAggregator) buildPairsFromCounts() {
+	for value, count := range a.valueCounter {
+		if count > a.maxCount {
+			a.maxCount = count
+			a.mode = value
+		}
+		a.pairs = append(a.pairs, floatCountPair{value: value, count: count})
+	}
+
+	sort.Slice(a.pairs, func(x, y int) bool {
+		return a.pairs[x].value < a.pairs[y].value
+	})
+}
+
+func (a *numericalAggregator) AddFloat64Row(number, count []byte) error {
 	var countParsed uint32
 
 	numberParsed, err := inverted.ParseLexicographicallySortableFloat64(number)
@@ -80,7 +120,8 @@ func (a *numericalAggregator) AddFloat64(number, count []byte) error {
 	a.sum += numberParsed * float64(countParsed)
 	if numberParsed < a.min {
 		a.min = numberParsed
-	} else if numberParsed > a.max {
+	}
+	if numberParsed > a.max {
 		a.max = numberParsed
 	}
 
@@ -94,7 +135,7 @@ func (a *numericalAggregator) AddFloat64(number, count []byte) error {
 	return nil
 }
 
-func (a *numericalAggregator) AddInt64(number, count []byte) error {
+func (a *numericalAggregator) AddInt64Row(number, count []byte) error {
 	var countParsed uint32
 
 	numberParsed, err := inverted.ParseLexicographicallySortableInt64(number)
@@ -118,7 +159,8 @@ func (a *numericalAggregator) AddInt64(number, count []byte) error {
 	a.sum += asFloat * float64(countParsed)
 	if asFloat < a.min {
 		a.min = asFloat
-	} else if asFloat > a.max {
+	}
+	if asFloat > a.max {
 		a.max = asFloat
 	}
 
@@ -155,10 +197,14 @@ func (a *numericalAggregator) Count() float64 {
 	return float64(a.count)
 }
 
+// Mode does not require preparation if build from rows, but requires a call of
+// buildPairsFromCounts() if it was built using individual objects
 func (a *numericalAggregator) Mode() float64 {
 	return a.mode
 }
 
+// Median does not require preparation if build from rows, but requires a call of
+// buildPairsFromCounts() if it was built using individual objects
 func (a *numericalAggregator) Median() float64 {
 	var index uint32
 	if a.count%2 == 0 {

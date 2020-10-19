@@ -82,7 +82,7 @@ func (ua unfilteredAggregator) floatProperty(ctx context.Context,
 			return err
 		}
 
-		ua.addNumericalAggregations(&out, prop.Aggregators, agg)
+		addNumericalAggregations(&out, prop.Aggregators, agg)
 
 		return nil
 	}); err != nil {
@@ -113,7 +113,7 @@ func (ua unfilteredAggregator) intProperty(ctx context.Context,
 			return err
 		}
 
-		ua.addNumericalAggregations(&out, prop.Aggregators, agg)
+		addNumericalAggregations(&out, prop.Aggregators, agg)
 
 		return nil
 	}); err != nil {
@@ -138,7 +138,7 @@ func (ua unfilteredAggregator) parseAndAddFloatRow(agg *numericalAggregator, k, 
 			"expected at least 8: got %d", len(k))
 	}
 
-	if err := agg.AddFloat64(k, v[4:8]); err != nil {
+	if err := agg.AddFloat64Row(k, v[4:8]); err != nil {
 		return err
 	}
 
@@ -160,7 +160,7 @@ func (ua unfilteredAggregator) parseAndAddIntRow(agg *numericalAggregator, k, v 
 			"expected at least 8: got %d", len(k))
 	}
 
-	if err := agg.AddInt64(k, v[4:8]); err != nil {
+	if err := agg.AddInt64Row(k, v[4:8]); err != nil {
 		return err
 	}
 
