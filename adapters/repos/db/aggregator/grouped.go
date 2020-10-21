@@ -40,12 +40,13 @@ func (ga *groupedAggregator) Do(ctx context.Context) (*aggregation.Result, error
 
 	out.Groups = make([]aggregation.Group, len(groups))
 	for i, g := range groups {
-		out.Groups[i] = g.res
+		res, err := ga.aggregateGroup(ctx, g.res, g.docIDs)
+		if err != nil {
+			return nil, errors.Wrapf(err, "aggregate group %d (%v)", i,
+				g.res.GroupedBy.Value)
+		}
+		out.Groups[i] = res
 	}
-
-	// if fa.params.IncludeMetaCount {
-	// 	out.Groups[0].Count = len(ids)
-	// }
 
 	return &out, nil
 }
@@ -65,4 +66,17 @@ func (ga *groupedAggregator) identifyGroups(ctx context.Context) ([]group, error
 		limit = *ga.params.Limit
 	}
 	return newGrouper(ga.Aggregator, limit).Do(ctx)
+}
+
+func (ga *groupedAggregator) aggregateGroup(ctx context.Context,
+	in aggregation.Group, ids []uint32) (aggregation.Group, error) {
+	out := in
+	fa := newFilteredAggregator(ga.Aggregator)
+	props, err := fa.properties(ctx, ids)
+	if err != nil {
+		return out, errors.Wrap(err, "aggregate properties")
+	}
+
+	out.Properties = props
+	return out, nil
 }

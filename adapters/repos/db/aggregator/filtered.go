@@ -37,7 +37,8 @@ func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, erro
 		out.Groups[0].Count = len(ids)
 	}
 
-	props, err := fa.properties(ctx, ids)
+	idsList := flattenAllowList(ids)
+	props, err := fa.properties(ctx, idsList)
 	if err != nil {
 		return nil, errors.Wrap(err, "aggregate properties")
 	}
@@ -48,9 +49,7 @@ func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, erro
 }
 
 func (fa *filteredAggregator) properties(ctx context.Context,
-	ids inverted.AllowList) (map[string]aggregation.Property, error) {
-	pointers := flattenAllowList(ids)
-
+	ids []uint32) (map[string]aggregation.Property, error) {
 	propAggs, err := fa.prepareAggregatorsForProps()
 	if err != nil {
 		return nil, errors.Wrap(err, "prepare aggregators for props")
@@ -64,7 +63,7 @@ func (fa *filteredAggregator) properties(ctx context.Context,
 	}
 
 	if err := fa.db.View(func(tx *bolt.Tx) error {
-		return inverted.ScanObjectsFromDocIDsInTx(tx, pointers, scan)
+		return inverted.ScanObjectsFromDocIDsInTx(tx, ids, scan)
 	}); err != nil {
 		return nil, errors.Wrap(err, "properties view tx")
 	}
