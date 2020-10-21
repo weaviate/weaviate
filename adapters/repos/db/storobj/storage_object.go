@@ -86,6 +86,10 @@ func (ko *Object) SetIndexID(id uint32) {
 	ko.indexID = id
 }
 
+func (ko *Object) IndexID() uint32 {
+	return ko.indexID
+}
+
 func (ko *Object) CreationTimeUnix() int64 {
 	switch ko.Kind {
 	case kind.Thing:

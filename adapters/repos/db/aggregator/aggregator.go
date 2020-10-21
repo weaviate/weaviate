@@ -32,7 +32,7 @@ func New(db *bolt.DB, params traverser.AggregateParams,
 
 func (a *Aggregator) Do(ctx context.Context) (*aggregation.Result, error) {
 	if a.params.GroupBy != nil {
-		return nil, fmt.Errorf("grouping not supported yet")
+		return newGroupedAggregator(a).Do(ctx)
 	}
 
 	if a.params.Filters != nil {
