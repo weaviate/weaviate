@@ -46,8 +46,8 @@ func Test_Aggregations(t *testing.T) {
 	t.Run("numerical aggregations with grouping",
 		testNumericalAggregationsWithGrouping(repo))
 
-	t.Run("numerical aggregations without grouping (formerly Meta)",
-		testNumericalAggregationsWithoutGrouping(repo))
+	// t.Run("numerical aggregations without grouping (formerly Meta)",
+	// 	testNumericalAggregationsWithoutGrouping(repo))
 
 	// t.Run("clean up",
 	// 	cleanupCompanyTestSchemaAndData(repo, migrator))
@@ -106,12 +106,12 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 					Property: schema.PropertyName("sector"),
 				},
 				IncludeMetaCount: true,
-				// Properties: []traverser.AggregateProperty{
-				// 	traverser.AggregateProperty{
-				// 		Name:        schema.PropertyName("dividendYield"),
-				// 		Aggregators: []traverser.Aggregator{traverser.MeanAggregator},
-				// 	},
-				// },
+				Properties: []traverser.AggregateProperty{
+					traverser.AggregateProperty{
+						Name:        schema.PropertyName("dividendYield"),
+						Aggregators: []traverser.Aggregator{traverser.MeanAggregator},
+					},
+				},
 			}
 
 			res, err := repo.Aggregate(context.Background(), params)
@@ -125,14 +125,14 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 							Path:  []string{"sector"},
 							Value: "Food",
 						},
-						// Properties: map[string]aggregation.Property{
-						// 	"dividendYield": aggregation.Property{
-						// 		Type: aggregation.PropertyTypeNumerical,
-						// 		NumericalAggregations: map[string]float64{
-						// 			"mean": 2.06667,
-						// 		},
-						// 	},
-						// },
+						Properties: map[string]aggregation.Property{
+							"dividendYield": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
+								NumericalAggregations: map[string]float64{
+									"mean": 2.066666666666667,
+								},
+							},
+						},
 					},
 					aggregation.Group{
 						Count: 3,
@@ -140,14 +140,14 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 							Path:  []string{"sector"},
 							Value: "Financials",
 						},
-						// Properties: map[string]aggregation.Property{
-						// 	"dividendYield": aggregation.Property{
-						// 		Type: aggregation.PropertyTypeNumerical,
-						// 		NumericalAggregations: map[string]float64{
-						// 			"mean": 2.2,
-						// 		},
-						// 	},
-						// },
+						Properties: map[string]aggregation.Property{
+							"dividendYield": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
+								NumericalAggregations: map[string]float64{
+									"mean": 2.1999999999999997,
+								},
+							},
+						},
 					},
 				},
 			}
@@ -155,259 +155,297 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 			assert.ElementsMatch(t, expectedResult.Groups, res.Groups)
 		})
 
-		// t.Run("grouping by a non-numerical, non-string prop", func(t *testing.T) {
-		// 	params := traverser.AggregateParams{
-		// 		Kind:      kind.Thing,
-		// 		ClassName: schema.ClassName(companyClass.Class),
-		// 		GroupBy: &filters.Path{
-		// 			Class:    schema.ClassName(companyClass.Class),
-		// 			Property: schema.PropertyName("listedInIndex"),
-		// 		},
-		// 		Properties: []traverser.AggregateProperty{
-		// 			traverser.AggregateProperty{
-		// 				Name:        schema.PropertyName("dividendYield"),
-		// 				Aggregators: []traverser.Aggregator{traverser.MeanAggregator},
-		// 			},
-		// 		},
-		// 	}
+		t.Run("grouping by a non-numerical, non-string prop", func(t *testing.T) {
+			params := traverser.AggregateParams{
+				Kind:      kind.Thing,
+				ClassName: schema.ClassName(companyClass.Class),
+				GroupBy: &filters.Path{
+					Class:    schema.ClassName(companyClass.Class),
+					Property: schema.PropertyName("listedInIndex"),
+				},
+				Properties: []traverser.AggregateProperty{
+					traverser.AggregateProperty{
+						Name:        schema.PropertyName("dividendYield"),
+						Aggregators: []traverser.Aggregator{traverser.MeanAggregator},
+					},
+				},
+			}
 
-		// 	res, err := repo.Aggregate(context.Background(), params)
-		// 	require.Nil(t, err)
+			res, err := repo.Aggregate(context.Background(), params)
+			require.Nil(t, err)
 
-		// 	expectedResult := &aggregation.Result{
-		// 		Groups: []aggregation.Group{
-		// 			aggregation.Group{
-		// 				Count: 8,
-		// 				GroupedBy: &aggregation.GroupedBy{
-		// 					Path:  []string{"listedInIndex"},
-		// 					Value: 1.0,
-		// 				},
-		// 				Properties: map[string]aggregation.Property{
-		// 					"dividendYield": aggregation.Property{
-		// 						Type: aggregation.PropertyTypeNumerical,
-		// 						NumericalAggregations: map[string]float64{
-		// 							"mean": 2.375,
-		// 						},
-		// 					},
-		// 				},
-		// 			},
-		// 			aggregation.Group{
-		// 				Count: 1,
-		// 				GroupedBy: &aggregation.GroupedBy{
-		// 					Path:  []string{"listedInIndex"},
-		// 					Value: 0.0,
-		// 				},
-		// 				Properties: map[string]aggregation.Property{
-		// 					"dividendYield": aggregation.Property{
-		// 						Type: aggregation.PropertyTypeNumerical,
-		// 						NumericalAggregations: map[string]float64{
-		// 							"mean": 0.0,
-		// 						},
-		// 					},
-		// 				},
-		// 			},
-		// 		},
-		// 	}
+			expectedResult := &aggregation.Result{
+				Groups: []aggregation.Group{
+					aggregation.Group{
+						Count: 8,
+						GroupedBy: &aggregation.GroupedBy{
+							Path:  []string{"listedInIndex"},
+							Value: true,
+						},
+						Properties: map[string]aggregation.Property{
+							"dividendYield": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
+								NumericalAggregations: map[string]float64{
+									"mean": 2.375,
+								},
+							},
+						},
+					},
+					aggregation.Group{
+						Count: 1,
+						GroupedBy: &aggregation.GroupedBy{
+							Path:  []string{"listedInIndex"},
+							Value: false,
+						},
+						Properties: map[string]aggregation.Property{
+							"dividendYield": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
+								NumericalAggregations: map[string]float64{
+									"mean": 0.0,
+								},
+							},
+						},
+					},
+				},
+			}
 
-		// 	assert.ElementsMatch(t, expectedResult.Groups, res.Groups)
-		// })
+			// there is now way to use InEpsilon or InDelta on nested structs with
+			// testify, so unfortunately we have to do a manual deep equal:
+			assert.Equal(t, len(res.Groups), len(expectedResult.Groups))
+			assert.Equal(t, expectedResult.Groups[0].Count, res.Groups[0].Count)
+			assert.Equal(t, expectedResult.Groups[0].GroupedBy, res.Groups[0].GroupedBy)
+			assert.InDelta(t, expectedResult.Groups[0].Properties["dividendYield"].
+				NumericalAggregations["mean"],
+				res.Groups[0].Properties["dividendYield"].NumericalAggregations["mean"],
+				0.001)
+			assert.Equal(t, len(res.Groups), len(expectedResult.Groups))
+			assert.Equal(t, expectedResult.Groups[1].Count, res.Groups[1].Count)
+			assert.Equal(t, expectedResult.Groups[1].GroupedBy, res.Groups[1].GroupedBy)
+			assert.InDelta(t, expectedResult.Groups[1].Properties["dividendYield"].
+				NumericalAggregations["mean"],
+				res.Groups[1].Properties["dividendYield"].NumericalAggregations["mean"],
+				0.001)
+		})
 
-		// t.Run("multiple fields, multiple aggregators, grouped by string", func(t *testing.T) {
-		// 	params := traverser.AggregateParams{
-		// 		Kind:      kind.Thing,
-		// 		ClassName: schema.ClassName(companyClass.Class),
-		// 		GroupBy: &filters.Path{
-		// 			Class:    schema.ClassName(companyClass.Class),
-		// 			Property: schema.PropertyName("sector"),
-		// 		},
-		// 		Properties: []traverser.AggregateProperty{
-		// 			traverser.AggregateProperty{
-		// 				Name: schema.PropertyName("dividendYield"),
-		// 				Aggregators: []traverser.Aggregator{
-		// 					traverser.MeanAggregator,
-		// 					traverser.MaximumAggregator,
-		// 					traverser.MinimumAggregator,
-		// 					traverser.SumAggregator,
-		// 					traverser.ModeAggregator,
-		// 					traverser.MedianAggregator,
-		// 					traverser.CountAggregator,
-		// 					traverser.TypeAggregator,
-		// 				},
-		// 			},
-		// 			traverser.AggregateProperty{
-		// 				Name: schema.PropertyName("price"),
-		// 				Aggregators: []traverser.Aggregator{
-		// 					traverser.TypeAggregator,
-		// 					traverser.MeanAggregator,
-		// 					traverser.MaximumAggregator,
-		// 					traverser.MinimumAggregator,
-		// 					traverser.SumAggregator,
-		// 					traverser.ModeAggregator,
-		// 					traverser.MedianAggregator,
-		// 					traverser.CountAggregator,
-		// 				},
-		// 			},
-		// 			traverser.AggregateProperty{
-		// 				Name: schema.PropertyName("listedInIndex"),
-		// 				Aggregators: []traverser.Aggregator{
-		// 					traverser.TypeAggregator,
-		// 					traverser.PercentageTrueAggregator,
-		// 					traverser.PercentageFalseAggregator,
-		// 					traverser.TotalTrueAggregator,
-		// 					traverser.TotalFalseAggregator,
-		// 				},
-		// 			},
-		// 			traverser.AggregateProperty{
-		// 				Name: schema.PropertyName("location"),
-		// 				Aggregators: []traverser.Aggregator{
-		// 					traverser.TypeAggregator,
-		// 					traverser.NewTopOccurrencesAggregator(ptInt(5)),
-		// 				},
-		// 			},
-		// 		},
-		// 	}
+		t.Run("multiple fields, multiple aggregators, grouped by string", func(t *testing.T) {
+			params := traverser.AggregateParams{
+				Kind:      kind.Thing,
+				ClassName: schema.ClassName(companyClass.Class),
+				GroupBy: &filters.Path{
+					Class:    schema.ClassName(companyClass.Class),
+					Property: schema.PropertyName("sector"),
+				},
+				Properties: []traverser.AggregateProperty{
+					traverser.AggregateProperty{
+						Name: schema.PropertyName("dividendYield"),
+						Aggregators: []traverser.Aggregator{
+							traverser.MeanAggregator,
+							traverser.MaximumAggregator,
+							traverser.MinimumAggregator,
+							traverser.SumAggregator,
+							traverser.ModeAggregator,
+							traverser.MedianAggregator,
+							traverser.CountAggregator,
+							traverser.TypeAggregator,
+						},
+					},
+					traverser.AggregateProperty{
+						Name: schema.PropertyName("price"),
+						Aggregators: []traverser.Aggregator{
+							traverser.TypeAggregator,
+							traverser.MeanAggregator,
+							traverser.MaximumAggregator,
+							traverser.MinimumAggregator,
+							traverser.SumAggregator,
+							// traverser.ModeAggregator, // ignore as there is no most common value
+							traverser.MedianAggregator,
+							traverser.CountAggregator,
+						},
+					},
+					traverser.AggregateProperty{
+						Name: schema.PropertyName("listedInIndex"),
+						Aggregators: []traverser.Aggregator{
+							traverser.TypeAggregator,
+							traverser.PercentageTrueAggregator,
+							traverser.PercentageFalseAggregator,
+							traverser.TotalTrueAggregator,
+							traverser.TotalFalseAggregator,
+						},
+					},
+					traverser.AggregateProperty{
+						Name: schema.PropertyName("location"),
+						Aggregators: []traverser.Aggregator{
+							traverser.TypeAggregator,
+							traverser.NewTopOccurrencesAggregator(ptInt(5)),
+						},
+					},
+				},
+			}
 
-		// 	res, err := repo.Aggregate(context.Background(), params)
-		// 	require.Nil(t, err)
+			res, err := repo.Aggregate(context.Background(), params)
+			require.Nil(t, err)
 
-		// 	expectedResult := &aggregation.Result{
-		// 		Groups: []aggregation.Group{
-		// 			aggregation.Group{
-		// 				Count: 6,
-		// 				GroupedBy: &aggregation.GroupedBy{
-		// 					Path:  []string{"sector"},
-		// 					Value: "Food",
-		// 				},
-		// 				Properties: map[string]aggregation.Property{
-		// 					"dividendYield": aggregation.Property{
-		// 						Type: aggregation.PropertyTypeNumerical,
-		// 						NumericalAggregations: map[string]float64{
-		// 							"mean":    2.06667,
-		// 							"maximum": 8.0,
-		// 							"minimum": 0.0,
-		// 							"sum":     12.4,
-		// 							"mode":    0,
-		// 							"median":  1.2,
-		// 							"count":   6,
-		// 						},
-		// 					},
-		// 					"price": aggregation.Property{
-		// 						Type: aggregation.PropertyTypeNumerical,
-		// 						NumericalAggregations: map[string]float64{
-		// 							"mean":    218.33333,
-		// 							"maximum": 800,
-		// 							"minimum": 10,
-		// 							"sum":     1310,
-		// 							"mode":    70,
-		// 							"median":  115,
-		// 							"count":   6,
-		// 						},
-		// 					},
-		// 					"listedInIndex": aggregation.Property{
-		// 						Type: aggregation.PropertyTypeBoolean,
-		// 						BooleanAggregation: aggregation.Boolean{
-		// 							TotalTrue:       5,
-		// 							TotalFalse:      1,
-		// 							PercentageTrue:  0.83333,
-		// 							PercentageFalse: 0.16667,
-		// 							Count:           6,
-		// 						},
-		// 					},
-		// 					"location": aggregation.Property{
-		// 						Type: aggregation.PropertyTypeText,
-		// 						TextAggregation: aggregation.Text{
-		// 							Count: 6,
-		// 							Items: []aggregation.TextOccurrence{
-		// 								aggregation.TextOccurrence{
-		// 									Value:  "Atlanta",
-		// 									Occurs: 2,
-		// 								},
-		// 								aggregation.TextOccurrence{
-		// 									Value:  "Detroit",
-		// 									Occurs: 1,
-		// 								},
-		// 								aggregation.TextOccurrence{
-		// 									Value:  "Los Angeles",
-		// 									Occurs: 1,
-		// 								},
-		// 								aggregation.TextOccurrence{
-		// 									Value:  "New York",
-		// 									Occurs: 1,
-		// 								},
-		// 								aggregation.TextOccurrence{
-		// 									Value:  "San Francisco",
-		// 									Occurs: 1,
-		// 								},
-		// 							},
-		// 						},
-		// 					},
-		// 				},
-		// 			},
-		// 			aggregation.Group{
-		// 				Count: 3,
-		// 				GroupedBy: &aggregation.GroupedBy{
-		// 					Path:  []string{"sector"},
-		// 					Value: "Financials",
-		// 				},
-		// 				Properties: map[string]aggregation.Property{
-		// 					"dividendYield": aggregation.Property{
-		// 						Type: aggregation.PropertyTypeNumerical,
-		// 						NumericalAggregations: map[string]float64{
-		// 							"mean":    2.2,
-		// 							"maximum": 4.0,
-		// 							"minimum": 1.3,
-		// 							"sum":     6.6,
-		// 							"mode":    1.3,
-		// 							"median":  1.3,
-		// 							"count":   3,
-		// 						},
-		// 					},
-		// 					"price": aggregation.Property{
-		// 						Type: aggregation.PropertyTypeNumerical,
-		// 						NumericalAggregations: map[string]float64{
-		// 							"mean":    265.66667,
-		// 							"maximum": 600,
-		// 							"minimum": 47,
-		// 							"sum":     797,
-		// 							"mode":    47,
-		// 							"median":  150,
-		// 							"count":   3,
-		// 						},
-		// 					},
-		// 					"listedInIndex": aggregation.Property{
-		// 						Type: aggregation.PropertyTypeBoolean,
-		// 						BooleanAggregation: aggregation.Boolean{
-		// 							TotalTrue:       3,
-		// 							TotalFalse:      0,
-		// 							PercentageTrue:  1,
-		// 							PercentageFalse: 0,
-		// 							Count:           3,
-		// 						},
-		// 					},
-		// 					"location": aggregation.Property{
-		// 						Type: aggregation.PropertyTypeText,
-		// 						TextAggregation: aggregation.Text{
-		// 							Count: 3,
-		// 							Items: []aggregation.TextOccurrence{
-		// 								aggregation.TextOccurrence{
-		// 									Value:  "New York",
-		// 									Occurs: 2,
-		// 								},
-		// 								aggregation.TextOccurrence{
-		// 									Value:  "San Francisco",
-		// 									Occurs: 1,
-		// 								},
-		// 							},
-		// 						},
-		// 					},
-		// 				},
-		// 			},
-		// 		},
-		// 	}
+			expectedResult := &aggregation.Result{
+				Groups: []aggregation.Group{
+					aggregation.Group{
+						Count: 6,
+						GroupedBy: &aggregation.GroupedBy{
+							Path:  []string{"sector"},
+							Value: "Food",
+						},
+						Properties: map[string]aggregation.Property{
+							"dividendYield": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
+								NumericalAggregations: map[string]float64{
+									"mean":    2.06667,
+									"maximum": 8.0,
+									"minimum": 0.0,
+									"sum":     12.4,
+									"mode":    0,
+									"median":  1.1,
+									"count":   6,
+								},
+							},
+							"price": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
+								NumericalAggregations: map[string]float64{
+									"mean":    218.33333,
+									"maximum": 800,
+									"minimum": 10,
+									"sum":     1310,
+									// "mode":    70,
+									"median": 70,
+									"count":  6,
+								},
+							},
+							"listedInIndex": aggregation.Property{
+								Type: aggregation.PropertyTypeBoolean,
+								BooleanAggregation: aggregation.Boolean{
+									TotalTrue:       5,
+									TotalFalse:      1,
+									PercentageTrue:  0.8333333333333334,
+									PercentageFalse: 0.16666666666666666,
+									Count:           6,
+								},
+							},
+							"location": aggregation.Property{
+								Type: aggregation.PropertyTypeText,
+								TextAggregation: aggregation.Text{
+									Count: 6,
+									Items: []aggregation.TextOccurrence{
+										aggregation.TextOccurrence{
+											Value:  "Atlanta",
+											Occurs: 2,
+										},
+										aggregation.TextOccurrence{
+											Value:  "Detroit",
+											Occurs: 1,
+										},
+										aggregation.TextOccurrence{
+											Value:  "Los Angeles",
+											Occurs: 1,
+										},
+										aggregation.TextOccurrence{
+											Value:  "New York",
+											Occurs: 1,
+										},
+										aggregation.TextOccurrence{
+											Value:  "San Francisco",
+											Occurs: 1,
+										},
+									},
+								},
+							},
+						},
+					},
+					aggregation.Group{
+						Count: 3,
+						GroupedBy: &aggregation.GroupedBy{
+							Path:  []string{"sector"},
+							Value: "Financials",
+						},
+						Properties: map[string]aggregation.Property{
+							"dividendYield": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
+								NumericalAggregations: map[string]float64{
+									"mean":    2.2,
+									"maximum": 4.0,
+									"minimum": 1.3,
+									"sum":     6.6,
+									"mode":    1.3,
+									"median":  1.3,
+									"count":   3,
+								},
+							},
+							"price": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
+								NumericalAggregations: map[string]float64{
+									"mean":    265.66667,
+									"maximum": 600,
+									"minimum": 47,
+									"sum":     797,
+									// "mode":    47,
+									"median": 150,
+									"count":  3,
+								},
+							},
+							"listedInIndex": aggregation.Property{
+								Type: aggregation.PropertyTypeBoolean,
+								BooleanAggregation: aggregation.Boolean{
+									TotalTrue:       3,
+									TotalFalse:      0,
+									PercentageTrue:  1,
+									PercentageFalse: 0,
+									Count:           3,
+								},
+							},
+							"location": aggregation.Property{
+								Type: aggregation.PropertyTypeText,
+								TextAggregation: aggregation.Text{
+									Count: 3,
+									Items: []aggregation.TextOccurrence{
+										aggregation.TextOccurrence{
+											Value:  "New York",
+											Occurs: 2,
+										},
+										aggregation.TextOccurrence{
+											Value:  "San Francisco",
+											Occurs: 1,
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
 
-		// 	// assert.ElementsMatch(t, expectedResult.Groups, res.Groups)
-		// 	assert.Equal(t, expectedResult.Groups, res.Groups)
-		// })
+			// there is now way to use InEpsilon or InDelta on nested strutcs with
+			// testify, so unfortunately we have to do a manual deep equal:
+			assert.Equal(t, len(res.Groups), len(expectedResult.Groups))
+			assert.Equal(t, expectedResult.Groups[0].Count, res.Groups[0].Count)
+			assert.Equal(t, expectedResult.Groups[0].GroupedBy, res.Groups[0].GroupedBy)
+			expectedProps := expectedResult.Groups[0].Properties
+			actualProps := res.Groups[0].Properties
+			assert.Equal(t, expectedProps["location"], actualProps["location"])
+			assert.Equal(t, expectedProps["listedInIndex"], actualProps["listedInIndex"])
+			assert.InDeltaMapValues(t, expectedProps["dividendYield"].NumericalAggregations,
+				actualProps["dividendYield"].NumericalAggregations, 0.001)
+			assert.InDeltaMapValues(t, expectedProps["price"].NumericalAggregations,
+				actualProps["price"].NumericalAggregations, 0.001)
+
+			assert.Equal(t, len(res.Groups), len(expectedResult.Groups))
+			assert.Equal(t, expectedResult.Groups[1].Count, res.Groups[1].Count)
+			assert.Equal(t, expectedResult.Groups[1].GroupedBy, res.Groups[1].GroupedBy)
+			expectedProps = expectedResult.Groups[1].Properties
+			actualProps = res.Groups[1].Properties
+			assert.Equal(t, expectedProps["location"], actualProps["location"])
+			assert.Equal(t, expectedProps["listedInIndex"], actualProps["listedInIndex"])
+			assert.InDeltaMapValues(t, expectedProps["dividendYield"].NumericalAggregations,
+				actualProps["dividendYield"].NumericalAggregations, 0.001)
+			assert.InDeltaMapValues(t, expectedProps["price"].NumericalAggregations,
+				actualProps["price"].NumericalAggregations, 0.001)
+		})
 	}
 }
 
