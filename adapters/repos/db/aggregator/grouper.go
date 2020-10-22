@@ -35,11 +35,42 @@ func (g *grouper) Do(ctx context.Context) ([]group, error) {
 		return nil, fmt.Errorf("grouping by cross-refs not supported")
 	}
 
-	g.db.View(func(tx *bolt.Tx) error {
+	if g.params.Filters == nil {
+		return g.groupAll(ctx)
+	} else {
+		return g.groupFiltered(ctx)
+	}
+}
+
+func (g *grouper) groupAll(ctx context.Context) ([]group, error) {
+	err := g.db.View(func(tx *bolt.Tx) error {
 		return ScanAll(tx, func(obj *storobj.Object) (bool, error) {
 			return true, g.addElement(obj)
 		})
 	})
+	if err != nil {
+		return nil, errors.Wrap(err, "group all (unfiltered)")
+	}
+
+	return g.aggregateAndSelect()
+}
+
+func (g *grouper) groupFiltered(ctx context.Context) ([]group, error) {
+	s := g.getSchema.GetSchemaSkipAuth()
+	ids, err := inverted.NewSearcher(g.db, s, g.invertedRowCache).
+		DocIDs(ctx, g.params.Filters, false, g.params.ClassName)
+	if err != nil {
+		return nil, errors.Wrap(err, "retrieve doc IDs from searcher")
+	}
+
+	if err := g.db.View(func(tx *bolt.Tx) error {
+		return inverted.ScanObjectsFromDocIDsInTx(tx, flattenAllowList(ids),
+			func(obj *storobj.Object) (bool, error) {
+				return true, g.addElement(obj)
+			})
+	}); err != nil {
+		return nil, errors.Wrap(err, "properties view tx")
+	}
 
 	return g.aggregateAndSelect()
 }
