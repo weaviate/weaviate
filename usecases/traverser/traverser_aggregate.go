@@ -96,12 +96,12 @@ var (
 	PercentageFalseAggregator = Aggregator{Type: "percentageFalse"}
 )
 
-const topOccurrencesType = "topOccurrences"
+const TopOccurrencesType = "topOccurrences"
 
 // NewTopOccurrencesAggregator creates a TopOccurrencesAggregator, we cannot
 // use a singleton for this as the desired limit can be different each time
 func NewTopOccurrencesAggregator(limit *int) Aggregator {
-	return Aggregator{Type: topOccurrencesType, Limit: limit}
+	return Aggregator{Type: TopOccurrencesType, Limit: limit}
 }
 
 // Aggregators used in ref props
@@ -178,7 +178,7 @@ func ParseAggregatorProp(name string) (Aggregator, error) {
 		return PercentageFalseAggregator, nil
 
 	// string/text
-	case topOccurrencesType:
+	case TopOccurrencesType:
 		return NewTopOccurrencesAggregator(ptInt(5)), nil // default to limit 5, can be overwritten
 
 	// ref
