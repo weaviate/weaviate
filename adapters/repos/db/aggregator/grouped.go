@@ -2,7 +2,6 @@ package aggregator
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
@@ -22,16 +21,6 @@ func newGroupedAggregator(agg *Aggregator) *groupedAggregator {
 
 func (ga *groupedAggregator) Do(ctx context.Context) (*aggregation.Result, error) {
 	out := aggregation.Result{}
-
-	if ga.params.Filters != nil {
-		// s := fa.getSchema.GetSchemaSkipAuth()
-		// ids, err := inverted.NewSearcher(fa.db, s, fa.invertedRowCache).
-		// 	DocIDs(ctx, fa.params.Filters, false, fa.params.ClassName)
-		// if err != nil {
-		// 	return nil, errors.Wrap(err, "retrieve doc IDs from searcher")
-		// }
-		return nil, fmt.Errorf("combining groupBy and filter not supported yet")
-	}
 
 	groups, err := ga.identifyGroups(ctx)
 	if err != nil {

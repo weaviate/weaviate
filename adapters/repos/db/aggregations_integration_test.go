@@ -46,8 +46,8 @@ func Test_Aggregations(t *testing.T) {
 	t.Run("numerical aggregations with grouping",
 		testNumericalAggregationsWithGrouping(repo))
 
-	// t.Run("numerical aggregations without grouping (formerly Meta)",
-	// 	testNumericalAggregationsWithoutGrouping(repo))
+	t.Run("numerical aggregations without grouping (formerly Meta)",
+		testNumericalAggregationsWithoutGrouping(repo))
 
 	// t.Run("clean up",
 	// 	cleanupCompanyTestSchemaAndData(repo, migrator))
@@ -407,6 +407,230 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 										aggregation.TextOccurrence{
 											Value:  "New York",
 											Occurs: 2,
+										},
+										aggregation.TextOccurrence{
+											Value:  "San Francisco",
+											Occurs: 1,
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+
+			// there is now way to use InEpsilon or InDelta on nested strutcs with
+			// testify, so unfortunately we have to do a manual deep equal:
+			assert.Equal(t, len(res.Groups), len(expectedResult.Groups))
+			assert.Equal(t, expectedResult.Groups[0].Count, res.Groups[0].Count)
+			assert.Equal(t, expectedResult.Groups[0].GroupedBy, res.Groups[0].GroupedBy)
+			expectedProps := expectedResult.Groups[0].Properties
+			actualProps := res.Groups[0].Properties
+			assert.Equal(t, expectedProps["location"], actualProps["location"])
+			assert.Equal(t, expectedProps["listedInIndex"], actualProps["listedInIndex"])
+			assert.InDeltaMapValues(t, expectedProps["dividendYield"].NumericalAggregations,
+				actualProps["dividendYield"].NumericalAggregations, 0.001)
+			assert.InDeltaMapValues(t, expectedProps["price"].NumericalAggregations,
+				actualProps["price"].NumericalAggregations, 0.001)
+
+			assert.Equal(t, len(res.Groups), len(expectedResult.Groups))
+			assert.Equal(t, expectedResult.Groups[1].Count, res.Groups[1].Count)
+			assert.Equal(t, expectedResult.Groups[1].GroupedBy, res.Groups[1].GroupedBy)
+			expectedProps = expectedResult.Groups[1].Properties
+			actualProps = res.Groups[1].Properties
+			assert.Equal(t, expectedProps["location"], actualProps["location"])
+			assert.Equal(t, expectedProps["listedInIndex"], actualProps["listedInIndex"])
+			assert.InDeltaMapValues(t, expectedProps["dividendYield"].NumericalAggregations,
+				actualProps["dividendYield"].NumericalAggregations, 0.001)
+			assert.InDeltaMapValues(t, expectedProps["price"].NumericalAggregations,
+				actualProps["price"].NumericalAggregations, 0.001)
+		})
+
+		t.Run("with filters,  grouped by string", func(t *testing.T) {
+			params := traverser.AggregateParams{
+				Kind:      kind.Thing,
+				ClassName: schema.ClassName(companyClass.Class),
+				GroupBy: &filters.Path{
+					Class:    schema.ClassName(companyClass.Class),
+					Property: schema.PropertyName("sector"),
+				},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorLessThan,
+						Value: &filters.Value{
+							Type:  schema.DataTypeInt,
+							Value: 600,
+						},
+						On: &filters.Path{
+							Property: "price",
+						},
+					},
+				},
+				Properties: []traverser.AggregateProperty{
+					traverser.AggregateProperty{
+						Name: schema.PropertyName("dividendYield"),
+						Aggregators: []traverser.Aggregator{
+							traverser.MeanAggregator,
+							traverser.MaximumAggregator,
+							traverser.MinimumAggregator,
+							traverser.SumAggregator,
+							// traverser.ModeAggregator,
+							traverser.MedianAggregator,
+							traverser.CountAggregator,
+							traverser.TypeAggregator,
+						},
+					},
+					traverser.AggregateProperty{
+						Name: schema.PropertyName("price"),
+						Aggregators: []traverser.Aggregator{
+							traverser.TypeAggregator,
+							traverser.MeanAggregator,
+							traverser.MaximumAggregator,
+							traverser.MinimumAggregator,
+							traverser.SumAggregator,
+							// traverser.ModeAggregator, // ignore as there is no most common value
+							traverser.MedianAggregator,
+							traverser.CountAggregator,
+						},
+					},
+					traverser.AggregateProperty{
+						Name: schema.PropertyName("listedInIndex"),
+						Aggregators: []traverser.Aggregator{
+							traverser.TypeAggregator,
+							traverser.PercentageTrueAggregator,
+							traverser.PercentageFalseAggregator,
+							traverser.TotalTrueAggregator,
+							traverser.TotalFalseAggregator,
+						},
+					},
+					traverser.AggregateProperty{
+						Name: schema.PropertyName("location"),
+						Aggregators: []traverser.Aggregator{
+							traverser.TypeAggregator,
+							traverser.NewTopOccurrencesAggregator(ptInt(5)),
+						},
+					},
+				},
+			}
+
+			res, err := repo.Aggregate(context.Background(), params)
+			require.Nil(t, err)
+
+			expectedResult := &aggregation.Result{
+				Groups: []aggregation.Group{
+					aggregation.Group{
+						Count: 5,
+						GroupedBy: &aggregation.GroupedBy{
+							Path:  []string{"sector"},
+							Value: "Food",
+						},
+						Properties: map[string]aggregation.Property{
+							"dividendYield": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
+								NumericalAggregations: map[string]float64{
+									"mean":    2.48,
+									"maximum": 8.0,
+									"minimum": 0.0,
+									"sum":     12.4,
+									"median":  1.3,
+									"count":   5,
+								},
+							},
+							"price": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
+								NumericalAggregations: map[string]float64{
+									"mean":    102,
+									"maximum": 200,
+									"minimum": 10,
+									"sum":     510,
+									"median":  70,
+									"count":   5,
+								},
+							},
+							"listedInIndex": aggregation.Property{
+								Type: aggregation.PropertyTypeBoolean,
+								BooleanAggregation: aggregation.Boolean{
+									TotalTrue:       5,
+									TotalFalse:      0,
+									PercentageTrue:  1,
+									PercentageFalse: 0,
+									Count:           5,
+								},
+							},
+							"location": aggregation.Property{
+								Type: aggregation.PropertyTypeText,
+								TextAggregation: aggregation.Text{
+									Count: 5,
+									Items: []aggregation.TextOccurrence{
+										aggregation.TextOccurrence{
+											Value:  "Atlanta",
+											Occurs: 2,
+										},
+										aggregation.TextOccurrence{
+											Value:  "Detroit",
+											Occurs: 1,
+										},
+										aggregation.TextOccurrence{
+											Value:  "New York",
+											Occurs: 1,
+										},
+										aggregation.TextOccurrence{
+											Value:  "San Francisco",
+											Occurs: 1,
+										},
+									},
+								},
+							},
+						},
+					},
+					aggregation.Group{
+						Count: 2,
+						GroupedBy: &aggregation.GroupedBy{
+							Path:  []string{"sector"},
+							Value: "Financials",
+						},
+						Properties: map[string]aggregation.Property{
+							"dividendYield": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
+								NumericalAggregations: map[string]float64{
+									"mean":    1.3,
+									"maximum": 1.3,
+									"minimum": 1.3,
+									"sum":     2.6,
+									"median":  1.3,
+									"count":   2,
+								},
+							},
+							"price": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
+								NumericalAggregations: map[string]float64{
+									"mean":    98.5,
+									"maximum": 150,
+									"minimum": 47,
+									"sum":     197,
+									"median":  47,
+									"count":   2,
+								},
+							},
+							"listedInIndex": aggregation.Property{
+								Type: aggregation.PropertyTypeBoolean,
+								BooleanAggregation: aggregation.Boolean{
+									TotalTrue:       2,
+									TotalFalse:      0,
+									PercentageTrue:  1,
+									PercentageFalse: 0,
+									Count:           2,
+								},
+							},
+							"location": aggregation.Property{
+								Type: aggregation.PropertyTypeText,
+								TextAggregation: aggregation.Text{
+									Count: 2,
+									Items: []aggregation.TextOccurrence{
+										aggregation.TextOccurrence{
+											Value:  "New York",
+											Occurs: 1,
 										},
 										aggregation.TextOccurrence{
 											Value:  "San Francisco",
