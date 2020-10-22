@@ -20,6 +20,7 @@ require (
 	github.com/go-openapi/swag v0.19.10
 	github.com/go-openapi/validate v0.19.10
 	github.com/golangci/golangci-lint v1.31.0 // indirect
+	github.com/google/go-cmp v0.5.2
 	github.com/google/uuid v1.1.1
 	github.com/gorilla/mux v1.7.0
 	github.com/graphql-go/graphql v0.7.7

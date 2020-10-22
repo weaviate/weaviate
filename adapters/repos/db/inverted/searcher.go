@@ -76,12 +76,47 @@ func (f *Searcher) Object(ctx context.Context, limit int,
 	return out, nil
 }
 
+// ObjectsFromDocIDsinTx resolves all the specified pointers to actual objects.
+// This should only be called if the intent is to return those objects to the
+// user, as we need enough Memory to hold all of those objects. Do not use this
+// in whole-db-scan situations such as an aggregation where you might only need
+// each object for a short amount of time to extract one or more properties. In
+// that case use ScanObjectsFromDocIDsInTx directly
 func ObjectsFromDocIDsInTx(tx *bolt.Tx,
 	pointers []uint32) ([]*storobj.Object, error) {
+	// at most the resulting array can have the length of the input pointers,
+	// however it could also be smaller if one (or more) of the pointers resolve
+	// to nil-ids or nil-objects
+	out := make([]*storobj.Object, len(pointers))
+
+	i := 0
+	err := ScanObjectsFromDocIDsInTx(tx, pointers,
+		func(obj *storobj.Object) (bool, error) {
+			out[i] = obj
+			i++
+			return true, nil
+		})
+	if err != nil {
+		return nil, err
+	}
+
+	return out[:i], nil
+}
+
+// ObjectScanFn is called once per object, if false or an error is returned,
+// the scanning will stop
+type ObjectScanFn func(obj *storobj.Object) (bool, error)
+
+// ScanObjectsFromDocIDsInTx calls the provided scanFn on each object for the
+// specified pointer. If a pointer does not resolve to an object-id, the item
+// will be skipped. The number of times scanFn is called can therefore be
+// smaller than the input length of pointers.
+func ScanObjectsFromDocIDsInTx(tx *bolt.Tx,
+	pointers []uint32, scan ObjectScanFn) error {
 	uuidKeys := make([][]byte, len(pointers))
 	b := tx.Bucket(helpers.IndexIDBucket)
 	if b == nil {
-		return nil, fmt.Errorf("index id bucket not found")
+		return fmt.Errorf("index id bucket not found")
 	}
 
 	uuidIndex := 0
@@ -104,21 +139,27 @@ func ObjectsFromDocIDsInTx(tx *bolt.Tx,
 		uuidIndex++
 	}
 
-	out := make([]*storobj.Object, len(uuidKeys))
 	b = tx.Bucket(helpers.ObjectsBucket)
 	if b == nil {
-		return nil, fmt.Errorf("index id bucket not found")
+		return fmt.Errorf("objects bucket not found")
 	}
 	for i, uuid := range uuidKeys {
 		elem, err := storobj.FromBinary(b.Get(uuid))
 		if err != nil {
-			return nil, errors.Wrap(err, "unmarshal data object")
+			return errors.Wrapf(err, "unmarshal data object at position %d", i)
 		}
 
-		out[i] = elem
+		continueScan, err := scan(elem)
+		if err != nil {
+			return errors.Wrapf(err, "scanFn at position %d", i)
+		}
+
+		if !continueScan {
+			break
+		}
 	}
 
-	return out, nil
+	return nil
 }
 
 // DocIDs is similar to Objects, but does not actually resolve the docIDs to
