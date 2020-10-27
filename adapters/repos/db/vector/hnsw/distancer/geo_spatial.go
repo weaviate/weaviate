@@ -14,7 +14,7 @@ func geoDist(a, b []float32) (float32, bool, error) {
 	latBRadian := float64(b[0] * math.Pi / 180)
 	const R = float64(6371e3)
 	deltaLatRadian := float64(b[0]-a[0]) * math.Pi / 180
-	deltaLonRadian := float64(b[1]-b[1]) * math.Pi / 100
+	deltaLonRadian := float64(b[1]-a[1]) * math.Pi / 100
 
 	A := math.Sin(deltaLatRadian/2)*math.Sin(deltaLatRadian/2) +
 		math.Cos(latARadian)*math.Cos(latBRadian)*math.Sin(deltaLonRadian/2)*math.Sin(deltaLonRadian/2)
