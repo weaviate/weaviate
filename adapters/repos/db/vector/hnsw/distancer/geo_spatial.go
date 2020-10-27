@@ -5,9 +5,9 @@ import (
 	"math"
 )
 
-func geoDist(a, b []float32) (float32, error) {
+func geoDist(a, b []float32) (float32, bool, error) {
 	if len(a) != 2 || len(b) != 2 {
-		return 0, fmt.Errorf("distance vectors must have len 2")
+		return 0, false, fmt.Errorf("distance vectors must have len 2")
 	}
 
 	latARadian := float64(a[0] * math.Pi / 180)
@@ -21,14 +21,14 @@ func geoDist(a, b []float32) (float32, error) {
 
 	C := 2 * math.Atan2(math.Sqrt(A), math.Sqrt(1-A))
 
-	return float32(R * C), nil
+	return float32(R * C), true, nil
 }
 
 type GeoDistancer struct {
 	a []float32
 }
 
-func (g GeoDistancer) Distance(b []float32) (float32, error) {
+func (g GeoDistancer) Distance(b []float32) (float32, bool, error) {
 	return geoDist(g.a, b)
 }
 
