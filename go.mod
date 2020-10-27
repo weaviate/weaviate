@@ -20,6 +20,7 @@ require (
 	github.com/go-openapi/swag v0.19.10
 	github.com/go-openapi/validate v0.19.10
 	github.com/golangci/golangci-lint v1.31.0 // indirect
+	github.com/google/go-cmp v0.5.2
 	github.com/google/uuid v1.1.1
 	github.com/gorilla/mux v1.7.0
 	github.com/graphql-go/graphql v0.7.7
@@ -39,8 +40,8 @@ require (
 	github.com/ugorji/go/codec v0.0.0-20190309163734-c4a1c341dc93
 	go.mongodb.org/mongo-driver v1.4.2 // indirect
 	go.uber.org/atomic v1.5.0
-	golang.org/x/net v0.0.0-20200822124328-c89045814202
-	golang.org/x/tools v0.0.0-20201017001424-6003fad69a88 // indirect
+	golang.org/x/net v0.0.0-20201021035429-f5854403a974
+	golang.org/x/tools v0.0.0-20201022035929-9cf592e881e9 // indirect
 	gonum.org/v1/gonum v0.7.0
 	google.golang.org/grpc v1.24.0
 	gopkg.in/square/go-jose.v2 v2.5.1 // indirect
