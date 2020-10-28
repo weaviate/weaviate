@@ -56,7 +56,7 @@ function run_integration_tests() {
     return
   fi
 
-  ./test/integration/run.sh
+  ./test/integration/run.sh --include-slow
 }
 
 function run_acceptance_tests() {
