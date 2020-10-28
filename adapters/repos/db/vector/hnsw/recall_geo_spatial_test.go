@@ -56,15 +56,10 @@ func TestRecallGeo(t *testing.T) {
 
 	t.Run("importing into hnsw", func(t *testing.T) {
 		fmt.Printf("importing into hnsw\n")
-		cl := &noopCommitLogger{}
-		makeCL := func() (CommitLogger, error) {
-			return cl, nil
-		}
-
 		index, err := New(Config{
 			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 			ID:                    "recallbenchmark",
-			MakeCommitLoggerThunk: makeCL,
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			MaximumConnections:    maxNeighbors,
 			EFConstruction:        efConstruction,
 			VectorForIDThunk: func(ctx context.Context, id int32) ([]float32, error) {

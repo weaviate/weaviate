@@ -26,15 +26,10 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 	var vectorIndex *hnsw
 
 	t.Run("import the test vectors", func(t *testing.T) {
-		cl := &noopCommitLogger{}
-		makeCL := func() (CommitLogger, error) {
-			return cl, nil
-		}
-
 		index, err := New(Config{
 			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 			ID:                    "delete-test",
-			MakeCommitLoggerThunk: makeCL,
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			MaximumConnections:    30,
 			EFConstruction:        128,
 			VectorForIDThunk: func(ctx context.Context, id int32) ([]float32, error) {
@@ -100,15 +95,10 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 	var vectorIndex *hnsw
 
 	t.Run("import the test vectors", func(t *testing.T) {
-		cl := &noopCommitLogger{}
-		makeCL := func() (CommitLogger, error) {
-			return cl, nil
-		}
-
 		index, err := New(Config{
 			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 			ID:                    "delete-test",
-			MakeCommitLoggerThunk: makeCL,
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			MaximumConnections:    30,
 			EFConstruction:        128,
 			VectorForIDThunk: func(ctx context.Context, id int32) ([]float32, error) {
@@ -184,15 +174,10 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 	var vectorIndex *hnsw
 
 	t.Run("import the test vectors", func(t *testing.T) {
-		cl := &noopCommitLogger{}
-		makeCL := func() (CommitLogger, error) {
-			return cl, nil
-		}
-
 		index, err := New(Config{
 			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 			ID:                    "delete-test",
-			MakeCommitLoggerThunk: makeCL,
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			MaximumConnections:    30,
 			EFConstruction:        128,
 			VectorForIDThunk: func(ctx context.Context, id int32) ([]float32, error) {
@@ -425,15 +410,10 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 	//
 	// The underlying test set can be found in vectors_for_test.go
 
-	cl := &noopCommitLogger{}
-	makeCL := func() (CommitLogger, error) {
-		return cl, nil
-	}
-
 	index, err := New(Config{
 		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 		ID:                    "delete-entrypoint-test",
-		MakeCommitLoggerThunk: makeCL,
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		MaximumConnections:    30,
 		EFConstruction:        128,
 		VectorForIDThunk:      testVectorForID,
