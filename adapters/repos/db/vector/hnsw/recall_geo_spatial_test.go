@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-// +build benchmarkRecallGeo
+// +build integrationTestSlow
 
 package hnsw
 
@@ -29,13 +29,13 @@ import (
 )
 
 func TestRecallGeo(t *testing.T) {
-	var size = 10000
-	var queries = 100
-	var efConstruction = 128
-	var maxNeighbors = 64
+	size := 10000
+	queries := 100
+	efConstruction := 128
+	maxNeighbors := 64
 
-	var vectors = make([][]float32, size)
-	var queryVectors = make([][]float32, queries)
+	vectors := make([][]float32, size)
+	queryVectors := make([][]float32, queries)
 	var vectorIndex *hnsw
 
 	t.Run("generate random vectors", func(t *testing.T) {
@@ -52,14 +52,13 @@ func TestRecallGeo(t *testing.T) {
 			queryVectors[i] = []float32{lat, lon}
 		}
 		fmt.Printf("done\n")
-
 	})
 
 	t.Run("importing into hnsw", func(t *testing.T) {
 		fmt.Printf("importing into hnsw\n")
 		cl := &noopCommitLogger{}
-		makeCL := func() CommitLogger {
-			return cl
+		makeCL := func() (CommitLogger, error) {
+			return cl, nil
 		}
 
 		index, err := New(Config{
@@ -104,7 +103,7 @@ func TestRecallGeo(t *testing.T) {
 	})
 
 	t.Run("with k=10", func(t *testing.T) {
-		var k = 10
+		k := 10
 
 		var relevant int
 		var retrieved int
@@ -129,6 +128,56 @@ func TestRecallGeo(t *testing.T) {
 		assert.True(t, recall >= 0.99)
 	})
 
+	t.Run("with max dist set", func(t *testing.T) {
+		const km = 1000
+		distances := []float32{
+			0.1,
+			1,
+			10,
+			100,
+			1000,
+			2000,
+			5000,
+			7500,
+			10000,
+			12500,
+			15000,
+			20000,
+			35000,
+			100000, // larger than the circumference of the earth, should contain all
+		}
+
+		for _, maxDist := range distances {
+			t.Run(fmt.Sprintf("with maxDist=%f", maxDist), func(t *testing.T) {
+				var relevant int
+				var retrieved int
+
+				var times time.Duration
+
+				for i := 0; i < queries; i++ {
+					controlList := bruteForceMaxDist(vectors, queryVectors[i], maxDist)
+					before := time.Now()
+					results, err := vectorIndex.knnSearchByVectorMaxDist(queryVectors[i], maxDist, 800, nil)
+					times += time.Since(before)
+					require.Nil(t, err)
+
+					retrieved += len(results)
+					relevant += matchesInLists(controlList, results)
+				}
+
+				if relevant == 0 {
+					// skip, as we risk dividing by zero, if both relevant and retrieved
+					// are zero, however, we want to fail with a divide-by-zero if only
+					// retrieved is 0 and relevant was more than 0
+					return
+				}
+				recall := float32(relevant) / float32(retrieved)
+				fmt.Printf("recall is %f\n", recall)
+				fmt.Printf("avg search time for maxDist=%f is %s\n", maxDist, times/time.Duration(queries))
+				assert.True(t, recall >= 0.99)
+			})
+		}
+	})
 }
 
 func matchesInLists(control []int, results []int) int {
@@ -154,11 +203,11 @@ func bruteForce(vectors [][]float32, query []float32, k int) []int {
 		index    int
 	}
 
-	var distances = make([]distanceAndIndex, len(vectors))
+	distances := make([]distanceAndIndex, len(vectors))
 
 	distancer := distancer.NewGeoProvider().New(query)
 	for i, vec := range vectors {
-		dist, _ := distancer.Distance(vec)
+		dist, _, _ := distancer.Distance(vec)
 		distances[i] = distanceAndIndex{
 			index:    i,
 			distance: dist,
@@ -179,6 +228,40 @@ func bruteForce(vectors [][]float32, query []float32, k int) []int {
 	}
 
 	return out
+}
+
+func bruteForceMaxDist(vectors [][]float32, query []float32, maxDist float32) []int {
+	type distanceAndIndex struct {
+		distance float32
+		index    int
+	}
+
+	distances := make([]distanceAndIndex, len(vectors))
+
+	distancer := distancer.NewGeoProvider().New(query)
+	for i, vec := range vectors {
+		dist, _, _ := distancer.Distance(vec)
+		distances[i] = distanceAndIndex{
+			index:    i,
+			distance: dist,
+		}
+	}
+
+	sort.Slice(distances, func(a, b int) bool {
+		return distances[a].distance < distances[b].distance
+	})
+
+	out := make([]int, len(distances))
+	i := 0
+	for _, elem := range distances {
+		if elem.distance > maxDist {
+			break
+		}
+		out[i] = distances[i].index
+		i++
+	}
+
+	return out[:i]
 }
 
 func randLatLon() (float32, float32) {
