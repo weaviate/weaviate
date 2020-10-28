@@ -7,7 +7,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 )
 
-func (h *hnsw) knnSearchByVectorMaxDist(searchVec []float32, dist float32,
+func (h *hnsw) KnnSearchByVectorMaxDist(searchVec []float32, dist float32,
 	ef int, allowList inverted.AllowList) ([]int, error) {
 	entryPointID := h.entryPointID
 	entryPointDistance, ok, err := h.distBetweenNodeAndVec(entryPointID, searchVec)

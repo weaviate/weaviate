@@ -157,7 +157,7 @@ func TestRecallGeo(t *testing.T) {
 				for i := 0; i < queries; i++ {
 					controlList := bruteForceMaxDist(vectors, queryVectors[i], maxDist)
 					before := time.Now()
-					results, err := vectorIndex.knnSearchByVectorMaxDist(queryVectors[i], maxDist, 800, nil)
+					results, err := vectorIndex.KnnSearchByVectorMaxDist(queryVectors[i], maxDist, 800, nil)
 					times += time.Since(before)
 					require.Nil(t, err)
 
