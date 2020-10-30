@@ -22,12 +22,19 @@ import (
 )
 
 type propValuePair struct {
-	prop         string
-	value        []byte
-	operator     filters.Operator
-	hasFrequency bool
-	docIDs       docPointers
-	children     []*propValuePair
+	prop     string
+	operator filters.Operator
+
+	// set for all values that can be served by an inverted index, i.e. anything
+	// that's not a geoRange
+	value []byte
+
+	// only set if operator=OperatorWithinGeoRange, as that cannot be served by a
+	// byte value from an inverted index
+	valueGeoRange *filters.GeoRange
+	hasFrequency  bool
+	docIDs        docPointers
+	children      []*propValuePair
 }
 
 func (pv *propValuePair) fetchDocIDs(tx *bolt.Tx, searcher *Searcher, limit int) error {
@@ -38,7 +45,7 @@ func (pv *propValuePair) fetchDocIDs(tx *bolt.Tx, searcher *Searcher, limit int)
 			return fmt.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
 		}
 
-		pointers, err := searcher.docPointers(id, pv.operator, b, pv.value, limit, pv.hasFrequency)
+		pointers, err := searcher.docPointers(id, b, limit, pv)
 		if err != nil {
 			return err
 		}

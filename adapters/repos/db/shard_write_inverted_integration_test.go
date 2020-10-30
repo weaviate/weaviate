@@ -32,14 +32,16 @@ import (
 func TestExtendInvertedIndexWithFrequency(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0777)
+	os.MkdirAll(dirName, 0o777)
 	defer func() {
 		err := os.RemoveAll(dirName)
 		fmt.Println(err)
 	}()
-
-	shard, err := NewShard("extend_invert_benchmark", &Index{Config: IndexConfig{
-		RootPath: dirName, Kind: kind.Thing, ClassName: "Test"}})
+	index, err := NewIndex(IndexConfig{
+		RootPath: dirName, Kind: kind.Thing, ClassName: "Test",
+	}, &fakeSchemaGetter{}, nil)
+	require.Nil(t, err)
+	shard, err := NewShard("extend_invert_benchmark", index)
 	require.Nil(t, err)
 
 	prop := []byte("testprop")
@@ -127,14 +129,17 @@ func TestExtendInvertedIndexWithFrequency(t *testing.T) {
 func TestExtendInvertedIndexWithOutFrequency(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0777)
+	os.MkdirAll(dirName, 0o777)
 	defer func() {
 		err := os.RemoveAll(dirName)
 		fmt.Println(err)
 	}()
 
-	shard, err := NewShard("extend_invert_benchmark_no_frequency", &Index{Config: IndexConfig{
-		RootPath: dirName, Kind: kind.Thing, ClassName: "Test"}})
+	index, err := NewIndex(IndexConfig{
+		RootPath: dirName, Kind: kind.Thing, ClassName: "Test",
+	}, &fakeSchemaGetter{}, nil)
+	require.Nil(t, err)
+	shard, err := NewShard("extend_invert_benchmark_no_frequency", index)
 	require.Nil(t, err)
 
 	prop := []byte("testprop")
