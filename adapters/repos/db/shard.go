@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/indexcounter"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -37,7 +38,7 @@ type Shard struct {
 	vectorIndex      VectorIndex
 	invertedRowCache *inverted.RowCacher
 	metrics          *Metrics
-	propertyIndices  map[string]PropertyIndex
+	propertyIndices  propertyspecific.Indices
 }
 
 func NewShard(shardName string, index *Index) (*Shard, error) {

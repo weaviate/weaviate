@@ -31,7 +31,6 @@ import (
 // NewThingsPatchParams creates a new ThingsPatchParams object
 // no default values defined in spec.
 func NewThingsPatchParams() ThingsPatchParams {
-
 	return ThingsPatchParams{}
 }
 
@@ -117,7 +116,6 @@ func (o *ThingsPatchParams) bindID(rawData []string, hasKey bool, formats strfmt
 
 // validateID carries on validations for parameter ID
 func (o *ThingsPatchParams) validateID(formats strfmt.Registry) error {
-
 	if err := validate.FormatOf("id", "path", "uuid", o.ID.String(), formats); err != nil {
 		return err
 	}

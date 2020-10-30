@@ -16,7 +16,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -48,7 +48,7 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 	var control []int
 
 	t.Run("doing a control search before delete with the respective allow list", func(t *testing.T) {
-		allowList := inverted.AllowList{}
+		allowList := helpers.AllowList{}
 		for i := range vectors {
 			if i%2 == 0 {
 				continue
@@ -117,7 +117,7 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 	var control []int
 
 	t.Run("doing a control search before delete with the respective allow list", func(t *testing.T) {
-		allowList := inverted.AllowList{}
+		allowList := helpers.AllowList{}
 		for i := range vectors {
 			if i%2 == 0 {
 				continue
@@ -196,7 +196,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 	var control []int
 
 	t.Run("doing a control search before delete with the respective allow list", func(t *testing.T) {
-		allowList := inverted.AllowList{}
+		allowList := helpers.AllowList{}
 		for i := range vectors {
 			if i%2 == 0 {
 				continue

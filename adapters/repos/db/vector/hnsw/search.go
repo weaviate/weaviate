@@ -16,7 +16,7 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
@@ -34,7 +34,7 @@ func (h *hnsw) SearchByID(id int, k int) ([]int, error) {
 	return h.knnSearch(id, k, reasonableEfFromK(k))
 }
 
-func (h *hnsw) SearchByVector(vector []float32, k int, allowList inverted.AllowList) ([]int, error) {
+func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]int, error) {
 	return h.knnSearchByVector(vector, k, reasonableEfFromK(k), allowList)
 }
 
@@ -86,7 +86,7 @@ func (h *hnsw) knnSearch(queryNodeID int, k int, ef int) ([]int, error) {
 
 func (h *hnsw) searchLayerByVector(queryVector []float32,
 	entrypoints binarySearchTreeGeneric, ef int, level int,
-	allowList inverted.AllowList) (*binarySearchTreeGeneric, error) {
+	allowList helpers.AllowList) (*binarySearchTreeGeneric, error) {
 	visited := newVisitedList(entrypoints)
 	candidates := &binarySearchTreeGeneric{}
 	results := &binarySearchTreeGeneric{}
@@ -155,7 +155,7 @@ func newVisitedList(entrypoints binarySearchTreeGeneric) map[uint32]struct{} {
 
 func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 	entrypoints binarySearchTreeGeneric, candidates,
-	results *binarySearchTreeGeneric, level int, allowList inverted.AllowList) {
+	results *binarySearchTreeGeneric, level int, allowList helpers.AllowList) {
 	for _, ep := range entrypoints.flattenInOrder() {
 		candidates.insert(ep.index, ep.dist)
 		if level == 0 && allowList != nil {
@@ -202,7 +202,7 @@ func (h *hnsw) currentWorstResultDistance(results *binarySearchTreeGeneric,
 func (h *hnsw) extendCandidatesAndResultsFromNeighbors(candidates,
 	results *binarySearchTreeGeneric, connections []uint32,
 	visited map[uint32]struct{}, distancer distancer.Distancer, ef int,
-	level int, allowList inverted.AllowList, worstResultDistance float32) error {
+	level int, allowList helpers.AllowList, worstResultDistance float32) error {
 	for _, neighborID := range connections {
 		if _, ok := visited[neighborID]; ok {
 			// skip if we've already visited this neighbor
@@ -292,7 +292,7 @@ func (h *hnsw) handleDeletedNode(docID int32) {
 }
 
 func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
-	ef int, allowList inverted.AllowList) ([]int, error) {
+	ef int, allowList helpers.AllowList) ([]int, error) {
 	entryPointID := h.entryPointID
 	entryPointDistance, ok, err := h.distBetweenNodeAndVec(entryPointID, searchVec)
 	if err != nil {
@@ -339,7 +339,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 }
 
 func (h *hnsw) selectNeighborsSimple(input binarySearchTreeGeneric,
-	max int, denyList inverted.AllowList) []uint32 {
+	max int, denyList helpers.AllowList) []uint32 {
 	flat := input.flattenInOrder()
 
 	maxSize := min(len(flat), max)
@@ -361,7 +361,7 @@ func (h *hnsw) selectNeighborsSimple(input binarySearchTreeGeneric,
 }
 
 func (h *hnsw) selectNeighborsSimpleFromId(nodeId int, ids []uint32,
-	max int, denyList inverted.AllowList) ([]uint32, error) {
+	max int, denyList helpers.AllowList) ([]uint32, error) {
 	bst := &binarySearchTreeGeneric{}
 	for _, id := range ids {
 		dist, ok, err := h.distBetweenNodes(int(id), nodeId)

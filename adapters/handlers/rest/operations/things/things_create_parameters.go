@@ -30,7 +30,6 @@ import (
 // NewThingsCreateParams creates a new ThingsCreateParams object
 // no default values defined in spec.
 func NewThingsCreateParams() ThingsCreateParams {
-
 	return ThingsCreateParams{}
 }
 

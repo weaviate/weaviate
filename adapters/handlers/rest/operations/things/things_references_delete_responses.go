@@ -36,14 +36,12 @@ type ThingsReferencesDeleteNoContent struct {
 
 // NewThingsReferencesDeleteNoContent creates ThingsReferencesDeleteNoContent with default headers values
 func NewThingsReferencesDeleteNoContent() *ThingsReferencesDeleteNoContent {
-
 	return &ThingsReferencesDeleteNoContent{}
 }
 
 // WriteResponse to the client
 func (o *ThingsReferencesDeleteNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(204)
 }
@@ -60,14 +58,12 @@ type ThingsReferencesDeleteUnauthorized struct {
 
 // NewThingsReferencesDeleteUnauthorized creates ThingsReferencesDeleteUnauthorized with default headers values
 func NewThingsReferencesDeleteUnauthorized() *ThingsReferencesDeleteUnauthorized {
-
 	return &ThingsReferencesDeleteUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *ThingsReferencesDeleteUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -89,7 +85,6 @@ type ThingsReferencesDeleteForbidden struct {
 
 // NewThingsReferencesDeleteForbidden creates ThingsReferencesDeleteForbidden with default headers values
 func NewThingsReferencesDeleteForbidden() *ThingsReferencesDeleteForbidden {
-
 	return &ThingsReferencesDeleteForbidden{}
 }
 
@@ -106,7 +101,6 @@ func (o *ThingsReferencesDeleteForbidden) SetPayload(payload *models.ErrorRespon
 
 // WriteResponse to the client
 func (o *ThingsReferencesDeleteForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -133,7 +127,6 @@ type ThingsReferencesDeleteNotFound struct {
 
 // NewThingsReferencesDeleteNotFound creates ThingsReferencesDeleteNotFound with default headers values
 func NewThingsReferencesDeleteNotFound() *ThingsReferencesDeleteNotFound {
-
 	return &ThingsReferencesDeleteNotFound{}
 }
 
@@ -150,7 +143,6 @@ func (o *ThingsReferencesDeleteNotFound) SetPayload(payload *models.ErrorRespons
 
 // WriteResponse to the client
 func (o *ThingsReferencesDeleteNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(404)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -177,7 +169,6 @@ type ThingsReferencesDeleteInternalServerError struct {
 
 // NewThingsReferencesDeleteInternalServerError creates ThingsReferencesDeleteInternalServerError with default headers values
 func NewThingsReferencesDeleteInternalServerError() *ThingsReferencesDeleteInternalServerError {
-
 	return &ThingsReferencesDeleteInternalServerError{}
 }
 
@@ -194,7 +185,6 @@ func (o *ThingsReferencesDeleteInternalServerError) SetPayload(payload *models.E
 
 // WriteResponse to the client
 func (o *ThingsReferencesDeleteInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

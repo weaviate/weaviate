@@ -105,7 +105,6 @@ func (m *Action) Validate(formats strfmt.Registry) error {
 }
 
 func (m *Action) validateClassification(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Classification) { // not required
 		return nil
 	}
@@ -123,7 +122,6 @@ func (m *Action) validateClassification(formats strfmt.Registry) error {
 }
 
 func (m *Action) validateFeatureProjection(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.FeatureProjection) { // not required
 		return nil
 	}
@@ -141,7 +139,6 @@ func (m *Action) validateFeatureProjection(formats strfmt.Registry) error {
 }
 
 func (m *Action) validateInterpretation(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Interpretation) { // not required
 		return nil
 	}
@@ -159,7 +156,6 @@ func (m *Action) validateInterpretation(formats strfmt.Registry) error {
 }
 
 func (m *Action) validateNearestNeighbors(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.NearestNeighbors) { // not required
 		return nil
 	}
@@ -177,7 +173,6 @@ func (m *Action) validateNearestNeighbors(formats strfmt.Registry) error {
 }
 
 func (m *Action) validateVector(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Vector) { // not required
 		return nil
 	}
@@ -193,7 +188,6 @@ func (m *Action) validateVector(formats strfmt.Registry) error {
 }
 
 func (m *Action) validateID(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.ID) { // not required
 		return nil
 	}
@@ -206,7 +200,6 @@ func (m *Action) validateID(formats strfmt.Registry) error {
 }
 
 func (m *Action) validateMeta(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Meta) { // not required
 		return nil
 	}

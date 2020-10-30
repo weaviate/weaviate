@@ -98,7 +98,6 @@ func TestClassifications(t *testing.T) {
 	})
 
 	t.Run("aggregating over item neighbors", func(t *testing.T) {
-
 		t.Run("close to politics (no filters)", func(t *testing.T) {
 			res, err := repo.AggregateNeighbors(context.Background(),
 				[]float32{0.7, 0.01, 0.01}, kind.Thing, "Article",

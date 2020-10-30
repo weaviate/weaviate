@@ -92,7 +92,6 @@ func (o *SchemaActionsPropertiesAddOK) GetPayload() *models.Property {
 }
 
 func (o *SchemaActionsPropertiesAddOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.Property)
 
 	// response payload
@@ -120,7 +119,6 @@ func (o *SchemaActionsPropertiesAddUnauthorized) Error() string {
 }
 
 func (o *SchemaActionsPropertiesAddUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -146,7 +144,6 @@ func (o *SchemaActionsPropertiesAddForbidden) GetPayload() *models.ErrorResponse
 }
 
 func (o *SchemaActionsPropertiesAddForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -179,7 +176,6 @@ func (o *SchemaActionsPropertiesAddUnprocessableEntity) GetPayload() *models.Err
 }
 
 func (o *SchemaActionsPropertiesAddUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -212,7 +208,6 @@ func (o *SchemaActionsPropertiesAddInternalServerError) GetPayload() *models.Err
 }
 
 func (o *SchemaActionsPropertiesAddInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

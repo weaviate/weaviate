@@ -51,7 +51,7 @@ func (o *SchemaThingsPropertiesAddURL) SetBasePath(bp string) {
 func (o *SchemaThingsPropertiesAddURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/schema/things/{className}/properties"
+	_path := "/schema/things/{className}/properties"
 
 	className := o.ClassName
 	if className != "" {

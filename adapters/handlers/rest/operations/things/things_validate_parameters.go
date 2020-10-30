@@ -30,7 +30,6 @@ import (
 // NewThingsValidateParams creates a new ThingsValidateParams object
 // no default values defined in spec.
 func NewThingsValidateParams() ThingsValidateParams {
-
 	return ThingsValidateParams{}
 }
 

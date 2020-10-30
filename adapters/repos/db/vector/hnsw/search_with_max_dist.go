@@ -4,11 +4,11 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 )
 
 func (h *hnsw) KnnSearchByVectorMaxDist(searchVec []float32, dist float32,
-	ef int, allowList inverted.AllowList) ([]int, error) {
+	ef int, allowList helpers.AllowList) ([]int, error) {
 	entryPointID := h.entryPointID
 	entryPointDistance, ok, err := h.distBetweenNodeAndVec(entryPointID, searchVec)
 	if err != nil {

@@ -36,14 +36,12 @@ type ThingsPatchNoContent struct {
 
 // NewThingsPatchNoContent creates ThingsPatchNoContent with default headers values
 func NewThingsPatchNoContent() *ThingsPatchNoContent {
-
 	return &ThingsPatchNoContent{}
 }
 
 // WriteResponse to the client
 func (o *ThingsPatchNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(204)
 }
@@ -60,14 +58,12 @@ type ThingsPatchBadRequest struct {
 
 // NewThingsPatchBadRequest creates ThingsPatchBadRequest with default headers values
 func NewThingsPatchBadRequest() *ThingsPatchBadRequest {
-
 	return &ThingsPatchBadRequest{}
 }
 
 // WriteResponse to the client
 func (o *ThingsPatchBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(400)
 }
@@ -84,14 +80,12 @@ type ThingsPatchUnauthorized struct {
 
 // NewThingsPatchUnauthorized creates ThingsPatchUnauthorized with default headers values
 func NewThingsPatchUnauthorized() *ThingsPatchUnauthorized {
-
 	return &ThingsPatchUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *ThingsPatchUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -113,7 +107,6 @@ type ThingsPatchForbidden struct {
 
 // NewThingsPatchForbidden creates ThingsPatchForbidden with default headers values
 func NewThingsPatchForbidden() *ThingsPatchForbidden {
-
 	return &ThingsPatchForbidden{}
 }
 
@@ -130,7 +123,6 @@ func (o *ThingsPatchForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *ThingsPatchForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -152,14 +144,12 @@ type ThingsPatchNotFound struct {
 
 // NewThingsPatchNotFound creates ThingsPatchNotFound with default headers values
 func NewThingsPatchNotFound() *ThingsPatchNotFound {
-
 	return &ThingsPatchNotFound{}
 }
 
 // WriteResponse to the client
 func (o *ThingsPatchNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -181,7 +171,6 @@ type ThingsPatchUnprocessableEntity struct {
 
 // NewThingsPatchUnprocessableEntity creates ThingsPatchUnprocessableEntity with default headers values
 func NewThingsPatchUnprocessableEntity() *ThingsPatchUnprocessableEntity {
-
 	return &ThingsPatchUnprocessableEntity{}
 }
 
@@ -198,7 +187,6 @@ func (o *ThingsPatchUnprocessableEntity) SetPayload(payload *models.ErrorRespons
 
 // WriteResponse to the client
 func (o *ThingsPatchUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -225,7 +213,6 @@ type ThingsPatchInternalServerError struct {
 
 // NewThingsPatchInternalServerError creates ThingsPatchInternalServerError with default headers values
 func NewThingsPatchInternalServerError() *ThingsPatchInternalServerError {
-
 	return &ThingsPatchInternalServerError{}
 }
 
@@ -242,7 +229,6 @@ func (o *ThingsPatchInternalServerError) SetPayload(payload *models.ErrorRespons
 
 // WriteResponse to the client
 func (o *ThingsPatchInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

@@ -46,7 +46,7 @@ func (o *ThingsValidateURL) SetBasePath(bp string) {
 func (o *ThingsValidateURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/things/validate"
+	_path := "/things/validate"
 
 	_basePath := o._basePath
 	if _basePath == "" {

@@ -34,14 +34,12 @@ type GenesisPeersPingOK struct {
 
 // NewGenesisPeersPingOK creates GenesisPeersPingOK with default headers values
 func NewGenesisPeersPingOK() *GenesisPeersPingOK {
-
 	return &GenesisPeersPingOK{}
 }
 
 // WriteResponse to the client
 func (o *GenesisPeersPingOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(200)
 }
@@ -58,14 +56,12 @@ type GenesisPeersPingUnauthorized struct {
 
 // NewGenesisPeersPingUnauthorized creates GenesisPeersPingUnauthorized with default headers values
 func NewGenesisPeersPingUnauthorized() *GenesisPeersPingUnauthorized {
-
 	return &GenesisPeersPingUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *GenesisPeersPingUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -82,14 +78,12 @@ type GenesisPeersPingForbidden struct {
 
 // NewGenesisPeersPingForbidden creates GenesisPeersPingForbidden with default headers values
 func NewGenesisPeersPingForbidden() *GenesisPeersPingForbidden {
-
 	return &GenesisPeersPingForbidden{}
 }
 
 // WriteResponse to the client
 func (o *GenesisPeersPingForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(403)
 }
@@ -106,14 +100,12 @@ type GenesisPeersPingNotFound struct {
 
 // NewGenesisPeersPingNotFound creates GenesisPeersPingNotFound with default headers values
 func NewGenesisPeersPingNotFound() *GenesisPeersPingNotFound {
-
 	return &GenesisPeersPingNotFound{}
 }
 
 // WriteResponse to the client
 func (o *GenesisPeersPingNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }

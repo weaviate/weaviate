@@ -27,7 +27,6 @@ import (
 // NewSchemaThingsDeleteParams creates a new SchemaThingsDeleteParams object
 // no default values defined in spec.
 func NewSchemaThingsDeleteParams() SchemaThingsDeleteParams {
-
 	return SchemaThingsDeleteParams{}
 }
 

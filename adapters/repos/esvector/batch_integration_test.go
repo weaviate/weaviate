@@ -45,7 +45,6 @@ func TestEsVectorRepoBatch(t *testing.T) {
 	t.Run("creating the thing class", testAddBatchThingClass(repo, migrator))
 	t.Run("creating the action class", testAddBatchActionClass(repo, migrator))
 	t.Run("batch import things", testBatchImportThings(repo))
-
 }
 
 func testAddBatchThingClass(repo *Repo, migrator *Migrator) func(t *testing.T) {

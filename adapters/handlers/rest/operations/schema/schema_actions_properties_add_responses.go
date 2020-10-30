@@ -41,7 +41,6 @@ type SchemaActionsPropertiesAddOK struct {
 
 // NewSchemaActionsPropertiesAddOK creates SchemaActionsPropertiesAddOK with default headers values
 func NewSchemaActionsPropertiesAddOK() *SchemaActionsPropertiesAddOK {
-
 	return &SchemaActionsPropertiesAddOK{}
 }
 
@@ -58,7 +57,6 @@ func (o *SchemaActionsPropertiesAddOK) SetPayload(payload *models.Property) {
 
 // WriteResponse to the client
 func (o *SchemaActionsPropertiesAddOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -80,14 +78,12 @@ type SchemaActionsPropertiesAddUnauthorized struct {
 
 // NewSchemaActionsPropertiesAddUnauthorized creates SchemaActionsPropertiesAddUnauthorized with default headers values
 func NewSchemaActionsPropertiesAddUnauthorized() *SchemaActionsPropertiesAddUnauthorized {
-
 	return &SchemaActionsPropertiesAddUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *SchemaActionsPropertiesAddUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -109,7 +105,6 @@ type SchemaActionsPropertiesAddForbidden struct {
 
 // NewSchemaActionsPropertiesAddForbidden creates SchemaActionsPropertiesAddForbidden with default headers values
 func NewSchemaActionsPropertiesAddForbidden() *SchemaActionsPropertiesAddForbidden {
-
 	return &SchemaActionsPropertiesAddForbidden{}
 }
 
@@ -126,7 +121,6 @@ func (o *SchemaActionsPropertiesAddForbidden) SetPayload(payload *models.ErrorRe
 
 // WriteResponse to the client
 func (o *SchemaActionsPropertiesAddForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -153,7 +147,6 @@ type SchemaActionsPropertiesAddUnprocessableEntity struct {
 
 // NewSchemaActionsPropertiesAddUnprocessableEntity creates SchemaActionsPropertiesAddUnprocessableEntity with default headers values
 func NewSchemaActionsPropertiesAddUnprocessableEntity() *SchemaActionsPropertiesAddUnprocessableEntity {
-
 	return &SchemaActionsPropertiesAddUnprocessableEntity{}
 }
 
@@ -170,7 +163,6 @@ func (o *SchemaActionsPropertiesAddUnprocessableEntity) SetPayload(payload *mode
 
 // WriteResponse to the client
 func (o *SchemaActionsPropertiesAddUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -197,7 +189,6 @@ type SchemaActionsPropertiesAddInternalServerError struct {
 
 // NewSchemaActionsPropertiesAddInternalServerError creates SchemaActionsPropertiesAddInternalServerError with default headers values
 func NewSchemaActionsPropertiesAddInternalServerError() *SchemaActionsPropertiesAddInternalServerError {
-
 	return &SchemaActionsPropertiesAddInternalServerError{}
 }
 
@@ -214,7 +205,6 @@ func (o *SchemaActionsPropertiesAddInternalServerError) SetPayload(payload *mode
 
 // WriteResponse to the client
 func (o *SchemaActionsPropertiesAddInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

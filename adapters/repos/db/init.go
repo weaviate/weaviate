@@ -23,7 +23,7 @@ import (
 // They will in turn create shards which will either read an existing db file
 // from disk or create a new one if none exists
 func (d *DB) init() error {
-	if err := os.MkdirAll(d.config.RootPath, 0777); err != nil {
+	if err := os.MkdirAll(d.config.RootPath, 0o777); err != nil {
 		return errors.Wrapf(err, "create root path directory at %s", d.config.RootPath)
 	}
 

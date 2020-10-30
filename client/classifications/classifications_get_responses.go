@@ -92,7 +92,6 @@ func (o *ClassificationsGetOK) GetPayload() *models.Classification {
 }
 
 func (o *ClassificationsGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.Classification)
 
 	// response payload
@@ -120,7 +119,6 @@ func (o *ClassificationsGetUnauthorized) Error() string {
 }
 
 func (o *ClassificationsGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -146,7 +144,6 @@ func (o *ClassificationsGetForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ClassificationsGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -174,7 +171,6 @@ func (o *ClassificationsGetNotFound) Error() string {
 }
 
 func (o *ClassificationsGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -200,7 +196,6 @@ func (o *ClassificationsGetInternalServerError) GetPayload() *models.ErrorRespon
 }
 
 func (o *ClassificationsGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

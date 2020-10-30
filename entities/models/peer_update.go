@@ -62,7 +62,6 @@ func (m *PeerUpdate) Validate(formats strfmt.Registry) error {
 }
 
 func (m *PeerUpdate) validateID(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.ID) { // not required
 		return nil
 	}
@@ -75,7 +74,6 @@ func (m *PeerUpdate) validateID(formats strfmt.Registry) error {
 }
 
 func (m *PeerUpdate) validateURI(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.URI) { // not required
 		return nil
 	}

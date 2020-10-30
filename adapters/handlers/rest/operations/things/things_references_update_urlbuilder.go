@@ -54,7 +54,7 @@ func (o *ThingsReferencesUpdateURL) SetBasePath(bp string) {
 func (o *ThingsReferencesUpdateURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/things/{id}/references/{propertyName}"
+	_path := "/things/{id}/references/{propertyName}"
 
 	id := o.ID.String()
 	if id != "" {

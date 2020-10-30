@@ -309,7 +309,6 @@ func TestNoCache(t *testing.T) {
 
 				assert.ElementsMatch(t, names, expectedNames)
 			})
-
 		})
 
 		t.Run("multiple levels deep", func(t *testing.T) {
@@ -368,7 +367,6 @@ func TestNoCache(t *testing.T) {
 				require.Nil(t, err)
 				require.Len(t, res, 0)
 			})
-
 		})
 
 		t.Run("by reference count", func(t *testing.T) {

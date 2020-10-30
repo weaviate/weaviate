@@ -32,7 +32,6 @@ import (
 // NewActionsReferencesDeleteParams creates a new ActionsReferencesDeleteParams object
 // no default values defined in spec.
 func NewActionsReferencesDeleteParams() ActionsReferencesDeleteParams {
-
 	return ActionsReferencesDeleteParams{}
 }
 
@@ -135,7 +134,6 @@ func (o *ActionsReferencesDeleteParams) bindID(rawData []string, hasKey bool, fo
 
 // validateID carries on validations for parameter ID
 func (o *ActionsReferencesDeleteParams) validateID(formats strfmt.Registry) error {
-
 	if err := validate.FormatOf("id", "path", "uuid", o.ID.String(), formats); err != nil {
 		return err
 	}

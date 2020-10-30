@@ -30,7 +30,6 @@ import (
 // NewGraphqlBatchParams creates a new GraphqlBatchParams object
 // no default values defined in spec.
 func NewGraphqlBatchParams() GraphqlBatchParams {
-
 	return GraphqlBatchParams{}
 }
 

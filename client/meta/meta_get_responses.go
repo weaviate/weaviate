@@ -86,7 +86,6 @@ func (o *MetaGetOK) GetPayload() *models.Meta {
 }
 
 func (o *MetaGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.Meta)
 
 	// response payload
@@ -114,7 +113,6 @@ func (o *MetaGetUnauthorized) Error() string {
 }
 
 func (o *MetaGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -140,7 +138,6 @@ func (o *MetaGetForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *MetaGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -173,7 +170,6 @@ func (o *MetaGetInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *MetaGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

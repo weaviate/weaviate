@@ -46,7 +46,7 @@ func (o *BatchingActionsCreateURL) SetBasePath(bp string) {
 func (o *BatchingActionsCreateURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/batching/actions"
+	_path := "/batching/actions"
 
 	_basePath := o._basePath
 	if _basePath == "" {

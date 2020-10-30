@@ -38,7 +38,6 @@ import (
 // https://github.com/semi-technologies/weaviate/issues/1016
 
 func Test_MergingObjects(t *testing.T) {
-
 	client, err := elasticsearch.NewClient(elasticsearch.Config{
 		Addresses: []string{"http://localhost:9201"},
 	})

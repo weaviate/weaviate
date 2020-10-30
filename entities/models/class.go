@@ -64,7 +64,6 @@ func (m *Class) Validate(formats strfmt.Registry) error {
 }
 
 func (m *Class) validateKeywords(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Keywords) { // not required
 		return nil
 	}
@@ -80,7 +79,6 @@ func (m *Class) validateKeywords(formats strfmt.Registry) error {
 }
 
 func (m *Class) validateProperties(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Properties) { // not required
 		return nil
 	}

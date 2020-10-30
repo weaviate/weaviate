@@ -53,7 +53,7 @@ func (o *GenesisPeersPingURL) SetBasePath(bp string) {
 func (o *GenesisPeersPingURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/peers/{peerId}/ping"
+	_path := "/peers/{peerId}/ping"
 
 	peerID := o.PeerID.String()
 	if peerID != "" {

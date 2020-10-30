@@ -78,7 +78,6 @@ func (o *GenesisPeersPingOK) Error() string {
 }
 
 func (o *GenesisPeersPingOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -99,7 +98,6 @@ func (o *GenesisPeersPingUnauthorized) Error() string {
 }
 
 func (o *GenesisPeersPingUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -120,7 +118,6 @@ func (o *GenesisPeersPingForbidden) Error() string {
 }
 
 func (o *GenesisPeersPingForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -141,6 +138,5 @@ func (o *GenesisPeersPingNotFound) Error() string {
 }
 
 func (o *GenesisPeersPingNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }

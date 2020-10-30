@@ -26,7 +26,6 @@ import (
 // NewGetWellKnownOpenidConfigurationParams creates a new GetWellKnownOpenidConfigurationParams object
 // no default values defined in spec.
 func NewGetWellKnownOpenidConfigurationParams() GetWellKnownOpenidConfigurationParams {
-
 	return GetWellKnownOpenidConfigurationParams{}
 }
 

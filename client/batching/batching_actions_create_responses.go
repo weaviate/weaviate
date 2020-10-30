@@ -97,7 +97,6 @@ func (o *BatchingActionsCreateOK) GetPayload() []*models.ActionsGetResponse {
 }
 
 func (o *BatchingActionsCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -123,7 +122,6 @@ func (o *BatchingActionsCreateUnauthorized) Error() string {
 }
 
 func (o *BatchingActionsCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -149,7 +147,6 @@ func (o *BatchingActionsCreateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BatchingActionsCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -182,7 +179,6 @@ func (o *BatchingActionsCreateUnprocessableEntity) GetPayload() *models.ErrorRes
 }
 
 func (o *BatchingActionsCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -215,7 +211,6 @@ func (o *BatchingActionsCreateInternalServerError) GetPayload() *models.ErrorRes
 }
 
 func (o *BatchingActionsCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -257,7 +252,6 @@ func (o *BatchingActionsCreateBody) Validate(formats strfmt.Registry) error {
 }
 
 func (o *BatchingActionsCreateBody) validateActions(formats strfmt.Registry) error {
-
 	if swag.IsZero(o.Actions) { // not required
 		return nil
 	}
@@ -301,7 +295,6 @@ func (o *BatchingActionsCreateBody) validateFieldsItemsEnum(path, location strin
 }
 
 func (o *BatchingActionsCreateBody) validateFields(formats strfmt.Registry) error {
-
 	if swag.IsZero(o.Fields) { // not required
 		return nil
 	}

@@ -22,23 +22,26 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/notimplemented"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
 type Searcher struct {
-	db       *bolt.DB
-	schema   schema.Schema
-	rowCache *RowCacher
+	db          *bolt.DB
+	schema      schema.Schema
+	rowCache    *RowCacher
+	propIndices propertyspecific.Indices
 }
 
 func NewSearcher(db *bolt.DB, schema schema.Schema,
-	rowCache *RowCacher) *Searcher {
+	rowCache *RowCacher, propIndices propertyspecific.Indices) *Searcher {
 	return &Searcher{
-		db:       db,
-		schema:   schema,
-		rowCache: rowCache,
+		db:          db,
+		schema:      schema,
+		rowCache:    rowCache,
+		propIndices: propIndices,
 	}
 }
 
@@ -173,7 +176,7 @@ func ScanObjectsFromDocIDsInTx(tx *bolt.Tx,
 // pointless, as only the first element would be allowed, regardless of which
 // had the shortest distance
 func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
-	meta bool, className schema.ClassName) (AllowList, error) {
+	meta bool, className schema.ClassName) (helpers.AllowList, error) {
 	pv, err := f.extractPropValuePair(filter.Root, className)
 	if err != nil {
 		return nil, err
@@ -194,7 +197,7 @@ func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
 
-	out := make(AllowList, len(pointers.docIDs))
+	out := make(helpers.AllowList, len(pointers.docIDs))
 	for _, p := range pointers.docIDs {
 		out.Insert(p.id)
 	}

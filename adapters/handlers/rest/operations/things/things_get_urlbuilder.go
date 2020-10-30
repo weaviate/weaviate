@@ -57,7 +57,7 @@ func (o *ThingsGetURL) SetBasePath(bp string) {
 func (o *ThingsGetURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/things/{id}"
+	_path := "/things/{id}"
 
 	id := o.ID.String()
 	if id != "" {

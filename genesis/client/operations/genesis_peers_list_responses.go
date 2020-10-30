@@ -74,7 +74,6 @@ func (o *GenesisPeersListOK) GetPayload() []*models.Peer {
 }
 
 func (o *GenesisPeersListOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -100,6 +99,5 @@ func (o *GenesisPeersListInternalServerError) Error() string {
 }
 
 func (o *GenesisPeersListInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
