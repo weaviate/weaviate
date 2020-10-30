@@ -127,7 +127,6 @@ func (o *ThingsValidateParams) SetBody(body *models.Thing) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *ThingsValidateParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

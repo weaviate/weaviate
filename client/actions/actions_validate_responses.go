@@ -87,7 +87,6 @@ func (o *ActionsValidateOK) Error() string {
 }
 
 func (o *ActionsValidateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -108,7 +107,6 @@ func (o *ActionsValidateUnauthorized) Error() string {
 }
 
 func (o *ActionsValidateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -134,7 +132,6 @@ func (o *ActionsValidateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ActionsValidateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -167,7 +164,6 @@ func (o *ActionsValidateUnprocessableEntity) GetPayload() *models.ErrorResponse 
 }
 
 func (o *ActionsValidateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -200,7 +196,6 @@ func (o *ActionsValidateInternalServerError) GetPayload() *models.ErrorResponse 
 }
 
 func (o *ActionsValidateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

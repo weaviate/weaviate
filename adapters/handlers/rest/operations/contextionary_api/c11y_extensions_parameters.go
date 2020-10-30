@@ -30,7 +30,6 @@ import (
 // NewC11yExtensionsParams creates a new C11yExtensionsParams object
 // no default values defined in spec.
 func NewC11yExtensionsParams() C11yExtensionsParams {
-
 	return C11yExtensionsParams{}
 }
 

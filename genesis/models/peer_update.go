@@ -51,7 +51,6 @@ func (m *PeerUpdate) Validate(formats strfmt.Registry) error {
 }
 
 func (m *PeerUpdate) validatePeerURI(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.PeerURI) { // not required
 		return nil
 	}

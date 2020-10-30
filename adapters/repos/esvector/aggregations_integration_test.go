@@ -61,7 +61,6 @@ func Test_Aggregations(t *testing.T) {
 
 	t.Run("clean up",
 		cleanupCompanyTestSchemaAndData(repo, migrator))
-
 }
 
 func prepareCompanyTestSchemaAndData(repo *Repo,

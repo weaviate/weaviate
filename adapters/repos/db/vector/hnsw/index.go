@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/sirupsen/logrus"
@@ -440,7 +440,7 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 // long comments, however, it should still be made prettier
 func (h *hnsw) findAndConnectNeighbors(node *vertex,
 	entryPointID int, nodeVec []float32, targetLevel, currentMaxLevel int,
-	denyList inverted.AllowList) error {
+	denyList helpers.AllowList) error {
 	results := &binarySearchTreeGeneric{}
 	dist, ok, err := h.distBetweenNodeAndVec(entryPointID, nodeVec)
 	if err != nil {

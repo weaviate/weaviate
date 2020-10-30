@@ -35,7 +35,6 @@ import (
 // https://github.com/semi-technologies/weaviate/issues/1016 for more details
 
 func Test_AddingReferenceOneByOne(t *testing.T) {
-
 	client, err := elasticsearch.NewClient(elasticsearch.Config{
 		Addresses: []string{"http://localhost:9201"},
 	})
@@ -175,5 +174,4 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 
 		assert.ElementsMatch(t, foundBeacons, expectedBeacons)
 	})
-
 }

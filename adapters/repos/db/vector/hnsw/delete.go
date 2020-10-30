@@ -15,7 +15,7 @@ import (
 	"context"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 )
 
@@ -29,7 +29,7 @@ func (h *hnsw) Delete(id int) error {
 // CleanUpTombstonedNodes removes nodes with a tombstone and reassignes edges
 // that were previously pointing to the tombstoned nodes
 func (h *hnsw) CleanUpTombstonedNodes() error {
-	deleteList := inverted.AllowList{}
+	deleteList := helpers.AllowList{}
 
 	h.RLock()
 	lenOfNodes := len(h.nodes)
@@ -91,7 +91,7 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 	return nil
 }
 
-func (h *hnsw) reassignNeighborsOf(deleteList inverted.AllowList) error {
+func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList) error {
 	h.RLock()
 	size := len(h.nodes)
 	currentEntrypoint := h.entryPointID
@@ -168,7 +168,7 @@ func (h *hnsw) reassignNeighborsOf(deleteList inverted.AllowList) error {
 	return nil
 }
 
-func connectionsPointTo(connections map[int][]uint32, needles inverted.AllowList) bool {
+func connectionsPointTo(connections map[int][]uint32, needles helpers.AllowList) bool {
 	for _, atLevel := range connections {
 		for _, pointer := range atLevel {
 			if needles.Contains(pointer) {
@@ -184,7 +184,7 @@ func connectionsPointTo(connections map[int][]uint32, needles inverted.AllowList
 // one. It respects the attached denyList, so that it doesn't assign another
 // node which also has a tombstone and is also in the process of being cleaned
 // up
-func (h *hnsw) deleteEntrypoint(node *vertex, denyList inverted.AllowList) error {
+func (h *hnsw) deleteEntrypoint(node *vertex, denyList helpers.AllowList) error {
 	if h.isOnlyNode(node, denyList) {
 		// no point in finding another entrypoint if this is the only node
 		return nil
@@ -206,7 +206,7 @@ func (h *hnsw) deleteEntrypoint(node *vertex, denyList inverted.AllowList) error
 }
 
 // returns entryPointID, level
-func (h *hnsw) findNewEntrypoint(denyList inverted.AllowList, targetLevel int) (int, int) {
+func (h *hnsw) findNewEntrypoint(denyList helpers.AllowList, targetLevel int) (int, int) {
 	for l := targetLevel; l >= 0; l-- {
 		// ideally we can find a new entrypoint at the same level of the
 		// to-be-deleted node. However, there is a chance it was the only node on
@@ -249,7 +249,7 @@ func (h *hnsw) findNewEntrypoint(denyList inverted.AllowList, targetLevel int) (
 	panic("findNewEntrypoint called on an empty hnsw graph")
 }
 
-func (h *hnsw) isOnlyNode(needle *vertex, denyList inverted.AllowList) bool {
+func (h *hnsw) isOnlyNode(needle *vertex, denyList helpers.AllowList) bool {
 	h.RLock()
 	defer h.RUnlock()
 

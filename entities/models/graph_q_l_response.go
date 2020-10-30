@@ -51,7 +51,6 @@ func (m *GraphQLResponse) Validate(formats strfmt.Registry) error {
 }
 
 func (m *GraphQLResponse) validateErrors(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Errors) { // not required
 		return nil
 	}

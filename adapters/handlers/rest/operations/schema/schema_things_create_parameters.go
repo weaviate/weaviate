@@ -30,7 +30,6 @@ import (
 // NewSchemaThingsCreateParams creates a new SchemaThingsCreateParams object
 // no default values defined in spec.
 func NewSchemaThingsCreateParams() SchemaThingsCreateParams {
-
 	return SchemaThingsCreateParams{}
 }
 

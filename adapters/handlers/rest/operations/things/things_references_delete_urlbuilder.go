@@ -54,7 +54,7 @@ func (o *ThingsReferencesDeleteURL) SetBasePath(bp string) {
 func (o *ThingsReferencesDeleteURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/things/{id}/references/{propertyName}"
+	_path := "/things/{id}/references/{propertyName}"
 
 	id := o.ID.String()
 	if id != "" {

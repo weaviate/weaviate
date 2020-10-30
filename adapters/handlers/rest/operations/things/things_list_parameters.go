@@ -29,7 +29,6 @@ import (
 // NewThingsListParams creates a new ThingsListParams object
 // no default values defined in spec.
 func NewThingsListParams() ThingsListParams {
-
 	return ThingsListParams{}
 }
 

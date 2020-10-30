@@ -78,7 +78,7 @@ func getLatestCommitFileOrCreate(rootPath, name string) (*os.File, error) {
 	}
 
 	fd, err := os.OpenFile(commitLogFileName(rootPath, name, fileName),
-		os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666)
+		os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
 	if err != nil {
 		return nil, errors.Wrap(err, "create commit log file")
 	}
@@ -354,7 +354,7 @@ func (l *hnswCommitLogger) maintenance() error {
 			Info("commit log size crossed threshold, switching to new file")
 
 		fd, err := os.OpenFile(commitLogFileName(l.rootPath, l.id, fileName),
-			os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666)
+			os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
 		if err != nil {
 			return errors.Wrap(err, "create commit log file")
 		}

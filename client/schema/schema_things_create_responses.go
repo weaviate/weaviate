@@ -92,7 +92,6 @@ func (o *SchemaThingsCreateOK) GetPayload() *models.Class {
 }
 
 func (o *SchemaThingsCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.Class)
 
 	// response payload
@@ -120,7 +119,6 @@ func (o *SchemaThingsCreateUnauthorized) Error() string {
 }
 
 func (o *SchemaThingsCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -146,7 +144,6 @@ func (o *SchemaThingsCreateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaThingsCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -179,7 +176,6 @@ func (o *SchemaThingsCreateUnprocessableEntity) GetPayload() *models.ErrorRespon
 }
 
 func (o *SchemaThingsCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -212,7 +208,6 @@ func (o *SchemaThingsCreateInternalServerError) GetPayload() *models.ErrorRespon
 }
 
 func (o *SchemaThingsCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

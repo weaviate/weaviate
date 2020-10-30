@@ -27,7 +27,6 @@ import (
 // NewC11yConceptsParams creates a new C11yConceptsParams object
 // no default values defined in spec.
 func NewC11yConceptsParams() C11yConceptsParams {
-
 	return C11yConceptsParams{}
 }
 

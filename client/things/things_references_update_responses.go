@@ -87,7 +87,6 @@ func (o *ThingsReferencesUpdateOK) Error() string {
 }
 
 func (o *ThingsReferencesUpdateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -108,7 +107,6 @@ func (o *ThingsReferencesUpdateUnauthorized) Error() string {
 }
 
 func (o *ThingsReferencesUpdateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -134,7 +132,6 @@ func (o *ThingsReferencesUpdateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ThingsReferencesUpdateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -167,7 +164,6 @@ func (o *ThingsReferencesUpdateUnprocessableEntity) GetPayload() *models.ErrorRe
 }
 
 func (o *ThingsReferencesUpdateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -200,7 +196,6 @@ func (o *ThingsReferencesUpdateInternalServerError) GetPayload() *models.ErrorRe
 }
 
 func (o *ThingsReferencesUpdateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

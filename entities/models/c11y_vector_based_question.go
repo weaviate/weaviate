@@ -91,7 +91,6 @@ func (m *C11yVectorBasedQuestionItems0) Validate(formats strfmt.Registry) error 
 }
 
 func (m *C11yVectorBasedQuestionItems0) validateClassProps(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.ClassProps) { // not required
 		return nil
 	}
@@ -126,7 +125,6 @@ func (m *C11yVectorBasedQuestionItems0) validateClassProps(formats strfmt.Regist
 }
 
 func (m *C11yVectorBasedQuestionItems0) validateClassVectors(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.ClassVectors) { // not required
 		return nil
 	}

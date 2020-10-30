@@ -83,7 +83,6 @@ func (m *Deprecation) Validate(formats strfmt.Registry) error {
 }
 
 func (m *Deprecation) validateRemovedTime(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.RemovedTime) { // not required
 		return nil
 	}
@@ -96,7 +95,6 @@ func (m *Deprecation) validateRemovedTime(formats strfmt.Registry) error {
 }
 
 func (m *Deprecation) validateSinceTime(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.SinceTime) { // not required
 		return nil
 	}

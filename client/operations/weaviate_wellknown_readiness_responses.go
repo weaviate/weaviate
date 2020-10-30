@@ -66,7 +66,6 @@ func (o *WeaviateWellknownReadinessOK) Error() string {
 }
 
 func (o *WeaviateWellknownReadinessOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -87,6 +86,5 @@ func (o *WeaviateWellknownReadinessServiceUnavailable) Error() string {
 }
 
 func (o *WeaviateWellknownReadinessServiceUnavailable) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }

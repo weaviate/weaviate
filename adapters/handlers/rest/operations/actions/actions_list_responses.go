@@ -41,7 +41,6 @@ type ActionsListOK struct {
 
 // NewActionsListOK creates ActionsListOK with default headers values
 func NewActionsListOK() *ActionsListOK {
-
 	return &ActionsListOK{}
 }
 
@@ -58,7 +57,6 @@ func (o *ActionsListOK) SetPayload(payload *models.ActionsListResponse) {
 
 // WriteResponse to the client
 func (o *ActionsListOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -85,7 +83,6 @@ type ActionsListBadRequest struct {
 
 // NewActionsListBadRequest creates ActionsListBadRequest with default headers values
 func NewActionsListBadRequest() *ActionsListBadRequest {
-
 	return &ActionsListBadRequest{}
 }
 
@@ -102,7 +99,6 @@ func (o *ActionsListBadRequest) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *ActionsListBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -124,14 +120,12 @@ type ActionsListUnauthorized struct {
 
 // NewActionsListUnauthorized creates ActionsListUnauthorized with default headers values
 func NewActionsListUnauthorized() *ActionsListUnauthorized {
-
 	return &ActionsListUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *ActionsListUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -153,7 +147,6 @@ type ActionsListForbidden struct {
 
 // NewActionsListForbidden creates ActionsListForbidden with default headers values
 func NewActionsListForbidden() *ActionsListForbidden {
-
 	return &ActionsListForbidden{}
 }
 
@@ -170,7 +163,6 @@ func (o *ActionsListForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *ActionsListForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -192,14 +184,12 @@ type ActionsListNotFound struct {
 
 // NewActionsListNotFound creates ActionsListNotFound with default headers values
 func NewActionsListNotFound() *ActionsListNotFound {
-
 	return &ActionsListNotFound{}
 }
 
 // WriteResponse to the client
 func (o *ActionsListNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -221,7 +211,6 @@ type ActionsListInternalServerError struct {
 
 // NewActionsListInternalServerError creates ActionsListInternalServerError with default headers values
 func NewActionsListInternalServerError() *ActionsListInternalServerError {
-
 	return &ActionsListInternalServerError{}
 }
 
@@ -238,7 +227,6 @@ func (o *ActionsListInternalServerError) SetPayload(payload *models.ErrorRespons
 
 // WriteResponse to the client
 func (o *ActionsListInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

@@ -78,7 +78,6 @@ func (o *GenesisPeersLeaveNoContent) Error() string {
 }
 
 func (o *GenesisPeersLeaveNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -99,7 +98,6 @@ func (o *GenesisPeersLeaveUnauthorized) Error() string {
 }
 
 func (o *GenesisPeersLeaveUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -120,7 +118,6 @@ func (o *GenesisPeersLeaveForbidden) Error() string {
 }
 
 func (o *GenesisPeersLeaveForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -141,6 +138,5 @@ func (o *GenesisPeersLeaveNotFound) Error() string {
 }
 
 func (o *GenesisPeersLeaveNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }

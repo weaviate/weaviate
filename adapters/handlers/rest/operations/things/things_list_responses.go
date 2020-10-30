@@ -41,7 +41,6 @@ type ThingsListOK struct {
 
 // NewThingsListOK creates ThingsListOK with default headers values
 func NewThingsListOK() *ThingsListOK {
-
 	return &ThingsListOK{}
 }
 
@@ -58,7 +57,6 @@ func (o *ThingsListOK) SetPayload(payload *models.ThingsListResponse) {
 
 // WriteResponse to the client
 func (o *ThingsListOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -85,7 +83,6 @@ type ThingsListBadRequest struct {
 
 // NewThingsListBadRequest creates ThingsListBadRequest with default headers values
 func NewThingsListBadRequest() *ThingsListBadRequest {
-
 	return &ThingsListBadRequest{}
 }
 
@@ -102,7 +99,6 @@ func (o *ThingsListBadRequest) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *ThingsListBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -124,14 +120,12 @@ type ThingsListUnauthorized struct {
 
 // NewThingsListUnauthorized creates ThingsListUnauthorized with default headers values
 func NewThingsListUnauthorized() *ThingsListUnauthorized {
-
 	return &ThingsListUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *ThingsListUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -153,7 +147,6 @@ type ThingsListForbidden struct {
 
 // NewThingsListForbidden creates ThingsListForbidden with default headers values
 func NewThingsListForbidden() *ThingsListForbidden {
-
 	return &ThingsListForbidden{}
 }
 
@@ -170,7 +163,6 @@ func (o *ThingsListForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *ThingsListForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -192,14 +184,12 @@ type ThingsListNotFound struct {
 
 // NewThingsListNotFound creates ThingsListNotFound with default headers values
 func NewThingsListNotFound() *ThingsListNotFound {
-
 	return &ThingsListNotFound{}
 }
 
 // WriteResponse to the client
 func (o *ThingsListNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -221,7 +211,6 @@ type ThingsListInternalServerError struct {
 
 // NewThingsListInternalServerError creates ThingsListInternalServerError with default headers values
 func NewThingsListInternalServerError() *ThingsListInternalServerError {
-
 	return &ThingsListInternalServerError{}
 }
 
@@ -238,7 +227,6 @@ func (o *ThingsListInternalServerError) SetPayload(payload *models.ErrorResponse
 
 // WriteResponse to the client
 func (o *ThingsListInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

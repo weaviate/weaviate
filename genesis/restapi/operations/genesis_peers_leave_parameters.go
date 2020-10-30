@@ -28,7 +28,6 @@ import (
 // NewGenesisPeersLeaveParams creates a new GenesisPeersLeaveParams object
 // no default values defined in spec.
 func NewGenesisPeersLeaveParams() GenesisPeersLeaveParams {
-
 	return GenesisPeersLeaveParams{}
 }
 
@@ -94,7 +93,6 @@ func (o *GenesisPeersLeaveParams) bindPeerID(rawData []string, hasKey bool, form
 
 // validatePeerID carries on validations for parameter PeerID
 func (o *GenesisPeersLeaveParams) validatePeerID(formats strfmt.Registry) error {
-
 	if err := validate.FormatOf("peerId", "path", "uuid", o.PeerID.String(), formats); err != nil {
 		return err
 	}

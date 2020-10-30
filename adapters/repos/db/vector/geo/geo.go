@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -28,7 +28,7 @@ type Index struct {
 type vectorIndex interface {
 	Add(id int, vector []float32) error
 	KnnSearchByVectorMaxDist(query []float32, dist float32, ef int,
-		allowList inverted.AllowList) ([]int, error)
+		allowList helpers.AllowList) ([]int, error)
 }
 
 // Config is passed to the GeoIndex when its created

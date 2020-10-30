@@ -87,7 +87,6 @@ func (o *SchemaActionsDeleteOK) Error() string {
 }
 
 func (o *SchemaActionsDeleteOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -113,7 +112,6 @@ func (o *SchemaActionsDeleteBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaActionsDeleteBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -141,7 +139,6 @@ func (o *SchemaActionsDeleteUnauthorized) Error() string {
 }
 
 func (o *SchemaActionsDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -167,7 +164,6 @@ func (o *SchemaActionsDeleteForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaActionsDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -200,7 +196,6 @@ func (o *SchemaActionsDeleteInternalServerError) GetPayload() *models.ErrorRespo
 }
 
 func (o *SchemaActionsDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

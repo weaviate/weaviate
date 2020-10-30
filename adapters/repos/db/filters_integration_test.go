@@ -212,7 +212,6 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 				filter:      buildFilter("description", "engine", eq, dtText),
 				expectedIDs: []strfmt.UUID{carPoloID},
 			},
-			// TODO gh-1150  support geo props
 			// {
 			// 	name: "within 600km of San Francisco",
 			// 	filter: buildFilter("parkedAt", filters.GeoRange{

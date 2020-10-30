@@ -5,20 +5,15 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/geo"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
-type PropertyIndex struct {
-	Name     string
-	Type     schema.DataType
-	GeoIndex *geo.Index
-}
-
 func (s *Shard) initPerPropertyIndices() error {
-	s.propertyIndices = map[string]PropertyIndex{}
+	s.propertyIndices = propertyspecific.Indices{}
 	sch := s.index.getSchema.GetSchemaSkipAuth()
 	c := sch.FindClassByName(s.index.Config.ClassName)
 	if c == nil {

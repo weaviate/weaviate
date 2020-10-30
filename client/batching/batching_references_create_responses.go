@@ -92,7 +92,6 @@ func (o *BatchingReferencesCreateOK) GetPayload() []*models.BatchReferenceRespon
 }
 
 func (o *BatchingReferencesCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -118,7 +117,6 @@ func (o *BatchingReferencesCreateUnauthorized) Error() string {
 }
 
 func (o *BatchingReferencesCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -144,7 +142,6 @@ func (o *BatchingReferencesCreateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BatchingReferencesCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -177,7 +174,6 @@ func (o *BatchingReferencesCreateUnprocessableEntity) GetPayload() *models.Error
 }
 
 func (o *BatchingReferencesCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -210,7 +206,6 @@ func (o *BatchingReferencesCreateInternalServerError) GetPayload() *models.Error
 }
 
 func (o *BatchingReferencesCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

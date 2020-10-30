@@ -41,7 +41,6 @@ type GenesisPeersListOK struct {
 
 // NewGenesisPeersListOK creates GenesisPeersListOK with default headers values
 func NewGenesisPeersListOK() *GenesisPeersListOK {
-
 	return &GenesisPeersListOK{}
 }
 
@@ -58,7 +57,6 @@ func (o *GenesisPeersListOK) SetPayload(payload []*models.Peer) {
 
 // WriteResponse to the client
 func (o *GenesisPeersListOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(200)
 	payload := o.Payload
 	if payload == nil {
@@ -83,14 +81,12 @@ type GenesisPeersListInternalServerError struct {
 
 // NewGenesisPeersListInternalServerError creates GenesisPeersListInternalServerError with default headers values
 func NewGenesisPeersListInternalServerError() *GenesisPeersListInternalServerError {
-
 	return &GenesisPeersListInternalServerError{}
 }
 
 // WriteResponse to the client
 func (o *GenesisPeersListInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(500)
 }

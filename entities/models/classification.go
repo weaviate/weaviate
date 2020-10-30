@@ -121,7 +121,6 @@ func (m *Classification) Validate(formats strfmt.Registry) error {
 }
 
 func (m *Classification) validateID(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.ID) { // not required
 		return nil
 	}
@@ -134,7 +133,6 @@ func (m *Classification) validateID(formats strfmt.Registry) error {
 }
 
 func (m *Classification) validateMeta(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Meta) { // not required
 		return nil
 	}
@@ -152,7 +150,6 @@ func (m *Classification) validateMeta(formats strfmt.Registry) error {
 }
 
 func (m *Classification) validateSourceWhere(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.SourceWhere) { // not required
 		return nil
 	}
@@ -202,7 +199,6 @@ func (m *Classification) validateStatusEnum(path, location string, value string)
 }
 
 func (m *Classification) validateStatus(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Status) { // not required
 		return nil
 	}
@@ -216,7 +212,6 @@ func (m *Classification) validateStatus(formats strfmt.Registry) error {
 }
 
 func (m *Classification) validateTargetWhere(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.TargetWhere) { // not required
 		return nil
 	}
@@ -234,7 +229,6 @@ func (m *Classification) validateTargetWhere(formats strfmt.Registry) error {
 }
 
 func (m *Classification) validateTrainingSetWhere(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.TrainingSetWhere) { // not required
 		return nil
 	}
@@ -281,7 +275,6 @@ func (m *Classification) validateTypeEnum(path, location string, value string) e
 }
 
 func (m *Classification) validateType(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Type) { // not required
 		return nil
 	}

@@ -30,7 +30,6 @@ import (
 // NewSchemaDumpParams creates a new SchemaDumpParams object
 // with the default values initialized.
 func NewSchemaDumpParams() *SchemaDumpParams {
-
 	return &SchemaDumpParams{
 
 		timeout: cr.DefaultTimeout,
@@ -40,7 +39,6 @@ func NewSchemaDumpParams() *SchemaDumpParams {
 // NewSchemaDumpParamsWithTimeout creates a new SchemaDumpParams object
 // with the default values initialized, and the ability to set a timeout on a request
 func NewSchemaDumpParamsWithTimeout(timeout time.Duration) *SchemaDumpParams {
-
 	return &SchemaDumpParams{
 
 		timeout: timeout,
@@ -50,7 +48,6 @@ func NewSchemaDumpParamsWithTimeout(timeout time.Duration) *SchemaDumpParams {
 // NewSchemaDumpParamsWithContext creates a new SchemaDumpParams object
 // with the default values initialized, and the ability to set a context for a request
 func NewSchemaDumpParamsWithContext(ctx context.Context) *SchemaDumpParams {
-
 	return &SchemaDumpParams{
 
 		Context: ctx,
@@ -60,7 +57,6 @@ func NewSchemaDumpParamsWithContext(ctx context.Context) *SchemaDumpParams {
 // NewSchemaDumpParamsWithHTTPClient creates a new SchemaDumpParams object
 // with the default values initialized, and the ability to set a custom HTTPClient for a request
 func NewSchemaDumpParamsWithHTTPClient(client *http.Client) *SchemaDumpParams {
-
 	return &SchemaDumpParams{
 		HTTPClient: client,
 	}
@@ -110,7 +106,6 @@ func (o *SchemaDumpParams) SetHTTPClient(client *http.Client) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *SchemaDumpParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

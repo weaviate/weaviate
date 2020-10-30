@@ -30,7 +30,6 @@ import (
 // NewWeaviateWellknownLivenessParams creates a new WeaviateWellknownLivenessParams object
 // with the default values initialized.
 func NewWeaviateWellknownLivenessParams() *WeaviateWellknownLivenessParams {
-
 	return &WeaviateWellknownLivenessParams{
 
 		timeout: cr.DefaultTimeout,
@@ -40,7 +39,6 @@ func NewWeaviateWellknownLivenessParams() *WeaviateWellknownLivenessParams {
 // NewWeaviateWellknownLivenessParamsWithTimeout creates a new WeaviateWellknownLivenessParams object
 // with the default values initialized, and the ability to set a timeout on a request
 func NewWeaviateWellknownLivenessParamsWithTimeout(timeout time.Duration) *WeaviateWellknownLivenessParams {
-
 	return &WeaviateWellknownLivenessParams{
 
 		timeout: timeout,
@@ -50,7 +48,6 @@ func NewWeaviateWellknownLivenessParamsWithTimeout(timeout time.Duration) *Weavi
 // NewWeaviateWellknownLivenessParamsWithContext creates a new WeaviateWellknownLivenessParams object
 // with the default values initialized, and the ability to set a context for a request
 func NewWeaviateWellknownLivenessParamsWithContext(ctx context.Context) *WeaviateWellknownLivenessParams {
-
 	return &WeaviateWellknownLivenessParams{
 
 		Context: ctx,
@@ -60,7 +57,6 @@ func NewWeaviateWellknownLivenessParamsWithContext(ctx context.Context) *Weaviat
 // NewWeaviateWellknownLivenessParamsWithHTTPClient creates a new WeaviateWellknownLivenessParams object
 // with the default values initialized, and the ability to set a custom HTTPClient for a request
 func NewWeaviateWellknownLivenessParamsWithHTTPClient(client *http.Client) *WeaviateWellknownLivenessParams {
-
 	return &WeaviateWellknownLivenessParams{
 		HTTPClient: client,
 	}
@@ -110,7 +106,6 @@ func (o *WeaviateWellknownLivenessParams) SetHTTPClient(client *http.Client) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *WeaviateWellknownLivenessParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

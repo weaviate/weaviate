@@ -31,7 +31,6 @@ import (
 // NewSchemaActionsPropertiesAddParams creates a new SchemaActionsPropertiesAddParams object
 // no default values defined in spec.
 func NewSchemaActionsPropertiesAddParams() SchemaActionsPropertiesAddParams {
-
 	return SchemaActionsPropertiesAddParams{}
 }
 
