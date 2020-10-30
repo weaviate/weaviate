@@ -1,0 +1,81 @@
+package db
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/geo"
+	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
+)
+
+type PropertyIndex struct {
+	Name     string
+	Type     schema.DataType
+	GeoIndex *geo.Index
+}
+
+func (s *Shard) initPerPropertyIndices() error {
+	s.propertyIndices = map[string]PropertyIndex{}
+	sch := s.index.getSchema.GetSchemaSkipAuth()
+	c := sch.FindClassByName(s.index.Config.ClassName)
+	if c == nil {
+		return nil
+	}
+
+	for _, prop := range c.Properties {
+		if schema.DataType(prop.DataType[0]) == schema.DataTypeGeoCoordinates {
+			if err := s.initGeoProp(prop); err != nil {
+				return errors.Wrapf(err, "init property %s", prop.Name)
+			}
+		}
+	}
+	return nil
+}
+
+func (s *Shard) initGeoProp(prop *models.Property) error {
+	geo.NewIndex(geo.Config{
+		ID:                 geoPropID(s.ID(), prop.Name),
+		RootPath:           s.index.Config.RootPath,
+		CoordinatesForID:   s.makeCoordinatesForID(prop.Name),
+		DisablePersistence: false,
+		Logger:             s.index.logger,
+	})
+	return nil
+}
+
+func (s *Shard) makeCoordinatesForID(propName string) geo.CoordinatesForID {
+	return func(ctx context.Context, id int32) (models.GeoCoordinates, error) {
+		out := models.GeoCoordinates{}
+
+		obj, err := s.objectByIndexID(ctx, id)
+		if err != nil {
+			return out, errors.Wrap(err, "retrieve object")
+		}
+
+		if obj.Schema() == nil {
+			return out, storobj.NewErrNotFoundf(id,
+				"object has no properties")
+		}
+
+		prop, ok := obj.Schema().(map[string]interface{})[propName]
+		if !ok {
+			return out, storobj.NewErrNotFoundf(id,
+				"object has no property %q", propName)
+		}
+
+		geoProp, ok := prop.(*models.GeoCoordinates)
+		if !ok {
+			return out, fmt.Errorf("expected property to be of type %T, got: %T",
+				&models.GeoCoordinates{}, prop)
+		}
+
+		return *geoProp, nil
+	}
+}
+
+func geoPropID(shardID string, propName string) string {
+	return fmt.Sprintf("%s_%s", shardID, propName)
+}

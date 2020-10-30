@@ -37,6 +37,7 @@ type Shard struct {
 	vectorIndex      VectorIndex
 	invertedRowCache *inverted.RowCacher
 	metrics          *Metrics
+	propertyIndices  map[string]PropertyIndex
 }
 
 func NewShard(shardName string, index *Index) (*Shard, error) {
@@ -76,6 +77,11 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 	}
 
 	s.counter = counter
+
+	if err := s.initPerPropertyIndices(); err != nil {
+		return nil, errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
+	}
+
 	return s, nil
 }
 
@@ -88,7 +94,7 @@ func (s *Shard) DBPath() string {
 }
 
 func (s *Shard) initDBFile() error {
-	boltdb, err := bolt.Open(s.DBPath(), 0600, nil)
+	boltdb, err := bolt.Open(s.DBPath(), 0o600, nil)
 	if err != nil {
 		return errors.Wrapf(err, "open bolt at %s", s.DBPath())
 	}
@@ -122,6 +128,12 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 		if schema.IsRefDataType(prop.DataType) {
 			_, err := tx.CreateBucketIfNotExists(helpers.BucketFromPropName(helpers.MetaCountProp(prop.Name)))
 			if err != nil {
+				return err
+			}
+		}
+
+		if schema.DataType(prop.DataType[0]) == schema.DataTypeGeoCoordinates {
+			if err := s.initGeoProp(prop); err != nil {
 				return err
 			}
 		}

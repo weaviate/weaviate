@@ -22,16 +22,29 @@ import (
 	"github.com/semi-technologies/weaviate/entities/filters"
 )
 
-func (fs *Searcher) docPointers(prop []byte, operator filters.Operator,
-	b *bolt.Bucket, value []byte, limit int,
-	hasFrequency bool) (docPointers, error) {
-	rr := NewRowReader(b, value, operator)
+func (fs *Searcher) docPointers(prop []byte,
+	b *bolt.Bucket, limit int, pv *propValuePair) (docPointers, error) {
+	if pv.operator == filters.OperatorWithinGeoRange {
+		// geo props cannot be served by the inverted index and they require an
+		// external index. So, instead of trying to serve this chunk of the filter
+		// request internally, we can pass it to an external geo index
+		return fs.docPointersGeo(pv)
+	} else {
+		// all other operators perform operations on the inverted index which we
+		// can serve directly
+		return fs.docPointersInverted(prop, b, limit, pv)
+	}
+}
+
+func (fs *Searcher) docPointersInverted(prop []byte, b *bolt.Bucket, limit int,
+	pv *propValuePair) (docPointers, error) {
+	rr := NewRowReader(b, pv.value, pv.operator)
 
 	var pointers docPointers
 	var hashes [][]byte
 
 	if err := rr.Read(context.TODO(), func(k, v []byte) (bool, error) {
-		curr, err := fs.parseInvertedIndexRow(rowID(prop, k), v, limit, hasFrequency)
+		curr, err := fs.parseInvertedIndexRow(rowID(prop, k), v, limit, pv.hasFrequency)
 		if err != nil {
 			return false, errors.Wrap(err, "parse inverted index row")
 		}
@@ -55,6 +68,11 @@ func (fs *Searcher) docPointers(prop []byte, operator filters.Operator,
 
 	pointers.checksum = newChecksum
 	return pointers, nil
+}
+
+func (fs *Searcher) docPointersGeo(pv *propValuePair) (docPointers, error) {
+	// TODO: implement from external index
+	return docPointers{}, nil
 }
 
 func rowID(prop, value []byte) []byte {
