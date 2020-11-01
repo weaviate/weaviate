@@ -117,12 +117,13 @@ func (s *Shard) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 	return ok, nil
 }
 
-func (s *Shard) vectorByIndexID(ctx context.Context, indexID int32) ([]float32, error) {
+func (s *Shard) objectByIndexID(ctx context.Context,
+	indexID int32) (*storobj.Object, error) {
 	keyBuf := bytes.NewBuffer(make([]byte, 4))
 	binary.Write(keyBuf, binary.LittleEndian, &indexID)
 	key := keyBuf.Bytes()
 
-	var vec []float32
+	var out *storobj.Object
 	err := s.db.View(func(tx *bolt.Tx) error {
 		uuid := tx.Bucket(helpers.IndexIDBucket).Get(key)
 		if uuid == nil {
@@ -141,14 +142,23 @@ func (s *Shard) vectorByIndexID(ctx context.Context, indexID int32) ([]float32, 
 			return errors.Wrap(err, "unmarshal kind object")
 		}
 
-		vec = obj.Vector
+		out = obj
 		return nil
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "bolt view tx")
 	}
 
-	return vec, nil
+	return out, nil
+}
+
+func (s *Shard) vectorByIndexID(ctx context.Context, indexID int32) ([]float32, error) {
+	obj, err := s.objectByIndexID(ctx, indexID)
+	if err != nil {
+		return nil, err
+	}
+
+	return obj.Vector, nil
 }
 
 func (s *Shard) objectSearch(ctx context.Context, limit int,
@@ -157,17 +167,17 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 		return s.objectList(ctx, limit, meta)
 	}
 
-	return inverted.NewSearcher(
-		s.db, s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache).
+	return inverted.NewSearcher(s.db, s.index.getSchema.GetSchemaSkipAuth(),
+		s.invertedRowCache, s.propertyIndices).
 		Object(ctx, limit, filters, meta, s.index.Config.ClassName)
 }
 
 func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32,
 	limit int, filters *filters.LocalFilter, meta bool) ([]*storobj.Object, error) {
-	var allowList inverted.AllowList
+	var allowList helpers.AllowList
 	if filters != nil {
-		list, err := inverted.NewSearcher(
-			s.db, s.index.getSchema.GetSchemaSkipAuth(), s.invertedRowCache).
+		list, err := inverted.NewSearcher(s.db, s.index.getSchema.GetSchemaSkipAuth(),
+			s.invertedRowCache, s.propertyIndices).
 			DocIDs(ctx, filters, meta, s.index.Config.ClassName)
 		if err != nil {
 			return nil, errors.Wrap(err, "build inverted filter allow list")

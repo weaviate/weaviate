@@ -46,7 +46,7 @@ func (o *C11yExtensionsURL) SetBasePath(bp string) {
 func (o *C11yExtensionsURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/c11y/extensions/"
+	_path := "/c11y/extensions/"
 
 	_basePath := o._basePath
 	if _basePath == "" {

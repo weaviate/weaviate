@@ -53,7 +53,7 @@ func (o *ActionsPatchURL) SetBasePath(bp string) {
 func (o *ActionsPatchURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/actions/{id}"
+	_path := "/actions/{id}"
 
 	id := o.ID.String()
 	if id != "" {

@@ -30,7 +30,6 @@ import (
 )
 
 func TestMultipleCrossRefTypes(t *testing.T) {
-
 	client, err := elasticsearch.NewClient(elasticsearch.Config{
 		Addresses: []string{"http://localhost:9201"},
 	})
@@ -283,7 +282,6 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 
 			assert.Equal(t, 1, repo.requestCounter.(*testCounter).count)
 			assert.Equal(t, expectedSchemaUnresolved, res.Schema)
-
 		})
 
 		t.Run("asking for refs of type garage", func(t *testing.T) {

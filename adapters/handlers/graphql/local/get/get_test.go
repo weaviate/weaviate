@@ -178,12 +178,12 @@ func TestExtractPhoneNumberField(t *testing.T) {
 			},
 			resolverReturn: []interface{}{
 				map[string]interface{}{
-					"phone": &models.PhoneNumber{National: 01711234567},
+					"phone": &models.PhoneNumber{National: 0o1711234567},
 				},
 			},
 			expectedResult: map[string]interface{}{
 				"phone": map[string]interface{}{
-					"national": 01711234567,
+					"national": 0o1711234567,
 				},
 			},
 		},

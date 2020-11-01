@@ -72,7 +72,6 @@ func (m *PatchDocumentAction) Validate(formats strfmt.Registry) error {
 }
 
 func (m *PatchDocumentAction) validateMerge(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Merge) { // not required
 		return nil
 	}
@@ -131,7 +130,6 @@ func (m *PatchDocumentAction) validateOpEnum(path, location string, value string
 }
 
 func (m *PatchDocumentAction) validateOp(formats strfmt.Registry) error {
-
 	if err := validate.Required("op", "body", m.Op); err != nil {
 		return err
 	}
@@ -145,7 +143,6 @@ func (m *PatchDocumentAction) validateOp(formats strfmt.Registry) error {
 }
 
 func (m *PatchDocumentAction) validatePath(formats strfmt.Registry) error {
-
 	if err := validate.Required("path", "body", m.Path); err != nil {
 		return err
 	}

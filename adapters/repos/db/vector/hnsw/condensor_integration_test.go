@@ -29,7 +29,7 @@ import (
 func TestCondensor(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	rootPath := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(rootPath, 0777)
+	os.MkdirAll(rootPath, 0o777)
 	defer func() {
 		err := os.RemoveAll(rootPath)
 		fmt.Println(err)
@@ -145,7 +145,7 @@ func TestCondensor(t *testing.T) {
 func TestCondensorWithoutEntrypoint(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	rootPath := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(rootPath, 0777)
+	os.MkdirAll(rootPath, 0o777)
 	defer func() {
 		err := os.RemoveAll(rootPath)
 		fmt.Println(err)

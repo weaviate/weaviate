@@ -37,7 +37,7 @@ import (
 func TestBatchPutObjects(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0777)
+	os.MkdirAll(dirName, 0o777)
 	defer func() {
 		err := os.RemoveAll(dirName)
 		fmt.Println(err)
@@ -56,7 +56,6 @@ func TestBatchPutObjects(t *testing.T) {
 	t.Run("creating the action class", testAddBatchActionClass(repo, migrator,
 		schemaGetter))
 	t.Run("batch import things", testBatchImportThings(repo))
-
 }
 
 func testAddBatchThingClass(repo *DB, migrator *Migrator,

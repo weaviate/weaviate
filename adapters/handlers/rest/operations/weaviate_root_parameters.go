@@ -26,7 +26,6 @@ import (
 // NewWeaviateRootParams creates a new WeaviateRootParams object
 // no default values defined in spec.
 func NewWeaviateRootParams() WeaviateRootParams {
-
 	return WeaviateRootParams{}
 }
 

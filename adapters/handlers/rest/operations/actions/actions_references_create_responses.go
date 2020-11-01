@@ -36,14 +36,12 @@ type ActionsReferencesCreateOK struct {
 
 // NewActionsReferencesCreateOK creates ActionsReferencesCreateOK with default headers values
 func NewActionsReferencesCreateOK() *ActionsReferencesCreateOK {
-
 	return &ActionsReferencesCreateOK{}
 }
 
 // WriteResponse to the client
 func (o *ActionsReferencesCreateOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(200)
 }
@@ -60,14 +58,12 @@ type ActionsReferencesCreateUnauthorized struct {
 
 // NewActionsReferencesCreateUnauthorized creates ActionsReferencesCreateUnauthorized with default headers values
 func NewActionsReferencesCreateUnauthorized() *ActionsReferencesCreateUnauthorized {
-
 	return &ActionsReferencesCreateUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *ActionsReferencesCreateUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -89,7 +85,6 @@ type ActionsReferencesCreateForbidden struct {
 
 // NewActionsReferencesCreateForbidden creates ActionsReferencesCreateForbidden with default headers values
 func NewActionsReferencesCreateForbidden() *ActionsReferencesCreateForbidden {
-
 	return &ActionsReferencesCreateForbidden{}
 }
 
@@ -106,7 +101,6 @@ func (o *ActionsReferencesCreateForbidden) SetPayload(payload *models.ErrorRespo
 
 // WriteResponse to the client
 func (o *ActionsReferencesCreateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -133,7 +127,6 @@ type ActionsReferencesCreateUnprocessableEntity struct {
 
 // NewActionsReferencesCreateUnprocessableEntity creates ActionsReferencesCreateUnprocessableEntity with default headers values
 func NewActionsReferencesCreateUnprocessableEntity() *ActionsReferencesCreateUnprocessableEntity {
-
 	return &ActionsReferencesCreateUnprocessableEntity{}
 }
 
@@ -150,7 +143,6 @@ func (o *ActionsReferencesCreateUnprocessableEntity) SetPayload(payload *models.
 
 // WriteResponse to the client
 func (o *ActionsReferencesCreateUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -177,7 +169,6 @@ type ActionsReferencesCreateInternalServerError struct {
 
 // NewActionsReferencesCreateInternalServerError creates ActionsReferencesCreateInternalServerError with default headers values
 func NewActionsReferencesCreateInternalServerError() *ActionsReferencesCreateInternalServerError {
-
 	return &ActionsReferencesCreateInternalServerError{}
 }
 
@@ -194,7 +185,6 @@ func (o *ActionsReferencesCreateInternalServerError) SetPayload(payload *models.
 
 // WriteResponse to the client
 func (o *ActionsReferencesCreateInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

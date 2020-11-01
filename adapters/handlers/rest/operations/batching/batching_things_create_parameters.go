@@ -28,7 +28,6 @@ import (
 // NewBatchingThingsCreateParams creates a new BatchingThingsCreateParams object
 // no default values defined in spec.
 func NewBatchingThingsCreateParams() BatchingThingsCreateParams {
-
 	return BatchingThingsCreateParams{}
 }
 

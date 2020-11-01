@@ -65,7 +65,6 @@ func (m *UnderscorePropertiesClassification) Validate(formats strfmt.Registry) e
 }
 
 func (m *UnderscorePropertiesClassification) validateCompleted(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Completed) { // not required
 		return nil
 	}
@@ -78,7 +77,6 @@ func (m *UnderscorePropertiesClassification) validateCompleted(formats strfmt.Re
 }
 
 func (m *UnderscorePropertiesClassification) validateID(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.ID) { // not required
 		return nil
 	}

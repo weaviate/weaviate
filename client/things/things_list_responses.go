@@ -98,7 +98,6 @@ func (o *ThingsListOK) GetPayload() *models.ThingsListResponse {
 }
 
 func (o *ThingsListOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ThingsListResponse)
 
 	// response payload
@@ -131,7 +130,6 @@ func (o *ThingsListBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ThingsListBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -159,7 +157,6 @@ func (o *ThingsListUnauthorized) Error() string {
 }
 
 func (o *ThingsListUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -185,7 +182,6 @@ func (o *ThingsListForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ThingsListForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -213,7 +209,6 @@ func (o *ThingsListNotFound) Error() string {
 }
 
 func (o *ThingsListNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -239,7 +234,6 @@ func (o *ThingsListInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ThingsListInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

@@ -50,11 +50,11 @@ func (r *Repo) DBPath() string {
 }
 
 func (r *Repo) init() error {
-	if err := os.MkdirAll(r.baseDir, 0777); err != nil {
+	if err := os.MkdirAll(r.baseDir, 0o777); err != nil {
 		return errors.Wrapf(err, "create root path directory at %s", r.baseDir)
 	}
 
-	boltdb, err := bolt.Open(r.DBPath(), 0600, nil)
+	boltdb, err := bolt.Open(r.DBPath(), 0o600, nil)
 	if err != nil {
 		return errors.Wrapf(err, "open bolt at %s", r.DBPath())
 	}

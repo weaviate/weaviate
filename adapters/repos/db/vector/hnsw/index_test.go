@@ -23,11 +23,7 @@ func TestHnswIndex(t *testing.T) {
 	// footprint. Commit logging and deserializing from a (condensed) commit log
 	// is tested in a separate integration test that takes care of providing and
 	// cleaning up the correct place on disk to write test files
-	cl := &noopCommitLogger{}
-	makeCL := func() (CommitLogger, error) {
-		return cl, nil
-	}
-
+	makeCL := MakeNoopCommitLogger
 	index, err := New(Config{
 		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
 		ID:                    "unittest",
@@ -85,42 +81,4 @@ func TestHnswIndex(t *testing.T) {
 			2, 1, 0, // cluster 1
 		}, res)
 	})
-}
-
-type noopCommitLogger struct{}
-
-func (n *noopCommitLogger) AddNode(node *vertex) error {
-	return nil
-}
-
-func (n *noopCommitLogger) SetEntryPointWithMaxLayer(id int, level int) error {
-	return nil
-}
-
-func (n *noopCommitLogger) AddLinkAtLevel(nodeid int, level int, target uint32) error {
-	return nil
-}
-
-func (n *noopCommitLogger) ReplaceLinksAtLevel(nodeid int, level int, targets []uint32) error {
-	return nil
-}
-
-func (n *noopCommitLogger) AddTombstone(nodeid int) error {
-	return nil
-}
-
-func (n *noopCommitLogger) RemoveTombstone(nodeid int) error {
-	return nil
-}
-
-func (n *noopCommitLogger) DeleteNode(nodeid int) error {
-	return nil
-}
-
-func (n *noopCommitLogger) ClearLinks(nodeid int) error {
-	return nil
-}
-
-func (n *noopCommitLogger) Reset() error {
-	return nil
 }

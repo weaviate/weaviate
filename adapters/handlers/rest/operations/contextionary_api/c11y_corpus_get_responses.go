@@ -34,14 +34,12 @@ type C11yCorpusGetNotImplemented struct {
 
 // NewC11yCorpusGetNotImplemented creates C11yCorpusGetNotImplemented with default headers values
 func NewC11yCorpusGetNotImplemented() *C11yCorpusGetNotImplemented {
-
 	return &C11yCorpusGetNotImplemented{}
 }
 
 // WriteResponse to the client
 func (o *C11yCorpusGetNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(501)
 }

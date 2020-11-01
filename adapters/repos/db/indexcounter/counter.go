@@ -28,7 +28,7 @@ type Counter struct {
 
 func New(shardID string, rootPath string) (*Counter, error) {
 	fileName := fmt.Sprintf("%s/%s.indexcount", rootPath, shardID)
-	f, err := os.OpenFile(fileName, os.O_RDWR|os.O_CREATE, 0666)
+	f, err := os.OpenFile(fileName, os.O_RDWR|os.O_CREATE, 0o666)
 	if err != nil {
 		return nil, err
 	}

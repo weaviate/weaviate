@@ -32,7 +32,6 @@ import (
 // NewThingsReferencesCreateParams creates a new ThingsReferencesCreateParams object
 // no default values defined in spec.
 func NewThingsReferencesCreateParams() ThingsReferencesCreateParams {
-
 	return ThingsReferencesCreateParams{}
 }
 
@@ -135,7 +134,6 @@ func (o *ThingsReferencesCreateParams) bindID(rawData []string, hasKey bool, for
 
 // validateID carries on validations for parameter ID
 func (o *ThingsReferencesCreateParams) validateID(formats strfmt.Registry) error {
-
 	if err := validate.FormatOf("id", "path", "uuid", o.ID.String(), formats); err != nil {
 		return err
 	}

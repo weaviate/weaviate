@@ -143,7 +143,6 @@ func (o *ThingsUpdateParams) SetID(id strfmt.UUID) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *ThingsUpdateParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

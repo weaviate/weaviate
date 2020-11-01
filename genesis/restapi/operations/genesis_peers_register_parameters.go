@@ -30,7 +30,6 @@ import (
 // NewGenesisPeersRegisterParams creates a new GenesisPeersRegisterParams object
 // no default values defined in spec.
 func NewGenesisPeersRegisterParams() GenesisPeersRegisterParams {
-
 	return GenesisPeersRegisterParams{}
 }
 

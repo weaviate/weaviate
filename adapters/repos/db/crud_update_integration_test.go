@@ -40,10 +40,9 @@ import (
 // needs to be tested extensively because there's a lot of room for error
 // regarding the clean up of Doc ID pointers in the inverted indices, etc.
 func TestUpdateJourney(t *testing.T) {
-
 	rand.Seed(time.Now().UnixNano())
 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0777)
+	os.MkdirAll(dirName, 0o777)
 	defer func() {
 		err := os.RemoveAll(dirName)
 		fmt.Println(err)
@@ -247,7 +246,6 @@ func TestUpdateJourney(t *testing.T) {
 		expectedOrder = []interface{}{"element-3"}
 		assert.Equal(t, expectedOrder, searchInv(t, filters.OperatorEqual, 30))
 	})
-
 }
 
 func updateTestClass() *models.Class {

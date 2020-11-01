@@ -159,7 +159,6 @@ func (o *ThingsReferencesDeleteParams) SetPropertyName(propertyName string) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *ThingsReferencesDeleteParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

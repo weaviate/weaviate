@@ -56,7 +56,6 @@ func (m *BatchReference) Validate(formats strfmt.Registry) error {
 }
 
 func (m *BatchReference) validateFrom(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.From) { // not required
 		return nil
 	}
@@ -69,7 +68,6 @@ func (m *BatchReference) validateFrom(formats strfmt.Registry) error {
 }
 
 func (m *BatchReference) validateTo(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.To) { // not required
 		return nil
 	}

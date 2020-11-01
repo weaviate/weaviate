@@ -81,7 +81,6 @@ func (m *SingleRef) Validate(formats strfmt.Registry) error {
 }
 
 func (m *SingleRef) validateClassification(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Classification) { // not required
 		return nil
 	}
@@ -99,7 +98,6 @@ func (m *SingleRef) validateClassification(formats strfmt.Registry) error {
 }
 
 func (m *SingleRef) validateBeacon(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Beacon) { // not required
 		return nil
 	}
@@ -112,7 +110,6 @@ func (m *SingleRef) validateBeacon(formats strfmt.Registry) error {
 }
 
 func (m *SingleRef) validateClass(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Class) { // not required
 		return nil
 	}
@@ -125,7 +122,6 @@ func (m *SingleRef) validateClass(formats strfmt.Registry) error {
 }
 
 func (m *SingleRef) validateHref(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Href) { // not required
 		return nil
 	}
@@ -138,7 +134,6 @@ func (m *SingleRef) validateHref(formats strfmt.Registry) error {
 }
 
 func (m *SingleRef) validateMeta(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Meta) { // not required
 		return nil
 	}

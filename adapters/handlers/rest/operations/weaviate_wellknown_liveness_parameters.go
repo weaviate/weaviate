@@ -26,7 +26,6 @@ import (
 // NewWeaviateWellknownLivenessParams creates a new WeaviateWellknownLivenessParams object
 // no default values defined in spec.
 func NewWeaviateWellknownLivenessParams() WeaviateWellknownLivenessParams {
-
 	return WeaviateWellknownLivenessParams{}
 }
 
