@@ -38,7 +38,6 @@ import (
 // https://github.com/semi-technologies/weaviate/issues/1016
 
 func Test_AddingReferencesInBatches(t *testing.T) {
-
 	client, err := elasticsearch.NewClient(elasticsearch.Config{
 		Addresses: []string{"http://localhost:9201"},
 	})
@@ -179,5 +178,4 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 
 		assert.ElementsMatch(t, foundBeacons, expectedBeacons)
 	})
-
 }

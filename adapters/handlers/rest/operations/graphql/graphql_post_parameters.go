@@ -30,7 +30,6 @@ import (
 // NewGraphqlPostParams creates a new GraphqlPostParams object
 // no default values defined in spec.
 func NewGraphqlPostParams() GraphqlPostParams {
-
 	return GraphqlPostParams{}
 }
 

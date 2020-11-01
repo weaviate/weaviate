@@ -48,7 +48,6 @@ func (m *ErrorResponse) Validate(formats strfmt.Registry) error {
 }
 
 func (m *ErrorResponse) validateError(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Error) { // not required
 		return nil
 	}

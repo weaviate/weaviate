@@ -87,7 +87,6 @@ func (o *ActionsReferencesCreateOK) Error() string {
 }
 
 func (o *ActionsReferencesCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -108,7 +107,6 @@ func (o *ActionsReferencesCreateUnauthorized) Error() string {
 }
 
 func (o *ActionsReferencesCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -134,7 +132,6 @@ func (o *ActionsReferencesCreateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ActionsReferencesCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -167,7 +164,6 @@ func (o *ActionsReferencesCreateUnprocessableEntity) GetPayload() *models.ErrorR
 }
 
 func (o *ActionsReferencesCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -200,7 +196,6 @@ func (o *ActionsReferencesCreateInternalServerError) GetPayload() *models.ErrorR
 }
 
 func (o *ActionsReferencesCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

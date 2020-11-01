@@ -26,7 +26,6 @@ import (
 // NewMetaGetParams creates a new MetaGetParams object
 // no default values defined in spec.
 func NewMetaGetParams() MetaGetParams {
-
 	return MetaGetParams{}
 }
 

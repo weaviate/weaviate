@@ -22,19 +22,20 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestRecall(t *testing.T) {
-	var dimensions = 300
-	var size = 10000
-	var queries = 1000
-	var efConstruction = 256
-	var maxNeighbors = 120
+	dimensions := 300
+	size := 10000
+	queries := 1000
+	efConstruction := 256
+	maxNeighbors := 120
 
-	var vectors = make([][]float32, size)
-	var queryVectors = make([][]float32, queries)
+	vectors := make([][]float32, size)
+	queryVectors := make([][]float32, queries)
 	var vectorIndex *hnsw
 
 	t.Run("generate random vectors", func(t *testing.T) {
@@ -57,7 +58,6 @@ func TestRecall(t *testing.T) {
 			queryVectors[i] = queryVector
 		}
 		fmt.Printf("done\n")
-
 	})
 
 	t.Run("importing into hnsw", func(t *testing.T) {
@@ -103,7 +103,7 @@ func TestRecall(t *testing.T) {
 	})
 
 	t.Run("with k=1", func(t *testing.T) {
-		var k = 1
+		k := 1
 
 		var relevant int
 		var retrieved int
@@ -120,7 +120,6 @@ func TestRecall(t *testing.T) {
 		recall := float32(relevant) / float32(retrieved)
 		assert.True(t, recall >= 0.99)
 	})
-
 }
 
 func matchesInLists(control []int, results []int) int {
@@ -146,9 +145,9 @@ func bruteForce(vectors [][]float32, query []float32, k int) []int {
 		index    int
 	}
 
-	var distances = make([]distanceAndIndex, len(vectors))
+	distances := make([]distanceAndIndex, len(vectors))
 
-	distancer := newReusableDistancer(query)
+	distancer := distancer.NewCosineProvider.New(query)
 	for i, vec := range vectors {
 		dist, _ := distancer.distance(vec)
 		distances[i] = distanceAndIndex{

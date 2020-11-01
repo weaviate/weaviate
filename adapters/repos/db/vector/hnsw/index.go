@@ -22,8 +22,9 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/sirupsen/logrus"
 )
 
@@ -70,7 +71,8 @@ type hnsw struct {
 	id       string
 	rootPath string
 
-	logger logrus.FieldLogger
+	logger            logrus.FieldLogger
+	distancerProvider distancer.Provider
 }
 
 type CommitLogger interface {
@@ -114,14 +116,15 @@ func New(cfg Config) (*hnsw, error) {
 		maximumConnectionsLayerZero: 2 * cfg.MaximumConnections,
 
 		// inspired by c++ implementation
-		levelNormalizer: 1 / math.Log(float64(cfg.MaximumConnections)),
-		efConstruction:  cfg.EFConstruction,
-		nodes:           make([]*vertex, initialSize),
-		vectorForID:     vectorCache.get,
-		id:              cfg.ID,
-		rootPath:        cfg.RootPath,
-		tombstones:      map[int]struct{}{},
-		logger:          cfg.Logger,
+		levelNormalizer:   1 / math.Log(float64(cfg.MaximumConnections)),
+		efConstruction:    cfg.EFConstruction,
+		nodes:             make([]*vertex, initialSize),
+		vectorForID:       vectorCache.get,
+		id:                cfg.ID,
+		rootPath:          cfg.RootPath,
+		tombstones:        map[int]struct{}{},
+		logger:            cfg.Logger,
+		distancerProvider: distancer.NewCosineProvider(),
 	}
 
 	if err := index.restoreFromDisk(); err != nil {
@@ -437,7 +440,7 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 // long comments, however, it should still be made prettier
 func (h *hnsw) findAndConnectNeighbors(node *vertex,
 	entryPointID int, nodeVec []float32, targetLevel, currentMaxLevel int,
-	denyList inverted.AllowList) error {
+	denyList helpers.AllowList) error {
 	results := &binarySearchTreeGeneric{}
 	dist, ok, err := h.distBetweenNodeAndVec(entryPointID, nodeVec)
 	if err != nil {
@@ -597,12 +600,11 @@ func (h *hnsw) distBetweenNodes(a, b int) (float32, bool, error) {
 		return 0, false, fmt.Errorf("got a nil or zero-length vector at docID %d", b)
 	}
 
-	d, err := cosineDist(vecA, vecB)
-	if err != nil {
-		return 0, false, errors.Wrap(err, "calculate cosine dist")
-	}
-
-	return d, true, nil
+	// there is no performance benefit (but also no penalty) in using the
+	// reusable distancer here. However, it makes it much easier to switch out
+	// the distance function if there is only a single type that is used to
+	// calculate distances
+	return h.distancerProvider.New(vecA).Distance(vecB)
 }
 
 func (h *hnsw) distBetweenNodeAndVec(node int, vecB []float32) (float32, bool, error) {
@@ -631,12 +633,11 @@ func (h *hnsw) distBetweenNodeAndVec(node int, vecB []float32) (float32, bool, e
 			"got a nil or zero-length vector as search vector")
 	}
 
-	d, err := cosineDist(vecA, vecB)
-	if err != nil {
-		return 0, false, errors.Wrap(err, "calculate cosine dist")
-	}
-
-	return d, true, nil
+	// there is no performance benefit (but also no penalty) in using the
+	// reusable distancer here. However, it makes it much easier to switch out
+	// the distance function if there is only a single type that is used to
+	// calculate distances
+	return h.distancerProvider.New(vecA).Distance(vecB)
 }
 
 func (h *hnsw) Stats() {

@@ -41,7 +41,6 @@ type BatchingActionsCreateOK struct {
 
 // NewBatchingActionsCreateOK creates BatchingActionsCreateOK with default headers values
 func NewBatchingActionsCreateOK() *BatchingActionsCreateOK {
-
 	return &BatchingActionsCreateOK{}
 }
 
@@ -58,7 +57,6 @@ func (o *BatchingActionsCreateOK) SetPayload(payload []*models.ActionsGetRespons
 
 // WriteResponse to the client
 func (o *BatchingActionsCreateOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(200)
 	payload := o.Payload
 	if payload == nil {
@@ -83,14 +81,12 @@ type BatchingActionsCreateUnauthorized struct {
 
 // NewBatchingActionsCreateUnauthorized creates BatchingActionsCreateUnauthorized with default headers values
 func NewBatchingActionsCreateUnauthorized() *BatchingActionsCreateUnauthorized {
-
 	return &BatchingActionsCreateUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *BatchingActionsCreateUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -112,7 +108,6 @@ type BatchingActionsCreateForbidden struct {
 
 // NewBatchingActionsCreateForbidden creates BatchingActionsCreateForbidden with default headers values
 func NewBatchingActionsCreateForbidden() *BatchingActionsCreateForbidden {
-
 	return &BatchingActionsCreateForbidden{}
 }
 
@@ -129,7 +124,6 @@ func (o *BatchingActionsCreateForbidden) SetPayload(payload *models.ErrorRespons
 
 // WriteResponse to the client
 func (o *BatchingActionsCreateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -156,7 +150,6 @@ type BatchingActionsCreateUnprocessableEntity struct {
 
 // NewBatchingActionsCreateUnprocessableEntity creates BatchingActionsCreateUnprocessableEntity with default headers values
 func NewBatchingActionsCreateUnprocessableEntity() *BatchingActionsCreateUnprocessableEntity {
-
 	return &BatchingActionsCreateUnprocessableEntity{}
 }
 
@@ -173,7 +166,6 @@ func (o *BatchingActionsCreateUnprocessableEntity) SetPayload(payload *models.Er
 
 // WriteResponse to the client
 func (o *BatchingActionsCreateUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -200,7 +192,6 @@ type BatchingActionsCreateInternalServerError struct {
 
 // NewBatchingActionsCreateInternalServerError creates BatchingActionsCreateInternalServerError with default headers values
 func NewBatchingActionsCreateInternalServerError() *BatchingActionsCreateInternalServerError {
-
 	return &BatchingActionsCreateInternalServerError{}
 }
 
@@ -217,7 +208,6 @@ func (o *BatchingActionsCreateInternalServerError) SetPayload(payload *models.Er
 
 // WriteResponse to the client
 func (o *BatchingActionsCreateInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

@@ -36,14 +36,12 @@ type SchemaActionsDeleteOK struct {
 
 // NewSchemaActionsDeleteOK creates SchemaActionsDeleteOK with default headers values
 func NewSchemaActionsDeleteOK() *SchemaActionsDeleteOK {
-
 	return &SchemaActionsDeleteOK{}
 }
 
 // WriteResponse to the client
 func (o *SchemaActionsDeleteOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(200)
 }
@@ -65,7 +63,6 @@ type SchemaActionsDeleteBadRequest struct {
 
 // NewSchemaActionsDeleteBadRequest creates SchemaActionsDeleteBadRequest with default headers values
 func NewSchemaActionsDeleteBadRequest() *SchemaActionsDeleteBadRequest {
-
 	return &SchemaActionsDeleteBadRequest{}
 }
 
@@ -82,7 +79,6 @@ func (o *SchemaActionsDeleteBadRequest) SetPayload(payload *models.ErrorResponse
 
 // WriteResponse to the client
 func (o *SchemaActionsDeleteBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -104,14 +100,12 @@ type SchemaActionsDeleteUnauthorized struct {
 
 // NewSchemaActionsDeleteUnauthorized creates SchemaActionsDeleteUnauthorized with default headers values
 func NewSchemaActionsDeleteUnauthorized() *SchemaActionsDeleteUnauthorized {
-
 	return &SchemaActionsDeleteUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *SchemaActionsDeleteUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -133,7 +127,6 @@ type SchemaActionsDeleteForbidden struct {
 
 // NewSchemaActionsDeleteForbidden creates SchemaActionsDeleteForbidden with default headers values
 func NewSchemaActionsDeleteForbidden() *SchemaActionsDeleteForbidden {
-
 	return &SchemaActionsDeleteForbidden{}
 }
 
@@ -150,7 +143,6 @@ func (o *SchemaActionsDeleteForbidden) SetPayload(payload *models.ErrorResponse)
 
 // WriteResponse to the client
 func (o *SchemaActionsDeleteForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -177,7 +169,6 @@ type SchemaActionsDeleteInternalServerError struct {
 
 // NewSchemaActionsDeleteInternalServerError creates SchemaActionsDeleteInternalServerError with default headers values
 func NewSchemaActionsDeleteInternalServerError() *SchemaActionsDeleteInternalServerError {
-
 	return &SchemaActionsDeleteInternalServerError{}
 }
 
@@ -194,7 +185,6 @@ func (o *SchemaActionsDeleteInternalServerError) SetPayload(payload *models.Erro
 
 // WriteResponse to the client
 func (o *SchemaActionsDeleteInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

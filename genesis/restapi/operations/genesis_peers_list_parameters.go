@@ -26,7 +26,6 @@ import (
 // NewGenesisPeersListParams creates a new GenesisPeersListParams object
 // no default values defined in spec.
 func NewGenesisPeersListParams() GenesisPeersListParams {
-
 	return GenesisPeersListParams{}
 }
 

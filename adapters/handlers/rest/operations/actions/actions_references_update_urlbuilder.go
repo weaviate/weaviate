@@ -54,7 +54,7 @@ func (o *ActionsReferencesUpdateURL) SetBasePath(bp string) {
 func (o *ActionsReferencesUpdateURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/actions/{id}/references/{propertyName}"
+	_path := "/actions/{id}/references/{propertyName}"
 
 	id := o.ID.String()
 	if id != "" {

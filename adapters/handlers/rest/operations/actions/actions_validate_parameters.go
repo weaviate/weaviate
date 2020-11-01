@@ -30,7 +30,6 @@ import (
 // NewActionsValidateParams creates a new ActionsValidateParams object
 // no default values defined in spec.
 func NewActionsValidateParams() ActionsValidateParams {
-
 	return ActionsValidateParams{}
 }
 

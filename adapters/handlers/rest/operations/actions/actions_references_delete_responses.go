@@ -36,14 +36,12 @@ type ActionsReferencesDeleteNoContent struct {
 
 // NewActionsReferencesDeleteNoContent creates ActionsReferencesDeleteNoContent with default headers values
 func NewActionsReferencesDeleteNoContent() *ActionsReferencesDeleteNoContent {
-
 	return &ActionsReferencesDeleteNoContent{}
 }
 
 // WriteResponse to the client
 func (o *ActionsReferencesDeleteNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(204)
 }
@@ -60,14 +58,12 @@ type ActionsReferencesDeleteUnauthorized struct {
 
 // NewActionsReferencesDeleteUnauthorized creates ActionsReferencesDeleteUnauthorized with default headers values
 func NewActionsReferencesDeleteUnauthorized() *ActionsReferencesDeleteUnauthorized {
-
 	return &ActionsReferencesDeleteUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *ActionsReferencesDeleteUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -89,7 +85,6 @@ type ActionsReferencesDeleteForbidden struct {
 
 // NewActionsReferencesDeleteForbidden creates ActionsReferencesDeleteForbidden with default headers values
 func NewActionsReferencesDeleteForbidden() *ActionsReferencesDeleteForbidden {
-
 	return &ActionsReferencesDeleteForbidden{}
 }
 
@@ -106,7 +101,6 @@ func (o *ActionsReferencesDeleteForbidden) SetPayload(payload *models.ErrorRespo
 
 // WriteResponse to the client
 func (o *ActionsReferencesDeleteForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -133,7 +127,6 @@ type ActionsReferencesDeleteNotFound struct {
 
 // NewActionsReferencesDeleteNotFound creates ActionsReferencesDeleteNotFound with default headers values
 func NewActionsReferencesDeleteNotFound() *ActionsReferencesDeleteNotFound {
-
 	return &ActionsReferencesDeleteNotFound{}
 }
 
@@ -150,7 +143,6 @@ func (o *ActionsReferencesDeleteNotFound) SetPayload(payload *models.ErrorRespon
 
 // WriteResponse to the client
 func (o *ActionsReferencesDeleteNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(404)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -177,7 +169,6 @@ type ActionsReferencesDeleteInternalServerError struct {
 
 // NewActionsReferencesDeleteInternalServerError creates ActionsReferencesDeleteInternalServerError with default headers values
 func NewActionsReferencesDeleteInternalServerError() *ActionsReferencesDeleteInternalServerError {
-
 	return &ActionsReferencesDeleteInternalServerError{}
 }
 
@@ -194,7 +185,6 @@ func (o *ActionsReferencesDeleteInternalServerError) SetPayload(payload *models.
 
 // WriteResponse to the client
 func (o *ActionsReferencesDeleteInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

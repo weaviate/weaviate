@@ -59,7 +59,7 @@ func (o *ActionsValidate) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	if rCtx != nil {
 		r = rCtx
 	}
-	var Params = NewActionsValidateParams()
+	Params := NewActionsValidateParams()
 
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
@@ -82,5 +82,4 @@ func (o *ActionsValidate) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
-
 }

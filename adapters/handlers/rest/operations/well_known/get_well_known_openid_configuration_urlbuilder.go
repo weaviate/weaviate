@@ -46,7 +46,7 @@ func (o *GetWellKnownOpenidConfigurationURL) SetBasePath(bp string) {
 func (o *GetWellKnownOpenidConfigurationURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/.well-known/openid-configuration"
+	_path := "/.well-known/openid-configuration"
 
 	_basePath := o._basePath
 	if _basePath == "" {

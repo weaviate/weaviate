@@ -30,7 +30,6 @@ import (
 // NewBatchingReferencesCreateParams creates a new BatchingReferencesCreateParams object
 // no default values defined in spec.
 func NewBatchingReferencesCreateParams() BatchingReferencesCreateParams {
-
 	return BatchingReferencesCreateParams{}
 }
 

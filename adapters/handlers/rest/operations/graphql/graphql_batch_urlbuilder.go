@@ -46,7 +46,7 @@ func (o *GraphqlBatchURL) SetBasePath(bp string) {
 func (o *GraphqlBatchURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/graphql/batch"
+	_path := "/graphql/batch"
 
 	_basePath := o._basePath
 	if _basePath == "" {

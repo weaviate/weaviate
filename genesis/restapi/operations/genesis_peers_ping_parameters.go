@@ -32,7 +32,6 @@ import (
 // NewGenesisPeersPingParams creates a new GenesisPeersPingParams object
 // no default values defined in spec.
 func NewGenesisPeersPingParams() GenesisPeersPingParams {
-
 	return GenesisPeersPingParams{}
 }
 
@@ -125,7 +124,6 @@ func (o *GenesisPeersPingParams) bindPeerID(rawData []string, hasKey bool, forma
 
 // validatePeerID carries on validations for parameter PeerID
 func (o *GenesisPeersPingParams) validatePeerID(formats strfmt.Registry) error {
-
 	if err := validate.FormatOf("peerId", "path", "uuid", o.PeerID.String(), formats); err != nil {
 		return err
 	}

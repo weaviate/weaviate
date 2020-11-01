@@ -193,9 +193,7 @@ func TestEsVectorMigrator(t *testing.T) {
 				err := migrator.AddClass(context.Background(), test.kind, test.class)
 				require.Nil(t, err)
 			})
-
 		}
-
 	})
 
 	t.Run("trying to update a class", func(t *testing.T) {
@@ -236,7 +234,6 @@ func TestEsVectorMigrator(t *testing.T) {
 			assert.NotNil(t, err,
 				"should error because props are immutable when the es vector index is activated")
 		})
-
 	})
 
 	t.Run("extending an existing class with a new property", func(t *testing.T) {
@@ -265,7 +262,6 @@ func TestEsVectorMigrator(t *testing.T) {
 		err = migrator.DropClass(context.Background(), kind.Action, "MyClass")
 		assert.Nil(t, err)
 	})
-
 }
 
 func TestEsVectorMigrator_ImportingConcepts(t *testing.T) {
@@ -332,5 +328,4 @@ func TestEsVectorMigrator_ImportingConcepts(t *testing.T) {
 		err := repo.PutThing(context.Background(), thing, []float32{0, 0, 0})
 		require.Nil(t, err)
 	})
-
 }

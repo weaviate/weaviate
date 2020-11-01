@@ -36,14 +36,12 @@ type ThingsValidateOK struct {
 
 // NewThingsValidateOK creates ThingsValidateOK with default headers values
 func NewThingsValidateOK() *ThingsValidateOK {
-
 	return &ThingsValidateOK{}
 }
 
 // WriteResponse to the client
 func (o *ThingsValidateOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(200)
 }
@@ -60,14 +58,12 @@ type ThingsValidateUnauthorized struct {
 
 // NewThingsValidateUnauthorized creates ThingsValidateUnauthorized with default headers values
 func NewThingsValidateUnauthorized() *ThingsValidateUnauthorized {
-
 	return &ThingsValidateUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *ThingsValidateUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -89,7 +85,6 @@ type ThingsValidateForbidden struct {
 
 // NewThingsValidateForbidden creates ThingsValidateForbidden with default headers values
 func NewThingsValidateForbidden() *ThingsValidateForbidden {
-
 	return &ThingsValidateForbidden{}
 }
 
@@ -106,7 +101,6 @@ func (o *ThingsValidateForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *ThingsValidateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -133,7 +127,6 @@ type ThingsValidateUnprocessableEntity struct {
 
 // NewThingsValidateUnprocessableEntity creates ThingsValidateUnprocessableEntity with default headers values
 func NewThingsValidateUnprocessableEntity() *ThingsValidateUnprocessableEntity {
-
 	return &ThingsValidateUnprocessableEntity{}
 }
 
@@ -150,7 +143,6 @@ func (o *ThingsValidateUnprocessableEntity) SetPayload(payload *models.ErrorResp
 
 // WriteResponse to the client
 func (o *ThingsValidateUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -177,7 +169,6 @@ type ThingsValidateInternalServerError struct {
 
 // NewThingsValidateInternalServerError creates ThingsValidateInternalServerError with default headers values
 func NewThingsValidateInternalServerError() *ThingsValidateInternalServerError {
-
 	return &ThingsValidateInternalServerError{}
 }
 
@@ -194,7 +185,6 @@ func (o *ThingsValidateInternalServerError) SetPayload(payload *models.ErrorResp
 
 // WriteResponse to the client
 func (o *ThingsValidateInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

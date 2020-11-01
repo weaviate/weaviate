@@ -53,7 +53,6 @@ func (m *PeerRegistrationResponse) Validate(formats strfmt.Registry) error {
 }
 
 func (m *PeerRegistrationResponse) validateContextionary(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Contextionary) { // not required
 		return nil
 	}
@@ -71,7 +70,6 @@ func (m *PeerRegistrationResponse) validateContextionary(formats strfmt.Registry
 }
 
 func (m *PeerRegistrationResponse) validatePeer(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Peer) { // not required
 		return nil
 	}

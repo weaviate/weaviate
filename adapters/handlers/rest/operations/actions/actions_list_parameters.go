@@ -29,7 +29,6 @@ import (
 // NewActionsListParams creates a new ActionsListParams object
 // no default values defined in spec.
 func NewActionsListParams() ActionsListParams {
-
 	return ActionsListParams{}
 }
 

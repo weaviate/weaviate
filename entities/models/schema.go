@@ -69,7 +69,6 @@ func (m *Schema) Validate(formats strfmt.Registry) error {
 }
 
 func (m *Schema) validateClasses(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Classes) { // not required
 		return nil
 	}
@@ -94,7 +93,6 @@ func (m *Schema) validateClasses(formats strfmt.Registry) error {
 }
 
 func (m *Schema) validateMaintainer(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Maintainer) { // not required
 		return nil
 	}
@@ -136,7 +134,6 @@ func (m *Schema) validateTypeEnum(path, location string, value string) error {
 }
 
 func (m *Schema) validateType(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Type) { // not required
 		return nil
 	}

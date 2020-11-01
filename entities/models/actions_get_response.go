@@ -129,7 +129,6 @@ func (m *ActionsGetResponse) Validate(formats strfmt.Registry) error {
 }
 
 func (m *ActionsGetResponse) validateDeprecations(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Deprecations) { // not required
 		return nil
 	}
@@ -154,7 +153,6 @@ func (m *ActionsGetResponse) validateDeprecations(formats strfmt.Registry) error
 }
 
 func (m *ActionsGetResponse) validateResult(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Result) { // not required
 		return nil
 	}
@@ -221,7 +219,6 @@ func (m *ActionsGetResponseAO2Result) Validate(formats strfmt.Registry) error {
 }
 
 func (m *ActionsGetResponseAO2Result) validateErrors(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Errors) { // not required
 		return nil
 	}
@@ -271,7 +268,6 @@ func (m *ActionsGetResponseAO2Result) validateStatusEnum(path, location string, 
 }
 
 func (m *ActionsGetResponseAO2Result) validateStatus(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Status) { // not required
 		return nil
 	}
