@@ -37,7 +37,7 @@ import (
 func TestCRUD(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0777)
+	os.MkdirAll(dirName, 0o777)
 	defer func() {
 		err := os.RemoveAll(dirName)
 		fmt.Println(err)
@@ -78,13 +78,11 @@ func TestCRUD(t *testing.T) {
 	migrator := NewMigrator(repo, logger)
 
 	t.Run("creating the thing class", func(t *testing.T) {
-
 		require.Nil(t,
 			migrator.AddClass(context.Background(), kind.Thing, thingclass))
 	})
 
 	t.Run("creating the action class", func(t *testing.T) {
-
 		require.Nil(t,
 			migrator.AddClass(context.Background(), kind.Action, actionclass))
 	})
@@ -144,7 +142,6 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("trying to add a thing to a non-existing class", func(t *testing.T) {
-
 		thing := &models.Thing{
 			CreationTimeUnix:   1565612833955,
 			LastUpdateTimeUnix: 1000001,

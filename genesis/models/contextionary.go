@@ -49,7 +49,6 @@ func (m *Contextionary) Validate(formats strfmt.Registry) error {
 }
 
 func (m *Contextionary) validateHash(formats strfmt.Registry) error {
-
 	if swag.IsZero(m.Hash) { // not required
 		return nil
 	}

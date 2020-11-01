@@ -30,7 +30,6 @@ import (
 // NewGenesisPeersListParams creates a new GenesisPeersListParams object
 // with the default values initialized.
 func NewGenesisPeersListParams() *GenesisPeersListParams {
-
 	return &GenesisPeersListParams{
 
 		timeout: cr.DefaultTimeout,
@@ -40,7 +39,6 @@ func NewGenesisPeersListParams() *GenesisPeersListParams {
 // NewGenesisPeersListParamsWithTimeout creates a new GenesisPeersListParams object
 // with the default values initialized, and the ability to set a timeout on a request
 func NewGenesisPeersListParamsWithTimeout(timeout time.Duration) *GenesisPeersListParams {
-
 	return &GenesisPeersListParams{
 
 		timeout: timeout,
@@ -50,7 +48,6 @@ func NewGenesisPeersListParamsWithTimeout(timeout time.Duration) *GenesisPeersLi
 // NewGenesisPeersListParamsWithContext creates a new GenesisPeersListParams object
 // with the default values initialized, and the ability to set a context for a request
 func NewGenesisPeersListParamsWithContext(ctx context.Context) *GenesisPeersListParams {
-
 	return &GenesisPeersListParams{
 
 		Context: ctx,
@@ -60,7 +57,6 @@ func NewGenesisPeersListParamsWithContext(ctx context.Context) *GenesisPeersList
 // NewGenesisPeersListParamsWithHTTPClient creates a new GenesisPeersListParams object
 // with the default values initialized, and the ability to set a custom HTTPClient for a request
 func NewGenesisPeersListParamsWithHTTPClient(client *http.Client) *GenesisPeersListParams {
-
 	return &GenesisPeersListParams{
 		HTTPClient: client,
 	}
@@ -110,7 +106,6 @@ func (o *GenesisPeersListParams) SetHTTPClient(client *http.Client) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *GenesisPeersListParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

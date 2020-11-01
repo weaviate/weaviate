@@ -22,23 +22,26 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/notimplemented"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
 type Searcher struct {
-	db       *bolt.DB
-	schema   schema.Schema
-	rowCache *RowCacher
+	db          *bolt.DB
+	schema      schema.Schema
+	rowCache    *RowCacher
+	propIndices propertyspecific.Indices
 }
 
 func NewSearcher(db *bolt.DB, schema schema.Schema,
-	rowCache *RowCacher) *Searcher {
+	rowCache *RowCacher, propIndices propertyspecific.Indices) *Searcher {
 	return &Searcher{
-		db:       db,
-		schema:   schema,
-		rowCache: rowCache,
+		db:          db,
+		schema:      schema,
+		rowCache:    rowCache,
+		propIndices: propIndices,
 	}
 }
 
@@ -173,7 +176,7 @@ func ScanObjectsFromDocIDsInTx(tx *bolt.Tx,
 // pointless, as only the first element would be allowed, regardless of which
 // had the shortest distance
 func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
-	meta bool, className schema.ClassName) (AllowList, error) {
+	meta bool, className schema.ClassName) (helpers.AllowList, error) {
 	pv, err := f.extractPropValuePair(filter.Root, className)
 	if err != nil {
 		return nil, err
@@ -194,7 +197,7 @@ func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 		return nil, errors.Wrap(err, "merge doc ids by operator")
 	}
 
-	out := make(AllowList, len(pointers.docIDs))
+	out := make(helpers.AllowList, len(pointers.docIDs))
 	for _, p := range pointers.docIDs {
 		out.Insert(p.id)
 	}
@@ -293,13 +296,21 @@ func (fs *Searcher) extractPropValuePair(filter *filters.Clause,
 		return nil, fmt.Errorf("filtering by reference props not supported yet "+
 			"in standalone mode, see %s for details", notimplemented.Link)
 	}
-
 	// we are on a value element
+
 	if fs.onRefProp(className, props[0]) && filter.Value.Type == schema.DataTypeInt {
 		// ref prop and int type is a special case, the user is looking for the
 		// reference count as opposed to the content
 		return fs.extractReferenceCount(props[0], filter.Value.Value, filter.Operator)
 	}
+
+	if fs.onGeoProp(className, props[0]) {
+		return fs.extractGeoFilter(props[0], filter.Value.Value, filter.Value.Type,
+			filter.Operator)
+	}
+
+	// if filter.Value.Filter.
+
 	return fs.extractPrimitiveProp(props[0], filter.Value.Type, filter.Value.Value,
 		filter.Operator)
 }
@@ -359,6 +370,28 @@ func (fs *Searcher) extractReferenceCount(propName string, value interface{},
 	}, nil
 }
 
+func (fs *Searcher) extractGeoFilter(propName string, value interface{},
+	valueType schema.DataType, operator filters.Operator) (*propValuePair, error) {
+	if valueType != schema.DataTypeGeoCoordinates {
+		return nil, fmt.Errorf("prop %q is of type geoCoordinates, it can only"+
+			"be used with geoRange filters", propName)
+	}
+
+	parsed := value.(filters.GeoRange)
+
+	return &propValuePair{
+		value:         nil, // not going to be served by an inverted index
+		valueGeoRange: &parsed,
+		hasFrequency:  false,
+		prop:          propName,
+		operator:      operator,
+	}, nil
+}
+
+// TODO: repeated calls to on... aren't too efficient because we iterate over
+// the schema each time, might be smarter to have a single method that
+// determines the type and then we switch based on the result. However, the
+// effect of that should be very small unless the schema is absolutely massive.
 func (fs *Searcher) onRefProp(className schema.ClassName, propName string) bool {
 	c := fs.schema.FindClassByName(className)
 	if c == nil {
@@ -373,6 +406,27 @@ func (fs *Searcher) onRefProp(className schema.ClassName, propName string) bool 
 		if schema.IsRefDataType(prop.DataType) {
 			return true
 		}
+	}
+
+	return false
+}
+
+// TODO: repeated calls to on... aren't too efficient because we iterate over
+// the schema each time, might be smarter to have a single method that
+// determines the type and then we switch based on the result. However, the
+// effect of that should be very small unless the schema is absolutely massive.
+func (fs *Searcher) onGeoProp(className schema.ClassName, propName string) bool {
+	c := fs.schema.FindClassByName(className)
+	if c == nil {
+		return false
+	}
+
+	for _, prop := range c.Properties {
+		if prop.Name != propName {
+			continue
+		}
+
+		return schema.DataType(prop.DataType[0]) == schema.DataTypeGeoCoordinates
 	}
 
 	return false

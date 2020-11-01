@@ -127,7 +127,6 @@ func (o *GenesisPeersRegisterParams) SetBody(body *models.PeerUpdate) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *GenesisPeersRegisterParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

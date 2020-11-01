@@ -39,7 +39,7 @@ func (c *MemoryCondensor) Do(fileName string) error {
 	}
 
 	newLog, err := os.OpenFile(fmt.Sprintf("%s.condensed", fileName),
-		os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666)
+		os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
 	if err != nil {
 		return errors.Wrap(err, "open new commit log file for writing")
 	}

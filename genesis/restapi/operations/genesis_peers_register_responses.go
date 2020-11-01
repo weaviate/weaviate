@@ -41,7 +41,6 @@ type GenesisPeersRegisterOK struct {
 
 // NewGenesisPeersRegisterOK creates GenesisPeersRegisterOK with default headers values
 func NewGenesisPeersRegisterOK() *GenesisPeersRegisterOK {
-
 	return &GenesisPeersRegisterOK{}
 }
 
@@ -58,7 +57,6 @@ func (o *GenesisPeersRegisterOK) SetPayload(payload *models.PeerRegistrationResp
 
 // WriteResponse to the client
 func (o *GenesisPeersRegisterOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -80,14 +78,12 @@ type GenesisPeersRegisterBadRequest struct {
 
 // NewGenesisPeersRegisterBadRequest creates GenesisPeersRegisterBadRequest with default headers values
 func NewGenesisPeersRegisterBadRequest() *GenesisPeersRegisterBadRequest {
-
 	return &GenesisPeersRegisterBadRequest{}
 }
 
 // WriteResponse to the client
 func (o *GenesisPeersRegisterBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(400)
 }
@@ -104,14 +100,12 @@ type GenesisPeersRegisterForbidden struct {
 
 // NewGenesisPeersRegisterForbidden creates GenesisPeersRegisterForbidden with default headers values
 func NewGenesisPeersRegisterForbidden() *GenesisPeersRegisterForbidden {
-
 	return &GenesisPeersRegisterForbidden{}
 }
 
 // WriteResponse to the client
 func (o *GenesisPeersRegisterForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(403)
 }

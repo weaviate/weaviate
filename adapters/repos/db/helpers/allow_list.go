@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-package inverted
+package helpers
 
 // AllowList groups a list of possible indexIDs to be passed to a secondary
 // index. The secondary index must make sure that it only returns result

@@ -35,7 +35,7 @@ import (
 func TestRefFilters(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0777)
+	os.MkdirAll(dirName, 0o777)
 	defer func() {
 		err := os.RemoveAll(dirName)
 		fmt.Println(err)

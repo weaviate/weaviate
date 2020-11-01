@@ -16,6 +16,7 @@ import (
 
 	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
@@ -38,7 +39,7 @@ func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, erro
 	out.Groups = make([]aggregation.Group, 1)
 
 	s := fa.getSchema.GetSchemaSkipAuth()
-	ids, err := inverted.NewSearcher(fa.db, s, fa.invertedRowCache).
+	ids, err := inverted.NewSearcher(fa.db, s, fa.invertedRowCache, nil).
 		DocIDs(ctx, fa.params.Filters, false, fa.params.ClassName)
 	if err != nil {
 		return nil, errors.Wrap(err, "retrieve doc IDs from searcher")
@@ -216,7 +217,7 @@ func (fa *filteredAggregator) prepareAggregatorsForProps() (propAggs, error) {
 	return out, nil
 }
 
-func flattenAllowList(list inverted.AllowList) []uint32 {
+func flattenAllowList(list helpers.AllowList) []uint32 {
 	out := make([]uint32, len(list))
 	i := 0
 	for id := range list {
