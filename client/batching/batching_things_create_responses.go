@@ -97,6 +97,7 @@ func (o *BatchingThingsCreateOK) GetPayload() []*models.ThingsGetResponse {
 }
 
 func (o *BatchingThingsCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -122,6 +123,7 @@ func (o *BatchingThingsCreateUnauthorized) Error() string {
 }
 
 func (o *BatchingThingsCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -147,6 +149,7 @@ func (o *BatchingThingsCreateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *BatchingThingsCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -179,6 +182,7 @@ func (o *BatchingThingsCreateUnprocessableEntity) GetPayload() *models.ErrorResp
 }
 
 func (o *BatchingThingsCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -211,6 +215,7 @@ func (o *BatchingThingsCreateInternalServerError) GetPayload() *models.ErrorResp
 }
 
 func (o *BatchingThingsCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -271,6 +276,7 @@ func (o *BatchingThingsCreateBody) validateFieldsItemsEnum(path, location string
 }
 
 func (o *BatchingThingsCreateBody) validateFields(formats strfmt.Registry) error {
+
 	if swag.IsZero(o.Fields) { // not required
 		return nil
 	}
@@ -291,6 +297,7 @@ func (o *BatchingThingsCreateBody) validateFields(formats strfmt.Registry) error
 }
 
 func (o *BatchingThingsCreateBody) validateThings(formats strfmt.Registry) error {
+
 	if swag.IsZero(o.Things) { // not required
 		return nil
 	}

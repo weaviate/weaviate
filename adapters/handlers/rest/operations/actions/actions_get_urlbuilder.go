@@ -57,7 +57,7 @@ func (o *ActionsGetURL) SetBasePath(bp string) {
 func (o *ActionsGetURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/actions/{id}"
+	var _path = "/actions/{id}"
 
 	id := o.ID.String()
 	if id != "" {

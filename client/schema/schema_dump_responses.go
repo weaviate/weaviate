@@ -88,6 +88,7 @@ func (o *SchemaDumpOK) GetPayload() *SchemaDumpOKBody {
 }
 
 func (o *SchemaDumpOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(SchemaDumpOKBody)
 
 	// response payload
@@ -115,6 +116,7 @@ func (o *SchemaDumpUnauthorized) Error() string {
 }
 
 func (o *SchemaDumpUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -140,6 +142,7 @@ func (o *SchemaDumpForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaDumpForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -172,6 +175,7 @@ func (o *SchemaDumpInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SchemaDumpInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -213,6 +217,7 @@ func (o *SchemaDumpOKBody) Validate(formats strfmt.Registry) error {
 }
 
 func (o *SchemaDumpOKBody) validateActions(formats strfmt.Registry) error {
+
 	if swag.IsZero(o.Actions) { // not required
 		return nil
 	}
@@ -230,6 +235,7 @@ func (o *SchemaDumpOKBody) validateActions(formats strfmt.Registry) error {
 }
 
 func (o *SchemaDumpOKBody) validateThings(formats strfmt.Registry) error {
+
 	if swag.IsZero(o.Things) { // not required
 		return nil
 	}

@@ -98,6 +98,7 @@ func (o *C11yWordsOK) GetPayload() *models.C11yWordsResponse {
 }
 
 func (o *C11yWordsOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.C11yWordsResponse)
 
 	// response payload
@@ -130,6 +131,7 @@ func (o *C11yWordsBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *C11yWordsBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -157,6 +159,7 @@ func (o *C11yWordsUnauthorized) Error() string {
 }
 
 func (o *C11yWordsUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -182,6 +185,7 @@ func (o *C11yWordsForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *C11yWordsForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -214,6 +218,7 @@ func (o *C11yWordsInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *C11yWordsInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -241,5 +246,6 @@ func (o *C11yWordsNotImplemented) Error() string {
 }
 
 func (o *C11yWordsNotImplemented) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }

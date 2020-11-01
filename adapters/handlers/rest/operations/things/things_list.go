@@ -59,7 +59,7 @@ func (o *ThingsList) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	if rCtx != nil {
 		r = rCtx
 	}
-	Params := NewThingsListParams()
+	var Params = NewThingsListParams()
 
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
@@ -82,4 +82,5 @@ func (o *ThingsList) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
+
 }

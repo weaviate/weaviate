@@ -51,7 +51,7 @@ func (o *C11yConceptsURL) SetBasePath(bp string) {
 func (o *C11yConceptsURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/c11y/concepts/{concept}"
+	var _path = "/c11y/concepts/{concept}"
 
 	concept := o.Concept
 	if concept != "" {

@@ -65,7 +65,7 @@ func (o *BatchingThingsCreate) ServeHTTP(rw http.ResponseWriter, r *http.Request
 	if rCtx != nil {
 		r = rCtx
 	}
-	Params := NewBatchingThingsCreateParams()
+	var Params = NewBatchingThingsCreateParams()
 
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
@@ -88,6 +88,7 @@ func (o *BatchingThingsCreate) ServeHTTP(rw http.ResponseWriter, r *http.Request
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
+
 }
 
 // BatchingThingsCreateBody batching things create body
@@ -140,6 +141,7 @@ func (o *BatchingThingsCreateBody) validateFieldsItemsEnum(path, location string
 }
 
 func (o *BatchingThingsCreateBody) validateFields(formats strfmt.Registry) error {
+
 	if swag.IsZero(o.Fields) { // not required
 		return nil
 	}
@@ -160,6 +162,7 @@ func (o *BatchingThingsCreateBody) validateFields(formats strfmt.Registry) error
 }
 
 func (o *BatchingThingsCreateBody) validateThings(formats strfmt.Registry) error {
+
 	if swag.IsZero(o.Things) { // not required
 		return nil
 	}

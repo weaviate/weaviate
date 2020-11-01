@@ -30,6 +30,7 @@ import (
 // NewActionsCreateParams creates a new ActionsCreateParams object
 // no default values defined in spec.
 func NewActionsCreateParams() ActionsCreateParams {
+
 	return ActionsCreateParams{}
 }
 

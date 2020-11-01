@@ -99,6 +99,7 @@ func (o *ActionsPatchNoContent) Error() string {
 }
 
 func (o *ActionsPatchNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -119,6 +120,7 @@ func (o *ActionsPatchBadRequest) Error() string {
 }
 
 func (o *ActionsPatchBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -139,6 +141,7 @@ func (o *ActionsPatchUnauthorized) Error() string {
 }
 
 func (o *ActionsPatchUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -164,6 +167,7 @@ func (o *ActionsPatchForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ActionsPatchForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -191,6 +195,7 @@ func (o *ActionsPatchNotFound) Error() string {
 }
 
 func (o *ActionsPatchNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -216,6 +221,7 @@ func (o *ActionsPatchUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ActionsPatchUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -248,6 +254,7 @@ func (o *ActionsPatchInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ActionsPatchInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

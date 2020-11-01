@@ -41,6 +41,7 @@ type C11yWordsOK struct {
 
 // NewC11yWordsOK creates C11yWordsOK with default headers values
 func NewC11yWordsOK() *C11yWordsOK {
+
 	return &C11yWordsOK{}
 }
 
@@ -57,6 +58,7 @@ func (o *C11yWordsOK) SetPayload(payload *models.C11yWordsResponse) {
 
 // WriteResponse to the client
 func (o *C11yWordsOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -83,6 +85,7 @@ type C11yWordsBadRequest struct {
 
 // NewC11yWordsBadRequest creates C11yWordsBadRequest with default headers values
 func NewC11yWordsBadRequest() *C11yWordsBadRequest {
+
 	return &C11yWordsBadRequest{}
 }
 
@@ -99,6 +102,7 @@ func (o *C11yWordsBadRequest) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *C11yWordsBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -120,12 +124,14 @@ type C11yWordsUnauthorized struct {
 
 // NewC11yWordsUnauthorized creates C11yWordsUnauthorized with default headers values
 func NewC11yWordsUnauthorized() *C11yWordsUnauthorized {
+
 	return &C11yWordsUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *C11yWordsUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -147,6 +153,7 @@ type C11yWordsForbidden struct {
 
 // NewC11yWordsForbidden creates C11yWordsForbidden with default headers values
 func NewC11yWordsForbidden() *C11yWordsForbidden {
+
 	return &C11yWordsForbidden{}
 }
 
@@ -163,6 +170,7 @@ func (o *C11yWordsForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *C11yWordsForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -189,6 +197,7 @@ type C11yWordsInternalServerError struct {
 
 // NewC11yWordsInternalServerError creates C11yWordsInternalServerError with default headers values
 func NewC11yWordsInternalServerError() *C11yWordsInternalServerError {
+
 	return &C11yWordsInternalServerError{}
 }
 
@@ -205,6 +214,7 @@ func (o *C11yWordsInternalServerError) SetPayload(payload *models.ErrorResponse)
 
 // WriteResponse to the client
 func (o *C11yWordsInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -226,12 +236,14 @@ type C11yWordsNotImplemented struct {
 
 // NewC11yWordsNotImplemented creates C11yWordsNotImplemented with default headers values
 func NewC11yWordsNotImplemented() *C11yWordsNotImplemented {
+
 	return &C11yWordsNotImplemented{}
 }
 
 // WriteResponse to the client
 func (o *C11yWordsNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(501)
 }

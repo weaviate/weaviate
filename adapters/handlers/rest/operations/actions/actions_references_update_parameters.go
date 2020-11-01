@@ -32,6 +32,7 @@ import (
 // NewActionsReferencesUpdateParams creates a new ActionsReferencesUpdateParams object
 // no default values defined in spec.
 func NewActionsReferencesUpdateParams() ActionsReferencesUpdateParams {
+
 	return ActionsReferencesUpdateParams{}
 }
 
@@ -134,6 +135,7 @@ func (o *ActionsReferencesUpdateParams) bindID(rawData []string, hasKey bool, fo
 
 // validateID carries on validations for parameter ID
 func (o *ActionsReferencesUpdateParams) validateID(formats strfmt.Registry) error {
+
 	if err := validate.FormatOf("id", "path", "uuid", o.ID.String(), formats); err != nil {
 		return err
 	}

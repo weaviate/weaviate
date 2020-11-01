@@ -46,7 +46,7 @@ func (o *SchemaDumpURL) SetBasePath(bp string) {
 func (o *SchemaDumpURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/schema"
+	var _path = "/schema"
 
 	_basePath := o._basePath
 	if _basePath == "" {

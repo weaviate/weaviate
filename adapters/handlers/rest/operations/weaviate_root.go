@@ -61,7 +61,7 @@ func (o *WeaviateRoot) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	if rCtx != nil {
 		r = rCtx
 	}
-	Params := NewWeaviateRootParams()
+	var Params = NewWeaviateRootParams()
 
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
@@ -84,6 +84,7 @@ func (o *WeaviateRoot) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
+
 }
 
 // WeaviateRootOKBody weaviate root o k body
@@ -110,6 +111,7 @@ func (o *WeaviateRootOKBody) Validate(formats strfmt.Registry) error {
 }
 
 func (o *WeaviateRootOKBody) validateLinks(formats strfmt.Registry) error {
+
 	if swag.IsZero(o.Links) { // not required
 		return nil
 	}

@@ -36,12 +36,14 @@ type ActionsPatchNoContent struct {
 
 // NewActionsPatchNoContent creates ActionsPatchNoContent with default headers values
 func NewActionsPatchNoContent() *ActionsPatchNoContent {
+
 	return &ActionsPatchNoContent{}
 }
 
 // WriteResponse to the client
 func (o *ActionsPatchNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(204)
 }
@@ -58,12 +60,14 @@ type ActionsPatchBadRequest struct {
 
 // NewActionsPatchBadRequest creates ActionsPatchBadRequest with default headers values
 func NewActionsPatchBadRequest() *ActionsPatchBadRequest {
+
 	return &ActionsPatchBadRequest{}
 }
 
 // WriteResponse to the client
 func (o *ActionsPatchBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(400)
 }
@@ -80,12 +84,14 @@ type ActionsPatchUnauthorized struct {
 
 // NewActionsPatchUnauthorized creates ActionsPatchUnauthorized with default headers values
 func NewActionsPatchUnauthorized() *ActionsPatchUnauthorized {
+
 	return &ActionsPatchUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *ActionsPatchUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -107,6 +113,7 @@ type ActionsPatchForbidden struct {
 
 // NewActionsPatchForbidden creates ActionsPatchForbidden with default headers values
 func NewActionsPatchForbidden() *ActionsPatchForbidden {
+
 	return &ActionsPatchForbidden{}
 }
 
@@ -123,6 +130,7 @@ func (o *ActionsPatchForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *ActionsPatchForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -144,12 +152,14 @@ type ActionsPatchNotFound struct {
 
 // NewActionsPatchNotFound creates ActionsPatchNotFound with default headers values
 func NewActionsPatchNotFound() *ActionsPatchNotFound {
+
 	return &ActionsPatchNotFound{}
 }
 
 // WriteResponse to the client
 func (o *ActionsPatchNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -171,6 +181,7 @@ type ActionsPatchUnprocessableEntity struct {
 
 // NewActionsPatchUnprocessableEntity creates ActionsPatchUnprocessableEntity with default headers values
 func NewActionsPatchUnprocessableEntity() *ActionsPatchUnprocessableEntity {
+
 	return &ActionsPatchUnprocessableEntity{}
 }
 
@@ -187,6 +198,7 @@ func (o *ActionsPatchUnprocessableEntity) SetPayload(payload *models.ErrorRespon
 
 // WriteResponse to the client
 func (o *ActionsPatchUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -213,6 +225,7 @@ type ActionsPatchInternalServerError struct {
 
 // NewActionsPatchInternalServerError creates ActionsPatchInternalServerError with default headers values
 func NewActionsPatchInternalServerError() *ActionsPatchInternalServerError {
+
 	return &ActionsPatchInternalServerError{}
 }
 
@@ -229,6 +242,7 @@ func (o *ActionsPatchInternalServerError) SetPayload(payload *models.ErrorRespon
 
 // WriteResponse to the client
 func (o *ActionsPatchInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

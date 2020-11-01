@@ -125,6 +125,7 @@ func (o *BatchingThingsCreateParams) SetBody(body BatchingThingsCreateBody) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *BatchingThingsCreateParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

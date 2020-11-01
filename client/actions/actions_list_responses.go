@@ -98,6 +98,7 @@ func (o *ActionsListOK) GetPayload() *models.ActionsListResponse {
 }
 
 func (o *ActionsListOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ActionsListResponse)
 
 	// response payload
@@ -130,6 +131,7 @@ func (o *ActionsListBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ActionsListBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -157,6 +159,7 @@ func (o *ActionsListUnauthorized) Error() string {
 }
 
 func (o *ActionsListUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -182,6 +185,7 @@ func (o *ActionsListForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ActionsListForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -209,6 +213,7 @@ func (o *ActionsListNotFound) Error() string {
 }
 
 func (o *ActionsListNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -234,6 +239,7 @@ func (o *ActionsListInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ActionsListInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

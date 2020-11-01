@@ -27,6 +27,7 @@ import (
 // NewC11yWordsParams creates a new C11yWordsParams object
 // no default values defined in spec.
 func NewC11yWordsParams() C11yWordsParams {
+
 	return C11yWordsParams{}
 }
 

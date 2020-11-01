@@ -16,7 +16,7 @@ require (
 	github.com/go-openapi/loads v0.19.5
 	github.com/go-openapi/runtime v0.19.23
 	github.com/go-openapi/spec v0.19.8
-	github.com/go-openapi/strfmt v0.19.7
+	github.com/go-openapi/strfmt v0.19.8
 	github.com/go-openapi/swag v0.19.11
 	github.com/go-openapi/validate v0.19.10
 	github.com/golangci/golangci-lint v1.31.0 // indirect
@@ -38,10 +38,9 @@ require (
 	github.com/square/go-jose v2.3.0+incompatible
 	github.com/stretchr/testify v1.6.1
 	github.com/ugorji/go/codec v0.0.0-20190309163734-c4a1c341dc93
-	go.mongodb.org/mongo-driver v1.4.2 // indirect
 	go.uber.org/atomic v1.5.0
 	golang.org/x/net v0.0.0-20201021035429-f5854403a974
-	golang.org/x/tools v0.0.0-20201026223136-e84cfc6dd5ca // indirect
+	golang.org/x/tools v0.0.0-20201031021630-582c62ec74d0 // indirect
 	gonum.org/v1/gonum v0.7.0
 	google.golang.org/grpc v1.24.0
 	gopkg.in/square/go-jose.v2 v2.5.1 // indirect

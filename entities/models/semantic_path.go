@@ -48,6 +48,7 @@ func (m *SemanticPath) Validate(formats strfmt.Registry) error {
 }
 
 func (m *SemanticPath) validatePath(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Path) { // not required
 		return nil
 	}

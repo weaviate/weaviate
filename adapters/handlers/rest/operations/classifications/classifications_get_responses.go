@@ -41,6 +41,7 @@ type ClassificationsGetOK struct {
 
 // NewClassificationsGetOK creates ClassificationsGetOK with default headers values
 func NewClassificationsGetOK() *ClassificationsGetOK {
+
 	return &ClassificationsGetOK{}
 }
 
@@ -57,6 +58,7 @@ func (o *ClassificationsGetOK) SetPayload(payload *models.Classification) {
 
 // WriteResponse to the client
 func (o *ClassificationsGetOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -78,12 +80,14 @@ type ClassificationsGetUnauthorized struct {
 
 // NewClassificationsGetUnauthorized creates ClassificationsGetUnauthorized with default headers values
 func NewClassificationsGetUnauthorized() *ClassificationsGetUnauthorized {
+
 	return &ClassificationsGetUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *ClassificationsGetUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -105,6 +109,7 @@ type ClassificationsGetForbidden struct {
 
 // NewClassificationsGetForbidden creates ClassificationsGetForbidden with default headers values
 func NewClassificationsGetForbidden() *ClassificationsGetForbidden {
+
 	return &ClassificationsGetForbidden{}
 }
 
@@ -121,6 +126,7 @@ func (o *ClassificationsGetForbidden) SetPayload(payload *models.ErrorResponse) 
 
 // WriteResponse to the client
 func (o *ClassificationsGetForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -142,12 +148,14 @@ type ClassificationsGetNotFound struct {
 
 // NewClassificationsGetNotFound creates ClassificationsGetNotFound with default headers values
 func NewClassificationsGetNotFound() *ClassificationsGetNotFound {
+
 	return &ClassificationsGetNotFound{}
 }
 
 // WriteResponse to the client
 func (o *ClassificationsGetNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -169,6 +177,7 @@ type ClassificationsGetInternalServerError struct {
 
 // NewClassificationsGetInternalServerError creates ClassificationsGetInternalServerError with default headers values
 func NewClassificationsGetInternalServerError() *ClassificationsGetInternalServerError {
+
 	return &ClassificationsGetInternalServerError{}
 }
 
@@ -185,6 +194,7 @@ func (o *ClassificationsGetInternalServerError) SetPayload(payload *models.Error
 
 // WriteResponse to the client
 func (o *ClassificationsGetInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

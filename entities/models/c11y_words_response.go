@@ -55,6 +55,7 @@ func (m *C11yWordsResponse) Validate(formats strfmt.Registry) error {
 }
 
 func (m *C11yWordsResponse) validateConcatenatedWord(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.ConcatenatedWord) { // not required
 		return nil
 	}
@@ -72,6 +73,7 @@ func (m *C11yWordsResponse) validateConcatenatedWord(formats strfmt.Registry) er
 }
 
 func (m *C11yWordsResponse) validateIndividualWords(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.IndividualWords) { // not required
 		return nil
 	}
@@ -150,6 +152,7 @@ func (m *C11yWordsResponseConcatenatedWord) Validate(formats strfmt.Registry) er
 }
 
 func (m *C11yWordsResponseConcatenatedWord) validateConcatenatedNearestNeighbors(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.ConcatenatedNearestNeighbors) { // not required
 		return nil
 	}
@@ -165,6 +168,7 @@ func (m *C11yWordsResponseConcatenatedWord) validateConcatenatedNearestNeighbors
 }
 
 func (m *C11yWordsResponseConcatenatedWord) validateConcatenatedVector(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.ConcatenatedVector) { // not required
 		return nil
 	}
@@ -227,6 +231,7 @@ func (m *C11yWordsResponseIndividualWordsItems0) Validate(formats strfmt.Registr
 }
 
 func (m *C11yWordsResponseIndividualWordsItems0) validateInfo(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Info) { // not required
 		return nil
 	}
@@ -292,6 +297,7 @@ func (m *C11yWordsResponseIndividualWordsItems0Info) Validate(formats strfmt.Reg
 }
 
 func (m *C11yWordsResponseIndividualWordsItems0Info) validateNearestNeighbors(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.NearestNeighbors) { // not required
 		return nil
 	}
@@ -307,6 +313,7 @@ func (m *C11yWordsResponseIndividualWordsItems0Info) validateNearestNeighbors(fo
 }
 
 func (m *C11yWordsResponseIndividualWordsItems0Info) validateVector(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Vector) { // not required
 		return nil
 	}

@@ -92,6 +92,7 @@ func (o *GraphqlPostOK) GetPayload() *models.GraphQLResponse {
 }
 
 func (o *GraphqlPostOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.GraphQLResponse)
 
 	// response payload
@@ -119,6 +120,7 @@ func (o *GraphqlPostUnauthorized) Error() string {
 }
 
 func (o *GraphqlPostUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -144,6 +146,7 @@ func (o *GraphqlPostForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GraphqlPostForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -176,6 +179,7 @@ func (o *GraphqlPostUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GraphqlPostUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -208,6 +212,7 @@ func (o *GraphqlPostInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *GraphqlPostInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

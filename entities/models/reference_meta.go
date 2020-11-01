@@ -46,6 +46,7 @@ func (m *ReferenceMeta) Validate(formats strfmt.Registry) error {
 }
 
 func (m *ReferenceMeta) validateClassification(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Classification) { // not required
 		return nil
 	}

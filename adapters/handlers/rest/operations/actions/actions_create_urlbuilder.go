@@ -46,7 +46,7 @@ func (o *ActionsCreateURL) SetBasePath(bp string) {
 func (o *ActionsCreateURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/actions"
+	var _path = "/actions"
 
 	_basePath := o._basePath
 	if _basePath == "" {

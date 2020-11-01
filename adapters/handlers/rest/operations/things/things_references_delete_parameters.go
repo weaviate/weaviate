@@ -32,6 +32,7 @@ import (
 // NewThingsReferencesDeleteParams creates a new ThingsReferencesDeleteParams object
 // no default values defined in spec.
 func NewThingsReferencesDeleteParams() ThingsReferencesDeleteParams {
+
 	return ThingsReferencesDeleteParams{}
 }
 
@@ -134,6 +135,7 @@ func (o *ThingsReferencesDeleteParams) bindID(rawData []string, hasKey bool, for
 
 // validateID carries on validations for parameter ID
 func (o *ThingsReferencesDeleteParams) validateID(formats strfmt.Registry) error {
+
 	if err := validate.FormatOf("id", "path", "uuid", o.ID.String(), formats); err != nil {
 		return err
 	}

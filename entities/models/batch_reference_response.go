@@ -100,6 +100,7 @@ func (m *BatchReferenceResponse) Validate(formats strfmt.Registry) error {
 }
 
 func (m *BatchReferenceResponse) validateResult(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Result) { // not required
 		return nil
 	}
@@ -166,6 +167,7 @@ func (m *BatchReferenceResponseAO1Result) Validate(formats strfmt.Registry) erro
 }
 
 func (m *BatchReferenceResponseAO1Result) validateErrors(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Errors) { // not required
 		return nil
 	}
@@ -215,6 +217,7 @@ func (m *BatchReferenceResponseAO1Result) validateStatusEnum(path, location stri
 }
 
 func (m *BatchReferenceResponseAO1Result) validateStatus(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Status) { // not required
 		return nil
 	}

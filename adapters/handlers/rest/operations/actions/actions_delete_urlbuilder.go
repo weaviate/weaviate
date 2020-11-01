@@ -53,7 +53,7 @@ func (o *ActionsDeleteURL) SetBasePath(bp string) {
 func (o *ActionsDeleteURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/actions/{id}"
+	var _path = "/actions/{id}"
 
 	id := o.ID.String()
 	if id != "" {

@@ -46,7 +46,7 @@ func (o *ThingsCreateURL) SetBasePath(bp string) {
 func (o *ThingsCreateURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/things"
+	var _path = "/things"
 
 	_basePath := o._basePath
 	if _basePath == "" {

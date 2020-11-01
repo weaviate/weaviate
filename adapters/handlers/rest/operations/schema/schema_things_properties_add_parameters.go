@@ -31,6 +31,7 @@ import (
 // NewSchemaThingsPropertiesAddParams creates a new SchemaThingsPropertiesAddParams object
 // no default values defined in spec.
 func NewSchemaThingsPropertiesAddParams() SchemaThingsPropertiesAddParams {
+
 	return SchemaThingsPropertiesAddParams{}
 }
 

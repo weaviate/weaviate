@@ -41,6 +41,7 @@ type SchemaThingsCreateOK struct {
 
 // NewSchemaThingsCreateOK creates SchemaThingsCreateOK with default headers values
 func NewSchemaThingsCreateOK() *SchemaThingsCreateOK {
+
 	return &SchemaThingsCreateOK{}
 }
 
@@ -57,6 +58,7 @@ func (o *SchemaThingsCreateOK) SetPayload(payload *models.Class) {
 
 // WriteResponse to the client
 func (o *SchemaThingsCreateOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -78,12 +80,14 @@ type SchemaThingsCreateUnauthorized struct {
 
 // NewSchemaThingsCreateUnauthorized creates SchemaThingsCreateUnauthorized with default headers values
 func NewSchemaThingsCreateUnauthorized() *SchemaThingsCreateUnauthorized {
+
 	return &SchemaThingsCreateUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *SchemaThingsCreateUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -105,6 +109,7 @@ type SchemaThingsCreateForbidden struct {
 
 // NewSchemaThingsCreateForbidden creates SchemaThingsCreateForbidden with default headers values
 func NewSchemaThingsCreateForbidden() *SchemaThingsCreateForbidden {
+
 	return &SchemaThingsCreateForbidden{}
 }
 
@@ -121,6 +126,7 @@ func (o *SchemaThingsCreateForbidden) SetPayload(payload *models.ErrorResponse) 
 
 // WriteResponse to the client
 func (o *SchemaThingsCreateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -147,6 +153,7 @@ type SchemaThingsCreateUnprocessableEntity struct {
 
 // NewSchemaThingsCreateUnprocessableEntity creates SchemaThingsCreateUnprocessableEntity with default headers values
 func NewSchemaThingsCreateUnprocessableEntity() *SchemaThingsCreateUnprocessableEntity {
+
 	return &SchemaThingsCreateUnprocessableEntity{}
 }
 
@@ -163,6 +170,7 @@ func (o *SchemaThingsCreateUnprocessableEntity) SetPayload(payload *models.Error
 
 // WriteResponse to the client
 func (o *SchemaThingsCreateUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -189,6 +197,7 @@ type SchemaThingsCreateInternalServerError struct {
 
 // NewSchemaThingsCreateInternalServerError creates SchemaThingsCreateInternalServerError with default headers values
 func NewSchemaThingsCreateInternalServerError() *SchemaThingsCreateInternalServerError {
+
 	return &SchemaThingsCreateInternalServerError{}
 }
 
@@ -205,6 +214,7 @@ func (o *SchemaThingsCreateInternalServerError) SetPayload(payload *models.Error
 
 // WriteResponse to the client
 func (o *SchemaThingsCreateInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

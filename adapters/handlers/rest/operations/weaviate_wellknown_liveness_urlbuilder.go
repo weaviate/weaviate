@@ -46,7 +46,7 @@ func (o *WeaviateWellknownLivenessURL) SetBasePath(bp string) {
 func (o *WeaviateWellknownLivenessURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/.well-known/live"
+	var _path = "/.well-known/live"
 
 	_basePath := o._basePath
 	if _basePath == "" {

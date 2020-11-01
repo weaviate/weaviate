@@ -61,6 +61,7 @@ func (o *C11yCorpusGetNotImplemented) Error() string {
 }
 
 func (o *C11yCorpusGetNotImplemented) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 

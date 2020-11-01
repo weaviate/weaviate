@@ -87,6 +87,7 @@ func (o *ThingsDeleteNoContent) Error() string {
 }
 
 func (o *ThingsDeleteNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -107,6 +108,7 @@ func (o *ThingsDeleteUnauthorized) Error() string {
 }
 
 func (o *ThingsDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -132,6 +134,7 @@ func (o *ThingsDeleteForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ThingsDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -159,6 +162,7 @@ func (o *ThingsDeleteNotFound) Error() string {
 }
 
 func (o *ThingsDeleteNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -184,6 +188,7 @@ func (o *ThingsDeleteInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ThingsDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
