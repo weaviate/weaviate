@@ -34,14 +34,12 @@ type GenesisPeersLeaveNoContent struct {
 
 // NewGenesisPeersLeaveNoContent creates GenesisPeersLeaveNoContent with default headers values
 func NewGenesisPeersLeaveNoContent() *GenesisPeersLeaveNoContent {
-
 	return &GenesisPeersLeaveNoContent{}
 }
 
 // WriteResponse to the client
 func (o *GenesisPeersLeaveNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(204)
 }
@@ -58,14 +56,12 @@ type GenesisPeersLeaveUnauthorized struct {
 
 // NewGenesisPeersLeaveUnauthorized creates GenesisPeersLeaveUnauthorized with default headers values
 func NewGenesisPeersLeaveUnauthorized() *GenesisPeersLeaveUnauthorized {
-
 	return &GenesisPeersLeaveUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *GenesisPeersLeaveUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -82,14 +78,12 @@ type GenesisPeersLeaveForbidden struct {
 
 // NewGenesisPeersLeaveForbidden creates GenesisPeersLeaveForbidden with default headers values
 func NewGenesisPeersLeaveForbidden() *GenesisPeersLeaveForbidden {
-
 	return &GenesisPeersLeaveForbidden{}
 }
 
 // WriteResponse to the client
 func (o *GenesisPeersLeaveForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(403)
 }
@@ -106,14 +100,12 @@ type GenesisPeersLeaveNotFound struct {
 
 // NewGenesisPeersLeaveNotFound creates GenesisPeersLeaveNotFound with default headers values
 func NewGenesisPeersLeaveNotFound() *GenesisPeersLeaveNotFound {
-
 	return &GenesisPeersLeaveNotFound{}
 }
 
 // WriteResponse to the client
 func (o *GenesisPeersLeaveNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }

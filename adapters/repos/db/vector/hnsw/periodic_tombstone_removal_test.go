@@ -21,15 +21,10 @@ import (
 )
 
 func TestPeriodicTombstoneRemoval(t *testing.T) {
-	cl := &noopCommitLogger{}
-	makeCL := func() (CommitLogger, error) {
-		return cl, nil
-	}
-
 	index, err := New(Config{
 		RootPath:                 "doesnt-matter-as-committlogger-is-mocked-out",
 		ID:                       "automatic-tombstone-removal",
-		MakeCommitLoggerThunk:    makeCL,
+		MakeCommitLoggerThunk:    MakeNoopCommitLogger,
 		MaximumConnections:       30,
 		EFConstruction:           60,
 		VectorForIDThunk:         testVectorForID,

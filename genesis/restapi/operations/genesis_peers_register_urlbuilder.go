@@ -46,7 +46,7 @@ func (o *GenesisPeersRegisterURL) SetBasePath(bp string) {
 func (o *GenesisPeersRegisterURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/peers/register"
+	_path := "/peers/register"
 
 	_basePath := o._basePath
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)

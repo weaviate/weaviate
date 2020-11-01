@@ -9,7 +9,17 @@
 //  CONTACT: hello@semi.technology
 //
 
-package hnsw
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2020 SeMI Technologies B.V. All rights reserved.
+//
+//  CONTACT: hello@semi.technology
+//
+package distancer
 
 import (
 	"fmt"
@@ -70,9 +80,9 @@ func newReusableDistancer(fixedVec []float32) *reusableDistancer {
 	}
 }
 
-func (d *reusableDistancer) distance(input []float32) (float32, error) {
+func (d *reusableDistancer) Distance(input []float32) (float32, bool, error) {
 	if len(input) != len(d.fixedVector) {
-		return 0, fmt.Errorf("vectors have different dimensions")
+		return 0, false, fmt.Errorf("vectors have different dimensions")
 	}
 
 	var (
@@ -86,5 +96,15 @@ func (d *reusableDistancer) distance(input []float32) (float32, error) {
 		sumSquare += asFloat64 * asFloat64
 	}
 
-	return 1 - float32(sumProduct/(math.Sqrt(sumSquare)*d.fixedVetorSquredSumSquareRoot)), nil
+	return 1 - float32(sumProduct/(math.Sqrt(sumSquare)*d.fixedVetorSquredSumSquareRoot)), true, nil
+}
+
+type CosineProvider struct{}
+
+func (p CosineProvider) New(vec []float32) Distancer {
+	return newReusableDistancer(vec)
+}
+
+func NewCosineProvider() Provider {
+	return CosineProvider{}
 }

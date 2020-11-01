@@ -322,7 +322,6 @@ func TestNestedReferences(t *testing.T) {
 		require.Nil(t, err)
 	})
 	refreshAll(t, client)
-
 }
 
 func fullyNestedSelectProperties() traverser.SelectProperties {

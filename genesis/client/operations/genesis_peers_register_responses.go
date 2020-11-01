@@ -80,7 +80,6 @@ func (o *GenesisPeersRegisterOK) GetPayload() *models.PeerRegistrationResponse {
 }
 
 func (o *GenesisPeersRegisterOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.PeerRegistrationResponse)
 
 	// response payload
@@ -108,7 +107,6 @@ func (o *GenesisPeersRegisterBadRequest) Error() string {
 }
 
 func (o *GenesisPeersRegisterBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -129,6 +127,5 @@ func (o *GenesisPeersRegisterForbidden) Error() string {
 }
 
 func (o *GenesisPeersRegisterForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }

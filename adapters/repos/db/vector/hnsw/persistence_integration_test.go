@@ -28,7 +28,7 @@ import (
 func TestHnswPersistence(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0777)
+	os.MkdirAll(dirName, 0o777)
 	indexID := "integrationtest"
 	defer func() {
 		err := os.RemoveAll(dirName)
@@ -96,7 +96,7 @@ func TestHnswPersistence(t *testing.T) {
 func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0777)
+	os.MkdirAll(dirName, 0o777)
 	indexID := "integrationtest_deletion"
 	defer func() {
 		err := os.RemoveAll(dirName)
@@ -174,7 +174,7 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0777)
+	os.MkdirAll(dirName, 0o777)
 	indexID := "integrationtest_tombstonecleanup"
 	defer func() {
 		err := os.RemoveAll(dirName)

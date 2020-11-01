@@ -35,7 +35,7 @@ import (
 func TestFilters(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
-	os.MkdirAll(dirName, 0777)
+	os.MkdirAll(dirName, 0o777)
 	defer func() {
 		err := os.RemoveAll(dirName)
 		fmt.Println(err)
@@ -60,7 +60,6 @@ func TestFilters(t *testing.T) {
 
 	t.Run("chained primitive props",
 		testChainedPrimitiveProps(repo, migrator))
-
 }
 
 var (
@@ -213,7 +212,6 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 				filter:      buildFilter("description", "engine", eq, dtText),
 				expectedIDs: []strfmt.UUID{carPoloID},
 			},
-			// TODO gh-1150  support geo props
 			// {
 			// 	name: "within 600km of San Francisco",
 			// 	filter: buildFilter("parkedAt", filters.GeoRange{
