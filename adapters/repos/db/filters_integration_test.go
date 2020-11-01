@@ -224,7 +224,7 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 			// 	expectedIDs: []strfmt.UUID{carSprinterID},
 			// },
 
-			// TODO: gh-1150 support uuid filter
+			// TODO: gh-1270 support uuid filter
 			// {
 			// 	name:        "by id",
 			// 	filter:      buildFilter("uuid", carPoloID.String(), eq, dtString),
