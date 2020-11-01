@@ -58,6 +58,7 @@ func (m *ThingsListResponse) Validate(formats strfmt.Registry) error {
 }
 
 func (m *ThingsListResponse) validateDeprecations(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Deprecations) { // not required
 		return nil
 	}
@@ -82,6 +83,7 @@ func (m *ThingsListResponse) validateDeprecations(formats strfmt.Registry) error
 }
 
 func (m *ThingsListResponse) validateThings(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Things) { // not required
 		return nil
 	}

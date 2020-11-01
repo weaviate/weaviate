@@ -28,6 +28,7 @@ import (
 // NewC11yCorpusGetParams creates a new C11yCorpusGetParams object
 // no default values defined in spec.
 func NewC11yCorpusGetParams() C11yCorpusGetParams {
+
 	return C11yCorpusGetParams{}
 }
 

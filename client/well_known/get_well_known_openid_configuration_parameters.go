@@ -30,6 +30,7 @@ import (
 // NewGetWellKnownOpenidConfigurationParams creates a new GetWellKnownOpenidConfigurationParams object
 // with the default values initialized.
 func NewGetWellKnownOpenidConfigurationParams() *GetWellKnownOpenidConfigurationParams {
+
 	return &GetWellKnownOpenidConfigurationParams{
 
 		timeout: cr.DefaultTimeout,
@@ -39,6 +40,7 @@ func NewGetWellKnownOpenidConfigurationParams() *GetWellKnownOpenidConfiguration
 // NewGetWellKnownOpenidConfigurationParamsWithTimeout creates a new GetWellKnownOpenidConfigurationParams object
 // with the default values initialized, and the ability to set a timeout on a request
 func NewGetWellKnownOpenidConfigurationParamsWithTimeout(timeout time.Duration) *GetWellKnownOpenidConfigurationParams {
+
 	return &GetWellKnownOpenidConfigurationParams{
 
 		timeout: timeout,
@@ -48,6 +50,7 @@ func NewGetWellKnownOpenidConfigurationParamsWithTimeout(timeout time.Duration) 
 // NewGetWellKnownOpenidConfigurationParamsWithContext creates a new GetWellKnownOpenidConfigurationParams object
 // with the default values initialized, and the ability to set a context for a request
 func NewGetWellKnownOpenidConfigurationParamsWithContext(ctx context.Context) *GetWellKnownOpenidConfigurationParams {
+
 	return &GetWellKnownOpenidConfigurationParams{
 
 		Context: ctx,
@@ -57,6 +60,7 @@ func NewGetWellKnownOpenidConfigurationParamsWithContext(ctx context.Context) *G
 // NewGetWellKnownOpenidConfigurationParamsWithHTTPClient creates a new GetWellKnownOpenidConfigurationParams object
 // with the default values initialized, and the ability to set a custom HTTPClient for a request
 func NewGetWellKnownOpenidConfigurationParamsWithHTTPClient(client *http.Client) *GetWellKnownOpenidConfigurationParams {
+
 	return &GetWellKnownOpenidConfigurationParams{
 		HTTPClient: client,
 	}
@@ -106,6 +110,7 @@ func (o *GetWellKnownOpenidConfigurationParams) SetHTTPClient(client *http.Clien
 
 // WriteToRequest writes these params to a swagger request
 func (o *GetWellKnownOpenidConfigurationParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

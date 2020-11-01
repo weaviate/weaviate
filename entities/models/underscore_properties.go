@@ -81,6 +81,7 @@ func (m *UnderscoreProperties) Validate(formats strfmt.Registry) error {
 }
 
 func (m *UnderscoreProperties) validateClassification(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Classification) { // not required
 		return nil
 	}
@@ -98,6 +99,7 @@ func (m *UnderscoreProperties) validateClassification(formats strfmt.Registry) e
 }
 
 func (m *UnderscoreProperties) validateFeatureProjection(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.FeatureProjection) { // not required
 		return nil
 	}
@@ -115,6 +117,7 @@ func (m *UnderscoreProperties) validateFeatureProjection(formats strfmt.Registry
 }
 
 func (m *UnderscoreProperties) validateInterpretation(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Interpretation) { // not required
 		return nil
 	}
@@ -132,6 +135,7 @@ func (m *UnderscoreProperties) validateInterpretation(formats strfmt.Registry) e
 }
 
 func (m *UnderscoreProperties) validateNearestNeighbors(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.NearestNeighbors) { // not required
 		return nil
 	}
@@ -149,6 +153,7 @@ func (m *UnderscoreProperties) validateNearestNeighbors(formats strfmt.Registry)
 }
 
 func (m *UnderscoreProperties) validateSemanticPath(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.SemanticPath) { // not required
 		return nil
 	}
@@ -166,6 +171,7 @@ func (m *UnderscoreProperties) validateSemanticPath(formats strfmt.Registry) err
 }
 
 func (m *UnderscoreProperties) validateVector(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Vector) { // not required
 		return nil
 	}

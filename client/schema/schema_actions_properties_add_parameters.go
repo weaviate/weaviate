@@ -140,6 +140,7 @@ func (o *SchemaActionsPropertiesAddParams) SetClassName(className string) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *SchemaActionsPropertiesAddParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

@@ -53,7 +53,7 @@ func (o *ThingsUpdateURL) SetBasePath(bp string) {
 func (o *ThingsUpdateURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/things/{id}"
+	var _path = "/things/{id}"
 
 	id := o.ID.String()
 	if id != "" {

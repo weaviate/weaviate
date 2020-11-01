@@ -98,6 +98,7 @@ func (o *ActionsGetOK) GetPayload() *models.Action {
 }
 
 func (o *ActionsGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.Action)
 
 	// response payload
@@ -130,6 +131,7 @@ func (o *ActionsGetBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ActionsGetBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -157,6 +159,7 @@ func (o *ActionsGetUnauthorized) Error() string {
 }
 
 func (o *ActionsGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -182,6 +185,7 @@ func (o *ActionsGetForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ActionsGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -209,6 +213,7 @@ func (o *ActionsGetNotFound) Error() string {
 }
 
 func (o *ActionsGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -234,6 +239,7 @@ func (o *ActionsGetInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ActionsGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

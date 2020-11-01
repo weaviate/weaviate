@@ -41,6 +41,7 @@ type ThingsGetOK struct {
 
 // NewThingsGetOK creates ThingsGetOK with default headers values
 func NewThingsGetOK() *ThingsGetOK {
+
 	return &ThingsGetOK{}
 }
 
@@ -57,6 +58,7 @@ func (o *ThingsGetOK) SetPayload(payload *models.Thing) {
 
 // WriteResponse to the client
 func (o *ThingsGetOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -83,6 +85,7 @@ type ThingsGetBadRequest struct {
 
 // NewThingsGetBadRequest creates ThingsGetBadRequest with default headers values
 func NewThingsGetBadRequest() *ThingsGetBadRequest {
+
 	return &ThingsGetBadRequest{}
 }
 
@@ -99,6 +102,7 @@ func (o *ThingsGetBadRequest) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *ThingsGetBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -120,12 +124,14 @@ type ThingsGetUnauthorized struct {
 
 // NewThingsGetUnauthorized creates ThingsGetUnauthorized with default headers values
 func NewThingsGetUnauthorized() *ThingsGetUnauthorized {
+
 	return &ThingsGetUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *ThingsGetUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -147,6 +153,7 @@ type ThingsGetForbidden struct {
 
 // NewThingsGetForbidden creates ThingsGetForbidden with default headers values
 func NewThingsGetForbidden() *ThingsGetForbidden {
+
 	return &ThingsGetForbidden{}
 }
 
@@ -163,6 +170,7 @@ func (o *ThingsGetForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *ThingsGetForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -184,12 +192,14 @@ type ThingsGetNotFound struct {
 
 // NewThingsGetNotFound creates ThingsGetNotFound with default headers values
 func NewThingsGetNotFound() *ThingsGetNotFound {
+
 	return &ThingsGetNotFound{}
 }
 
 // WriteResponse to the client
 func (o *ThingsGetNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -211,6 +221,7 @@ type ThingsGetInternalServerError struct {
 
 // NewThingsGetInternalServerError creates ThingsGetInternalServerError with default headers values
 func NewThingsGetInternalServerError() *ThingsGetInternalServerError {
+
 	return &ThingsGetInternalServerError{}
 }
 
@@ -227,6 +238,7 @@ func (o *ThingsGetInternalServerError) SetPayload(payload *models.ErrorResponse)
 
 // WriteResponse to the client
 func (o *ThingsGetInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

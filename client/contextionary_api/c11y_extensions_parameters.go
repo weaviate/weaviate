@@ -130,6 +130,7 @@ func (o *C11yExtensionsParams) SetExtension(extension *models.C11yExtension) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *C11yExtensionsParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

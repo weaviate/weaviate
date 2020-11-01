@@ -36,12 +36,14 @@ type ThingsReferencesCreateOK struct {
 
 // NewThingsReferencesCreateOK creates ThingsReferencesCreateOK with default headers values
 func NewThingsReferencesCreateOK() *ThingsReferencesCreateOK {
+
 	return &ThingsReferencesCreateOK{}
 }
 
 // WriteResponse to the client
 func (o *ThingsReferencesCreateOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(200)
 }
@@ -58,12 +60,14 @@ type ThingsReferencesCreateUnauthorized struct {
 
 // NewThingsReferencesCreateUnauthorized creates ThingsReferencesCreateUnauthorized with default headers values
 func NewThingsReferencesCreateUnauthorized() *ThingsReferencesCreateUnauthorized {
+
 	return &ThingsReferencesCreateUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *ThingsReferencesCreateUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -85,6 +89,7 @@ type ThingsReferencesCreateForbidden struct {
 
 // NewThingsReferencesCreateForbidden creates ThingsReferencesCreateForbidden with default headers values
 func NewThingsReferencesCreateForbidden() *ThingsReferencesCreateForbidden {
+
 	return &ThingsReferencesCreateForbidden{}
 }
 
@@ -101,6 +106,7 @@ func (o *ThingsReferencesCreateForbidden) SetPayload(payload *models.ErrorRespon
 
 // WriteResponse to the client
 func (o *ThingsReferencesCreateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -127,6 +133,7 @@ type ThingsReferencesCreateUnprocessableEntity struct {
 
 // NewThingsReferencesCreateUnprocessableEntity creates ThingsReferencesCreateUnprocessableEntity with default headers values
 func NewThingsReferencesCreateUnprocessableEntity() *ThingsReferencesCreateUnprocessableEntity {
+
 	return &ThingsReferencesCreateUnprocessableEntity{}
 }
 
@@ -143,6 +150,7 @@ func (o *ThingsReferencesCreateUnprocessableEntity) SetPayload(payload *models.E
 
 // WriteResponse to the client
 func (o *ThingsReferencesCreateUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -169,6 +177,7 @@ type ThingsReferencesCreateInternalServerError struct {
 
 // NewThingsReferencesCreateInternalServerError creates ThingsReferencesCreateInternalServerError with default headers values
 func NewThingsReferencesCreateInternalServerError() *ThingsReferencesCreateInternalServerError {
+
 	return &ThingsReferencesCreateInternalServerError{}
 }
 
@@ -185,6 +194,7 @@ func (o *ThingsReferencesCreateInternalServerError) SetPayload(payload *models.E
 
 // WriteResponse to the client
 func (o *ThingsReferencesCreateInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

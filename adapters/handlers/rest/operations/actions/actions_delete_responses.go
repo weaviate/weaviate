@@ -36,12 +36,14 @@ type ActionsDeleteNoContent struct {
 
 // NewActionsDeleteNoContent creates ActionsDeleteNoContent with default headers values
 func NewActionsDeleteNoContent() *ActionsDeleteNoContent {
+
 	return &ActionsDeleteNoContent{}
 }
 
 // WriteResponse to the client
 func (o *ActionsDeleteNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(204)
 }
@@ -58,12 +60,14 @@ type ActionsDeleteUnauthorized struct {
 
 // NewActionsDeleteUnauthorized creates ActionsDeleteUnauthorized with default headers values
 func NewActionsDeleteUnauthorized() *ActionsDeleteUnauthorized {
+
 	return &ActionsDeleteUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *ActionsDeleteUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -85,6 +89,7 @@ type ActionsDeleteForbidden struct {
 
 // NewActionsDeleteForbidden creates ActionsDeleteForbidden with default headers values
 func NewActionsDeleteForbidden() *ActionsDeleteForbidden {
+
 	return &ActionsDeleteForbidden{}
 }
 
@@ -101,6 +106,7 @@ func (o *ActionsDeleteForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *ActionsDeleteForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -122,12 +128,14 @@ type ActionsDeleteNotFound struct {
 
 // NewActionsDeleteNotFound creates ActionsDeleteNotFound with default headers values
 func NewActionsDeleteNotFound() *ActionsDeleteNotFound {
+
 	return &ActionsDeleteNotFound{}
 }
 
 // WriteResponse to the client
 func (o *ActionsDeleteNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -149,6 +157,7 @@ type ActionsDeleteInternalServerError struct {
 
 // NewActionsDeleteInternalServerError creates ActionsDeleteInternalServerError with default headers values
 func NewActionsDeleteInternalServerError() *ActionsDeleteInternalServerError {
+
 	return &ActionsDeleteInternalServerError{}
 }
 
@@ -165,6 +174,7 @@ func (o *ActionsDeleteInternalServerError) SetPayload(payload *models.ErrorRespo
 
 // WriteResponse to the client
 func (o *ActionsDeleteInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

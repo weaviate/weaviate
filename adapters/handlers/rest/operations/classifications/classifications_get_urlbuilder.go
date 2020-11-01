@@ -51,7 +51,7 @@ func (o *ClassificationsGetURL) SetBasePath(bp string) {
 func (o *ClassificationsGetURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/classifications/{id}"
+	var _path = "/classifications/{id}"
 
 	id := o.ID
 	if id != "" {

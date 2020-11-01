@@ -41,6 +41,7 @@ type C11yExtensionsOK struct {
 
 // NewC11yExtensionsOK creates C11yExtensionsOK with default headers values
 func NewC11yExtensionsOK() *C11yExtensionsOK {
+
 	return &C11yExtensionsOK{}
 }
 
@@ -57,6 +58,7 @@ func (o *C11yExtensionsOK) SetPayload(payload *models.C11yExtension) {
 
 // WriteResponse to the client
 func (o *C11yExtensionsOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -83,6 +85,7 @@ type C11yExtensionsBadRequest struct {
 
 // NewC11yExtensionsBadRequest creates C11yExtensionsBadRequest with default headers values
 func NewC11yExtensionsBadRequest() *C11yExtensionsBadRequest {
+
 	return &C11yExtensionsBadRequest{}
 }
 
@@ -99,6 +102,7 @@ func (o *C11yExtensionsBadRequest) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *C11yExtensionsBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -120,12 +124,14 @@ type C11yExtensionsUnauthorized struct {
 
 // NewC11yExtensionsUnauthorized creates C11yExtensionsUnauthorized with default headers values
 func NewC11yExtensionsUnauthorized() *C11yExtensionsUnauthorized {
+
 	return &C11yExtensionsUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *C11yExtensionsUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -147,6 +153,7 @@ type C11yExtensionsForbidden struct {
 
 // NewC11yExtensionsForbidden creates C11yExtensionsForbidden with default headers values
 func NewC11yExtensionsForbidden() *C11yExtensionsForbidden {
+
 	return &C11yExtensionsForbidden{}
 }
 
@@ -163,6 +170,7 @@ func (o *C11yExtensionsForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *C11yExtensionsForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -189,6 +197,7 @@ type C11yExtensionsInternalServerError struct {
 
 // NewC11yExtensionsInternalServerError creates C11yExtensionsInternalServerError with default headers values
 func NewC11yExtensionsInternalServerError() *C11yExtensionsInternalServerError {
+
 	return &C11yExtensionsInternalServerError{}
 }
 
@@ -205,6 +214,7 @@ func (o *C11yExtensionsInternalServerError) SetPayload(payload *models.ErrorResp
 
 // WriteResponse to the client
 func (o *C11yExtensionsInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -226,12 +236,14 @@ type C11yExtensionsNotImplemented struct {
 
 // NewC11yExtensionsNotImplemented creates C11yExtensionsNotImplemented with default headers values
 func NewC11yExtensionsNotImplemented() *C11yExtensionsNotImplemented {
+
 	return &C11yExtensionsNotImplemented{}
 }
 
 // WriteResponse to the client
 func (o *C11yExtensionsNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(501)
 }

@@ -129,6 +129,7 @@ func (m *ThingsGetResponse) Validate(formats strfmt.Registry) error {
 }
 
 func (m *ThingsGetResponse) validateDeprecations(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Deprecations) { // not required
 		return nil
 	}
@@ -153,6 +154,7 @@ func (m *ThingsGetResponse) validateDeprecations(formats strfmt.Registry) error 
 }
 
 func (m *ThingsGetResponse) validateResult(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Result) { // not required
 		return nil
 	}
@@ -219,6 +221,7 @@ func (m *ThingsGetResponseAO2Result) Validate(formats strfmt.Registry) error {
 }
 
 func (m *ThingsGetResponseAO2Result) validateErrors(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Errors) { // not required
 		return nil
 	}
@@ -268,6 +271,7 @@ func (m *ThingsGetResponseAO2Result) validateStatusEnum(path, location string, v
 }
 
 func (m *ThingsGetResponseAO2Result) validateStatus(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Status) { // not required
 		return nil
 	}

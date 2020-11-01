@@ -48,6 +48,7 @@ func (m *NearestNeighbors) Validate(formats strfmt.Registry) error {
 }
 
 func (m *NearestNeighbors) validateNeighbors(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Neighbors) { // not required
 		return nil
 	}

@@ -46,7 +46,7 @@ func (o *C11yCorpusGetURL) SetBasePath(bp string) {
 func (o *C11yCorpusGetURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/c11y/corpus"
+	var _path = "/c11y/corpus"
 
 	_basePath := o._basePath
 	if _basePath == "" {

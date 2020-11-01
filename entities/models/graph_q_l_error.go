@@ -54,6 +54,7 @@ func (m *GraphQLError) Validate(formats strfmt.Registry) error {
 }
 
 func (m *GraphQLError) validateLocations(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Locations) { // not required
 		return nil
 	}

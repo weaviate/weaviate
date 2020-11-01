@@ -31,6 +31,7 @@ import (
 // NewActionsPatchParams creates a new ActionsPatchParams object
 // no default values defined in spec.
 func NewActionsPatchParams() ActionsPatchParams {
+
 	return ActionsPatchParams{}
 }
 
@@ -116,6 +117,7 @@ func (o *ActionsPatchParams) bindID(rawData []string, hasKey bool, formats strfm
 
 // validateID carries on validations for parameter ID
 func (o *ActionsPatchParams) validateID(formats strfmt.Registry) error {
+
 	if err := validate.FormatOf("id", "path", "uuid", o.ID.String(), formats); err != nil {
 		return err
 	}

@@ -60,5 +60,6 @@ func (o *WeaviateWellknownLivenessOK) Error() string {
 }
 
 func (o *WeaviateWellknownLivenessOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }

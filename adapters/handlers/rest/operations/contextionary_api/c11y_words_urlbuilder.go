@@ -51,7 +51,7 @@ func (o *C11yWordsURL) SetBasePath(bp string) {
 func (o *C11yWordsURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/c11y/words/{words}"
+	var _path = "/c11y/words/{words}"
 
 	words := o.Words
 	if words != "" {

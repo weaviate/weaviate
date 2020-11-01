@@ -71,6 +71,7 @@ func (o *WeaviateRootOK) GetPayload() *WeaviateRootOKBody {
 }
 
 func (o *WeaviateRootOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(WeaviateRootOKBody)
 
 	// response payload
@@ -105,6 +106,7 @@ func (o *WeaviateRootOKBody) Validate(formats strfmt.Registry) error {
 }
 
 func (o *WeaviateRootOKBody) validateLinks(formats strfmt.Registry) error {
+
 	if swag.IsZero(o.Links) { // not required
 		return nil
 	}

@@ -59,7 +59,7 @@ func (o *ThingsReferencesUpdate) ServeHTTP(rw http.ResponseWriter, r *http.Reque
 	if rCtx != nil {
 		r = rCtx
 	}
-	Params := NewThingsReferencesUpdateParams()
+	var Params = NewThingsReferencesUpdateParams()
 
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
@@ -82,4 +82,5 @@ func (o *ThingsReferencesUpdate) ServeHTTP(rw http.ResponseWriter, r *http.Reque
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
+
 }

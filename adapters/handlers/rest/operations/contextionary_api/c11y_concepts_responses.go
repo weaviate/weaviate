@@ -41,6 +41,7 @@ type C11yConceptsOK struct {
 
 // NewC11yConceptsOK creates C11yConceptsOK with default headers values
 func NewC11yConceptsOK() *C11yConceptsOK {
+
 	return &C11yConceptsOK{}
 }
 
@@ -57,6 +58,7 @@ func (o *C11yConceptsOK) SetPayload(payload *models.C11yWordsResponse) {
 
 // WriteResponse to the client
 func (o *C11yConceptsOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -83,6 +85,7 @@ type C11yConceptsBadRequest struct {
 
 // NewC11yConceptsBadRequest creates C11yConceptsBadRequest with default headers values
 func NewC11yConceptsBadRequest() *C11yConceptsBadRequest {
+
 	return &C11yConceptsBadRequest{}
 }
 
@@ -99,6 +102,7 @@ func (o *C11yConceptsBadRequest) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *C11yConceptsBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -120,12 +124,14 @@ type C11yConceptsUnauthorized struct {
 
 // NewC11yConceptsUnauthorized creates C11yConceptsUnauthorized with default headers values
 func NewC11yConceptsUnauthorized() *C11yConceptsUnauthorized {
+
 	return &C11yConceptsUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *C11yConceptsUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -147,6 +153,7 @@ type C11yConceptsForbidden struct {
 
 // NewC11yConceptsForbidden creates C11yConceptsForbidden with default headers values
 func NewC11yConceptsForbidden() *C11yConceptsForbidden {
+
 	return &C11yConceptsForbidden{}
 }
 
@@ -163,6 +170,7 @@ func (o *C11yConceptsForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *C11yConceptsForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -189,6 +197,7 @@ type C11yConceptsInternalServerError struct {
 
 // NewC11yConceptsInternalServerError creates C11yConceptsInternalServerError with default headers values
 func NewC11yConceptsInternalServerError() *C11yConceptsInternalServerError {
+
 	return &C11yConceptsInternalServerError{}
 }
 
@@ -205,6 +214,7 @@ func (o *C11yConceptsInternalServerError) SetPayload(payload *models.ErrorRespon
 
 // WriteResponse to the client
 func (o *C11yConceptsInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -226,12 +236,14 @@ type C11yConceptsNotImplemented struct {
 
 // NewC11yConceptsNotImplemented creates C11yConceptsNotImplemented with default headers values
 func NewC11yConceptsNotImplemented() *C11yConceptsNotImplemented {
+
 	return &C11yConceptsNotImplemented{}
 }
 
 // WriteResponse to the client
 func (o *C11yConceptsNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(501)
 }

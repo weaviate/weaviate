@@ -87,6 +87,7 @@ func (o *ThingsReferencesCreateOK) Error() string {
 }
 
 func (o *ThingsReferencesCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -107,6 +108,7 @@ func (o *ThingsReferencesCreateUnauthorized) Error() string {
 }
 
 func (o *ThingsReferencesCreateUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -132,6 +134,7 @@ func (o *ThingsReferencesCreateForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *ThingsReferencesCreateForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -164,6 +167,7 @@ func (o *ThingsReferencesCreateUnprocessableEntity) GetPayload() *models.ErrorRe
 }
 
 func (o *ThingsReferencesCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -196,6 +200,7 @@ func (o *ThingsReferencesCreateInternalServerError) GetPayload() *models.ErrorRe
 }
 
 func (o *ThingsReferencesCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

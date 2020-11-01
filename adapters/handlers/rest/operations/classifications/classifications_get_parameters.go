@@ -27,6 +27,7 @@ import (
 // NewClassificationsGetParams creates a new ClassificationsGetParams object
 // no default values defined in spec.
 func NewClassificationsGetParams() ClassificationsGetParams {
+
 	return ClassificationsGetParams{}
 }
 

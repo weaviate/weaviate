@@ -73,6 +73,7 @@ func (o *GetWellKnownOpenidConfigurationOK) GetPayload() *GetWellKnownOpenidConf
 }
 
 func (o *GetWellKnownOpenidConfigurationOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(GetWellKnownOpenidConfigurationOKBody)
 
 	// response payload
@@ -100,6 +101,7 @@ func (o *GetWellKnownOpenidConfigurationNotFound) Error() string {
 }
 
 func (o *GetWellKnownOpenidConfigurationNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 

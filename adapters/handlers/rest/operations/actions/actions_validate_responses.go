@@ -36,12 +36,14 @@ type ActionsValidateOK struct {
 
 // NewActionsValidateOK creates ActionsValidateOK with default headers values
 func NewActionsValidateOK() *ActionsValidateOK {
+
 	return &ActionsValidateOK{}
 }
 
 // WriteResponse to the client
 func (o *ActionsValidateOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(200)
 }
@@ -58,12 +60,14 @@ type ActionsValidateUnauthorized struct {
 
 // NewActionsValidateUnauthorized creates ActionsValidateUnauthorized with default headers values
 func NewActionsValidateUnauthorized() *ActionsValidateUnauthorized {
+
 	return &ActionsValidateUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *ActionsValidateUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -85,6 +89,7 @@ type ActionsValidateForbidden struct {
 
 // NewActionsValidateForbidden creates ActionsValidateForbidden with default headers values
 func NewActionsValidateForbidden() *ActionsValidateForbidden {
+
 	return &ActionsValidateForbidden{}
 }
 
@@ -101,6 +106,7 @@ func (o *ActionsValidateForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *ActionsValidateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -127,6 +133,7 @@ type ActionsValidateUnprocessableEntity struct {
 
 // NewActionsValidateUnprocessableEntity creates ActionsValidateUnprocessableEntity with default headers values
 func NewActionsValidateUnprocessableEntity() *ActionsValidateUnprocessableEntity {
+
 	return &ActionsValidateUnprocessableEntity{}
 }
 
@@ -143,6 +150,7 @@ func (o *ActionsValidateUnprocessableEntity) SetPayload(payload *models.ErrorRes
 
 // WriteResponse to the client
 func (o *ActionsValidateUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -169,6 +177,7 @@ type ActionsValidateInternalServerError struct {
 
 // NewActionsValidateInternalServerError creates ActionsValidateInternalServerError with default headers values
 func NewActionsValidateInternalServerError() *ActionsValidateInternalServerError {
+
 	return &ActionsValidateInternalServerError{}
 }
 
@@ -185,6 +194,7 @@ func (o *ActionsValidateInternalServerError) SetPayload(payload *models.ErrorRes
 
 // WriteResponse to the client
 func (o *ActionsValidateInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

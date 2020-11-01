@@ -553,6 +553,7 @@ func (o *WeaviateAPI) AuthenticatorsFor(schemes map[string]spec.SecurityScheme) 
 			result[name] = o.BearerAuthenticator(name, func(token string, scopes []string) (interface{}, error) {
 				return o.OidcAuth(token, scopes)
 			})
+
 		}
 	}
 	return result

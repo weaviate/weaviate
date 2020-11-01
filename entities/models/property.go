@@ -64,6 +64,7 @@ func (m *Property) Validate(formats strfmt.Registry) error {
 }
 
 func (m *Property) validateKeywords(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Keywords) { // not required
 		return nil
 	}

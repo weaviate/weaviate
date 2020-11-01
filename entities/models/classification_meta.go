@@ -65,6 +65,7 @@ func (m *ClassificationMeta) Validate(formats strfmt.Registry) error {
 }
 
 func (m *ClassificationMeta) validateCompleted(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Completed) { // not required
 		return nil
 	}
@@ -77,6 +78,7 @@ func (m *ClassificationMeta) validateCompleted(formats strfmt.Registry) error {
 }
 
 func (m *ClassificationMeta) validateStarted(formats strfmt.Registry) error {
+
 	if swag.IsZero(m.Started) { // not required
 		return nil
 	}
