@@ -309,7 +309,9 @@ func (fs *Searcher) extractPropValuePair(filter *filters.Clause,
 			filter.Operator)
 	}
 
-	// if filter.Value.Filter.
+	if fs.onUUIDProp(props[0]) {
+		return fs.extractUUIDProp(filter.Value.Value, filter.Operator)
+	}
 
 	return fs.extractPrimitiveProp(props[0], filter.Value.Type, filter.Value.Value,
 		filter.Operator)
@@ -388,6 +390,21 @@ func (fs *Searcher) extractGeoFilter(propName string, value interface{},
 	}, nil
 }
 
+func (fs *Searcher) extractUUIDProp(value interface{},
+	operator filters.Operator) (*propValuePair, error) {
+	v, ok := value.(string)
+	if !ok {
+		return nil, fmt.Errorf("expected value to be string, got %T", value)
+	}
+
+	return &propValuePair{
+		value:        []byte(v),
+		hasFrequency: false,
+		prop:         helpers.PropertyNameUUID,
+		operator:     operator,
+	}, nil
+}
+
 // TODO: repeated calls to on... aren't too efficient because we iterate over
 // the schema each time, might be smarter to have a single method that
 // determines the type and then we switch based on the result. However, the
@@ -430,6 +447,10 @@ func (fs *Searcher) onGeoProp(className schema.ClassName, propName string) bool 
 	}
 
 	return false
+}
+
+func (fs *Searcher) onUUIDProp(propName string) bool {
+	return propName == helpers.PropertyNameUUID
 }
 
 type docPointers struct {

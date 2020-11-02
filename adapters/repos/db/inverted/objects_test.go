@@ -14,6 +14,7 @@ package inverted
 import (
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/stretchr/testify/assert"
@@ -29,6 +30,7 @@ func TestAnalyzeObject(t *testing.T) {
 			"email":       "john@doe.com",
 		}
 
+		uuid := "2609f1bc-7693-48f3-b531-6ddc52cd2501"
 		props := []*models.Property{
 			&models.Property{
 				Name:     "description",
@@ -39,7 +41,7 @@ func TestAnalyzeObject(t *testing.T) {
 				DataType: []string{"string"},
 			},
 		}
-		res, err := a.Object(schema, props)
+		res, err := a.Object(schema, props, strfmt.UUID(uuid))
 		require.Nil(t, err)
 
 		expectedDescription := []Countable{
@@ -64,9 +66,17 @@ func TestAnalyzeObject(t *testing.T) {
 			},
 		}
 
-		require.Len(t, res, 2)
+		expectedUUID := []Countable{
+			Countable{
+				Data:          []byte(uuid),
+				TermFrequency: 0,
+			},
+		}
+
+		require.Len(t, res, 3)
 		var actualDescription []Countable
 		var actualEmail []Countable
+		var actualUUID []Countable
 
 		for _, elem := range res {
 			if elem.Name == "email" {
@@ -76,10 +86,15 @@ func TestAnalyzeObject(t *testing.T) {
 			if elem.Name == "description" {
 				actualDescription = elem.Items
 			}
+
+			if elem.Name == "uuid" {
+				actualUUID = elem.Items
+			}
 		}
 
 		assert.ElementsMatch(t, expectedEmail, actualEmail, res)
 		assert.ElementsMatch(t, expectedDescription, actualDescription, res)
+		assert.ElementsMatch(t, expectedUUID, actualUUID, res)
 	})
 
 	t.Run("with refProps", func(t *testing.T) {
@@ -92,13 +107,14 @@ func TestAnalyzeObject(t *testing.T) {
 				},
 			}
 
+			uuid := "2609f1bc-7693-48f3-b531-6ddc52cd2501"
 			props := []*models.Property{
 				&models.Property{
 					Name:     "myRef",
 					DataType: []string{"RefClass"},
 				},
 			}
-			res, err := a.Object(schema, props)
+			res, err := a.Object(schema, props, strfmt.UUID(uuid))
 			require.Nil(t, err)
 
 			expectedRefCount := []Countable{
@@ -107,28 +123,41 @@ func TestAnalyzeObject(t *testing.T) {
 				},
 			}
 
-			require.Len(t, res, 1)
+			expectedUUID := []Countable{
+				Countable{
+					Data:          []byte(uuid),
+					TermFrequency: 0,
+				},
+			}
+
+			require.Len(t, res, 2)
 			var actualRefCount []Countable
+			var actualUUID []Countable
 
 			for _, elem := range res {
 				if elem.Name == helpers.MetaCountProp("myRef") {
 					actualRefCount = elem.Items
 				}
+				if elem.Name == "uuid" {
+					actualUUID = elem.Items
+				}
 			}
 
 			assert.ElementsMatch(t, expectedRefCount, actualRefCount, res)
+			assert.ElementsMatch(t, expectedUUID, actualUUID, res)
 		})
 
 		t.Run("with the ref omitted in the object schema", func(t *testing.T) {
 			schema := map[string]interface{}{}
 
+			uuid := "2609f1bc-7693-48f3-b531-6ddc52cd2501"
 			props := []*models.Property{
 				&models.Property{
 					Name:     "myRef",
 					DataType: []string{"RefClass"},
 				},
 			}
-			res, err := a.Object(schema, props)
+			res, err := a.Object(schema, props, strfmt.UUID(uuid))
 			require.Nil(t, err)
 
 			expectedRefCount := []Countable{
@@ -137,16 +166,28 @@ func TestAnalyzeObject(t *testing.T) {
 				},
 			}
 
-			require.Len(t, res, 1)
+			expectedUUID := []Countable{
+				Countable{
+					Data:          []byte(uuid),
+					TermFrequency: 0,
+				},
+			}
+
+			require.Len(t, res, 2)
 			var actualRefCount []Countable
+			var actualUUID []Countable
 
 			for _, elem := range res {
 				if elem.Name == helpers.MetaCountProp("myRef") {
 					actualRefCount = elem.Items
 				}
+				if elem.Name == "uuid" {
+					actualUUID = elem.Items
+				}
 			}
 
 			assert.ElementsMatch(t, expectedRefCount, actualRefCount, res)
+			assert.ElementsMatch(t, expectedUUID, actualUUID, res)
 		})
 	})
 }
