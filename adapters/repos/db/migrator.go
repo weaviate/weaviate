@@ -37,6 +37,11 @@ func (m *Migrator) AddClass(ctx context.Context, kind kind.Kind, class *models.C
 		return errors.Wrap(err, "create index")
 	}
 
+	err = idx.addUUIDProperty(ctx)
+	if err != nil {
+		return errors.Wrapf(err, "extend idx '%s' with uuid property", idx.ID())
+	}
+
 	for _, prop := range class.Properties {
 		err := idx.addProperty(ctx, prop)
 		if err != nil {

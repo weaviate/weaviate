@@ -50,7 +50,7 @@ func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, erro
 		return nil, fmt.Errorf("expected schema to be map, but got %T", object.Schema())
 	}
 
-	return inverted.NewAnalyzer().Object(schemaMap, c.Properties)
+	return inverted.NewAnalyzer().Object(schemaMap, c.Properties, object.ID())
 }
 
 func (s *Shard) extendInvertedIndices(tx *bolt.Tx, props []inverted.Property,

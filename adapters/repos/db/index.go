@@ -73,6 +73,13 @@ func (i *Index) addProperty(ctx context.Context, prop *models.Property) error {
 	return shard.addProperty(ctx, prop)
 }
 
+func (i *Index) addUUIDProperty(ctx context.Context) error {
+	// TODO: pick the right shard instead of using the "single" shard
+	shard := i.Shards["single"]
+
+	return shard.addUUIDProperty(ctx)
+}
+
 type IndexConfig struct {
 	RootPath  string
 	Kind      kind.Kind
