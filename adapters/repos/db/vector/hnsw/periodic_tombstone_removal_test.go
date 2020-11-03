@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	testhelper "github.com/semi-technologies/weaviate/test/helper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,6 +28,7 @@ func TestPeriodicTombstoneRemoval(t *testing.T) {
 		MakeCommitLoggerThunk:    MakeNoopCommitLogger,
 		MaximumConnections:       30,
 		EFConstruction:           60,
+		DistanceProvider:         distancer.NewCosineProvider(),
 		VectorForIDThunk:         testVectorForID,
 		TombstoneCleanupInterval: 100 * time.Millisecond,
 	})

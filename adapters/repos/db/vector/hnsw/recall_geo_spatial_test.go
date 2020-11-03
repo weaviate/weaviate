@@ -62,12 +62,12 @@ func TestRecallGeo(t *testing.T) {
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			MaximumConnections:    maxNeighbors,
 			EFConstruction:        efConstruction,
+			DistanceProvider:      distancer.NewGeoProvider(),
 			VectorForIDThunk: func(ctx context.Context, id int32) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
 		})
 
-		index.distancerProvider = distancer.NewGeoProvider()
 		require.Nil(t, err)
 		vectorIndex = index
 

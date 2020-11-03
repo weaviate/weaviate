@@ -255,17 +255,6 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 				filter:      buildFilter("description", "also not exactly lightweight", eq, dtString),
 				expectedIDs: []strfmt.UUID{carE63sID},
 			},
-			// {
-			// 	name: "within 600km of San Francisco",
-			// 	filter: buildFilter("parkedAt", filters.GeoRange{
-			// 		GeoCoordinates: &models.GeoCoordinates{
-			// 			Latitude:  ptFloat32(37.733795),
-			// 			Longitude: ptFloat32(-122.446747),
-			// 		},
-			// 		Distance: 600000,
-			// 	}, wgr, dtGeoCoordinates),
-			// 	expectedIDs: []strfmt.UUID{carSprinterID},
-			// },
 			{
 				name:        "by id",
 				filter:      buildFilter("uuid", carPoloID.String(), eq, dtString),
@@ -296,7 +285,17 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 				filter:      buildFilter("uuid", carPoloID.String(), gt, dtString),
 				expectedIDs: []strfmt.UUID{carSprinterID},
 			},
-			// TODO: implement like operator
+			{
+				name: "within 600km of San Francisco",
+				filter: buildFilter("parkedAt", filters.GeoRange{
+					GeoCoordinates: &models.GeoCoordinates{
+						Latitude:  ptFloat32(37.733795),
+						Longitude: ptFloat32(-122.446747),
+					},
+					Distance: 600000,
+				}, wgr, dtGeoCoordinates),
+				expectedIDs: []strfmt.UUID{carSprinterID},
+			},
 			// {
 			// 	name:        "by id like",
 			// 	filter:      buildFilter("uuid", carPoloID.String(), like, dtString),
