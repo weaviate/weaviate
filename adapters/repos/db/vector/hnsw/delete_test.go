@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -32,6 +33,7 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			MaximumConnections:    30,
 			EFConstruction:        128,
+			DistanceProvider:      distancer.NewCosineProvider(),
 			VectorForIDThunk: func(ctx context.Context, id int32) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
@@ -101,6 +103,7 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			MaximumConnections:    30,
 			EFConstruction:        128,
+			DistanceProvider:      distancer.NewCosineProvider(),
 			VectorForIDThunk: func(ctx context.Context, id int32) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
@@ -180,6 +183,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 			MakeCommitLoggerThunk: MakeNoopCommitLogger,
 			MaximumConnections:    30,
 			EFConstruction:        128,
+			DistanceProvider:      distancer.NewCosineProvider(),
 			VectorForIDThunk: func(ctx context.Context, id int32) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
@@ -416,6 +420,7 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		MaximumConnections:    30,
 		EFConstruction:        128,
+		DistanceProvider:      distancer.NewCosineProvider(),
 		VectorForIDThunk:      testVectorForID,
 	})
 	require.Nil(t, err)

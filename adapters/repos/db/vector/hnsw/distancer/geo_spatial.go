@@ -21,11 +21,16 @@ func geoDist(a, b []float32) (float32, bool, error) {
 		return 0, false, fmt.Errorf("distance vectors must have len 2")
 	}
 
-	latARadian := float64(a[0] * math.Pi / 180)
-	latBRadian := float64(b[0] * math.Pi / 180)
+	latA := a[0]
+	latB := b[0]
+	lonA := a[1]
+	lonB := b[1]
 	const R = float64(6371e3)
-	deltaLatRadian := float64(b[0]-a[0]) * math.Pi / 180
-	deltaLonRadian := float64(b[1]-a[1]) * math.Pi / 100
+
+	latARadian := float64(latA * math.Pi / 180)
+	latBRadian := float64(latB * math.Pi / 180)
+	deltaLatRadian := float64(latB-latA) * math.Pi / 180
+	deltaLonRadian := float64(lonB-lonA) * math.Pi / 180
 
 	A := math.Sin(deltaLatRadian/2)*math.Sin(deltaLatRadian/2) +
 		math.Cos(latARadian)*math.Cos(latBRadian)*math.Sin(deltaLonRadian/2)*math.Sin(deltaLonRadian/2)

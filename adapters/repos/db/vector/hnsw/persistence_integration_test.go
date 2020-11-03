@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -46,6 +47,7 @@ func TestHnswPersistence(t *testing.T) {
 		MakeCommitLoggerThunk: makeCL,
 		MaximumConnections:    30,
 		EFConstruction:        60,
+		DistanceProvider:      distancer.NewCosineProvider(),
 		VectorForIDThunk:      testVectorForID,
 	})
 	require.Nil(t, err)
@@ -80,6 +82,7 @@ func TestHnswPersistence(t *testing.T) {
 		MakeCommitLoggerThunk: makeCL,
 		MaximumConnections:    30,
 		EFConstruction:        60,
+		DistanceProvider:      distancer.NewCosineProvider(),
 		VectorForIDThunk:      testVectorForID,
 	})
 	require.Nil(t, err)
@@ -114,6 +117,7 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 		MakeCommitLoggerThunk: makeCL,
 		MaximumConnections:    30,
 		EFConstruction:        60,
+		DistanceProvider:      distancer.NewCosineProvider(),
 		VectorForIDThunk:      testVectorForID,
 	})
 	require.Nil(t, err)
@@ -157,6 +161,7 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 		MakeCommitLoggerThunk: makeCL,
 		MaximumConnections:    30,
 		EFConstruction:        60,
+		DistanceProvider:      distancer.NewCosineProvider(),
 		VectorForIDThunk:      testVectorForID,
 	})
 	require.Nil(t, err)
@@ -191,6 +196,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		MakeCommitLoggerThunk: makeCL,
 		MaximumConnections:    30,
 		EFConstruction:        60,
+		DistanceProvider:      distancer.NewCosineProvider(),
 		VectorForIDThunk:      testVectorForID,
 	})
 	require.Nil(t, err)
@@ -239,6 +245,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		MakeCommitLoggerThunk: makeCL,
 		MaximumConnections:    30,
 		EFConstruction:        60,
+		DistanceProvider:      distancer.NewCosineProvider(),
 		VectorForIDThunk:      testVectorForID,
 	})
 	require.Nil(t, err)
@@ -278,6 +285,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		MakeCommitLoggerThunk: makeCL,
 		MaximumConnections:    30,
 		EFConstruction:        60,
+		DistanceProvider:      distancer.NewCosineProvider(),
 		VectorForIDThunk:      testVectorForID,
 	})
 	require.Nil(t, err)
@@ -313,6 +321,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		MakeCommitLoggerThunk: makeCL,
 		MaximumConnections:    30,
 		EFConstruction:        60,
+		DistanceProvider:      distancer.NewCosineProvider(),
 		VectorForIDThunk:      testVectorForID,
 	})
 	require.Nil(t, err)

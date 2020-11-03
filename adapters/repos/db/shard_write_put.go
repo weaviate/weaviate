@@ -23,7 +23,10 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
+	"github.com/semi-technologies/weaviate/entities/models"
+	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
 func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
@@ -50,6 +53,10 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 		return errors.Wrap(err, "update vector index")
 	}
 
+	if err := s.updatePropertySpecificIndices(object, status); err != nil {
+		return errors.Wrap(err, "update property-specific indices")
+	}
+
 	return nil
 }
 
@@ -68,6 +75,56 @@ func (s *Shard) updateVectorIndex(vector []float32,
 
 	if err := s.vectorIndex.Add(int(status.docID), vector); err != nil {
 		return errors.Wrapf(err, "insert doc id %q to vector index", status.docID)
+	}
+
+	return nil
+}
+
+func (s *Shard) updatePropertySpecificIndices(object *storobj.Object,
+	status objectInsertStatus) error {
+	// TODO: this breaks if the doc id is not updated, but the geo prop is, i.e.
+	// we're missing udpates
+	if status.isUpdate && !status.docIDChanged {
+		// nothing has changed, nothing to do for us
+		return nil
+	}
+
+	for propName, propIndex := range s.propertyIndices {
+		if err := s.updatePropertySpecificIndex(propName, propIndex,
+			object, status); err != nil {
+			return errors.Wrapf(err, "property %q", propName)
+		}
+	}
+
+	return nil
+}
+
+func (s *Shard) updatePropertySpecificIndex(propName string,
+	index propertyspecific.Index, obj *storobj.Object,
+	status objectInsertStatus) error {
+	if index.Type != schema.DataTypeGeoCoordinates {
+		return fmt.Errorf("unsupported per-property index type %q", index.Type)
+	}
+
+	if obj.Schema() == nil {
+		return nil
+	}
+
+	asMap := obj.Schema().(map[string]interface{})
+	propValue, ok := asMap[propName]
+	if !ok {
+		return nil
+	}
+
+	// geo coordinates is the only supported one at the moment
+	asGeo, ok := propValue.(*models.GeoCoordinates)
+	if !ok {
+		return fmt.Errorf("expected prop to be of type %T, but got: %T",
+			&models.GeoCoordinates{}, propValue)
+	}
+
+	if err := index.GeoIndex.Add(int(status.docID), asGeo); err != nil {
+		return errors.Wrapf(err, "insert into geo index")
 	}
 
 	return nil
