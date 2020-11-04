@@ -13,6 +13,7 @@ package inverted
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -119,7 +120,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 		}
 
 		var err error
-		items, err = a.Int(int(asInt))
+		items, err = a.Int(asInt)
 		if err != nil {
 			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
 		}
@@ -144,6 +145,18 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 
 		var err error
 		items, err = a.Bool(asBool) // convert to int before analyzing
+		if err != nil {
+			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
+		}
+	case schema.DataTypeDate:
+		hasFrequency = false
+		asTime, ok := value.(time.Time)
+		if !ok {
+			return nil, fmt.Errorf("expected property %s to be time.Time, but got %T", prop.Name, value)
+		}
+
+		var err error
+		items, err = a.Int(asTime.UnixNano())
 		if err != nil {
 			return nil, errors.Wrapf(err, "analyze property %s", prop.Name)
 		}

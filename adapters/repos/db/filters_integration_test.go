@@ -185,17 +185,36 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 				filter:      buildFilter("weight", 2069.5, gte, dtNumber),
 				expectedIDs: []strfmt.UUID{carSprinterID, carE63sID},
 			},
-			// TODO gh-1150 support date
-			// {
-			// 	name:        "before 1980",
-			// 	filter:      buildFilter("released", "1980-01-01T00:00:00+02:00", lt, dtDate),
-			// 	expectedIDs: []strfmt.UUID{carPoloID},
-			// },
-			// {
-			// 	name:        "from 1995 on",
-			// 	filter:      buildFilter("released", "1995-08-17T12:47:00+02:00", gte, dtDate),
-			// 	expectedIDs: []strfmt.UUID{carSprinterID, carE63sID},
-			// },
+			{
+				name:        "before or equal 2017",
+				filter:      buildFilter("released", mustParseTime("2017-02-17T09:47:00+02:00"), lte, dtDate),
+				expectedIDs: []strfmt.UUID{carPoloID, carE63sID, carSprinterID},
+			},
+			{
+				name:        "before 1980",
+				filter:      buildFilter("released", mustParseTime("1980-01-01T00:00:00+02:00"), lt, dtDate),
+				expectedIDs: []strfmt.UUID{carPoloID},
+			},
+			{
+				name:        "from or equal 1995 on",
+				filter:      buildFilter("released", mustParseTime("1995-08-17T12:47:00+02:00"), gte, dtDate),
+				expectedIDs: []strfmt.UUID{carSprinterID, carE63sID},
+			},
+			{
+				name:        "from 1995 on",
+				filter:      buildFilter("released", mustParseTime("1995-08-17T12:47:00+02:00"), gt, dtDate),
+				expectedIDs: []strfmt.UUID{carE63sID},
+			},
+			{
+				name:        "equal to 1995-08-17T12:47:00+02:00",
+				filter:      buildFilter("released", mustParseTime("1995-08-17T12:47:00+02:00"), eq, dtDate),
+				expectedIDs: []strfmt.UUID{carSprinterID},
+			},
+			{
+				name:        "not equal to 1995-08-17T12:47:00+02:00",
+				filter:      buildFilter("released", mustParseTime("1995-08-17T12:47:00+02:00"), neq, dtDate),
+				expectedIDs: []strfmt.UUID{carPoloID, carE63sID},
+			},
 			{
 				name:        "exactly matching a specific contact email",
 				filter:      buildFilter("contact", "john@heavycars.example.com", eq, dtString),
@@ -483,6 +502,14 @@ var (
 	carPoloID     strfmt.UUID = "b444e1d8-d73a-4d53-a417-8d6501c27f2e"
 )
 
+func mustParseTime(in string) time.Time {
+	asTime, err := time.Parse(time.RFC3339, in)
+	if err != nil {
+		panic(err)
+	}
+	return asTime
+}
+
 var cars = []models.Thing{
 	models.Thing{
 		Class: carClass.Class,
@@ -491,7 +518,7 @@ var cars = []models.Thing{
 			"modelName":  "sprinter",
 			"horsepower": int64(130),
 			"weight":     3499.90,
-			"released":   "1995-08-17T12:47:00+02:00",
+			"released":   mustParseTime("1995-08-17T12:47:00+02:00"),
 			"parkedAt": &models.GeoCoordinates{
 				Latitude:  ptFloat32(34.052235),
 				Longitude: ptFloat32(-118.243683),
@@ -507,7 +534,7 @@ var cars = []models.Thing{
 			"modelName":  "e63s",
 			"horsepower": int64(612),
 			"weight":     2069.5,
-			"released":   "2017-02-17T09:47:00+02:00",
+			"released":   mustParseTime("2017-02-17T09:47:00+02:00"),
 			"parkedAt": &models.GeoCoordinates{
 				Latitude:  ptFloat32(40.730610),
 				Longitude: ptFloat32(-73.935242),
@@ -520,7 +547,7 @@ var cars = []models.Thing{
 		Class: carClass.Class,
 		ID:    carPoloID,
 		Schema: map[string]interface{}{
-			"released":    "1975-01-01T10:12:00+02:00",
+			"released":    mustParseTime("1975-01-01T10:12:00+02:00"),
 			"modelName":   "polo",
 			"horsepower":  int64(100),
 			"weight":      1200.0,
