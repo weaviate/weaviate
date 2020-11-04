@@ -337,6 +337,9 @@ func (fs *Searcher) extractPrimitiveProp(propName string, dt schema.DataType,
 	case schema.DataTypeNumber:
 		extractValueFn = fs.extractNumberValue
 		hasFrequency = false
+	case schema.DataTypeDate:
+		extractValueFn = fs.extractDateValue
+		hasFrequency = false
 	case "":
 		return nil, fmt.Errorf("data type cannot be empty")
 	default:
