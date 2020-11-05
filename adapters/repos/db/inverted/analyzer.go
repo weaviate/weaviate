@@ -99,8 +99,8 @@ func (a *Analyzer) String(in string) []Countable {
 
 // Int requires no analysis, so it's actually just a simple conversion to a
 // string-formatted byte slice of the int
-func (a *Analyzer) Int(in int) ([]Countable, error) {
-	data, err := LexicographicallySortableInt64(int64(in))
+func (a *Analyzer) Int(in int64) ([]Countable, error) {
+	data, err := LexicographicallySortableInt64(in)
 	if err != nil {
 		return nil, err
 	}
