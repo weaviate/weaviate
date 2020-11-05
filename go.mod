@@ -20,9 +20,7 @@ require (
 	github.com/go-openapi/swag v0.19.11
 	github.com/go-openapi/validate v0.19.10
 	github.com/golangci/golangci-lint v1.31.0 // indirect
-	github.com/google/go-cmp v0.5.2 // indirect
 	github.com/google/uuid v1.1.1
-	github.com/gorilla/mux v1.7.0 // indirect
 	github.com/graphql-go/graphql v0.7.7
 	github.com/hokaccha/go-prettyjson v0.0.0-20190818114111-108c894c2c0e // indirect
 	github.com/jessevdk/go-flags v1.4.0
@@ -37,10 +35,9 @@ require (
 	github.com/sirupsen/logrus v1.6.0
 	github.com/square/go-jose v2.3.0+incompatible
 	github.com/stretchr/testify v1.6.1
-	github.com/ugorji/go/codec v0.0.0-20190309163734-c4a1c341dc93 // indirect
-	go.uber.org/atomic v1.5.0 // indirect
+	go.mongodb.org/mongo-driver v1.4.3 // indirect
 	golang.org/x/net v0.0.0-20201021035429-f5854403a974
-	golang.org/x/tools v0.0.0-20201031021630-582c62ec74d0 // indirect
+	golang.org/x/tools v0.0.0-20201105001634-bc3cf281b174 // indirect
 	gonum.org/v1/gonum v0.7.0
 	google.golang.org/grpc v1.24.0
 	gopkg.in/square/go-jose.v2 v2.5.1 // indirect
