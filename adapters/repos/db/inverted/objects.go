@@ -14,13 +14,15 @@ package inverted
 import (
 	"fmt"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
-func (a *Analyzer) Object(input map[string]interface{}, props []*models.Property) ([]Property, error) {
+func (a *Analyzer) Object(input map[string]interface{}, props []*models.Property,
+	uuid strfmt.UUID) ([]Property, error) {
 	propsMap := map[string]*models.Property{}
 	for _, prop := range props {
 		propsMap[prop.Name] = prop
@@ -59,7 +61,30 @@ func (a *Analyzer) Object(input map[string]interface{}, props []*models.Property
 		out = append(out, *property)
 	}
 
+	property, err := a.analyzeUUIDProp(uuid)
+	if err != nil {
+		return nil, errors.Wrap(err, "analyze uuid prop")
+	}
+
+	out = append(out, *property)
+
 	return out, nil
+}
+
+func (a *Analyzer) analyzeUUIDProp(uuid strfmt.UUID) (*Property, error) {
+	value, err := uuid.MarshalText()
+	if err != nil {
+		return nil, errors.Wrap(err, "marshal uuid prop")
+	}
+	return &Property{
+		Name:         helpers.PropertyNameUUID,
+		HasFrequency: false,
+		Items: []Countable{
+			{
+				Data: value,
+			},
+		},
+	}, nil
 }
 
 func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}) (*Property, error) {

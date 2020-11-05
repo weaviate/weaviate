@@ -95,3 +95,6 @@ adapters/repos/schema/testdata
 
 # coverage files
 coverage*.txt
+
+# go mod
+vendor/
