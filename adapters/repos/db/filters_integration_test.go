@@ -223,11 +223,40 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 			// 	}, wgr, dtGeoCoordinates),
 			// 	expectedIDs: []strfmt.UUID{carSprinterID},
 			// },
-
-			// TODO: gh-1270 support uuid filter
+			{
+				name:        "by id",
+				filter:      buildFilter("uuid", carPoloID.String(), eq, dtString),
+				expectedIDs: []strfmt.UUID{carPoloID},
+			},
+			{
+				name:        "by id not equal",
+				filter:      buildFilter("uuid", carE63sID.String(), neq, dtString),
+				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID},
+			},
+			{
+				name:        "by id less then equal",
+				filter:      buildFilter("uuid", carPoloID.String(), lte, dtString),
+				expectedIDs: []strfmt.UUID{carPoloID, carE63sID},
+			},
+			{
+				name:        "by id less then",
+				filter:      buildFilter("uuid", carPoloID.String(), lt, dtString),
+				expectedIDs: []strfmt.UUID{carE63sID},
+			},
+			{
+				name:        "by id greater then equal",
+				filter:      buildFilter("uuid", carPoloID.String(), gte, dtString),
+				expectedIDs: []strfmt.UUID{carPoloID, carSprinterID},
+			},
+			{
+				name:        "by id greater then",
+				filter:      buildFilter("uuid", carPoloID.String(), gt, dtString),
+				expectedIDs: []strfmt.UUID{carSprinterID},
+			},
+			// TODO: implement like operator
 			// {
-			// 	name:        "by id",
-			// 	filter:      buildFilter("uuid", carPoloID.String(), eq, dtString),
+			// 	name:        "by id like",
+			// 	filter:      buildFilter("uuid", carPoloID.String(), like, dtString),
 			// 	expectedIDs: []strfmt.UUID{carPoloID},
 			// },
 		}

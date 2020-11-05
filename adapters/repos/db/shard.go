@@ -119,6 +119,21 @@ func (s *Shard) initDBFile() error {
 	return nil
 }
 
+func (s *Shard) addUUIDProperty(ctx context.Context) error {
+	if err := s.db.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists(helpers.BucketFromPropName(helpers.PropertyNameUUID))
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "bolt update tx")
+	}
+
+	return nil
+}
+
 func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 	if err := s.db.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists(helpers.BucketFromPropName(prop.Name))
