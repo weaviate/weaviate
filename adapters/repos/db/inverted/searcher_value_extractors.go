@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/pkg/errors"
@@ -98,4 +99,14 @@ func (fs Searcher) extractBoolValue(in interface{}) ([]byte, error) {
 	}
 
 	return buf.Bytes(), nil
+}
+
+// assumes a time.Time date and stores as string-formatted int64
+func (fs Searcher) extractDateValue(in interface{}) ([]byte, error) {
+	value, ok := in.(time.Time)
+	if !ok {
+		return nil, fmt.Errorf("expected value to be time.Time, got %T", in)
+	}
+
+	return LexicographicallySortableInt64(value.UnixNano())
 }
