@@ -313,6 +313,11 @@ func (fs *Searcher) extractPropValuePair(filter *filters.Clause,
 		return fs.extractUUIDProp(filter.Value.Value, filter.Operator)
 	}
 
+	if fs.onMultiWordPropValue(filter.Value.Value, filter.Value.Type) {
+		return fs.extractMultiWordProp(props[0], filter.Value.Type, filter.Value.Value,
+			filter.Operator)
+	}
+
 	return fs.extractPrimitiveProp(props[0], filter.Value.Type, filter.Value.Value,
 		filter.Operator)
 }
@@ -408,6 +413,33 @@ func (fs *Searcher) extractUUIDProp(value interface{},
 	}, nil
 }
 
+func (fs *Searcher) extractMultiWordProp(propName string, dt schema.DataType,
+	value interface{}, operator filters.Operator) (*propValuePair, error) {
+	var out propValuePair
+	var parts []string
+	switch dt {
+	case schema.DataTypeString:
+		parts = helpers.TokenizeString(value.(string))
+	case schema.DataTypeText:
+		parts = helpers.TokenizeText(value.(string))
+	default:
+		return nil, fmt.Errorf("expected value type to be string or text, got %T", dt)
+	}
+
+	out.children = make([]*propValuePair, len(parts))
+
+	for i, part := range parts {
+		child, err := fs.extractPrimitiveProp(propName, dt, part, operator)
+		if err != nil {
+			return nil, errors.Wrapf(err, "multi word at pos %d", i)
+		}
+		out.children[i] = child
+	}
+	out.operator = filters.OperatorAnd
+
+	return &out, nil
+}
+
 // TODO: repeated calls to on... aren't too efficient because we iterate over
 // the schema each time, might be smarter to have a single method that
 // determines the type and then we switch based on the result. However, the
@@ -454,6 +486,19 @@ func (fs *Searcher) onGeoProp(className schema.ClassName, propName string) bool 
 
 func (fs *Searcher) onUUIDProp(propName string) bool {
 	return propName == helpers.PropertyNameUUID
+}
+
+func (fs *Searcher) onMultiWordPropValue(value interface{}, valueType schema.DataType) bool {
+	switch valueType {
+	case schema.DataTypeString:
+		parts := helpers.TokenizeString(value.(string))
+		return len(parts) > 1
+	case schema.DataTypeText:
+		parts := helpers.TokenizeText(value.(string))
+		return len(parts) > 1
+	default:
+		return false
+	}
 }
 
 type docPointers struct {
