@@ -20,7 +20,7 @@ import (
 
 // CoordinatesForID must provide the geo coordinates for the specified index
 // id
-type CoordinatesForID func(ctx context.Context, id int32) (models.GeoCoordinates, error)
+type CoordinatesForID func(ctx context.Context, id int32) (*models.GeoCoordinates, error)
 
 // VectorForID transforms the geo coordinates into a "vector" of fixed length
 // two, where element 0 represents the latitude and element 1 represents the
@@ -34,7 +34,7 @@ func (cfid CoordinatesForID) VectorForID(ctx context.Context, id int32) ([]float
 	return geoCoordiantesToVector(coordinates)
 }
 
-func geoCoordiantesToVector(in models.GeoCoordinates) ([]float32, error) {
+func geoCoordiantesToVector(in *models.GeoCoordinates) ([]float32, error) {
 	if in.Latitude == nil {
 		return nil, fmt.Errorf("latitude must be set")
 	}

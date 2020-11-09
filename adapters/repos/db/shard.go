@@ -23,6 +23,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
@@ -61,6 +62,7 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 		EFConstruction:           128,
 		VectorForIDThunk:         s.vectorByIndexID,
 		TombstoneCleanupInterval: 5 * time.Minute,
+		DistanceProvider:         distancer.NewCosineProvider(),
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())

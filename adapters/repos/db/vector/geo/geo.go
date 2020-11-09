@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/sirupsen/logrus"
@@ -59,6 +60,7 @@ func NewIndex(config Config) (*Index, error) {
 		EFConstruction:        128,
 		MaximumConnections:    64,
 		MakeCommitLoggerThunk: makeCommitLoggerFromConfig(config),
+		DistanceProvider:      distancer.NewGeoProvider(),
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "underlying hnsw index")
@@ -85,7 +87,7 @@ func makeCommitLoggerFromConfig(config Config) hnsw.MakeCommitLogger {
 
 // Add extends the index with the specified GeoCoordinates. It is thread-safe
 // and can be called concurrently.
-func (i *Index) Add(id int, coordinates models.GeoCoordinates) error {
+func (i *Index) Add(id int, coordinates *models.GeoCoordinates) error {
 	v, err := geoCoordiantesToVector(coordinates)
 	if err != nil {
 		return errors.Wrap(err, "invalid arguments")
@@ -102,7 +104,7 @@ func (i *Index) WithinRange(ctx context.Context,
 		return nil, fmt.Errorf("invalid arguments: GeoCoordinates in range must be set")
 	}
 
-	query, err := geoCoordiantesToVector(*geoRange.GeoCoordinates)
+	query, err := geoCoordiantesToVector(geoRange.GeoCoordinates)
 	if err != nil {
 		return nil, errors.Wrap(err, "invalid arguments")
 	}
