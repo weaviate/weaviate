@@ -124,7 +124,7 @@ func New(cfg Config) (*hnsw, error) {
 		rootPath:          cfg.RootPath,
 		tombstones:        map[int]struct{}{},
 		logger:            cfg.Logger,
-		distancerProvider: distancer.NewCosineProvider(),
+		distancerProvider: cfg.DistanceProvider,
 	}
 
 	if err := index.restoreFromDisk(); err != nil {

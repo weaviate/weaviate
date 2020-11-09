@@ -18,15 +18,18 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"sort"
 	"testing"
 	"time"
 
 	"github.com/go-openapi/strfmt"
 	uuid "github.com/satori/go.uuid"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
+	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
@@ -56,6 +59,7 @@ func TestBatchPutObjects(t *testing.T) {
 	t.Run("creating the action class", testAddBatchActionClass(repo, migrator,
 		schemaGetter))
 	t.Run("batch import things", testBatchImportThings(repo))
+	t.Run("batch import things with geo props", testBatchImportGeoThings(repo))
 }
 
 func testAddBatchThingClass(repo *DB, migrator *Migrator,
@@ -67,6 +71,10 @@ func testAddBatchThingClass(repo *DB, migrator *Migrator,
 				&models.Property{
 					Name:     "stringProp",
 					DataType: []string{string(schema.DataTypeString)},
+				},
+				&models.Property{
+					Name:     "location",
+					DataType: []string{string(schema.DataTypeGeoCoordinates)},
 				},
 			},
 		}
@@ -415,4 +423,188 @@ func testBatchImportActions(repo *DB) func(t *testing.T) {
 			assert.Equal(t, "third element", item.Schema.(map[string]interface{})["stringProp"])
 		})
 	}
+}
+
+// geo props are the first props with property specific indices, so making sure
+// that they work with batches at scale adds value beyond the regular batch
+// import tests
+func testBatchImportGeoThings(repo *DB) func(t *testing.T) {
+	return func(t *testing.T) {
+		size := 500
+		batchSize := 50
+
+		objects := make([]*models.Thing, size)
+
+		t.Run("generate random vectors", func(t *testing.T) {
+			for i := 0; i < size; i++ {
+				id, _ := uuid.NewV4()
+				objects[i] = &models.Thing{
+					Class: "ThingForBatching",
+					ID:    strfmt.UUID(id.String()),
+					Schema: map[string]interface{}{
+						"location": randGeoCoordinates(),
+					},
+					Vector: []float32{0.123, 0.234, 0.345}, // does not matter for this test
+				}
+			}
+		})
+
+		t.Run("import vectors in batches", func(t *testing.T) {
+			for i := 0; i < size; i += batchSize {
+				batch := make(kinds.BatchThings, batchSize)
+				for j := 0; j < batchSize; j++ {
+					batch[j] = kinds.BatchThing{
+						OriginalIndex: j,
+						Thing:         objects[i+j],
+						Vector:        objects[i+j].Vector,
+					}
+				}
+
+				res, err := repo.BatchPutThings(context.Background(), batch)
+				require.Nil(t, err)
+				assertAllItemsErrorFree(t, res)
+			}
+		})
+
+		t.Run("query for expected results", func(t *testing.T) {
+			const km = 1000
+			distances := []float32{
+				0.1,
+				1,
+				10,
+				100,
+				1000,
+				2000,
+				5000,
+				7500,
+				10000,
+				12500,
+				15000,
+				20000,
+				35000,
+				100000, // larger than the circumference of the earth, should contain all
+			}
+
+			queryGeo := randGeoCoordinates()
+
+			for _, maxDist := range distances {
+				t.Run(fmt.Sprintf("with maxDist=%f", maxDist), func(t *testing.T) {
+					var relevant int
+					var retrieved int
+
+					controlList := bruteForceMaxDist(objects, []float32{
+						*queryGeo.Latitude,
+						*queryGeo.Longitude,
+					}, maxDist*km)
+
+					res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+						Kind:       kind.Thing,
+						ClassName:  "ThingForBatching",
+						Pagination: &filters.Pagination{Limit: 500},
+						Filters: buildFilter("location", filters.GeoRange{
+							GeoCoordinates: queryGeo,
+							Distance:       maxDist * km,
+						}, filters.OperatorWithinGeoRange, schema.DataTypeGeoCoordinates),
+					})
+					require.Nil(t, err)
+
+					retrieved += len(res)
+					relevant += matchesInUUIDLists(controlList, resToUUIDs(res))
+
+					if relevant == 0 {
+						// skip, as we risk dividing by zero, if both relevant and retrieved
+						// are zero, however, we want to fail with a divide-by-zero if only
+						// retrieved is 0 and relevant was more than 0
+						return
+					}
+					recall := float32(relevant) / float32(retrieved)
+					fmt.Printf("recall is %f\n", recall)
+					assert.True(t, recall >= 0.99)
+				})
+			}
+		})
+	}
+}
+
+func assertAllItemsErrorFree(t *testing.T, res kinds.BatchThings) {
+	for _, elem := range res {
+		assert.Nil(t, elem.Err)
+	}
+}
+
+func bruteForceMaxDist(inputs []*models.Thing, query []float32, maxDist float32) []strfmt.UUID {
+	type distanceAndIndex struct {
+		distance float32
+		index    int
+	}
+
+	distances := make([]distanceAndIndex, len(inputs))
+
+	distancer := distancer.NewGeoProvider().New(query)
+	for i, elem := range inputs {
+		coord := elem.Schema.(map[string]interface{})["location"].(*models.GeoCoordinates)
+		vec := []float32{*coord.Latitude, *coord.Longitude}
+
+		dist, _, _ := distancer.Distance(vec)
+		distances[i] = distanceAndIndex{
+			index:    i,
+			distance: dist,
+		}
+	}
+
+	sort.Slice(distances, func(a, b int) bool {
+		return distances[a].distance < distances[b].distance
+	})
+
+	out := make([]strfmt.UUID, len(distances))
+	i := 0
+	for _, elem := range distances {
+		if elem.distance > maxDist {
+			break
+		}
+		out[i] = inputs[distances[i].index].ID
+		i++
+	}
+
+	return out[:i]
+}
+
+func randGeoCoordinates() *models.GeoCoordinates {
+	maxLat := float32(90.0)
+	minLat := float32(-90.0)
+	maxLon := float32(180)
+	minLon := float32(-180)
+
+	lat := minLat + (maxLat-minLat)*rand.Float32()
+	lon := minLon + (maxLon-minLon)*rand.Float32()
+	return &models.GeoCoordinates{
+		Latitude:  &lat,
+		Longitude: &lon,
+	}
+}
+
+func resToUUIDs(in []search.Result) []strfmt.UUID {
+	out := make([]strfmt.UUID, len(in))
+	for i, obj := range in {
+		out[i] = obj.ID
+	}
+
+	return out
+}
+
+func matchesInUUIDLists(control []strfmt.UUID, results []strfmt.UUID) int {
+	desired := map[strfmt.UUID]struct{}{}
+	for _, relevant := range control {
+		desired[relevant] = struct{}{}
+	}
+
+	var matches int
+	for _, candidate := range results {
+		_, ok := desired[candidate]
+		if ok {
+			matches++
+		}
+	}
+
+	return matches
 }

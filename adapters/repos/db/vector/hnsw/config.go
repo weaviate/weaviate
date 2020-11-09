@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/sirupsen/logrus"
 )
 
@@ -29,6 +30,7 @@ type Config struct {
 	EFConstruction        int
 	VectorForIDThunk      VectorForID
 	Logger                logrus.FieldLogger
+	DistanceProvider      distancer.Provider
 
 	// Optional, no period clean up will be scheduled if interval is not set
 	TombstoneCleanupInterval time.Duration
@@ -59,6 +61,10 @@ func (c Config) Validate() error {
 
 	if c.VectorForIDThunk == nil {
 		ec.addf("vectorForIDThunk cannot be nil")
+	}
+
+	if c.DistanceProvider == nil {
+		ec.addf("distancerProvider cannot be nil")
 	}
 
 	return ec.toError()

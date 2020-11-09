@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -97,5 +98,6 @@ func validConfig() Config {
 		VectorForIDThunk:      func(context.Context, int32) ([]float32, error) { return nil, nil },
 		EFConstruction:        17,
 		MaximumConnections:    50,
+		DistanceProvider:      distancer.NewCosineProvider(),
 	}
 }

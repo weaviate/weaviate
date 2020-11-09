@@ -42,43 +42,51 @@ func (s *Shard) initPerPropertyIndices() error {
 }
 
 func (s *Shard) initGeoProp(prop *models.Property) error {
-	geo.NewIndex(geo.Config{
+	idx, err := geo.NewIndex(geo.Config{
 		ID:                 geoPropID(s.ID(), prop.Name),
 		RootPath:           s.index.Config.RootPath,
 		CoordinatesForID:   s.makeCoordinatesForID(prop.Name),
 		DisablePersistence: false,
 		Logger:             s.index.logger,
 	})
+	if err != nil {
+		return errors.Wrapf(err, "create geo index for prop %q", prop.Name)
+	}
+
+	s.propertyIndices[prop.Name] = propertyspecific.Index{
+		Type:     schema.DataTypeGeoCoordinates,
+		GeoIndex: idx,
+		Name:     prop.Name,
+	}
+
 	return nil
 }
 
 func (s *Shard) makeCoordinatesForID(propName string) geo.CoordinatesForID {
-	return func(ctx context.Context, id int32) (models.GeoCoordinates, error) {
-		out := models.GeoCoordinates{}
-
+	return func(ctx context.Context, id int32) (*models.GeoCoordinates, error) {
 		obj, err := s.objectByIndexID(ctx, id)
 		if err != nil {
-			return out, errors.Wrap(err, "retrieve object")
+			return nil, errors.Wrap(err, "retrieve object")
 		}
 
 		if obj.Schema() == nil {
-			return out, storobj.NewErrNotFoundf(id,
+			return nil, storobj.NewErrNotFoundf(id,
 				"object has no properties")
 		}
 
 		prop, ok := obj.Schema().(map[string]interface{})[propName]
 		if !ok {
-			return out, storobj.NewErrNotFoundf(id,
+			return nil, storobj.NewErrNotFoundf(id,
 				"object has no property %q", propName)
 		}
 
 		geoProp, ok := prop.(*models.GeoCoordinates)
 		if !ok {
-			return out, fmt.Errorf("expected property to be of type %T, got: %T",
+			return nil, fmt.Errorf("expected property to be of type %T, got: %T",
 				&models.GeoCoordinates{}, prop)
 		}
 
-		return *geoProp, nil
+		return geoProp, nil
 	}
 }
 
