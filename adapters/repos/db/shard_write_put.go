@@ -69,12 +69,12 @@ func (s *Shard) updateVectorIndex(vector []float32,
 
 	if status.docIDChanged {
 		if err := s.vectorIndex.Delete(int(status.oldDocID)); err != nil {
-			return errors.Wrapf(err, "delete doc id %q from vector index", status.oldDocID)
+			return errors.Wrapf(err, "delete doc id %d from vector index", status.oldDocID)
 		}
 	}
 
 	if err := s.vectorIndex.Add(int(status.docID), vector); err != nil {
-		return errors.Wrapf(err, "insert doc id %q to vector index", status.docID)
+		return errors.Wrapf(err, "insert doc id %d to vector index", status.docID)
 	}
 
 	return nil
