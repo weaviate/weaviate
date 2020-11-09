@@ -64,7 +64,7 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 
 func (s *Shard) makeCoordinatesForID(propName string) geo.CoordinatesForID {
 	return func(ctx context.Context, id int32) (*models.GeoCoordinates, error) {
-		obj, err := s.objectByIndexID(ctx, id)
+		obj, err := s.objectByIndexID(ctx, id, true)
 		if err != nil {
 			return nil, errors.Wrap(err, "retrieve object")
 		}
