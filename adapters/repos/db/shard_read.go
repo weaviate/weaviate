@@ -20,6 +20,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
@@ -125,13 +126,24 @@ func (s *Shard) objectByIndexID(ctx context.Context,
 
 	var out *storobj.Object
 	err := s.db.View(func(tx *bolt.Tx) error {
-		uuid := tx.Bucket(helpers.IndexIDBucket).Get(key)
-		if uuid == nil {
+		uuidLookup := tx.Bucket(helpers.DocIDBucket).Get(key)
+		if uuidLookup == nil {
 			return storobj.NewErrNotFoundf(indexID,
 				"doc id inverted resolved to a nil object, i.e. no uuid found")
 		}
 
-		bytes := tx.Bucket(helpers.ObjectsBucket).Get(uuid)
+		lookup, err := docid.LookupFromBinary(uuidLookup)
+		if err != nil {
+			return errors.Wrap(err, "unmarshal docID lookup")
+		}
+
+		if lookup.Deleted {
+			return storobj.NewErrNotFoundf(indexID,
+				"doc id is marked as deleted at %s",
+				lookup.DeletionTime.String())
+		}
+
+		bytes := tx.Bucket(helpers.ObjectsBucket).Get(lookup.PointsTo)
 		if bytes == nil {
 			return storobj.NewErrNotFoundf(indexID,
 				"uuid found for docID, but object is nil")

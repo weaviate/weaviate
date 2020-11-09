@@ -20,6 +20,7 @@ import (
 
 	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/notimplemented"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/propertyspecific"
@@ -110,6 +111,7 @@ func ObjectsFromDocIDsInTx(tx *bolt.Tx,
 // the scanning will stop
 type ObjectScanFn func(obj *storobj.Object) (bool, error)
 
+// TODO: too long, split up
 // ScanObjectsFromDocIDsInTx calls the provided scanFn on each object for the
 // specified pointer. If a pointer does not resolve to an object-id, the item
 // will be skipped. The number of times scanFn is called can therefore be
@@ -117,7 +119,7 @@ type ObjectScanFn func(obj *storobj.Object) (bool, error)
 func ScanObjectsFromDocIDsInTx(tx *bolt.Tx,
 	pointers []uint32, scan ObjectScanFn) error {
 	uuidKeys := make([][]byte, len(pointers))
-	b := tx.Bucket(helpers.IndexIDBucket)
+	b := tx.Bucket(helpers.DocIDBucket)
 	if b == nil {
 		return fmt.Errorf("index id bucket not found")
 	}
@@ -128,17 +130,23 @@ func ScanObjectsFromDocIDsInTx(tx *bolt.Tx,
 		pointerUint32 := uint32(pointer)
 		binary.Write(keyBuf, binary.LittleEndian, &pointerUint32)
 		key := keyBuf.Bytes()
-		uuid := b.Get(key)
-		if len(uuid) == 0 {
-			// TODO: Log this as a warning
-			// There is no legitimate reason for this to happen. This essentially
-			// means that we received a doc Pointer that is not (or no longer)
-			// associated with an actual document. This could happen if a docID was
-			// deleted, but an inverted or vector index was not cleaned up
+		docIDLookup := b.Get(key)
+		if len(docIDLookup) == 0 {
+			// we received a doc id that was marked as deleted and cleaned up
 			continue
 		}
 
-		uuidKeys[uuidIndex] = uuid
+		lookup, err := docid.LookupFromBinary(docIDLookup)
+		if err != nil {
+			return errors.Wrap(err, "unmarshal doc id lookup")
+		}
+
+		if lookup.Deleted {
+			// marked as deleted, but not cleaned up yet, skip
+			continue
+		}
+
+		uuidKeys[uuidIndex] = lookup.PointsTo
 		uuidIndex++
 	}
 

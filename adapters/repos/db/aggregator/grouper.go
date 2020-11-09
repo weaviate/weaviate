@@ -98,7 +98,7 @@ func (g *grouper) addElement(obj *storobj.Object) error {
 	}
 
 	ids := g.values[item]
-	ids = append(ids, obj.IndexID())
+	ids = append(ids, obj.DocID())
 	g.values[item] = ids
 	return nil
 }

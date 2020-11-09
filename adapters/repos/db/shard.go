@@ -107,8 +107,8 @@ func (s *Shard) initDBFile() error {
 			return errors.Wrapf(err, "create objects bucket '%s'", string(helpers.ObjectsBucket))
 		}
 
-		if _, err := tx.CreateBucketIfNotExists(helpers.IndexIDBucket); err != nil {
-			return errors.Wrapf(err, "create indexID bucket '%s'", string(helpers.IndexIDBucket))
+		if _, err := tx.CreateBucketIfNotExists(helpers.DocIDBucket); err != nil {
+			return errors.Wrapf(err, "create indexID bucket '%s'", string(helpers.DocIDBucket))
 		}
 
 		return nil

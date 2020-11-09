@@ -12,15 +12,13 @@
 package db
 
 import (
-	"bytes"
 	"context"
-	"encoding/binary"
-	"fmt"
 
 	"github.com/boltdb/bolt"
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 )
@@ -67,9 +65,9 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
 			return errors.Wrap(err, "delete object from bucket")
 		}
 
-		err = s.deleteIndexIDLookup(tx, docID)
+		err = docid.MarkDeletedInTx(tx, docID)
 		if err != nil {
-			return errors.Wrap(err, "delete indexID->uuid lookup")
+			return errors.Wrap(err, "delete docID->uuid lookup")
 		}
 
 		return nil
@@ -84,19 +82,19 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
 	return nil
 }
 
-func (s *Shard) deleteIndexIDLookup(tx *bolt.Tx, docID uint32) error {
-	keyBuf := bytes.NewBuffer(make([]byte, 4))
-	binary.Write(keyBuf, binary.LittleEndian, &docID)
-	key := keyBuf.Bytes()
+// func (s *Shard) deleteIndexIDLookup(tx *bolt.Tx, docID uint32) error {
+// 	keyBuf := bytes.NewBuffer(make([]byte, 4))
+// 	binary.Write(keyBuf, binary.LittleEndian, &docID)
+// 	key := keyBuf.Bytes()
 
-	b := tx.Bucket(helpers.IndexIDBucket)
-	if b == nil {
-		return fmt.Errorf("no index id bucket found")
-	}
+// 	b := tx.Bucket(helpers.IndexIDBucket)
+// 	if b == nil {
+// 		return fmt.Errorf("no index id bucket found")
+// 	}
 
-	if err := b.Delete(key); err != nil {
-		return errors.Wrap(err, "delete uuid for index id")
-	}
+// 	if err := b.Delete(key); err != nil {
+// 		return errors.Wrap(err, "delete uuid for index id")
+// 	}
 
-	return nil
-}
+// 	return nil
+// }

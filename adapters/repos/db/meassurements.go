@@ -64,7 +64,7 @@ func (m *Metrics) PutObjectUpsertObject(start time.Time) {
 		Tracef("storing object data in KV took %s", took)
 }
 
-func (m *Metrics) PutObjectUpdateIndexID(start time.Time) {
+func (m *Metrics) PutObjectUpdateDocID(start time.Time) {
 	took := time.Since(start)
 	m.logger.WithField("action", "store_object_store_update_index_id").
 		WithField("took", took).
