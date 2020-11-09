@@ -33,14 +33,14 @@ type Object struct {
 	Thing             models.Thing  `json:"thing"`
 	Action            models.Action `json:"action"`
 	Vector            []float32     `json:"vector"`
-	indexID           uint32
+	docID             uint32
 }
 
 func New(k kind.Kind, docID uint32) *Object {
 	return &Object{
 		MarshallerVersion: 1,
 		Kind:              k,
-		indexID:           docID,
+		docID:             docID,
 	}
 }
 
@@ -82,12 +82,12 @@ func (ko *Object) Class() schema.ClassName {
 	}
 }
 
-func (ko *Object) SetIndexID(id uint32) {
-	ko.indexID = id
+func (ko *Object) SetDocID(id uint32) {
+	ko.docID = id
 }
 
-func (ko *Object) IndexID() uint32 {
-	return ko.indexID
+func (ko *Object) DocID() uint32 {
+	return ko.docID
 }
 
 func (ko *Object) CreationTimeUnix() int64 {
@@ -243,9 +243,9 @@ func DocIDFromBinary(in []byte) (uint32, error) {
 		return 0, fmt.Errorf("unsupported binary marshaller version %d", version)
 	}
 
-	var indexID uint32
-	err := binary.Read(r, le, &indexID)
-	return indexID, err
+	var docID uint32
+	err := binary.Read(r, le, &docID)
+	return docID, err
 }
 
 // MarshalBinary creates the binary representation of a kind object. Regardless
@@ -312,7 +312,7 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	buf := bytes.NewBuffer(nil)
 	le := binary.LittleEndian
 	ec.add(binary.Write(buf, le, &ko.MarshallerVersion))
-	ec.add(binary.Write(buf, le, &ko.indexID))
+	ec.add(binary.Write(buf, le, &ko.docID))
 	ec.add(binary.Write(buf, le, kindByte))
 	_, err = buf.Write(idBytes)
 	ec.add(err)
@@ -365,7 +365,7 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	)
 
 	ec := &errorCompounder{}
-	ec.add(binary.Read(r, le, &ko.indexID))
+	ec.add(binary.Read(r, le, &ko.docID))
 	ec.add(binary.Read(r, le, &kindByte))
 	_, err := r.Read(uuidBytes)
 	ec.add(err)

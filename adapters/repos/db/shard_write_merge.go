@@ -65,7 +65,7 @@ func (s *Shard) mergeObjectInTx(tx *bolt.Tx, merge kinds.MergeDocument,
 		return status, errors.Wrap(err, "check insert/update status")
 	}
 
-	nextObj.SetIndexID(status.docID)
+	nextObj.SetDocID(status.docID)
 	nextBytes, err := nextObj.MarshalBinary()
 	if err != nil {
 		return status, errors.Wrapf(err, "marshal object %s to binary", nextObj.ID())
@@ -75,10 +75,7 @@ func (s *Shard) mergeObjectInTx(tx *bolt.Tx, merge kinds.MergeDocument,
 		return status, errors.Wrap(err, "upsert object data")
 	}
 
-	// build indexID->UUID lookup
-	// uuid is immutable, so this does not need to be altered, cleaned on
-	// updates, but is simply idempotent
-	if err := s.addIndexIDLookup(tx, idBytes, status.docID); err != nil {
+	if err := s.updateDocIDLookup(tx, idBytes, status); err != nil {
 		return status, errors.Wrap(err, "add docID->UUID index")
 	}
 
