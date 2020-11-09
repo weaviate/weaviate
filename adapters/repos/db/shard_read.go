@@ -119,7 +119,7 @@ func (s *Shard) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 }
 
 func (s *Shard) objectByIndexID(ctx context.Context,
-	indexID int32) (*storobj.Object, error) {
+	indexID int32, acceptDeleted bool) (*storobj.Object, error) {
 	keyBuf := bytes.NewBuffer(make([]byte, 4))
 	binary.Write(keyBuf, binary.LittleEndian, &indexID)
 	key := keyBuf.Bytes()
@@ -137,7 +137,7 @@ func (s *Shard) objectByIndexID(ctx context.Context,
 			return errors.Wrap(err, "unmarshal docID lookup")
 		}
 
-		if lookup.Deleted {
+		if lookup.Deleted && !acceptDeleted {
 			return storobj.NewErrNotFoundf(indexID,
 				"doc id is marked as deleted at %s",
 				lookup.DeletionTime.String())
@@ -165,7 +165,7 @@ func (s *Shard) objectByIndexID(ctx context.Context,
 }
 
 func (s *Shard) vectorByIndexID(ctx context.Context, indexID int32) ([]float32, error) {
-	obj, err := s.objectByIndexID(ctx, indexID)
+	obj, err := s.objectByIndexID(ctx, indexID, true)
 	if err != nil {
 		return nil, err
 	}

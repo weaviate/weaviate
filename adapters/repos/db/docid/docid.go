@@ -100,7 +100,7 @@ func LookupFromBinary(in []byte) (Lookup, error) {
 		return out, errors.Wrap(err, "unmarshal status")
 	}
 
-	out.PointsTo = make([]byte, 0, 16)
+	out.PointsTo = make([]byte, 16)
 	if _, err := r.Read(out.PointsTo); err != nil {
 		return out, errors.Wrap(err, "read id")
 	}
