@@ -41,7 +41,7 @@ func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, erro
 
 	s := fa.getSchema.GetSchemaSkipAuth()
 	ids, err := inverted.NewSearcher(fa.db, s, fa.invertedRowCache, nil).
-		DocIDs(ctx, fa.params.Filters, false, fa.params.ClassName)
+		DocIDs(ctx, fa.params.Filters, traverser.UnderscoreProperties{}, fa.params.ClassName)
 	if err != nil {
 		return nil, errors.Wrap(err, "retrieve doc IDs from searcher")
 	}
