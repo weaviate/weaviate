@@ -25,6 +25,8 @@ import (
 )
 
 // return value map[int]error gives the error for the index as it received it
+// TODO: this thing is too large and requires splitting! possibly not just
+// splitting the fuction, but also extracting it into a custom type
 func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) map[int]error {
 	beforeBatch := time.Now()
 	defer s.metrics.BatchObject(beforeBatch, len(objects))
@@ -38,6 +40,7 @@ func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) m
 	duplicates := findDuplicatesInBatchObjects(objects)
 	_ = duplicates
 
+	// TODO: split point object/inverted store
 	beforeObjectStore := time.Now()
 	wg := &sync.WaitGroup{}
 	for i := 0; i < len(objects); i += maxPerTransaction {
@@ -102,6 +105,7 @@ func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) m
 	wg.Wait()
 	s.metrics.ObjectStore(beforeObjectStore)
 
+	// TODO: split point vector store
 	if err := ctx.Err(); err != nil {
 		for i, err := range errs {
 			if err == nil {
@@ -137,12 +141,21 @@ func (s *Shard) putObjectBatch(ctx context.Context, objects []*storobj.Object) m
 				m.Lock()
 				errs[index] = errors.Wrap(err, "insert to vector index")
 				m.Unlock()
+				return
 			}
 
 			if err := s.updateVectorIndex(object.Vector, status); err != nil {
 				m.Lock()
 				errs[index] = errors.Wrap(err, "insert to vector index")
 				m.Unlock()
+				return
+			}
+
+			if err := s.updatePropertySpecificIndices(object, status); err != nil {
+				m.Lock()
+				errs[index] = errors.Wrap(err, "update prop-specific indices")
+				m.Unlock()
+				return
 			}
 		}(object, status, i)
 	}
