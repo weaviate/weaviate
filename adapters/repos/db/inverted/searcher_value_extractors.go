@@ -15,11 +15,10 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"strings"
 	"time"
-	"unicode"
 
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 )
 
 func (fs Searcher) extractTextValue(in interface{}) ([]byte, error) {
@@ -27,13 +26,10 @@ func (fs Searcher) extractTextValue(in interface{}) ([]byte, error) {
 	if !ok {
 		return nil, fmt.Errorf("expected value to be string, got %T", in)
 	}
-	parts := strings.FieldsFunc(value, func(c rune) bool {
-		return !unicode.IsLetter(c) && !unicode.IsNumber(c)
-	})
 
-	// TODO: gh-1150 allow multi search term
+	parts := helpers.TokenizeText(value)
 	if len(parts) > 1 {
-		return nil, fmt.Errorf("only single search term allowed at the moment, got: %v", parts)
+		return nil, fmt.Errorf("expected single search term, got: %v", parts)
 	}
 
 	return []byte(parts[0]), nil
@@ -45,13 +41,9 @@ func (fs Searcher) extractStringValue(in interface{}) ([]byte, error) {
 		return nil, fmt.Errorf("expected value to be string, got %T", in)
 	}
 
-	parts := strings.FieldsFunc(value, func(c rune) bool {
-		return unicode.IsSpace(c)
-	})
-
-	// TODO: gh-1150 allow multi search term
+	parts := helpers.TokenizeString(value)
 	if len(parts) > 1 {
-		return nil, fmt.Errorf("only single search term allowed at the moment, got: %v", parts)
+		return nil, fmt.Errorf("expected single search term, got: %v", parts)
 	}
 
 	return []byte(parts[0]), nil
