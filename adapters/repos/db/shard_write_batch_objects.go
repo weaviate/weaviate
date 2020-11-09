@@ -118,33 +118,47 @@ func (b *objectsBatcher) storeSingleBatchInTx(ctx context.Context, tx *bolt.Tx,
 	}
 
 	for j, object := range batch {
-		if _, ok := b.duplicates[batchId+j]; ok {
-			continue
-		}
-		uuidParsed, err := uuid.Parse(object.ID().String())
-		if err != nil {
-			return nil, errors.Wrap(err, "invalid id")
-		}
-
-		idBytes, err := uuidParsed.MarshalBinary()
-		if err != nil {
-			return nil, err
-		}
-
-		status, err := b.shard.putObjectInTx(tx, object, idBytes)
-		if err != nil {
-			return nil, err
-		}
-
-		b.Lock()
-		b.statuses[object.ID()] = status
-		b.Unlock()
-
-		if err := ctx.Err(); err != nil {
-			return nil, errors.Wrapf(err, "end transaction %d of batch", batchId)
+		if err := b.storeObjectOfBatchInTx(ctx, tx, batchId, j, object); err != nil {
+			return nil, errors.Wrapf(err, "object %d", j)
 		}
 	}
 	return affectedIndices, nil
+}
+
+func (b *objectsBatcher) storeObjectOfBatchInTx(ctx context.Context, tx *bolt.Tx,
+	batchId int, objectIndex int, object *storobj.Object) error {
+	if _, ok := b.duplicates[batchId+objectIndex]; ok {
+		return nil
+	}
+	uuidParsed, err := uuid.Parse(object.ID().String())
+	if err != nil {
+		return errors.Wrap(err, "invalid id")
+	}
+
+	idBytes, err := uuidParsed.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	status, err := b.shard.putObjectInTx(tx, object, idBytes)
+	if err != nil {
+		return err
+	}
+
+	b.setStatusForID(status, object.ID())
+
+	if err := ctx.Err(); err != nil {
+		return errors.Wrapf(err, "end transaction %d of batch", batchId)
+	}
+	return nil
+}
+
+// setStatusForID is thread-safe as it uses the underlying mutex to lock the
+// statuses map when writing into it
+func (b *objectsBatcher) setStatusForID(status objectInsertStatus, id strfmt.UUID) {
+	b.Lock()
+	b.statuses[id] = status
+	b.Unlock()
 }
 
 // storeObjectsAdditionalStorage stores the object in all non-key-value stores,
