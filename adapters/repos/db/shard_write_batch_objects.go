@@ -152,7 +152,7 @@ func (b *objectsBatcher) storeSingleBatchInTx(ctx context.Context, tx *bolt.Tx,
 // as the geo-index.
 func (b *objectsBatcher) storeObjectsAdditionalStorage(ctx context.Context) {
 	if ok := b.checkContext(ctx); !ok {
-		// if the context is no longer OK, there's no point in continueing - abort
+		// if the context is no longer OK, there's no point in continuing - abort
 		// early
 		return
 	}
