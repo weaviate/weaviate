@@ -118,11 +118,12 @@ func (b *referencesBatcher) storeSingleBatchInTx(ctx context.Context, tx *bolt.T
 
 func (b *referencesBatcher) setErrorsForIndices(err error, affectedIndices []int) {
 	b.Lock()
+	defer b.Unlock()
+
 	err = errors.Wrap(err, "bolt batch tx")
 	for _, affected := range affectedIndices {
 		b.errs[affected] = err
 	}
-	b.Unlock()
 }
 
 func mergeDocFromBatchReference(ref kinds.BatchReference) kinds.MergeDocument {

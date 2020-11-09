@@ -95,15 +95,6 @@ func (b *objectsBatcher) storeObjectsInObjectStore(ctx context.Context) {
 	b.shard.metrics.ObjectStore(beforeObjectStore)
 }
 
-func (b *objectsBatcher) setErrorsForIndices(err error, affectedIndices []int) {
-	b.Lock()
-	err = errors.Wrap(err, "bolt batch tx")
-	for _, affected := range affectedIndices {
-		b.errs[affected] = err
-	}
-	b.Unlock()
-}
-
 func (b *objectsBatcher) storeSingleBatchInTx(ctx context.Context, tx *bolt.Tx,
 	batchId int, batch []*storobj.Object) ([]int, error) {
 	if err := ctx.Err(); err != nil {
@@ -157,8 +148,8 @@ func (b *objectsBatcher) storeObjectOfBatchInTx(ctx context.Context, tx *bolt.Tx
 // statuses map when writing into it
 func (b *objectsBatcher) setStatusForID(status objectInsertStatus, id strfmt.UUID) {
 	b.Lock()
+	defer b.Unlock()
 	b.statuses[id] = status
-	b.Unlock()
 }
 
 // storeObjectsAdditionalStorage stores the object in all non-key-value stores,
@@ -190,10 +181,7 @@ func (b *objectsBatcher) storeObjectsAdditionalStorage(ctx context.Context) {
 }
 
 func (b *objectsBatcher) shouldSkipInAdditionalStorage(i int) bool {
-	b.Lock()
-	_, ok := b.errs[i]
-	b.Unlock()
-	if ok {
+	if ok := b.hasErrorAtIndex(i); ok {
 		// had an error prior, ignore
 		return true
 	}
@@ -226,16 +214,39 @@ func (b *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Contex
 	}
 }
 
+// hasErrorAtIndex is thread-safe as it uses the underlying mutex to lock
+// before reading from the errs map
+func (b *objectsBatcher) hasErrorAtIndex(i int) bool {
+	b.Lock()
+	defer b.Unlock()
+	_, ok := b.errs[i]
+
+	return ok
+}
+
 // setErrorAtIndex is thread-safe as it uses the underlying mutex to lock
 // writing into the errs map
 func (b *objectsBatcher) setErrorAtIndex(err error, index int) {
 	b.Lock()
+	defer b.Unlock()
 	b.errs[index] = err
-	b.Unlock()
 }
 
-// checkContext does nothing if the context is still active, but marks all
-// objects which have not previously error'd yet with the ctx error
+// setErrorsForIndices is thread-safe as it uses the underlying mutex to lock
+// writing into the errs map
+func (b *objectsBatcher) setErrorsForIndices(err error, affectedIndices []int) {
+	b.Lock()
+	defer b.Unlock()
+
+	err = errors.Wrap(err, "bolt batch tx")
+	for _, affected := range affectedIndices {
+		b.errs[affected] = err
+	}
+}
+
+// checkContext does nothing if the context is still active. But if the context
+// has error'd, it marks all objects which have not previously error'd yet with
+// the ctx error
 func (s *objectsBatcher) checkContext(ctx context.Context) bool {
 	if err := ctx.Err(); err != nil {
 		for i, err := range s.errs {
