@@ -15,8 +15,8 @@ import (
 	"bytes"
 	"encoding/binary"
 	"strings"
-	"unicode"
 
+	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/entities/models"
 )
 
@@ -37,10 +37,7 @@ type Analyzer struct {
 // Text removes non alpha-numeric and splits into words, then aggregates
 // duplicates
 func (a *Analyzer) Text(in string) []Countable {
-	parts := strings.FieldsFunc(in, func(c rune) bool {
-		return !unicode.IsLetter(c) && !unicode.IsNumber(c)
-	})
-
+	parts := helpers.TokenizeText(in)
 	terms := map[string]uint32{}
 	total := 0
 	for _, word := range parts {
@@ -69,10 +66,7 @@ func (a *Analyzer) Text(in string) []Countable {
 // String splits only on spaces and does not lowercase, then aggregates
 // duplicates
 func (a *Analyzer) String(in string) []Countable {
-	parts := strings.FieldsFunc(in, func(c rune) bool {
-		return unicode.IsSpace(c)
-	})
-
+	parts := helpers.TokenizeString(in)
 	terms := map[string]uint32{}
 	total := 0
 	for _, word := range parts {

@@ -220,16 +220,40 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 				filter:      buildFilter("contact", "john@heavycars.example.com", eq, dtString),
 				expectedIDs: []strfmt.UUID{carSprinterID},
 			},
-			// TODO: gh-1150 support multiple search terms
-			// {
-			// 	name:        "matching an email from within a text (not string) field",
-			// 	filter:      buildFilter("description", "john@heavycars.example.com", eq, dtText),
-			// 	expectedIDs: []strfmt.UUID{carSprinterID},
-			// },
+			{
+				name:        "matching an email from within a text (not string) field",
+				filter:      buildFilter("description", "john@heavycars.example.com", eq, dtText),
+				expectedIDs: []strfmt.UUID{carSprinterID},
+			},
 			{
 				name:        "full-text matching the word engine",
 				filter:      buildFilter("description", "engine", eq, dtText),
 				expectedIDs: []strfmt.UUID{carPoloID},
+			},
+			{
+				name:        "matching two words",
+				filter:      buildFilter("description", "this car", eq, dtText),
+				expectedIDs: []strfmt.UUID{carSprinterID, carPoloID, carE63sID},
+			},
+			{
+				name:        "matching three words",
+				filter:      buildFilter("description", "but car has", eq, dtText),
+				expectedIDs: []strfmt.UUID{carPoloID, carE63sID},
+			},
+			{
+				name:        "matching words with special characters",
+				filter:      buildFilter("description", "it's also not exactly lightweight.", eq, dtText),
+				expectedIDs: []strfmt.UUID{carE63sID},
+			},
+			{
+				name:        "matching words wit special characters with string value",
+				filter:      buildFilter("description", "it's also not exactly lightweight.", eq, dtString),
+				expectedIDs: []strfmt.UUID{},
+			},
+			{
+				name:        "matching words without special characters",
+				filter:      buildFilter("description", "also not exactly lightweight", eq, dtString),
+				expectedIDs: []strfmt.UUID{carE63sID},
 			},
 			// {
 			// 	name: "within 600km of San Francisco",
