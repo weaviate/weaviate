@@ -23,7 +23,61 @@ import (
 // later and the edges reassigned
 func (h *hnsw) Delete(id int) error {
 	h.addTombstone(id)
+
+	// Adding a tombstone might not be enough in some cases, if the tombstoned
+	// entry was the entrypoint this might lead to issues for following inserts:
+	// On a nearly empty graph the entrypoint might be the only viable element to
+	// connect to, however, because the entrypoint itself is tombstones
+	// connections to it are impossible. So, unless we find a new entrypoint,
+	// subsequent inserts might end up isolated (without edges) in the graph.
+	// This is especially true if the tombstoned entrypoint is the only node in
+	// the graph. In this case we must reset the graph, so it acts like an empty
+	// one. Otherwise we'd insert the next id and have only one possible node to
+	// connect it to (the entrypoint). With that one being tombstoned, the new
+	// node would be guaranteed to have zero edges
+	denyList := h.tombstonesAsDenyList()
+
+	h.RLock()
+	node := h.nodes[id]
+	h.RUnlock()
+
+	if node == nil {
+		// node was already deleted/cleaned up
+		return nil
+	}
+
+	if h.entryPointID == id {
+		if h.isOnlyNode(node, denyList) {
+			h.reset()
+		} else {
+			if err := h.deleteEntrypoint(node, denyList); err != nil {
+				return errors.Wrap(err, "delete entrypoint")
+			}
+		}
+	}
 	return nil
+}
+
+func (h *hnsw) reset() {
+	h.Lock()
+	defer h.Unlock()
+	h.entryPointID = 0
+	h.currentMaximumLayer = 0
+	h.nodes = make([]*vertex, initialSize)
+	h.commitLog.Reset()
+}
+
+func (h *hnsw) tombstonesAsDenyList() helpers.AllowList {
+	deleteList := helpers.AllowList{}
+	h.RLock()
+	tombstones := h.tombstones
+	h.RUnlock()
+
+	for id := range tombstones {
+		deleteList.Insert(uint32(id))
+	}
+
+	return deleteList
 }
 
 // CleanUpTombstonedNodes removes nodes with a tombstone and reassignes edges

@@ -518,3 +518,34 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 
 	// t.Fail()
 }
+
+func TestDelete_TombstonedEntrypoint(t *testing.T) {
+	vecForID := func(ctx context.Context, id int32) ([]float32, error) {
+		// always return same vec  for all elements
+		return []float32{0.1, 0.2}, nil
+	}
+	index, err := New(Config{
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    "tombstoned-entrypoint-test",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		MaximumConnections:    30,
+		EFConstruction:        128,
+		DistanceProvider:      distancer.NewCosineProvider(),
+		VectorForIDThunk:      vecForID,
+
+		// explicitly turn off, so we only focus on the tombstoned periods
+		TombstoneCleanupInterval: 0,
+	})
+	require.Nil(t, err)
+
+	objVec := []float32{0.1, 0.2}
+	searchVec := []float32{0.05, 0.05}
+
+	require.Nil(t, index.Add(0, objVec))
+	require.Nil(t, index.Delete(0))
+	require.Nil(t, index.Add(1, objVec))
+
+	res, err := index.SearchByVector(searchVec, 100, nil)
+	require.Nil(t, err)
+	assert.Equal(t, []int{1}, res, "should contain the only result")
+}
