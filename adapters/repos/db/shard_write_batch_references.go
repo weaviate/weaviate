@@ -107,7 +107,10 @@ func (b *referencesBatcher) storeSingleBatchInTx(ctx context.Context, tx *bolt.T
 		}
 
 		mergeDoc := mergeDocFromBatchReference(ref)
-		_, err = b.shard.mergeObjectInTx(tx, mergeDoc, idBytes)
+		n, _, err := b.shard.mergeObjectInTx(tx, mergeDoc, idBytes)
+		// TODO: store vector position, otherwise a batch ref update leads to a
+		// vector "deletion"
+		_ = n
 		if err != nil {
 			return nil, err
 		}

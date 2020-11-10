@@ -30,20 +30,22 @@ func (s *Shard) mergeObject(ctx context.Context, merge kinds.MergeDocument) erro
 	}
 
 	var status objectInsertStatus
+	var next *storobj.Object
 
 	if err := s.db.Batch(func(tx *bolt.Tx) error {
-		s, err := s.mergeObjectInTx(tx, merge, idBytes)
+		n, s, err := s.mergeObjectInTx(tx, merge, idBytes)
 		if err != nil {
 			return err
 		}
 
 		status = s
+		next = n
 		return nil
 	}); err != nil {
 		return errors.Wrap(err, "bolt batch tx")
 	}
 
-	if err := s.updateVectorIndex(merge.Vector, status); err != nil {
+	if err := s.updateVectorIndex(next.Vector, status); err != nil {
 		return errors.Wrap(err, "update vector index")
 	}
 
@@ -51,39 +53,39 @@ func (s *Shard) mergeObject(ctx context.Context, merge kinds.MergeDocument) erro
 }
 
 func (s *Shard) mergeObjectInTx(tx *bolt.Tx, merge kinds.MergeDocument,
-	idBytes []byte) (objectInsertStatus, error) {
+	idBytes []byte) (*storobj.Object, objectInsertStatus, error) {
 	bucket := tx.Bucket(helpers.ObjectsBucket)
 	previous := bucket.Get([]byte(idBytes))
 
 	nextObj, err := s.mergeObjectData(previous, merge)
 	if err != nil {
-		return objectInsertStatus{}, errors.Wrap(err, "merge object data")
+		return nil, objectInsertStatus{}, errors.Wrap(err, "merge object data")
 	}
 
 	status, err := s.determineInsertStatus(previous, nextObj)
 	if err != nil {
-		return status, errors.Wrap(err, "check insert/update status")
+		return nil, status, errors.Wrap(err, "check insert/update status")
 	}
 
 	nextObj.SetDocID(status.docID)
 	nextBytes, err := nextObj.MarshalBinary()
 	if err != nil {
-		return status, errors.Wrapf(err, "marshal object %s to binary", nextObj.ID())
+		return nil, status, errors.Wrapf(err, "marshal object %s to binary", nextObj.ID())
 	}
 
 	if err := s.upsertObjectData(bucket, idBytes, nextBytes); err != nil {
-		return status, errors.Wrap(err, "upsert object data")
+		return nil, status, errors.Wrap(err, "upsert object data")
 	}
 
 	if err := s.updateDocIDLookup(tx, idBytes, status); err != nil {
-		return status, errors.Wrap(err, "add docID->UUID index")
+		return nil, status, errors.Wrap(err, "add docID->UUID index")
 	}
 
 	if err := s.updateInvertedIndex(tx, nextObj, status, previous); err != nil {
-		return status, errors.Wrap(err, "udpate inverted indices")
+		return nil, status, errors.Wrap(err, "udpate inverted indices")
 	}
 
-	return status, nil
+	return nextObj, status, nil
 }
 
 func (s *Shard) mergeObjectData(previous []byte,

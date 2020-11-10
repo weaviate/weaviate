@@ -447,7 +447,7 @@ func (h *hnsw) findAndConnectNeighbors(node *vertex,
 		return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
 	}
 	if !ok {
-		return fmt.Errorf("entrypoint was deleted in the object strore, " +
+		return fmt.Errorf("entrypoint was deleted in the object store, " +
 			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
 	}
 
