@@ -150,10 +150,13 @@ func ScanObjectsFromDocIDsInTx(tx *bolt.Tx,
 		uuidIndex++
 	}
 
+	uuidKeys = uuidKeys[:uuidIndex]
+
 	b = tx.Bucket(helpers.ObjectsBucket)
 	if b == nil {
 		return fmt.Errorf("objects bucket not found")
 	}
+
 	for i, uuid := range uuidKeys {
 		elem, err := storobj.FromBinary(b.Get(uuid))
 		if err != nil {
