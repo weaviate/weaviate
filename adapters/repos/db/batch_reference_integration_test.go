@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
@@ -114,19 +115,21 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 				Schema: map[string]interface{}{
 					"name": fmt.Sprintf("target item %d", i),
 				},
-			}, []float32{0.5})
+			}, []float32{0.7})
 			require.Nil(t, err)
 		}
 	})
 
 	t.Run("add reference between them - first batch", func(t *testing.T) {
 		source, err := crossref.ParseSource(fmt.Sprintf(
-			"weaviate://localhost/things/AddingBatchReferencesTestSource/%s/toTarget", sourceID))
+			"weaviate://localhost/things/AddingBatchReferencesTestSource/%s/toTarget",
+			sourceID))
 		require.Nil(t, err)
 		targets := []strfmt.UUID{target1, target2}
 		refs := make(kinds.BatchReferences, len(targets), len(targets))
 		for i, target := range targets {
-			to, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/things/%s", target))
+			to, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/things/%s",
+				target))
 			require.Nil(t, err)
 			refs[i] = kinds.BatchReference{
 				Err:  nil,
@@ -140,7 +143,8 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 
 	t.Run("add reference between them - second batch", func(t *testing.T) {
 		source, err := crossref.ParseSource(fmt.Sprintf(
-			"weaviate://localhost/things/AddingBatchReferencesTestSource/%s/toTarget", sourceID))
+			"weaviate://localhost/things/AddingBatchReferencesTestSource/%s/toTarget",
+			sourceID))
 		require.Nil(t, err)
 		targets := []strfmt.UUID{target3, target4}
 		refs := make(kinds.BatchReferences, len(targets), len(targets))
@@ -178,4 +182,25 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 
 		assert.ElementsMatch(t, foundBeacons, expectedBeacons)
 	})
+
+	t.Run("verify objects are still searchable through the vector index",
+		func(t *testing.T) {
+			// prior to making the inverted index and its docIDs immutable, a ref
+			// update would not change the doc ID, therefore the batch reference
+			// never had to interact with the vector index. Now that they're
+			// immutable, the udpated doc ID needs to be "re-inserted" even if the
+			// vector is still the same
+			res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
+				Kind:         kind.Thing,
+				ClassName:    "AddingBatchReferencesTestSource",
+				SearchVector: []float32{0.49},
+				Pagination: &filters.Pagination{
+					Limit: 1,
+				},
+			})
+
+			require.Nil(t, err)
+			require.Len(t, res, 1)
+			assert.Equal(t, sourceID, res[0].ID)
+		})
 }
