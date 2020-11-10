@@ -293,6 +293,10 @@ func (h *hnsw) handleDeletedNode(docID int32) {
 
 func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	ef int, allowList helpers.AllowList) ([]int, error) {
+	if h.isEmpty() {
+		return nil, nil
+	}
+
 	entryPointID := h.entryPointID
 	entryPointDistance, ok, err := h.distBetweenNodeAndVec(entryPointID, searchVec)
 	if err != nil {
