@@ -37,7 +37,7 @@ type referencesBatcher struct {
 	shard                    *Shard
 	errs                     map[int]error
 	refs                     kinds.BatchReferences
-	additionalStorageUpdates []additionalStorageUpdate
+	additionalStorageUpdates map[uint32]additionalStorageUpdate // by docID
 }
 
 // additionalStorageUpdate is a helper type to group the results of a merge, so
@@ -50,7 +50,8 @@ type additionalStorageUpdate struct {
 
 func newReferencesBatcher(s *Shard) *referencesBatcher {
 	return &referencesBatcher{
-		shard: s,
+		shard:                    s,
+		additionalStorageUpdates: map[uint32]additionalStorageUpdate{},
 	}
 }
 
@@ -175,12 +176,43 @@ func (b *referencesBatcher) addAdditionalStorageUpdate(obj *storobj.Object,
 	b.Lock()
 	defer b.Unlock()
 
-	b.additionalStorageUpdates = append(b.additionalStorageUpdates,
-		additionalStorageUpdate{
-			obj:    obj,
-			status: status,
-			index:  originalIndex,
-		})
+	if status.docIDChanged {
+		// If we've already seen the docID that is now considered "old" before , we
+		// need to explicitly delete this. Why? Imagine several updates on the same
+		// source object which originally had the docID 1. After a few updates, it
+		// might now have the docID 4 (as we have 3 updates: 1->2, 2->3, 3->4).
+		//
+		// We must now make sure that docIDs 2 and 3 (1 was never on our list in
+		// the first place) are removed from our additional-storage todo list. This
+		// is for two reasons: (1) The updates are pointless, if we already know
+		// they'll be removed later. (2) Additional index updates will happen
+		// concurrently, so we cannot guarantee the order. It might be that doc ID
+		// 3 would be deleted before it ever gets added, which would be highly
+		// problematic on indices such as HNSW, where doc IDs must also be
+		// immutable.
+
+		oldDocID := status.oldDocID
+		if previousUpdate, ok := b.additionalStorageUpdates[oldDocID]; ok {
+			delete(b.additionalStorageUpdates, status.oldDocID)
+
+			// in addition to deleting the intermediary update, we must also use
+			// their old id as ours. As outlined above the original doc ID before the
+			// batch update (in the example doc ID 1) is not part of the batch.
+			// However, the first udpate (1->2) would have taken care of deleting
+			// this outdated id. Since we have just deleted this update, we must now
+			// set our own oldID to 1. Essentially, at the end of the batch we have
+			// then merged 1->2->3->4 to 1->4 instead of simply cutting off the
+			// beginning and ending up with 3->4. With the latter we'd try to delete
+			// a non-existent id (3) and would leave the obsolete id 1 unchanged.
+			status.oldDocID = previousUpdate.status.oldDocID
+		}
+	}
+
+	b.additionalStorageUpdates[status.docID] = additionalStorageUpdate{
+		obj:    obj,
+		status: status,
+		index:  originalIndex,
+	}
 }
 
 func (b *referencesBatcher) setErrorsForIndices(err error, affectedIndices []int) {

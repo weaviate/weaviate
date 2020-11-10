@@ -132,9 +132,10 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 				target))
 			require.Nil(t, err)
 			refs[i] = kinds.BatchReference{
-				Err:  nil,
-				From: source,
-				To:   to,
+				Err:           nil,
+				From:          source,
+				To:            to,
+				OriginalIndex: i,
 			}
 		}
 		_, err = repo.AddBatchReferences(context.Background(), refs)
@@ -152,9 +153,10 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 			to, err := crossref.Parse(fmt.Sprintf("weaviate://localhost/things/%s", target))
 			require.Nil(t, err)
 			refs[i] = kinds.BatchReference{
-				Err:  nil,
-				From: source,
-				To:   to,
+				Err:           nil,
+				From:          source,
+				To:            to,
+				OriginalIndex: i,
 			}
 		}
 		_, err = repo.AddBatchReferences(context.Background(), refs)
