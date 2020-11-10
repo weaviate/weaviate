@@ -209,51 +209,27 @@ func (s Shard) upsertObjectData(bucket *bolt.Bucket, id []byte, data []byte) err
 	return bucket.Put(id, data)
 }
 
+// updateInvertedIndex is write-only for performance reasons. This means new
+// doc IDs can be appended to existing rows. If an old doc ID is no longer
+// valid it is not immediately cleaned up. Instead it is in the responsibility
+// of the caller to make sure that doc IDs are treated as immutable and any
+// outdated doc IDs have been marked as deleted, so they can be cleaned up in
+// async batches
 func (s Shard) updateInvertedIndex(tx *bolt.Tx, object *storobj.Object,
 	status objectInsertStatus, previous []byte) error {
 	// if this is a new object, we simply have to add those. If this is an update
 	// (see below), we have to calculate the delta and then only add the new ones
-	nextInvertProps, err := s.analyzeObject(object)
+	props, err := s.analyzeObject(object)
 	if err != nil {
 		return errors.Wrap(err, "analyze next object")
 	}
 
-	invertPropsToAdd := nextInvertProps
-	if status.docIDChanged {
-		// since this is an update, we need to analyze the old object, calculate
-		// the delta, then delete the "toBeDeleted" and overwrite the "toAdds" with
-		// the result of the delta
-
-		previousObject, err := storobj.FromBinary(previous)
-		if err != nil {
-			return errors.Wrap(err, "unmarshal previous object")
-		}
-
-		previousInvertProps, err := s.analyzeObject(previousObject)
-		if err != nil {
-			return errors.Wrap(err, "analyze previous object")
-		}
-
-		// there are two possible update cases:
-		// Case A: We have the same docID, so we only need to remove/add the deltas
-		// Case B: The doc ID has changed, so we need to delete anything pointing
-		// to the old doc ID and add everything pointing to the new one
-
-		// doc ID has changed, delete all old, add all new
-		before := time.Now()
-		err = s.deleteFromInvertedIndices(tx, previousInvertProps, status.oldDocID)
-		if err != nil {
-			return errors.Wrap(err, "delete obsolete inverted pointers")
-		}
-		s.metrics.InvertedDeleteOld(before)
-	}
-
 	before := time.Now()
-	err = s.extendInvertedIndices(tx, invertPropsToAdd, status.docID)
+	err = s.extendInvertedIndices(tx, props, status.docID)
 	if err != nil {
 		return errors.Wrap(err, "put inverted indices props")
 	}
-	s.metrics.InvertedExtend(before, len(invertPropsToAdd))
+	s.metrics.InvertedExtend(before, len(props))
 
 	return nil
 }
