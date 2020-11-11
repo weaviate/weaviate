@@ -141,11 +141,6 @@ func Test_MergingObjects(t *testing.T) {
 	})
 
 	t.Run("merge other previously unset properties into it", func(t *testing.T) {
-		// source, err := crossref.ParseSource(fmt.Sprintf(
-		// 	"weaviate://localhost/things/AddingBatchReferencesTestSource/%s/toTarget", sourceID))
-		// require.Nil(t, err)
-		// targets := []strfmt.UUID{target1, target2}
-
 		md := kinds.MergeDocument{
 			Class: "MergeTestSource",
 			ID:    sourceID,

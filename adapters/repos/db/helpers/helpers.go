@@ -19,7 +19,7 @@ const (
 
 var (
 	ObjectsBucket []byte = []byte("objects")
-	IndexIDBucket []byte = []byte("index_ids")
+	DocIDBucket   []byte = []byte("doc_ids")
 )
 
 // BucketFromPropName creates the byte-representation used as the bucket name
