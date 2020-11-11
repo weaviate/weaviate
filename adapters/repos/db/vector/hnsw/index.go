@@ -452,7 +452,6 @@ func (h *hnsw) findAndConnectNeighbors(node *vertex,
 	}
 
 	results.insert(entryPointID, dist)
-
 	// neighborsAtLevel := make(map[int][]uint32) // for distributed spike
 
 	for level := min(targetLevel, currentMaxLevel); level >= 0; level-- {
