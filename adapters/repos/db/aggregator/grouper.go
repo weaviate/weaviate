@@ -17,6 +17,7 @@ import (
 
 	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
@@ -75,7 +76,7 @@ func (g *grouper) groupFiltered(ctx context.Context) ([]group, error) {
 	}
 
 	if err := g.db.View(func(tx *bolt.Tx) error {
-		return inverted.ScanObjectsFromDocIDsInTx(tx, flattenAllowList(ids),
+		return docid.ScanObjectsInTx(tx, flattenAllowList(ids),
 			func(obj *storobj.Object) (bool, error) {
 				return true, g.addElement(obj)
 			})
@@ -98,7 +99,7 @@ func (g *grouper) addElement(obj *storobj.Object) error {
 	}
 
 	ids := g.values[item]
-	ids = append(ids, obj.IndexID())
+	ids = append(ids, obj.DocID())
 	g.values[item] = ids
 	return nil
 }
@@ -155,7 +156,7 @@ func (g *grouper) insertOrdered(elem group) {
 
 // ScanAll iterates over every row in the object buckets
 // TODO: where should this live?
-func ScanAll(tx *bolt.Tx, scan inverted.ObjectScanFn) error {
+func ScanAll(tx *bolt.Tx, scan docid.ObjectScanFn) error {
 	b := tx.Bucket(helpers.ObjectsBucket)
 	if b == nil {
 		return fmt.Errorf("objects bucket not found")

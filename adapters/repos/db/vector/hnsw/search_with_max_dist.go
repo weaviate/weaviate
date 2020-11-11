@@ -27,7 +27,7 @@ func (h *hnsw) KnnSearchByVectorMaxDist(searchVec []float32, dist float32,
 	}
 
 	if !ok {
-		return nil, fmt.Errorf("entrypoint was deleted in the object strore, " +
+		return nil, fmt.Errorf("entrypoint was deleted in the object store, " +
 			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
 	}
 
