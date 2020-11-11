@@ -71,11 +71,10 @@ func (h *hnsw) tombstonesAsDenyList() helpers.AllowList {
 	deleteList := helpers.AllowList{}
 	h.RLock()
 	tombstones := h.tombstones
-	h.RUnlock()
-
 	for id := range tombstones {
 		deleteList.Insert(uint32(id))
 	}
+	h.RUnlock()
 
 	return deleteList
 }

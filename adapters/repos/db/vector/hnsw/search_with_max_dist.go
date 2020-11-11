@@ -40,9 +40,11 @@ func (h *hnsw) KnnSearchByVectorMaxDist(searchVec []float32, dist float32,
 		if err != nil {
 			return nil, errors.Wrapf(err, "knn search: search layer at level %d", level)
 		}
-		best := res.minimum()
-		entryPointID = best.index
-		entryPointDistance = best.dist
+		if res.root != nil {
+			best := res.minimum()
+			entryPointID = best.index
+			entryPointDistance = best.dist
+		}
 	}
 
 	eps := &binarySearchTreeGeneric{}
