@@ -213,7 +213,7 @@ func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32,
 		idsUint[i] = uint32(id)
 	}
 	if err := s.db.View(func(tx *bolt.Tx) error {
-		res, err := inverted.ObjectsFromDocIDsInTx(tx, idsUint)
+		res, err := docid.ObjectsInTx(tx, idsUint)
 		if err != nil {
 			return errors.Wrap(err, "resolve doc ids to objects")
 		}
