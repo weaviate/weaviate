@@ -519,6 +519,83 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 	// t.Fail()
 }
 
+func TestDelete_MoreEntrypointIssues(t *testing.T) {
+	// This test is motivated by flakyness of other tests. We seemed to have
+	// experienced a failure with the following structure
+	//
+	// ID: thing_geoupdatetestclass_single_location
+	// Entrypoint: 2
+	// Max Level: 1
+	// Tombstones map[0:{} 1:{}]
+	//
+	// Nodes and Connections:
+	//   Node 0
+	//     Level 0: Connections: [1]
+	//   Node 1
+	//     Level 0: Connections: [0 2]
+	//     Level 1: Connections: [2]
+	//   Node 2
+	//     Level 1: Connections: [1]
+	//     Level 0: Connections: [1]
+
+	index, err := New(Config{
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    "more-delete-entrypoint-flakyness-test",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		MaximumConnections:    30,
+		EFConstruction:        128,
+		DistanceProvider:      distancer.NewCosineProvider(),
+		VectorForIDThunk:      testVectorForID,
+	})
+	require.Nil(t, err)
+
+	// manually build the index
+	index.entryPointID = 2
+	index.currentMaximumLayer = 1
+	index.tombstones = map[int]struct{}{
+		0: {},
+		1: {},
+	}
+	index.nodes = make([]*vertex, 50)
+	index.nodes[0] = &vertex{
+		id: 0,
+		connections: map[int][]uint32{
+			0: []uint32{1},
+		},
+	}
+	index.nodes[1] = &vertex{
+		id: 1,
+		connections: map[int][]uint32{
+			0: []uint32{0, 2},
+			1: []uint32{2},
+		},
+	}
+	index.nodes[2] = &vertex{
+		id: 2,
+		connections: map[int][]uint32{
+			0: []uint32{1},
+			1: []uint32{1},
+		},
+	}
+
+	dumpIndex(index, "before adding another element")
+	t.Run("adding a third element", func(t *testing.T) {
+		vec, _ := testVectorForID(context.TODO(), 3)
+		index.Add(3, vec)
+	})
+
+	expectedResults := []int{
+		3, 2,
+	}
+
+	t.Run("verify that the results are correct", func(t *testing.T) {
+		position := 3
+		res, err := index.knnSearchByVector(testVectors[position], 50, 36, nil)
+		require.Nil(t, err)
+		assert.Equal(t, expectedResults, res)
+	})
+}
+
 func TestDelete_TombstonedEntrypoint(t *testing.T) {
 	vecForID := func(ctx context.Context, id int32) ([]float32, error) {
 		// always return same vec  for all elements

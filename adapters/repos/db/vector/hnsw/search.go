@@ -169,7 +169,7 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 			}
 		}
 
-		if level == 0 && h.hasTombstone(ep.index) {
+		if h.hasTombstone(ep.index) {
 			continue
 		}
 
