@@ -430,7 +430,11 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 			return 0,
 				errors.Wrapf(err, "update candidate: search layer at level %d", level)
 		}
-		entryPointID = res.minimum().index
+		if res.root != nil {
+			// if we could find a new entrypoint, use it
+			entryPointID = res.minimum().index
+			// in case everything was tombstoned, stick with the existing one
+		}
 	}
 
 	return entryPointID, nil

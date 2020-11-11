@@ -466,25 +466,91 @@ func testBatchImportGeoThings(repo *DB) func(t *testing.T) {
 			}
 		})
 
-		t.Run("query for expected results", func(t *testing.T) {
-			const km = 1000
-			distances := []float32{
-				0.1,
-				1,
-				10,
-				100,
-				1000,
-				2000,
-				5000,
-				7500,
-				10000,
-				12500,
-				15000,
-				20000,
-				35000,
-				100000, // larger than the circumference of the earth, should contain all
-			}
+		const km = 1000
+		distances := []float32{
+			0.1,
+			1,
+			10,
+			100,
+			1000,
+			2000,
+			5000,
+			7500,
+			10000,
+			12500,
+			15000,
+			20000,
+			35000,
+			100000, // larger than the circumference of the earth, should contain all
+		}
 
+		t.Run("query for expected results", func(t *testing.T) {
+			queryGeo := randGeoCoordinates()
+
+			for _, maxDist := range distances {
+				t.Run(fmt.Sprintf("with maxDist=%f", maxDist), func(t *testing.T) {
+					var relevant int
+					var retrieved int
+
+					controlList := bruteForceMaxDist(objects, []float32{
+						*queryGeo.Latitude,
+						*queryGeo.Longitude,
+					}, maxDist*km)
+
+					res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
+						Kind:       kind.Thing,
+						ClassName:  "ThingForBatching",
+						Pagination: &filters.Pagination{Limit: 500},
+						Filters: buildFilter("location", filters.GeoRange{
+							GeoCoordinates: queryGeo,
+							Distance:       maxDist * km,
+						}, filters.OperatorWithinGeoRange, schema.DataTypeGeoCoordinates),
+					})
+					require.Nil(t, err)
+
+					retrieved += len(res)
+					relevant += matchesInUUIDLists(controlList, resToUUIDs(res))
+
+					if relevant == 0 {
+						// skip, as we risk dividing by zero, if both relevant and retrieved
+						// are zero, however, we want to fail with a divide-by-zero if only
+						// retrieved is 0 and relevant was more than 0
+						return
+					}
+					recall := float32(relevant) / float32(retrieved)
+					fmt.Printf("recall is %f\n", recall)
+					assert.True(t, recall >= 0.99)
+				})
+			}
+		})
+
+		t.Run("renew vector positions to test batch geo updates", func(t *testing.T) {
+			for i, obj := range objects {
+				obj.Schema = map[string]interface{}{
+					"location": randGeoCoordinates(),
+				}
+				objects[i] = obj
+			}
+		})
+
+		t.Run("import in batches again (as update - same IDs!)", func(t *testing.T) {
+			for i := 0; i < size; i += batchSize {
+				batch := make(kinds.BatchThings, batchSize)
+				for j := 0; j < batchSize; j++ {
+					batch[j] = kinds.BatchThing{
+						OriginalIndex: j,
+						Thing:         objects[i+j],
+						Vector:        objects[i+j].Vector,
+					}
+				}
+
+				res, err := repo.BatchPutThings(context.Background(), batch)
+				require.Nil(t, err)
+				assertAllItemsErrorFree(t, res)
+			}
+		})
+
+		t.Run("query again to verify updates worked", func(t *testing.T) {
 			queryGeo := randGeoCoordinates()
 
 			for _, maxDist := range distances {
