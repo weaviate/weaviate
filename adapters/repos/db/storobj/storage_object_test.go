@@ -42,7 +42,7 @@ func TestStorageObjectMarshalling(t *testing.T) {
 		[]float32{1, 2, 0.7},
 	)
 
-	before.SetIndexID(7)
+	before.SetDocID(7)
 
 	asBinary, err := before.MarshalBinary()
 	require.Nil(t, err)
@@ -66,7 +66,7 @@ func TestNewStorageObject(t *testing.T) {
 		so := New(kind.Thing, 12)
 
 		t.Run("check index id", func(t *testing.T) {
-			assert.Equal(t, uint32(12), so.indexID)
+			assert.Equal(t, uint32(12), so.docID)
 		})
 
 		t.Run("is invalid without required params", func(t *testing.T) {
@@ -74,8 +74,8 @@ func TestNewStorageObject(t *testing.T) {
 		})
 
 		t.Run("reassign index id", func(t *testing.T) {
-			so.SetIndexID(13)
-			assert.Equal(t, uint32(13), so.indexID)
+			so.SetDocID(13)
+			assert.Equal(t, uint32(13), so.docID)
 		})
 
 		t.Run("assign class", func(t *testing.T) {
@@ -110,7 +110,7 @@ func TestNewStorageObject(t *testing.T) {
 						"foo": "bar",
 					},
 				}, nil)
-				alt.SetIndexID(13)
+				alt.SetDocID(13)
 
 				assert.Equal(t, so, alt)
 			})
@@ -120,7 +120,7 @@ func TestNewStorageObject(t *testing.T) {
 		so := New(kind.Action, 12)
 
 		t.Run("check index id", func(t *testing.T) {
-			assert.Equal(t, uint32(12), so.indexID)
+			assert.Equal(t, uint32(12), so.docID)
 		})
 
 		t.Run("is invalid without required params", func(t *testing.T) {
@@ -128,8 +128,8 @@ func TestNewStorageObject(t *testing.T) {
 		})
 
 		t.Run("reassign index id", func(t *testing.T) {
-			so.SetIndexID(13)
-			assert.Equal(t, uint32(13), so.indexID)
+			so.SetDocID(13)
+			assert.Equal(t, uint32(13), so.docID)
 		})
 
 		t.Run("assign class", func(t *testing.T) {
@@ -164,7 +164,7 @@ func TestNewStorageObject(t *testing.T) {
 						"foo": "bar",
 					},
 				}, nil)
-				alt.SetIndexID(13)
+				alt.SetDocID(13)
 
 				assert.Equal(t, so, alt)
 			})

@@ -52,8 +52,8 @@ func (b *objectsBatcher) Objects(ctx context.Context,
 	defer b.shard.metrics.BatchObject(beforeBatch, len(objects))
 
 	b.init(objects)
-	b.storeObjectsInObjectStore(ctx)
-	b.storeObjectsAdditionalStorage(ctx)
+	b.storeInObjectStore(ctx)
+	b.storeAdditionalStorage(ctx)
 	return b.errs
 }
 
@@ -64,10 +64,10 @@ func (b *objectsBatcher) init(objects []*storobj.Object) {
 	b.duplicates = findDuplicatesInBatchObjects(objects)
 }
 
-// storeObjectsInObjectStore performs all storage operations on the underlying
+// storeInObjectStore performs all storage operations on the underlying
 // key/value store, this is they object-by-id store, the docID-lookup tables,
 // as well as all inverted indices.
-func (b *objectsBatcher) storeObjectsInObjectStore(ctx context.Context) {
+func (b *objectsBatcher) storeInObjectStore(ctx context.Context) {
 	maxPerTransaction := 30
 	beforeObjectStore := time.Now()
 	wg := &sync.WaitGroup{}
@@ -152,10 +152,10 @@ func (b *objectsBatcher) setStatusForID(status objectInsertStatus, id strfmt.UUI
 	b.statuses[id] = status
 }
 
-// storeObjectsAdditionalStorage stores the object in all non-key-value stores,
+// storeAdditionalStorage stores the object in all non-key-value stores,
 // such as the main vector index as well as the property-specific indices, such
 // as the geo-index.
-func (b *objectsBatcher) storeObjectsAdditionalStorage(ctx context.Context) {
+func (b *objectsBatcher) storeAdditionalStorage(ctx context.Context) {
 	if ok := b.checkContext(ctx); !ok {
 		// if the context is no longer OK, there's no point in continuing - abort
 		// early
