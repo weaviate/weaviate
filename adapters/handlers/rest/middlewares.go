@@ -51,6 +51,29 @@ func addHandleRoot(next http.Handler) http.Handler {
 	})
 }
 
+func addModuleHandlers(next http.Handler) http.Handler {
+	httpObject := newModuleHTTPObject()
+
+	// hard-code the one module we have
+	registeredModules["hello-world"].RegisterHandlers(httpObject)
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		needle := "/v1/modules/"
+		if url := r.URL.String(); len(url) > len(needle) && url[:len(needle)] == needle {
+			h, ok := httpObject.handlers[url]
+			if !ok {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			h.ServeHTTP(w, r)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 // The middleware configuration happens before anything, this middleware also applies to serving the swagger.json document.
 // So this is a good place to plug in a panic handling middleware, logging and metrics
 // Contains "x-api-key", "x-api-token" for legacy reasons, older interfaces might need these headers.
@@ -66,6 +89,7 @@ func makeSetupGlobalMiddleware(appState *state.State) func(http.Handler) http.Ha
 		handler = addPreflight(handler)
 		handler = addLiveAndReadyness(handler)
 		handler = addHandleRoot(handler)
+		handler = addModuleHandlers(handler)
 
 		return handler
 	}
