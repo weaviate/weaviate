@@ -520,6 +520,16 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 }
 
 func TestDelete_MoreEntrypointIssues(t *testing.T) {
+	vectors := [][]float32{
+		{7, 1},
+		{8, 2},
+		{23, 14},
+		{6.5, -1},
+	}
+
+	vecForID := func(ctx context.Context, id int32) ([]float32, error) {
+		return vectors[int(id)], nil
+	}
 	// This test is motivated by flakyness of other tests. We seemed to have
 	// experienced a failure with the following structure
 	//
@@ -544,8 +554,8 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		MaximumConnections:    30,
 		EFConstruction:        128,
-		DistanceProvider:      distancer.NewCosineProvider(),
-		VectorForIDThunk:      testVectorForID,
+		DistanceProvider:      distancer.NewGeoProvider(),
+		VectorForIDThunk:      vecForID,
 	})
 	require.Nil(t, err)
 
