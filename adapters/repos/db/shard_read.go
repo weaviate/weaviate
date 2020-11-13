@@ -20,6 +20,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
@@ -118,20 +119,31 @@ func (s *Shard) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 }
 
 func (s *Shard) objectByIndexID(ctx context.Context,
-	indexID int32) (*storobj.Object, error) {
+	indexID int32, acceptDeleted bool) (*storobj.Object, error) {
 	keyBuf := bytes.NewBuffer(make([]byte, 4))
 	binary.Write(keyBuf, binary.LittleEndian, &indexID)
 	key := keyBuf.Bytes()
 
 	var out *storobj.Object
 	err := s.db.View(func(tx *bolt.Tx) error {
-		uuid := tx.Bucket(helpers.IndexIDBucket).Get(key)
-		if uuid == nil {
+		uuidLookup := tx.Bucket(helpers.DocIDBucket).Get(key)
+		if uuidLookup == nil {
 			return storobj.NewErrNotFoundf(indexID,
 				"doc id inverted resolved to a nil object, i.e. no uuid found")
 		}
 
-		bytes := tx.Bucket(helpers.ObjectsBucket).Get(uuid)
+		lookup, err := docid.LookupFromBinary(uuidLookup)
+		if err != nil {
+			return errors.Wrap(err, "unmarshal docID lookup")
+		}
+
+		if lookup.Deleted && !acceptDeleted {
+			return storobj.NewErrNotFoundf(indexID,
+				"doc id is marked as deleted at %s",
+				lookup.DeletionTime.String())
+		}
+
+		bytes := tx.Bucket(helpers.ObjectsBucket).Get(lookup.PointsTo)
 		if bytes == nil {
 			return storobj.NewErrNotFoundf(indexID,
 				"uuid found for docID, but object is nil")
@@ -153,7 +165,7 @@ func (s *Shard) objectByIndexID(ctx context.Context,
 }
 
 func (s *Shard) vectorByIndexID(ctx context.Context, indexID int32) ([]float32, error) {
-	obj, err := s.objectByIndexID(ctx, indexID)
+	obj, err := s.objectByIndexID(ctx, indexID, true)
 	if err != nil {
 		return nil, err
 	}
@@ -201,7 +213,7 @@ func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32,
 		idsUint[i] = uint32(id)
 	}
 	if err := s.db.View(func(tx *bolt.Tx) error {
-		res, err := inverted.ObjectsFromDocIDsInTx(tx, idsUint)
+		res, err := docid.ObjectsInTx(tx, idsUint)
 		if err != nil {
 			return errors.Wrap(err, "resolve doc ids to objects")
 		}
