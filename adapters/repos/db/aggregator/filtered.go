@@ -16,6 +16,7 @@ import (
 
 	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
@@ -75,7 +76,7 @@ func (fa *filteredAggregator) properties(ctx context.Context,
 	}
 
 	if err := fa.db.View(func(tx *bolt.Tx) error {
-		return inverted.ScanObjectsFromDocIDsInTx(tx, ids, scan)
+		return docid.ScanObjectsInTx(tx, ids, scan)
 	}); err != nil {
 		return nil, errors.Wrap(err, "properties view tx")
 	}

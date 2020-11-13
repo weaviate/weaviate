@@ -20,6 +20,7 @@ import (
 
 	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/notimplemented"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/propertyspecific"
@@ -65,7 +66,7 @@ func (f *Searcher) Object(ctx context.Context, limit int,
 			return errors.Wrap(err, "merge doc ids by operator")
 		}
 
-		res, err := ObjectsFromDocIDsInTx(tx, pointers.IDs())
+		res, err := docid.ObjectsInTx(tx, pointers.IDs())
 		if err != nil {
 			return errors.Wrap(err, "resolve doc ids to objects")
 		}
@@ -77,92 +78,6 @@ func (f *Searcher) Object(ctx context.Context, limit int,
 	}
 
 	return out, nil
-}
-
-// ObjectsFromDocIDsinTx resolves all the specified pointers to actual objects.
-// This should only be called if the intent is to return those objects to the
-// user, as we need enough Memory to hold all of those objects. Do not use this
-// in whole-db-scan situations such as an aggregation where you might only need
-// each object for a short amount of time to extract one or more properties. In
-// that case use ScanObjectsFromDocIDsInTx directly
-func ObjectsFromDocIDsInTx(tx *bolt.Tx,
-	pointers []uint32) ([]*storobj.Object, error) {
-	// at most the resulting array can have the length of the input pointers,
-	// however it could also be smaller if one (or more) of the pointers resolve
-	// to nil-ids or nil-objects
-	out := make([]*storobj.Object, len(pointers))
-
-	i := 0
-	err := ScanObjectsFromDocIDsInTx(tx, pointers,
-		func(obj *storobj.Object) (bool, error) {
-			out[i] = obj
-			i++
-			return true, nil
-		})
-	if err != nil {
-		return nil, err
-	}
-
-	return out[:i], nil
-}
-
-// ObjectScanFn is called once per object, if false or an error is returned,
-// the scanning will stop
-type ObjectScanFn func(obj *storobj.Object) (bool, error)
-
-// ScanObjectsFromDocIDsInTx calls the provided scanFn on each object for the
-// specified pointer. If a pointer does not resolve to an object-id, the item
-// will be skipped. The number of times scanFn is called can therefore be
-// smaller than the input length of pointers.
-func ScanObjectsFromDocIDsInTx(tx *bolt.Tx,
-	pointers []uint32, scan ObjectScanFn) error {
-	uuidKeys := make([][]byte, len(pointers))
-	b := tx.Bucket(helpers.IndexIDBucket)
-	if b == nil {
-		return fmt.Errorf("index id bucket not found")
-	}
-
-	uuidIndex := 0
-	for _, pointer := range pointers {
-		keyBuf := bytes.NewBuffer(make([]byte, 4))
-		pointerUint32 := uint32(pointer)
-		binary.Write(keyBuf, binary.LittleEndian, &pointerUint32)
-		key := keyBuf.Bytes()
-		uuid := b.Get(key)
-		if len(uuid) == 0 {
-			// TODO: Log this as a warning
-			// There is no legitimate reason for this to happen. This essentially
-			// means that we received a doc Pointer that is not (or no longer)
-			// associated with an actual document. This could happen if a docID was
-			// deleted, but an inverted or vector index was not cleaned up
-			continue
-		}
-
-		uuidKeys[uuidIndex] = uuid
-		uuidIndex++
-	}
-
-	b = tx.Bucket(helpers.ObjectsBucket)
-	if b == nil {
-		return fmt.Errorf("objects bucket not found")
-	}
-	for i, uuid := range uuidKeys {
-		elem, err := storobj.FromBinary(b.Get(uuid))
-		if err != nil {
-			return errors.Wrapf(err, "unmarshal data object at position %d", i)
-		}
-
-		continueScan, err := scan(elem)
-		if err != nil {
-			return errors.Wrapf(err, "scanFn at position %d", i)
-		}
-
-		if !continueScan {
-			break
-		}
-	}
-
-	return nil
 }
 
 // DocIDs is similar to Objects, but does not actually resolve the docIDs to

@@ -14,6 +14,8 @@ package hnsw
 import (
 	"context"
 	"fmt"
+	"math"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -168,7 +170,7 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 			}
 		}
 
-		if level == 0 && h.hasTombstone(ep.index) {
+		if h.hasTombstone(ep.index) {
 			continue
 		}
 
@@ -187,7 +189,7 @@ func (h *hnsw) currentWorstResultDistance(results *binarySearchTreeGeneric,
 		}
 
 		if !ok {
-			return 9001, nil
+			return math.MaxFloat32, nil
 		}
 		return d, nil
 	} else {
@@ -195,7 +197,7 @@ func (h *hnsw) currentWorstResultDistance(results *binarySearchTreeGeneric,
 		// the allow List the result list is empty. In this case we can just set
 		// the worstDistance to an arbitrarily large number, so that any
 		// (allowed) candidate will have a lower distance in comparison
-		return 9001, nil
+		return math.MaxFloat32, nil
 	}
 }
 
@@ -235,7 +237,7 @@ func (h *hnsw) extendCandidatesAndResultsFromNeighbors(candidates,
 				}
 			}
 
-			if level == 0 && h.hasTombstone(int(neighborID)) {
+			if h.hasTombstone(int(neighborID)) {
 				continue
 			}
 
@@ -293,6 +295,10 @@ func (h *hnsw) handleDeletedNode(docID int32) {
 
 func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	ef int, allowList helpers.AllowList) ([]int, error) {
+	if h.isEmpty() {
+		return nil, nil
+	}
+
 	entryPointID := h.entryPointID
 	entryPointDistance, ok, err := h.distBetweenNodeAndVec(entryPointID, searchVec)
 	if err != nil {
@@ -300,7 +306,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	}
 
 	if !ok {
-		return nil, fmt.Errorf("entrypoint was deleted in the object strore, " +
+		return nil, fmt.Errorf("entrypoint was deleted in the object store, " +
 			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
 	}
 
@@ -377,4 +383,30 @@ func (h *hnsw) selectNeighborsSimpleFromId(nodeId int, ids []uint32,
 	}
 
 	return h.selectNeighborsSimple(*bst, max, denyList), nil
+}
+
+// Dump to stdout for debugging purposes
+func (index *hnsw) Dump(labels ...string) {
+	if len(labels) > 0 {
+		fmt.Printf("--------------------------------------------------\n")
+		fmt.Printf("--  %s\n", strings.Join(labels, ", "))
+	}
+	fmt.Printf("--------------------------------------------------\n")
+	fmt.Printf("ID: %s\n", index.id)
+	fmt.Printf("Entrypoint: %d\n", index.entryPointID)
+	fmt.Printf("Max Level: %d\n", index.currentMaximumLayer)
+	fmt.Printf("Tombstones %v\n", index.tombstones)
+	fmt.Printf("\nNodes and Connections:\n")
+	for _, node := range index.nodes {
+		if node == nil {
+			continue
+		}
+
+		fmt.Printf("  Node %d (level %d)\n", node.id, node.level)
+		for level, conns := range node.connections {
+			fmt.Printf("    Level %d: Connections: %v\n", level, conns)
+		}
+	}
+
+	fmt.Printf("--------------------------------------------------\n")
 }
