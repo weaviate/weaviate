@@ -156,7 +156,6 @@ func (s *Shard) addToGeoIndex(propName string, index propertyspecific.Index,
 
 func (s *Shard) deleteFromGeoIndex(index propertyspecific.Index,
 	docID uint32) error {
-	fmt.Printf("delete doc id %d\n", docID)
 	if err := index.GeoIndex.Delete(int(docID)); err != nil {
 		return errors.Wrapf(err, "delete from geo index")
 	}
