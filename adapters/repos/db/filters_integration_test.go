@@ -587,3 +587,108 @@ var carVectors = [][]float32{
 	{0, 0, 0, 1.1, 0},
 	{0, 0, 0, 0, 1.1},
 }
+
+func TestGeoPropUpdateJourney(t *testing.T) {
+	rand.Seed(time.Now().UnixNano())
+	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+	os.MkdirAll(dirName, 0o777)
+	defer func() {
+		err := os.RemoveAll(dirName)
+		fmt.Println(err)
+	}()
+
+	logger, _ := test.NewNullLogger()
+	schemaGetter := &fakeSchemaGetter{}
+	repo := New(logger, Config{RootPath: dirName})
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(30 * time.Second)
+	require.Nil(t, err)
+
+	migrator := NewMigrator(repo, logger)
+
+	t.Run("import schema", func(t *testing.T) {
+		class := &models.Class{
+			Class: "GeoUpdateTestClass",
+			Properties: []*models.Property{
+				{
+					Name:     "location",
+					DataType: []string{string(schema.DataTypeGeoCoordinates)},
+				},
+			},
+		}
+
+		migrator.AddClass(context.Background(), kind.Thing, class)
+		schemaGetter.schema.Things = &models.Schema{
+			Classes: []*models.Class{class},
+		}
+	})
+
+	ids := []strfmt.UUID{
+		"4002609e-ee57-4404-a0ad-798af7da0004",
+		"1477aed8-f677-4131-a3ad-4deef6176066",
+	}
+
+	coordinates := [][]float32{
+		{7, 1},
+		{8, 2},
+	}
+
+	searchQuery := filters.GeoRange{
+		GeoCoordinates: &models.GeoCoordinates{
+			Latitude:  ptFloat32(6.0),
+			Longitude: ptFloat32(-2.0),
+		},
+		Distance: 100000000, // should be enough to cover the entire earth
+	}
+
+	upsert := func(t *testing.T) {
+		for i, id := range ids {
+			repo.PutThing(context.Background(), &models.Thing{
+				Class: "GeoUpdateTestClass",
+				ID:    id,
+				Schema: map[string]interface{}{
+					"location": &models.GeoCoordinates{
+						Latitude:  &coordinates[i][0],
+						Longitude: &coordinates[i][1],
+					},
+				},
+			}, []float32{0.5})
+		}
+	}
+
+	t.Run("import items", upsert)
+
+	t.Run("verify original order", func(t *testing.T) {
+		res, err := repo.ClassSearch(context.Background(),
+			getParamsWithFilter("GeoUpdateTestClass", buildFilter(
+				"location", searchQuery, wgr, schema.DataTypeGeoCoordinates,
+			)))
+
+		require.Nil(t, err)
+		require.Len(t, res, 2)
+		assert.Equal(t, ids[0], res[0].ID)
+		assert.Equal(t, ids[1], res[1].ID)
+	})
+
+	coordinates = [][]float32{
+		// move item 0 farther away from the search query and item 1 closer to it
+		{23, 14},
+		{6.5, -1},
+	}
+
+	t.Run("import items", upsert)
+
+	t.Run("verify updated order", func(t *testing.T) {
+		res, err := repo.ClassSearch(context.Background(),
+			getParamsWithFilter("GeoUpdateTestClass", buildFilter(
+				"location", searchQuery, wgr, schema.DataTypeGeoCoordinates,
+			)))
+
+		require.Nil(t, err)
+		require.Len(t, res, 2)
+
+		// notice the opposite order
+		assert.Equal(t, ids[1], res[0].ID)
+		assert.Equal(t, ids[0], res[1].ID)
+	})
+}

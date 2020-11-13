@@ -41,6 +41,8 @@ type vectorIndex interface {
 	Add(id int, vector []float32) error
 	KnnSearchByVectorMaxDist(query []float32, dist float32, ef int,
 		allowList helpers.AllowList) ([]int, error)
+	Delete(id int) error
+	Dump(...string)
 }
 
 // Config is passed to the GeoIndex when its created
@@ -110,4 +112,8 @@ func (i *Index) WithinRange(ctx context.Context,
 	}
 
 	return i.vectorIndex.KnnSearchByVectorMaxDist(query, geoRange.Distance, 800, nil)
+}
+
+func (i *Index) Delete(id int) error {
+	return i.vectorIndex.Delete(id)
 }
