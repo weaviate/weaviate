@@ -430,7 +430,11 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 			return 0,
 				errors.Wrapf(err, "update candidate: search layer at level %d", level)
 		}
-		entryPointID = res.minimum().index
+		if res.root != nil {
+			// if we could find a new entrypoint, use it
+			entryPointID = res.minimum().index
+			// in case everything was tombstoned, stick with the existing one
+		}
 	}
 
 	return entryPointID, nil
@@ -447,12 +451,11 @@ func (h *hnsw) findAndConnectNeighbors(node *vertex,
 		return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
 	}
 	if !ok {
-		return fmt.Errorf("entrypoint was deleted in the object strore, " +
+		return fmt.Errorf("entrypoint was deleted in the object store, " +
 			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
 	}
 
 	results.insert(entryPointID, dist)
-
 	// neighborsAtLevel := make(map[int][]uint32) // for distributed spike
 
 	for level := min(targetLevel, currentMaxLevel); level >= 0; level-- {
@@ -491,12 +494,7 @@ func (h *hnsw) findAndConnectNeighbors(node *vertex,
 		// neighborsAtLevel[level] = neighbors
 
 		for _, neighborID := range neighbors {
-			// before := time.Now()
-			h.RLock()
-			// m.addBuildingReadLocking(before)
-			neighbor := h.nodes[neighborID]
-			h.RUnlock()
-
+			neighbor := h.nodeByID(int(neighborID))
 			if neighbor == node {
 				// don't connect to self
 				continue
@@ -678,4 +676,11 @@ func (h *hnsw) isEmpty() bool {
 	}
 
 	return true
+}
+
+func (h *hnsw) nodeByID(id int) *vertex {
+	h.RLock()
+	defer h.RUnlock()
+
+	return h.nodes[id]
 }
