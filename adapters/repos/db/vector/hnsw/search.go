@@ -14,6 +14,7 @@ package hnsw
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -188,7 +189,7 @@ func (h *hnsw) currentWorstResultDistance(results *binarySearchTreeGeneric,
 		}
 
 		if !ok {
-			return 9001, nil
+			return math.MaxFloat32, nil
 		}
 		return d, nil
 	} else {
@@ -196,7 +197,7 @@ func (h *hnsw) currentWorstResultDistance(results *binarySearchTreeGeneric,
 		// the allow List the result list is empty. In this case we can just set
 		// the worstDistance to an arbitrarily large number, so that any
 		// (allowed) candidate will have a lower distance in comparison
-		return 9001, nil
+		return math.MaxFloat32, nil
 	}
 }
 
@@ -236,7 +237,7 @@ func (h *hnsw) extendCandidatesAndResultsFromNeighbors(candidates,
 				}
 			}
 
-			if level == 0 && h.hasTombstone(int(neighborID)) {
+			if h.hasTombstone(int(neighborID)) {
 				continue
 			}
 
@@ -401,7 +402,7 @@ func (index *hnsw) Dump(labels ...string) {
 			continue
 		}
 
-		fmt.Printf("  Node %d\n", node.id)
+		fmt.Printf("  Node %d (level %d)\n", node.id, node.level)
 		for level, conns := range node.connections {
 			fmt.Printf("    Level %d: Connections: %v\n", level, conns)
 		}
