@@ -37,10 +37,7 @@ func (h *hnsw) Delete(id int) error {
 	// node would be guaranteed to have zero edges
 	denyList := h.tombstonesAsDenyList()
 
-	h.RLock()
-	node := h.nodes[id]
-	h.RUnlock()
-
+	node := h.nodeByID(id)
 	if node == nil {
 		// node was already deleted/cleaned up
 		return nil
@@ -70,11 +67,12 @@ func (h *hnsw) reset() {
 func (h *hnsw) tombstonesAsDenyList() helpers.AllowList {
 	deleteList := helpers.AllowList{}
 	h.RLock()
+	defer h.RUnlock()
+
 	tombstones := h.tombstones
 	for id := range tombstones {
 		deleteList.Insert(uint32(id))
 	}
-	h.RUnlock()
 
 	return deleteList
 }

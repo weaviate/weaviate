@@ -494,12 +494,7 @@ func (h *hnsw) findAndConnectNeighbors(node *vertex,
 		// neighborsAtLevel[level] = neighbors
 
 		for _, neighborID := range neighbors {
-			// before := time.Now()
-			h.RLock()
-			// m.addBuildingReadLocking(before)
-			neighbor := h.nodes[neighborID]
-			h.RUnlock()
-
+			neighbor := h.nodeByID(int(neighborID))
 			if neighbor == node {
 				// don't connect to self
 				continue
@@ -681,4 +676,11 @@ func (h *hnsw) isEmpty() bool {
 	}
 
 	return true
+}
+
+func (h *hnsw) nodeByID(id int) *vertex {
+	h.RLock()
+	defer h.RUnlock()
+
+	return h.nodes[id]
 }
