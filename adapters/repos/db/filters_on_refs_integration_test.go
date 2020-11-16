@@ -202,121 +202,120 @@ func TestRefFilters(t *testing.T) {
 	})
 
 	t.Run("filtering", func(t *testing.T) {
-		// t.Run("one level deep", func(t *testing.T) {
-		// 	t.Run("ref name matches", func(t *testing.T) {
-		// 		filter := filterCarParkedAtGarage(schema.DataTypeString,
-		// 			"name", filters.OperatorEqual, "Luxury Parking Garage")
-		// 		params := getParamsWithFilter("MultiRefCar", filter)
+		t.Run("one level deep", func(t *testing.T) {
+			// t.Run("ref name matches", func(t *testing.T) {
+			// 	filter := filterCarParkedAtGarage(schema.DataTypeString,
+			// 		"name", filters.OperatorEqual, "Luxury Parking Garage")
+			// 	params := getParamsWithFilter("MultiRefCar", filter)
 
-		// 		res, err := repo.ClassSearch(context.Background(), params)
-		// 		require.Nil(t, err)
-		// 		require.Len(t, res, 2)
-		// 	})
+			// 	res, err := repo.ClassSearch(context.Background(), params)
+			// 	require.Nil(t, err)
+			// 	require.Len(t, res, 2)
+			// })
 
-		// 	t.Run("ref id matches", func(t *testing.T) {
-		// 		filter := filterCarParkedAtGarage(schema.DataTypeString,
-		// 			"uuid", filters.OperatorEqual, "a7e10b55-1ac4-464f-80df-82508eea1951")
-		// 		params := getParamsWithFilter("MultiRefCar", filter)
+			// 	t.Run("ref id matches", func(t *testing.T) {
+			// 		filter := filterCarParkedAtGarage(schema.DataTypeString,
+			// 			"uuid", filters.OperatorEqual, "a7e10b55-1ac4-464f-80df-82508eea1951")
+			// 		params := getParamsWithFilter("MultiRefCar", filter)
 
-		// 		res, err := repo.ClassSearch(context.Background(), params)
-		// 		require.Nil(t, err)
-		// 		require.Len(t, res, 2)
-		// 	})
+			// 		res, err := repo.ClassSearch(context.Background(), params)
+			// 		require.Nil(t, err)
+			// 		require.Len(t, res, 2)
+			// 	})
 
-		// 	t.Run("ref name doesn't match", func(t *testing.T) {
-		// 		filter := filterCarParkedAtGarage(schema.DataTypeString,
-		// 			"name", filters.OperatorEqual, "There is no parking garage with this name")
-		// 		params := getParamsWithFilter("MultiRefCar", filter)
+			// 	t.Run("ref name doesn't match", func(t *testing.T) {
+			// 		filter := filterCarParkedAtGarage(schema.DataTypeString,
+			// 			"name", filters.OperatorEqual, "There is no parking garage with this name")
+			// 		params := getParamsWithFilter("MultiRefCar", filter)
 
-		// 		res, err := repo.ClassSearch(context.Background(), params)
-		// 		require.Nil(t, err)
-		// 		require.Len(t, res, 0)
-		// 	})
+			// 		res, err := repo.ClassSearch(context.Background(), params)
+			// 		require.Nil(t, err)
+			// 		require.Len(t, res, 0)
+			// 	})
 
-		// 	t.Run("within geo range", func(t *testing.T) {
-		// 		filter := filterCarParkedAtGarage(schema.DataTypeGeoCoordinates,
-		// 			"location", filters.OperatorWithinGeoRange, filters.GeoRange{
-		// 				GeoCoordinates: &models.GeoCoordinates{
-		// 					Latitude:  ptFloat32(48.801407),
-		// 					Longitude: ptFloat32(2.130122),
-		// 				},
-		// 				Distance: 100000,
-		// 			})
-		// 		params := getParamsWithFilter("MultiRefCar", filter)
+			// 	t.Run("within geo range", func(t *testing.T) {
+			// 		filter := filterCarParkedAtGarage(schema.DataTypeGeoCoordinates,
+			// 			"location", filters.OperatorWithinGeoRange, filters.GeoRange{
+			// 				GeoCoordinates: &models.GeoCoordinates{
+			// 					Latitude:  ptFloat32(48.801407),
+			// 					Longitude: ptFloat32(2.130122),
+			// 				},
+			// 				Distance: 100000,
+			// 			})
+			// 		params := getParamsWithFilter("MultiRefCar", filter)
 
-		// 		res, err := repo.ClassSearch(context.Background(), params)
-		// 		require.Nil(t, err)
-		// 		require.Len(t, res, 2)
+			// 		res, err := repo.ClassSearch(context.Background(), params)
+			// 		require.Nil(t, err)
+			// 		require.Len(t, res, 2)
 
-		// 		names := extractNames(res)
-		// 		expectedNames := []string{
-		// 			"Car which is parked in a garage",
-		// 			"Car which is parked in two places at the same time (magic!)",
-		// 		}
+			// 		names := extractNames(res)
+			// 		expectedNames := []string{
+			// 			"Car which is parked in a garage",
+			// 			"Car which is parked in two places at the same time (magic!)",
+			// 		}
 
-		// 		assert.ElementsMatch(t, names, expectedNames)
-		// 	})
+			// 		assert.ElementsMatch(t, names, expectedNames)
+			// 	})
 
-		// 	t.Run("outside of geo range", func(t *testing.T) {
-		// 		filter := filterCarParkedAtGarage(schema.DataTypeGeoCoordinates,
-		// 			"location", filters.OperatorWithinGeoRange, filters.GeoRange{
-		// 				GeoCoordinates: &models.GeoCoordinates{
-		// 					Latitude:  ptFloat32(42.279594),
-		// 					Longitude: ptFloat32(-83.732124),
-		// 				},
-		// 				Distance: 100000,
-		// 			})
-		// 		params := getParamsWithFilter("MultiRefCar", filter)
+			// 	t.Run("outside of geo range", func(t *testing.T) {
+			// 		filter := filterCarParkedAtGarage(schema.DataTypeGeoCoordinates,
+			// 			"location", filters.OperatorWithinGeoRange, filters.GeoRange{
+			// 				GeoCoordinates: &models.GeoCoordinates{
+			// 					Latitude:  ptFloat32(42.279594),
+			// 					Longitude: ptFloat32(-83.732124),
+			// 				},
+			// 				Distance: 100000,
+			// 			})
+			// 		params := getParamsWithFilter("MultiRefCar", filter)
 
-		// 		res, err := repo.ClassSearch(context.Background(), params)
-		// 		require.Nil(t, err)
-		// 		require.Len(t, res, 0)
-		// 	})
+			// 		res, err := repo.ClassSearch(context.Background(), params)
+			// 		require.Nil(t, err)
+			// 		require.Len(t, res, 0)
+			// 	})
 
-		// 	t.Run("combining ref filter with primitive root filter", func(t *testing.T) {
-		// 		parkedAtFilter := filterCarParkedAtGarage(schema.DataTypeGeoCoordinates,
-		// 			"location", filters.OperatorWithinGeoRange, filters.GeoRange{
-		// 				GeoCoordinates: &models.GeoCoordinates{
-		// 					Latitude:  ptFloat32(48.801407),
-		// 					Longitude: ptFloat32(2.130122),
-		// 				},
-		// 				Distance: 100000,
-		// 			})
+			// 	t.Run("combining ref filter with primitive root filter", func(t *testing.T) {
+			// 		parkedAtFilter := filterCarParkedAtGarage(schema.DataTypeGeoCoordinates,
+			// 			"location", filters.OperatorWithinGeoRange, filters.GeoRange{
+			// 				GeoCoordinates: &models.GeoCoordinates{
+			// 					Latitude:  ptFloat32(48.801407),
+			// 					Longitude: ptFloat32(2.130122),
+			// 				},
+			// 				Distance: 100000,
+			// 			})
 
-		// 		filter := &filters.LocalFilter{
-		// 			Root: &filters.Clause{
-		// 				Operator: filters.OperatorAnd,
-		// 				Operands: []filters.Clause{
-		// 					*(parkedAtFilter.Root),
-		// 					filters.Clause{
-		// 						On: &filters.Path{
-		// 							Class:    schema.ClassName("MultiRefCar"),
-		// 							Property: schema.PropertyName("name"),
-		// 						},
-		// 						Value: &filters.Value{
-		// 							Value: "Car which is parked in a garage",
-		// 							Type:  schema.DataTypeString,
-		// 						},
-		// 						Operator: filters.OperatorEqual,
-		// 					},
-		// 				},
-		// 			},
-		// 		}
-		// 		params := getParamsWithFilter("MultiRefCar", filter)
+			// 		filter := &filters.LocalFilter{
+			// 			Root: &filters.Clause{
+			// 				Operator: filters.OperatorAnd,
+			// 				Operands: []filters.Clause{
+			// 					*(parkedAtFilter.Root),
+			// 					filters.Clause{
+			// 						On: &filters.Path{
+			// 							Class:    schema.ClassName("MultiRefCar"),
+			// 							Property: schema.PropertyName("name"),
+			// 						},
+			// 						Value: &filters.Value{
+			// 							Value: "Car which is parked in a garage",
+			// 							Type:  schema.DataTypeString,
+			// 						},
+			// 						Operator: filters.OperatorEqual,
+			// 					},
+			// 				},
+			// 			},
+			// 		}
+			// 		params := getParamsWithFilter("MultiRefCar", filter)
 
-		// 		res, err := repo.ClassSearch(context.Background(), params)
-		// 		require.Nil(t, err)
-		// 		require.Len(t, res, 1)
+			// 		res, err := repo.ClassSearch(context.Background(), params)
+			// 		require.Nil(t, err)
+			// 		require.Len(t, res, 1)
 
-		// 		names := extractNames(res)
-		// 		expectedNames := []string{
-		// 			"Car which is parked in a garage",
-		// 		}
+			// 		names := extractNames(res)
+			// 		expectedNames := []string{
+			// 			"Car which is parked in a garage",
+			// 		}
 
-		// 		assert.ElementsMatch(t, names, expectedNames)
-		// 	})
-
-		// })
+			// 		assert.ElementsMatch(t, names, expectedNames)
+			// 	})
+		})
 
 		// t.Run("multiple levels deep", func(t *testing.T) {
 		// 	t.Run("ref name matches", func(t *testing.T) {
