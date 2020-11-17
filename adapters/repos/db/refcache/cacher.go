@@ -27,7 +27,7 @@ import (
 )
 
 type repo interface {
-	MultiGet(ctx context.Context, query []multi.Identifier) ([]search.Result, error)
+	MultiGet(ctx context.Context, query []multi.Identifier, underscore traverser.UnderscoreProperties) ([]search.Result, error)
 }
 
 func NewCacher(repo repo, logger logrus.FieldLogger) *Cacher {
@@ -46,11 +46,11 @@ type cacherJob struct {
 
 type Cacher struct {
 	sync.Mutex
-	jobs   []cacherJob
-	logger logrus.FieldLogger
-	repo   repo
-	store  map[multi.Identifier]search.Result
-	meta   *bool // meta is immutable for the lifetime of the request cacher, so we can safely store it
+	jobs       []cacherJob
+	logger     logrus.FieldLogger
+	repo       repo
+	store      map[multi.Identifier]search.Result
+	underscore traverser.UnderscoreProperties // meta is immutable for the lifetime of the request cacher, so we can safely store it
 }
 
 func (c *Cacher) Get(si multi.Identifier) (search.Result, bool) {
@@ -73,12 +73,8 @@ func (c *Cacher) Get(si multi.Identifier) (search.Result, bool) {
 //
 // This keeps request times to a minimum even on deeply nested requests.
 func (c *Cacher) Build(ctx context.Context, objects []search.Result,
-	properties traverser.SelectProperties, meta bool) error {
-	if c.meta == nil {
-		// store meta prop if we haven't yet
-		c.meta = &meta
-	}
-
+	properties traverser.SelectProperties, underscore traverser.UnderscoreProperties) error {
+	c.underscore = underscore
 	err := c.findJobsFromResponse(objects, properties)
 	if err != nil {
 		return fmt.Errorf("build request cache: %v", err)
@@ -296,7 +292,7 @@ func (c *Cacher) fetchJobs(ctx context.Context) error {
 	}
 
 	query := jobListToMultiGetQuery(jobs)
-	res, err := c.repo.MultiGet(ctx, query)
+	res, err := c.repo.MultiGet(ctx, query, c.underscore)
 	if err != nil {
 		return errors.Wrap(err, "fetch job list")
 	}
@@ -329,7 +325,7 @@ func (c *Cacher) parseAndStore(ctx context.Context, res []search.Result) error {
 	// iteration which will eventually come to this place again
 	c.markAllJobsAsDone()
 
-	err := c.Build(ctx, removeEmptyResults(res), nil, *c.meta)
+	err := c.Build(ctx, removeEmptyResults(res), nil, c.underscore)
 	if err != nil {
 		return errors.Wrap(err, "build nested cache")
 	}
