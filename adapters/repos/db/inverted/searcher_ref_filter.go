@@ -9,6 +9,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -19,6 +20,7 @@ type refFilterExtractor struct {
 	filter        *filters.Clause
 	className     schema.ClassName
 	classSearcher ClassSearcher
+	schema        schema.Schema
 }
 
 // ClassSearcher is anything that allows a root-level ClassSearch
@@ -28,11 +30,13 @@ type ClassSearcher interface {
 }
 
 func newRefFilterExtractor(classSearcher ClassSearcher,
-	filter *filters.Clause, className schema.ClassName) *refFilterExtractor {
+	filter *filters.Clause, className schema.ClassName,
+	schema schema.Schema) *refFilterExtractor {
 	return &refFilterExtractor{
 		filter:        filter,
 		className:     className,
 		classSearcher: classSearcher,
+		schema:        schema,
 	}
 }
 
@@ -49,10 +53,15 @@ func (r *refFilterExtractor) Do(ctx context.Context) (*propValuePair, error) {
 	return r.resultsToPropValuePairs(ids)
 }
 
-func (r *refFilterExtractor) paramsForNestedRequest() traverser.GetParams {
+func (r *refFilterExtractor) paramsForNestedRequest() (traverser.GetParams, error) {
+	kind, err := r.targetKind(r.filter.On.Child.Class)
+	if err != nil {
+		return traverser.GetParams{}, err
+	}
+
 	return traverser.GetParams{
 		Filters:   r.innerFilter(),
-		ClassName: r.filter.On.Class.String(),
+		ClassName: r.filter.On.Child.Class.String(),
 		Pagination: &filters.Pagination{
 			// The limit is chosen arbitrarily, it used to be 1e4 in the ES-based
 			// implementation, so using a 10x as high value should be safe. However,
@@ -60,8 +69,8 @@ func (r *refFilterExtractor) paramsForNestedRequest() traverser.GetParams {
 			// unexpected performance issues
 			Limit: 1e5,
 		},
-		Kind: kind.Thing, // TODO: discovery dynamically
-	}
+		Kind: kind,
+	}, nil
 }
 
 func (r *refFilterExtractor) innerFilter() *filters.LocalFilter {
@@ -75,7 +84,12 @@ func (r *refFilterExtractor) innerFilter() *filters.LocalFilter {
 }
 
 func (r *refFilterExtractor) fetchIDs(ctx context.Context) ([]strfmt.UUID, error) {
-	res, err := r.classSearcher.ClassSearch(ctx, r.paramsForNestedRequest())
+	params, err := r.paramsForNestedRequest()
+	if err != nil {
+		return nil, err
+	}
+
+	res, err := r.classSearcher.ClassSearch(ctx, params)
 	if err != nil {
 		return nil, err
 	}
@@ -94,9 +108,9 @@ func (r *refFilterExtractor) resultsToPropValuePairs(ids []strfmt.UUID,
 	case 0:
 		return r.emptyPropValuePair(), nil
 	case 1:
-		return r.idToPropValuePair(ids[0]), nil
+		return r.idToPropValuePair(ids[0])
 	default:
-		return r.chainedIDsToPropValuePair(ids), nil
+		return r.chainedIDsToPropValuePair(ids)
 	}
 }
 
@@ -109,32 +123,66 @@ func (r *refFilterExtractor) emptyPropValuePair() *propValuePair {
 	}
 }
 
-func (r *refFilterExtractor) idToPropValuePair(id strfmt.UUID) *propValuePair {
+func (r *refFilterExtractor) idToPropValuePair(id strfmt.UUID) (*propValuePair, error) {
+	beacon, err := r.beacon(id)
+	if err != nil {
+		return nil, errors.Wrap(err, "id to beacon")
+	}
+
 	return &propValuePair{
 		prop:         lowercaseFirstLetter(r.filter.On.Property.String()),
 		hasFrequency: false,
-		value:        []byte(id),
+		value:        []byte(beacon),
 		operator:     filters.OperatorEqual,
+	}, nil
+}
+
+func (r *refFilterExtractor) beacon(id strfmt.UUID) (strfmt.URI, error) {
+	class := r.filter.On.Child.Class
+	kind, err := r.targetKind(class)
+	if err != nil {
+		return "", err
 	}
+
+	return strfmt.URI(crossref.New("localhost", id, kind).String()), nil
+}
+
+func (r *refFilterExtractor) targetKind(class schema.ClassName) (kind.Kind, error) {
+	kind, ok := r.schema.GetKindOfClass(class)
+	if !ok {
+		return kind, fmt.Errorf("target class %q not found in schema", class)
+	}
+
+	return kind, nil
 }
 
 // chain multiple alternatives using an OR operator
-func (r *refFilterExtractor) chainedIDsToPropValuePair(ids []strfmt.UUID) *propValuePair {
+func (r *refFilterExtractor) chainedIDsToPropValuePair(ids []strfmt.UUID) (*propValuePair, error) {
+	children, err := r.idsToPropValuePairs(ids)
+	if err != nil {
+		return nil, err
+	}
+
 	return &propValuePair{
 		prop:         lowercaseFirstLetter(r.filter.On.Property.String()),
 		hasFrequency: false,
 		operator:     filters.OperatorOr,
-		children:     r.idsToPropValuePairs(ids),
-	}
+		children:     children,
+	}, nil
 }
 
-func (r *refFilterExtractor) idsToPropValuePairs(ids []strfmt.UUID) []*propValuePair {
+func (r *refFilterExtractor) idsToPropValuePairs(ids []strfmt.UUID) ([]*propValuePair, error) {
 	out := make([]*propValuePair, len(ids))
 	for i, id := range ids {
-		out[i] = r.idToPropValuePair(id)
+		pv, err := r.idToPropValuePair(id)
+		if err != nil {
+			return nil, err
+		}
+
+		out[i] = pv
 	}
 
-	return out
+	return out, nil
 }
 
 func (r *refFilterExtractor) validate() error {

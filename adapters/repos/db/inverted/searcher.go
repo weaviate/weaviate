@@ -242,7 +242,7 @@ func (fs *Searcher) extractPropValuePair(filter *filters.Clause,
 func (fs *Searcher) extractReferenceFilter(filter *filters.Clause,
 	className schema.ClassName) (*propValuePair, error) {
 	ctx := context.TODO()
-	return newRefFilterExtractor(fs.classSearcher, filter, className).Do(ctx)
+	return newRefFilterExtractor(fs.classSearcher, filter, className, fs.schema).Do(ctx)
 }
 
 func (fs *Searcher) extractPrimitiveProp(propName string, dt schema.DataType,

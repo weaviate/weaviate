@@ -203,15 +203,15 @@ func TestRefFilters(t *testing.T) {
 
 	t.Run("filtering", func(t *testing.T) {
 		t.Run("one level deep", func(t *testing.T) {
-			// t.Run("ref name matches", func(t *testing.T) {
-			// 	filter := filterCarParkedAtGarage(schema.DataTypeString,
-			// 		"name", filters.OperatorEqual, "Luxury Parking Garage")
-			// 	params := getParamsWithFilter("MultiRefCar", filter)
+			t.Run("ref name matches", func(t *testing.T) {
+				filter := filterCarParkedAtGarage(schema.DataTypeString,
+					"name", filters.OperatorEqual, "Luxury Parking Garage")
+				params := getParamsWithFilter("MultiRefCar", filter)
 
-			// 	res, err := repo.ClassSearch(context.Background(), params)
-			// 	require.Nil(t, err)
-			// 	require.Len(t, res, 2)
-			// })
+				res, err := repo.ClassSearch(context.Background(), params)
+				require.Nil(t, err)
+				require.Len(t, res, 2)
+			})
 
 			// 	t.Run("ref id matches", func(t *testing.T) {
 			// 		filter := filterCarParkedAtGarage(schema.DataTypeString,
