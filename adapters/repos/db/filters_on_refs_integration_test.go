@@ -317,64 +317,63 @@ func TestRefFilters(t *testing.T) {
 			})
 		})
 
-		// t.Run("multiple levels deep", func(t *testing.T) {
-		// 	t.Run("ref name matches", func(t *testing.T) {
-		// 		filter := filterDrivesCarParkedAtGarage(schema.DataTypeString,
-		// 			"name", filters.OperatorEqual, "Luxury Parking Garage")
-		// 		params := getParamsWithFilter("MultiRefDriver", filter)
+		t.Run("multiple levels deep", func(t *testing.T) {
+			t.Run("ref name matches", func(t *testing.T) {
+				filter := filterDrivesCarParkedAtGarage(schema.DataTypeString,
+					"name", filters.OperatorEqual, "Luxury Parking Garage")
+				params := getParamsWithFilter("MultiRefDriver", filter)
 
-		// 		res, err := repo.ClassSearch(context.Background(), params)
-		// 		require.Nil(t, err)
-		// 		require.Len(t, res, 1)
+				res, err := repo.ClassSearch(context.Background(), params)
+				require.Nil(t, err)
+				require.Len(t, res, 1)
 
-		// 		assert.Equal(t, "Johny Drivemuch", res[0].Schema.(map[string]interface{})["name"])
-		// 	})
+				assert.Equal(t, "Johny Drivemuch", res[0].Schema.(map[string]interface{})["name"])
+			})
 
-		// 	t.Run("ref name doesn't match", func(t *testing.T) {
-		// 		filter := filterDrivesCarParkedAtGarage(schema.DataTypeString,
-		// 			"name", filters.OperatorEqual, "There is no parking garage with this name")
-		// 		params := getParamsWithFilter("MultiRefDriver", filter)
+			t.Run("ref name doesn't match", func(t *testing.T) {
+				filter := filterDrivesCarParkedAtGarage(schema.DataTypeString,
+					"name", filters.OperatorEqual, "There is no parking garage with this name")
+				params := getParamsWithFilter("MultiRefDriver", filter)
 
-		// 		res, err := repo.ClassSearch(context.Background(), params)
-		// 		require.Nil(t, err)
-		// 		require.Len(t, res, 0)
-		// 	})
+				res, err := repo.ClassSearch(context.Background(), params)
+				require.Nil(t, err)
+				require.Len(t, res, 0)
+			})
 
-		// 	t.Run("within geo range", func(t *testing.T) {
-		// 		filter := filterDrivesCarParkedAtGarage(schema.DataTypeGeoCoordinates,
-		// 			"location", filters.OperatorWithinGeoRange, filters.GeoRange{
-		// 				GeoCoordinates: &models.GeoCoordinates{
-		// 					Latitude:  ptFloat32(48.801407),
-		// 					Longitude: ptFloat32(2.130122),
-		// 				},
-		// 				Distance: 100000,
-		// 			})
-		// 		params := getParamsWithFilter("MultiRefDriver", filter)
+			t.Run("within geo range", func(t *testing.T) {
+				filter := filterDrivesCarParkedAtGarage(schema.DataTypeGeoCoordinates,
+					"location", filters.OperatorWithinGeoRange, filters.GeoRange{
+						GeoCoordinates: &models.GeoCoordinates{
+							Latitude:  ptFloat32(48.801407),
+							Longitude: ptFloat32(2.130122),
+						},
+						Distance: 100000,
+					})
+				params := getParamsWithFilter("MultiRefDriver", filter)
 
-		// 		res, err := repo.ClassSearch(context.Background(), params)
-		// 		require.Nil(t, err)
-		// 		require.Len(t, res, 1)
+				res, err := repo.ClassSearch(context.Background(), params)
+				require.Nil(t, err)
+				require.Len(t, res, 1)
 
-		// 		assert.Equal(t, "Johny Drivemuch", res[0].Schema.(map[string]interface{})["name"])
-		// 	})
+				assert.Equal(t, "Johny Drivemuch", res[0].Schema.(map[string]interface{})["name"])
+			})
 
-		// 	t.Run("outside of geo range", func(t *testing.T) {
-		// 		filter := filterDrivesCarParkedAtGarage(schema.DataTypeGeoCoordinates,
-		// 			"location", filters.OperatorWithinGeoRange, filters.GeoRange{
-		// 				GeoCoordinates: &models.GeoCoordinates{
-		// 					Latitude:  ptFloat32(42.279594),
-		// 					Longitude: ptFloat32(-83.732124),
-		// 				},
-		// 				Distance: 100000,
-		// 			})
-		// 		params := getParamsWithFilter("MultiRefDriver", filter)
+			t.Run("outside of geo range", func(t *testing.T) {
+				filter := filterDrivesCarParkedAtGarage(schema.DataTypeGeoCoordinates,
+					"location", filters.OperatorWithinGeoRange, filters.GeoRange{
+						GeoCoordinates: &models.GeoCoordinates{
+							Latitude:  ptFloat32(42.279594),
+							Longitude: ptFloat32(-83.732124),
+						},
+						Distance: 100000,
+					})
+				params := getParamsWithFilter("MultiRefDriver", filter)
 
-		// 		res, err := repo.ClassSearch(context.Background(), params)
-		// 		require.Nil(t, err)
-		// 		require.Len(t, res, 0)
-		// 	})
-
-		// })
+				res, err := repo.ClassSearch(context.Background(), params)
+				require.Nil(t, err)
+				require.Len(t, res, 0)
+			})
+		})
 
 		t.Run("by reference count", func(t *testing.T) {
 			t.Run("equal to zero", func(t *testing.T) {
