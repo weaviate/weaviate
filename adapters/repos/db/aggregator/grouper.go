@@ -22,6 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 // grouper is the component which identifies the top-n groups for a specific
@@ -70,7 +71,7 @@ func (g *grouper) groupAll(ctx context.Context) ([]group, error) {
 func (g *grouper) groupFiltered(ctx context.Context) ([]group, error) {
 	s := g.getSchema.GetSchemaSkipAuth()
 	ids, err := inverted.NewSearcher(g.db, s, g.invertedRowCache, nil).
-		DocIDs(ctx, g.params.Filters, false, g.params.ClassName)
+		DocIDs(ctx, g.params.Filters, traverser.UnderscoreProperties{}, g.params.ClassName)
 	if err != nil {
 		return nil, errors.Wrap(err, "retrieve doc IDs from searcher")
 	}

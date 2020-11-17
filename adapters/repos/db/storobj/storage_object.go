@@ -25,6 +25,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
 type Object struct {
@@ -193,12 +194,25 @@ func (ko *Object) VectorWeights() models.VectorWeights {
 	}
 }
 
-func (ko *Object) SearchResult() *search.Result {
+func (ko *Object) SearchResult(underscore traverser.UnderscoreProperties) *search.Result {
 	schema := ko.Schema()
 	if schema == nil {
 		schema = map[string]interface{}{}
 	}
 	schema.(map[string]interface{})["uuid"] = ko.ID()
+
+	underscoreProperties := &models.UnderscoreProperties{}
+	if ko.UnderscoreProperties() != nil {
+		if underscore.Interpretation {
+			underscoreProperties.Interpretation = ko.UnderscoreProperties().Interpretation
+		}
+		if underscore.Classification {
+			underscoreProperties.Classification = ko.UnderscoreProperties().Classification
+		}
+	}
+	if underscore.Vector {
+		underscoreProperties.Vector = ko.Vector
+	}
 
 	return &search.Result{
 		Kind:      ko.Kind,
@@ -209,7 +223,7 @@ func (ko *Object) SearchResult() *search.Result {
 		// VectorWeights: ko.VectorWeights(), // TODO: add vector weights
 		Created:              ko.CreationTimeUnix(),
 		Updated:              ko.LastUpdateTimeUnix(),
-		UnderscoreProperties: ko.UnderscoreProperties(),
+		UnderscoreProperties: underscoreProperties,
 		Score:                1, // TODO: actuallly score
 		// TODO: Beacon?
 	}
@@ -221,11 +235,11 @@ func (ko *Object) Valid() bool {
 		ko.Class().String() != ""
 }
 
-func SearchResults(in []*Object) search.Results {
+func SearchResults(in []*Object, underscore traverser.UnderscoreProperties) search.Results {
 	out := make(search.Results, len(in))
 
 	for i, elem := range in {
-		out[i] = *(elem.SearchResult())
+		out[i] = *(elem.SearchResult(underscore))
 	}
 
 	return out
