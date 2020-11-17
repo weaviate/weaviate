@@ -69,8 +69,10 @@ func (rr *RowReader) Read(ctx context.Context, readFn ReadFn) error {
 		return rr.lessThan(ctx, readFn, false)
 	case filters.OperatorLessThanEqual:
 		return rr.lessThan(ctx, readFn, true)
+	case filters.OperatorLike:
+		return rr.like(ctx, readFn)
 	default:
-		return fmt.Errorf("operator not supported (yet) in standalone "+
+		return fmt.Errorf("operator not supported in standalone "+
 			"mode, see %s for details", notimplemented.Link)
 	}
 }
@@ -147,6 +149,31 @@ func (rr *RowReader) lessThan(ctx context.Context, readFn ReadFn,
 // notEqual is another special case, as it's the opposite of equal. So instead
 // of reading just one row, we read all but one row.
 func (rr *RowReader) notEqual(ctx context.Context, readFn ReadFn) error {
+	c := rr.bucket.Cursor()
+	for k, v := c.First(); k != nil; k, v = c.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		if bytes.Equal(k, rr.value) {
+			continue
+		}
+
+		continueReading, err := readFn(k, v)
+		if err != nil {
+			return err
+		}
+
+		if !continueReading {
+			break
+		}
+	}
+
+	return nil
+}
+
+func (rr *RowReader) like(ctx context.Context, readFn ReadFn) error {
+	// likeRegex, err :=
 	c := rr.bucket.Cursor()
 	for k, v := c.First(); k != nil; k, v = c.Next() {
 		if err := ctx.Err(); err != nil {
