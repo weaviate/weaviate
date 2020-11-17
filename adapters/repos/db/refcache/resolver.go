@@ -28,7 +28,7 @@ type Resolver struct {
 }
 
 type cacher interface {
-	Build(ctx context.Context, objects []search.Result, properties traverser.SelectProperties, meta bool) error
+	Build(ctx context.Context, objects []search.Result, properties traverser.SelectProperties, underscore traverser.UnderscoreProperties) error
 	Get(si multi.Identifier) (search.Result, bool)
 }
 
@@ -37,18 +37,18 @@ func NewResolver(cacher cacher) *Resolver {
 }
 
 func (r *Resolver) Do(ctx context.Context, objects []search.Result,
-	properties traverser.SelectProperties, meta bool) ([]search.Result, error) {
-	if err := r.cacher.Build(ctx, objects, properties, meta); err != nil {
+	properties traverser.SelectProperties, underscore traverser.UnderscoreProperties) ([]search.Result, error) {
+	if err := r.cacher.Build(ctx, objects, properties, underscore); err != nil {
 		return nil, errors.Wrap(err, "build reference cache")
 	}
 
-	return r.parseObjects(objects, properties, meta)
+	return r.parseObjects(objects, properties, underscore)
 }
 
 func (r *Resolver) parseObjects(objects []search.Result, properties traverser.SelectProperties,
-	meta bool) ([]search.Result, error) {
+	underscore traverser.UnderscoreProperties) ([]search.Result, error) {
 	for i, obj := range objects {
-		parsed, err := r.parseObject(obj, properties, meta)
+		parsed, err := r.parseObject(obj, properties, underscore)
 		if err != nil {
 			return nil, errors.Wrapf(err, "parse at position %d", i)
 		}
@@ -60,7 +60,7 @@ func (r *Resolver) parseObjects(objects []search.Result, properties traverser.Se
 }
 
 func (r *Resolver) parseObject(object search.Result, properties traverser.SelectProperties,
-	meta bool) (search.Result, error) {
+	underscore traverser.UnderscoreProperties) (search.Result, error) {
 	if object.Schema == nil {
 		return object, nil
 	}
@@ -70,7 +70,7 @@ func (r *Resolver) parseObject(object search.Result, properties traverser.Select
 		return object, fmt.Errorf("schema is not a map: %T", object.Schema)
 	}
 
-	schema, err := r.parseSchema(schemaMap, properties, meta)
+	schema, err := r.parseSchema(schemaMap, properties)
 	if err != nil {
 		return object, err
 	}
@@ -79,8 +79,8 @@ func (r *Resolver) parseObject(object search.Result, properties traverser.Select
 	return object, nil
 }
 
-func (r *Resolver) parseSchema(schema map[string]interface{}, properties traverser.SelectProperties,
-	meta bool) (map[string]interface{}, error) {
+func (r *Resolver) parseSchema(schema map[string]interface{},
+	properties traverser.SelectProperties) (map[string]interface{}, error) {
 	for propName, value := range schema {
 		refs, ok := value.(models.MultipleRef)
 		if !ok {
@@ -175,7 +175,7 @@ func (r *Resolver) resolveRef(item *models.SingleRef, desiredClass string,
 
 	out.Class = res.ClassName
 	schema := res.Schema.(map[string]interface{})
-	nested, err := r.parseSchema(schema, innerProperties, false)
+	nested, err := r.parseSchema(schema, innerProperties)
 	if err != nil {
 		return nil, errors.Wrap(err, "resolve nested ref")
 	}
