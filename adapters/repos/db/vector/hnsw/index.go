@@ -57,6 +57,8 @@ type hnsw struct {
 
 	vectorForID VectorForID
 
+	vectorCacheDrop func()
+
 	commitLog CommitLogger
 
 	// a lookup of current tombstones (i.e. nodes that have received a tombstone,
@@ -64,6 +66,9 @@ type hnsw struct {
 	// outgoing edges to the tombstone as well as deleting the tombstone itself.
 	// This process should happen periodically.
 	tombstones map[int]struct{}
+
+	// used for cancellation of the tombstone cleanup goroutine
+	cancel chan struct{}
 
 	// // for distributed spike, can be used to call a insertExternal on a different graph
 	// insertHook func(node, targetLevel int, neighborsAtLevel map[int][]uint32)
@@ -85,6 +90,7 @@ type CommitLogger interface {
 	DeleteNode(nodeid int) error
 	ClearLinks(nodeid int) error
 	Reset() error
+	Drop() error
 }
 
 type MakeCommitLogger func() (CommitLogger, error)
@@ -120,11 +126,13 @@ func New(cfg Config) (*hnsw, error) {
 		efConstruction:    cfg.EFConstruction,
 		nodes:             make([]*vertex, initialSize),
 		vectorForID:       vectorCache.get,
+		vectorCacheDrop:   vectorCache.drop,
 		id:                cfg.ID,
 		rootPath:          cfg.RootPath,
 		tombstones:        map[int]struct{}{},
 		logger:            cfg.Logger,
 		distancerProvider: cfg.DistanceProvider,
+		cancel:            make(chan struct{}),
 	}
 
 	if err := index.restoreFromDisk(); err != nil {
@@ -190,12 +198,17 @@ func (h *hnsw) registerTombstoneCleanup(cfg Config) {
 	}
 
 	go func() {
+		t := time.Tick(cfg.TombstoneCleanupInterval)
 		for {
-			time.Sleep(cfg.TombstoneCleanupInterval)
-			err := h.CleanUpTombstonedNodes()
-			if err != nil {
-				h.logger.WithField("action", "hnsw_tombstone_cleanup").
-					WithError(err).Error("tombstone cleanup errord")
+			select {
+			case <-h.cancel:
+				return
+			case <-t:
+				err := h.CleanUpTombstonedNodes()
+				if err != nil {
+					h.logger.WithField("action", "hnsw_tombstone_cleanup").
+						WithError(err).Error("tombstone cleanup errord")
+				}
 			}
 		}
 	}()
@@ -683,4 +696,17 @@ func (h *hnsw) nodeByID(id int) *vertex {
 	defer h.RUnlock()
 
 	return h.nodes[id]
+}
+
+func (h *hnsw) Drop() error {
+	// cancel commit log goroutine
+	err := h.commitLog.Drop()
+	if err != nil {
+		return errors.Wrap(err, "commit log drop")
+	}
+	// cancel vector cache goroutine
+	h.vectorCacheDrop()
+	// cancel tombstone cleanup goroutine
+	h.cancel <- struct{}{}
+	return nil
 }
