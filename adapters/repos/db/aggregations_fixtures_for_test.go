@@ -13,10 +13,21 @@
 
 package db
 
-import "github.com/semi-technologies/weaviate/entities/models"
+import (
+	"fmt"
+
+	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/entities/models"
+)
 
 var productClass = &models.Class{
 	Class: "AggregationsTestProduct",
+	Properties: []*models.Property{
+		&models.Property{
+			Name:     "name",
+			DataType: []string{"string"},
+		},
+	},
 }
 
 var companyClass = &models.Class{
@@ -48,6 +59,16 @@ var companyClass = &models.Class{
 			DataType: []string{"AggregationsTestProduct"},
 		},
 	},
+}
+
+var products = []map[string]interface{}{
+	{
+		"name": "Superbread",
+	},
+}
+
+var productsIds = []strfmt.UUID{
+	"1295c052-263d-4aae-99dd-920c5a370d06",
 }
 
 var companies = []map[string]interface{}{
@@ -99,6 +120,11 @@ var companies = []map[string]interface{}{
 		"dividendYield": 8.0,
 		"price":         int64(10),
 		"listedInIndex": true,
+		"makesProduct": models.MultipleRef{
+			&models.SingleRef{
+				Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", productsIds[0])),
+			},
+		},
 	},
 	{
 		"sector":        "Food",

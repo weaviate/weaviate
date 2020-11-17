@@ -85,17 +85,33 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 
 		schemaGetter.schema = schema
 
-		for i, schema := range companies {
-			t.Run(fmt.Sprintf("importing company %d", i), func(t *testing.T) {
-				fixture := models.Thing{
-					Class:  companyClass.Class,
-					ID:     strfmt.UUID(uuid.Must(uuid.NewV4()).String()),
-					Schema: schema,
-				}
-				require.Nil(t,
-					repo.PutThing(context.Background(), &fixture, []float32{0.1, 0.1, 0.1, 0.1}))
-			})
-		}
+		t.Run("import products", func(t *testing.T) {
+			for i, schema := range products {
+				t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {
+					fixture := models.Thing{
+						Class:  productClass.Class,
+						ID:     productsIds[i],
+						Schema: schema,
+					}
+					require.Nil(t,
+						repo.PutThing(context.Background(), &fixture, []float32{0.1, 0.2, 0.01, 0.2}))
+				})
+			}
+		})
+
+		t.Run("import companies", func(t *testing.T) {
+			for i, schema := range companies {
+				t.Run(fmt.Sprintf("importing company %d", i), func(t *testing.T) {
+					fixture := models.Thing{
+						Class:  companyClass.Class,
+						ID:     strfmt.UUID(uuid.Must(uuid.NewV4()).String()),
+						Schema: schema,
+					}
+					require.Nil(t,
+						repo.PutThing(context.Background(), &fixture, []float32{0.1, 0.1, 0.1, 0.1}))
+				})
+			}
+		})
 	}
 }
 
@@ -431,7 +447,7 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 				},
 			}
 
-			// there is now way to use InEpsilon or InDelta on nested strutcs with
+			// there is now way to use InEpsilon or InDelta on nested structs with
 			// testify, so unfortunately we have to do a manual deep equal:
 			assert.Equal(t, len(res.Groups), len(expectedResult.Groups))
 			assert.Equal(t, expectedResult.Groups[0].Count, res.Groups[0].Count)
@@ -655,7 +671,7 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 				},
 			}
 
-			// there is now way to use InEpsilon or InDelta on nested strutcs with
+			// there is now way to use InEpsilon or InDelta on nested structs with
 			// testify, so unfortunately we have to do a manual deep equal:
 			assert.Equal(t, len(res.Groups), len(expectedResult.Groups))
 			assert.Equal(t, expectedResult.Groups[0].Count, res.Groups[0].Count)
@@ -674,6 +690,153 @@ func testNumericalAggregationsWithGrouping(repo *DB) func(t *testing.T) {
 			assert.Equal(t, expectedResult.Groups[1].GroupedBy, res.Groups[1].GroupedBy)
 			expectedProps = expectedResult.Groups[1].Properties
 			actualProps = res.Groups[1].Properties
+			assert.Equal(t, expectedProps["location"], actualProps["location"])
+			assert.Equal(t, expectedProps["listedInIndex"], actualProps["listedInIndex"])
+			assert.InDeltaMapValues(t, expectedProps["dividendYield"].NumericalAggregations,
+				actualProps["dividendYield"].NumericalAggregations, 0.001)
+			assert.InDeltaMapValues(t, expectedProps["price"].NumericalAggregations,
+				actualProps["price"].NumericalAggregations, 0.001)
+		})
+
+		t.Run("with ref filter, grouped by string", func(t *testing.T) {
+			params := traverser.AggregateParams{
+				Kind:      kind.Thing,
+				ClassName: schema.ClassName(companyClass.Class),
+				GroupBy: &filters.Path{
+					Class:    schema.ClassName(companyClass.Class),
+					Property: schema.PropertyName("sector"),
+				},
+				Filters: &filters.LocalFilter{
+					Root: &filters.Clause{
+						Operator: filters.OperatorEqual,
+						Value: &filters.Value{
+							Type:  schema.DataTypeString,
+							Value: "Superbread",
+						},
+						On: &filters.Path{
+							Property: "makesProduct",
+							Child: &filters.Path{
+								Class:    "AggregationsTestProduct",
+								Property: "name",
+							},
+						},
+					},
+				},
+				Properties: []traverser.AggregateProperty{
+					traverser.AggregateProperty{
+						Name: schema.PropertyName("dividendYield"),
+						Aggregators: []traverser.Aggregator{
+							traverser.MeanAggregator,
+							traverser.MaximumAggregator,
+							traverser.MinimumAggregator,
+							traverser.SumAggregator,
+							// traverser.ModeAggregator,
+							traverser.MedianAggregator,
+							traverser.CountAggregator,
+							traverser.TypeAggregator,
+						},
+					},
+					traverser.AggregateProperty{
+						Name: schema.PropertyName("price"),
+						Aggregators: []traverser.Aggregator{
+							traverser.TypeAggregator,
+							traverser.MeanAggregator,
+							traverser.MaximumAggregator,
+							traverser.MinimumAggregator,
+							traverser.SumAggregator,
+							// traverser.ModeAggregator, // ignore as there is no most common value
+							traverser.MedianAggregator,
+							traverser.CountAggregator,
+						},
+					},
+					traverser.AggregateProperty{
+						Name: schema.PropertyName("listedInIndex"),
+						Aggregators: []traverser.Aggregator{
+							traverser.TypeAggregator,
+							traverser.PercentageTrueAggregator,
+							traverser.PercentageFalseAggregator,
+							traverser.TotalTrueAggregator,
+							traverser.TotalFalseAggregator,
+						},
+					},
+					traverser.AggregateProperty{
+						Name: schema.PropertyName("location"),
+						Aggregators: []traverser.Aggregator{
+							traverser.TypeAggregator,
+							traverser.NewTopOccurrencesAggregator(ptInt(5)),
+						},
+					},
+				},
+			}
+
+			res, err := repo.Aggregate(context.Background(), params)
+			require.Nil(t, err)
+
+			expectedResult := &aggregation.Result{
+				Groups: []aggregation.Group{
+					aggregation.Group{
+						Count: 1,
+						GroupedBy: &aggregation.GroupedBy{
+							Path:  []string{"sector"},
+							Value: "Food",
+						},
+						Properties: map[string]aggregation.Property{
+							"dividendYield": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
+								NumericalAggregations: map[string]float64{
+									"mean":    8.0,
+									"maximum": 8.0,
+									"minimum": 8.0,
+									"sum":     8.0,
+									"median":  8.0,
+									"count":   1,
+								},
+							},
+							"price": aggregation.Property{
+								Type: aggregation.PropertyTypeNumerical,
+								NumericalAggregations: map[string]float64{
+									"mean":    10,
+									"maximum": 10,
+									"minimum": 10,
+									"sum":     10,
+									"median":  10,
+									"count":   1,
+								},
+							},
+							"listedInIndex": aggregation.Property{
+								Type: aggregation.PropertyTypeBoolean,
+								BooleanAggregation: aggregation.Boolean{
+									TotalTrue:       1,
+									TotalFalse:      0,
+									PercentageTrue:  1,
+									PercentageFalse: 0,
+									Count:           1,
+								},
+							},
+							"location": aggregation.Property{
+								Type: aggregation.PropertyTypeText,
+								TextAggregation: aggregation.Text{
+									Count: 1,
+									Items: []aggregation.TextOccurrence{
+										aggregation.TextOccurrence{
+											Value:  "Detroit",
+											Occurs: 1,
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+
+			// there is now way to use InEpsilon or InDelta on nested structs with
+			// testify, so unfortunately we have to do a manual deep equal:
+			assert.Equal(t, len(res.Groups), len(expectedResult.Groups))
+			assert.Equal(t, expectedResult.Groups[0].Count, res.Groups[0].Count)
+			assert.Equal(t, expectedResult.Groups[0].GroupedBy, res.Groups[0].GroupedBy)
+			expectedProps := expectedResult.Groups[0].Properties
+			actualProps := res.Groups[0].Properties
 			assert.Equal(t, expectedProps["location"], actualProps["location"])
 			assert.Equal(t, expectedProps["listedInIndex"], actualProps["listedInIndex"])
 			assert.InDeltaMapValues(t, expectedProps["dividendYield"].NumericalAggregations,

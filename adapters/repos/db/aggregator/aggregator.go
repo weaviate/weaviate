@@ -29,15 +29,18 @@ type Aggregator struct {
 	params           traverser.AggregateParams
 	getSchema        schemaUC.SchemaGetter
 	invertedRowCache *inverted.RowCacher
+	classSearcher    inverted.ClassSearcher // to support ref-filters
 }
 
 func New(db *bolt.DB, params traverser.AggregateParams,
-	getSchema schemaUC.SchemaGetter, cache *inverted.RowCacher) *Aggregator {
+	getSchema schemaUC.SchemaGetter, cache *inverted.RowCacher,
+	classSearcher inverted.ClassSearcher) *Aggregator {
 	return &Aggregator{
 		db:               db,
 		params:           params,
 		getSchema:        getSchema,
 		invertedRowCache: cache,
+		classSearcher:    classSearcher,
 	}
 }
 
