@@ -2,7 +2,6 @@ module github.com/semi-technologies/weaviate
 
 require (
 	github.com/TylerBrock/colorjson v0.0.0-20180527164720-95ec53f28296
-	github.com/asaskevich/govalidator v0.0.0-20200907205600-7a23bdc65eef // indirect
 	github.com/bmatcuk/doublestar v1.1.3
 	github.com/boltdb/bolt v1.3.1
 	github.com/coreos/etcd v3.3.18+incompatible
@@ -18,8 +17,8 @@ require (
 	github.com/go-openapi/loads v0.19.5
 	github.com/go-openapi/runtime v0.19.24
 	github.com/go-openapi/spec v0.19.8
-	github.com/go-openapi/strfmt v0.19.10
-	github.com/go-openapi/swag v0.19.11
+	github.com/go-openapi/strfmt v0.19.11
+	github.com/go-openapi/swag v0.19.12
 	github.com/go-openapi/validate v0.19.10
 	github.com/golang/protobuf v1.4.2 // indirect
 	github.com/google/uuid v1.1.1
@@ -28,9 +27,7 @@ require (
 	github.com/hokaccha/go-prettyjson v0.0.0-20190818114111-108c894c2c0e // indirect
 	github.com/jessevdk/go-flags v1.4.0
 	github.com/json-iterator/go v1.1.8 // indirect
-	github.com/mailru/easyjson v0.7.6 // indirect
 	github.com/mattn/go-colorable v0.1.7 // indirect
-	github.com/mitchellh/mapstructure v1.3.3 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.1 // indirect
 	github.com/nyaruka/phonenumbers v1.0.54
@@ -42,11 +39,10 @@ require (
 	github.com/sirupsen/logrus v1.6.0
 	github.com/square/go-jose v2.3.0+incompatible
 	github.com/stretchr/testify v1.6.1
-	go.mongodb.org/mongo-driver v1.4.3 // indirect
 	golang.org/x/exp v0.0.0-20191030013958-a1ab85dbe136 // indirect
 	golang.org/x/net v0.0.0-20201021035429-f5854403a974
 	golang.org/x/oauth2 v0.0.0-20190604053449-0f29369cfe45 // indirect
-	golang.org/x/tools v0.0.0-20201116002733-ac45abd4c88c // indirect
+	golang.org/x/tools v0.0.0-20201117021029-3c3a81204b10 // indirect
 	gonum.org/v1/gonum v0.7.0
 	google.golang.org/appengine v1.6.1 // indirect
 	google.golang.org/genproto v0.0.0-20191108220845-16a3f7862a1a // indirect
