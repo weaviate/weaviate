@@ -70,8 +70,10 @@ func (g *grouper) groupAll(ctx context.Context) ([]group, error) {
 
 func (g *grouper) groupFiltered(ctx context.Context) ([]group, error) {
 	s := g.getSchema.GetSchemaSkipAuth()
-	ids, err := inverted.NewSearcher(g.db, s, g.invertedRowCache, nil).
-		DocIDs(ctx, g.params.Filters, traverser.UnderscoreProperties{}, g.params.ClassName)
+	ids, err := inverted.NewSearcher(g.db, s, g.invertedRowCache, nil,
+		g.classSearcher).
+		DocIDs(ctx, g.params.Filters, traverser.UnderscoreProperties{},
+			g.params.ClassName)
 	if err != nil {
 		return nil, errors.Wrap(err, "retrieve doc IDs from searcher")
 	}

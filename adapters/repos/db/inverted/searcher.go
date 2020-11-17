@@ -31,19 +31,22 @@ import (
 )
 
 type Searcher struct {
-	db          *bolt.DB
-	schema      schema.Schema
-	rowCache    *RowCacher
-	propIndices propertyspecific.Indices
+	db            *bolt.DB
+	schema        schema.Schema
+	rowCache      *RowCacher
+	classSearcher ClassSearcher // to allow recursive searches on ref-props
+	propIndices   propertyspecific.Indices
 }
 
 func NewSearcher(db *bolt.DB, schema schema.Schema,
-	rowCache *RowCacher, propIndices propertyspecific.Indices) *Searcher {
+	rowCache *RowCacher, propIndices propertyspecific.Indices,
+	classSearcher ClassSearcher) *Searcher {
 	return &Searcher{
-		db:          db,
-		schema:      schema,
-		rowCache:    rowCache,
-		propIndices: propIndices,
+		db:            db,
+		schema:        schema,
+		rowCache:      rowCache,
+		propIndices:   propIndices,
+		classSearcher: classSearcher,
 	}
 }
 
@@ -209,8 +212,7 @@ func (fs *Searcher) extractPropValuePair(filter *filters.Clause,
 	// on value or non-nested filter
 	props := filter.On.Slice()
 	if len(props) != 1 {
-		return nil, fmt.Errorf("filtering by reference props not supported yet "+
-			"in standalone mode, see %s for details", notimplemented.Link)
+		return fs.extractReferenceFilter(filter, className)
 	}
 	// we are on a value element
 
@@ -236,6 +238,12 @@ func (fs *Searcher) extractPropValuePair(filter *filters.Clause,
 
 	return fs.extractPrimitiveProp(props[0], filter.Value.Type, filter.Value.Value,
 		filter.Operator)
+}
+
+func (fs *Searcher) extractReferenceFilter(filter *filters.Clause,
+	className schema.ClassName) (*propValuePair, error) {
+	ctx := context.TODO()
+	return newRefFilterExtractor(fs.classSearcher, filter, className, fs.schema).Do(ctx)
 }
 
 func (fs *Searcher) extractPrimitiveProp(propName string, dt schema.DataType,

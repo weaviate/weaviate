@@ -29,37 +29,9 @@ func (a *Analyzer) Object(input map[string]interface{}, props []*models.Property
 		propsMap[prop.Name] = prop
 	}
 
-	var out []Property
-	for key, prop := range propsMap {
-		if len(prop.DataType) < 1 {
-			return nil, fmt.Errorf("prop %q has no datatype", prop.Name)
-		}
-
-		var property *Property
-		var err error
-		if schema.IsRefDataType(prop.DataType) {
-			value, ok := input[key]
-			if !ok {
-				// explicitly set zero-value, so we can index for "ref not set"
-				value = make(models.MultipleRef, 0)
-			}
-			property, err = a.analyzeRefProp(prop, value)
-		} else {
-			value, ok := input[key]
-			if !ok {
-				// skip any primitive prop that's not set
-				continue
-			}
-			property, err = a.analyzePrimitiveProp(prop, value)
-		}
-		if err != nil {
-			return nil, errors.Wrap(err, "analyze primitive prop")
-		}
-		if property == nil {
-			continue
-		}
-
-		out = append(out, *property)
+	properties, err := a.analyzeProps(propsMap, input)
+	if err != nil {
+		return nil, errors.Wrap(err, "analyze props")
 	}
 
 	property, err := a.analyzeUUIDProp(uuid)
@@ -67,8 +39,30 @@ func (a *Analyzer) Object(input map[string]interface{}, props []*models.Property
 		return nil, errors.Wrap(err, "analyze uuid prop")
 	}
 
-	out = append(out, *property)
+	properties = append(properties, *property)
 
+	return properties, nil
+}
+
+func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
+	input map[string]interface{}) ([]Property, error) {
+	var out []Property
+	for key, prop := range propsMap {
+		if len(prop.DataType) < 1 {
+			return nil, fmt.Errorf("prop %q has no datatype", prop.Name)
+		}
+
+		if schema.IsRefDataType(prop.DataType) {
+			if err := a.extendPropertiesWithReference(&out, prop, input, key); err != nil {
+				return nil, err
+			}
+		} else {
+			if err := a.extendPropertiesWithPrimitive(&out, prop, input, key); err != nil {
+				return nil, err
+			}
+		}
+
+	}
 	return out, nil
 }
 
@@ -86,6 +80,30 @@ func (a *Analyzer) analyzeUUIDProp(uuid strfmt.UUID) (*Property, error) {
 			},
 		},
 	}, nil
+}
+
+// extendPropertiesWithPrimitive mutates the passed in properties, by extending
+// it with an additional property - if applicable
+func (a *Analyzer) extendPropertiesWithPrimitive(properties *[]Property,
+	prop *models.Property, input map[string]interface{}, propName string) error {
+	var property *Property
+	var err error
+
+	value, ok := input[propName]
+	if !ok {
+		// skip any primitive prop that's not set
+		return nil
+	}
+	property, err = a.analyzePrimitiveProp(prop, value)
+	if err != nil {
+		errors.Wrap(err, "analyze primitive prop")
+	}
+	if property == nil {
+		return nil
+	}
+
+	*properties = append(*properties, *property)
+	return nil
 }
 
 func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}) (*Property, error) {
@@ -173,22 +191,67 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value interface{}
 	}, nil
 }
 
-func (a *Analyzer) analyzeRefProp(prop *models.Property, value interface{}) (*Property, error) {
-	// TODO: return multiple properties when support ref-indexing. For now we
-	// only support counting the refs
+// extendPropertiesWithReference extends the specified properties arrays with
+// either 1 or 2 entries: If the ref is not set, only the ref-count property
+// will be added. If the ref is set the ref-prop itself will also be added and
+// contain all references as values
+func (a *Analyzer) extendPropertiesWithReference(properties *[]Property,
+	prop *models.Property, input map[string]interface{}, propName string) error {
+	value, ok := input[propName]
+	if !ok {
+		// explicitly set zero-value, so we can index for "ref not set"
+		value = make(models.MultipleRef, 0)
+	}
 
 	asRefs, ok := value.(models.MultipleRef)
 	if !ok {
-		return nil, fmt.Errorf("expected property %q to be of type models.MutlipleRef, but got %T", prop.Name, value)
+		return fmt.Errorf("expected property %q to be of type models.MutlipleRef,"+
+			" but got %T", prop.Name, value)
 	}
 
-	items, err := a.RefCount(asRefs)
+	property, err := a.analyzeRefPropCount(prop, asRefs)
+	if err != nil {
+		return errors.Wrap(err, "ref count")
+	}
+
+	*properties = append(*properties, *property)
+
+	if len(asRefs) == 0 {
+		return nil
+	}
+
+	property, err = a.analyzeRefProp(prop, asRefs)
+	if err != nil {
+		return errors.Wrap(err, "refs")
+	}
+
+	*properties = append(*properties, *property)
+	return nil
+}
+
+func (a *Analyzer) analyzeRefPropCount(prop *models.Property,
+	value models.MultipleRef) (*Property, error) {
+	items, err := a.RefCount(value)
 	if err != nil {
 		return nil, errors.Wrapf(err, "analyze ref-property %q", prop.Name)
 	}
 
 	return &Property{
 		Name:         helpers.MetaCountProp(prop.Name),
+		Items:        items,
+		HasFrequency: false,
+	}, nil
+}
+
+func (a *Analyzer) analyzeRefProp(prop *models.Property,
+	value models.MultipleRef) (*Property, error) {
+	items, err := a.Ref(value)
+	if err != nil {
+		return nil, errors.Wrapf(err, "analyze ref-property %q", prop.Name)
+	}
+
+	return &Property{
+		Name:         prop.Name,
 		Items:        items,
 		HasFrequency: false,
 	}, nil

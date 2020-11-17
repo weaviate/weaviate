@@ -153,6 +153,19 @@ func (a *Analyzer) RefCount(in models.MultipleRef) ([]Countable, error) {
 	}, nil
 }
 
+// Ref indexes references as beacon-strings
+func (a *Analyzer) Ref(in models.MultipleRef) ([]Countable, error) {
+	out := make([]Countable, len(in))
+
+	for i, ref := range in {
+		out[i] = Countable{
+			Data: []byte(ref.Beacon),
+		}
+	}
+
+	return out, nil
+}
+
 func NewAnalyzer() *Analyzer {
 	return &Analyzer{}
 }
