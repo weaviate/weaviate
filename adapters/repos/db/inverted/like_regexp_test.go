@@ -16,14 +16,7 @@ func TestLikeRegexp(t *testing.T) {
 		expectedError error
 	}
 
-	t.Run("without a wildcard", func(t *testing.T) {
-		input := []byte("car")
-		tests := []test{
-			{input: input, subject: []byte("car"), shouldMatch: true},
-			{input: input, subject: []byte("care"), shouldMatch: false},
-			{input: input, subject: []byte("supercar"), shouldMatch: false},
-		}
-
+	run := func(t *testing.T, tests []test) {
 		for _, test := range tests {
 			t.Run(fmt.Sprintf("for input %q and subject %q", string(test.input),
 				string(test.subject)), func(t *testing.T) {
@@ -37,5 +30,55 @@ func TestLikeRegexp(t *testing.T) {
 				assert.Equal(t, test.shouldMatch, res.regexp.Match(test.subject))
 			})
 		}
+	}
+
+	t.Run("without a wildcard", func(t *testing.T) {
+		input := []byte("car")
+		tests := []test{
+			{input: input, subject: []byte("car"), shouldMatch: true},
+			{input: input, subject: []byte("care"), shouldMatch: false},
+			{input: input, subject: []byte("supercar"), shouldMatch: false},
+		}
+
+		run(t, tests)
+	})
+
+	t.Run("with a single-character wildcard", func(t *testing.T) {
+		input := []byte("car?")
+		tests := []test{
+			{input: input, subject: []byte("car"), shouldMatch: false},
+			{input: input, subject: []byte("cap"), shouldMatch: false},
+			{input: input, subject: []byte("care"), shouldMatch: true},
+			{input: input, subject: []byte("supercar"), shouldMatch: false},
+			{input: input, subject: []byte("carer"), shouldMatch: false},
+		}
+
+		run(t, tests)
+	})
+
+	t.Run("with a multi-character wildcard", func(t *testing.T) {
+		input := []byte("car*")
+		tests := []test{
+			{input: input, subject: []byte("car"), shouldMatch: true},
+			{input: input, subject: []byte("cap"), shouldMatch: false},
+			{input: input, subject: []byte("care"), shouldMatch: true},
+			{input: input, subject: []byte("supercar"), shouldMatch: false},
+			{input: input, subject: []byte("carer"), shouldMatch: true},
+		}
+
+		run(t, tests)
+	})
+
+	t.Run("with several wildcards", func(t *testing.T) {
+		input := []byte("*c?r*")
+		tests := []test{
+			{input: input, subject: []byte("car"), shouldMatch: true},
+			{input: input, subject: []byte("cap"), shouldMatch: false},
+			{input: input, subject: []byte("care"), shouldMatch: true},
+			{input: input, subject: []byte("supercar"), shouldMatch: true},
+			{input: input, subject: []byte("carer"), shouldMatch: true},
+		}
+
+		run(t, tests)
 	})
 }
