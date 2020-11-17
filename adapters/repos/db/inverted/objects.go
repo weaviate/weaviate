@@ -203,31 +203,55 @@ func (a *Analyzer) extendPropertiesWithReference(properties *[]Property,
 		value = make(models.MultipleRef, 0)
 	}
 
-	property, err := a.analyzeRefPropCount(prop, value)
+	asRefs, ok := value.(models.MultipleRef)
+	if !ok {
+		return fmt.Errorf("expected property %q to be of type models.MutlipleRef,"+
+			" but got %T", prop.Name, value)
+	}
+
+	property, err := a.analyzeRefPropCount(prop, asRefs)
 	if err != nil {
 		return errors.Wrap(err, "ref count")
+	}
+
+	*properties = append(*properties, *property)
+
+	if len(asRefs) == 0 {
+		return nil
+	}
+
+	property, err = a.analyzeRefProp(prop, asRefs)
+	if err != nil {
+		return errors.Wrap(err, "refs")
 	}
 
 	*properties = append(*properties, *property)
 	return nil
 }
 
-func (a *Analyzer) analyzeRefPropCount(prop *models.Property, value interface{}) (*Property, error) {
-	// TODO: return multiple properties when support ref-indexing. For now we
-	// only support counting the refs
-
-	asRefs, ok := value.(models.MultipleRef)
-	if !ok {
-		return nil, fmt.Errorf("expected property %q to be of type models.MutlipleRef, but got %T", prop.Name, value)
-	}
-
-	items, err := a.RefCount(asRefs)
+func (a *Analyzer) analyzeRefPropCount(prop *models.Property,
+	value models.MultipleRef) (*Property, error) {
+	items, err := a.RefCount(value)
 	if err != nil {
 		return nil, errors.Wrapf(err, "analyze ref-property %q", prop.Name)
 	}
 
 	return &Property{
 		Name:         helpers.MetaCountProp(prop.Name),
+		Items:        items,
+		HasFrequency: false,
+	}, nil
+}
+
+func (a *Analyzer) analyzeRefProp(prop *models.Property,
+	value models.MultipleRef) (*Property, error) {
+	items, err := a.Ref(value)
+	if err != nil {
+		return nil, errors.Wrapf(err, "analyze ref-property %q", prop.Name)
+	}
+
+	return &Property{
+		Name:         prop.Name,
 		Items:        items,
 		HasFrequency: false,
 	}, nil
