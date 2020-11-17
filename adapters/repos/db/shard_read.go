@@ -30,7 +30,8 @@ import (
 )
 
 func (s *Shard) objectByID(ctx context.Context, id strfmt.UUID,
-	props traverser.SelectProperties, meta bool) (*storobj.Object, error) {
+	props traverser.SelectProperties,
+	underscore traverser.UnderscoreProperties) (*storobj.Object, error) {
 	var object *storobj.Object
 
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
@@ -174,23 +175,23 @@ func (s *Shard) vectorByIndexID(ctx context.Context, indexID int32) ([]float32, 
 }
 
 func (s *Shard) objectSearch(ctx context.Context, limit int,
-	filters *filters.LocalFilter, meta bool) ([]*storobj.Object, error) {
+	filters *filters.LocalFilter, underscore traverser.UnderscoreProperties) ([]*storobj.Object, error) {
 	if filters == nil {
-		return s.objectList(ctx, limit, meta)
+		return s.objectList(ctx, limit, underscore)
 	}
 
 	return inverted.NewSearcher(s.db, s.index.getSchema.GetSchemaSkipAuth(),
 		s.invertedRowCache, s.propertyIndices, s.index.classSearcher).
-		Object(ctx, limit, filters, meta, s.index.Config.ClassName)
+		Object(ctx, limit, filters, underscore, s.index.Config.ClassName)
 }
 
 func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32,
-	limit int, filters *filters.LocalFilter, meta bool) ([]*storobj.Object, error) {
+	limit int, filters *filters.LocalFilter, underscore traverser.UnderscoreProperties) ([]*storobj.Object, error) {
 	var allowList helpers.AllowList
 	if filters != nil {
 		list, err := inverted.NewSearcher(s.db, s.index.getSchema.GetSchemaSkipAuth(),
 			s.invertedRowCache, s.propertyIndices, s.index.classSearcher).
-			DocIDs(ctx, filters, meta, s.index.Config.ClassName)
+			DocIDs(ctx, filters, underscore, s.index.Config.ClassName)
 		if err != nil {
 			return nil, errors.Wrap(err, "build inverted filter allow list")
 		}
@@ -228,7 +229,7 @@ func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32,
 }
 
 func (s *Shard) objectList(ctx context.Context, limit int,
-	meta bool) ([]*storobj.Object, error) {
+	underscore traverser.UnderscoreProperties) ([]*storobj.Object, error) {
 	out := make([]*storobj.Object, limit)
 	i := 0
 	err := s.db.View(func(tx *bolt.Tx) error {

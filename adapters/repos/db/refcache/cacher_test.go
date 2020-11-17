@@ -36,7 +36,7 @@ func TestCacher(t *testing.T) {
 		repo := newFakeRepo()
 		logger, _ := test.NewNullLogger()
 		cr := NewCacher(repo, logger)
-		err := cr.Build(context.Background(), nil, nil, false)
+		err := cr.Build(context.Background(), nil, nil, traverser.UnderscoreProperties{})
 		assert.Nil(t, err)
 	})
 
@@ -50,7 +50,7 @@ func TestCacher(t *testing.T) {
 				ClassName: "BestClass",
 			},
 		}
-		err := cr.Build(context.Background(), input, nil, false)
+		err := cr.Build(context.Background(), input, nil, traverser.UnderscoreProperties{})
 		assert.Nil(t, err)
 	})
 
@@ -68,7 +68,7 @@ func TestCacher(t *testing.T) {
 				},
 			},
 		}
-		err := cr.Build(context.Background(), input, nil, false)
+		err := cr.Build(context.Background(), input, nil, traverser.UnderscoreProperties{})
 		assert.Nil(t, err)
 	})
 
@@ -89,7 +89,7 @@ func TestCacher(t *testing.T) {
 				},
 			},
 		}
-		err := cr.Build(context.Background(), input, nil, false)
+		err := cr.Build(context.Background(), input, nil, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 		_, ok := cr.Get(multi.Identifier{ID: "123", Kind: kind.Thing, ClassName: "SomeClass"})
 		assert.False(t, ok)
@@ -146,7 +146,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 
-		err := cr.Build(context.Background(), input, selectProps, false)
+		err := cr.Build(context.Background(), input, selectProps, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 		res, ok := cr.Get(multi.Identifier{ID: id1, Kind: kind.Thing, ClassName: "SomeClass"})
 		require.True(t, ok)
@@ -256,7 +256,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 
-		err := cr.Build(context.Background(), input, selectProps, false)
+		err := cr.Build(context.Background(), input, selectProps, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 		res, ok := cr.Get(multi.Identifier{ID: id1, Kind: kind.Thing, ClassName: "SomeClass"})
 		require.True(t, ok)
@@ -387,7 +387,7 @@ func TestCacher(t *testing.T) {
 			},
 		}
 
-		err := cr.Build(context.Background(), input, selectProps, false)
+		err := cr.Build(context.Background(), input, selectProps, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 		res, ok := cr.Get(multi.Identifier{ID: id1, Kind: kind.Thing, ClassName: "SomeClass"})
 		require.True(t, ok)
@@ -412,7 +412,7 @@ func newFakeRepo() *fakeRepo {
 	}
 }
 
-func (f *fakeRepo) MultiGet(ctx context.Context, query []multi.Identifier) ([]search.Result, error) {
+func (f *fakeRepo) MultiGet(ctx context.Context, query []multi.Identifier, underscore traverser.UnderscoreProperties) ([]search.Result, error) {
 	f.counter++
 	f.objectCounter += len(query)
 	out := make([]search.Result, len(query))
