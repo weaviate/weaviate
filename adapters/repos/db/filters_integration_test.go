@@ -144,11 +144,11 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 				filter:      buildFilter("modelName", "sprinter", neq, dtString),
 				expectedIDs: []strfmt.UUID{carE63sID, carPoloID},
 			},
-			// {
-			// 	name:        "modelName = spr*er",
-			// 	filter:      buildFilter("modelName", "sprinter", like, dtString),
-			// 	expectedIDs: []strfmt.UUID{carSprinterID},
-			// },
+			{
+				name:        "modelName = spr*er",
+				filter:      buildFilter("modelName", "sprinter", like, dtString),
+				expectedIDs: []strfmt.UUID{carSprinterID},
+			},
 			{
 				name:        "weight == 3499.90",
 				filter:      buildFilter("weight", 3499.90, eq, dtNumber),

@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	"github.com/boltdb/bolt"
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/notimplemented"
 	"github.com/semi-technologies/weaviate/entities/filters"
 )
@@ -173,14 +174,18 @@ func (rr *RowReader) notEqual(ctx context.Context, readFn ReadFn) error {
 }
 
 func (rr *RowReader) like(ctx context.Context, readFn ReadFn) error {
-	// likeRegex, err :=
+	like, err := parseLikeRegexp(rr.value)
+	if err != nil {
+		return errors.Wrapf(err, "parse like value")
+	}
+
 	c := rr.bucket.Cursor()
 	for k, v := c.First(); k != nil; k, v = c.Next() {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 
-		if bytes.Equal(k, rr.value) {
+		if !like.regexp.Match(k) {
 			continue
 		}
 
