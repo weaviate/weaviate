@@ -32,7 +32,7 @@ func (m *Migrator) AddClass(ctx context.Context, kind kind.Kind, class *models.C
 		Kind:      kind,
 		ClassName: schema.ClassName(class.Class),
 		RootPath:  m.db.config.RootPath,
-	}, m.db.schemaGetter, m.logger)
+	}, m.db.schemaGetter, m.db, m.logger)
 	if err != nil {
 		return errors.Wrap(err, "create index")
 	}

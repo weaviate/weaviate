@@ -39,7 +39,7 @@ func TestExtendInvertedIndexWithFrequency(t *testing.T) {
 	}()
 	index, err := NewIndex(IndexConfig{
 		RootPath: dirName, Kind: kind.Thing, ClassName: "Test",
-	}, &fakeSchemaGetter{}, nil)
+	}, &fakeSchemaGetter{}, nil, nil)
 	require.Nil(t, err)
 	shard, err := NewShard("extend_invert_benchmark", index)
 	require.Nil(t, err)
@@ -137,7 +137,7 @@ func TestExtendInvertedIndexWithOutFrequency(t *testing.T) {
 
 	index, err := NewIndex(IndexConfig{
 		RootPath: dirName, Kind: kind.Thing, ClassName: "Test",
-	}, &fakeSchemaGetter{}, nil)
+	}, &fakeSchemaGetter{}, nil, nil)
 	require.Nil(t, err)
 	shard, err := NewShard("extend_invert_benchmark_no_frequency", index)
 	require.Nil(t, err)

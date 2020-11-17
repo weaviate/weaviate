@@ -70,14 +70,11 @@ func (s *Shard) extendInvertedIndices(tx *bolt.Tx, props []inverted.Property,
 				}
 			}
 		} else {
-			if len(prop.Items) != 1 {
-				return fmt.Errorf("prop %s has no frequency but %d items",
-					prop.Name, len(prop.Items))
-			}
-
-			if err := s.extendInvertedIndexItem(b, prop.Items[0], docID); err != nil {
-				return errors.Wrapf(err, "extend index with item '%s'",
-					string(prop.Items[0].Data))
+			for _, item := range prop.Items {
+				if err := s.extendInvertedIndexItem(b, item, docID); err != nil {
+					return errors.Wrapf(err, "extend index with item '%s'",
+						string(item.Data))
+				}
 			}
 		}
 	}
