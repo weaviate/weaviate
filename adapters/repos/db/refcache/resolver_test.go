@@ -32,7 +32,7 @@ func TestResolver(t *testing.T) {
 
 	t.Run("with nil input", func(t *testing.T) {
 		r := NewResolver(newFakeCacher())
-		res, err := r.Do(context.Background(), nil, nil, false)
+		res, err := r.Do(context.Background(), nil, nil, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 		assert.Nil(t, res)
 	})
@@ -47,7 +47,7 @@ func TestResolver(t *testing.T) {
 		}
 
 		expected := input
-		res, err := r.Do(context.Background(), input, nil, false)
+		res, err := r.Do(context.Background(), input, nil, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -69,7 +69,7 @@ func TestResolver(t *testing.T) {
 		}
 
 		expected := input
-		res, err := r.Do(context.Background(), input, nil, false)
+		res, err := r.Do(context.Background(), input, nil, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -131,7 +131,7 @@ func TestResolver(t *testing.T) {
 				},
 			},
 		}
-		res, err := r.Do(context.Background(), input, selectProps, false)
+		res, err := r.Do(context.Background(), input, selectProps, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -238,7 +238,7 @@ func TestResolver(t *testing.T) {
 				},
 			},
 		}
-		res, err := r.Do(context.Background(), input, selectProps, false)
+		res, err := r.Do(context.Background(), input, selectProps, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})
@@ -255,7 +255,7 @@ type fakeCacher struct {
 }
 
 func (f *fakeCacher) Build(ctx context.Context, objects []search.Result, properties traverser.SelectProperties,
-	meta bool) error {
+	underscore traverser.UnderscoreProperties) error {
 	return nil
 }
 
