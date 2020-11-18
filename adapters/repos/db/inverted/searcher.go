@@ -231,7 +231,7 @@ func (fs *Searcher) extractPropValuePair(filter *filters.Clause,
 		return fs.extractUUIDProp(filter.Value.Value, filter.Operator)
 	}
 
-	if fs.onMultiWordPropValue(filter.Value.Value, filter.Value.Type) {
+	if fs.onMultiWordPropValue(filter.Operator, filter.Value.Value, filter.Value.Type) {
 		return fs.extractMultiWordProp(props[0], filter.Value.Type, filter.Value.Value,
 			filter.Operator)
 	}
@@ -252,7 +252,13 @@ func (fs *Searcher) extractPrimitiveProp(propName string, dt schema.DataType,
 	var hasFrequency bool
 	switch dt {
 	case schema.DataTypeText:
-		extractValueFn = fs.extractTextValue
+		if operator == filters.OperatorLike {
+			// if the operator is like, we cannot apply the regular text-splitting
+			// logic as it would remove all wildcard symbols
+			extractValueFn = fs.extractTextValueKeepWildcards
+		} else {
+			extractValueFn = fs.extractTextValue
+		}
 		hasFrequency = true
 	case schema.DataTypeString:
 		extractValueFn = fs.extractStringValue
@@ -412,13 +418,21 @@ func (fs *Searcher) onUUIDProp(propName string) bool {
 	return propName == helpers.PropertyNameUUID
 }
 
-func (fs *Searcher) onMultiWordPropValue(value interface{}, valueType schema.DataType) bool {
+func (fs *Searcher) onMultiWordPropValue(operator filters.Operator,
+	value interface{}, valueType schema.DataType) bool {
 	switch valueType {
 	case schema.DataTypeString:
 		parts := helpers.TokenizeString(value.(string))
 		return len(parts) > 1
 	case schema.DataTypeText:
-		parts := helpers.TokenizeText(value.(string))
+		var parts []string
+		if operator == filters.OperatorLike {
+			// if the operator is like, we cannot apply the regular text-splitting
+			// logic as it would remove all wildcard symbols
+			parts = helpers.TokenizeTextKeepWildcards(value.(string))
+		} else {
+			parts = helpers.TokenizeText(value.(string))
+		}
 		return len(parts) > 1
 	default:
 		return false
