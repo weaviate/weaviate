@@ -205,7 +205,6 @@ func (rr *RowReader) like(ctx context.Context, readFn ReadFn) error {
 			}
 
 			if bytes.Compare(like.min, k[:len(like.min)]) == -1 {
-				fmt.Printf("aborting because min=%s and candidate=%s\n", string(like.min), string(k[:len(like.min)]))
 				break
 			}
 		}
