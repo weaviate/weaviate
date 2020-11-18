@@ -180,9 +180,34 @@ func (rr *RowReader) like(ctx context.Context, readFn ReadFn) error {
 	}
 
 	c := rr.bucket.Cursor()
-	for k, v := c.First(); k != nil; k, v = c.Next() {
+	var (
+		initialK []byte
+		initialV []byte
+	)
+
+	if like.optimizable {
+		initialK, initialV = c.Seek(like.min)
+	} else {
+		initialK, initialV = c.First()
+	}
+
+	for k, v := initialK, initialV; k != nil; k, v = c.Next() {
 		if err := ctx.Err(); err != nil {
 			return err
+		}
+
+		if like.optimizable {
+			// if the query is optimizable, i.e. it doesn't start with a wildcard, we
+			// can abort once we've moved past the point where the fixed characters
+			// no longer match
+			if len(k) < len(like.min) {
+				break
+			}
+
+			if bytes.Compare(like.min, k[:len(like.min)]) == -1 {
+				fmt.Printf("aborting because min=%s and candidate=%s\n", string(like.min), string(k[:len(like.min)]))
+				break
+			}
 		}
 
 		if !like.regexp.Match(k) {

@@ -145,8 +145,13 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 				expectedIDs: []strfmt.UUID{carE63sID, carPoloID},
 			},
 			{
-				name:        "modelName = spr*er",
-				filter:      buildFilter("modelName", "sprinter", like, dtString),
+				name:        "modelName = spr*er (optimizable)",
+				filter:      buildFilter("modelName", "spr*er", like, dtString),
+				expectedIDs: []strfmt.UUID{carSprinterID},
+			},
+			{
+				name:        "modelName = *rinte? (non-optimizable)",
+				filter:      buildFilter("modelName", "*rinte?", like, dtString),
 				expectedIDs: []strfmt.UUID{carSprinterID},
 			},
 			{

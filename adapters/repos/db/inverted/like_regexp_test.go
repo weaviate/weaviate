@@ -82,3 +82,35 @@ func TestLikeRegexp(t *testing.T) {
 		run(t, tests)
 	})
 }
+
+func TestLikeRegexp_ForOptimizability(t *testing.T) {
+	type test struct {
+		input               []byte
+		shouldBeOptimizable bool
+		expectedMin         []byte
+	}
+
+	run := func(t *testing.T, tests []test) {
+		for _, test := range tests {
+			t.Run(fmt.Sprintf("for input %q", string(test.input)), func(t *testing.T) {
+				res, err := parseLikeRegexp(test.input)
+				require.Nil(t, err)
+				assert.Equal(t, test.shouldBeOptimizable, res.optimizable)
+				assert.Equal(t, test.expectedMin, res.min)
+			})
+		}
+	}
+
+	tests := []test{
+		{input: []byte("car"), shouldBeOptimizable: true, expectedMin: []byte("car")},
+		{input: []byte("car*"), shouldBeOptimizable: true, expectedMin: []byte("car")},
+		{input: []byte("car?"), shouldBeOptimizable: true, expectedMin: []byte("car")},
+		{input: []byte("c?r"), shouldBeOptimizable: true, expectedMin: []byte("c")},
+		{input: []byte("car*taker"), shouldBeOptimizable: true, expectedMin: []byte("car")},
+		{input: []byte("car?tak*?*er"), shouldBeOptimizable: true, expectedMin: []byte("car")},
+		{input: []byte("?car"), shouldBeOptimizable: false, expectedMin: []byte{}},
+		{input: []byte("*car"), shouldBeOptimizable: false, expectedMin: []byte{}},
+	}
+
+	run(t, tests)
+}
