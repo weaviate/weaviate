@@ -29,3 +29,10 @@ func TokenizeText(in string) []string {
 	})
 	return parts
 }
+
+func TokenizeTextKeepWildcards(in string) []string {
+	parts := strings.FieldsFunc(in, func(c rune) bool {
+		return !unicode.IsLetter(c) && !unicode.IsNumber(c) && c != '?' && c != '*'
+	})
+	return parts
+}

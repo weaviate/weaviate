@@ -144,12 +144,26 @@ func testPrimitiveProps(repo *DB) func(t *testing.T) {
 				filter:      buildFilter("modelName", "sprinter", neq, dtString),
 				expectedIDs: []strfmt.UUID{carE63sID, carPoloID},
 			},
-			// TODO:gh-1150 support like operator
-			// {
-			// 	name:        "modelName = spr*er",
-			// 	filter:      buildFilter("modelName", "sprinter", like, dtString),
-			// 	expectedIDs: []strfmt.UUID{carSprinterID},
-			// },
+			{
+				name:        "modelName = spr*er (optimizable) dtString",
+				filter:      buildFilter("modelName", "spr*er", like, dtString),
+				expectedIDs: []strfmt.UUID{carSprinterID},
+			},
+			{
+				name:        "modelName = *rinte? (non-optimizable) dtString",
+				filter:      buildFilter("modelName", "*rinte?", like, dtString),
+				expectedIDs: []strfmt.UUID{carSprinterID},
+			},
+			{
+				name:        "modelName = spr*er (optimizable) dtText",
+				filter:      buildFilter("modelName", "spr*er", like, dtText),
+				expectedIDs: []strfmt.UUID{carSprinterID},
+			},
+			{
+				name:        "modelName = *rinte? (non-optimizable) dtText",
+				filter:      buildFilter("modelName", "*rinte?", like, dtText),
+				expectedIDs: []strfmt.UUID{carSprinterID},
+			},
 			{
 				name:        "weight == 3499.90",
 				filter:      buildFilter("weight", 3499.90, eq, dtNumber),
