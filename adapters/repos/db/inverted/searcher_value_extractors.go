@@ -35,6 +35,20 @@ func (fs Searcher) extractTextValue(in interface{}) ([]byte, error) {
 	return []byte(parts[0]), nil
 }
 
+func (fs Searcher) extractTextValueKeepWildcards(in interface{}) ([]byte, error) {
+	value, ok := in.(string)
+	if !ok {
+		return nil, fmt.Errorf("expected value to be string, got %T", in)
+	}
+
+	parts := helpers.TokenizeTextKeepWildcards(value)
+	if len(parts) > 1 {
+		return nil, fmt.Errorf("expected single search term, got: %v", parts)
+	}
+
+	return []byte(parts[0]), nil
+}
+
 func (fs Searcher) extractStringValue(in interface{}) ([]byte, error) {
 	value, ok := in.(string)
 	if !ok {
