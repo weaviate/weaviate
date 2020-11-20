@@ -7,7 +7,7 @@
 [![Newsletter](https://img.shields.io/badge/newsletter-blue?logo=mailchimp)](https://www.semi.technology/newsletter/)
 
 
-<a href="https://semi.technology/documentation/weaviate/current/" target="_blank"><img src="https://www.semi.technology/img/weaviate-demo.gif?i=4" alt="Demo of Weaviate" width="100%"></a>
+<a href="https://semi.technology/developers/weaviate/current/" target="_blank"><img src="https://www.semi.technology/img/weaviate-demo.gif?i=4" alt="Demo of Weaviate" width="100%"></a>
 
 ## Description
 
@@ -17,19 +17,19 @@ _GraphQL - RESTful - vector search engine - semantic search - HNSW - deep search
 
 ## Documentation
 
-- [Documentation](https://semi.technology/documentation/weaviate/current/)
+- [Documentation](https://semi.technology/developers/weaviate/current/)
   - Installation
-    - [Docker Compose](https://semi.technology/documentation/weaviate/current/getting-started/installation.html#docker-compose)
-    - [Cloud Deployment](https://semi.technology/documentation/weaviate/current/getting-started/installation.html#cloud-deployment)
-    - [Weaviate Cluster Service (beta)](https://semi.technology/documentation/weaviate/current/getting-started/installation.html#weaviate-cluster-service)
-    - [Kubernetes](https://semi.technology/documentation/weaviate/current/getting-started/installation.html#kubernetes)
+    - [Docker Compose](https://semi.technology/developers/weaviate/current/getting-started/installation.html#docker-compose)
+    - [Cloud Deployment](https://semi.technology/developers/weaviate/current/getting-started/installation.html#cloud-deployment)
+    - [Weaviate Cluster Service (beta)](https://semi.technology/developers/weaviate/current/getting-started/installation.html#weaviate-cluster-service)
+    - [Kubernetes](https://semi.technology/developers/weaviate/current/getting-started/installation.html#kubernetes)
   - Client Libraries
-    - [Python](https://semi.technology/documentation/weaviate/current/client-libraries/python.html)
-    - [JavaScript](https://semi.technology/documentation/weaviate/current/client-libraries/javascript.html)
-  - [How To's](https://semi.technology/documentation/weaviate/current/how-tos/)
-  - [RESTful API references](https://semi.technology/documentation/weaviate/current/restful-api-references/)
-  - [GraphQL references](https://semi.technology/documentation/weaviate/current/graphql-references/)
-  - [More resources](https://semi.technology/documentation/weaviate/current/more-resources/)
+    - [Python](https://semi.technology/developers/weaviate/current/client-libraries/python.html)
+    - [JavaScript](https://semi.technology/developers/weaviate/current/client-libraries/javascript.html)
+  - [How To's](https://semi.technology/developers/weaviate/current/how-tos/)
+  - [RESTful API references](https://semi.technology/developers/weaviate/current/restful-api-references/)
+  - [GraphQL references](https://semi.technology/developers/weaviate/current/graphql-references/)
+  - [More resources](https://semi.technology/developers/weaviate/current/more-resources/)
 
 ## Support
 
@@ -39,4 +39,4 @@ _GraphQL - RESTful - vector search engine - semantic search - HNSW - deep search
 
 ## Contributing
 
-- [How to Contribute](https://www.semi.technology/documentation/contributor-guide/current/)
+- [How to Contribute](https://www.semi.technology/developers/contributor-guide/current/)
