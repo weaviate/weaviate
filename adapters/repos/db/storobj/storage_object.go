@@ -195,11 +195,12 @@ func (ko *Object) VectorWeights() models.VectorWeights {
 }
 
 func (ko *Object) SearchResult(underscore traverser.UnderscoreProperties) *search.Result {
-	schema := ko.Schema()
-	if schema == nil {
-		schema = map[string]interface{}{}
+	schemaMap, ok := ko.Schema().(map[string]interface{})
+	if !ok || schemaMap == nil {
+		schemaMap = map[string]interface{}{}
 	}
-	schema.(map[string]interface{})["uuid"] = ko.ID()
+	schemaMap["uuid"] = ko.ID()
+	ko.SetSchema(schemaMap)
 
 	underscoreProperties := &models.UnderscoreProperties{}
 	if ko.UnderscoreProperties() != nil {
