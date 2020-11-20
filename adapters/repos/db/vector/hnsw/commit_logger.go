@@ -43,6 +43,7 @@ func NewCommitLogger(rootPath, name string,
 	logger logrus.FieldLogger) (*hnswCommitLogger, error) {
 	l := &hnswCommitLogger{
 		events:               make(chan []byte),
+		cancel:               make(chan struct{}),
 		rootPath:             rootPath,
 		id:                   name,
 		maintainenceInterval: maintainenceInterval,
@@ -170,6 +171,7 @@ type condensor interface {
 
 type hnswCommitLogger struct {
 	events               chan []byte
+	cancel               chan struct{}
 	logFile              *os.File
 	rootPath             string
 	id                   string
@@ -292,8 +294,23 @@ func (l *hnswCommitLogger) Reset() error {
 }
 
 func (l *hnswCommitLogger) StartLogging() {
-	// switch log
-	go func() {
+	// switch log job
+	cancelSwitchLog := l.startSwitchLogs()
+	// condense old logs job
+	cancelCondenseLogs := l.startCondenseLogs()
+	// cancel maintenance jobs on request
+	go func(cancel ...chan struct{}) {
+		<-l.cancel
+		for _, c := range cancel {
+			c <- struct{}{}
+		}
+	}(cancelCondenseLogs, cancelSwitchLog)
+}
+
+func (l *hnswCommitLogger) startSwitchLogs() chan struct{} {
+	cancelSwitchLog := make(chan struct{})
+
+	go func(cancel <-chan struct{}) {
 		if l.maintainenceInterval == 0 {
 			l.logger.WithField("action", "commit_logging_skipped").
 				WithField("id", l.id).
@@ -303,6 +320,8 @@ func (l *hnswCommitLogger) StartLogging() {
 
 		for {
 			select {
+			case <-cancel:
+				return
 			case event := <-l.events:
 				l.logFile.Write(event)
 			case <-maintenance:
@@ -313,10 +332,15 @@ func (l *hnswCommitLogger) StartLogging() {
 				}
 			}
 		}
-	}()
+	}(cancelSwitchLog)
 
-	// condense old logs
-	go func() {
+	return cancelSwitchLog
+}
+
+func (l *hnswCommitLogger) startCondenseLogs() chan struct{} {
+	cancelCondenseLogs := make(chan struct{})
+
+	go func(cancel <-chan struct{}) {
 		if l.maintainenceInterval == 0 {
 			l.logger.WithField("action", "commit_logging_skipped").
 				WithField("id", l.id).
@@ -324,14 +348,20 @@ func (l *hnswCommitLogger) StartLogging() {
 		}
 		maintenance := time.Tick(l.maintainenceInterval)
 		for {
-			<-maintenance
-			if err := l.condenseOldLogs(); err != nil {
-				l.logger.WithError(err).
-					WithField("action", "hsnw_commit_log_condensing").
-					Error("hnsw commit log maintenance failed")
+			select {
+			case <-cancel:
+				return
+			case <-maintenance:
+				if err := l.condenseOldLogs(); err != nil {
+					l.logger.WithError(err).
+						WithField("action", "hsnw_commit_log_condensing").
+						Error("hnsw commit log maintenance failed")
+				}
 			}
 		}
-	}()
+	}(cancelCondenseLogs)
+
+	return cancelCondenseLogs
 }
 
 func (l *hnswCommitLogger) maintenance() error {
@@ -396,7 +426,7 @@ func (l *hnswCommitLogger) condenseOldLogs() error {
 func (l *hnswCommitLogger) writeUint32(w io.Writer, in uint32) error {
 	err := binary.Write(w, binary.LittleEndian, &in)
 	if err != nil {
-		return fmt.Errorf("writing uint32: %v", err)
+		return errors.Wrap(err, "writing uint32")
 	}
 
 	return nil
@@ -405,7 +435,7 @@ func (l *hnswCommitLogger) writeUint32(w io.Writer, in uint32) error {
 func (l *hnswCommitLogger) writeUint16(w io.Writer, in uint16) error {
 	err := binary.Write(w, binary.LittleEndian, &in)
 	if err != nil {
-		return fmt.Errorf("writing uint16: %v", err)
+		return errors.Wrap(err, "writing uint16")
 	}
 
 	return nil
@@ -414,7 +444,7 @@ func (l *hnswCommitLogger) writeUint16(w io.Writer, in uint16) error {
 func (l *hnswCommitLogger) writeCommitType(w io.Writer, in HnswCommitType) error {
 	err := binary.Write(w, binary.LittleEndian, &in)
 	if err != nil {
-		return fmt.Errorf("writing commit type: %v", err)
+		return errors.Wrap(err, "writing commit type")
 	}
 
 	return nil
@@ -423,8 +453,22 @@ func (l *hnswCommitLogger) writeCommitType(w io.Writer, in HnswCommitType) error
 func (l *hnswCommitLogger) writeUint32Slice(w io.Writer, in []uint32) error {
 	err := binary.Write(w, binary.LittleEndian, &in)
 	if err != nil {
-		return fmt.Errorf("writing []uint32: %v", err)
+		return errors.Wrap(err, "writing []uint32")
 	}
 
+	return nil
+}
+
+func (l *hnswCommitLogger) Drop() error {
+	// stop all goroutines
+	l.cancel <- struct{}{}
+	// remove commit log directory if exists
+	dir := commitLogDirectory(l.rootPath, l.id)
+	if _, err := os.Stat(dir); err == nil {
+		err := os.RemoveAll(dir)
+		if err != nil {
+			return errors.Wrap(err, "delete commit files directory")
+		}
+	}
 	return nil
 }

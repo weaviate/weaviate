@@ -102,7 +102,7 @@ func (s *Shard) putObjectInTx(tx *bolt.Tx, object *storobj.Object,
 
 	before = time.Now()
 	if err := s.updateInvertedIndex(tx, object, status, previous); err != nil {
-		return status, errors.Wrap(err, "udpate inverted indices")
+		return status, errors.Wrap(err, "update inverted indices")
 	}
 	s.metrics.PutObjectUpdateInverted(before)
 

@@ -54,7 +54,12 @@ func (m *Migrator) AddClass(ctx context.Context, kind kind.Kind, class *models.C
 }
 
 func (m *Migrator) DropClass(ctx context.Context, kind kind.Kind, className string) error {
-	return fmt.Errorf("dropping a class not (yet) supported")
+	err := m.db.DeleteIndex(kind, schema.ClassName(className))
+	if err != nil {
+		return errors.Wrapf(err, "delete idx for class '%s'", className)
+	}
+
+	return nil
 }
 
 func (m *Migrator) UpdateClass(ctx context.Context, kind kind.Kind, className string, newClassName *string, newKeywords *models.Keywords) error {

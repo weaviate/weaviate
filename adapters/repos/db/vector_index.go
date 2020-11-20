@@ -20,4 +20,5 @@ type VectorIndex interface {
 	Delete(id int) error
 	SearchByID(id int, k int) ([]int, error)
 	SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]int, error)
+	Drop() error
 }
