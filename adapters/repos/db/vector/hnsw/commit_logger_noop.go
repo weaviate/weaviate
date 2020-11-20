@@ -51,6 +51,10 @@ func (n *NoopCommitLogger) Reset() error {
 	return nil
 }
 
+func (n *NoopCommitLogger) Drop() error {
+	return nil
+}
+
 func MakeNoopCommitLogger() (CommitLogger, error) {
 	return &NoopCommitLogger{}, nil
 }
