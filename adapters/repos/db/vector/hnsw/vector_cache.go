@@ -27,6 +27,7 @@ type vectorCache struct {
 	maxSize       int
 	getFromSource VectorForID
 	logger        logrus.FieldLogger
+	cancel        chan bool
 	sync.RWMutex
 }
 
@@ -36,6 +37,7 @@ func newCache(getFromSource VectorForID, logger logrus.FieldLogger) *vectorCache
 		count:         0,
 		maxSize:       50000, // TODO: make configurable
 		getFromSource: getFromSource,
+		cancel:        make(chan bool),
 	}
 
 	vc.watchForDeletion()
@@ -46,8 +48,12 @@ func (c *vectorCache) watchForDeletion() {
 	go func() {
 		t := time.Tick(10 * time.Second)
 		for {
-			<-t
-			c.replaceMapIfFull()
+			select {
+			case <-c.cancel:
+				return
+			case <-t:
+				c.replaceMapIfFull()
+			}
 		}
 	}()
 }
@@ -81,4 +87,8 @@ func (c *vectorCache) get(ctx context.Context, id int32) ([]float32, error) {
 	}
 
 	return vec.([]float32), nil
+}
+
+func (c *vectorCache) drop() {
+	c.cancel <- true
 }

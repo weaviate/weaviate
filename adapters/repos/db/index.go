@@ -239,3 +239,12 @@ func (i *Index) aggregate(ctx context.Context,
 
 	return obj, nil
 }
+
+func (i *Index) drop() error {
+	shard := i.Shards["single"]
+	err := shard.drop()
+	if err != nil {
+		return errors.Wrapf(err, "delete shard %s", shard.ID())
+	}
+	return nil
+}
