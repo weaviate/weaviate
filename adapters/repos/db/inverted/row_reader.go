@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	"github.com/boltdb/bolt"
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/notimplemented"
 	"github.com/semi-technologies/weaviate/entities/filters"
 )
@@ -69,8 +70,10 @@ func (rr *RowReader) Read(ctx context.Context, readFn ReadFn) error {
 		return rr.lessThan(ctx, readFn, false)
 	case filters.OperatorLessThanEqual:
 		return rr.lessThan(ctx, readFn, true)
+	case filters.OperatorLike:
+		return rr.like(ctx, readFn)
 	default:
-		return fmt.Errorf("operator not supported (yet) in standalone "+
+		return fmt.Errorf("operator not supported in standalone "+
 			"mode, see %s for details", notimplemented.Link)
 	}
 }
@@ -154,6 +157,59 @@ func (rr *RowReader) notEqual(ctx context.Context, readFn ReadFn) error {
 		}
 
 		if bytes.Equal(k, rr.value) {
+			continue
+		}
+
+		continueReading, err := readFn(k, v)
+		if err != nil {
+			return err
+		}
+
+		if !continueReading {
+			break
+		}
+	}
+
+	return nil
+}
+
+func (rr *RowReader) like(ctx context.Context, readFn ReadFn) error {
+	like, err := parseLikeRegexp(rr.value)
+	if err != nil {
+		return errors.Wrapf(err, "parse like value")
+	}
+
+	c := rr.bucket.Cursor()
+	var (
+		initialK []byte
+		initialV []byte
+	)
+
+	if like.optimizable {
+		initialK, initialV = c.Seek(like.min)
+	} else {
+		initialK, initialV = c.First()
+	}
+
+	for k, v := initialK, initialV; k != nil; k, v = c.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		if like.optimizable {
+			// if the query is optimizable, i.e. it doesn't start with a wildcard, we
+			// can abort once we've moved past the point where the fixed characters
+			// no longer match
+			if len(k) < len(like.min) {
+				break
+			}
+
+			if bytes.Compare(like.min, k[:len(like.min)]) == -1 {
+				break
+			}
+		}
+
+		if !like.regexp.Match(k) {
 			continue
 		}
 
