@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/boltdb/bolt"
@@ -118,6 +119,28 @@ func (s *Shard) initDBFile() error {
 	}
 
 	s.db = boltdb
+	return nil
+}
+
+func (s *Shard) drop() error {
+	// delete bolt if exists
+	s.db.Close()
+	if _, err := os.Stat(s.DBPath()); err == nil {
+		err := os.Remove(s.DBPath())
+		if err != nil {
+			return errors.Wrapf(err, "remove bolt at %s", s.DBPath())
+		}
+	}
+	// delete indexcount
+	err := s.counter.Drop()
+	if err != nil {
+		return errors.Wrapf(err, "remove indexcount at %s", s.DBPath())
+	}
+	// remove vector index
+	err = s.vectorIndex.Drop()
+	if err != nil {
+		return errors.Wrapf(err, "remove vector index at %s", s.DBPath())
+	}
 	return nil
 }
 

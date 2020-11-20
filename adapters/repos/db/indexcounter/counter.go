@@ -66,3 +66,16 @@ func (c *Counter) GetAndInc() (uint32, error) {
 	c.f.Seek(0, 0)
 	return before, nil
 }
+
+func (c *Counter) Drop() error {
+	c.Lock()
+	defer c.Unlock()
+	if c.f == nil {
+		return nil
+	}
+	err := os.Remove(c.f.Name())
+	if err != nil {
+		return errors.Wrap(err, "drop counter file")
+	}
+	return nil
+}
