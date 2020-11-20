@@ -113,7 +113,7 @@ func mergeProps(previous *storobj.Object,
 	merge kinds.MergeDocument) *storobj.Object {
 	next := *previous
 	schema, ok := next.Schema().(map[string]interface{})
-	if !ok {
+	if !ok || schema == nil {
 		schema = map[string]interface{}{}
 	}
 
