@@ -52,6 +52,10 @@ func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
 			return nil, fmt.Errorf("prop %q has no datatype", prop.Name)
 		}
 
+		if prop.Index != nil && *prop.Index == false {
+			continue
+		}
+
 		if schema.IsRefDataType(prop.DataType) {
 			if err := a.extendPropertiesWithReference(&out, prop, input, key); err != nil {
 				return nil, err
