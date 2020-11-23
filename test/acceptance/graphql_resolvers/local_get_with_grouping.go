@@ -12,7 +12,6 @@
 package test
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
@@ -50,34 +49,36 @@ func gettingObjectsWithGrouping(t *testing.T) {
 		assert.ElementsMatch(t, expected, companies)
 	})
 
-	t.Run("grouping mode set to closest", func(t *testing.T) {
-		query := `
-		{
-				Get {
-					Things {
-						Company(group: {type: closest, force:0.10}) {
-							name
-						}
-					}
-				}
-		}
-		`
-		result := AssertGraphQL(t, helper.RootAuth, query)
-		companies := result.Get("Get", "Things", "Company").AsSlice()
+	// temporarily removed due to
+	// https://github.com/semi-technologies/weaviate/issues/1302
+	// t.Run("grouping mode set to closest", func(t *testing.T) {
+	// 	query := `
+	// 	{
+	// 			Get {
+	// 				Things {
+	// 					Company(group: {type: closest, force:0.10}) {
+	// 						name
+	// 					}
+	// 				}
+	// 			}
+	// 	}
+	// 	`
+	// 	result := AssertGraphQL(t, helper.RootAuth, query)
+	// 	companies := result.Get("Get", "Things", "Company").AsSlice()
 
-		assert.Len(t, companies, 3)
-		mustContain := []string{"Apple", "Microsoft", "Google"}
-	outer:
-		for _, toContain := range mustContain {
-			for _, current := range companies {
-				if strings.Contains(current.(map[string]interface{})["name"].(string), toContain) {
-					continue outer
-				}
-			}
+	// 	assert.Len(t, companies, 3)
+	// 	mustContain := []string{"Apple", "Microsoft", "Google"}
+	// outer:
+	// 	for _, toContain := range mustContain {
+	// 		for _, current := range companies {
+	// 			if strings.Contains(current.(map[string]interface{})["name"].(string), toContain) {
+	// 				continue outer
+	// 			}
+	// 		}
 
-			t.Errorf("%s not contained in %v", toContain, companies)
-		}
-	})
+	// 		t.Errorf("%s not contained in %v", toContain, companies)
+	// 	}
+	// })
 
 	// ignore as 0.16.0 contextionaries aren't compatible with this test
 	// t.Run("grouping mode set to merge", func(t *testing.T) {
