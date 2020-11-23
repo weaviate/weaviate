@@ -139,5 +139,7 @@ func mergeProps(previous *storobj.Object,
 		next.Vector = merge.Vector
 	}
 
+	next.SetSchema(schema)
+
 	return &next
 }
