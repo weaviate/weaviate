@@ -108,6 +108,7 @@ func mergeAnd(children []*propValuePair) (*docPointers, error) {
 	}
 
 	var out docPointers
+	var idsForChecksum []int
 	for id, count := range found {
 		if count != len(sets) {
 			continue
@@ -119,8 +120,15 @@ func mergeAnd(children []*propValuePair) (*docPointers, error) {
 		out.docIDs = append(out.docIDs, docPointer{
 			id: id,
 		})
+		idsForChecksum = append(idsForChecksum, int(id))
 	}
 
+	checksum, err := docPointerChecksum(idsForChecksum)
+	if err != nil {
+		return nil, errors.Wrapf(err, "calculate checksum")
+	}
+
+	out.checksum = checksum
 	return &out, nil
 }
 
@@ -143,13 +151,15 @@ func mergeOr(children []*propValuePair) (*docPointers, error) {
 		return sets[0], nil
 	}
 
-	// merge AND
+	// merge OR
+	var checksums [][]byte
 	found := map[uint32]int{} // map[id]count
 	for _, set := range sets {
 		for _, pointer := range set.docIDs {
 			count := found[pointer.id]
 			count++
 			found[pointer.id] = count
+			checksums = append(checksums, set.checksum)
 		}
 	}
 
@@ -162,6 +172,12 @@ func mergeOr(children []*propValuePair) (*docPointers, error) {
 		})
 	}
 
+	checksum, err := combineChecksums(checksums)
+	if err != nil {
+		return nil, errors.Wrap(err, "combine checksums")
+	}
+
+	out.checksum = checksum
 	return &out, nil
 }
 
