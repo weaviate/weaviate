@@ -120,3 +120,38 @@ func parkingGaragesSchema() schema.Schema {
 		},
 	}
 }
+
+func cityCountryAirportSchema() schema.Schema {
+	return schema.Schema{
+		Things: &models.Schema{
+			Classes: []*models.Class{
+				{
+					Class:              "Country",
+					VectorizeClassName: ptBool(true),
+					Properties: []*models.Property{
+						{Name: "name", DataType: []string{"string"}},
+					},
+				},
+				{
+					Class:              "City",
+					VectorizeClassName: ptBool(true),
+					Properties: []*models.Property{
+						{Name: "name", DataType: []string{"string"}},
+						{Name: "inCountry", DataType: []string{"Country"}},
+						{Name: "population", DataType: []string{"int"}},
+						{Name: "location", DataType: []string{"geoCoordinates"}},
+					},
+				},
+				{
+					Class:              "Airport",
+					VectorizeClassName: ptBool(true),
+					Properties: []*models.Property{
+						{Name: "code", DataType: []string{"string"}},
+						{Name: "phone", DataType: []string{"phoneNumber"}},
+						{Name: "inCity", DataType: []string{"City"}},
+					},
+				},
+			},
+		},
+	}
+}

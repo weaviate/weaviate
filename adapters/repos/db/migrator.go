@@ -43,7 +43,7 @@ func (m *Migrator) AddClass(ctx context.Context, kind kind.Kind, class *models.C
 	}
 
 	for _, prop := range class.Properties {
-		if prop.Index != nil && *prop.Index == false {
+		if prop.Index != nil && !*prop.Index {
 			continue
 		}
 
