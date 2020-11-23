@@ -15,7 +15,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"fmt"
 	"hash/crc32"
 
 	"github.com/boltdb/bolt"
@@ -53,7 +52,6 @@ func (fs *Searcher) docPointersInverted(prop []byte, b *bolt.Bucket, limit int,
 		pointers.count += curr.count
 		pointers.docIDs = append(pointers.docIDs, curr.docIDs...)
 
-		fmt.Printf("%s - current checksum: %v", string(k), curr.checksum)
 		hashes = append(hashes, curr.checksum)
 		if limit > 0 && pointers.count >= uint32(limit) {
 			return false, nil
@@ -64,14 +62,12 @@ func (fs *Searcher) docPointersInverted(prop []byte, b *bolt.Bucket, limit int,
 		return pointers, errors.Wrap(err, "read row")
 	}
 
-	fmt.Printf("checksums before combining: %v\n", hashes)
 	newChecksum, err := combineChecksums(hashes)
 	if err != nil {
 		return pointers, errors.Wrap(err, "calculate new checksum")
 	}
 
 	pointers.checksum = newChecksum
-	fmt.Printf("checksums after combining: %v\n", pointers.checksum)
 	return pointers, nil
 }
 
