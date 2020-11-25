@@ -19,7 +19,8 @@ services:
       CONTEXTIONARY_URL: contextionary:9999
       QUERY_DEFAULTS_LIMIT: 20
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
-      ESVECTOR_URL: http://esvector:9200
+      STANDALONE_MODE: 'true'
+      PERSISTENCE_DATA_PATH: "./data"
   contextionary:
     image: semitechnologies/contextionary:en0.16.0-v0.4.19
     ports:

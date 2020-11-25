@@ -21,9 +21,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/entities/filters"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -448,6 +450,222 @@ func TestRefFilters(t *testing.T) {
 	})
 }
 
+func TestRefFilters_MergingWithAndOperator(t *testing.T) {
+	// This test is to prevent a regression where checksums get lost on an AND
+	// operator, which was discovered through a journey test as part of gh-1286.
+	// The schema is modelled after the journey test, as the regular tests suites
+	// above do not seem to run into this issue on their own
+	rand.Seed(time.Now().UnixNano())
+	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))
+	os.MkdirAll(dirName, 0o777)
+	defer func() {
+		err := os.RemoveAll(dirName)
+		fmt.Println(err)
+	}()
+
+	logger, _ := test.NewNullLogger()
+	schemaGetter := &fakeSchemaGetter{}
+	repo := New(logger, Config{RootPath: dirName})
+	repo.SetSchemaGetter(schemaGetter)
+	err := repo.WaitForStartup(30 * time.Second)
+	require.Nil(t, err)
+	migrator := NewMigrator(repo, logger)
+
+	t.Run("adding all classes to the schema", func(t *testing.T) {
+		schemaGetter.schema.Things = &models.Schema{}
+		for _, class := range cityCountryAirportSchema().Things.Classes {
+			t.Run(fmt.Sprintf("add %s", class.Class), func(t *testing.T) {
+				err := migrator.AddClass(context.Background(), kind.Thing, class)
+				require.Nil(t, err)
+				schemaGetter.schema.Things.Classes = append(schemaGetter.schema.Things.Classes, class)
+			})
+		}
+	})
+
+	const (
+		netherlands strfmt.UUID = "67b79643-cf8b-4b22-b206-6e63dbb4e57a"
+		germany     strfmt.UUID = "561eea29-b733-4079-b50b-cfabd78190b7"
+		amsterdam   strfmt.UUID = "8f5f8e44-d348-459c-88b1-c1a44bb8f8be"
+		rotterdam   strfmt.UUID = "660db307-a163-41d2-8182-560782cd018f"
+		berlin      strfmt.UUID = "9b9cbea5-e87e-4cd0-89af-e2f424fd52d6"
+		dusseldorf  strfmt.UUID = "6ffb03f8-a853-4ec5-a5d8-302e45aaaf13"
+		nullisland  strfmt.UUID = "823abeca-eef3-41c7-b587-7a6977b08003"
+		airport1    strfmt.UUID = "4770bb19-20fd-406e-ac64-9dac54c27a0f"
+		airport2    strfmt.UUID = "cad6ab9b-5bb9-4388-a933-a5bdfd23db37"
+		airport3    strfmt.UUID = "55a4dbbb-e2af-4b2a-901d-98146d1eeca7"
+		airport4    strfmt.UUID = "62d15920-b546-4844-bc87-3ae33268fab5"
+	)
+
+	t.Run("import all data objects", func(t *testing.T) {
+		objects := []*models.Thing{
+			{
+				Class: "Country",
+				ID:    netherlands,
+				Schema: map[string]interface{}{
+					"name": "Netherlands",
+				},
+			},
+			{
+				Class: "Country",
+				ID:    germany,
+				Schema: map[string]interface{}{
+					"name": "Germany",
+				},
+			},
+
+			// cities
+			{
+				Class: "City",
+				ID:    amsterdam,
+				Schema: map[string]interface{}{
+					"name":       "Amsterdam",
+					"population": int64(1800000),
+					"location": &models.GeoCoordinates{
+						Latitude:  ptFloat32(52.366667),
+						Longitude: ptFloat32(4.9),
+					},
+					"inCountry": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: strfmt.URI(
+								strfmt.URI(crossref.New("localhost", netherlands, kind.Thing).String()),
+							),
+						},
+					},
+				},
+			},
+			{
+				Class: "City",
+				ID:    rotterdam,
+				Schema: map[string]interface{}{
+					"name":       "Rotterdam",
+					"population": int64(600000),
+					"inCountry": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: strfmt.URI(crossref.New("localhost", netherlands, kind.Thing).String()),
+						},
+					},
+				},
+			},
+			{
+				Class: "City",
+				ID:    berlin,
+				Schema: map[string]interface{}{
+					"name":       "Berlin",
+					"population": int64(3470000),
+					"inCountry": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: strfmt.URI(crossref.New("localhost", germany, kind.Thing).String()),
+						},
+					},
+				},
+			},
+			{
+				Class: "City",
+				ID:    dusseldorf,
+				Schema: map[string]interface{}{
+					"name":       "Dusseldorf",
+					"population": int64(600000),
+					"inCountry": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: strfmt.URI(crossref.New("localhost", germany, kind.Thing).String()),
+						},
+					},
+					"location": &models.GeoCoordinates{
+						Latitude:  ptFloat32(51.225556),
+						Longitude: ptFloat32(6.782778),
+					},
+				},
+			},
+
+			{
+				Class: "City",
+				ID:    nullisland,
+				Schema: map[string]interface{}{
+					"name":       "Null Island",
+					"population": 0,
+					"location": &models.GeoCoordinates{
+						Latitude:  ptFloat32(0),
+						Longitude: ptFloat32(0),
+					},
+				},
+			},
+
+			// airports
+			{
+				Class: "Airport",
+				ID:    airport1,
+				Schema: map[string]interface{}{
+					"code": "10000",
+					"phone": map[string]interface{}{
+						"input": "+311234567",
+					},
+					"inCity": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: strfmt.URI(crossref.New("localhost", amsterdam, kind.Thing).String()),
+						},
+					},
+				},
+			},
+			{
+				Class: "Airport",
+				ID:    airport2,
+				Schema: map[string]interface{}{
+					"code": "20000",
+					"inCity": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: strfmt.URI(crossref.New("localhost", rotterdam, kind.Thing).String()),
+						},
+					},
+				},
+			},
+			{
+				Class: "Airport",
+				ID:    airport3,
+				Schema: map[string]interface{}{
+					"code": "30000",
+					"inCity": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: strfmt.URI(crossref.New("localhost", dusseldorf, kind.Thing).String()),
+						},
+					},
+				},
+			},
+			{
+				Class: "Airport",
+				ID:    airport4,
+				Schema: map[string]interface{}{
+					"code": "40000",
+					"inCity": models.MultipleRef{
+						&models.SingleRef{
+							Beacon: strfmt.URI(crossref.New("localhost", berlin, kind.Thing).String()),
+						},
+					},
+				},
+			},
+		}
+
+		for _, obj := range objects {
+			require.Nil(t, repo.PutThing(context.Background(), obj, []float32{0.1}))
+		}
+	})
+
+	t.Run("combining multi-level ref filters with AND", func(t *testing.T) {
+		// In gh-1286 we discovered that on this query the checksum was missing and
+		// we somehow didn't perform a merge, but rather always took the first set
+		// of ids
+
+		filter := filterAirportsInGermanCitiesOver600k()
+		res, err := repo.ClassSearch(context.Background(),
+			getParamsWithFilter("Airport", filter))
+		require.Nil(t, err)
+
+		expectedCodes := []string{"40000"}
+		actualCodes := extractCodes(res)
+
+		assert.Equal(t, expectedCodes, actualCodes)
+	})
+}
+
 func filterCarParkedAtGarage(dataType schema.DataType,
 	prop string, operator filters.Operator, value interface{}) *filters.LocalFilter {
 	return &filters.LocalFilter{
@@ -503,6 +721,50 @@ func filterDrivesCarParkedAtGarage(dataType schema.DataType,
 	}
 }
 
+func filterAirportsInGermanCitiesOver600k() *filters.LocalFilter {
+	return &filters.LocalFilter{
+		Root: &filters.Clause{
+			Operator: and,
+			Operands: []filters.Clause{
+				{
+					Operator: gt,
+					On: &filters.Path{
+						Class:    schema.ClassName("Airport"),
+						Property: schema.PropertyName("inCity"),
+						Child: &filters.Path{
+							Class:    schema.ClassName("City"),
+							Property: schema.PropertyName("population"),
+						},
+					},
+					Value: &filters.Value{
+						Value: 600000,
+						Type:  dtInt,
+					},
+				},
+				{
+					Operator: eq,
+					On: &filters.Path{
+						Class:    schema.ClassName("Airport"),
+						Property: schema.PropertyName("inCity"),
+						Child: &filters.Path{
+							Class:    schema.ClassName("City"),
+							Property: schema.PropertyName("inCountry"),
+							Child: &filters.Path{
+								Class:    schema.ClassName("Country"),
+								Property: schema.PropertyName("name"),
+							},
+						},
+					},
+					Value: &filters.Value{
+						Value: "Germany",
+						Type:  dtString,
+					},
+				},
+			},
+		},
+	}
+}
+
 func getParamsWithFilter(className string, filter *filters.LocalFilter) traverser.GetParams {
 	return traverser.GetParams{
 		Filters: filter,
@@ -521,6 +783,15 @@ func extractNames(in []search.Result) []string {
 	out := make([]string, len(in), len(in))
 	for i, res := range in {
 		out[i] = res.Schema.(map[string]interface{})["name"].(string)
+	}
+
+	return out
+}
+
+func extractCodes(in []search.Result) []string {
+	out := make([]string, len(in), len(in))
+	for i, res := range in {
+		out[i] = res.Schema.(map[string]interface{})["code"].(string)
 	}
 
 	return out

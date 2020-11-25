@@ -51,6 +51,7 @@ func (fs *Searcher) docPointersInverted(prop []byte, b *bolt.Bucket, limit int,
 
 		pointers.count += curr.count
 		pointers.docIDs = append(pointers.docIDs, curr.docIDs...)
+
 		hashes = append(hashes, curr.checksum)
 		if limit > 0 && pointers.count >= uint32(limit) {
 			return false, nil
@@ -61,9 +62,9 @@ func (fs *Searcher) docPointersInverted(prop []byte, b *bolt.Bucket, limit int,
 		return pointers, errors.Wrap(err, "read row")
 	}
 
-	newChecksum, err := fs.combineChecksums(hashes)
+	newChecksum, err := combineChecksums(hashes)
 	if err != nil {
-		return pointers, errors.Wrap(err, "greater than: calculate new checksum")
+		return pointers, errors.Wrap(err, "calculate new checksum")
 	}
 
 	pointers.checksum = newChecksum
@@ -118,7 +119,7 @@ func rowID(prop, value []byte) []byte {
 // when merging independent filter) we need a new checksum describing exactly
 // this request. Thus we simply treat the existing checksums as an input string
 // (appended) and caculate a new one
-func (fs *Searcher) combineChecksums(checksums [][]byte) ([]byte, error) {
+func combineChecksums(checksums [][]byte) ([]byte, error) {
 	if len(checksums) == 1 {
 		return checksums[0], nil
 	}

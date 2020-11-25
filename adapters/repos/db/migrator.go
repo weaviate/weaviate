@@ -43,6 +43,10 @@ func (m *Migrator) AddClass(ctx context.Context, kind kind.Kind, class *models.C
 	}
 
 	for _, prop := range class.Properties {
+		if prop.Index != nil && !*prop.Index {
+			continue
+		}
+
 		err := idx.addProperty(ctx, prop)
 		if err != nil {
 			return errors.Wrapf(err, "extend idx '%s' with property", idx.ID())
