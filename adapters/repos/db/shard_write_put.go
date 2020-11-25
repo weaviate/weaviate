@@ -184,6 +184,11 @@ func (s *Shard) updateDocIDLookup(tx *bolt.Tx, newID []byte,
 	status objectInsertStatus) error {
 	if status.docIDChanged {
 		// clean up old docId first
+
+		// in-mem
+		s.deletedDocIDs.Add(status.oldDocID)
+
+		// on-disk
 		if err := docid.MarkDeletedInTx(tx, status.oldDocID); err != nil {
 			return errors.Wrap(err, "remove docID->UUID index")
 		}
