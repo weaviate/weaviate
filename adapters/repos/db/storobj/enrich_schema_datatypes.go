@@ -194,9 +194,47 @@ func parseCrossRef(value []interface{}) (models.MultipleRef, error) {
 
 		parsed[i] = &models.SingleRef{
 			Beacon: strfmt.URI(beaconStr),
-			// TODO: gh-1150 support underscore RefMeta
+		}
+
+		c, ok := asMap["_classification"]
+		if ok {
+			classification, err := parseRefClassificationMeta(c)
+			if err != nil {
+				return nil, errors.Wrap(err, "crossref: parse classifiation meta")
+			}
+
+			parsed[i].Classification = classification
 		}
 	}
 
 	return parsed, nil
+}
+
+func parseRefClassificationMeta(in interface{}) (*models.ReferenceMetaClassification, error) {
+	out := &models.ReferenceMetaClassification{}
+	asMap, ok := in.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("expected _classfication to be map - got %T", in)
+	}
+
+	wd, ok := asMap["winningDistance"]
+	if ok {
+		wdFloat, ok := wd.(float64)
+		if !ok {
+			return nil, fmt.Errorf("expected winningDistance to be float64 - got %T", wd)
+		}
+		out.WinningDistance = wdFloat
+	}
+
+	ld, ok := asMap["losingDistance"]
+	if ok {
+		ldFloat, ok := ld.(float64)
+		if !ok {
+			return nil, fmt.Errorf("expected losingDistance to be float64 - got %T", ld)
+		}
+
+		out.LosingDistance = &ldFloat
+	}
+
+	return out, nil
 }
