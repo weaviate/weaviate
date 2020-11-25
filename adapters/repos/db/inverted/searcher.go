@@ -36,17 +36,23 @@ type Searcher struct {
 	rowCache      *RowCacher
 	classSearcher ClassSearcher // to allow recursive searches on ref-props
 	propIndices   propertyspecific.Indices
+	deletedDocIDs DeletedDocIDChecker
+}
+
+type DeletedDocIDChecker interface {
+	Contains(id uint32) bool
 }
 
 func NewSearcher(db *bolt.DB, schema schema.Schema,
 	rowCache *RowCacher, propIndices propertyspecific.Indices,
-	classSearcher ClassSearcher) *Searcher {
+	classSearcher ClassSearcher, deletedDocIDs DeletedDocIDChecker) *Searcher {
 	return &Searcher{
 		db:            db,
 		schema:        schema,
 		rowCache:      rowCache,
 		propIndices:   propIndices,
 		classSearcher: classSearcher,
+		deletedDocIDs: deletedDocIDs,
 	}
 }
 
@@ -177,6 +183,13 @@ func (fs *Searcher) parseInvertedIndexRow(id, in []byte, limit int,
 				// EOF would be unexpected here, so any error including EOF is an error
 				return out, errors.Wrap(err, "read doc frequency")
 			}
+		}
+
+		if fs.deletedDocIDs.Contains(docID) {
+			// make sure a deleted docID does not count into the limit, otherwise we
+			// will return 0 results with a limit of n if the first n doc ids are
+			// marked as deleted (gh-1308)
+			continue
 		}
 
 		out.docIDs = append(out.docIDs, docPointer{id: docID, frequency: &frequency})
