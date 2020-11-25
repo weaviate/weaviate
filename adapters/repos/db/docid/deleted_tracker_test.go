@@ -33,6 +33,9 @@ func Test_InMemDeletedTracker(t *testing.T) {
 		assert.True(t, tracker.Contains(25))
 		assert.True(t, tracker.Contains(26))
 		assert.False(t, tracker.Contains(27))
+
+		list := tracker.GetAll()
+		assert.ElementsMatch(t, []uint32{24, 25, 26}, list)
 	})
 
 	t.Run("removing an id", func(t *testing.T) {
@@ -45,5 +48,17 @@ func Test_InMemDeletedTracker(t *testing.T) {
 		assert.False(t, tracker.Contains(25))
 		assert.True(t, tracker.Contains(26))
 		assert.False(t, tracker.Contains(27))
+	})
+
+	t.Run("bulk removing ids", func(t *testing.T) {
+		tracker := NewInMemDeletedTracker()
+
+		tracker.BulkAdd([]uint32{25, 26, 27})
+		tracker.BulkRemove([]uint32{25, 26})
+
+		assert.False(t, tracker.Contains(24))
+		assert.False(t, tracker.Contains(25))
+		assert.False(t, tracker.Contains(26))
+		assert.True(t, tracker.Contains(27))
 	})
 }
