@@ -75,6 +75,7 @@ var (
 
 	// datatypes
 	dtInt            = schema.DataTypeInt
+	dtBool           = schema.DataTypeBoolean
 	dtNumber         = schema.DataTypeNumber
 	dtString         = schema.DataTypeString
 	dtText           = schema.DataTypeText

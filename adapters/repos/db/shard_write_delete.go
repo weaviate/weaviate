@@ -65,6 +65,10 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
 			return errors.Wrap(err, "delete object from bucket")
 		}
 
+		// in-mem
+		s.deletedDocIDs.Add(docID)
+
+		// on disk
 		err = docid.MarkDeletedInTx(tx, docID)
 		if err != nil {
 			return errors.Wrap(err, "delete docID->uuid lookup")
