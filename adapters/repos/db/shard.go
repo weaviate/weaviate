@@ -19,6 +19,7 @@ import (
 
 	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
+	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/indexcounter"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
@@ -41,6 +42,7 @@ type Shard struct {
 	invertedRowCache *inverted.RowCacher
 	metrics          *Metrics
 	propertyIndices  propertyspecific.Indices
+	deletedDocIDs    *docid.InMemDeletedTracker
 }
 
 func NewShard(shardName string, index *Index) (*Shard, error) {
@@ -49,6 +51,7 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 		name:             shardName,
 		invertedRowCache: inverted.NewRowCacher(50 * 1024 * 1024),
 		metrics:          NewMetrics(index.logger),
+		deletedDocIDs:    docid.NewInMemDeletedTracker(),
 	}
 
 	vi, err := hnsw.New(hnsw.Config{
@@ -85,6 +88,8 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 	if err := s.initPerPropertyIndices(); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
 	}
+
+	// TODO: init doc id deleted tracker with deleted ids from db
 
 	return s, nil
 }
