@@ -50,3 +50,7 @@ func (t *InMemDeletedTracker) Remove(id uint32) {
 
 	delete(t.ids, id)
 }
+
+// TODO add GetAll() // for cleanup
+
+// TODO add BulkRemove() // for when cleanup finished cleanup
