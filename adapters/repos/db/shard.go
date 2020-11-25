@@ -89,7 +89,7 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 		return nil, errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
 	}
 
-	// TODO: init doc id deleted tracker with deleted ids from db
+	// TODO: @Marcin init doc id deleted tracker with deleted ids from db
 
 	return s, nil
 }
