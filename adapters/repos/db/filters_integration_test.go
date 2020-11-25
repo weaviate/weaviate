@@ -72,6 +72,8 @@ var (
 	gt   = filters.OperatorGreaterThan
 	gte  = filters.OperatorGreaterThanEqual
 	wgr  = filters.OperatorWithinGeoRange
+	and  = filters.OperatorAnd
+	or   = filters.OperatorOr
 
 	// datatypes
 	dtInt            = schema.DataTypeInt
