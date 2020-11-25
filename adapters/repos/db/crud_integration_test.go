@@ -26,6 +26,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/multi"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
@@ -67,6 +68,10 @@ func TestCRUD(t *testing.T) {
 			&models.Property{
 				Name:     "stringProp",
 				DataType: []string{string(schema.DataTypeString)},
+			},
+			&models.Property{
+				Name:     "refProp",
+				DataType: []string{"TheBestThingClass"},
 			},
 		},
 	}
@@ -357,6 +362,16 @@ func TestCRUD(t *testing.T) {
 			Class:              "TheBestActionClass",
 			Schema: map[string]interface{}{
 				"stringProp": "some act-citing value",
+				"refProp": models.MultipleRef{
+					&models.SingleRef{
+						Classification: &models.ReferenceMetaClassification{
+							LosingDistance:  ptFloat64(0.7),
+							WinningDistance: 0.3,
+						},
+						Beacon: strfmt.URI(
+							crossref.New("localhost", thingID, kind.Thing).String()),
+					},
+				},
 			},
 			Meta: &models.UnderscoreProperties{
 				Classification: &models.UnderscorePropertiesClassification{
@@ -608,10 +623,18 @@ func TestCRUD(t *testing.T) {
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some act-citing value", schema["stringProp"], "has correct string prop")
 		assert.Equal(t, &models.UnderscoreProperties{}, item.UnderscoreProperties, "not meta information should be included unless explicitly asked for")
+		expectedRefProp := models.MultipleRef{
+			&models.SingleRef{
+				Beacon: strfmt.URI(
+					crossref.New("localhost", thingID, kind.Thing).String()),
+			},
+		}
+		assert.Equal(t, expectedRefProp, schema["refProp"])
 	})
 
 	t.Run("searching an action by ID with Classification and Vector underscore properties", func(t *testing.T) {
-		item, err := repo.ActionByID(context.Background(), actionID, traverser.SelectProperties{}, traverser.UnderscoreProperties{Classification: true, Vector: true})
+		item, err := repo.ActionByID(context.Background(), actionID, traverser.SelectProperties{},
+			traverser.UnderscoreProperties{Classification: true, Vector: true, RefMeta: true})
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
@@ -629,6 +652,18 @@ func TestCRUD(t *testing.T) {
 			},
 			Vector: []float32{3, 1, 0.3, 12},
 		}, item.UnderscoreProperties, "it should include the object meta as it was explicitly specified")
+
+		expectedRefProp := models.MultipleRef{
+			&models.SingleRef{
+				Classification: &models.ReferenceMetaClassification{
+					LosingDistance:  ptFloat64(0.7),
+					WinningDistance: 0.3,
+				},
+				Beacon: strfmt.URI(
+					crossref.New("localhost", thingID, kind.Thing).String()),
+			},
+		}
+		assert.Equal(t, expectedRefProp, schema["refProp"])
 	})
 
 	t.Run("searching an action by ID with only Vector underscore property", func(t *testing.T) {
@@ -839,5 +874,9 @@ func findID(list []search.Result, id strfmt.UUID) (search.Result, bool) {
 }
 
 func ptFloat32(in float32) *float32 {
+	return &in
+}
+
+func ptFloat64(in float64) *float64 {
 	return &in
 }

@@ -44,7 +44,11 @@ func (c *Classifier) classifyItemUsingKNN(item search.Result, itemIndex int, kin
 		item.Schema.(map[string]interface{})[agg.Property] = models.MultipleRef{
 			&models.SingleRef{
 				Beacon: agg.Beacon,
-				Meta: &models.ReferenceMeta{
+				Classification: &models.ReferenceMetaClassification{
+					WinningDistance: float64(agg.WinningDistance),
+					LosingDistance:  losingDistance,
+				},
+				Meta: &models.ReferenceMeta{ // deprecated TODO: remove for v1.0.0
 					Classification: &models.ReferenceMetaClassification{
 						WinningDistance: float64(agg.WinningDistance),
 						LosingDistance:  losingDistance,
