@@ -105,20 +105,6 @@ type NeighborRef struct {
 	Distances NeighborRefDistances
 }
 
-// NeighborRefDistances include various distances about the winning and losing
-// groups (knn)
-type NeighborRefDistances struct {
-	ClosestOverallDistance float32
-
-	// Winning
-	ClosestWinningDistance float32
-	MeanWinningDistance    float32
-
-	// Losing (optional)
-	MeanLosingDistance    *float32
-	ClosestLosingDistance *float32
-}
-
 type filters struct {
 	source      *libfilters.LocalFilter
 	target      *libfilters.LocalFilter

@@ -38,8 +38,11 @@ type ReferenceMetaClassification struct {
 	// size of the losing group, can be 0 if the winning group size euqals k
 	LosingCount int64 `json:"losingCount,omitempty"`
 
-	// Mean distance of all neighbors from the losing group. Optional. If k equals the size of the winning group, there is no losing group.
+	// deprecated - do not use, to be removed in 0.23.0
 	LosingDistance *float64 `json:"losingDistance,omitempty"`
+
+	// Mean distance of all neighbors from the losing group. Optional. If k equals the size of the winning group, there is no losing group.
+	MeanLosingDistance *float64 `json:"meanLosingDistance,omitempty"`
 
 	// Mean distance of all neighbors from the winning group
 	MeanWinningDistance float64 `json:"meanWinningDistance,omitempty"`
