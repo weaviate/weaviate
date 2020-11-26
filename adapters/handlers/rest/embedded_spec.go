@@ -3373,6 +3373,12 @@ func init() {
           "format": "int64"
         },
         "losingDistance": {
+          "description": "deprecated - do not use, to be removed in 0.23.0",
+          "type": "number",
+          "format": "float32",
+          "x-nullable": true
+        },
+        "meanLosingDistance": {
           "description": "Mean distance of all neighbors from the losing group. Optional. If k equals the size of the winning group, there is no losing group.",
           "type": "number",
           "format": "float32",
@@ -7330,6 +7336,12 @@ func init() {
           "format": "int64"
         },
         "losingDistance": {
+          "description": "deprecated - do not use, to be removed in 0.23.0",
+          "type": "number",
+          "format": "float32",
+          "x-nullable": true
+        },
+        "meanLosingDistance": {
           "description": "Mean distance of all neighbors from the losing group. Optional. If k equals the size of the winning group, there is no losing group.",
           "type": "number",
           "format": "float32",

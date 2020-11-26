@@ -801,7 +801,7 @@
           "format": "float32",
           "x-nullable": true
         },
-        "losingDistance": {
+        "meanLosingDistance": {
           "description": "Mean distance of all neighbors from the losing group. Optional. If k equals the size of the winning group, there is no losing group.",
           "type": "number",
           "format": "float32",
