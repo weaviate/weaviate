@@ -166,6 +166,10 @@ func (h *kindHandlers) getThing(params things.ThingsGetParams,
 		underscores.Vector = true
 	}
 
+	if derefBool(params.Meta) || underscores.Classification {
+		deprecations.Log(h.logger, "ref-meta-deprecated-fields")
+	}
+
 	thing, err := h.manager.GetThing(params.HTTPRequest.Context(), principal, params.ID, underscores)
 	if err != nil {
 		switch err.(type) {
@@ -202,6 +206,10 @@ func (h *kindHandlers) getAction(params actions.ActionsGetParams,
 		underscores.RefMeta = true
 		underscores.Vector = true
 	}
+	if derefBool(params.Meta) || underscores.Classification {
+		deprecations.Log(h.logger, "ref-meta-deprecated-fields")
+	}
+
 	action, err := h.manager.GetAction(params.HTTPRequest.Context(), principal, params.ID, underscores)
 	if err != nil {
 		switch err.(type) {
@@ -241,6 +249,12 @@ func (h *kindHandlers) getThings(params things.ThingsListParams,
 		underscores.Classification = true
 		underscores.RefMeta = true
 		underscores.Vector = true
+	}
+
+	if derefBool(params.Meta) || underscores.Classification {
+		deprecations.Log(h.logger, "ref-meta-deprecated-fields")
+		d := deprecations.ByID["ref-meta-deprecated-fields"]
+		deprecationsRes = append(deprecationsRes, &d)
 	}
 
 	list, err := h.manager.GetThings(params.HTTPRequest.Context(), principal, params.Limit, underscores)
@@ -288,6 +302,13 @@ func (h *kindHandlers) getActions(params actions.ActionsListParams,
 		underscores.RefMeta = true
 		underscores.Vector = true
 	}
+
+	if derefBool(params.Meta) || underscores.Classification {
+		deprecations.Log(h.logger, "ref-meta-deprecated-fields")
+		d := deprecations.ByID["ref-meta-deprecated-fields"]
+		deprecationsRes = append(deprecationsRes, &d)
+	}
+
 	list, err := h.manager.GetActions(params.HTTPRequest.Context(), principal, params.Limit, underscores)
 	if err != nil {
 		switch err.(type) {
