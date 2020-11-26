@@ -365,8 +365,16 @@ func TestCRUD(t *testing.T) {
 				"refProp": models.MultipleRef{
 					&models.SingleRef{
 						Classification: &models.ReferenceMetaClassification{
-							LosingDistance:  ptFloat64(0.7),
-							WinningDistance: 0.3,
+							LosingDistance:         ptFloat64(0.7),
+							MeanLosingDistance:     ptFloat64(0.7),
+							ClosestLosingDistance:  ptFloat64(0.65),
+							WinningDistance:        0.3,
+							MeanWinningDistance:    0.3,
+							ClosestWinningDistance: 0.25,
+							ClosestOverallDistance: 0.25,
+							OverallCount:           3,
+							WinningCount:           2,
+							LosingCount:            1,
 						},
 						Beacon: strfmt.URI(
 							crossref.New("localhost", thingID, kind.Thing).String()),
@@ -656,8 +664,16 @@ func TestCRUD(t *testing.T) {
 		expectedRefProp := models.MultipleRef{
 			&models.SingleRef{
 				Classification: &models.ReferenceMetaClassification{
-					LosingDistance:  ptFloat64(0.7),
-					WinningDistance: 0.3,
+					LosingDistance:         ptFloat64(0.7),
+					MeanLosingDistance:     ptFloat64(0.7),
+					ClosestLosingDistance:  ptFloat64(0.65),
+					WinningDistance:        0.3,
+					MeanWinningDistance:    0.3,
+					ClosestWinningDistance: 0.25,
+					ClosestOverallDistance: 0.25,
+					OverallCount:           3,
+					WinningCount:           2,
+					LosingCount:            1,
 				},
 				Beacon: strfmt.URI(
 					crossref.New("localhost", thingID, kind.Thing).String()),
