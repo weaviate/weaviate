@@ -89,7 +89,8 @@ type vectorRepo interface {
 	PutAction(ctx context.Context, action *models.Action, vector []float32) error
 }
 
-// NeighborRef is the result of an aggregation of the ref properties of k neighbors
+// NeighborRef is the result of an aggregation of the ref properties of k
+// neighbors
 type NeighborRef struct {
 	// Property indicates which property was aggregated
 	Property string
@@ -97,11 +98,25 @@ type NeighborRef struct {
 	// The beacon of the most common (kNN) reference
 	Beacon strfmt.URI
 
-	// Count (n<=k) of number of the winning Beacon
-	Count int
+	OverallCount int
+	WinningCount int
+	LosingCount  int
 
-	WinningDistance float32
-	LosingDistance  *float32
+	Distances NeighborRefDistances
+}
+
+// NeighborRefDistances include various distances about the winning and losing
+// groups (knn)
+type NeighborRefDistances struct {
+	ClosestOverallDistance float32
+
+	// Winning
+	ClosestWinningDistance float32
+	MeanWinningDistance    float32
+
+	// Losing (optional)
+	MeanLosingDistance    *float32
+	ClosestLosingDistance *float32
 }
 
 type filters struct {

@@ -37,20 +37,20 @@ func (c *Classifier) classifyItemUsingKNN(item search.Result, itemIndex int, kin
 
 	for _, agg := range res {
 		var losingDistance *float64
-		if agg.LosingDistance != nil {
-			d := float64(*agg.LosingDistance)
+		if agg.Distances.MeanLosingDistance != nil {
+			d := float64(*agg.Distances.MeanLosingDistance)
 			losingDistance = &d
 		}
 		item.Schema.(map[string]interface{})[agg.Property] = models.MultipleRef{
 			&models.SingleRef{
 				Beacon: agg.Beacon,
 				Classification: &models.ReferenceMetaClassification{
-					WinningDistance: float64(agg.WinningDistance),
+					WinningDistance: float64(agg.Distances.MeanWinningDistance),
 					LosingDistance:  losingDistance,
 				},
 				Meta: &models.ReferenceMeta{ // deprecated TODO: remove for v1.0.0
 					Classification: &models.ReferenceMetaClassification{
-						WinningDistance: float64(agg.WinningDistance),
+						WinningDistance: float64(agg.Distances.MeanWinningDistance),
 						LosingDistance:  losingDistance,
 					},
 				},

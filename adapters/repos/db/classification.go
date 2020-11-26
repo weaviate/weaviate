@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"math"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -136,29 +137,34 @@ func (a *KnnAggregator) aggregateBeacons(props neighborProps) ([]classification.
 	for propName, prop := range props {
 		var winningBeacon string
 		var winningCount int
+		var totalCount int
 
 		for beacon, distances := range prop.beacons {
+			totalCount += len(distances)
 			if len(distances) > winningCount {
 				winningBeacon = beacon
 				winningCount = len(distances)
 			}
 		}
 
-		winning, losing := a.calculateWinningAndLoosingDistances(prop.beacons, winningBeacon)
-
+		distances := a.distances(prop.beacons, winningBeacon)
 		out = append(out, classification.NeighborRef{
-			Beacon:          strfmt.URI(winningBeacon),
-			Count:           winningCount,
-			Property:        propName,
-			WinningDistance: winning,
-			LosingDistance:  losing,
+			Beacon:       strfmt.URI(winningBeacon),
+			WinningCount: winningCount,
+			OverallCount: totalCount,
+			LosingCount:  totalCount - winningCount,
+			Property:     propName,
+			Distances:    distances,
 		})
 	}
 
 	return out, nil
 }
 
-func (a *KnnAggregator) calculateWinningAndLoosingDistances(beacons neighborBeacons, winner string) (float32, *float32) {
+func (a *KnnAggregator) distances(beacons neighborBeacons,
+	winner string) classification.NeighborRefDistances {
+	out := classification.NeighborRefDistances{}
+
 	var winningDistances []float32
 	var losingDistances []float32
 
@@ -170,13 +176,19 @@ func (a *KnnAggregator) calculateWinningAndLoosingDistances(beacons neighborBeac
 		}
 	}
 
-	var losingDistance *float32
 	if len(losingDistances) > 0 {
-		d := mean(losingDistances)
-		losingDistance = &d
+		mean := mean(losingDistances)
+		out.MeanLosingDistance = &mean
+
+		closest := min(losingDistances)
+		out.ClosestLosingDistance = &closest
 	}
 
-	return mean(winningDistances), losingDistance
+	out.ClosestOverallDistance = min(append(winningDistances, losingDistances...))
+	out.ClosestWinningDistance = min(winningDistances)
+	out.MeanWinningDistance = mean(winningDistances)
+
+	return out
 }
 
 type neighborProps map[string]neighborProp
@@ -234,4 +246,15 @@ func mean(in []float32) float32 {
 	}
 
 	return sum / float32(len(in))
+}
+
+func min(in []float32) float32 {
+	min := float32(math.MaxFloat32)
+	for _, dist := range in {
+		if dist < min {
+			min = dist
+		}
+	}
+
+	return min
 }
