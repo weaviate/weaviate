@@ -26,10 +26,34 @@ import (
 // swagger:model ReferenceMetaClassification
 type ReferenceMetaClassification struct {
 
-	// Mean distance of all neighbors from the losing group. Optional. If k equals the size of the winning group, there is no losing group.
+	// The lowest distance of a neighbor in the losing group. Optional. If k equals the size of the winning group, there is no losing group
+	ClosestLosingDistance *float64 `json:"closestLosingDistance,omitempty"`
+
+	// The lowest distance of any neighbor, regardless of whether they were in the winning or losing group
+	ClosestOverallDistance float64 `json:"closestOverallDistance,omitempty"`
+
+	// Closest distance of a neighbor from the winning group
+	ClosestWinningDistance float64 `json:"closestWinningDistance,omitempty"`
+
+	// size of the losing group, can be 0 if the winning group size euqals k
+	LosingCount int64 `json:"losingCount,omitempty"`
+
+	// deprecated - do not use, to be removed in 0.23.0
 	LosingDistance *float64 `json:"losingDistance,omitempty"`
 
+	// Mean distance of all neighbors from the losing group. Optional. If k equals the size of the winning group, there is no losing group.
+	MeanLosingDistance *float64 `json:"meanLosingDistance,omitempty"`
+
 	// Mean distance of all neighbors from the winning group
+	MeanWinningDistance float64 `json:"meanWinningDistance,omitempty"`
+
+	// overall neighbors checked as part of the classification. In most cases this will equal k, but could be lower than k - for example if not enough data was present
+	OverallCount int64 `json:"overallCount,omitempty"`
+
+	// size of the winning group, a number between 1..k
+	WinningCount int64 `json:"winningCount,omitempty"`
+
+	// deprecated - do not use, to be removed in 0.23.0
 	WinningDistance float64 `json:"winningDistance,omitempty"`
 }
 
