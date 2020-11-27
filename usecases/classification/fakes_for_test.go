@@ -141,9 +141,11 @@ func (f *fakeVectorRepoKNN) AggregateNeighbors(ctx context.Context, vector []flo
 		}
 
 		out = append(out, NeighborRef{
-			Beacon:   refs[0].Beacon,
-			Count:    1,
-			Property: propName,
+			Beacon:       refs[0].Beacon,
+			WinningCount: 1,
+			OverallCount: 1,
+			LosingCount:  1,
+			Property:     propName,
 		})
 	}
 
