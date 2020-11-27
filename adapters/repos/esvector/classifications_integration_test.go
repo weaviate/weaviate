@@ -104,17 +104,29 @@ func TestClassifications(t *testing.T) {
 				[]string{"exactCategory", "mainCategory"}, 1, nil)
 
 			expectedRes := []classification.NeighborRef{
-				classification.NeighborRef{
-					Beacon:          strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", idCategoryPolitics)),
-					Property:        "exactCategory",
-					Count:           1,
-					WinningDistance: 0.00010201335,
+				{
+					Beacon:       strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", idCategoryPolitics)),
+					Property:     "exactCategory",
+					OverallCount: 1,
+					WinningCount: 1,
+					LosingCount:  0,
+					Distances: classification.NeighborRefDistances{
+						MeanWinningDistance:    0.00010201335,
+						ClosestWinningDistance: 0.00010201335,
+						ClosestOverallDistance: 0.00010201335,
+					},
 				},
-				classification.NeighborRef{
-					Beacon:          strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", idMainCategoryPoliticsAndSociety)),
-					Property:        "mainCategory",
-					Count:           1,
-					WinningDistance: 0.00010201335,
+				{
+					Beacon:       strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", idMainCategoryPoliticsAndSociety)),
+					Property:     "mainCategory",
+					OverallCount: 1,
+					WinningCount: 1,
+					LosingCount:  0,
+					Distances: classification.NeighborRefDistances{
+						MeanWinningDistance:    0.00010201335,
+						ClosestWinningDistance: 0.00010201335,
+						ClosestOverallDistance: 0.00010201335,
+					},
 				},
 			}
 
@@ -128,17 +140,29 @@ func TestClassifications(t *testing.T) {
 				[]string{"exactCategory", "mainCategory"}, 1, nil)
 
 			expectedRes := []classification.NeighborRef{
-				classification.NeighborRef{
-					Beacon:          strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", idCategoryFoodAndDrink)),
-					Property:        "exactCategory",
-					Count:           1,
-					WinningDistance: 0.00011473894,
+				{
+					Beacon:       strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", idCategoryFoodAndDrink)),
+					Property:     "exactCategory",
+					OverallCount: 1,
+					WinningCount: 1,
+					LosingCount:  0,
+					Distances: classification.NeighborRefDistances{
+						MeanWinningDistance:    0.00011473894,
+						ClosestWinningDistance: 0.00011473894,
+						ClosestOverallDistance: 0.00011473894,
+					},
 				},
-				classification.NeighborRef{
-					Beacon:          strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", idMainCategoryFoodAndDrink)),
-					Property:        "mainCategory",
-					Count:           1,
-					WinningDistance: 0.00011473894,
+				{
+					Beacon:       strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", idMainCategoryFoodAndDrink)),
+					Property:     "mainCategory",
+					OverallCount: 1,
+					WinningCount: 1,
+					LosingCount:  0,
+					Distances: classification.NeighborRefDistances{
+						MeanWinningDistance:    0.00011473894,
+						ClosestWinningDistance: 0.00011473894,
+						ClosestOverallDistance: 0.00011473894,
+					},
 				},
 			}
 
@@ -163,17 +187,29 @@ func TestClassifications(t *testing.T) {
 				[]string{"exactCategory", "mainCategory"}, 1, filter)
 
 			expectedRes := []classification.NeighborRef{
-				classification.NeighborRef{
-					Beacon:          strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", idCategoryPolitics)),
-					Property:        "exactCategory",
-					Count:           1,
-					WinningDistance: 0.49242598,
+				{
+					Beacon:       strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", idCategoryPolitics)),
+					Property:     "exactCategory",
+					OverallCount: 1,
+					WinningCount: 1,
+					LosingCount:  0,
+					Distances: classification.NeighborRefDistances{
+						MeanWinningDistance:    0.49242598,
+						ClosestWinningDistance: 0.49242598,
+						ClosestOverallDistance: 0.49242598,
+					},
 				},
-				classification.NeighborRef{
-					Beacon:          strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", idMainCategoryPoliticsAndSociety)),
-					Property:        "mainCategory",
-					Count:           1,
-					WinningDistance: 0.49242598,
+				{
+					Beacon:       strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", idMainCategoryPoliticsAndSociety)),
+					Property:     "mainCategory",
+					OverallCount: 1,
+					WinningCount: 1,
+					LosingCount:  0,
+					Distances: classification.NeighborRefDistances{
+						MeanWinningDistance:    0.49242598,
+						ClosestWinningDistance: 0.49242598,
+						ClosestOverallDistance: 0.49242598,
+					},
 				},
 			}
 

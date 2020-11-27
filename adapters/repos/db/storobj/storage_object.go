@@ -172,6 +172,37 @@ func (ko *Object) Schema() models.PropertySchema {
 	}
 }
 
+func (ko *Object) SchemaWithUnderscores(
+	underscores traverser.UnderscoreProperties) models.PropertySchema {
+	schema := ko.Schema()
+
+	if underscores.RefMeta {
+		// nothing to remove
+		return schema
+	}
+
+	asMap, ok := schema.(map[string]interface{})
+	if !ok || asMap == nil {
+		return schema
+	}
+
+	for propName, value := range asMap {
+		asRefs, ok := value.(models.MultipleRef)
+		if !ok {
+			// not a ref, we can skip
+			continue
+		}
+
+		for i := range asRefs {
+			asRefs[i].Classification = nil
+		}
+
+		asMap[propName] = asRefs
+	}
+
+	return asMap
+}
+
 func (ko *Object) SetSchema(schema models.PropertySchema) {
 	switch ko.Kind {
 	case kind.Thing:
@@ -195,7 +226,7 @@ func (ko *Object) VectorWeights() models.VectorWeights {
 }
 
 func (ko *Object) SearchResult(underscore traverser.UnderscoreProperties) *search.Result {
-	schemaMap, ok := ko.Schema().(map[string]interface{})
+	schemaMap, ok := ko.SchemaWithUnderscores(underscore).(map[string]interface{})
 	if !ok || schemaMap == nil {
 		schemaMap = map[string]interface{}{}
 	}
@@ -453,7 +484,6 @@ func (ko *Object) parseKind(uuid strfmt.UUID, create, update int64, className st
 		return err
 	}
 
-	// TODO: include all underscore props
 	if ko.Kind == kind.Thing {
 		ko.Thing = models.Thing{
 			Class:              className,

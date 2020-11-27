@@ -48,10 +48,8 @@ const (
 	keyUpdated   internalKey = "_updated"
 
 	// meta in references
-	keyMeta                              internalKey = "meta"
-	keyMetaClassification                internalKey = "classification"
-	keyMetaClassificationWinningDistance internalKey = "winningDistance"
-	keyMetaClassificationLosingDistance  internalKey = "losingDistance"
+	keyMeta               internalKey = "meta"
+	keyMetaClassification internalKey = "classification"
 
 	// object meta
 	keyUnderscoreProperties internalKey = "_meta"
