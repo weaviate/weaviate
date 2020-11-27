@@ -42,6 +42,7 @@ func Test_Classifications(t *testing.T) {
 
 	// tests
 	t.Run("contextual classification", contextualClassification)
+	t.Run("knn classification", knnClassification)
 
 	// tear down
 	deleteThingClass(t, "Article")
