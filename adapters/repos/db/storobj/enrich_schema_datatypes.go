@@ -194,9 +194,92 @@ func parseCrossRef(value []interface{}) (models.MultipleRef, error) {
 
 		parsed[i] = &models.SingleRef{
 			Beacon: strfmt.URI(beaconStr),
-			// TODO: gh-1150 support underscore RefMeta
+		}
+
+		c, ok := asMap["_classification"]
+		if ok {
+			classification, err := parseRefClassificationMeta(c)
+			if err != nil {
+				return nil, errors.Wrap(err, "crossref: parse classifiation meta")
+			}
+
+			parsed[i].Classification = classification
 		}
 	}
 
 	return parsed, nil
+}
+
+func parseRefClassificationMeta(in interface{}) (*models.ReferenceMetaClassification, error) {
+	out := &models.ReferenceMetaClassification{}
+	asMap, ok := in.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("expected _classfication to be map - got %T", in)
+	}
+
+	if cod, err := extractFloat64(asMap, "closestOverallDistance"); err != nil {
+		return nil, err
+	} else {
+		out.ClosestOverallDistance = cod
+	}
+
+	if mwd, err := extractFloat64(asMap, "meanWinningDistance"); err != nil {
+		return nil, err
+	} else {
+		out.WinningDistance = mwd // deprecated remove in 0.23.0
+		out.MeanWinningDistance = mwd
+	}
+
+	if cwd, err := extractFloat64(asMap, "closestWinningDistance"); err != nil {
+		return nil, err
+	} else {
+		out.ClosestWinningDistance = cwd
+	}
+
+	if mcd, err := extractFloat64(asMap, "meanLosingDistance"); err != nil {
+		return nil, err
+	} else {
+		out.LosingDistance = &mcd // deprecated remove in 0.23.0
+		out.MeanLosingDistance = &mcd
+	}
+
+	if ccd, err := extractFloat64(asMap, "closestLosingDistance"); err != nil {
+		return nil, err
+	} else {
+		out.ClosestLosingDistance = &ccd
+	}
+
+	if oc, err := extractFloat64(asMap, "overallCount"); err != nil {
+		return nil, err
+	} else {
+		out.OverallCount = int64(oc)
+	}
+
+	if wc, err := extractFloat64(asMap, "winningCount"); err != nil {
+		return nil, err
+	} else {
+		out.WinningCount = int64(wc)
+	}
+
+	if lc, err := extractFloat64(asMap, "losingCount"); err != nil {
+		return nil, err
+	} else {
+		out.LosingCount = int64(lc)
+	}
+
+	return out, nil
+}
+
+func extractFloat64(source map[string]interface{}, key string) (float64, error) {
+	value, ok := source[key]
+	if !ok {
+		return 0, nil
+	}
+
+	asFloat, ok := value.(float64)
+	if !ok {
+		return 0, fmt.Errorf("expected %s to be float64 - got %T", key, value)
+	}
+
+	return asFloat, nil
 }

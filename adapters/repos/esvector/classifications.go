@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 
 	"github.com/elastic/go-elasticsearch/v5/esapi"
 	"github.com/go-openapi/strfmt"
@@ -256,22 +257,24 @@ func aggregateRefNeighbors(props map[string]map[string][]float32) ([]classificat
 	for prop, beacons := range props {
 		var winningBeacon string
 		var winningCount int
+		var totalCount int
 
 		for beacon, distances := range beacons {
+			totalCount += len(distances)
 			if len(distances) > winningCount {
 				winningBeacon = beacon
 				winningCount = len(distances)
 			}
 		}
 
-		winning, losing := extractWinningAndLoosingDistances(beacons, winningBeacon)
-
+		distances := distances(beacons, winningBeacon)
 		out = append(out, classification.NeighborRef{
-			Beacon:          strfmt.URI(winningBeacon),
-			Count:           winningCount,
-			Property:        prop,
-			WinningDistance: winning,
-			LosingDistance:  losing,
+			Beacon:       strfmt.URI(winningBeacon),
+			WinningCount: winningCount,
+			OverallCount: totalCount,
+			LosingCount:  totalCount - winningCount,
+			Property:     prop,
+			Distances:    distances,
 		})
 	}
 
@@ -352,7 +355,9 @@ func extractBeaconFromProp(prop interface{}) (string, error) {
 	return beacon.(string), nil
 }
 
-func extractWinningAndLoosingDistances(beacons map[string][]float32, winner string) (float32, *float32) {
+func distances(beacons map[string][]float32,
+	winner string) classification.NeighborRefDistances {
+	out := classification.NeighborRefDistances{}
 	var winningDistances []float32
 	var losingDistances []float32
 
@@ -364,13 +369,19 @@ func extractWinningAndLoosingDistances(beacons map[string][]float32, winner stri
 		}
 	}
 
-	var losingDistance *float32
 	if len(losingDistances) > 0 {
-		d := mean(losingDistances)
-		losingDistance = &d
+		mean := mean(losingDistances)
+		out.MeanLosingDistance = &mean
+
+		closest := min(losingDistances)
+		out.ClosestLosingDistance = &closest
 	}
 
-	return mean(winningDistances), losingDistance
+	out.ClosestOverallDistance = min(append(winningDistances, losingDistances...))
+	out.ClosestWinningDistance = min(winningDistances)
+	out.MeanWinningDistance = mean(winningDistances)
+
+	return out
 }
 
 func mean(in []float32) float32 {
@@ -380,4 +391,15 @@ func mean(in []float32) float32 {
 	}
 
 	return sum / float32(len(in))
+}
+
+func min(in []float32) float32 {
+	min := float32(math.MaxFloat32)
+	for _, dist := range in {
+		if dist < min {
+			min = dist
+		}
+	}
+
+	return min
 }

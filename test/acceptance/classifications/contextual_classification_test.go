@@ -45,7 +45,7 @@ func contextualClassification(t *testing.T) {
 
 		require.Nil(t, err)
 		return res.Payload.Status
-	}, 300*time.Millisecond, 15*time.Second)
+	}, 100*time.Millisecond, 15*time.Second)
 
 	// wait for latest changes to be indexed / wait for consistency
 	testhelper.AssertEventuallyEqual(t, true, func() interface{} {
