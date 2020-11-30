@@ -29,7 +29,13 @@ import (
 )
 
 type hnsw struct {
+	// global lock to prevent concurrent map read/write, etc.
 	sync.RWMutex
+
+	// certain operations related to deleting, such as finding a new entrypoint
+	// can only run sequentially, this separate lock helps assuring this without
+	// blocking the general usage of the hnsw index
+	deleteLock *sync.Mutex
 
 	// Each node should not have more edges than this number
 	maximumConnections int
@@ -133,6 +139,7 @@ func New(cfg Config) (*hnsw, error) {
 		logger:            cfg.Logger,
 		distancerProvider: cfg.DistanceProvider,
 		cancel:            make(chan struct{}),
+		deleteLock:        &sync.Mutex{},
 	}
 
 	if err := index.restoreFromDisk(); err != nil {
