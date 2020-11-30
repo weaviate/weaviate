@@ -22,6 +22,9 @@ import (
 // Delete attaches a tombstone to an item so it can be periodically cleaned up
 // later and the edges reassigned
 func (h *hnsw) Delete(id int) error {
+	h.deleteLock.Lock()
+	defer h.deleteLock.Unlock()
+
 	h.addTombstone(id)
 
 	// Adding a tombstone might not be enough in some cases, if the tombstoned
@@ -43,7 +46,7 @@ func (h *hnsw) Delete(id int) error {
 		return nil
 	}
 
-	if h.entryPointID == id {
+	if h.getEntrypoint() == id {
 		if h.isOnlyNode(node, denyList) {
 			h.reset()
 		} else {
@@ -77,6 +80,13 @@ func (h *hnsw) tombstonesAsDenyList() helpers.AllowList {
 	return deleteList
 }
 
+func (h *hnsw) getEntrypoint() int {
+	h.RLock()
+	defer h.RUnlock()
+
+	return h.entryPointID
+}
+
 // CleanUpTombstonedNodes removes nodes with a tombstone and reassignes edges
 // that were previously pointing to the tombstoned nodes
 func (h *hnsw) CleanUpTombstonedNodes() error {
@@ -105,7 +115,7 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 	}
 
 	for id := range tombstones {
-		if h.entryPointID == id {
+		if h.getEntrypoint() == id {
 			// this a special case because:
 			//
 			// 1. we need to find a new entrypoint, if this is the last point on this
@@ -200,7 +210,8 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList) error {
 
 			tmpDenyList := deleteList.DeepCopy()
 			tmpDenyList.Insert(uint32(entryPointID))
-			alternative, _ := h.findNewEntrypoint(tmpDenyList, h.currentMaximumLayer)
+			alternative, _, _ := h.findNewEntrypoint(tmpDenyList, h.currentMaximumLayer,
+				entryPointID)
 			entryPointID = alternative
 		}
 
@@ -243,9 +254,13 @@ func (h *hnsw) deleteEntrypoint(node *vertex, denyList helpers.AllowList) error 
 
 	node.Lock()
 	level := node.level
+	id := node.id
 	node.Unlock()
 
-	newEntrypoint, level := h.findNewEntrypoint(denyList, level)
+	newEntrypoint, level, ok := h.findNewEntrypoint(denyList, level, id)
+	if !ok {
+		return nil
+	}
 
 	h.Lock()
 	h.entryPointID = newEntrypoint
@@ -257,7 +272,14 @@ func (h *hnsw) deleteEntrypoint(node *vertex, denyList helpers.AllowList) error 
 }
 
 // returns entryPointID, level
-func (h *hnsw) findNewEntrypoint(denyList helpers.AllowList, targetLevel int) (int, int) {
+func (h *hnsw) findNewEntrypoint(denyList helpers.AllowList, targetLevel int,
+	oldEntrypoint int) (int, int, bool) {
+	if h.getEntrypoint() != oldEntrypoint {
+		// entrypoint has already been changed (this could be due to a new import
+		// for example, nothing to do for us
+		return 0, 0, false
+	}
+
 	for l := targetLevel; l >= 0; l-- {
 		// ideally we can find a new entrypoint at the same level of the
 		// to-be-deleted node. However, there is a chance it was the only node on
@@ -269,6 +291,12 @@ func (h *hnsw) findNewEntrypoint(denyList helpers.AllowList, targetLevel int) (i
 		h.RUnlock()
 
 		for i := 0; i < maxNodes; i++ {
+			if h.getEntrypoint() != oldEntrypoint {
+				// entrypoint has already been changed (this could be due to a new import
+				// for example, nothing to do for us
+				return 0, 0, false
+			}
+
 			if denyList.Contains(uint32(i)) {
 				continue
 			}
@@ -290,13 +318,13 @@ func (h *hnsw) findNewEntrypoint(denyList helpers.AllowList, targetLevel int) (i
 			}
 
 			// we have a node that matches
-			return i, l
+			return i, l, true
 		}
 	}
 
 	// we made it thorugh the entire graph and didn't find a new entrypoint all
 	// the way down to level 0. This can only mean the graph is empty, which is
-	// unexpected.
+	// unexpected. This situation should have been prevented by the deleteLock.
 	panic("findNewEntrypoint called on an empty hnsw graph")
 }
 
