@@ -67,7 +67,8 @@ func (c *Cleaner) cleanupProperty(tx *bolt.Tx, p *models.Property) error {
 	return nil
 }
 
-func (c *Cleaner) deleteDocument(tx *bolt.Tx, documentID uint32) bool {
+// docID
+func (c *Cleaner) deleteDocID(tx *bolt.Tx, documentID uint32) bool {
 	key := c.getDocumentKey(documentID)
 	docsBucket := tx.Bucket(helpers.DocIDBucket)
 	if docsBucket == nil {
@@ -90,7 +91,7 @@ func (c *Cleaner) Cleanup() ([]uint32, error) {
 		}
 		for _, documentID := range c.deletedDocIDs {
 			// delete document
-			if c.deleteDocument(tx, documentID) {
+			if c.deleteDocID(tx, documentID) {
 				performedDeletion = append(performedDeletion, documentID)
 			}
 		}

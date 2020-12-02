@@ -66,7 +66,6 @@ func NewIndex(config IndexConfig, sg schemaUC.SchemaGetter,
 	}
 
 	index.Shards["single"] = singleShard
-
 	return index, nil
 }
 
