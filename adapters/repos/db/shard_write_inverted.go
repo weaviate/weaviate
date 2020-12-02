@@ -82,27 +82,50 @@ func (s *Shard) extendInvertedIndices(tx *bolt.Tx, props []inverted.Property,
 	return nil
 }
 
-func (s *Shard) deleteFromInvertedIndices(tx *bolt.Tx, props []inverted.Property,
-	docID uint32) error {
-	for _, prop := range props {
-		b := tx.Bucket(helpers.BucketFromPropName(prop.Name))
-		if b == nil {
-			return fmt.Errorf("no bucket for prop '%s' found", prop.Name)
-		}
+func (s *Shard) sliceToMap(in []uint32) map[uint32]struct{} {
+	out := map[uint32]struct{}{}
+	for i := range in {
+		out[in[i]] = struct{}{}
+	}
+	return out
+}
 
-		for _, item := range prop.Items {
-			err := s.deleteFromInvertedIndicesProp(b, item, docID, prop.HasFrequency)
-			if err != nil {
-				return errors.Wrapf(err, "clean up prop %q", prop.Name)
+func (s *Shard) tryDeleteFromInvertedIndicesProp(b *bolt.Bucket,
+	item inverted.Countable, docIDs []uint32, hasFrequency bool) error {
+	data := b.Get(item.Data)
+	if len(data) == 0 {
+		// we want to delete from an empty row. Nothing to do
+		return nil
+	}
+	deletedDocIDs := s.sliceToMap(docIDs)
+
+	performDelete := false
+	if len(data) > 11 {
+		propDocIDs := data[8:]
+		divider := 4
+		if hasFrequency {
+			divider = 8
+		}
+		numberOfPropDocIDs := len(propDocIDs) / divider
+		for i := 0; i < numberOfPropDocIDs; i++ {
+			indx := i * divider
+			propDocID := binary.LittleEndian.Uint32(propDocIDs[indx : indx+4])
+			if _, foundDeleted := deletedDocIDs[propDocID]; foundDeleted {
+				performDelete = true
+				break
 			}
 		}
+	}
+
+	if performDelete {
+		return s.deleteFromInvertedIndicesProp(b, item, deletedDocIDs, hasFrequency)
 	}
 
 	return nil
 }
 
 func (s *Shard) deleteFromInvertedIndicesProp(b *bolt.Bucket,
-	item inverted.Countable, docID uint32, hasFrequency bool) error {
+	item inverted.Countable, docIDs map[uint32]struct{}, hasFrequency bool) error {
 	data := b.Get(item.Data)
 	if len(data) == 0 {
 		// we want to delete from an empty row. Nothing to do
@@ -142,13 +165,14 @@ func (s *Shard) deleteFromInvertedIndicesProp(b *bolt.Bucket,
 			}
 		}
 
-		newDocCount++
-		if nextDocID == docID {
+		_, isDeleted := docIDs[nextDocID]
+		if isDeleted {
 			// we have found the one we want to delete, i.e. not copy into the
 			// updated list
 			continue
 		}
 
+		newDocCount++
 		if _, err := newRow.Write(nextDocIDBytes); err != nil {
 			return errors.Wrap(err, "write doc")
 		}
