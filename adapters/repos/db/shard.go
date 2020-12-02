@@ -96,6 +96,8 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 		return nil, errors.Wrapf(err, "init shard %q: find deleted documents", s.ID())
 	}
 
+	s.startPeriodicCleanup()
+
 	return s, nil
 }
 
@@ -210,6 +212,7 @@ func (s *Shard) findDeletedDocs() error {
 				return errors.Wrap(err, "lookup from binary")
 			}
 			if lookup.Deleted {
+				// TODO: gh-1282
 				s.deletedDocIDs.Add(binary.LittleEndian.Uint32(documentID[4:]))
 			}
 			return nil
@@ -227,10 +230,10 @@ func (s *Shard) findDeletedDocs() error {
 	return nil
 }
 
-func (s *Shard) startPeriodicCleanup() error {
+func (s *Shard) startPeriodicCleanup() {
 	t := time.Tick(s.cleanupInterval)
 	batchCleanupInterval := 5 * time.Second
-	batchSize := 10
+	batchSize := 100
 	go func(batchSize int, batchCleanupInterval time.Duration) {
 		for {
 			<-t
@@ -240,6 +243,4 @@ func (s *Shard) startPeriodicCleanup() error {
 			}
 		}
 	}(batchSize, batchCleanupInterval)
-
-	return nil
 }

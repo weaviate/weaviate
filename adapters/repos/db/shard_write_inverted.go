@@ -82,6 +82,14 @@ func (s *Shard) extendInvertedIndices(tx *bolt.Tx, props []inverted.Property,
 	return nil
 }
 
+func (s *Shard) sliceToMap(in []uint32) map[uint32]struct{} {
+	out := map[uint32]struct{}{}
+	for i := range in {
+		out[in[i]] = struct{}{}
+	}
+	return out
+}
+
 func (s *Shard) tryDeleteFromInvertedIndicesProp(b *bolt.Bucket,
 	item inverted.Countable, docIDs []uint32, hasFrequency bool) error {
 	data := b.Get(item.Data)
@@ -89,11 +97,7 @@ func (s *Shard) tryDeleteFromInvertedIndicesProp(b *bolt.Bucket,
 		// we want to delete from an empty row. Nothing to do
 		return nil
 	}
-
-	deletedDocIDs := map[uint32]struct{}{}
-	for _, id := range docIDs {
-		deletedDocIDs[id] = struct{}{}
-	}
+	deletedDocIDs := s.sliceToMap(docIDs)
 
 	performDelete := false
 	if len(data) > 11 {
@@ -106,8 +110,7 @@ func (s *Shard) tryDeleteFromInvertedIndicesProp(b *bolt.Bucket,
 		for i := 0; i < numberOfPropDocIDs; i++ {
 			indx := i * divider
 			propDocID := binary.LittleEndian.Uint32(propDocIDs[indx : indx+4])
-			_, foundDeleted := deletedDocIDs[propDocID]
-			if foundDeleted {
+			if _, foundDeleted := deletedDocIDs[propDocID]; foundDeleted {
 				performDelete = true
 				break
 			}

@@ -67,11 +67,6 @@ func NewIndex(config IndexConfig, sg schemaUC.SchemaGetter,
 
 	index.Shards["single"] = singleShard
 
-	err = index.startPeriodicCleanup()
-	if err != nil {
-		return nil, errors.Wrapf(err, "start periodic index %s cleanup", index.ID())
-	}
-
 	return index, nil
 }
 
@@ -251,15 +246,6 @@ func (i *Index) drop() error {
 	err := shard.drop()
 	if err != nil {
 		return errors.Wrapf(err, "delete shard %s", shard.ID())
-	}
-	return nil
-}
-
-func (i *Index) startPeriodicCleanup() error {
-	shard := i.Shards["single"]
-	err := shard.startPeriodicCleanup()
-	if err != nil {
-		return errors.Wrapf(err, "shard periodic cleanup %s", shard.ID())
 	}
 	return nil
 }

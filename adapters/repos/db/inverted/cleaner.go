@@ -44,7 +44,7 @@ func (c *Cleaner) getDocumentKey(documentID uint32) []byte {
 
 func (c *Cleaner) propHasFrequency(p *models.Property) bool {
 	for i := range p.DataType {
-		if schema.DataType(p.DataType[i]) == schema.DataTypeString || schema.DataType(p.DataType[i]) == schema.DataTypeText {
+		if dt := schema.DataType(p.DataType[i]); dt == schema.DataTypeString || dt == schema.DataTypeText {
 			return true
 		}
 	}
@@ -74,10 +74,7 @@ func (c *Cleaner) deleteDocument(tx *bolt.Tx, documentID uint32) bool {
 		return false
 	}
 	err := docsBucket.Delete(key)
-	if err != nil {
-		return false
-	}
-	return true
+	return err == nil
 }
 
 // Cleanup cleans up properties for given documents
