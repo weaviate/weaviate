@@ -17,6 +17,7 @@ import (
 	"github.com/rs/cors"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/swagger_middleware"
+	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/sirupsen/logrus"
 )
 
@@ -52,15 +53,16 @@ func addHandleRoot(next http.Handler) http.Handler {
 }
 
 func addModuleHandlers(next http.Handler) http.Handler {
-	httpObject := newModuleHTTPObject()
+	httpObject := modules.NewModuleHTTPObject()
 
-	// hard-code the one module we have
-	registeredModules["hello-world"].RegisterHandlers(httpObject)
+	for _, mod := range modules.GetAll() {
+		mod.RegisterHandlers(httpObject)
+	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		needle := "/v1/modules/"
 		if url := r.URL.String(); len(url) > len(needle) && url[:len(needle)] == needle {
-			h, ok := httpObject.handlers[url]
+			h, ok := httpObject.Handlers[url]
 			if !ok {
 				next.ServeHTTP(w, r)
 				return

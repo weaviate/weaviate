@@ -33,9 +33,11 @@ import (
 	schemarepo "github.com/semi-technologies/weaviate/adapters/repos/schema"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
+	modcontextionary "github.com/semi-technologies/weaviate/modules/contextionary"
 	"github.com/semi-technologies/weaviate/usecases/classification"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/semi-technologies/weaviate/usecases/nearestneighbors"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	"github.com/semi-technologies/weaviate/usecases/projector"
@@ -208,6 +210,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	configureServer = makeConfigureServer(appState)
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState)
+
+	registerModules()
+
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
 }
 
@@ -397,4 +402,9 @@ func validateContextionaryVersion(appState *state.State) {
 			break
 		}
 	}
+}
+
+// everything hard-coded right now, to be made dynmaic (from go plugins later)
+func registerModules() {
+	modules.Register(modcontextionary.New())
 }
