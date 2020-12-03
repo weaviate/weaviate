@@ -9,7 +9,7 @@
 //  CONTACT: hello@semi.technology
 //
 
-// +build integrationTest
+// +build integrationTestSlow
 
 package db
 
@@ -31,6 +31,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TODO: gh-1305
 func TestDeleteJourney(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	dirName := fmt.Sprintf("./testdata/%d", rand.Intn(10000000))

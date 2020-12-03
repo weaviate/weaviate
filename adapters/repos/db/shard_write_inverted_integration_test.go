@@ -31,7 +31,7 @@ import (
 
 func getDocumentFrequencyValue(id uint32, frequency []byte) []byte {
 	documentID := uint32(id)
-	keyBuf := bytes.NewBuffer(nil) //make([]byte, 4)
+	keyBuf := bytes.NewBuffer(nil)
 	binary.Write(keyBuf, binary.LittleEndian, &documentID)
 	if frequency != nil {
 		binary.Write(keyBuf, binary.LittleEndian, &frequency)
