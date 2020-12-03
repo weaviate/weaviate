@@ -12,6 +12,7 @@
 package rest
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/rs/cors"
@@ -53,22 +54,18 @@ func addHandleRoot(next http.Handler) http.Handler {
 }
 
 func addModuleHandlers(next http.Handler) http.Handler {
-	httpObject := modules.NewModuleHTTPObject()
+	mux := http.NewServeMux()
 
 	for _, mod := range modules.GetAll() {
-		mod.RegisterHandlers(httpObject)
+		prefix := fmt.Sprintf("/v1/modules/%s", mod.Name())
+		mux.Handle(fmt.Sprintf("%s/", prefix),
+			http.StripPrefix(prefix, mod.RootHandler()))
 	}
 
+	prefix := "/v1/modules"
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		needle := "/v1/modules/"
-		if url := r.URL.String(); len(url) > len(needle) && url[:len(needle)] == needle {
-			h, ok := httpObject.Handlers[url]
-			if !ok {
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			h.ServeHTTP(w, r)
+		if url := r.URL.String(); len(url) > len(prefix) && url[:len(prefix)] == prefix {
+			mux.ServeHTTP(w, r)
 			return
 		}
 
