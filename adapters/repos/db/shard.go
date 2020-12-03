@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"time"
@@ -43,6 +44,7 @@ type Shard struct {
 	metrics          *Metrics
 	propertyIndices  propertyspecific.Indices
 	deletedDocIDs    *docid.InMemDeletedTracker
+	cleanupInterval  time.Duration
 }
 
 func NewShard(shardName string, index *Index) (*Shard, error) {
@@ -52,6 +54,7 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 		invertedRowCache: inverted.NewRowCacher(50 * 1024 * 1024),
 		metrics:          NewMetrics(index.logger),
 		deletedDocIDs:    docid.NewInMemDeletedTracker(),
+		cleanupInterval:  60 * time.Second,
 	}
 
 	vi, err := hnsw.New(hnsw.Config{
@@ -89,7 +92,11 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 		return nil, errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
 	}
 
-	// TODO: @Marcin init doc id deleted tracker with deleted ids from db
+	if err := s.findDeletedDocs(); err != nil {
+		return nil, errors.Wrapf(err, "init shard %q: find deleted documents", s.ID())
+	}
+
+	s.startPeriodicCleanup()
 
 	return s, nil
 }
@@ -190,4 +197,50 @@ func (s *Shard) addProperty(ctx context.Context, prop *models.Property) error {
 	}
 
 	return nil
+}
+
+func (s *Shard) findDeletedDocs() error {
+	err := s.db.View(func(tx *bolt.Tx) error {
+		docIDs := tx.Bucket(helpers.DocIDBucket)
+		if docIDs == nil {
+			return nil
+		}
+
+		err := docIDs.ForEach(func(documentID, v []byte) error {
+			lookup, err := docid.LookupFromBinary(v)
+			if err != nil {
+				return errors.Wrap(err, "lookup from binary")
+			}
+			if lookup.Deleted {
+				// TODO: gh-1282
+				s.deletedDocIDs.Add(binary.LittleEndian.Uint32(documentID[4:]))
+			}
+			return nil
+		})
+		if err != nil {
+			return errors.Wrap(err, "search for deleted documents")
+		}
+
+		return nil
+	})
+	if err != nil {
+		return errors.Wrap(err, "find deleted ids")
+	}
+
+	return nil
+}
+
+func (s *Shard) startPeriodicCleanup() {
+	t := time.Tick(s.cleanupInterval)
+	batchCleanupInterval := 5 * time.Second
+	batchSize := 100
+	go func(batchSize int, batchCleanupInterval time.Duration) {
+		for {
+			<-t
+			err := s.periodicCleanup(batchSize, batchCleanupInterval)
+			if err != nil {
+				fmt.Printf("periodic cleanup error: %v", err)
+			}
+		}
+	}(batchSize, batchCleanupInterval)
 }
