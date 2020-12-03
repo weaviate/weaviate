@@ -99,6 +99,9 @@ func (s *Shard) periodicCleanup(batchSize int, batchCleanupInterval time.Duratio
 }
 
 func (s *Shard) performCleanup(deletedDocIDs []uint32) error {
+	before := time.Now()
+	defer s.metrics.InvertedDeleteDelta(before)
+
 	className := s.index.Config.ClassName
 	schemaModel := s.index.getSchema.GetSchemaSkipAuth().Things
 	class, err := schema.GetClassByName(schemaModel, className.String())
