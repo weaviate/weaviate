@@ -27,7 +27,7 @@ func (m *ContextionaryModule) Init() error {
 
 func (m *ContextionaryModule) RootHandler() http.Handler {
 	mux := http.NewServeMux()
-	extensionsHandlers := extensions.NewRESTHandlers()
+	extensionsHandlers := extensions.NewRESTHandlers(nil)
 	mux.Handle("/extensions", http.StripPrefix("/extensions", extensionsHandlers.Handler()))
 
 	return mux
