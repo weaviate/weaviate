@@ -20,8 +20,9 @@ import (
 
 	"github.com/coreos/etcd/clientv3"
 	"github.com/elastic/go-elasticsearch/v5"
-	"github.com/go-openapi/errors"
+	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/clients/contextionary"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
@@ -30,6 +31,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db"
 	"github.com/semi-technologies/weaviate/adapters/repos/esvector"
 	"github.com/semi-technologies/weaviate/adapters/repos/etcd"
+	modulestorage "github.com/semi-technologies/weaviate/adapters/repos/modules"
 	schemarepo "github.com/semi-technologies/weaviate/adapters/repos/schema"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -85,7 +87,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	validateContextionaryVersion(appState)
 
-	api.ServeError = errors.ServeError
+	api.ServeError = openapierrors.ServeError
 
 	api.JSONConsumer = runtime.JSONConsumer()
 
@@ -211,7 +213,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState)
 
-	registerModules()
+	registerModules(appState.ServerConfig.Config, appState.Logger)
 
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
 }
@@ -405,6 +407,19 @@ func validateContextionaryVersion(appState *state.State) {
 }
 
 // everything hard-coded right now, to be made dynmaic (from go plugins later)
-func registerModules() {
-	modules.Register(modcontextionary.New())
+func registerModules(config config.Config, logger logrus.FieldLogger) error {
+	storageProvider, err := modulestorage.NewRepo(config.Persistence.DataPath, logger)
+	if err != nil {
+		return errors.Wrap(err, "init storage provider")
+	}
+
+	// TODO: don't use global state, create module provider
+	modules.Register(modcontextionary.New(storageProvider))
+
+	err = modules.Init()
+	if err != nil {
+		return errors.Wrap(err, "init modules")
+	}
+
+	return nil
 }

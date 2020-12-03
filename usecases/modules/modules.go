@@ -1,6 +1,10 @@
 package modules
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/pkg/errors"
+)
 
 type Module interface {
 	Name() string
@@ -27,4 +31,14 @@ func GetAll() []Module {
 	}
 
 	return out
+}
+
+func Init() error {
+	for i, mod := range GetAll() {
+		if err := mod.Init(); err != nil {
+			return errors.Wrapf(err, "init module %d (%q)", i, mod.Name())
+		}
+	}
+
+	return nil
 }
