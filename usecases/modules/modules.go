@@ -5,22 +5,7 @@ import "net/http"
 type Module interface {
 	Name() string
 	Init() error
-	RegisterHandlers(http *ModuleHTTPObject)
-}
-
-type ModuleHTTPObject struct {
-	Handlers map[string]http.Handler
-}
-
-func (m *ModuleHTTPObject) HandleFunc(pattern string,
-	handler func(http.ResponseWriter, *http.Request)) {
-	m.Handlers[pattern] = http.HandlerFunc(handler)
-}
-
-func NewModuleHTTPObject() *ModuleHTTPObject {
-	return &ModuleHTTPObject{
-		Handlers: map[string]http.Handler{},
-	}
+	RootHandler() http.Handler
 }
 
 var registeredModules = map[string]Module{}
