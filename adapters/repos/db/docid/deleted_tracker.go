@@ -62,8 +62,6 @@ func (t *InMemDeletedTracker) Remove(id uint32) {
 	delete(t.ids, id)
 }
 
-// TODO: @Marcin use this method to get all the IDs which should be cleaned up
-//
 // GetAll is a thread-safe way to retrieve all entries, it uses a ReadLock for
 // concurrent reading
 func (t *InMemDeletedTracker) GetAll() []uint32 {
@@ -80,9 +78,6 @@ func (t *InMemDeletedTracker) GetAll() []uint32 {
 	return out
 }
 
-// TODO: @Marcin use this method to ultimately remove the docs ids you clenaed
-// up, so the in-mem model doesn't keep on growing forever
-//
 // BulkRemove is a thread-safe way to remove multiple ids, it locks only once,
 // for the entire duration of the deletion
 func (t *InMemDeletedTracker) BulkRemove(ids []uint32) {
