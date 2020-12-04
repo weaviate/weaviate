@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -67,29 +66,41 @@ func (m *Migrator) DropClass(ctx context.Context, kind kind.Kind, className stri
 }
 
 func (m *Migrator) UpdateClass(ctx context.Context, kind kind.Kind, className string, newClassName *string, newKeywords *models.Keywords) error {
-	return fmt.Errorf("updating a class not (yet) supported")
+	if newClassName != nil {
+		return errors.New("weaviate does not support renaming of classes")
+	}
+
+	return nil
 }
 
 func (m *Migrator) AddProperty(ctx context.Context, kind kind.Kind, className string, prop *models.Property) error {
 	idx := m.db.GetIndex(kind, schema.ClassName(className))
 	if idx == nil {
-		return fmt.Errorf("cannot add property to a non-existing index for %s/%s",
+		return errors.Errorf("cannot add property to a non-existing index for %s/%s",
 			kind.Name(), className)
 	}
 
 	return idx.addProperty(ctx, prop)
 }
 
+// DropProperty is ignored, API compliant change
 func (m *Migrator) DropProperty(ctx context.Context, kind kind.Kind, className string, propertyName string) error {
-	return fmt.Errorf("dropping a property not (yet) supported")
+	// ignore but don't error
+	return nil
 }
 
 func (m *Migrator) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string, newKeywords *models.Keywords) error {
-	return fmt.Errorf("changing a property not (yet) supported")
+	if newName != nil {
+		return errors.New("weaviate does not support renaming of properties")
+	}
+
+	return nil
 }
 
+// UpdatePropertyAddDataType is ignored, API compliant change
 func (m *Migrator) UpdatePropertyAddDataType(ctx context.Context, kind kind.Kind, className string, propName string, newDataType string) error {
-	return fmt.Errorf("changing a property not (yet) supported")
+	// ignore but don't error
+	return nil
 }
 
 func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
