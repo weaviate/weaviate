@@ -1,6 +1,8 @@
 package extensions
 
 import (
+	"bytes"
+
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/usecases/modules"
 )
@@ -32,4 +34,26 @@ func (uc *UseCase) Load(concept string) ([]byte, error) {
 	}
 
 	return val, nil
+}
+
+func (uc *UseCase) LoadAll() ([]byte, error) {
+	buf := bytes.NewBuffer(nil)
+	err := uc.storage.Scan(func(k, v []byte) (bool, error) {
+		_, err := buf.Write(v)
+		if err != nil {
+			return false, errors.Wrapf(err, "write concept %q", string(k))
+		}
+
+		_, err = buf.Write([]byte("\n"))
+		if err != nil {
+			return false, errors.Wrapf(err, "write newline separator")
+		}
+
+		return true, nil
+	})
+	if err != nil {
+		return nil, errors.Wrapf(err, "load all concepts")
+	}
+
+	return buf.Bytes(), nil
 }

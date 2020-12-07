@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -101,17 +102,18 @@ func TestHandlers(t *testing.T) {
 			assert.Equal(t, http.StatusOK, res.StatusCode)
 			assert.Equal(t, extensionBValue, w.Body.Bytes())
 		})
-	})
 
-	t.Run("load with an empty concept name", func(t *testing.T) {
-		r := httptest.NewRequest("GET", "/", nil)
+		t.Run("full dump with trailing slash", func(t *testing.T) {
+			r := httptest.NewRequest("GET", "/", nil)
+			w := httptest.NewRecorder()
+			h.Handler().ServeHTTP(w, r)
+			expectedValue := []byte("some-value\nsome-other-value\n")
 
-		w := httptest.NewRecorder()
-		h.Handler().ServeHTTP(w, r)
-
-		res := w.Result()
-		defer res.Body.Close()
-		assert.Equal(t, http.StatusNotFound, res.StatusCode)
+			res := w.Result()
+			defer res.Body.Close()
+			assert.Equal(t, http.StatusOK, res.StatusCode)
+			assert.Equal(t, expectedValue, w.Body.Bytes())
+		})
 	})
 
 	t.Run("when loading fails", func(t *testing.T) {
@@ -141,10 +143,31 @@ func newFakeLoaderStorer() *fakeLoaderStorer {
 }
 
 func (f *fakeLoaderStorer) Store(concept string, value []byte) error {
-	f.store[concept] = value
+	if f.storeError == nil {
+		f.store[concept] = value
+	}
 	return f.storeError
 }
 
 func (f *fakeLoaderStorer) Load(concept string) ([]byte, error) {
 	return f.store[concept], f.loadError
+}
+
+func (f *fakeLoaderStorer) LoadAll() ([]byte, error) {
+	var keys [][]byte
+	for key := range f.store {
+		keys = append(keys, []byte(key))
+	}
+
+	sort.Slice(keys, func(a, b int) bool {
+		return bytes.Compare(keys[a], keys[b]) == -1
+	})
+
+	buf := bytes.NewBuffer(nil)
+	for _, key := range keys {
+		buf.Write(f.store[string(key)])
+		buf.Write([]byte("\n"))
+	}
+
+	return buf.Bytes(), nil
 }

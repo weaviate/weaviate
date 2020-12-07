@@ -30,6 +30,15 @@ func (h *RESTHandlers) Handler() http.Handler {
 }
 
 func (h *RESTHandlers) get(w http.ResponseWriter, r *http.Request) {
+	if len(r.URL.String()) == 0 || h.extractConcept(r) == "" {
+		h.getAll(w, r)
+		return
+	}
+
+	h.getOne(w, r)
+}
+
+func (h *RESTHandlers) getOne(w http.ResponseWriter, r *http.Request) {
 	concept := h.extractConcept(r)
 	if concept == "" {
 		w.WriteHeader(http.StatusNotFound)
@@ -45,6 +54,17 @@ func (h *RESTHandlers) get(w http.ResponseWriter, r *http.Request) {
 
 	if res == nil {
 		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	w.Write(res)
+}
+
+func (h *RESTHandlers) getAll(w http.ResponseWriter, r *http.Request) {
+	res, err := h.ls.LoadAll()
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
 		return
 	}
 
@@ -85,7 +105,12 @@ type Loader interface {
 	Load(concept string) ([]byte, error)
 }
 
+type LoaderAller interface {
+	LoadAll() ([]byte, error)
+}
+
 type LoaderStorer interface {
 	Storer
 	Loader
+	LoaderAller
 }

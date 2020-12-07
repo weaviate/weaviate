@@ -93,4 +93,90 @@ func Test_ModuleStorage(t *testing.T) {
 		require.Nil(t, err)
 		assert.Equal(t, []byte("module2-value2"), v)
 	})
+
+	t.Run("scanning all k/v for a bucket", func(t *testing.T) {
+		t.Run("module1 - full range", func(t *testing.T) {
+			var (
+				keys   [][]byte
+				values [][]byte
+			)
+			expectedKeys := [][]byte{
+				[]byte("module1-key1"),
+				[]byte("module1-key2"),
+			}
+			expectedValues := [][]byte{
+				[]byte("module1-value1"),
+				[]byte("module1-value2"),
+			}
+
+			err := module1.Scan(func(k, v []byte) (bool, error) {
+				keys = append(keys, k)
+				values = append(values, v)
+				return true, nil
+			})
+
+			require.Nil(t, err)
+
+			assert.Equal(t, expectedKeys, keys)
+			assert.Equal(t, expectedValues, values)
+		})
+
+		t.Run("module2 - full range", func(t *testing.T) {
+			var (
+				keys   [][]byte
+				values [][]byte
+			)
+			expectedKeys := [][]byte{
+				[]byte("module2-key1"),
+				[]byte("module2-key2"),
+			}
+			expectedValues := [][]byte{
+				[]byte("module2-value1"),
+				[]byte("module2-value2"),
+			}
+
+			err := module2.Scan(func(k, v []byte) (bool, error) {
+				keys = append(keys, k)
+				values = append(values, v)
+				return true, nil
+			})
+
+			require.Nil(t, err)
+
+			assert.Equal(t, expectedKeys, keys)
+			assert.Equal(t, expectedValues, values)
+		})
+
+		t.Run("module2 - stop after single row", func(t *testing.T) {
+			var (
+				keys   [][]byte
+				values [][]byte
+			)
+			expectedKeys := [][]byte{
+				[]byte("module2-key1"),
+			}
+			expectedValues := [][]byte{
+				[]byte("module2-value1"),
+			}
+
+			err := module2.Scan(func(k, v []byte) (bool, error) {
+				keys = append(keys, k)
+				values = append(values, v)
+				return false, nil
+			})
+
+			require.Nil(t, err)
+
+			assert.Equal(t, expectedKeys, keys)
+			assert.Equal(t, expectedValues, values)
+		})
+
+		t.Run("module2 - with scan error", func(t *testing.T) {
+			err := module2.Scan(func(k, v []byte) (bool, error) {
+				return false, fmt.Errorf("oops")
+			})
+
+			assert.Equal(t, "read item \"module2-key1\": oops", err.Error())
+		})
+	})
 }

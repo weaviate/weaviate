@@ -1,9 +1,12 @@
 package extensions
 
 import (
+	"bytes"
 	"fmt"
+	"sort"
 	"testing"
 
+	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,6 +29,10 @@ func Test_UseCase(t *testing.T) {
 		val, err = uc.Load("concept2")
 		require.Nil(t, err)
 		assert.Equal(t, []byte("value2"), val)
+
+		vals, err := uc.LoadAll()
+		require.Nil(t, err)
+		assert.Equal(t, []byte("value1\nvalue2\n"), vals)
 	})
 
 	t.Run("when storing fails", func(t *testing.T) {
@@ -60,4 +67,21 @@ func (f *fakeStorage) Get(k []byte) ([]byte, error) {
 func (f *fakeStorage) Put(k, v []byte) error {
 	f.store[string(k)] = v
 	return f.putError
+}
+
+func (f *fakeStorage) Scan(scan modules.ScanFn) error {
+	var keys [][]byte
+	for key := range f.store {
+		keys = append(keys, []byte(key))
+	}
+
+	sort.Slice(keys, func(a, b int) bool {
+		return bytes.Compare(keys[a], keys[b]) == -1
+	})
+
+	for _, key := range keys {
+		scan(key, f.store[string(key)])
+	}
+
+	return nil
 }
