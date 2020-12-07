@@ -98,7 +98,7 @@ func mergeAnd(children []*propValuePair) (*docPointers, error) {
 	}
 
 	// merge AND
-	found := map[uint32]int{} // map[id]count
+	found := map[uint64]int64{} // map[id]count
 	for _, set := range sets {
 		for _, pointer := range set.docIDs {
 			count := found[pointer.id]
@@ -108,9 +108,9 @@ func mergeAnd(children []*propValuePair) (*docPointers, error) {
 	}
 
 	var out docPointers
-	var idsForChecksum []int
+	var idsForChecksum []int64
 	for id, count := range found {
-		if count != len(sets) {
+		if count != int64(len(sets)) {
 			continue
 		}
 
@@ -120,7 +120,7 @@ func mergeAnd(children []*propValuePair) (*docPointers, error) {
 		out.docIDs = append(out.docIDs, docPointer{
 			id: id,
 		})
-		idsForChecksum = append(idsForChecksum, int(id))
+		idsForChecksum = append(idsForChecksum, int64(id))
 	}
 
 	checksum, err := docPointerChecksum(idsForChecksum)
@@ -153,7 +153,7 @@ func mergeOr(children []*propValuePair) (*docPointers, error) {
 
 	// merge OR
 	var checksums [][]byte
-	found := map[uint32]int{} // map[id]count
+	found := map[uint64]int64{} // map[id]count
 	for _, set := range sets {
 		for _, pointer := range set.docIDs {
 			count := found[pointer.id]

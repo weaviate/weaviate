@@ -15,7 +15,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"hash/crc32"
+	"hash/crc64"
 	"io"
 
 	"github.com/boltdb/bolt"
@@ -54,7 +54,7 @@ func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, erro
 }
 
 func (s *Shard) extendInvertedIndices(tx *bolt.Tx, props []inverted.Property,
-	docID uint32) error {
+	docID uint64) error {
 	for _, prop := range props {
 		b := tx.Bucket(helpers.BucketFromPropName(prop.Name))
 		if b == nil {
@@ -82,8 +82,8 @@ func (s *Shard) extendInvertedIndices(tx *bolt.Tx, props []inverted.Property,
 	return nil
 }
 
-func (s *Shard) sliceToMap(in []uint32) map[uint32]struct{} {
-	out := map[uint32]struct{}{}
+func (s *Shard) sliceToMap(in []uint64) map[uint64]struct{} {
+	out := map[uint64]struct{}{}
 	for i := range in {
 		out[in[i]] = struct{}{}
 	}
@@ -91,7 +91,7 @@ func (s *Shard) sliceToMap(in []uint32) map[uint32]struct{} {
 }
 
 func (s *Shard) tryDeleteFromInvertedIndicesProp(b *bolt.Bucket,
-	item inverted.Countable, docIDs []uint32, hasFrequency bool) error {
+	item inverted.Countable, docIDs []uint64, hasFrequency bool) error {
 	data := b.Get(item.Data)
 	if len(data) == 0 {
 		// we want to delete from an empty row. Nothing to do
@@ -100,16 +100,16 @@ func (s *Shard) tryDeleteFromInvertedIndicesProp(b *bolt.Bucket,
 	deletedDocIDs := s.sliceToMap(docIDs)
 
 	performDelete := false
-	if len(data) > 11 {
-		propDocIDs := data[8:]
-		divider := 4
+	if len(data) > 23 {
+		propDocIDs := data[16:]
+		divider := 8
 		if hasFrequency {
-			divider = 8
+			divider = 16
 		}
 		numberOfPropDocIDs := len(propDocIDs) / divider
 		for i := 0; i < numberOfPropDocIDs; i++ {
 			indx := i * divider
-			propDocID := binary.LittleEndian.Uint32(propDocIDs[indx : indx+4])
+			propDocID := binary.LittleEndian.Uint64(propDocIDs[indx : indx+8])
 			if _, foundDeleted := deletedDocIDs[propDocID]; foundDeleted {
 				performDelete = true
 				break
@@ -125,21 +125,21 @@ func (s *Shard) tryDeleteFromInvertedIndicesProp(b *bolt.Bucket,
 }
 
 func (s *Shard) deleteFromInvertedIndicesProp(b *bolt.Bucket,
-	item inverted.Countable, docIDs map[uint32]struct{}, hasFrequency bool) error {
+	item inverted.Countable, docIDs map[uint64]struct{}, hasFrequency bool) error {
 	data := b.Get(item.Data)
 	if len(data) == 0 {
 		// we want to delete from an empty row. Nothing to do
 		return nil
 	}
 
-	// remove the old checksum and doc count (0-4 = checksum, 5-8=docCount)
-	data = data[8:]
+	// remove the old checksum and doc count (0-8 = checksum, 9-16=docCount)
+	data = data[16:]
 	r := bytes.NewReader(data)
 
-	newDocCount := uint32(0)
+	newDocCount := uint64(0)
 	newRow := bytes.NewBuffer(nil)
 	for {
-		nextDocIDBytes := make([]byte, 4)
+		nextDocIDBytes := make([]byte, 8)
 		_, err := r.Read(nextDocIDBytes)
 		if err != nil {
 			if err == io.EOF {
@@ -149,13 +149,13 @@ func (s *Shard) deleteFromInvertedIndicesProp(b *bolt.Bucket,
 			return errors.Wrap(err, "read doc id")
 		}
 
-		var nextDocID uint32
+		var nextDocID uint64
 		if err := binary.Read(bytes.NewReader(nextDocIDBytes), binary.LittleEndian,
 			&nextDocID); err != nil {
 			return errors.Wrap(err, "read doc id from binary")
 		}
 
-		frequencyBytes := make([]byte, 4)
+		frequencyBytes := make([]byte, 8)
 		if hasFrequency {
 			// always read frequency if the property has one, so the reader offset is
 			// correct for the next round., i.e.only skip the loop after reading all
@@ -184,7 +184,7 @@ func (s *Shard) deleteFromInvertedIndicesProp(b *bolt.Bucket,
 		}
 	}
 
-	countBytes := bytes.NewBuffer(make([]byte, 0, 4))
+	countBytes := bytes.NewBuffer(make([]byte, 0, 8))
 	binary.Write(countBytes, binary.LittleEndian, &newDocCount)
 
 	// combine back together
@@ -198,14 +198,14 @@ func (s *Shard) deleteFromInvertedIndicesProp(b *bolt.Bucket,
 
 	combined = append(chksum, combined...)
 	if len(combined) != 0 && len(combined) > 0 {
-		// -8 to remove the checksum and doc count
-		// module 4 for 4 bytes of docID if no frequency
-		// module 8 for 8 bytes of docID if frequency
-		if hasFrequency && (len(combined)-8)%8 != 0 {
+		// -16 to remove the checksum and doc count
+		// module 8 for 8 bytes of docID if no frequency
+		// module 16 for 16 bytes of docID if frequency
+		if hasFrequency && (len(combined)-16)%16 != 0 {
 			return fmt.Errorf("sanity check: invert row has invalid updated length %d"+
 				"with original length %d", len(combined), len(data))
 		}
-		if !hasFrequency && (len(combined)-8)%4 != 0 {
+		if !hasFrequency && (len(combined)-16)%8 != 0 {
 			return fmt.Errorf("sanity check: invert row has invalid updated length %d"+
 				"with original length %d", len(combined), len(data))
 		}
@@ -220,15 +220,15 @@ func (s *Shard) deleteFromInvertedIndicesProp(b *bolt.Bucket,
 }
 
 func (s *Shard) extendInvertedIndexItemWithOptionalFrequency(b *bolt.Bucket,
-	item inverted.Countable, docID uint32, freq *float32) error {
+	item inverted.Countable, docID uint64, freq *float64) error {
 	data := b.Get(item.Data)
 
 	updated := bytes.NewBuffer(data)
 	if len(data) == 0 {
 		// this is the first time someones writing this row, initialize counter in
 		// beginning as zero, and a dummy checksum
-		updated.Write([]uint8{0, 0, 0, 0}) // dummy checksum
-		docCount := uint32(0)
+		updated.Write([]uint8{0, 0, 0, 0, 0, 0, 0, 0}) // dummy checksum
+		docCount := uint64(0)
 		binary.Write(updated, binary.LittleEndian, &docCount)
 	}
 	// append current document
@@ -244,40 +244,40 @@ func (s *Shard) extendInvertedIndexItemWithOptionalFrequency(b *bolt.Bucket,
 	extended := updated.Bytes()
 
 	// read and increase doc count
-	reader := bytes.NewReader(extended[4:])
-	var docCount uint32
+	reader := bytes.NewReader(extended[8:])
+	var docCount uint64
 	binary.Read(reader, binary.LittleEndian, &docCount)
 	docCount++
-	countBuf := bytes.NewBuffer(make([]byte, 0, 4))
+	countBuf := bytes.NewBuffer(make([]byte, 0, 8))
 	binary.Write(countBuf, binary.LittleEndian, &docCount)
 
 	// overwrite old doc count
 
-	startPos := 4 // first 4 bytes are checksum, so 4-7 is count
+	startPos := 8 // first 8 bytes are checksum, so 8-15 is count
 	countBytes := countBuf.Bytes()
-	for i := 0; i < 4; i++ {
+	for i := 0; i < 8; i++ {
 		extended[startPos+i] = countBytes[i]
 	}
 
 	// finally calculate the checksum and prepend one more time.
-	chksum, err := s.checksum(extended[4:])
+	chksum, err := s.checksum(extended[8:])
 	if err != nil {
 		return err
 	}
 
-	// overwrite first four bytes with checksum
-	startPos = 0 // first 4 bytes are checksum
-	for i := 0; i < 4; i++ {
+	// overwrite first eight bytes with checksum
+	startPos = 0 // first 8 bytes are checksum
+	for i := 0; i < 8; i++ {
 		extended[startPos+i] = chksum[i]
 	}
 
-	lengthOfOneEntry := 4
+	lengthOfOneEntry := 8
 	if freq != nil {
-		lengthOfOneEntry = 8
+		lengthOfOneEntry = 16
 	}
-	if len(extended) != 0 && len(extended) > 8 && (len(extended)-8)%lengthOfOneEntry != 0 {
-		// -8 to remove the checksum and doc count
-		// module 8 for 4 bytes of docID + frequency or alternatively 4 without the
+	if len(extended) != 0 && len(extended) > 16 && (len(extended)-16)%lengthOfOneEntry != 0 {
+		// -16 to remove the checksum and doc count
+		// module 16 for 8 bytes of docID + frequency or alternatively 8 without the
 		// frequency
 		return fmt.Errorf("sanity check: invert row has invalid updated length %d"+
 			"with original length %d", len(extended), len(data))
@@ -291,14 +291,14 @@ func (s *Shard) extendInvertedIndexItemWithOptionalFrequency(b *bolt.Bucket,
 	return nil
 }
 
-// Bytes | Meaning
-// 0..4   | checksum
-// 5..7   | count of matching documents as uint32 (little endian)
-// 8..11   | doc id of first matching doc as uint32 (little endian)
+// Bytes  | Meaning
+//  0..8  | checksum
+//  9..16 | count of matching documents as uint64 (little endian)
+// 17..24 | doc id of first matching doc as uint64 (little endian)
 // ...
-// (n-3)..n | doc id of last doc
+// (n-7)..n | doc id of last doc
 func (s *Shard) extendInvertedIndexItem(b *bolt.Bucket, item inverted.Countable,
-	docID uint32) error {
+	docID uint64) error {
 	return s.extendInvertedIndexItemWithOptionalFrequency(b, item, docID, nil)
 }
 
@@ -306,22 +306,22 @@ func (s *Shard) extendInvertedIndexItem(b *bolt.Bucket, item inverted.Countable,
 // search term,
 // the structure is as follows:
 //
-// Bytes | Meaning
-// 0..4   | checksum
-// 5..7   | count of matching documents as uint32 (little endian)
-// 8..11   | doc id of first matching doc as uint32 (little endian)
-// 12..15   | term frequency in first doc as float32 (little endian)
+// Bytes  | Meaning
+//  0..8  | checksum
+//  9..16 | count of matching documents as uint64 (little endian)
+// 17..24 | doc id of first matching doc as uint64 (little endian)
+// 25..32 | term frequency in first doc as float64 (little endian)
 // ...
-// (n-7)..(n-4) | doc id of last doc
-// (n-3)..n     | term frequency of last
+// (n-15)..(n-8) | doc id of last doc
+// (n-7)..n      | term frequency of last
 func (s *Shard) extendInvertedIndexItemWithFrequency(b *bolt.Bucket,
-	item inverted.Countable, docID uint32, freq float32) error {
+	item inverted.Countable, docID uint64, freq float64) error {
 	return s.extendInvertedIndexItemWithOptionalFrequency(b, item, docID, &freq)
 }
 
 func (s *Shard) checksum(in []byte) ([]byte, error) {
-	checksum := crc32.ChecksumIEEE(in)
-	buf := bytes.NewBuffer(make([]byte, 0, 4))
+	checksum := crc64.Checksum(in, crc64.MakeTable(crc64.ISO))
+	buf := bytes.NewBuffer(make([]byte, 0, 8))
 	err := binary.Write(buf, binary.LittleEndian, &checksum)
 	return buf.Bytes(), err
 }

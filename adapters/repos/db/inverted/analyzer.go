@@ -22,7 +22,7 @@ import (
 
 type Countable struct {
 	Data          []byte
-	TermFrequency float32
+	TermFrequency float64
 }
 
 type Property struct {
@@ -38,7 +38,7 @@ type Analyzer struct {
 // duplicates
 func (a *Analyzer) Text(in string) []Countable {
 	parts := helpers.TokenizeText(in)
-	terms := map[string]uint32{}
+	terms := map[string]uint64{}
 	total := 0
 	for _, word := range parts {
 		word = strings.ToLower(word)
@@ -55,7 +55,7 @@ func (a *Analyzer) Text(in string) []Countable {
 	for term, count := range terms {
 		out[i] = Countable{
 			Data:          []byte(term),
-			TermFrequency: float32(count) / float32(total),
+			TermFrequency: float64(count) / float64(total),
 		}
 		i++
 	}
@@ -67,7 +67,7 @@ func (a *Analyzer) Text(in string) []Countable {
 // duplicates
 func (a *Analyzer) String(in string) []Countable {
 	parts := helpers.TokenizeString(in)
-	terms := map[string]uint32{}
+	terms := map[string]uint64{}
 	total := 0
 	for _, word := range parts {
 		count, ok := terms[word]
@@ -83,7 +83,7 @@ func (a *Analyzer) String(in string) []Countable {
 	for term, count := range terms {
 		out[i] = Countable{
 			Data:          []byte(term),
-			TermFrequency: float32(count) / float32(total),
+			TermFrequency: float64(count) / float64(total),
 		}
 		i++
 	}
@@ -140,8 +140,8 @@ func (a *Analyzer) Bool(in bool) ([]Countable, error) {
 // RefCount does not index the content of the refs, but only the count with 0
 // being an explicitly allowed value as well.
 func (a *Analyzer) RefCount(in models.MultipleRef) ([]Countable, error) {
-	length := uint32(len(in))
-	data, err := LexicographicallySortableUint32(length)
+	length := uint64(len(in))
+	data, err := LexicographicallySortableUint64(length)
 	if err != nil {
 		return nil, err
 	}

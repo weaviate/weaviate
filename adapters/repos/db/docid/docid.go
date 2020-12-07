@@ -30,15 +30,15 @@ const (
 )
 
 type Lookup struct {
-	DocID        uint32
+	DocID        uint64
 	PointsTo     []byte
 	Deleted      bool
 	DeletionTime *time.Time // nil if Deleted==false
 }
 
 func AddLookupInTx(tx *bolt.Tx, info Lookup) error {
-	keyBuf := bytes.NewBuffer(make([]byte, 4))
-	binary.Write(keyBuf, binary.LittleEndian, info.DocID)
+	keyBuf := bytes.NewBuffer(nil)
+	binary.Write(keyBuf, binary.LittleEndian, &info.DocID)
 	key := keyBuf.Bytes()
 
 	b := tx.Bucket(helpers.DocIDBucket)
@@ -130,8 +130,8 @@ func LookupFromBinary(in []byte) (Lookup, error) {
 	return out, nil
 }
 
-func MarkDeletedInTx(tx *bolt.Tx, docID uint32) error {
-	keyBuf := bytes.NewBuffer(make([]byte, 4))
+func MarkDeletedInTx(tx *bolt.Tx, docID uint64) error {
+	keyBuf := bytes.NewBuffer(nil)
 	binary.Write(keyBuf, binary.LittleEndian, &docID)
 	key := keyBuf.Bytes()
 
@@ -167,8 +167,8 @@ func MarkDeletedInTx(tx *bolt.Tx, docID uint32) error {
 	return nil
 }
 
-func RemoveInTx(tx *bolt.Tx, docID uint32) error {
-	keyBuf := bytes.NewBuffer(make([]byte, 4))
+func RemoveInTx(tx *bolt.Tx, docID uint64) error {
+	keyBuf := bytes.NewBuffer(nil)
 	binary.Write(keyBuf, binary.LittleEndian, &docID)
 	key := keyBuf.Bytes()
 

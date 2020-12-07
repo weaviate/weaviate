@@ -31,11 +31,11 @@ func TestRowCacher(t *testing.T) {
 				docPointer{id: 4},
 				docPointer{id: 5},
 			},
-			checksum: []uint8{0, 1, 2, 3},
+			checksum: []uint8{0, 1, 2, 3, 4, 5, 6, 7},
 		}
 		cacher.Store(rowID, original)
 
-		retrieved, ok := cacher.Load(rowID, []uint8{0, 1, 2, 3})
+		retrieved, ok := cacher.Load(rowID, []uint8{0, 1, 2, 3, 4, 5, 6, 7})
 		assert.True(t, ok)
 		assert.Equal(t, original, retrieved)
 	})
@@ -44,12 +44,12 @@ func TestRowCacher(t *testing.T) {
 	// isntead of 4)
 
 	t.Run("it returns nothing if an expected checksum doesn't match", func(t *testing.T) {
-		_, ok := cacher.Load(rowID, []uint8{0, 0, 0, 0})
+		_, ok := cacher.Load(rowID, []uint8{0, 0, 0, 0, 0, 0, 0, 0})
 		assert.False(t, ok)
 	})
 
 	t.Run("it deletes the corresponding entry so that a future lookup fails even with the right checksum", func(t *testing.T) {
-		_, ok := cacher.Load(rowID, []uint8{0, 1, 2, 3})
+		_, ok := cacher.Load(rowID, []uint8{0, 1, 2, 3, 4, 5, 6, 7})
 		assert.False(t, ok)
 	})
 
@@ -60,28 +60,28 @@ func TestRowCacher(t *testing.T) {
 			oldEntry := &docPointers{
 				count:    20, // =80 bytes
 				docIDs:   make([]docPointer, 20),
-				checksum: []uint8{0, 1, 2, 3},
+				checksum: []uint8{0, 1, 2, 3, 4, 5, 6, 7},
 			}
 			cacher.Store(rowID, oldEntry)
 
 			// validate its there
-			_, ok := cacher.Load(rowID, []uint8{0, 1, 2, 3})
+			_, ok := cacher.Load(rowID, []uint8{0, 1, 2, 3, 4, 5, 6, 7})
 			assert.True(t, ok)
 
 			newRowID := []byte("newrow")
 			newEntry := &docPointers{
 				count:    20, // =80 bytes
 				docIDs:   make([]docPointer, 20),
-				checksum: []uint8{0, 1, 2, 3},
+				checksum: []uint8{0, 1, 2, 3, 4, 5, 6, 7},
 			}
 			cacher.Store(newRowID, newEntry)
 
 			// validate the old is gone
-			_, ok = cacher.Load(rowID, []uint8{0, 1, 2, 3})
+			_, ok = cacher.Load(rowID, []uint8{0, 1, 2, 3, 4, 5, 6, 7})
 			assert.False(t, ok)
 
 			// validate the new is here
-			_, ok = cacher.Load(newRowID, []uint8{0, 1, 2, 3})
+			_, ok = cacher.Load(newRowID, []uint8{0, 1, 2, 3, 4, 5, 6, 7})
 			assert.True(t, ok)
 		})
 
@@ -91,11 +91,11 @@ func TestRowCacher(t *testing.T) {
 			newEntry := &docPointers{
 				count:    40, // =160 bytes
 				docIDs:   make([]docPointer, 40),
-				checksum: []uint8{0, 1, 2, 3},
+				checksum: []uint8{0, 1, 2, 3, 4, 5, 6, 7},
 			}
 			cacher.Store(tooBig, newEntry)
 			// validate the new is here
-			_, ok := cacher.Load(tooBig, []uint8{0, 1, 2, 3})
+			_, ok := cacher.Load(tooBig, []uint8{0, 1, 2, 3, 4, 5, 6, 7})
 			assert.False(t, ok)
 		})
 }

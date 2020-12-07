@@ -37,7 +37,7 @@ type referencesBatcher struct {
 	shard                    *Shard
 	errs                     map[int]error
 	refs                     kinds.BatchReferences
-	additionalStorageUpdates map[uint32]additionalStorageUpdate // by docID
+	additionalStorageUpdates map[uint64]additionalStorageUpdate // by docID
 }
 
 // additionalStorageUpdate is a helper type to group the results of a merge, so
@@ -51,7 +51,7 @@ type additionalStorageUpdate struct {
 func newReferencesBatcher(s *Shard) *referencesBatcher {
 	return &referencesBatcher{
 		shard:                    s,
-		additionalStorageUpdates: map[uint32]additionalStorageUpdate{},
+		additionalStorageUpdates: map[uint64]additionalStorageUpdate{},
 	}
 }
 

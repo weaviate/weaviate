@@ -56,24 +56,24 @@ func newNumericalAggregator() *numericalAggregator {
 	return &numericalAggregator{
 		min:          math.MaxFloat64,
 		max:          math.SmallestNonzeroFloat64,
-		valueCounter: map[float64]uint32{},
+		valueCounter: map[float64]uint64{},
 	}
 }
 
 type numericalAggregator struct {
-	count        uint32
+	count        uint64
 	min          float64
 	max          float64
 	sum          float64
-	maxCount     uint32
+	maxCount     uint64
 	mode         float64
 	pairs        []floatCountPair   // for row-based median calculation
-	valueCounter map[float64]uint32 // for individual median calculation
+	valueCounter map[float64]uint64 // for individual median calculation
 }
 
 type floatCountPair struct {
 	value float64
-	count uint32
+	count uint64
 }
 
 func (a *numericalAggregator) AddFloat64(value float64) error {
@@ -110,7 +110,7 @@ func (a *numericalAggregator) buildPairsFromCounts() {
 }
 
 func (a *numericalAggregator) AddFloat64Row(number, count []byte) error {
-	var countParsed uint32
+	var countParsed uint64
 
 	numberParsed, err := inverted.ParseLexicographicallySortableFloat64(number)
 	if err != nil {
@@ -147,7 +147,7 @@ func (a *numericalAggregator) AddFloat64Row(number, count []byte) error {
 }
 
 func (a *numericalAggregator) AddInt64Row(number, count []byte) error {
-	var countParsed uint32
+	var countParsed uint64
 
 	numberParsed, err := inverted.ParseLexicographicallySortableInt64(number)
 	if err != nil {
@@ -217,7 +217,7 @@ func (a *numericalAggregator) Mode() float64 {
 // Median does not require preparation if build from rows, but requires a call of
 // buildPairsFromCounts() if it was built using individual objects
 func (a *numericalAggregator) Median() float64 {
-	var index uint32
+	var index uint64
 	if a.count%2 == 0 {
 		index = a.count / 2
 	} else {

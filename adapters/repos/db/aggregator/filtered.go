@@ -64,7 +64,7 @@ func (fa *filteredAggregator) Do(ctx context.Context) (*aggregation.Result, erro
 }
 
 func (fa *filteredAggregator) properties(ctx context.Context,
-	ids []uint32) (map[string]aggregation.Property, error) {
+	ids []uint64) (map[string]aggregation.Property, error) {
 	propAggs, err := fa.prepareAggregatorsForProps()
 	if err != nil {
 		return nil, errors.Wrap(err, "prepare aggregators for props")
@@ -220,8 +220,8 @@ func (fa *filteredAggregator) prepareAggregatorsForProps() (propAggs, error) {
 	return out, nil
 }
 
-func flattenAllowList(list helpers.AllowList) []uint32 {
-	out := make([]uint32, len(list))
+func flattenAllowList(list helpers.AllowList) []uint64 {
+	out := make([]uint64, len(list))
 	i := 0
 	for id := range list {
 		out[i] = id
