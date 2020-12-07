@@ -198,7 +198,7 @@ const (
 func (l *hnswCommitLogger) AddNode(node *vertex) error {
 	w := &bytes.Buffer{}
 	l.writeCommitType(w, AddNode)
-	l.writeUint32(w, uint32(node.id))
+	l.writeUint64(w, uint64(node.id))
 	l.writeUint16(w, uint16(node.level))
 
 	l.events <- w.Bytes()
@@ -206,31 +206,31 @@ func (l *hnswCommitLogger) AddNode(node *vertex) error {
 	return nil
 }
 
-func (l *hnswCommitLogger) SetEntryPointWithMaxLayer(id int, level int) error {
+func (l *hnswCommitLogger) SetEntryPointWithMaxLayer(id int64, level int) error {
 	w := &bytes.Buffer{}
 	l.writeCommitType(w, SetEntryPointMaxLevel)
-	l.writeUint32(w, uint32(id))
+	l.writeUint64(w, uint64(id))
 	l.writeUint16(w, uint16(level))
 
 	l.events <- w.Bytes()
 	return nil
 }
 
-func (l *hnswCommitLogger) AddLinkAtLevel(nodeid int, level int, target uint32) error {
+func (l *hnswCommitLogger) AddLinkAtLevel(nodeid int64, level int, target uint64) error {
 	w := &bytes.Buffer{}
 	l.writeCommitType(w, AddLinkAtLevel)
-	l.writeUint32(w, uint32(nodeid))
+	l.writeUint64(w, uint64(nodeid))
 	l.writeUint16(w, uint16(level))
-	l.writeUint32(w, target)
+	l.writeUint64(w, target)
 
 	l.events <- w.Bytes()
 	return nil
 }
 
-func (l *hnswCommitLogger) ReplaceLinksAtLevel(nodeid int, level int, targets []uint32) error {
+func (l *hnswCommitLogger) ReplaceLinksAtLevel(nodeid int64, level int, targets []uint64) error {
 	w := &bytes.Buffer{}
 	l.writeCommitType(w, ReplaceLinksAtLevel)
-	l.writeUint32(w, uint32(nodeid))
+	l.writeUint64(w, uint64(nodeid))
 	l.writeUint16(w, uint16(level))
 	targetLength := len(targets)
 	if targetLength > math.MaxUint16 {
@@ -243,43 +243,43 @@ func (l *hnswCommitLogger) ReplaceLinksAtLevel(nodeid int, level int, targets []
 			Warning("condensor length of connections would overflow uint16, cutting off")
 	}
 	l.writeUint16(w, uint16(targetLength))
-	l.writeUint32Slice(w, targets[:targetLength])
+	l.writeUint64Slice(w, targets[:targetLength])
 
 	l.events <- w.Bytes()
 	return nil
 }
 
-func (l *hnswCommitLogger) AddTombstone(nodeid int) error {
+func (l *hnswCommitLogger) AddTombstone(nodeid int64) error {
 	w := &bytes.Buffer{}
 	l.writeCommitType(w, AddTombstone)
-	l.writeUint32(w, uint32(nodeid))
+	l.writeUint64(w, uint64(nodeid))
 
 	l.events <- w.Bytes()
 	return nil
 }
 
-func (l *hnswCommitLogger) RemoveTombstone(nodeid int) error {
+func (l *hnswCommitLogger) RemoveTombstone(nodeid int64) error {
 	w := &bytes.Buffer{}
 	l.writeCommitType(w, RemoveTombstone)
-	l.writeUint32(w, uint32(nodeid))
+	l.writeUint64(w, uint64(nodeid))
 
 	l.events <- w.Bytes()
 	return nil
 }
 
-func (l *hnswCommitLogger) ClearLinks(nodeid int) error {
+func (l *hnswCommitLogger) ClearLinks(nodeid int64) error {
 	w := &bytes.Buffer{}
 	l.writeCommitType(w, ClearLinks)
-	l.writeUint32(w, uint32(nodeid))
+	l.writeUint64(w, uint64(nodeid))
 
 	l.events <- w.Bytes()
 	return nil
 }
 
-func (l *hnswCommitLogger) DeleteNode(nodeid int) error {
+func (l *hnswCommitLogger) DeleteNode(nodeid int64) error {
 	w := &bytes.Buffer{}
 	l.writeCommitType(w, DeleteNode)
-	l.writeUint32(w, uint32(nodeid))
+	l.writeUint64(w, uint64(nodeid))
 
 	l.events <- w.Bytes()
 	return nil
@@ -423,10 +423,10 @@ func (l *hnswCommitLogger) condenseOldLogs() error {
 	return nil
 }
 
-func (l *hnswCommitLogger) writeUint32(w io.Writer, in uint32) error {
+func (l *hnswCommitLogger) writeUint64(w io.Writer, in uint64) error {
 	err := binary.Write(w, binary.LittleEndian, &in)
 	if err != nil {
-		return errors.Wrap(err, "writing uint32")
+		return errors.Wrap(err, "writing uint64")
 	}
 
 	return nil
@@ -450,10 +450,10 @@ func (l *hnswCommitLogger) writeCommitType(w io.Writer, in HnswCommitType) error
 	return nil
 }
 
-func (l *hnswCommitLogger) writeUint32Slice(w io.Writer, in []uint32) error {
+func (l *hnswCommitLogger) writeUint64Slice(w io.Writer, in []uint64) error {
 	err := binary.Write(w, binary.LittleEndian, &in)
 	if err != nil {
-		return errors.Wrap(err, "writing []uint32")
+		return errors.Wrap(err, "writing []uint64")
 	}
 
 	return nil

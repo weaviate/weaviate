@@ -38,7 +38,7 @@ func newTextAggregator(limit int) *textAggregator {
 
 type textAggregator struct {
 	max   int
-	count uint32
+	count uint64
 
 	itemCounter map[string]int
 

@@ -30,7 +30,7 @@ import (
 // additionally performs an aggregation for each group.
 type grouper struct {
 	*Aggregator
-	values    map[interface{}][]uint32 // map[value]docIDs
+	values    map[interface{}][]uint64 // map[value]docIDs
 	topGroups []group
 	limit     int
 }
@@ -38,7 +38,7 @@ type grouper struct {
 func newGrouper(a *Aggregator, limit int) *grouper {
 	return &grouper{
 		Aggregator: a,
-		values:     map[interface{}][]uint32{},
+		values:     map[interface{}][]uint64{},
 		limit:      limit,
 	}
 }

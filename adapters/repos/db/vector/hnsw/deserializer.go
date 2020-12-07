@@ -31,9 +31,9 @@ func NewDeserializer(logger logrus.FieldLogger) *Deserializer {
 
 type DeserializationResult struct {
 	Nodes             []*vertex
-	Entrypoint        uint32
+	Entrypoint        uint64
 	Level             uint16
-	Tombstones        map[int]struct{}
+	Tombstones        map[int64]struct{}
 	EntrypointChanged bool
 }
 
@@ -43,7 +43,7 @@ func (c *Deserializer) Do(fd *os.File,
 	if out == nil {
 		out = &DeserializationResult{
 			Nodes:      make([]*vertex, initialSize),
-			Tombstones: make(map[int]struct{}),
+			Tombstones: make(map[int64]struct{}),
 		}
 	}
 
@@ -61,7 +61,7 @@ func (c *Deserializer) Do(fd *os.File,
 		case AddNode:
 			err = c.ReadNode(fd, out)
 		case SetEntryPointMaxLevel:
-			var entrypoint uint32
+			var entrypoint uint64
 			var level uint16
 			entrypoint, level, err = c.ReadEP(fd)
 			out.Entrypoint = entrypoint
@@ -95,7 +95,7 @@ func (c *Deserializer) Do(fd *os.File,
 }
 
 func (c *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
-	id, err := c.readUint32(r)
+	id, err := c.readUint64(r)
 	if err != nil {
 		return err
 	}
@@ -105,7 +105,7 @@ func (c *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 		return err
 	}
 
-	newNodes, err := growIndexToAccomodateNode(res.Nodes, int(id), c.logger)
+	newNodes, err := growIndexToAccomodateNode(res.Nodes, int64(id), c.logger)
 	if err != nil {
 		return err
 	}
@@ -113,15 +113,15 @@ func (c *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 	res.Nodes = newNodes
 
 	if res.Nodes[id] == nil {
-		res.Nodes[id] = &vertex{level: int(level), id: int(id), connections: make(map[int][]uint32)}
+		res.Nodes[id] = &vertex{level: int(level), id: int64(id), connections: make(map[int][]uint64)}
 	} else {
 		res.Nodes[id].level = int(level)
 	}
 	return nil
 }
 
-func (c *Deserializer) ReadEP(r io.Reader) (uint32, uint16, error) {
-	id, err := c.readUint32(r)
+func (c *Deserializer) ReadEP(r io.Reader) (uint64, uint16, error) {
+	id, err := c.readUint64(r)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -135,7 +135,7 @@ func (c *Deserializer) ReadEP(r io.Reader) (uint32, uint16, error) {
 }
 
 func (c *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
-	source, err := c.readUint32(r)
+	source, err := c.readUint64(r)
 	if err != nil {
 		return err
 	}
@@ -145,12 +145,12 @@ func (c *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
 		return err
 	}
 
-	target, err := c.readUint32(r)
+	target, err := c.readUint64(r)
 	if err != nil {
 		return err
 	}
 
-	newNodes, err := growIndexToAccomodateNode(res.Nodes, int(source), c.logger)
+	newNodes, err := growIndexToAccomodateNode(res.Nodes, int64(source), c.logger)
 	if err != nil {
 		return err
 	}
@@ -158,7 +158,7 @@ func (c *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
 	res.Nodes = newNodes
 
 	if res.Nodes[int(source)] == nil {
-		res.Nodes[int(source)] = &vertex{id: int(source), connections: make(map[int][]uint32)}
+		res.Nodes[int(source)] = &vertex{id: int64(source), connections: make(map[int][]uint64)}
 	}
 
 	res.Nodes[int(source)].connections[int(level)] = append(res.Nodes[int(source)].connections[int(level)], target)
@@ -166,7 +166,7 @@ func (c *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
 }
 
 func (c *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult) error {
-	source, err := c.readUint32(r)
+	source, err := c.readUint64(r)
 	if err != nil {
 		return err
 	}
@@ -181,12 +181,12 @@ func (c *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult) error 
 		return err
 	}
 
-	targets, err := c.readUint32Slice(r, int(length))
+	targets, err := c.readUint64Slice(r, int(length))
 	if err != nil {
 		return err
 	}
 
-	newNodes, err := growIndexToAccomodateNode(res.Nodes, int(source), c.logger)
+	newNodes, err := growIndexToAccomodateNode(res.Nodes, int64(source), c.logger)
 	if err != nil {
 		return err
 	}
@@ -194,36 +194,36 @@ func (c *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult) error 
 	res.Nodes = newNodes
 
 	if res.Nodes[int(source)] == nil {
-		res.Nodes[int(source)] = &vertex{id: int(source), connections: map[int][]uint32{}}
+		res.Nodes[int(source)] = &vertex{id: int64(source), connections: map[int][]uint64{}}
 	}
 	res.Nodes[int(source)].connections[int(level)] = targets
 	return nil
 }
 
-func (c *Deserializer) ReadAddTombstone(r io.Reader, tombstones map[int]struct{}) error {
-	id, err := c.readUint32(r)
+func (c *Deserializer) ReadAddTombstone(r io.Reader, tombstones map[int64]struct{}) error {
+	id, err := c.readUint64(r)
 	if err != nil {
 		return err
 	}
 
-	tombstones[int(id)] = struct{}{}
+	tombstones[int64(id)] = struct{}{}
 
 	return nil
 }
 
-func (c *Deserializer) ReadRemoveTombstone(r io.Reader, tombstones map[int]struct{}) error {
-	id, err := c.readUint32(r)
+func (c *Deserializer) ReadRemoveTombstone(r io.Reader, tombstones map[int64]struct{}) error {
+	id, err := c.readUint64(r)
 	if err != nil {
 		return err
 	}
 
-	delete(tombstones, int(id))
+	delete(tombstones, int64(id))
 
 	return nil
 }
 
 func (c *Deserializer) ReadClearLinks(r io.Reader, res *DeserializationResult) error {
-	id, err := c.readUint32(r)
+	id, err := c.readUint64(r)
 	if err != nil {
 		return err
 	}
@@ -238,12 +238,12 @@ func (c *Deserializer) ReadClearLinks(r io.Reader, res *DeserializationResult) e
 		return nil
 	}
 
-	res.Nodes[id].connections = map[int][]uint32{}
+	res.Nodes[id].connections = map[int][]uint64{}
 	return nil
 }
 
 func (c *Deserializer) ReadDeleteNode(r io.Reader, res *DeserializationResult) error {
-	id, err := c.readUint32(r)
+	id, err := c.readUint64(r)
 	if err != nil {
 		return err
 	}
@@ -257,11 +257,11 @@ func (c *Deserializer) ReadDeleteNode(r io.Reader, res *DeserializationResult) e
 	return nil
 }
 
-func (c *Deserializer) readUint32(r io.Reader) (uint32, error) {
-	var value uint32
+func (c *Deserializer) readUint64(r io.Reader) (uint64, error) {
+	var value uint64
 	err := binary.Read(r, binary.LittleEndian, &value)
 	if err != nil {
-		return 0, fmt.Errorf("reading uint32: %v", err)
+		return 0, fmt.Errorf("reading uint64: %v", err)
 	}
 
 	return value, nil
@@ -287,11 +287,11 @@ func (c *Deserializer) ReadCommitType(r io.Reader) (HnswCommitType, error) {
 	return HnswCommitType(value), nil
 }
 
-func (c *Deserializer) readUint32Slice(r io.Reader, length int) ([]uint32, error) {
-	value := make([]uint32, length)
+func (c *Deserializer) readUint64Slice(r io.Reader, length int) ([]uint64, error) {
+	value := make([]uint64, length)
 	err := binary.Read(r, binary.LittleEndian, &value)
 	if err != nil {
-		return nil, fmt.Errorf("reading []uint32: %v", err)
+		return nil, fmt.Errorf("reading []uint64: %v", err)
 	}
 
 	return value, nil

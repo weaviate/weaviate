@@ -32,7 +32,7 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
 		return err
 	}
 
-	var docID uint32
+	var docID uint64
 	if err := s.db.Batch(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(helpers.ObjectsBucket)
 		existing := bucket.Get([]byte(idBytes))
@@ -67,7 +67,7 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
 		return errors.Wrap(err, "bolt batch tx")
 	}
 
-	if err := s.vectorIndex.Delete(int(docID)); err != nil {
+	if err := s.vectorIndex.Delete(int64(docID)); err != nil {
 		return errors.Wrap(err, "delete from vector index")
 	}
 
@@ -98,7 +98,7 @@ func (s *Shard) periodicCleanup(batchSize int, batchCleanupInterval time.Duratio
 	return nil
 }
 
-func (s *Shard) performCleanup(deletedDocIDs []uint32) error {
+func (s *Shard) performCleanup(deletedDocIDs []uint64) error {
 	before := time.Now()
 	defer s.metrics.InvertedDeleteDelta(before)
 
@@ -113,7 +113,7 @@ func (s *Shard) performCleanup(deletedDocIDs []uint32) error {
 		s.db,
 		class,
 		deletedDocIDs,
-		func(b *bolt.Bucket, item inverted.Countable, docIDs []uint32, hasFrequency bool) error {
+		func(b *bolt.Bucket, item inverted.Countable, docIDs []uint64, hasFrequency bool) error {
 			return s.tryDeleteFromInvertedIndicesProp(b, item, docIDs, hasFrequency)
 		},
 	)

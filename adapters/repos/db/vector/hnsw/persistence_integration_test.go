@@ -53,12 +53,12 @@ func TestHnswPersistence(t *testing.T) {
 	require.Nil(t, err)
 
 	for i, vec := range testVectors {
-		err := index.Add(i, vec)
+		err := index.Add(int64(i), vec)
 		require.Nil(t, err)
 	}
 
 	// see index_test.go for more context
-	expectedResults := []int{
+	expectedResults := []int64{
 		3, 5, 4, // cluster 2
 		7, 8, 6, // cluster 3
 		2, 1, 0, // cluster 1
@@ -123,7 +123,7 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 	require.Nil(t, err)
 
 	for i, vec := range testVectors {
-		err := index.Add(i, vec)
+		err := index.Add(int64(i), vec)
 		require.Nil(t, err)
 	}
 
@@ -135,7 +135,7 @@ func TestHnswPersistence_WithDeletion_WithoutTombstoneCleanup(t *testing.T) {
 	})
 
 	// see index_test.go for more context
-	expectedResults := []int{
+	expectedResults := []int64{
 		3, 5, 4, // cluster 2
 		7,       // cluster 3 with element 6 and 8 deleted
 		2, 1, 0, // cluster 1
@@ -202,7 +202,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 	require.Nil(t, err)
 
 	for i, vec := range testVectors {
-		err := index.Add(i, vec)
+		err := index.Add(int64(i), vec)
 		require.Nil(t, err)
 	}
 	// dumpIndex(index, "with cleanup after import")
@@ -221,7 +221,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 	// dumpIndex(index, "with cleanup after delete")
 
 	// see index_test.go for more context
-	expectedResults := []int{
+	expectedResults := []int64{
 		3, 5, 4, // cluster 2
 		7,       // cluster 3 with element 6 and 8 deleted
 		2, 1, 0, // cluster 1
@@ -260,7 +260,7 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 		})
 
 	t.Run("further deleting all elements and reimporting one", func(t *testing.T) {
-		toDelete := []int{0, 1, 2, 3, 4, 5, 7}
+		toDelete := []int64{0, 1, 2, 3, 4, 5, 7}
 
 		for _, id := range toDelete {
 			err := secondIndex.Delete(id)
@@ -297,11 +297,11 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 			position := 3
 			res, err := thirdIndex.knnSearchByVector(testVectors[position], 50, 36, nil)
 			require.Nil(t, err)
-			assert.Equal(t, []int{3}, res)
+			assert.Equal(t, []int64{3}, res)
 		})
 
 	t.Run("delete all elements so the commitlog ends with an empty graph", func(t *testing.T) {
-		toDelete := []int{3}
+		toDelete := []int64{3}
 
 		for _, id := range toDelete {
 			err := thirdIndex.Delete(id)
@@ -328,13 +328,13 @@ func TestHnswPersistence_WithDeletion_WithTombstoneCleanup(t *testing.T) {
 
 	t.Run("load from disk and try to insert again", func(t *testing.T) {
 		for i, vec := range testVectors {
-			err := fourthIndex.Add(i, vec)
+			err := fourthIndex.Add(int64(i), vec)
 			require.Nil(t, err)
 		}
 	})
 
 	t.Run("verify that searching works normally", func(t *testing.T) {
-		expectedResults := []int{
+		expectedResults := []int64{
 			3, 5, 4, // cluster 2
 			7, 8, 6, // cluster 3 with element 6 and 8 deleted
 			2, 1, 0, // cluster 1

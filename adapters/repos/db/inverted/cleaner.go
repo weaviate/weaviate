@@ -22,21 +22,21 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 )
 
-type deleteFn func(b *bolt.Bucket, item Countable, docIDs []uint32, hasFrequency bool) error
+type deleteFn func(b *bolt.Bucket, item Countable, docIDs []uint64, hasFrequency bool) error
 
 type Cleaner struct {
 	db            *bolt.DB
 	class         *models.Class
-	deletedDocIDs []uint32
+	deletedDocIDs []uint64
 	deleteFn      deleteFn
 }
 
-func NewCleaner(db *bolt.DB, class *models.Class, deletedDocIDs []uint32, deleteFn deleteFn) *Cleaner {
+func NewCleaner(db *bolt.DB, class *models.Class, deletedDocIDs []uint64, deleteFn deleteFn) *Cleaner {
 	return &Cleaner{db, class, deletedDocIDs, deleteFn}
 }
 
-func (c *Cleaner) getDocumentKey(documentID uint32) []byte {
-	keyBuf := bytes.NewBuffer(make([]byte, 4))
+func (c *Cleaner) getDocumentKey(documentID uint64) []byte {
+	keyBuf := bytes.NewBuffer(nil)
 	binary.Write(keyBuf, binary.LittleEndian, &documentID)
 	key := keyBuf.Bytes()
 	return key
@@ -68,7 +68,7 @@ func (c *Cleaner) cleanupProperty(tx *bolt.Tx, p *models.Property) error {
 }
 
 // docID
-func (c *Cleaner) deleteDocID(tx *bolt.Tx, documentID uint32) bool {
+func (c *Cleaner) deleteDocID(tx *bolt.Tx, documentID uint64) bool {
 	key := c.getDocumentKey(documentID)
 	docsBucket := tx.Bucket(helpers.DocIDBucket)
 	if docsBucket == nil {
@@ -79,8 +79,8 @@ func (c *Cleaner) deleteDocID(tx *bolt.Tx, documentID uint32) bool {
 }
 
 // Cleanup cleans up properties for given documents
-func (c *Cleaner) Cleanup() ([]uint32, error) {
-	performedDeletion := make([]uint32, 0)
+func (c *Cleaner) Cleanup() ([]uint64, error) {
+	performedDeletion := make([]uint64, 0)
 	err := c.db.Update(func(tx *bolt.Tx) error {
 		// cleanup properties
 		for _, p := range c.class.Properties {

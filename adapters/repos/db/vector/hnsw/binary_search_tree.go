@@ -19,7 +19,7 @@ type binarySearchTreeGeneric struct {
 	root *binarySearchNodeGeneric
 }
 
-func (t *binarySearchTreeGeneric) insert(index int, dist float32) {
+func (t *binarySearchTreeGeneric) insert(index int64, dist float32) {
 	// before := time.Now()
 	// defer m.addInserting(before)
 
@@ -34,7 +34,7 @@ func (t *binarySearchTreeGeneric) insert(index int, dist float32) {
 	t.root.insert(index, dist)
 }
 
-func (t *binarySearchTreeGeneric) contains(index int, dist float32) bool {
+func (t *binarySearchTreeGeneric) contains(index int64, dist float32) bool {
 	// before := time.Now()
 	// defer m.addContains(before)
 
@@ -68,7 +68,7 @@ func (t *binarySearchTreeGeneric) flattenInOrder() []*binarySearchNodeGeneric {
 	return t.root.flattenInOrder()
 }
 
-func (t *binarySearchTreeGeneric) delete(index int, dist float32) {
+func (t *binarySearchTreeGeneric) delete(index int64, dist float32) {
 	// before := time.Now()
 	// defer m.addDeleting(before)
 
@@ -87,7 +87,7 @@ func (t *binarySearchTreeGeneric) len() int {
 }
 
 type binarySearchNodeGeneric struct {
-	index int
+	index int64
 	dist  float32
 	left  *binarySearchNodeGeneric
 	right *binarySearchNodeGeneric
@@ -108,7 +108,7 @@ func (b binarySearchNodeGeneric) String() string {
 	return fmt.Sprintf("%d (%f) %s %s \n", b.index, b.dist, left, right)
 }
 
-func (n *binarySearchNodeGeneric) insert(index int, dist float32) {
+func (n *binarySearchNodeGeneric) insert(index int64, dist float32) {
 	// if n == nil {
 	// 	n = &binarySearchNodeGeneric{
 	// 		index: index,
@@ -146,7 +146,7 @@ func (n *binarySearchNodeGeneric) insert(index int, dist float32) {
 	}
 }
 
-func (n *binarySearchNodeGeneric) contains(index int, dist float32) bool {
+func (n *binarySearchNodeGeneric) contains(index int64, dist float32) bool {
 	if n.index == index {
 		return true
 	}
@@ -226,7 +226,7 @@ func (n *binarySearchNodeGeneric) replaceNode(parent, replacement *binarySearchN
 }
 
 // delete is inspired by the great explanation at https://appliedgo.net/bintree/
-func (n *binarySearchNodeGeneric) delete(index int, dist float32, parent *binarySearchNodeGeneric) {
+func (n *binarySearchNodeGeneric) delete(index int64, dist float32, parent *binarySearchNodeGeneric) {
 	if n == nil {
 		panic(fmt.Sprintf("trying to delete nil node %v of parent %v", index, parent))
 	}
