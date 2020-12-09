@@ -120,8 +120,8 @@ func (s *Shard) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 }
 
 func (s *Shard) objectByIndexID(ctx context.Context,
-	indexID int32, acceptDeleted bool) (*storobj.Object, error) {
-	keyBuf := bytes.NewBuffer(make([]byte, 4))
+	indexID int64, acceptDeleted bool) (*storobj.Object, error) {
+	keyBuf := bytes.NewBuffer(nil)
 	binary.Write(keyBuf, binary.LittleEndian, &indexID)
 	key := keyBuf.Bytes()
 
@@ -165,7 +165,7 @@ func (s *Shard) objectByIndexID(ctx context.Context,
 	return out, nil
 }
 
-func (s *Shard) vectorByIndexID(ctx context.Context, indexID int32) ([]float32, error) {
+func (s *Shard) vectorByIndexID(ctx context.Context, indexID int64) ([]float32, error) {
 	obj, err := s.objectByIndexID(ctx, indexID, true)
 	if err != nil {
 		return nil, err
@@ -211,9 +211,9 @@ func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32,
 
 	var out []*storobj.Object
 	// TODO: unify
-	idsUint := make([]uint32, len(ids))
+	idsUint := make([]uint64, len(ids))
 	for i, id := range ids {
-		idsUint[i] = uint32(id)
+		idsUint[i] = uint64(id)
 	}
 	if err := s.db.View(func(tx *bolt.Tx) error {
 		res, err := docid.ObjectsInTx(tx, idsUint)

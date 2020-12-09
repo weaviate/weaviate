@@ -29,7 +29,7 @@ import (
 // each object for a short amount of time to extract one or more properties. In
 // that case use ScanObjectsInTx directly
 func ObjectsInTx(tx *bolt.Tx,
-	pointers []uint32) ([]*storobj.Object, error) {
+	pointers []uint64) ([]*storobj.Object, error) {
 	// at most the resulting array can have the length of the input pointers,
 	// however it could also be smaller if one (or more) of the pointers resolve
 	// to nil-ids or nil-objects
@@ -57,20 +57,20 @@ type ObjectScanFn func(obj *storobj.Object) (bool, error)
 // specified pointer. If a pointer does not resolve to an object-id, the item
 // will be skipped. The number of times scanFn is called can therefore be
 // smaller than the input length of pointers.
-func ScanObjectsInTx(tx *bolt.Tx, pointers []uint32, scan ObjectScanFn) error {
+func ScanObjectsInTx(tx *bolt.Tx, pointers []uint64, scan ObjectScanFn) error {
 	// TODO: should this have a ctx?
 	return newObjectScanner(tx, pointers, scan).Do()
 }
 
 type objectScanner struct {
 	tx            *bolt.Tx
-	pointers      []uint32
+	pointers      []uint64
 	scanFn        ObjectScanFn
 	lookupBucket  *bolt.Bucket
 	objectsBucket *bolt.Bucket
 }
 
-func newObjectScanner(tx *bolt.Tx, pointers []uint32,
+func newObjectScanner(tx *bolt.Tx, pointers []uint64,
 	scan ObjectScanFn) *objectScanner {
 	return &objectScanner{
 		tx:       tx,
@@ -117,9 +117,9 @@ func (os *objectScanner) resolveDocIDs() ([][]byte, error) {
 
 	uuidIndex := 0
 	for _, pointer := range os.pointers {
-		keyBuf := bytes.NewBuffer(make([]byte, 4))
-		pointerUint32 := uint32(pointer)
-		binary.Write(keyBuf, binary.LittleEndian, &pointerUint32)
+		keyBuf := bytes.NewBuffer(nil)
+		pointerUint64 := uint64(pointer)
+		binary.Write(keyBuf, binary.LittleEndian, &pointerUint64)
 		key := keyBuf.Bytes()
 		docIDLookup := os.lookupBucket.Get(key)
 		if len(docIDLookup) == 0 {
