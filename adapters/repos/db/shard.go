@@ -213,7 +213,7 @@ func (s *Shard) findDeletedDocs() error {
 			}
 			if lookup.Deleted {
 				// TODO: gh-1282
-				s.deletedDocIDs.Add(binary.LittleEndian.Uint32(documentID[4:]))
+				s.deletedDocIDs.Add(binary.LittleEndian.Uint64(documentID))
 			}
 			return nil
 		})

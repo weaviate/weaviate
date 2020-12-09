@@ -29,8 +29,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func getDocumentFrequencyValue(id uint32, frequency []byte) []byte {
-	documentID := uint32(id)
+func getDocumentFrequencyValue(documentID uint64, frequency []byte) []byte {
 	keyBuf := bytes.NewBuffer(nil)
 	binary.Write(keyBuf, binary.LittleEndian, &documentID)
 	if frequency != nil {
@@ -66,14 +65,14 @@ func TestExtendInvertedIndexWithFrequency(t *testing.T) {
 		b := bytes.NewBuffer(nil)
 
 		// checksum
-		_, err = b.Write([]uint8{0, 0, 0, 0})
+		_, err = b.Write([]uint8{0, 0, 0, 0, 0, 0, 0, 0})
 		if err != nil {
 			return err
 		}
 
 		fakeEntries := 625000
 		// doc count
-		count := uint32(fakeEntries)
+		count := uint64(fakeEntries)
 		err = binary.Write(b, binary.LittleEndian, &count)
 		if err != nil {
 			return err
@@ -81,12 +80,12 @@ func TestExtendInvertedIndexWithFrequency(t *testing.T) {
 
 		for i := 0; i < fakeEntries; i++ {
 			// doc id
-			_, err = b.Write([]uint8{1, 2, 3, 4})
+			_, err = b.Write([]uint8{1, 2, 3, 4, 5, 6, 7, 8})
 			if err != nil {
 				return err
 			}
 			// frequency
-			_, err = b.Write([]uint8{1, 2, 3, 4})
+			_, err = b.Write([]uint8{1, 2, 3, 4, 5, 6, 7, 8})
 			if err != nil {
 				return err
 			}
@@ -114,26 +113,26 @@ func TestExtendInvertedIndexWithFrequency(t *testing.T) {
 	})
 	require.Nil(t, err)
 
-	var updatedDocCount uint32
-	r := bytes.NewReader(after[4:])
+	var updatedDocCount uint64
+	r := bytes.NewReader(after[8:])
 	err = binary.Read(r, binary.LittleEndian, &updatedDocCount)
 	require.Nil(t, err)
 
-	assert.Equal(t, uint32(625001), updatedDocCount)
+	assert.Equal(t, uint64(625001), updatedDocCount)
 
-	assert.Equal(t, before[8:], after[8:(len(after))-8],
+	assert.Equal(t, before[16:], after[16:(len(after))-16],
 		"without the meta and the extension, the rest should be unchanged")
 
-	r = bytes.NewReader(after[len(after)-8:])
-	var newDocID uint32
-	var newFrequency float32
+	r = bytes.NewReader(after[len(after)-16:])
+	var newDocID uint64
+	var newFrequency float64
 	err = binary.Read(r, binary.LittleEndian, &newDocID)
 	require.Nil(t, err)
 	err = binary.Read(r, binary.LittleEndian, &newFrequency)
 	require.Nil(t, err)
 
-	assert.Equal(t, uint32(15), newDocID)
-	assert.Equal(t, float32(0.5), newFrequency)
+	assert.Equal(t, uint64(15), newDocID)
+	assert.Equal(t, float64(0.5), newFrequency)
 }
 
 func TestExtendInvertedIndexWithOutFrequency(t *testing.T) {
@@ -164,14 +163,14 @@ func TestExtendInvertedIndexWithOutFrequency(t *testing.T) {
 		b := bytes.NewBuffer(nil)
 
 		// checksum
-		_, err = b.Write([]uint8{0, 0, 0, 0})
+		_, err = b.Write([]uint8{0, 0, 0, 0, 0, 0, 0, 0})
 		if err != nil {
 			return err
 		}
 
 		fakeEntries := 625000
 		// doc count
-		count := uint32(fakeEntries)
+		count := uint64(fakeEntries)
 		err = binary.Write(b, binary.LittleEndian, &count)
 		if err != nil {
 			return err
@@ -179,7 +178,7 @@ func TestExtendInvertedIndexWithOutFrequency(t *testing.T) {
 
 		for i := 0; i < fakeEntries; i++ {
 			// doc id
-			_, err = b.Write([]uint8{1, 2, 3, 4})
+			_, err = b.Write([]uint8{1, 2, 3, 4, 5, 6, 7, 8})
 			if err != nil {
 				return err
 			}
@@ -206,22 +205,22 @@ func TestExtendInvertedIndexWithOutFrequency(t *testing.T) {
 	})
 	require.Nil(t, err)
 
-	var updatedDocCount uint32
-	r := bytes.NewReader(after[4:])
+	var updatedDocCount uint64
+	r := bytes.NewReader(after[8:])
 	err = binary.Read(r, binary.LittleEndian, &updatedDocCount)
 	require.Nil(t, err)
 
-	assert.Equal(t, uint32(625001), updatedDocCount)
+	assert.Equal(t, uint64(625001), updatedDocCount)
 
-	assert.Equal(t, before[8:], after[8:(len(after))-4],
+	assert.Equal(t, before[16:], after[16:(len(after))-8],
 		"without the meta and the extension, the rest should be unchanged")
 
-	r = bytes.NewReader(after[len(after)-4:])
-	var newDocID uint32
+	r = bytes.NewReader(after[len(after)-8:])
+	var newDocID uint64
 	err = binary.Read(r, binary.LittleEndian, &newDocID)
 	require.Nil(t, err)
 
-	assert.Equal(t, uint32(32), newDocID)
+	assert.Equal(t, uint64(32), newDocID)
 }
 
 func TestCleanupInvertedIndexWithPropWithoutFrequency(t *testing.T) {
@@ -239,7 +238,7 @@ func TestCleanupInvertedIndexWithPropWithoutFrequency(t *testing.T) {
 	shard, err := NewShard("extend_invert_benchmark", index)
 	require.Nil(t, err)
 
-	documentID := uint32(15)
+	documentID := uint64(15)
 
 	prop := []byte("testprop")
 	var before []byte
@@ -253,14 +252,14 @@ func TestCleanupInvertedIndexWithPropWithoutFrequency(t *testing.T) {
 		b := bytes.NewBuffer(nil)
 
 		// checksum
-		_, err = b.Write([]uint8{0, 0, 0, 0})
+		_, err = b.Write([]uint8{0, 0, 0, 0, 0, 0, 0, 0})
 		if err != nil {
 			return err
 		}
 
 		fakeEntries := 2
 		// doc count
-		count := uint32(fakeEntries)
+		count := uint64(fakeEntries)
 		err = binary.Write(b, binary.LittleEndian, &count)
 		if err != nil {
 			return err
@@ -288,7 +287,7 @@ func TestCleanupInvertedIndexWithPropWithoutFrequency(t *testing.T) {
 	err = shard.db.Update(func(tx *bolt.Tx) error {
 		// before := time.Now()
 		bucket := tx.Bucket([]byte("testbucket"))
-		err := shard.tryDeleteFromInvertedIndicesProp(bucket, inverted.Countable{Data: prop}, []uint32{documentID}, false)
+		err := shard.tryDeleteFromInvertedIndicesProp(bucket, inverted.Countable{Data: prop}, []uint64{documentID}, false)
 		if err != nil {
 			return err
 		}
@@ -299,15 +298,15 @@ func TestCleanupInvertedIndexWithPropWithoutFrequency(t *testing.T) {
 	})
 	require.Nil(t, err)
 
-	var updatedDocCount uint32
-	r := bytes.NewReader(after[4:])
+	var updatedDocCount uint64
+	r := bytes.NewReader(after[8:])
 	err = binary.Read(r, binary.LittleEndian, &updatedDocCount)
 	require.Nil(t, err)
 
-	afterDocIDs := after[8:]
+	afterDocIDs := after[16:]
 	expectedDocIDs := getDocumentFrequencyValue(10, nil)
 
-	assert.Equal(t, uint32(1), updatedDocCount)
+	assert.Equal(t, uint64(1), updatedDocCount)
 	assert.Equal(t, expectedDocIDs, afterDocIDs)
 }
 
@@ -326,8 +325,8 @@ func TestCleanupInvertedIndexWithFrequencyProp(t *testing.T) {
 	shard, err := NewShard("extend_invert_benchmark", index)
 	require.Nil(t, err)
 
-	documentID := uint32(15)
-	frequency := []uint8{1, 2, 3, 4}
+	documentID := uint64(15)
+	frequency := []uint8{1, 2, 3, 4, 5, 6, 7, 8}
 
 	prop := []byte("testprop")
 	var before []byte
@@ -341,14 +340,14 @@ func TestCleanupInvertedIndexWithFrequencyProp(t *testing.T) {
 		b := bytes.NewBuffer(nil)
 
 		// checksum
-		_, err = b.Write([]uint8{0, 0, 0, 0})
+		_, err = b.Write([]uint8{0, 0, 0, 0, 0, 0, 0, 0})
 		if err != nil {
 			return err
 		}
 
 		fakeEntries := 3
 		// doc count
-		count := uint32(fakeEntries)
+		count := uint64(fakeEntries)
 		err = binary.Write(b, binary.LittleEndian, &count)
 		if err != nil {
 			return err
@@ -382,7 +381,7 @@ func TestCleanupInvertedIndexWithFrequencyProp(t *testing.T) {
 	err = shard.db.Update(func(tx *bolt.Tx) error {
 		// before := time.Now()
 		bucket := tx.Bucket([]byte("testbucket"))
-		err := shard.tryDeleteFromInvertedIndicesProp(bucket, inverted.Countable{Data: prop}, []uint32{documentID}, true)
+		err := shard.tryDeleteFromInvertedIndicesProp(bucket, inverted.Countable{Data: prop}, []uint64{documentID}, true)
 		if err != nil {
 			return err
 		}
@@ -393,18 +392,18 @@ func TestCleanupInvertedIndexWithFrequencyProp(t *testing.T) {
 	})
 	require.Nil(t, err)
 
-	var updatedDocCount uint32
-	r := bytes.NewReader(after[4:])
+	var updatedDocCount uint64
+	r := bytes.NewReader(after[8:])
 	err = binary.Read(r, binary.LittleEndian, &updatedDocCount)
 	require.Nil(t, err)
 
-	afterDocIDs := after[8:]
+	afterDocIDs := after[16:]
 	expectedDocIDsBuffer := bytes.NewBuffer(nil)
 	binary.Write(expectedDocIDsBuffer, binary.LittleEndian, getDocumentFrequencyValue(10, frequency))
 	binary.Write(expectedDocIDsBuffer, binary.LittleEndian, getDocumentFrequencyValue(11, frequency))
 	expectedDocIDs := expectedDocIDsBuffer.Bytes()
 
-	assert.Equal(t, uint32(2), updatedDocCount)
+	assert.Equal(t, uint64(2), updatedDocCount)
 	assert.Equal(t, expectedDocIDs, afterDocIDs)
 }
 
@@ -423,8 +422,8 @@ func TestCleanupInvertedIndexDeleteAllDocumentIDs(t *testing.T) {
 	shard, err := NewShard("extend_invert_benchmark", index)
 	require.Nil(t, err)
 
-	documentID1 := uint32(11)
-	documentID2 := uint32(15)
+	documentID1 := uint64(11)
+	documentID2 := uint64(15)
 
 	prop := []byte("testprop")
 	var before []byte
@@ -438,14 +437,14 @@ func TestCleanupInvertedIndexDeleteAllDocumentIDs(t *testing.T) {
 		b := bytes.NewBuffer(nil)
 
 		// checksum
-		_, err = b.Write([]uint8{0, 0, 0, 0})
+		_, err = b.Write([]uint8{0, 0, 0, 0, 0, 0, 0, 0})
 		if err != nil {
 			return err
 		}
 
 		fakeEntries := 2
 		// doc count
-		count := uint32(fakeEntries)
+		count := uint64(fakeEntries)
 		err = binary.Write(b, binary.LittleEndian, &count)
 		if err != nil {
 			return err
@@ -473,7 +472,7 @@ func TestCleanupInvertedIndexDeleteAllDocumentIDs(t *testing.T) {
 	err = shard.db.Update(func(tx *bolt.Tx) error {
 		// before := time.Now()
 		bucket := tx.Bucket([]byte("testbucket"))
-		err := shard.tryDeleteFromInvertedIndicesProp(bucket, inverted.Countable{Data: prop}, []uint32{documentID1, documentID2}, false)
+		err := shard.tryDeleteFromInvertedIndicesProp(bucket, inverted.Countable{Data: prop}, []uint64{documentID1, documentID2}, false)
 		if err != nil {
 			return err
 		}
@@ -484,14 +483,14 @@ func TestCleanupInvertedIndexDeleteAllDocumentIDs(t *testing.T) {
 	})
 	require.Nil(t, err)
 
-	var updatedDocCount uint32
-	r := bytes.NewReader(after[4:])
+	var updatedDocCount uint64
+	r := bytes.NewReader(after[8:])
 	err = binary.Read(r, binary.LittleEndian, &updatedDocCount)
 	require.Nil(t, err)
 
-	afterDocIDs := after[8:]
+	afterDocIDs := after[16:]
 
-	assert.Equal(t, uint32(0), updatedDocCount)
+	assert.Equal(t, uint64(0), updatedDocCount)
 	assert.Equal(t, []byte{}, afterDocIDs)
 }
 
@@ -510,9 +509,9 @@ func TestCleanupInvertedIndexWithNoPropsToClean(t *testing.T) {
 	shard, err := NewShard("extend_invert_benchmark", index)
 	require.Nil(t, err)
 
-	documentID1 := uint32(11)
-	documentID2 := uint32(15)
-	documentIDNotInRow := uint32(20)
+	documentID1 := uint64(11)
+	documentID2 := uint64(15)
+	documentIDNotInRow := uint64(20)
 
 	prop := []byte("testprop")
 	var before []byte
@@ -526,14 +525,14 @@ func TestCleanupInvertedIndexWithNoPropsToClean(t *testing.T) {
 		b := bytes.NewBuffer(nil)
 
 		// checksum
-		_, err = b.Write([]uint8{0, 0, 0, 0})
+		_, err = b.Write([]uint8{0, 0, 0, 0, 0, 0, 0, 0})
 		if err != nil {
 			return err
 		}
 
 		fakeEntries := 2
 		// doc count
-		count := uint32(fakeEntries)
+		count := uint64(fakeEntries)
 		err = binary.Write(b, binary.LittleEndian, &count)
 		if err != nil {
 			return err
@@ -561,7 +560,7 @@ func TestCleanupInvertedIndexWithNoPropsToClean(t *testing.T) {
 	err = shard.db.Update(func(tx *bolt.Tx) error {
 		// before := time.Now()
 		bucket := tx.Bucket([]byte("testbucket"))
-		err := shard.tryDeleteFromInvertedIndicesProp(bucket, inverted.Countable{Data: prop}, []uint32{documentIDNotInRow}, false)
+		err := shard.tryDeleteFromInvertedIndicesProp(bucket, inverted.Countable{Data: prop}, []uint64{documentIDNotInRow}, false)
 		if err != nil {
 			return err
 		}
@@ -572,17 +571,17 @@ func TestCleanupInvertedIndexWithNoPropsToClean(t *testing.T) {
 	})
 	require.Nil(t, err)
 
-	var updatedDocCount uint32
-	r := bytes.NewReader(after[4:])
+	var updatedDocCount uint64
+	r := bytes.NewReader(after[8:])
 	err = binary.Read(r, binary.LittleEndian, &updatedDocCount)
 	require.Nil(t, err)
 
-	afterDocIDs := after[8:]
+	afterDocIDs := after[16:]
 	expectedDocIDsBuffer := bytes.NewBuffer(nil)
 	binary.Write(expectedDocIDsBuffer, binary.LittleEndian, getDocumentFrequencyValue(documentID1, nil))
 	binary.Write(expectedDocIDsBuffer, binary.LittleEndian, getDocumentFrequencyValue(documentID2, nil))
 	expectedDocIDs := expectedDocIDsBuffer.Bytes()
 
-	assert.Equal(t, uint32(2), updatedDocCount)
+	assert.Equal(t, uint64(2), updatedDocCount)
 	assert.Equal(t, expectedDocIDs, afterDocIDs)
 }

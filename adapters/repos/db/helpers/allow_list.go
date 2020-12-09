@@ -14,12 +14,12 @@ package helpers
 // AllowList groups a list of possible indexIDs to be passed to a secondary
 // index. The secondary index must make sure that it only returns result
 // present on the AllowList
-type AllowList map[uint32]struct{}
+type AllowList map[uint64]struct{}
 
 // Inserting and reading is not thread-safe. However, if inserting has
 // completed, and the list can be considered read-only, it is safe to read from
 // it concurrently
-func (al AllowList) Insert(id uint32) {
+func (al AllowList) Insert(id uint64) {
 	// no need to check if it's already present, simply overwrite
 	al[id] = struct{}{}
 }
@@ -27,7 +27,7 @@ func (al AllowList) Insert(id uint32) {
 // Contains is not thread-safe if the list is still being filled. However, if
 // you can guarantee that the list is no longer being inserted into and it
 // effectively becomes read-only, you can safely read concurrently
-func (al AllowList) Contains(id uint32) bool {
+func (al AllowList) Contains(id uint64) bool {
 	_, ok := al[id]
 	return ok
 }

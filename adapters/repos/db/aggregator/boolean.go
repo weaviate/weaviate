@@ -24,12 +24,12 @@ func newBoolAggregator() *boolAggregator {
 }
 
 type boolAggregator struct {
-	countTrue  uint32
-	countFalse uint32
+	countTrue  uint64
+	countFalse uint64
 }
 
 func (a *boolAggregator) AddBoolRow(value, count []byte) error {
-	var countParsed uint32
+	var countParsed uint64
 
 	var valueParsed bool
 

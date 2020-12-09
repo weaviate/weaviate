@@ -47,22 +47,22 @@ func TestAnalyzeObject(t *testing.T) {
 		expectedDescription := []Countable{
 			Countable{
 				Data:          []byte("i"),
-				TermFrequency: float32(1) / 3,
+				TermFrequency: float64(1) / 3,
 			},
 			Countable{
 				Data:          []byte("am"),
-				TermFrequency: float32(1) / 3,
+				TermFrequency: float64(1) / 3,
 			},
 			Countable{
 				Data:          []byte("great"),
-				TermFrequency: float32(1) / 3,
+				TermFrequency: float64(1) / 3,
 			},
 		}
 
 		expectedEmail := []Countable{
 			Countable{
 				Data:          []byte("john@doe.com"),
-				TermFrequency: float32(1) / 1,
+				TermFrequency: float64(1) / 1,
 			},
 		}
 
@@ -120,7 +120,7 @@ func TestAnalyzeObject(t *testing.T) {
 			require.Nil(t, err)
 
 			expectedRefCount := []Countable{
-				{Data: []uint8{0x00, 0x00, 0x00, 0x01}}, // 1 as uint32
+				{Data: []uint8{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01}},
 			}
 
 			expectedRef := []Countable{
@@ -179,7 +179,7 @@ func TestAnalyzeObject(t *testing.T) {
 			require.Nil(t, err)
 
 			expectedRefCount := []Countable{
-				{Data: []uint8{0x00, 0x00, 0x00, 0x02}}, // 2 as uint32
+				{Data: []uint8{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02}},
 			}
 
 			expectedRef := []Countable{
@@ -229,7 +229,7 @@ func TestAnalyzeObject(t *testing.T) {
 			require.Nil(t, err)
 
 			expectedRefCount := []Countable{
-				{Data: []uint8{0x00, 0x00, 0x00, 0x00}}, // 0 as uint32
+				{Data: []uint8{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}},
 			}
 
 			expectedUUID := []Countable{
