@@ -33,7 +33,7 @@ type DeserializationResult struct {
 	Nodes             []*vertex
 	Entrypoint        uint64
 	Level             uint16
-	Tombstones        map[int64]struct{}
+	Tombstones        map[uint64]struct{}
 	EntrypointChanged bool
 }
 
@@ -43,7 +43,7 @@ func (c *Deserializer) Do(fd *os.File,
 	if out == nil {
 		out = &DeserializationResult{
 			Nodes:      make([]*vertex, initialSize),
-			Tombstones: make(map[int64]struct{}),
+			Tombstones: make(map[uint64]struct{}),
 		}
 	}
 
@@ -105,7 +105,7 @@ func (c *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 		return err
 	}
 
-	newNodes, err := growIndexToAccomodateNode(res.Nodes, int64(id), c.logger)
+	newNodes, err := growIndexToAccomodateNode(res.Nodes, id, c.logger)
 	if err != nil {
 		return err
 	}
@@ -113,7 +113,7 @@ func (c *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 	res.Nodes = newNodes
 
 	if res.Nodes[id] == nil {
-		res.Nodes[id] = &vertex{level: int(level), id: int64(id), connections: make(map[int][]uint64)}
+		res.Nodes[id] = &vertex{level: int(level), id: id, connections: make(map[int][]uint64)}
 	} else {
 		res.Nodes[id].level = int(level)
 	}
@@ -150,7 +150,7 @@ func (c *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
 		return err
 	}
 
-	newNodes, err := growIndexToAccomodateNode(res.Nodes, int64(source), c.logger)
+	newNodes, err := growIndexToAccomodateNode(res.Nodes, source, c.logger)
 	if err != nil {
 		return err
 	}
@@ -158,7 +158,7 @@ func (c *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
 	res.Nodes = newNodes
 
 	if res.Nodes[int(source)] == nil {
-		res.Nodes[int(source)] = &vertex{id: int64(source), connections: make(map[int][]uint64)}
+		res.Nodes[int(source)] = &vertex{id: source, connections: make(map[int][]uint64)}
 	}
 
 	res.Nodes[int(source)].connections[int(level)] = append(res.Nodes[int(source)].connections[int(level)], target)
@@ -186,7 +186,7 @@ func (c *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult) error 
 		return err
 	}
 
-	newNodes, err := growIndexToAccomodateNode(res.Nodes, int64(source), c.logger)
+	newNodes, err := growIndexToAccomodateNode(res.Nodes, source, c.logger)
 	if err != nil {
 		return err
 	}
@@ -194,30 +194,30 @@ func (c *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult) error 
 	res.Nodes = newNodes
 
 	if res.Nodes[int(source)] == nil {
-		res.Nodes[int(source)] = &vertex{id: int64(source), connections: map[int][]uint64{}}
+		res.Nodes[int(source)] = &vertex{id: source, connections: map[int][]uint64{}}
 	}
 	res.Nodes[int(source)].connections[int(level)] = targets
 	return nil
 }
 
-func (c *Deserializer) ReadAddTombstone(r io.Reader, tombstones map[int64]struct{}) error {
+func (c *Deserializer) ReadAddTombstone(r io.Reader, tombstones map[uint64]struct{}) error {
 	id, err := c.readUint64(r)
 	if err != nil {
 		return err
 	}
 
-	tombstones[int64(id)] = struct{}{}
+	tombstones[id] = struct{}{}
 
 	return nil
 }
 
-func (c *Deserializer) ReadRemoveTombstone(r io.Reader, tombstones map[int64]struct{}) error {
+func (c *Deserializer) ReadRemoveTombstone(r io.Reader, tombstones map[uint64]struct{}) error {
 	id, err := c.readUint64(r)
 	if err != nil {
 		return err
 	}
 
-	delete(tombstones, int64(id))
+	delete(tombstones, id)
 
 	return nil
 }

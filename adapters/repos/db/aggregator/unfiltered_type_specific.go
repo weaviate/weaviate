@@ -142,11 +142,11 @@ func (ua unfilteredAggregator) parseAndAddFloatRow(agg *numericalAggregator, k, 
 			"expected 8: got %d", len(k))
 	}
 
-	if len(v) < 8 {
+	if len(v) < 16 {
 		// we expect to see a at least a checksum (8 bytes) and a count
 		// (uint64), if that's not the case, then the row is corrupt
 		return fmt.Errorf("unexpected value length on inverted index, "+
-			"expected at least 8: got %d", len(k))
+			"expected at least 16: got %d", len(v))
 	}
 
 	if err := agg.AddFloat64Row(k, v[8:16]); err != nil {
@@ -164,11 +164,11 @@ func (ua unfilteredAggregator) parseAndAddIntRow(agg *numericalAggregator, k, v 
 			"expected 8: got %d", len(k))
 	}
 
-	if len(v) < 8 {
+	if len(v) < 16 {
 		// we expect to see a at least a checksum (8 bytes) and a count
 		// (uint64), if that's not the case, then the row is corrupt
 		return fmt.Errorf("unexpected value length on inverted index, "+
-			"expected at least 8: got %d", len(k))
+			"expected at least 16: got %d", len(v))
 	}
 
 	if err := agg.AddInt64Row(k, v[8:16]); err != nil {

@@ -14,11 +14,11 @@ package storobj
 import "fmt"
 
 type ErrNotFound struct {
-	DocID       int64
+	DocID       uint64
 	OriginalMsg string
 }
 
-func NewErrNotFoundf(docID int64, msg string, args ...interface{}) error {
+func NewErrNotFoundf(docID uint64, msg string, args ...interface{}) error {
 	return ErrNotFound{
 		DocID:       docID,
 		OriginalMsg: fmt.Sprintf(msg, args...),

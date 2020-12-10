@@ -203,7 +203,7 @@ func dumpIndexFromCommitLog(t *testing.T, fileName string) {
 	index := &hnsw{
 		nodes:               res.Nodes,
 		currentMaximumLayer: int(res.Level),
-		entryPointID:        int64(res.Entrypoint),
+		entryPointID:        res.Entrypoint,
 		tombstones:          res.Tombstones,
 	}
 

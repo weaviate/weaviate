@@ -32,23 +32,22 @@ func reasonableEfFromK(k int) int {
 	return ef
 }
 
-func (h *hnsw) SearchByID(id int64, k int) ([]int64, error) {
+func (h *hnsw) SearchByID(id uint64, k int) ([]uint64, error) {
 	return h.knnSearch(id, k, reasonableEfFromK(k))
 }
 
-func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]int64, error) {
+func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, error) {
 	return h.knnSearchByVector(vector, k, reasonableEfFromK(k), allowList)
 }
 
-func (h *hnsw) knnSearch(queryNodeID int64, k int, ef int) ([]int64, error) {
+func (h *hnsw) knnSearch(queryNodeID uint64, k int, ef int) ([]uint64, error) {
 	entryPointID := h.entryPointID
 	entryPointDistance, ok, err := h.distBetweenNodes(entryPointID, queryNodeID)
 	if err != nil || !ok {
 		return nil, errors.Wrap(err, "knn search: distance between entrypint and query node")
 	}
 
-	queryVector, err := h.vectorForID(context.Background(),
-		int64(queryNodeID))
+	queryVector, err := h.vectorForID(context.Background(), queryNodeID)
 	if err != nil {
 		return nil, errors.Wrapf(err, "could not get vector of object at docID %d", queryNodeID)
 	}
@@ -75,7 +74,7 @@ func (h *hnsw) knnSearch(queryNodeID int64, k int, ef int) ([]int64, error) {
 
 	flat := res.flattenInOrder()
 	size := min(len(flat), k)
-	out := make([]int64, size)
+	out := make([]uint64, size)
 	for i, elem := range flat {
 		if i >= size {
 			break
@@ -106,7 +105,7 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 			return nil, errors.Wrapf(err, "calculate distance of current last result")
 		}
 
-		dist, ok, err := h.distanceToNode(distancer, int64(candidate.index))
+		dist, ok, err := h.distanceToNode(distancer, candidate.index)
 		if err != nil {
 			return nil, errors.Wrap(err, "calculate distance between candidate and query")
 		}
@@ -181,7 +180,7 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 func (h *hnsw) currentWorstResultDistance(results *binarySearchTreeGeneric,
 	distancer distancer.Distancer) (float32, error) {
 	if results.root != nil {
-		id := int64(results.maximum().index)
+		id := results.maximum().index
 		d, ok, err := h.distanceToNode(distancer, id)
 		if err != nil {
 			return 0, errors.Wrap(err,
@@ -214,7 +213,7 @@ func (h *hnsw) extendCandidatesAndResultsFromNeighbors(candidates,
 		// make sure we never visit this neighbor again
 		visited[neighborID] = struct{}{}
 
-		distance, ok, err := h.distanceToNode(distancer, int64(neighborID))
+		distance, ok, err := h.distanceToNode(distancer, neighborID)
 		if err != nil {
 			return errors.Wrap(err, "calculate distance between candidate and query")
 		}
@@ -226,7 +225,7 @@ func (h *hnsw) extendCandidatesAndResultsFromNeighbors(candidates,
 
 		resLenBefore := results.len() // calculating just once saves a bit of time
 		if distance < worstResultDistance || resLenBefore < ef {
-			candidates.insert(int64(neighborID), distance)
+			candidates.insert(neighborID, distance)
 			if level == 0 && allowList != nil {
 				// we are on the lowest level containing the actual candidates and we
 				// have an allow list (i.e. the user has probably set some sort of a
@@ -237,11 +236,11 @@ func (h *hnsw) extendCandidatesAndResultsFromNeighbors(candidates,
 				}
 			}
 
-			if h.hasTombstone(int64(neighborID)) {
+			if h.hasTombstone(neighborID) {
 				continue
 			}
 
-			results.insert(int64(neighborID), distance)
+			results.insert(neighborID, distance)
 
 			// +1 because we have added one node size calculating the len
 			if resLenBefore+1 > ef {
@@ -255,7 +254,7 @@ func (h *hnsw) extendCandidatesAndResultsFromNeighbors(candidates,
 }
 
 func (h *hnsw) distanceToNode(distancer distancer.Distancer,
-	nodeID int64) (float32, bool, error) {
+	nodeID uint64) (float32, bool, error) {
 	candidateVec, err := h.vectorForID(context.Background(), nodeID)
 	if err != nil {
 		var e storobj.ErrNotFound
@@ -279,14 +278,14 @@ func (h *hnsw) distanceToNode(distancer distancer.Distancer,
 // the underlying object seems to have been deleted, to recover from
 // this situation let's add a tombstone to the deleted object, so it
 // will be cleaned up and skip this candidate in the current search
-func (h *hnsw) handleDeletedNode(docID int64) {
-	if h.hasTombstone(int64(docID)) {
+func (h *hnsw) handleDeletedNode(docID uint64) {
+	if h.hasTombstone(docID) {
 		// nothing to do, this node already has a tombstone, it will be cleaned up
 		// in the next deletion cycle
 		return
 	}
 
-	h.addTombstone(int64(docID))
+	h.addTombstone(docID)
 	h.logger.WithField("action", "attach_tombstone_to_deleted_node").
 		WithField("node_id", docID).
 		Info("found a deleted node (%d) without a tombstone, "+
@@ -294,7 +293,7 @@ func (h *hnsw) handleDeletedNode(docID int64) {
 }
 
 func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
-	ef int, allowList helpers.AllowList) ([]int64, error) {
+	ef int, allowList helpers.AllowList) ([]uint64, error) {
 	if h.isEmpty() {
 		return nil, nil
 	}
@@ -333,7 +332,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 
 	flat := res.flattenInOrder()
 	size := min(len(flat), k)
-	out := make([]int64, size)
+	out := make([]uint64, size)
 	for i, elem := range flat {
 		if i >= size {
 			break
@@ -366,11 +365,11 @@ func (h *hnsw) selectNeighborsSimple(input binarySearchTreeGeneric,
 	return out[:actualSize]
 }
 
-func (h *hnsw) selectNeighborsSimpleFromId(nodeId int64, ids []uint64,
+func (h *hnsw) selectNeighborsSimpleFromId(nodeId uint64, ids []uint64,
 	max int, denyList helpers.AllowList) ([]uint64, error) {
 	bst := &binarySearchTreeGeneric{}
 	for _, id := range ids {
-		dist, ok, err := h.distBetweenNodes(int64(id), nodeId)
+		dist, ok, err := h.distBetweenNodes(id, nodeId)
 		if err != nil {
 			return nil, errors.Wrap(err, "select neighbors simple from id")
 		}
@@ -379,7 +378,7 @@ func (h *hnsw) selectNeighborsSimpleFromId(nodeId int64, ids []uint64,
 			// node was deleted in the underlying object store
 			continue
 		}
-		bst.insert(int64(id), dist)
+		bst.insert(id, dist)
 	}
 
 	return h.selectNeighborsSimple(*bst, max, denyList), nil

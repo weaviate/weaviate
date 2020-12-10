@@ -63,7 +63,7 @@ func TestRecallGeo(t *testing.T) {
 			MaximumConnections:    maxNeighbors,
 			EFConstruction:        efConstruction,
 			DistanceProvider:      distancer.NewGeoProvider(),
-			VectorForIDThunk: func(ctx context.Context, id int64) ([]float32, error) {
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
 		})
@@ -87,7 +87,7 @@ func TestRecallGeo(t *testing.T) {
 				defer wg.Done()
 				for i, vec := range myJobs {
 					originalIndex := (i * workerCount) + workerID
-					err := vectorIndex.Add(int64(originalIndex), vec)
+					err := vectorIndex.Add(uint64(originalIndex), vec)
 					require.Nil(t, err)
 				}
 			}(workerID, jobs)
@@ -175,8 +175,8 @@ func TestRecallGeo(t *testing.T) {
 	})
 }
 
-func matchesInLists(control []int64, results []int64) int {
-	desired := map[int64]struct{}{}
+func matchesInLists(control []uint64, results []uint64) int {
+	desired := map[uint64]struct{}{}
 	for _, relevant := range control {
 		desired[relevant] = struct{}{}
 	}
@@ -192,10 +192,10 @@ func matchesInLists(control []int64, results []int64) int {
 	return matches
 }
 
-func bruteForce(vectors [][]float32, query []float32, k int) []int64 {
+func bruteForce(vectors [][]float32, query []float32, k int) []uint64 {
 	type distanceAndIndex struct {
 		distance float32
-		index    int64
+		index    uint64
 	}
 
 	distances := make([]distanceAndIndex, len(vectors))
@@ -204,7 +204,7 @@ func bruteForce(vectors [][]float32, query []float32, k int) []int64 {
 	for i, vec := range vectors {
 		dist, _, _ := distancer.Distance(vec)
 		distances[i] = distanceAndIndex{
-			index:    int64(i),
+			index:    uint64(i),
 			distance: dist,
 		}
 	}
@@ -217,7 +217,7 @@ func bruteForce(vectors [][]float32, query []float32, k int) []int64 {
 		k = len(distances)
 	}
 
-	out := make([]int64, k)
+	out := make([]uint64, k)
 	for i := 0; i < k; i++ {
 		out[i] = distances[i].index
 	}
@@ -225,10 +225,10 @@ func bruteForce(vectors [][]float32, query []float32, k int) []int64 {
 	return out
 }
 
-func bruteForceMaxDist(vectors [][]float32, query []float32, maxDist float32) []int64 {
+func bruteForceMaxDist(vectors [][]float32, query []float32, maxDist float32) []uint64 {
 	type distanceAndIndex struct {
 		distance float32
-		index    int64
+		index    uint64
 	}
 
 	distances := make([]distanceAndIndex, len(vectors))
@@ -237,7 +237,7 @@ func bruteForceMaxDist(vectors [][]float32, query []float32, maxDist float32) []
 	for i, vec := range vectors {
 		dist, _, _ := distancer.Distance(vec)
 		distances[i] = distanceAndIndex{
-			index:    int64(i),
+			index:    uint64(i),
 			distance: dist,
 		}
 	}
@@ -246,7 +246,7 @@ func bruteForceMaxDist(vectors [][]float32, query []float32, maxDist float32) []
 		return distances[a].distance < distances[b].distance
 	})
 
-	out := make([]int64, len(distances))
+	out := make([]uint64, len(distances))
 	i := 0
 	for _, elem := range distances {
 		if elem.distance > maxDist {

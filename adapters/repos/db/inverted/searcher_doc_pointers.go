@@ -147,7 +147,7 @@ func combineChecksums(checksums [][]byte) ([]byte, error) {
 // unnecessary binary.Write, just so we get a []byte which we can put into the
 // crc64 function. But given how rare we expect this case to be in use cases,
 // this seems like a good workaround for now. This might change.
-func docPointerChecksum(pointers []int64) ([]byte, error) {
+func docPointerChecksum(pointers []uint64) ([]byte, error) {
 	buf := bytes.NewBuffer(make([]byte, 0, len(pointers)*8))
 	for _, p := range pointers {
 		err := binary.Write(buf, binary.LittleEndian, uint64(p))

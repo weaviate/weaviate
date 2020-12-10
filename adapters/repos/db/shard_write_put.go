@@ -57,12 +57,12 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 func (s *Shard) updateVectorIndex(vector []float32,
 	status objectInsertStatus) error {
 	if status.docIDChanged {
-		if err := s.vectorIndex.Delete(int64(status.oldDocID)); err != nil {
+		if err := s.vectorIndex.Delete(status.oldDocID); err != nil {
 			return errors.Wrapf(err, "delete doc id %d from vector index", status.oldDocID)
 		}
 	}
 
-	if err := s.vectorIndex.Add(int64(status.docID), vector); err != nil {
+	if err := s.vectorIndex.Add(status.docID, vector); err != nil {
 		return errors.Wrapf(err, "insert doc id %d to vector index", status.docID)
 	}
 
