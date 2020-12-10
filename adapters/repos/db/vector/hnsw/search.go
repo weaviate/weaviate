@@ -149,7 +149,7 @@ func (h *hnsw) searchLayerByVector(queryVector []float32,
 func newVisitedList(entrypoints binarySearchTreeGeneric) map[uint64]struct{} {
 	visited := map[uint64]struct{}{}
 	for _, elem := range entrypoints.flattenInOrder() {
-		visited[uint64(elem.index)] = struct{}{}
+		visited[elem.index] = struct{}{}
 	}
 	return visited
 }
@@ -164,7 +164,7 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 			// have an allow list (i.e. the user has probably set some sort of a
 			// filter restricting this search further. As a result we have to
 			// ignore items not on the list
-			if !allowList.Contains(uint64(ep.index)) {
+			if !allowList.Contains(ep.index) {
 				continue
 			}
 		}
@@ -351,14 +351,14 @@ func (h *hnsw) selectNeighborsSimple(input binarySearchTreeGeneric,
 	out := make([]uint64, maxSize)
 	actualSize := 0
 	for i, elem := range flat {
-		if denyList != nil && denyList.Contains(uint64(elem.index)) {
+		if denyList != nil && denyList.Contains(elem.index) {
 			continue
 		}
 
 		if i >= maxSize {
 			break
 		}
-		out[actualSize] = uint64(elem.index)
+		out[actualSize] = elem.index
 		actualSize++
 	}
 

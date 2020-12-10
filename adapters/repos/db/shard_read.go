@@ -213,7 +213,7 @@ func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32,
 	// TODO: unify
 	idsUint := make([]uint64, len(ids))
 	for i, id := range ids {
-		idsUint[i] = uint64(id)
+		idsUint[i] = id
 	}
 	if err := s.db.View(func(tx *bolt.Tx) error {
 		res, err := docid.ObjectsInTx(tx, idsUint)
