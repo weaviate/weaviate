@@ -23,4 +23,4 @@ services:
     environment:
       OCCURRENCE_WEIGHT_LINEAR_FACTOR: 0.75
       EXTENSIONS_STORAGE_MODE: weaviate
-      EXTENSIONS_STORAGE_ORIGIN: http://docker.for.mac.localhost:8080
+      EXTENSIONS_STORAGE_ORIGIN: http://weaviate:8080

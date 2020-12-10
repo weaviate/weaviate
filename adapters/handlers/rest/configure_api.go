@@ -273,18 +273,16 @@ func startupRoutine() (*state.State, *clientv3.Client, *elasticsearch.Client) {
 		// parse config store URL
 		configURL := serverConfig.Config.ConfigurationStorage.URL
 		configStore, err := url.Parse(configURL)
-		if err != nil || configURL == "" {
+		if err != nil || len(configURL) == 0 {
 			logger.WithField("action", "startup").WithField("url", configURL).
-				WithError(err).Error("cannot parse config store URL")
-			logger.Exit(1)
+				WithError(err).Fatal("cannot parse config store URL")
 		}
 
 		// Construct a distributed lock
 		etcdClient, err = clientv3.New(clientv3.Config{Endpoints: []string{configStore.String()}})
 		if err != nil {
 			logger.WithField("action", "startup").
-				WithError(err).Error("cannot construct distributed lock with etcd")
-			logger.Exit(1)
+				WithError(err).Fatal("cannot construct distributed lock with etcd")
 		}
 		logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 			Debug("created etcd client")
@@ -294,8 +292,7 @@ func startupRoutine() (*state.State, *clientv3.Client, *elasticsearch.Client) {
 		})
 		if err != nil {
 			logger.WithField("action", "startup").
-				WithError(err).Error("cannot create es client for vector index")
-			logger.Exit(1)
+				WithError(err).Fatal("cannot create es client for vector index")
 		}
 		logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 			Debug("created es client for vector index")
@@ -304,8 +301,7 @@ func startupRoutine() (*state.State, *clientv3.Client, *elasticsearch.Client) {
 		etcdLock, err := locks.NewEtcdLock(etcdClient, "/weaviate/schema-connector-rw-lock", logger)
 		if err != nil {
 			logger.WithField("action", "startup").
-				WithError(err).Error("cannot create etcd-based lock")
-			logger.Exit(1)
+				WithError(err).Fatal("cannot create etcd-based lock")
 		}
 		appState.Locks = etcdLock
 	}
@@ -323,8 +319,7 @@ func startupRoutine() (*state.State, *clientv3.Client, *elasticsearch.Client) {
 	c11y, err := contextionary.NewClient(appState.ServerConfig.Config.Contextionary.URL)
 	if err != nil {
 		logger.WithField("action", "startup").
-			WithError(err).Error("cannot create c11y client")
-		logger.Exit(1)
+			WithError(err).Fatal("cannot create c11y client")
 	}
 
 	appState.StopwordDetector = c11y
