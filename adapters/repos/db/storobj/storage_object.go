@@ -34,10 +34,10 @@ type Object struct {
 	Thing             models.Thing  `json:"thing"`
 	Action            models.Action `json:"action"`
 	Vector            []float32     `json:"vector"`
-	docID             uint32
+	docID             uint64
 }
 
-func New(k kind.Kind, docID uint32) *Object {
+func New(k kind.Kind, docID uint64) *Object {
 	return &Object{
 		MarshallerVersion: 1,
 		Kind:              k,
@@ -83,11 +83,11 @@ func (ko *Object) Class() schema.ClassName {
 	}
 }
 
-func (ko *Object) SetDocID(id uint32) {
+func (ko *Object) SetDocID(id uint64) {
 	ko.docID = id
 }
 
-func (ko *Object) DocID() uint32 {
+func (ko *Object) DocID() uint64 {
 	return ko.docID
 }
 
@@ -277,7 +277,7 @@ func SearchResults(in []*Object, underscore traverser.UnderscoreProperties) sear
 	return out
 }
 
-func DocIDFromBinary(in []byte) (uint32, error) {
+func DocIDFromBinary(in []byte) (uint64, error) {
 	var version uint8
 	r := bytes.NewReader(in)
 	le := binary.LittleEndian
@@ -289,7 +289,7 @@ func DocIDFromBinary(in []byte) (uint32, error) {
 		return 0, fmt.Errorf("unsupported binary marshaller version %d", version)
 	}
 
-	var docID uint32
+	var docID uint64
 	err := binary.Read(r, le, &docID)
 	return docID, err
 }
@@ -302,7 +302,7 @@ func DocIDFromBinary(in []byte) (uint32, error) {
 // No. of B   | Type      | Content
 // ------------------------------------------------
 // 1          | uint8     | MarshallerVersion = 1
-// 4          | uint32    | index id, keep early so id-only lookups are maximum efficient
+// 8          | uint64    | index id, keep early so id-only lookups are maximum efficient
 // 1          | uint8     | kind, 0=action, 1=thing
 // 16         | uint128   | uuid
 // 8          | int64     | create time

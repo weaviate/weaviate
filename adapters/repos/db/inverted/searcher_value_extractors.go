@@ -89,7 +89,7 @@ func (fs Searcher) extractIntCountValue(in interface{}) ([]byte, error) {
 		return nil, fmt.Errorf("expected value to be int, got %T", in)
 	}
 
-	return LexicographicallySortableUint32(uint32(value))
+	return LexicographicallySortableUint64(uint64(value))
 }
 
 // assumes an untyped bool and stores as bool64

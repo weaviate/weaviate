@@ -63,7 +63,7 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 }
 
 func (s *Shard) makeCoordinatesForID(propName string) geo.CoordinatesForID {
-	return func(ctx context.Context, id int32) (*models.GeoCoordinates, error) {
+	return func(ctx context.Context, id uint64) (*models.GeoCoordinates, error) {
 		obj, err := s.objectByIndexID(ctx, id, true)
 		if err != nil {
 			return nil, errors.Wrap(err, "retrieve object")
@@ -147,7 +147,7 @@ func (s *Shard) addToGeoIndex(propName string, index propertyspecific.Index,
 			&models.GeoCoordinates{}, propValue)
 	}
 
-	if err := index.GeoIndex.Add(int(status.docID), asGeo); err != nil {
+	if err := index.GeoIndex.Add(status.docID, asGeo); err != nil {
 		return errors.Wrapf(err, "insert into geo index")
 	}
 
@@ -155,8 +155,8 @@ func (s *Shard) addToGeoIndex(propName string, index propertyspecific.Index,
 }
 
 func (s *Shard) deleteFromGeoIndex(index propertyspecific.Index,
-	docID uint32) error {
-	if err := index.GeoIndex.Delete(int(docID)); err != nil {
+	docID uint64) error {
+	if err := index.GeoIndex.Delete(docID); err != nil {
 		return errors.Wrapf(err, "delete from geo index")
 	}
 

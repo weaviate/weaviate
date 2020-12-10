@@ -57,7 +57,7 @@ func TestStorageObjectMarshalling(t *testing.T) {
 	t.Run("extract only doc id and compare", func(t *testing.T) {
 		id, err := DocIDFromBinary(asBinary)
 		require.Nil(t, err)
-		assert.Equal(t, uint32(7), id)
+		assert.Equal(t, uint64(7), id)
 	})
 }
 
@@ -66,7 +66,7 @@ func TestNewStorageObject(t *testing.T) {
 		so := New(kind.Thing, 12)
 
 		t.Run("check index id", func(t *testing.T) {
-			assert.Equal(t, uint32(12), so.docID)
+			assert.Equal(t, uint64(12), so.docID)
 		})
 
 		t.Run("is invalid without required params", func(t *testing.T) {
@@ -75,7 +75,7 @@ func TestNewStorageObject(t *testing.T) {
 
 		t.Run("reassign index id", func(t *testing.T) {
 			so.SetDocID(13)
-			assert.Equal(t, uint32(13), so.docID)
+			assert.Equal(t, uint64(13), so.docID)
 		})
 
 		t.Run("assign class", func(t *testing.T) {
@@ -120,7 +120,7 @@ func TestNewStorageObject(t *testing.T) {
 		so := New(kind.Action, 12)
 
 		t.Run("check index id", func(t *testing.T) {
-			assert.Equal(t, uint32(12), so.docID)
+			assert.Equal(t, uint64(12), so.docID)
 		})
 
 		t.Run("is invalid without required params", func(t *testing.T) {
@@ -129,7 +129,7 @@ func TestNewStorageObject(t *testing.T) {
 
 		t.Run("reassign index id", func(t *testing.T) {
 			so.SetDocID(13)
-			assert.Equal(t, uint32(13), so.docID)
+			assert.Equal(t, uint64(13), so.docID)
 		})
 
 		t.Run("assign class", func(t *testing.T) {

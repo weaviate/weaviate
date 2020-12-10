@@ -33,7 +33,7 @@ func TestGeoJourney(t *testing.T) {
 		},
 	}
 
-	getCoordinates := func(ctx context.Context, id int32) (*models.GeoCoordinates, error) {
+	getCoordinates := func(ctx context.Context, id uint64) (*models.GeoCoordinates, error) {
 		return &elements[id], nil
 	}
 
@@ -47,7 +47,7 @@ func TestGeoJourney(t *testing.T) {
 
 	t.Run("importing all", func(t *testing.T) {
 		for id, coordinates := range elements {
-			err := geoIndex.Add(id, &coordinates)
+			err := geoIndex.Add(uint64(id), &coordinates)
 			require.Nil(t, err)
 		}
 	})
@@ -89,7 +89,7 @@ func TestGeoJourney(t *testing.T) {
 		})
 		require.Nil(t, err)
 
-		expectedResults := []int{0, 1}
+		expectedResults := []uint64{0, 1}
 		assert.Equal(t, expectedResults, results)
 	})
 
@@ -104,7 +104,7 @@ func TestGeoJourney(t *testing.T) {
 		})
 		require.Nil(t, err)
 
-		expectedResults := []int{0}
+		expectedResults := []uint64{0}
 		assert.Equal(t, expectedResults, results)
 	})
 }

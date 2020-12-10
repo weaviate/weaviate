@@ -21,7 +21,7 @@ import (
 
 // Delete attaches a tombstone to an item so it can be periodically cleaned up
 // later and the edges reassigned
-func (h *hnsw) Delete(id int) error {
+func (h *hnsw) Delete(id uint64) error {
 	h.deleteLock.Lock()
 	defer h.deleteLock.Unlock()
 
@@ -74,13 +74,13 @@ func (h *hnsw) tombstonesAsDenyList() helpers.AllowList {
 
 	tombstones := h.tombstones
 	for id := range tombstones {
-		deleteList.Insert(uint32(id))
+		deleteList.Insert(uint64(id))
 	}
 
 	return deleteList
 }
 
-func (h *hnsw) getEntrypoint() int {
+func (h *hnsw) getEntrypoint() uint64 {
 	h.RLock()
 	defer h.RUnlock()
 
@@ -93,7 +93,7 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 	deleteList := helpers.AllowList{}
 
 	h.RLock()
-	lenOfNodes := len(h.nodes)
+	lenOfNodes := uint64(len(h.nodes))
 	tombstones := h.tombstones
 	h.RUnlock()
 
@@ -107,7 +107,7 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 			continue
 		}
 
-		deleteList.Insert(uint32(id))
+		deleteList.Insert(id)
 	}
 
 	if err := h.reassignNeighborsOf(deleteList); err != nil {
@@ -158,16 +158,17 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList) error {
 	currentEntrypoint := h.entryPointID
 	h.RUnlock()
 
-	for neighbor := 0; neighbor < size; neighbor++ {
+	for n := 0; n < size; n++ {
+		neighbor := uint64(n)
 		h.RLock()
 		neighborNode := h.nodes[neighbor]
 		h.RUnlock()
 
-		if neighborNode == nil || deleteList.Contains(uint32(neighborNode.id)) {
+		if neighborNode == nil || deleteList.Contains(neighborNode.id) {
 			continue
 		}
 
-		neighborVec, err := h.vectorForID(context.Background(), int32(neighbor))
+		neighborVec, err := h.vectorForID(context.Background(), neighbor)
 		if err != nil {
 			var e storobj.ErrNotFound
 			if errors.As(err, &e) {
@@ -202,14 +203,14 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList) error {
 			if h.isOnlyNode(&vertex{id: neighbor}, deleteList) {
 				neighborNode.Lock()
 				// delete all existing connections before re-assigning
-				neighborNode.connections = map[int][]uint32{}
+				neighborNode.connections = map[int][]uint64{}
 				neighborNode.Unlock()
 				h.commitLog.ClearLinks(neighbor)
 				continue
 			}
 
 			tmpDenyList := deleteList.DeepCopy()
-			tmpDenyList.Insert(uint32(entryPointID))
+			tmpDenyList.Insert(entryPointID)
 			alternative, _, _ := h.findNewEntrypoint(tmpDenyList, h.currentMaximumLayer,
 				entryPointID)
 			entryPointID = alternative
@@ -217,7 +218,7 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList) error {
 
 		neighborNode.Lock()
 		// delete all existing connections before re-assigning
-		neighborNode.connections = map[int][]uint32{}
+		neighborNode.connections = map[int][]uint64{}
 		neighborNode.Unlock()
 		h.commitLog.ClearLinks(neighbor)
 
@@ -230,7 +231,7 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList) error {
 	return nil
 }
 
-func connectionsPointTo(connections map[int][]uint32, needles helpers.AllowList) bool {
+func connectionsPointTo(connections map[int][]uint64, needles helpers.AllowList) bool {
 	for _, atLevel := range connections {
 		for _, pointer := range atLevel {
 			if needles.Contains(pointer) {
@@ -273,7 +274,7 @@ func (h *hnsw) deleteEntrypoint(node *vertex, denyList helpers.AllowList) error 
 
 // returns entryPointID, level
 func (h *hnsw) findNewEntrypoint(denyList helpers.AllowList, targetLevel int,
-	oldEntrypoint int) (int, int, bool) {
+	oldEntrypoint uint64) (uint64, int, bool) {
 	if h.getEntrypoint() != oldEntrypoint {
 		// entrypoint has already been changed (this could be due to a new import
 		// for example, nothing to do for us
@@ -297,7 +298,7 @@ func (h *hnsw) findNewEntrypoint(denyList helpers.AllowList, targetLevel int,
 				return 0, 0, false
 			}
 
-			if denyList.Contains(uint32(i)) {
+			if denyList.Contains(uint64(i)) {
 				continue
 			}
 			h.RLock()
@@ -318,7 +319,7 @@ func (h *hnsw) findNewEntrypoint(denyList helpers.AllowList, targetLevel int,
 			}
 
 			// we have a node that matches
-			return i, l, true
+			return uint64(i), l, true
 		}
 	}
 
@@ -333,7 +334,7 @@ func (h *hnsw) isOnlyNode(needle *vertex, denyList helpers.AllowList) bool {
 	defer h.RUnlock()
 
 	for _, node := range h.nodes {
-		if node == nil || node.id == needle.id || denyList.Contains(uint32(node.id)) {
+		if node == nil || node.id == needle.id || denyList.Contains(uint64(node.id)) {
 			continue
 		}
 
@@ -343,14 +344,14 @@ func (h *hnsw) isOnlyNode(needle *vertex, denyList helpers.AllowList) bool {
 	return true
 }
 
-func (h *hnsw) hasTombstone(id int) bool {
+func (h *hnsw) hasTombstone(id uint64) bool {
 	h.RLock()
 	defer h.RUnlock()
 	_, ok := h.tombstones[id]
 	return ok
 }
 
-func (h *hnsw) addTombstone(id int) {
+func (h *hnsw) addTombstone(id uint64) {
 	h.Lock()
 	h.tombstones[id] = struct{}{}
 	h.Unlock()

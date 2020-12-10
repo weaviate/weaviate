@@ -35,7 +35,7 @@ func TestPeriodicTombstoneRemoval(t *testing.T) {
 	require.Nil(t, err)
 
 	for i, vec := range testVectors {
-		err := index.Add(i, vec)
+		err := index.Add(uint64(i), vec)
 		require.Nil(t, err)
 	}
 
@@ -45,7 +45,7 @@ func TestPeriodicTombstoneRemoval(t *testing.T) {
 				continue
 			}
 
-			err := index.Delete(i)
+			err := index.Delete(uint64(i))
 			require.Nil(t, err)
 		}
 	})

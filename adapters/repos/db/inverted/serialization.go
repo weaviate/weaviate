@@ -122,9 +122,9 @@ func ParseLexicographicallySortableInt64(in []byte) (int64, error) {
 	return value ^ math.MinInt64, nil
 }
 
-// LexicographicallySortableUint32 performs a conversion to a lexicographically
+// LexicographicallySortableUint64 performs a conversion to a lexicographically
 // sortable byte slice. For this, big endian notation is required.
-func LexicographicallySortableUint32(in uint32) ([]byte, error) {
+func LexicographicallySortableUint64(in uint64) ([]byte, error) {
 	buf := bytes.NewBuffer(nil)
 
 	// no signs to flip as this is a uint
@@ -136,19 +136,19 @@ func LexicographicallySortableUint32(in uint32) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// ParseLexicographicallySortableUint32 reverses the changes in
-// LexicographicallySortableUint32
-func ParseLexicographicallySortableUint32(in []byte) (uint32, error) {
-	if len(in) != 4 {
-		return 0, fmt.Errorf("uint32 must be 4 bytes long, got: %d", len(in))
+// ParseLexicographicallySortableUint64 reverses the changes in
+// LexicographicallySortableUint64
+func ParseLexicographicallySortableUint64(in []byte) (uint64, error) {
+	if len(in) != 8 {
+		return 0, fmt.Errorf("uint64 must be 8 bytes long, got: %d", len(in))
 	}
 
 	r := bytes.NewReader(in)
-	var value uint32
+	var value uint64
 
 	err := binary.Read(r, binary.BigEndian, &value)
 	if err != nil {
-		return 0, errors.Wrap(err, "deserialize uint32 value as big endian")
+		return 0, errors.Wrap(err, "deserialize uint64 value as big endian")
 	}
 
 	return value, nil
