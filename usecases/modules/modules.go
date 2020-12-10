@@ -23,20 +23,28 @@ type Module interface {
 	RootHandler() http.Handler
 }
 
-var registeredModules = map[string]Module{}
-
-func Register(mod Module) {
-	registeredModules[mod.Name()] = mod
+type Provider struct {
+	registered map[string]Module
 }
 
-func GetByName(name string) Module {
-	return registeredModules[name]
+func NewProvider() *Provider {
+	return &Provider{
+		registered: map[string]Module{},
+	}
 }
 
-func GetAll() []Module {
-	out := make([]Module, len(registeredModules))
+func (m *Provider) Register(mod Module) {
+	m.registered[mod.Name()] = mod
+}
+
+func (m *Provider) GetByName(name string) Module {
+	return m.registered[name]
+}
+
+func (m *Provider) GetAll() []Module {
+	out := make([]Module, len(m.registered))
 	i := 0
-	for _, mod := range registeredModules {
+	for _, mod := range m.registered {
 		out[i] = mod
 		i++
 	}
@@ -44,8 +52,8 @@ func GetAll() []Module {
 	return out
 }
 
-func Init() error {
-	for i, mod := range GetAll() {
+func (m *Provider) Init() error {
+	for i, mod := range m.GetAll() {
 		if err := mod.Init(); err != nil {
 			return errors.Wrapf(err, "init module %d (%q)", i, mod.Name())
 		}

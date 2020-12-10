@@ -213,7 +213,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState)
 
-	registerModules(appState.ServerConfig.Config, appState.Logger)
+	registerModules(appState)
 
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
 }
@@ -406,16 +406,17 @@ func validateContextionaryVersion(appState *state.State) {
 }
 
 // everything hard-coded right now, to be made dynmaic (from go plugins later)
-func registerModules(config config.Config, logger logrus.FieldLogger) error {
-	storageProvider, err := modulestorage.NewRepo(config.Persistence.DataPath, logger)
+func registerModules(appState *state.State) error {
+	storageProvider, err := modulestorage.NewRepo(
+		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
 	if err != nil {
 		return errors.Wrap(err, "init storage provider")
 	}
 
-	// TODO: don't use global state, create module provider
-	modules.Register(modcontextionary.New(storageProvider))
+	appState.Modules = modules.NewProvider()
+	appState.Modules.Register(modcontextionary.New(storageProvider))
 
-	err = modules.Init()
+	err = appState.Modules.Init()
 	if err != nil {
 		return errors.Wrap(err, "init modules")
 	}

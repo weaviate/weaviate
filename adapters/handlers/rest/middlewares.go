@@ -53,24 +53,26 @@ func addHandleRoot(next http.Handler) http.Handler {
 	})
 }
 
-func addModuleHandlers(next http.Handler) http.Handler {
-	mux := http.NewServeMux()
+func makeAddModuleHandlers(modules *modules.Provider) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		mux := http.NewServeMux()
 
-	for _, mod := range modules.GetAll() {
-		prefix := fmt.Sprintf("/v1/modules/%s", mod.Name())
-		mux.Handle(fmt.Sprintf("%s/", prefix),
-			http.StripPrefix(prefix, mod.RootHandler()))
-	}
-
-	prefix := "/v1/modules"
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if url := r.URL.String(); len(url) > len(prefix) && url[:len(prefix)] == prefix {
-			mux.ServeHTTP(w, r)
-			return
+		for _, mod := range modules.GetAll() {
+			prefix := fmt.Sprintf("/v1/modules/%s", mod.Name())
+			mux.Handle(fmt.Sprintf("%s/", prefix),
+				http.StripPrefix(prefix, mod.RootHandler()))
 		}
 
-		next.ServeHTTP(w, r)
-	})
+		prefix := "/v1/modules"
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if url := r.URL.String(); len(url) > len(prefix) && url[:len(prefix)] == prefix {
+				mux.ServeHTTP(w, r)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // The middleware configuration happens before anything, this middleware also applies to serving the swagger.json document.
@@ -88,7 +90,7 @@ func makeSetupGlobalMiddleware(appState *state.State) func(http.Handler) http.Ha
 		handler = addPreflight(handler)
 		handler = addLiveAndReadyness(handler)
 		handler = addHandleRoot(handler)
-		handler = addModuleHandlers(handler)
+		handler = makeAddModuleHandlers(appState.Modules)(handler)
 
 		return handler
 	}

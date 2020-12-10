@@ -21,6 +21,7 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/locks"
+	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/semi-technologies/weaviate/usecases/network"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/semi-technologies/weaviate/usecases/vectorizer"
@@ -41,6 +42,7 @@ type State struct {
 	GraphQL          graphql.GraphQL
 	Contextionary    contextionary
 	StopwordDetector stopwordDetector
+	Modules          *modules.Provider
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be
