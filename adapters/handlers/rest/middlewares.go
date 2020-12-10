@@ -12,11 +12,13 @@
 package rest
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/rs/cors"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/swagger_middleware"
+	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/sirupsen/logrus"
 )
 
@@ -51,6 +53,26 @@ func addHandleRoot(next http.Handler) http.Handler {
 	})
 }
 
+func addModuleHandlers(next http.Handler) http.Handler {
+	mux := http.NewServeMux()
+
+	for _, mod := range modules.GetAll() {
+		prefix := fmt.Sprintf("/v1/modules/%s", mod.Name())
+		mux.Handle(fmt.Sprintf("%s/", prefix),
+			http.StripPrefix(prefix, mod.RootHandler()))
+	}
+
+	prefix := "/v1/modules"
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if url := r.URL.String(); len(url) > len(prefix) && url[:len(prefix)] == prefix {
+			mux.ServeHTTP(w, r)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 // The middleware configuration happens before anything, this middleware also applies to serving the swagger.json document.
 // So this is a good place to plug in a panic handling middleware, logging and metrics
 // Contains "x-api-key", "x-api-token" for legacy reasons, older interfaces might need these headers.
@@ -66,6 +88,7 @@ func makeSetupGlobalMiddleware(appState *state.State) func(http.Handler) http.Ha
 		handler = addPreflight(handler)
 		handler = addLiveAndReadyness(handler)
 		handler = addHandleRoot(handler)
+		handler = addModuleHandlers(handler)
 
 		return handler
 	}
