@@ -31,7 +31,7 @@ docker-compose -f $DOCKER_COMPOSE_FILE down --remove-orphans
 rm -rf data connector_state.json schema_state.json
 
 if [[ "$*" == *--customdb* ]]; then
-  docker-compose -f $DOCKER_COMPOSE_FILE up -d etcd contextionary "${ADDITIONAL_SERVICES[@]}"
+  docker-compose -f $DOCKER_COMPOSE_FILE up -d contextionary "${ADDITIONAL_SERVICES[@]}"
 else
   docker-compose -f $DOCKER_COMPOSE_FILE up -d etcd contextionary esvector kibana "${ADDITIONAL_SERVICES[@]}"
 fi

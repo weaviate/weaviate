@@ -264,22 +264,21 @@ func startupRoutine() (*state.State, *clientv3.Client, *elasticsearch.Client) {
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("created db connector")
 
-	// parse config store URL
-	configURL := serverConfig.Config.ConfigurationStorage.URL
-	configStore, err := url.Parse(configURL)
-	if err != nil || configURL == "" {
-		logger.WithField("action", "startup").WithField("url", configURL).
-			WithError(err).Error("cannot parse config store URL")
-		logger.Exit(1)
-	}
-
 	var etcdClient *clientv3.Client
 	var esClient *elasticsearch.Client
 
 	if appState.ServerConfig.Config.Standalone {
 		appState.Locks = &dummyLock{}
 	} else {
-		var err error
+		// parse config store URL
+		configURL := serverConfig.Config.ConfigurationStorage.URL
+		configStore, err := url.Parse(configURL)
+		if err != nil || configURL == "" {
+			logger.WithField("action", "startup").WithField("url", configURL).
+				WithError(err).Error("cannot parse config store URL")
+			logger.Exit(1)
+		}
+
 		// Construct a distributed lock
 		etcdClient, err = clientv3.New(clientv3.Config{Endpoints: []string{configStore.String()}})
 		if err != nil {

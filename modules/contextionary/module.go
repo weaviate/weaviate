@@ -49,7 +49,7 @@ func (m *ContextionaryModule) initExtensions() error {
 func (m *ContextionaryModule) RootHandler() http.Handler {
 	mux := http.NewServeMux()
 
-	mux.Handle("/extensions/", http.StripPrefix("/extensions", m.extensions.Handler()))
+	mux.Handle("/extensions-storage/", http.StripPrefix("/extensions-storage", m.extensions.Handler()))
 
 	return mux
 }
