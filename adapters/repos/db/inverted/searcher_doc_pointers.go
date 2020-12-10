@@ -86,7 +86,7 @@ func (fs *Searcher) docPointersGeo(pv *propValuePair) (docPointers, error) {
 
 	out.docIDs = make([]docPointer, len(res))
 	for i, id := range res {
-		out.docIDs[i] = docPointer{id: uint64(id)}
+		out.docIDs[i] = docPointer{id: id}
 	}
 	out.count = uint64(len(res))
 
