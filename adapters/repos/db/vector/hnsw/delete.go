@@ -74,7 +74,7 @@ func (h *hnsw) tombstonesAsDenyList() helpers.AllowList {
 
 	tombstones := h.tombstones
 	for id := range tombstones {
-		deleteList.Insert(uint64(id))
+		deleteList.Insert(id)
 	}
 
 	return deleteList
@@ -334,7 +334,7 @@ func (h *hnsw) isOnlyNode(needle *vertex, denyList helpers.AllowList) bool {
 	defer h.RUnlock()
 
 	for _, node := range h.nodes {
-		if node == nil || node.id == needle.id || denyList.Contains(uint64(node.id)) {
+		if node == nil || node.id == needle.id || denyList.Contains(node.id) {
 			continue
 		}
 

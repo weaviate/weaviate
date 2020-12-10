@@ -198,7 +198,7 @@ const (
 func (l *hnswCommitLogger) AddNode(node *vertex) error {
 	w := &bytes.Buffer{}
 	l.writeCommitType(w, AddNode)
-	l.writeUint64(w, uint64(node.id))
+	l.writeUint64(w, node.id)
 	l.writeUint16(w, uint16(node.level))
 
 	l.events <- w.Bytes()
@@ -209,7 +209,7 @@ func (l *hnswCommitLogger) AddNode(node *vertex) error {
 func (l *hnswCommitLogger) SetEntryPointWithMaxLayer(id uint64, level int) error {
 	w := &bytes.Buffer{}
 	l.writeCommitType(w, SetEntryPointMaxLevel)
-	l.writeUint64(w, uint64(id))
+	l.writeUint64(w, id)
 	l.writeUint16(w, uint16(level))
 
 	l.events <- w.Bytes()
@@ -219,7 +219,7 @@ func (l *hnswCommitLogger) SetEntryPointWithMaxLayer(id uint64, level int) error
 func (l *hnswCommitLogger) AddLinkAtLevel(nodeid uint64, level int, target uint64) error {
 	w := &bytes.Buffer{}
 	l.writeCommitType(w, AddLinkAtLevel)
-	l.writeUint64(w, uint64(nodeid))
+	l.writeUint64(w, nodeid)
 	l.writeUint16(w, uint16(level))
 	l.writeUint64(w, target)
 
@@ -230,7 +230,7 @@ func (l *hnswCommitLogger) AddLinkAtLevel(nodeid uint64, level int, target uint6
 func (l *hnswCommitLogger) ReplaceLinksAtLevel(nodeid uint64, level int, targets []uint64) error {
 	w := &bytes.Buffer{}
 	l.writeCommitType(w, ReplaceLinksAtLevel)
-	l.writeUint64(w, uint64(nodeid))
+	l.writeUint64(w, nodeid)
 	l.writeUint16(w, uint16(level))
 	targetLength := len(targets)
 	if targetLength > math.MaxUint16 {
@@ -252,7 +252,7 @@ func (l *hnswCommitLogger) ReplaceLinksAtLevel(nodeid uint64, level int, targets
 func (l *hnswCommitLogger) AddTombstone(nodeid uint64) error {
 	w := &bytes.Buffer{}
 	l.writeCommitType(w, AddTombstone)
-	l.writeUint64(w, uint64(nodeid))
+	l.writeUint64(w, nodeid)
 
 	l.events <- w.Bytes()
 	return nil
@@ -261,7 +261,7 @@ func (l *hnswCommitLogger) AddTombstone(nodeid uint64) error {
 func (l *hnswCommitLogger) RemoveTombstone(nodeid uint64) error {
 	w := &bytes.Buffer{}
 	l.writeCommitType(w, RemoveTombstone)
-	l.writeUint64(w, uint64(nodeid))
+	l.writeUint64(w, nodeid)
 
 	l.events <- w.Bytes()
 	return nil
@@ -270,7 +270,7 @@ func (l *hnswCommitLogger) RemoveTombstone(nodeid uint64) error {
 func (l *hnswCommitLogger) ClearLinks(nodeid uint64) error {
 	w := &bytes.Buffer{}
 	l.writeCommitType(w, ClearLinks)
-	l.writeUint64(w, uint64(nodeid))
+	l.writeUint64(w, nodeid)
 
 	l.events <- w.Bytes()
 	return nil
@@ -279,7 +279,7 @@ func (l *hnswCommitLogger) ClearLinks(nodeid uint64) error {
 func (l *hnswCommitLogger) DeleteNode(nodeid uint64) error {
 	w := &bytes.Buffer{}
 	l.writeCommitType(w, DeleteNode)
-	l.writeUint64(w, uint64(nodeid))
+	l.writeUint64(w, nodeid)
 
 	l.events <- w.Bytes()
 	return nil
