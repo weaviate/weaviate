@@ -210,13 +210,8 @@ func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32,
 	}
 
 	var out []*storobj.Object
-	// TODO: unify
-	idsUint := make([]uint64, len(ids))
-	for i, id := range ids {
-		idsUint[i] = id
-	}
 	if err := s.db.View(func(tx *bolt.Tx) error {
-		res, err := docid.ObjectsInTx(tx, idsUint)
+		res, err := docid.ObjectsInTx(tx, ids)
 		if err != nil {
 			return errors.Wrap(err, "resolve doc ids to objects")
 		}
