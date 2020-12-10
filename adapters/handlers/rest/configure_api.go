@@ -20,8 +20,9 @@ import (
 
 	"github.com/coreos/etcd/clientv3"
 	"github.com/elastic/go-elasticsearch/v5"
-	"github.com/go-openapi/errors"
+	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/clients/contextionary"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
@@ -30,12 +31,15 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db"
 	"github.com/semi-technologies/weaviate/adapters/repos/esvector"
 	"github.com/semi-technologies/weaviate/adapters/repos/etcd"
+	modulestorage "github.com/semi-technologies/weaviate/adapters/repos/modules"
 	schemarepo "github.com/semi-technologies/weaviate/adapters/repos/schema"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
+	modcontextionary "github.com/semi-technologies/weaviate/modules/text2vec-contextionary"
 	"github.com/semi-technologies/weaviate/usecases/classification"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/kinds"
+	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/semi-technologies/weaviate/usecases/nearestneighbors"
 	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	"github.com/semi-technologies/weaviate/usecases/projector"
@@ -49,7 +53,7 @@ import (
 	_ "net/http/pprof"
 )
 
-const MinimumRequiredContextionaryVersion = "0.4.19"
+const MinimumRequiredContextionaryVersion = "0.4.21"
 
 func makeConfigureServer(appState *state.State) func(*http.Server, string, string) {
 	return func(s *http.Server, scheme, addr string) {
@@ -83,7 +87,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	validateContextionaryVersion(appState)
 
-	api.ServeError = errors.ServeError
+	api.ServeError = openapierrors.ServeError
 
 	api.JSONConsumer = runtime.JSONConsumer()
 
@@ -208,6 +212,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	configureServer = makeConfigureServer(appState)
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState)
+
+	registerModules(appState)
+
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
 }
 
@@ -257,28 +264,25 @@ func startupRoutine() (*state.State, *clientv3.Client, *elasticsearch.Client) {
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("created db connector")
 
-	// parse config store URL
-	configURL := serverConfig.Config.ConfigurationStorage.URL
-	configStore, err := url.Parse(configURL)
-	if err != nil || configURL == "" {
-		logger.WithField("action", "startup").WithField("url", configURL).
-			WithError(err).Error("cannot parse config store URL")
-		logger.Exit(1)
-	}
-
 	var etcdClient *clientv3.Client
 	var esClient *elasticsearch.Client
 
 	if appState.ServerConfig.Config.Standalone {
 		appState.Locks = &dummyLock{}
 	} else {
-		var err error
+		// parse config store URL
+		configURL := serverConfig.Config.ConfigurationStorage.URL
+		configStore, err := url.Parse(configURL)
+		if err != nil || len(configURL) == 0 {
+			logger.WithField("action", "startup").WithField("url", configURL).
+				WithError(err).Fatal("cannot parse config store URL")
+		}
+
 		// Construct a distributed lock
 		etcdClient, err = clientv3.New(clientv3.Config{Endpoints: []string{configStore.String()}})
 		if err != nil {
 			logger.WithField("action", "startup").
-				WithError(err).Error("cannot construct distributed lock with etcd")
-			logger.Exit(1)
+				WithError(err).Fatal("cannot construct distributed lock with etcd")
 		}
 		logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 			Debug("created etcd client")
@@ -288,8 +292,7 @@ func startupRoutine() (*state.State, *clientv3.Client, *elasticsearch.Client) {
 		})
 		if err != nil {
 			logger.WithField("action", "startup").
-				WithError(err).Error("cannot create es client for vector index")
-			logger.Exit(1)
+				WithError(err).Fatal("cannot create es client for vector index")
 		}
 		logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 			Debug("created es client for vector index")
@@ -298,8 +301,7 @@ func startupRoutine() (*state.State, *clientv3.Client, *elasticsearch.Client) {
 		etcdLock, err := locks.NewEtcdLock(etcdClient, "/weaviate/schema-connector-rw-lock", logger)
 		if err != nil {
 			logger.WithField("action", "startup").
-				WithError(err).Error("cannot create etcd-based lock")
-			logger.Exit(1)
+				WithError(err).Fatal("cannot create etcd-based lock")
 		}
 		appState.Locks = etcdLock
 	}
@@ -317,8 +319,7 @@ func startupRoutine() (*state.State, *clientv3.Client, *elasticsearch.Client) {
 	c11y, err := contextionary.NewClient(appState.ServerConfig.Config.Contextionary.URL)
 	if err != nil {
 		logger.WithField("action", "startup").
-			WithError(err).Error("cannot create c11y client")
-		logger.Exit(1)
+			WithError(err).Fatal("cannot create c11y client")
 	}
 
 	appState.StopwordDetector = c11y
@@ -360,6 +361,8 @@ func (d *dummyLock) LockSchema() (func() error, error) {
 	return func() error { return nil }, nil
 }
 
+// TODO: This should move into the text2vec-contextionary code once we deal
+// with modularization
 func validateContextionaryVersion(appState *state.State) {
 	for {
 		time.Sleep(1 * time.Second)
@@ -397,4 +400,23 @@ func validateContextionaryVersion(appState *state.State) {
 			break
 		}
 	}
+}
+
+// everything hard-coded right now, to be made dynmaic (from go plugins later)
+func registerModules(appState *state.State) error {
+	storageProvider, err := modulestorage.NewRepo(
+		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
+	if err != nil {
+		return errors.Wrap(err, "init storage provider")
+	}
+
+	appState.Modules = modules.NewProvider()
+	appState.Modules.Register(modcontextionary.New(storageProvider))
+
+	err = appState.Modules.Init()
+	if err != nil {
+		return errors.Wrap(err, "init modules")
+	}
+
+	return nil
 }
