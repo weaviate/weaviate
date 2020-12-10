@@ -151,7 +151,7 @@ func (a *numericalAggregator) AddInt64Row(number, count []byte) error {
 
 	numberParsed, err := inverted.ParseLexicographicallySortableInt64(number)
 	if err != nil {
-		return errors.Wrap(err, "read float64")
+		return errors.Wrap(err, "read int64")
 	}
 
 	asFloat := float64(numberParsed)

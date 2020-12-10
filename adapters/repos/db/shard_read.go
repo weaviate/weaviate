@@ -120,7 +120,7 @@ func (s *Shard) exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 }
 
 func (s *Shard) objectByIndexID(ctx context.Context,
-	indexID int64, acceptDeleted bool) (*storobj.Object, error) {
+	indexID uint64, acceptDeleted bool) (*storobj.Object, error) {
 	keyBuf := bytes.NewBuffer(nil)
 	binary.Write(keyBuf, binary.LittleEndian, &indexID)
 	key := keyBuf.Bytes()
@@ -165,7 +165,7 @@ func (s *Shard) objectByIndexID(ctx context.Context,
 	return out, nil
 }
 
-func (s *Shard) vectorByIndexID(ctx context.Context, indexID int64) ([]float32, error) {
+func (s *Shard) vectorByIndexID(ctx context.Context, indexID uint64) ([]float32, error) {
 	obj, err := s.objectByIndexID(ctx, indexID, true)
 	if err != nil {
 		return nil, err

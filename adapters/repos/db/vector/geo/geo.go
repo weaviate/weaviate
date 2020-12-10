@@ -38,10 +38,10 @@ type Index struct {
 
 // vectorIndex represents the underlying vector index, typically hnsw
 type vectorIndex interface {
-	Add(id int64, vector []float32) error
+	Add(id uint64, vector []float32) error
 	KnnSearchByVectorMaxDist(query []float32, dist float32, ef int,
-		allowList helpers.AllowList) ([]int64, error)
-	Delete(id int64) error
+		allowList helpers.AllowList) ([]uint64, error)
+	Delete(id uint64) error
 	Dump(...string)
 }
 
@@ -89,7 +89,7 @@ func makeCommitLoggerFromConfig(config Config) hnsw.MakeCommitLogger {
 
 // Add extends the index with the specified GeoCoordinates. It is thread-safe
 // and can be called concurrently.
-func (i *Index) Add(id int64, coordinates *models.GeoCoordinates) error {
+func (i *Index) Add(id uint64, coordinates *models.GeoCoordinates) error {
 	v, err := geoCoordiantesToVector(coordinates)
 	if err != nil {
 		return errors.Wrap(err, "invalid arguments")
@@ -101,7 +101,7 @@ func (i *Index) Add(id int64, coordinates *models.GeoCoordinates) error {
 // WithinGeoRange searches the index by the specified range. It is thread-safe
 // and can be called concurrently.
 func (i *Index) WithinRange(ctx context.Context,
-	geoRange filters.GeoRange) ([]int64, error) {
+	geoRange filters.GeoRange) ([]uint64, error) {
 	if geoRange.GeoCoordinates == nil {
 		return nil, fmt.Errorf("invalid arguments: GeoCoordinates in range must be set")
 	}
@@ -114,6 +114,6 @@ func (i *Index) WithinRange(ctx context.Context,
 	return i.vectorIndex.KnnSearchByVectorMaxDist(query, geoRange.Distance, 800, nil)
 }
 
-func (i *Index) Delete(id int64) error {
+func (i *Index) Delete(id uint64) error {
 	return i.vectorIndex.Delete(id)
 }

@@ -65,7 +65,7 @@ func (c *MemoryCondensor) Do(fileName string) error {
 	}
 
 	if res.EntrypointChanged {
-		if err := c.SetEntryPointWithMaxLayer(int64(res.Entrypoint),
+		if err := c.SetEntryPointWithMaxLayer(res.Entrypoint,
 			int(res.Level)); err != nil {
 			return errors.Wrap(err, "write entrypoint to commit log")
 		}
@@ -135,7 +135,7 @@ func (c *MemoryCondensor) AddNode(node *vertex) error {
 	return ec.toError()
 }
 
-func (c *MemoryCondensor) SetLinksAtLevel(nodeid int64, level int, targets []uint64) error {
+func (c *MemoryCondensor) SetLinksAtLevel(nodeid uint64, level int, targets []uint64) error {
 	ec := &errorCompounder{}
 	ec.add(c.writeCommitType(c.newLog, ReplaceLinksAtLevel))
 	ec.add(c.writeUint64(c.newLog, uint64(nodeid)))
@@ -156,7 +156,7 @@ func (c *MemoryCondensor) SetLinksAtLevel(nodeid int64, level int, targets []uin
 	return ec.toError()
 }
 
-func (c *MemoryCondensor) SetEntryPointWithMaxLayer(id int64, level int) error {
+func (c *MemoryCondensor) SetEntryPointWithMaxLayer(id uint64, level int) error {
 	ec := &errorCompounder{}
 	ec.add(c.writeCommitType(c.newLog, SetEntryPointMaxLevel))
 	ec.add(c.writeUint64(c.newLog, uint64(id)))
@@ -165,7 +165,7 @@ func (c *MemoryCondensor) SetEntryPointWithMaxLayer(id int64, level int) error {
 	return ec.toError()
 }
 
-func (c *MemoryCondensor) AddTombstone(nodeid int64) error {
+func (c *MemoryCondensor) AddTombstone(nodeid uint64) error {
 	ec := &errorCompounder{}
 	ec.add(c.writeCommitType(c.newLog, AddTombstone))
 	ec.add(c.writeUint64(c.newLog, uint64(nodeid)))

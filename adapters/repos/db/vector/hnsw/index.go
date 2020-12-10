@@ -52,7 +52,7 @@ type hnsw struct {
 	// this is a point on the highest level, if we insert a new point with a
 	// higher level it will become the new entry point. Note tat the level of
 	// this point is always currentMaximumLayer
-	entryPointID int64
+	entryPointID uint64
 
 	// ef parameter used in construction phases, should be higher than ef during querying
 	efConstruction int
@@ -71,7 +71,7 @@ type hnsw struct {
 	// but have not been cleaned up yet) Cleanup is the process of removal of all
 	// outgoing edges to the tombstone as well as deleting the tombstone itself.
 	// This process should happen periodically.
-	tombstones map[int64]struct{}
+	tombstones map[uint64]struct{}
 
 	// used for cancellation of the tombstone cleanup goroutine
 	cancel chan struct{}
@@ -88,20 +88,20 @@ type hnsw struct {
 
 type CommitLogger interface {
 	AddNode(node *vertex) error
-	SetEntryPointWithMaxLayer(id int64, level int) error
-	AddLinkAtLevel(nodeid int64, level int, target uint64) error
-	ReplaceLinksAtLevel(nodeid int64, level int, targets []uint64) error
-	AddTombstone(nodeid int64) error
-	RemoveTombstone(nodeid int64) error
-	DeleteNode(nodeid int64) error
-	ClearLinks(nodeid int64) error
+	SetEntryPointWithMaxLayer(id uint64, level int) error
+	AddLinkAtLevel(nodeid uint64, level int, target uint64) error
+	ReplaceLinksAtLevel(nodeid uint64, level int, targets []uint64) error
+	AddTombstone(nodeid uint64) error
+	RemoveTombstone(nodeid uint64) error
+	DeleteNode(nodeid uint64) error
+	ClearLinks(nodeid uint64) error
 	Reset() error
 	Drop() error
 }
 
 type MakeCommitLogger func() (CommitLogger, error)
 
-type VectorForID func(ctx context.Context, id int64) ([]float32, error)
+type VectorForID func(ctx context.Context, id uint64) ([]float32, error)
 
 // New creates a new HNSW index, the commit logger is provided through a thunk
 // (a function which can be deferred). This is because creating a commit logger
@@ -135,7 +135,7 @@ func New(cfg Config) (*hnsw, error) {
 		vectorCacheDrop:   vectorCache.drop,
 		id:                cfg.ID,
 		rootPath:          cfg.RootPath,
-		tombstones:        map[int64]struct{}{},
+		tombstones:        map[uint64]struct{}{},
 		logger:            cfg.Logger,
 		distancerProvider: cfg.DistanceProvider,
 		cancel:            make(chan struct{}),
@@ -186,7 +186,7 @@ func (h *hnsw) restoreFromDisk() error {
 
 	h.nodes = state.Nodes
 	h.currentMaximumLayer = int(state.Level)
-	h.entryPointID = int64(state.Entrypoint)
+	h.entryPointID = state.Entrypoint
 	h.tombstones = state.Tombstones
 
 	return nil
@@ -320,7 +320,7 @@ func (h *hnsw) registerTombstoneCleanup(cfg Config) {
 
 // }
 
-func (h *hnsw) Add(id int64, vector []float32) error {
+func (h *hnsw) Add(id uint64, vector []float32) error {
 	if len(vector) == 0 {
 		return fmt.Errorf("insert called with nil-vector")
 	}
@@ -430,7 +430,7 @@ func targetContained(haystack []uint64, needle uint64) bool {
 }
 
 func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
-	entryPointID int64, nodeVec []float32) (int64, error) {
+	entryPointID uint64, nodeVec []float32) (uint64, error) {
 	// in case the new target is lower than the current max, we need to search
 	// each layer for a better candidate and update the candidate
 	for level := currentMaxLevel; level > targetLevel; level-- {
@@ -463,7 +463,7 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 // TODO: split up. It's not as bad as it looks at first, as it has quite some
 // long comments, however, it should still be made prettier
 func (h *hnsw) findAndConnectNeighbors(node *vertex,
-	entryPointID int64, nodeVec []float32, targetLevel, currentMaxLevel int,
+	entryPointID uint64, nodeVec []float32, targetLevel, currentMaxLevel int,
 	denyList helpers.AllowList) error {
 	results := &binarySearchTreeGeneric{}
 	dist, ok, err := h.distBetweenNodeAndVec(entryPointID, nodeVec)
@@ -514,7 +514,7 @@ func (h *hnsw) findAndConnectNeighbors(node *vertex,
 		// neighborsAtLevel[level] = neighbors
 
 		for _, neighborID := range neighbors {
-			neighbor := h.nodeByID(int64(neighborID))
+			neighbor := h.nodeByID(neighborID)
 			if neighbor == node {
 				// don't connect to self
 				continue
@@ -529,8 +529,8 @@ func (h *hnsw) findAndConnectNeighbors(node *vertex,
 				continue
 			}
 
-			neighbor.linkAtLevel(level, uint64(node.id), h.commitLog)
-			node.linkAtLevel(level, uint64(neighbor.id), h.commitLog)
+			neighbor.linkAtLevel(level, node.id, h.commitLog)
+			node.linkAtLevel(level, neighbor.id, h.commitLog)
 
 			// before = time.Now()
 			neighbor.RLock()
@@ -568,7 +568,7 @@ func (h *hnsw) findAndConnectNeighbors(node *vertex,
 }
 
 type vertex struct {
-	id int64
+	id uint64
 	sync.RWMutex
 	level       int
 	connections map[int][]uint64 // map[level][]connectedId
@@ -581,7 +581,7 @@ func min(a, b int) int {
 	return b
 }
 
-func (h *hnsw) distBetweenNodes(a, b int64) (float32, bool, error) {
+func (h *hnsw) distBetweenNodes(a, b uint64) (float32, bool, error) {
 	// TODO: introduce single search/transaction context instead of spawning new
 	// ones
 	vecA, err := h.vectorForID(context.Background(), a)
@@ -625,10 +625,10 @@ func (h *hnsw) distBetweenNodes(a, b int64) (float32, bool, error) {
 	return h.distancerProvider.New(vecA).Distance(vecB)
 }
 
-func (h *hnsw) distBetweenNodeAndVec(node int64, vecB []float32) (float32, bool, error) {
+func (h *hnsw) distBetweenNodeAndVec(node uint64, vecB []float32) (float32, bool, error) {
 	// TODO: introduce single search/transaction context instead of spawning new
 	// ones
-	vecA, err := h.vectorForID(context.Background(), int64(node))
+	vecA, err := h.vectorForID(context.Background(), node)
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
@@ -698,7 +698,7 @@ func (h *hnsw) isEmpty() bool {
 	return true
 }
 
-func (h *hnsw) nodeByID(id int64) *vertex {
+func (h *hnsw) nodeByID(id uint64) *vertex {
 	h.RLock()
 	defer h.RUnlock()
 

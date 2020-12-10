@@ -67,7 +67,7 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {
 		return errors.Wrap(err, "bolt batch tx")
 	}
 
-	if err := s.vectorIndex.Delete(int64(docID)); err != nil {
+	if err := s.vectorIndex.Delete(docID); err != nil {
 		return errors.Wrap(err, "delete from vector index")
 	}
 

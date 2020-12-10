@@ -21,7 +21,7 @@ import (
 
 // Delete attaches a tombstone to an item so it can be periodically cleaned up
 // later and the edges reassigned
-func (h *hnsw) Delete(id int64) error {
+func (h *hnsw) Delete(id uint64) error {
 	h.deleteLock.Lock()
 	defer h.deleteLock.Unlock()
 
@@ -80,7 +80,7 @@ func (h *hnsw) tombstonesAsDenyList() helpers.AllowList {
 	return deleteList
 }
 
-func (h *hnsw) getEntrypoint() int64 {
+func (h *hnsw) getEntrypoint() uint64 {
 	h.RLock()
 	defer h.RUnlock()
 
@@ -93,7 +93,7 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 	deleteList := helpers.AllowList{}
 
 	h.RLock()
-	lenOfNodes := int64(len(h.nodes))
+	lenOfNodes := uint64(len(h.nodes))
 	tombstones := h.tombstones
 	h.RUnlock()
 
@@ -107,7 +107,7 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 			continue
 		}
 
-		deleteList.Insert(uint64(id))
+		deleteList.Insert(id)
 	}
 
 	if err := h.reassignNeighborsOf(deleteList); err != nil {
@@ -159,16 +159,16 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList) error {
 	h.RUnlock()
 
 	for n := 0; n < size; n++ {
-		neighbor := int64(n)
+		neighbor := uint64(n)
 		h.RLock()
 		neighborNode := h.nodes[neighbor]
 		h.RUnlock()
 
-		if neighborNode == nil || deleteList.Contains(uint64(neighborNode.id)) {
+		if neighborNode == nil || deleteList.Contains(neighborNode.id) {
 			continue
 		}
 
-		neighborVec, err := h.vectorForID(context.Background(), int64(neighbor))
+		neighborVec, err := h.vectorForID(context.Background(), neighbor)
 		if err != nil {
 			var e storobj.ErrNotFound
 			if errors.As(err, &e) {
@@ -210,7 +210,7 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList) error {
 			}
 
 			tmpDenyList := deleteList.DeepCopy()
-			tmpDenyList.Insert(uint64(entryPointID))
+			tmpDenyList.Insert(entryPointID)
 			alternative, _, _ := h.findNewEntrypoint(tmpDenyList, h.currentMaximumLayer,
 				entryPointID)
 			entryPointID = alternative
@@ -274,7 +274,7 @@ func (h *hnsw) deleteEntrypoint(node *vertex, denyList helpers.AllowList) error 
 
 // returns entryPointID, level
 func (h *hnsw) findNewEntrypoint(denyList helpers.AllowList, targetLevel int,
-	oldEntrypoint int64) (int64, int, bool) {
+	oldEntrypoint uint64) (uint64, int, bool) {
 	if h.getEntrypoint() != oldEntrypoint {
 		// entrypoint has already been changed (this could be due to a new import
 		// for example, nothing to do for us
@@ -319,7 +319,7 @@ func (h *hnsw) findNewEntrypoint(denyList helpers.AllowList, targetLevel int,
 			}
 
 			// we have a node that matches
-			return int64(i), l, true
+			return uint64(i), l, true
 		}
 	}
 
@@ -344,14 +344,14 @@ func (h *hnsw) isOnlyNode(needle *vertex, denyList helpers.AllowList) bool {
 	return true
 }
 
-func (h *hnsw) hasTombstone(id int64) bool {
+func (h *hnsw) hasTombstone(id uint64) bool {
 	h.RLock()
 	defer h.RUnlock()
 	_, ok := h.tombstones[id]
 	return ok
 }
 
-func (h *hnsw) addTombstone(id int64) {
+func (h *hnsw) addTombstone(id uint64) {
 	h.Lock()
 	h.tombstones[id] = struct{}{}
 	h.Unlock()

@@ -28,6 +28,6 @@ var testVectors = [][]float32{
 	{0.8, 0.7},
 }
 
-func testVectorForID(ctx context.Context, id int64) ([]float32, error) {
+func testVectorForID(ctx context.Context, id uint64) ([]float32, error) {
 	return testVectors[int(id)], nil
 }
