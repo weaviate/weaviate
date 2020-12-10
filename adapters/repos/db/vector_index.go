@@ -16,9 +16,9 @@ import "github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 // VectorIndex is anything that indexes vectors effieciently. For an example
 // look at ./vector/hsnw/index.go
 type VectorIndex interface {
-	Add(id int, vector []float32) error // TODO: make id uint32
-	Delete(id int) error
-	SearchByID(id int, k int) ([]int, error)
-	SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]int, error)
+	Add(id uint64, vector []float32) error
+	Delete(id uint64) error
+	SearchByID(id uint64, k int) ([]uint64, error)
+	SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, error)
 	Drop() error
 }

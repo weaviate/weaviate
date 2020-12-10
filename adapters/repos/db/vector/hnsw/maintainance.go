@@ -26,7 +26,7 @@ const (
 // function growing the index of the hnsw struct. It does not do any locking on
 // its own, make sure that this function is called from a single-thread or
 // locked situation
-func (h *hnsw) growIndexToAccomodateNode(id int, logger logrus.FieldLogger) error {
+func (h *hnsw) growIndexToAccomodateNode(id uint64, logger logrus.FieldLogger) error {
 	newIndex, err := growIndexToAccomodateNode(h.nodes, id, logger)
 	if err != nil {
 		return err
@@ -42,10 +42,10 @@ func (h *hnsw) growIndexToAccomodateNode(id int, logger logrus.FieldLogger) erro
 // growIndexToAccomodateNode is ever called outside of such an operation, the
 // caller must make sure to lock the graph as concurrent reads/write would
 // otherwise be possible
-func growIndexToAccomodateNode(index []*vertex, id int,
+func growIndexToAccomodateNode(index []*vertex, id uint64,
 	logger logrus.FieldLogger) ([]*vertex, error) {
 	before := time.Now()
-	previousSize := len(index)
+	previousSize := uint64(len(index))
 	if id < previousSize {
 		// node will fit, nothing to do
 		return index, nil
@@ -54,7 +54,7 @@ func growIndexToAccomodateNode(index []*vertex, id int,
 	// typically grow the index by the delta
 	newSize := previousSize + defaultIndexGrowthDelta
 
-	if newSize < id {
+	if uint64(newSize) < id {
 		// There are situations were docIDs are not in order. For example, if  the
 		// default size is 10k and the default delta is 10k. Imagine the user
 		// imports 21 objects, then deletes the first 20,500. When rebuilding the

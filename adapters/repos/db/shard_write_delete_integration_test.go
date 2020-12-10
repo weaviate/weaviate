@@ -162,13 +162,13 @@ func TestPerformCleanupIndexWithFrequencyProp(t *testing.T) {
 	})
 	require.Nil(t, err)
 
-	var updatedDocOneCount uint32
-	r := bytes.NewReader(afterOne[4:])
+	var updatedDocOneCount uint64
+	r := bytes.NewReader(afterOne[8:])
 	err = binary.Read(r, binary.LittleEndian, &updatedDocOneCount)
 	require.Nil(t, err)
 
-	var updatedDocTwoCount uint32
-	r = bytes.NewReader(afterTwo[4:])
+	var updatedDocTwoCount uint64
+	r = bytes.NewReader(afterTwo[8:])
 	err = binary.Read(r, binary.LittleEndian, &updatedDocTwoCount)
 	require.Nil(t, err)
 
@@ -179,12 +179,12 @@ func TestPerformCleanupIndexWithFrequencyProp(t *testing.T) {
 	assert.Equal(t, len(beforeObjID1), len(afterObjID1))
 	assert.NotEqual(t, len(beforeObjID2), len(afterObjID2))
 	assert.Equal(t, 0, len(afterObjID2))
-	assert.Equal(t, 2, len(beforeOne[8:])/8)
-	assert.Equal(t, 1, len(afterOne[8:])/8)
-	assert.Equal(t, 1, len(beforeTwo[8:])/8)
-	assert.Equal(t, 0, len(afterTwo[8:]))
-	assert.Equal(t, uint32(1), updatedDocOneCount)
-	assert.Equal(t, uint32(0), updatedDocTwoCount)
+	assert.Equal(t, 2, len(beforeOne[16:])/16)
+	assert.Equal(t, 1, len(afterOne[16:])/16)
+	assert.Equal(t, 1, len(beforeTwo[16:])/16)
+	assert.Equal(t, 0, len(afterTwo[16:]))
+	assert.Equal(t, uint64(1), updatedDocOneCount)
+	assert.Equal(t, uint64(0), updatedDocTwoCount)
 }
 
 func TestPerformCleanupIndexWithPropWithoutFrequency(t *testing.T) {
@@ -355,13 +355,13 @@ func TestPerformCleanupIndexWithPropWithoutFrequency(t *testing.T) {
 	})
 	require.Nil(t, err)
 
-	var updatedDocOneCount uint32
-	r := bytes.NewReader(afterOne[4:])
+	var updatedDocOneCount uint64
+	r := bytes.NewReader(afterOne[8:])
 	err = binary.Read(r, binary.LittleEndian, &updatedDocOneCount)
 	require.Nil(t, err)
 
-	var updatedDoc100Count uint32
-	r = bytes.NewReader(after100[4:])
+	var updatedDoc100Count uint64
+	r = bytes.NewReader(after100[8:])
 	err = binary.Read(r, binary.LittleEndian, &updatedDoc100Count)
 	require.Nil(t, err)
 
@@ -374,16 +374,16 @@ func TestPerformCleanupIndexWithPropWithoutFrequency(t *testing.T) {
 	assert.NotEqual(t, len(beforeObjID1), len(afterObjID1))
 	assert.NotEqual(t, len(beforeObjID2), len(afterObjID2))
 	assert.Equal(t, 0, len(afterObjID2))
-	assert.Equal(t, 5, len(beforeOne[8:])/8)
-	assert.Equal(t, 3, len(afterOne[8:])/8)
-	assert.Equal(t, 5, len(before100[8:])/4)
-	assert.Equal(t, 3, len(after100[8:])/4)
-	assert.Equal(t, len(beforeTwo[8:])/8, len(afterTwo[8:])/8)
-	assert.Equal(t, len(beforeThree[8:])/8, len(afterThree[8:])/8)
-	assert.Equal(t, len(beforeFour[8:])/8, len(afterFour[8:])/8)
-	assert.Equal(t, len(beforeFive[8:])/8, len(afterFive[8:])/8)
-	assert.Equal(t, uint32(3), updatedDocOneCount)
-	assert.Equal(t, uint32(3), updatedDoc100Count)
+	assert.Equal(t, 5, len(beforeOne[16:])/16)
+	assert.Equal(t, 3, len(afterOne[16:])/16)
+	assert.Equal(t, 5, len(before100[16:])/8)
+	assert.Equal(t, 3, len(after100[16:])/8)
+	assert.Equal(t, len(beforeTwo[16:])/16, len(afterTwo[16:])/16)
+	assert.Equal(t, len(beforeThree[16:])/16, len(afterThree[16:])/16)
+	assert.Equal(t, len(beforeFour[16:])/16, len(afterFour[16:])/16)
+	assert.Equal(t, len(beforeFive[16:])/16, len(afterFive[16:])/16)
+	assert.Equal(t, uint64(3), updatedDocOneCount)
+	assert.Equal(t, uint64(3), updatedDoc100Count)
 }
 
 func TestPerformCleanupIndexOnUpdateWithProps(t *testing.T) {
@@ -546,31 +546,31 @@ func TestPerformCleanupIndexOnUpdateWithProps(t *testing.T) {
 	})
 	require.Nil(t, err)
 
-	var updatedDocOneCount uint32
-	r := bytes.NewReader(afterOne[4:])
+	var updatedDocOneCount uint64
+	r := bytes.NewReader(afterOne[8:])
 	err = binary.Read(r, binary.LittleEndian, &updatedDocOneCount)
 	require.Nil(t, err)
 
-	var updatedDoc100Count uint32
-	r = bytes.NewReader(after100[4:])
+	var updatedDoc100Count uint64
+	r = bytes.NewReader(after100[8:])
 	err = binary.Read(r, binary.LittleEndian, &updatedDoc100Count)
 	require.Nil(t, err)
 
 	assert.Equal(t, 5, len(beforeDeletedIDs))
 	assert.Equal(t, 0, len(afterDeletedIDs))
-	assert.Equal(t, len(before100[8:])/4, len(after100[8:])/4)
-	assert.Equal(t, len(beforeOne[8:])/8, len(afterOne[8:])/8)
-	assert.Equal(t, len(beforeTwo[8:])/8, len(afterTwo[8:])/8)
-	assert.Equal(t, len(beforeThree[8:])/8, len(afterThree[8:])/8)
-	assert.Equal(t, len(beforeFour[8:])/8, len(afterFour[8:])/8)
-	assert.Equal(t, len(beforeFive[8:])/8, len(afterFive[8:])/8)
+	assert.Equal(t, len(before100[16:])/8, len(after100[16:])/8)
+	assert.Equal(t, len(beforeOne[16:])/16, len(afterOne[16:])/16)
+	assert.Equal(t, len(beforeTwo[16:])/16, len(afterTwo[16:])/16)
+	assert.Equal(t, len(beforeThree[16:])/16, len(afterThree[16:])/16)
+	assert.Equal(t, len(beforeFour[16:])/16, len(afterFour[16:])/16)
+	assert.Equal(t, len(beforeFive[16:])/16, len(afterFive[16:])/16)
 	// in between, after update and before cleanup, there should be 2x more of the entries
-	assert.Equal(t, (len(after100[8:])/4)*2, len(inBetween100[8:])/4)
-	assert.Equal(t, (len(afterOne[8:])/8)*2, len(inBetweenOne[8:])/8)
-	assert.Equal(t, (len(afterTwo[8:])/8)*2, len(inBetweenTwo[8:])/8)
-	assert.Equal(t, (len(afterThree[8:])/8)*2, len(inBetweenThree[8:])/8)
-	assert.Equal(t, (len(afterFour[8:])/8)*2, len(inBetweenFour[8:])/8)
-	assert.Equal(t, (len(afterFive[8:])/8)*2, len(inBetweenFive[8:])/8)
-	assert.Equal(t, uint32(5), updatedDocOneCount)
-	assert.Equal(t, uint32(5), updatedDoc100Count)
+	assert.Equal(t, (len(after100[16:])/8)*2, len(inBetween100[16:])/8)
+	assert.Equal(t, (len(afterOne[16:])/16)*2, len(inBetweenOne[16:])/16)
+	assert.Equal(t, (len(afterTwo[16:])/16)*2, len(inBetweenTwo[16:])/16)
+	assert.Equal(t, (len(afterThree[16:])/16)*2, len(inBetweenThree[16:])/16)
+	assert.Equal(t, (len(afterFour[16:])/16)*2, len(inBetweenFour[16:])/16)
+	assert.Equal(t, (len(afterFive[16:])/16)*2, len(inBetweenFive[16:])/16)
+	assert.Equal(t, uint64(5), updatedDocOneCount)
+	assert.Equal(t, uint64(5), updatedDoc100Count)
 }
