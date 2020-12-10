@@ -57,13 +57,13 @@ func (uc *UseCase) LoadAll() ([]byte, error) {
 
 		_, err = buf.Write([]byte("\n"))
 		if err != nil {
-			return false, errors.Wrapf(err, "write newline separator")
+			return false, errors.Wrap(err, "write newline separator")
 		}
 
 		return true, nil
 	})
 	if err != nil {
-		return nil, errors.Wrapf(err, "load all concepts")
+		return nil, errors.Wrap(err, "load all concepts")
 	}
 
 	return buf.Bytes(), nil
