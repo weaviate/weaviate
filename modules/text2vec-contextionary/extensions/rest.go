@@ -85,7 +85,7 @@ func (h *RESTHandlers) getAll(w http.ResponseWriter, r *http.Request) {
 func (h *RESTHandlers) put(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	concept := h.extractConcept(r)
-	if concept == "" {
+	if len(concept) == 0 {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}

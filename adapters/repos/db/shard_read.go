@@ -15,8 +15,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"fmt"
-	"runtime/debug"
 
 	"github.com/boltdb/bolt"
 	"github.com/go-openapi/strfmt"
@@ -190,14 +188,6 @@ func (s *Shard) objectSearch(ctx context.Context, limit int,
 
 func (s *Shard) objectVectorSearch(ctx context.Context, searchVector []float32,
 	limit int, filters *filters.LocalFilter, underscore traverser.UnderscoreProperties) ([]*storobj.Object, error) {
-	defer func() {
-		err := recover()
-		if err != nil {
-			fmt.Printf("\n\n%v\n\n", err)
-			debug.PrintStack()
-		}
-	}()
-
 	var allowList helpers.AllowList
 	if filters != nil {
 		list, err := inverted.NewSearcher(s.db, s.index.getSchema.GetSchemaSkipAuth(),

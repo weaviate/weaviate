@@ -8,4 +8,4 @@ services:
       LOG_LEVEL: debug
       OCCURRENCE_WEIGHT_LINEAR_FACTOR: 0.95
       EXTENSIONS_STORAGE_MODE: weaviate
-      EXTENSIONS_STORAGE_ORIGIN: http://docker.for.mac.localhost:8080
+      EXTENSIONS_STORAGE_ORIGIN: http://host.docker.internal:8080
