@@ -53,7 +53,7 @@ import (
 	_ "net/http/pprof"
 )
 
-const MinimumRequiredContextionaryVersion = "0.4.19"
+const MinimumRequiredContextionaryVersion = "0.4.21"
 
 func makeConfigureServer(appState *state.State) func(*http.Server, string, string) {
 	return func(s *http.Server, scheme, addr string) {
@@ -366,6 +366,8 @@ func (d *dummyLock) LockSchema() (func() error, error) {
 	return func() error { return nil }, nil
 }
 
+// TODO: This should move into the text2vec-contextionary code once we deal
+// with modularization
 func validateContextionaryVersion(appState *state.State) {
 	for {
 		time.Sleep(1 * time.Second)
