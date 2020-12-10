@@ -69,7 +69,7 @@ func (c *vectorCache) replaceMapIfFull() {
 	}
 }
 
-func (c *vectorCache) get(ctx context.Context, id int32) ([]float32, error) {
+func (c *vectorCache) get(ctx context.Context, id uint64) ([]float32, error) {
 	c.RLock()
 	vec, ok := c.cache.Load(id)
 	c.RUnlock()

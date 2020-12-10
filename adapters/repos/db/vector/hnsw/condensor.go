@@ -65,7 +65,7 @@ func (c *MemoryCondensor) Do(fileName string) error {
 	}
 
 	if res.EntrypointChanged {
-		if err := c.SetEntryPointWithMaxLayer(int(res.Entrypoint),
+		if err := c.SetEntryPointWithMaxLayer(res.Entrypoint,
 			int(res.Level)); err != nil {
 			return errors.Wrap(err, "write entrypoint to commit log")
 		}
@@ -89,10 +89,10 @@ func (c *MemoryCondensor) Do(fileName string) error {
 	return nil
 }
 
-func (c *MemoryCondensor) writeUint32(w io.Writer, in uint32) error {
+func (c *MemoryCondensor) writeUint64(w io.Writer, in uint64) error {
 	err := binary.Write(w, binary.LittleEndian, &in)
 	if err != nil {
-		return fmt.Errorf("writing uint32: %v", err)
+		return fmt.Errorf("writing uint64: %v", err)
 	}
 
 	return nil
@@ -116,10 +116,10 @@ func (c *MemoryCondensor) writeCommitType(w io.Writer, in HnswCommitType) error 
 	return nil
 }
 
-func (c *MemoryCondensor) writeUint32Slice(w io.Writer, in []uint32) error {
+func (c *MemoryCondensor) writeUint64Slice(w io.Writer, in []uint64) error {
 	err := binary.Write(w, binary.LittleEndian, &in)
 	if err != nil {
-		return fmt.Errorf("writing []uint32: %v", err)
+		return fmt.Errorf("writing []uint64: %v", err)
 	}
 
 	return nil
@@ -129,16 +129,16 @@ func (c *MemoryCondensor) writeUint32Slice(w io.Writer, in []uint32) error {
 func (c *MemoryCondensor) AddNode(node *vertex) error {
 	ec := &errorCompounder{}
 	ec.add(c.writeCommitType(c.newLog, AddNode))
-	ec.add(c.writeUint32(c.newLog, uint32(node.id)))
+	ec.add(c.writeUint64(c.newLog, node.id))
 	ec.add(c.writeUint16(c.newLog, uint16(node.level)))
 
 	return ec.toError()
 }
 
-func (c *MemoryCondensor) SetLinksAtLevel(nodeid int, level int, targets []uint32) error {
+func (c *MemoryCondensor) SetLinksAtLevel(nodeid uint64, level int, targets []uint64) error {
 	ec := &errorCompounder{}
 	ec.add(c.writeCommitType(c.newLog, ReplaceLinksAtLevel))
-	ec.add(c.writeUint32(c.newLog, uint32(nodeid)))
+	ec.add(c.writeUint64(c.newLog, nodeid))
 	ec.add(c.writeUint16(c.newLog, uint16(level)))
 
 	targetLength := len(targets)
@@ -151,24 +151,24 @@ func (c *MemoryCondensor) SetLinksAtLevel(nodeid int, level int, targets []uint3
 			Warning("condensor length of connections would overflow uint16, cutting off")
 	}
 	ec.add(c.writeUint16(c.newLog, uint16(targetLength)))
-	ec.add(c.writeUint32Slice(c.newLog, targets[:targetLength]))
+	ec.add(c.writeUint64Slice(c.newLog, targets[:targetLength]))
 
 	return ec.toError()
 }
 
-func (c *MemoryCondensor) SetEntryPointWithMaxLayer(id int, level int) error {
+func (c *MemoryCondensor) SetEntryPointWithMaxLayer(id uint64, level int) error {
 	ec := &errorCompounder{}
 	ec.add(c.writeCommitType(c.newLog, SetEntryPointMaxLevel))
-	ec.add(c.writeUint32(c.newLog, uint32(id)))
+	ec.add(c.writeUint64(c.newLog, id))
 	ec.add(c.writeUint16(c.newLog, uint16(level)))
 
 	return ec.toError()
 }
 
-func (c *MemoryCondensor) AddTombstone(nodeid int) error {
+func (c *MemoryCondensor) AddTombstone(nodeid uint64) error {
 	ec := &errorCompounder{}
 	ec.add(c.writeCommitType(c.newLog, AddTombstone))
-	ec.add(c.writeUint32(c.newLog, uint32(nodeid)))
+	ec.add(c.writeUint64(c.newLog, nodeid))
 
 	return ec.toError()
 }

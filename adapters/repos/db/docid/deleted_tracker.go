@@ -15,17 +15,17 @@ import "sync"
 
 type InMemDeletedTracker struct {
 	sync.RWMutex
-	ids map[uint32]struct{}
+	ids map[uint64]struct{}
 }
 
 func NewInMemDeletedTracker() *InMemDeletedTracker {
 	return &InMemDeletedTracker{
-		ids: map[uint32]struct{}{},
+		ids: map[uint64]struct{}{},
 	}
 }
 
 // Add is a thread-safe way to add a single deleted DocIDs
-func (t *InMemDeletedTracker) Add(id uint32) {
+func (t *InMemDeletedTracker) Add(id uint64) {
 	t.Lock()
 	defer t.Unlock()
 
@@ -34,7 +34,7 @@ func (t *InMemDeletedTracker) Add(id uint32) {
 
 // BulkAdd is a thread safe way to add multiple DocIDs, it looks only once for
 // the entire duration of the import
-func (t *InMemDeletedTracker) BulkAdd(ids []uint32) {
+func (t *InMemDeletedTracker) BulkAdd(ids []uint64) {
 	t.Lock()
 	defer t.Unlock()
 
@@ -45,7 +45,7 @@ func (t *InMemDeletedTracker) BulkAdd(ids []uint32) {
 
 // Contains is a thread-safe way to check if an ID is contained in the deleted
 // tracker, it uses "only" a ReadLock, so concurrent reads are possible.
-func (t *InMemDeletedTracker) Contains(id uint32) bool {
+func (t *InMemDeletedTracker) Contains(id uint64) bool {
 	t.RLock()
 	defer t.RUnlock()
 
@@ -55,7 +55,7 @@ func (t *InMemDeletedTracker) Contains(id uint32) bool {
 
 // Remove is a thread-safe way to remove a single deleted DocIDs (e.g. because
 // it has been ultimately cleaned up)
-func (t *InMemDeletedTracker) Remove(id uint32) {
+func (t *InMemDeletedTracker) Remove(id uint64) {
 	t.Lock()
 	defer t.Unlock()
 
@@ -64,11 +64,11 @@ func (t *InMemDeletedTracker) Remove(id uint32) {
 
 // GetAll is a thread-safe way to retrieve all entries, it uses a ReadLock for
 // concurrent reading
-func (t *InMemDeletedTracker) GetAll() []uint32 {
+func (t *InMemDeletedTracker) GetAll() []uint64 {
 	t.RLock()
 	defer t.RUnlock()
 
-	out := make([]uint32, len(t.ids))
+	out := make([]uint64, len(t.ids))
 	i := 0
 	for id := range t.ids {
 		out[i] = id
@@ -80,7 +80,7 @@ func (t *InMemDeletedTracker) GetAll() []uint32 {
 
 // BulkRemove is a thread-safe way to remove multiple ids, it locks only once,
 // for the entire duration of the deletion
-func (t *InMemDeletedTracker) BulkRemove(ids []uint32) {
+func (t *InMemDeletedTracker) BulkRemove(ids []uint64) {
 	t.Lock()
 	defer t.Unlock()
 

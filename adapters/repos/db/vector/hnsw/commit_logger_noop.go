@@ -19,31 +19,31 @@ func (n *NoopCommitLogger) AddNode(node *vertex) error {
 	return nil
 }
 
-func (n *NoopCommitLogger) SetEntryPointWithMaxLayer(id int, level int) error {
+func (n *NoopCommitLogger) SetEntryPointWithMaxLayer(id uint64, level int) error {
 	return nil
 }
 
-func (n *NoopCommitLogger) AddLinkAtLevel(nodeid int, level int, target uint32) error {
+func (n *NoopCommitLogger) AddLinkAtLevel(nodeid uint64, level int, target uint64) error {
 	return nil
 }
 
-func (n *NoopCommitLogger) ReplaceLinksAtLevel(nodeid int, level int, targets []uint32) error {
+func (n *NoopCommitLogger) ReplaceLinksAtLevel(nodeid uint64, level int, targets []uint64) error {
 	return nil
 }
 
-func (n *NoopCommitLogger) AddTombstone(nodeid int) error {
+func (n *NoopCommitLogger) AddTombstone(nodeid uint64) error {
 	return nil
 }
 
-func (n *NoopCommitLogger) RemoveTombstone(nodeid int) error {
+func (n *NoopCommitLogger) RemoveTombstone(nodeid uint64) error {
 	return nil
 }
 
-func (n *NoopCommitLogger) DeleteNode(nodeid int) error {
+func (n *NoopCommitLogger) DeleteNode(nodeid uint64) error {
 	return nil
 }
 
-func (n *NoopCommitLogger) ClearLinks(nodeid int) error {
+func (n *NoopCommitLogger) ClearLinks(nodeid uint64) error {
 	return nil
 }
 
