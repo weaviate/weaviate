@@ -21,7 +21,7 @@ import (
 )
 
 type Counter struct {
-	count uint32
+	count uint64
 	sync.Mutex
 	f *os.File
 }
@@ -38,7 +38,7 @@ func New(shardID string, rootPath string) (*Counter, error) {
 		return nil, err
 	}
 
-	var initialCount uint32 = 0
+	var initialCount uint64 = 0
 	if stat.Size() > 0 {
 		// the file has existed before, we need to initialize with its content
 		err := binary.Read(f, binary.LittleEndian, &initialCount)
@@ -53,7 +53,7 @@ func New(shardID string, rootPath string) (*Counter, error) {
 	}, nil
 }
 
-func (c *Counter) GetAndInc() (uint32, error) {
+func (c *Counter) GetAndInc() (uint64, error) {
 	c.Lock()
 	defer c.Unlock()
 	before := c.count

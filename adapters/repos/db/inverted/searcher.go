@@ -40,7 +40,7 @@ type Searcher struct {
 }
 
 type DeletedDocIDChecker interface {
-	Contains(id uint32) bool
+	Contains(id uint64) bool
 }
 
 func NewSearcher(db *bolt.DB, schema schema.Schema,
@@ -133,11 +133,11 @@ func (f *Searcher) DocIDs(ctx context.Context, filter *filters.LocalFilter,
 func (fs *Searcher) parseInvertedIndexRow(id, in []byte, limit int,
 	hasFrequency bool) (docPointers, error) {
 	out := docPointers{
-		checksum: make([]byte, 4),
+		checksum: make([]byte, 8),
 	}
 
-	// 0 is a non-existing row, 4 is one that only contains a checksum, but no content
-	if len(in) == 0 || len(in) == 4 {
+	// 0 is a non-existing row, 8 is one that only contains a checksum, but no content
+	if len(in) == 0 || len(in) == 8 {
 		return out, nil
 	}
 
@@ -166,7 +166,7 @@ func (fs *Searcher) parseInvertedIndexRow(id, in []byte, limit int,
 			break
 		}
 
-		var docID uint32
+		var docID uint64
 		if err := binary.Read(r, binary.LittleEndian, &docID); err != nil {
 			if err == io.EOF {
 				// we are done, because all entries are read
@@ -176,7 +176,7 @@ func (fs *Searcher) parseInvertedIndexRow(id, in []byte, limit int,
 			return out, errors.Wrap(err, "read doc id")
 		}
 
-		var frequency float32
+		var frequency float64
 
 		if hasFrequency {
 			if err := binary.Read(r, binary.LittleEndian, &frequency); err != nil {
@@ -453,18 +453,18 @@ func (fs *Searcher) onMultiWordPropValue(operator filters.Operator,
 }
 
 type docPointers struct {
-	count    uint32
+	count    uint64
 	docIDs   []docPointer
 	checksum []byte // helps us judge if a cached read is still fresh
 }
 
 type docPointer struct {
-	id        uint32
-	frequency *float32
+	id        uint64
+	frequency *float64
 }
 
-func (d docPointers) IDs() []uint32 {
-	out := make([]uint32, len(d.docIDs))
+func (d docPointers) IDs() []uint64 {
+	out := make([]uint64, len(d.docIDs))
 	for i, elem := range d.docIDs {
 		out[i] = elem.id
 	}

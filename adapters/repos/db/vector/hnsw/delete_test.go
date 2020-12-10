@@ -34,7 +34,7 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 			MaximumConnections:    30,
 			EFConstruction:        128,
 			DistanceProvider:      distancer.NewCosineProvider(),
-			VectorForIDThunk: func(ctx context.Context, id int32) ([]float32, error) {
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
 		})
@@ -42,12 +42,12 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 		vectorIndex = index
 
 		for i, vec := range vectors {
-			err := vectorIndex.Add(i, vec)
+			err := vectorIndex.Add(uint64(i), vec)
 			require.Nil(t, err)
 		}
 	})
 
-	var control []int
+	var control []uint64
 
 	t.Run("doing a control search before delete with the respective allow list", func(t *testing.T) {
 		allowList := helpers.AllowList{}
@@ -56,7 +56,7 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 				continue
 			}
 
-			allowList.Insert(uint32(i))
+			allowList.Insert(uint64(i))
 		}
 
 		res, err := vectorIndex.SearchByVector([]float32{0.1, 0.1, 0.1}, 20, allowList)
@@ -71,7 +71,7 @@ func TestDelete_WithoutCleaningUpTombstones(t *testing.T) {
 				continue
 			}
 
-			err := vectorIndex.Delete(i)
+			err := vectorIndex.Delete(uint64(i))
 			require.Nil(t, err)
 		}
 	})
@@ -104,7 +104,7 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 			MaximumConnections:    30,
 			EFConstruction:        128,
 			DistanceProvider:      distancer.NewCosineProvider(),
-			VectorForIDThunk: func(ctx context.Context, id int32) ([]float32, error) {
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
 		})
@@ -112,12 +112,12 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 		vectorIndex = index
 
 		for i, vec := range vectors {
-			err := vectorIndex.Add(i, vec)
+			err := vectorIndex.Add(uint64(i), vec)
 			require.Nil(t, err)
 		}
 	})
 
-	var control []int
+	var control []uint64
 
 	t.Run("doing a control search before delete with the respective allow list", func(t *testing.T) {
 		allowList := helpers.AllowList{}
@@ -126,7 +126,7 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 				continue
 			}
 
-			allowList.Insert(uint32(i))
+			allowList.Insert(uint64(i))
 		}
 
 		res, err := vectorIndex.SearchByVector([]float32{0.1, 0.1, 0.1}, 20, allowList)
@@ -142,7 +142,7 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 				continue
 			}
 
-			err := vectorIndex.Delete(i)
+			err := vectorIndex.Delete(uint64(i))
 			require.Nil(t, err)
 		}
 	})
@@ -184,7 +184,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 			MaximumConnections:    30,
 			EFConstruction:        128,
 			DistanceProvider:      distancer.NewCosineProvider(),
-			VectorForIDThunk: func(ctx context.Context, id int32) ([]float32, error) {
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
 				return vectors[int(id)], nil
 			},
 		})
@@ -192,12 +192,12 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 		vectorIndex = index
 
 		for i, vec := range vectors {
-			err := vectorIndex.Add(i, vec)
+			err := vectorIndex.Add(uint64(i), vec)
 			require.Nil(t, err)
 		}
 	})
 
-	var control []int
+	var control []uint64
 
 	t.Run("doing a control search before delete with the respective allow list", func(t *testing.T) {
 		allowList := helpers.AllowList{}
@@ -206,7 +206,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 				continue
 			}
 
-			allowList.Insert(uint32(i))
+			allowList.Insert(uint64(i))
 		}
 
 		res, err := vectorIndex.SearchByVector([]float32{0.1, 0.1, 0.1}, 20, allowList)
@@ -228,7 +228,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 				continue
 			}
 
-			err := vectorIndex.Delete(i)
+			err := vectorIndex.Delete(uint64(i))
 			require.Nil(t, err)
 		}
 
@@ -261,7 +261,7 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 				continue
 			}
 
-			err := vectorIndex.Delete(i)
+			err := vectorIndex.Delete(uint64(i))
 			require.Nil(t, err)
 		}
 
@@ -271,13 +271,13 @@ func TestDelete_WithCleaningUpTombstonesInBetween(t *testing.T) {
 
 	t.Run("try to insert again and search", func(t *testing.T) {
 		for i := 0; i < 5; i++ {
-			err := vectorIndex.Add(i, vectors[i])
+			err := vectorIndex.Add(uint64(i), vectors[i])
 			require.Nil(t, err)
 		}
 
 		res, err := vectorIndex.SearchByVector([]float32{0.1, 0.1, 0.1}, 20, nil)
 		require.Nil(t, err)
-		assert.ElementsMatch(t, []int{0, 1, 2, 3, 4}, res)
+		assert.ElementsMatch(t, []uint64{0, 1, 2, 3, 4}, res)
 	})
 }
 
@@ -431,60 +431,60 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 	index.nodes = make([]*vertex, 50)
 	index.nodes[0] = &vertex{
 		id: 0,
-		connections: map[int][]uint32{
-			0: []uint32{1, 2, 3, 4, 5, 6, 7, 8},
+		connections: map[int][]uint64{
+			0: []uint64{1, 2, 3, 4, 5, 6, 7, 8},
 		},
 	}
 	index.nodes[1] = &vertex{
 		id: 1,
-		connections: map[int][]uint32{
-			0: []uint32{0, 2, 3, 4, 5, 6, 7, 8},
+		connections: map[int][]uint64{
+			0: []uint64{0, 2, 3, 4, 5, 6, 7, 8},
 		},
 	}
 	index.nodes[2] = &vertex{
 		id: 2,
-		connections: map[int][]uint32{
-			0: []uint32{1, 0, 3, 4, 5, 6, 7, 8},
+		connections: map[int][]uint64{
+			0: []uint64{1, 0, 3, 4, 5, 6, 7, 8},
 		},
 	}
 	index.nodes[3] = &vertex{
 		id: 3,
-		connections: map[int][]uint32{
-			0: []uint32{2, 1, 0, 4, 5, 6, 7, 8},
+		connections: map[int][]uint64{
+			0: []uint64{2, 1, 0, 4, 5, 6, 7, 8},
 		},
 	}
 	index.nodes[4] = &vertex{
 		id: 4,
-		connections: map[int][]uint32{
-			0: []uint32{3, 2, 1, 0, 5, 6, 7, 8},
+		connections: map[int][]uint64{
+			0: []uint64{3, 2, 1, 0, 5, 6, 7, 8},
 		},
 	}
 	index.nodes[5] = &vertex{
 		id: 5,
-		connections: map[int][]uint32{
-			0: []uint32{3, 4, 2, 1, 0, 6, 7, 8},
+		connections: map[int][]uint64{
+			0: []uint64{3, 4, 2, 1, 0, 6, 7, 8},
 		},
 	}
 	index.nodes[6] = &vertex{
 		id: 6,
-		connections: map[int][]uint32{
-			0: []uint32{4, 3, 1, 3, 5, 0, 7, 8},
-			1: []uint32{7},
+		connections: map[int][]uint64{
+			0: []uint64{4, 3, 1, 3, 5, 0, 7, 8},
+			1: []uint64{7},
 		},
 		level: 1,
 	}
 	index.nodes[7] = &vertex{
 		id: 7,
-		connections: map[int][]uint32{
-			0: []uint32{6, 4, 3, 5, 2, 1, 0, 8},
-			1: []uint32{6},
+		connections: map[int][]uint64{
+			0: []uint64{6, 4, 3, 5, 2, 1, 0, 8},
+			1: []uint64{6},
 		},
 		level: 1,
 	}
 	index.nodes[8] = &vertex{
 		id: 8,
-		connections: map[int][]uint32{
-			8: []uint32{7, 6, 4, 3, 5, 2, 1, 0},
+		connections: map[int][]uint64{
+			8: []uint64{7, 6, 4, 3, 5, 2, 1, 0},
 		},
 	}
 
@@ -503,7 +503,7 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 
 	dumpIndex(index, "after delete")
 
-	expectedResults := []int{
+	expectedResults := []uint64{
 		3, 5, 4, // cluster 2
 		7,       // cluster 3 with element 6 and 8 deleted
 		2, 1, 0, // cluster 1
@@ -527,7 +527,7 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 		{6.5, -1},
 	}
 
-	vecForID := func(ctx context.Context, id int32) ([]float32, error) {
+	vecForID := func(ctx context.Context, id uint64) ([]float32, error) {
 		return vectors[int(id)], nil
 	}
 	// This test is motivated by flakyness of other tests. We seemed to have
@@ -562,29 +562,29 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 	// manually build the index
 	index.entryPointID = 2
 	index.currentMaximumLayer = 1
-	index.tombstones = map[int]struct{}{
+	index.tombstones = map[uint64]struct{}{
 		0: {},
 		1: {},
 	}
 	index.nodes = make([]*vertex, 50)
 	index.nodes[0] = &vertex{
 		id: 0,
-		connections: map[int][]uint32{
-			0: []uint32{1},
+		connections: map[int][]uint64{
+			0: []uint64{1},
 		},
 	}
 	index.nodes[1] = &vertex{
 		id: 1,
-		connections: map[int][]uint32{
-			0: []uint32{0, 2},
-			1: []uint32{2},
+		connections: map[int][]uint64{
+			0: []uint64{0, 2},
+			1: []uint64{2},
 		},
 	}
 	index.nodes[2] = &vertex{
 		id: 2,
-		connections: map[int][]uint32{
-			0: []uint32{1},
-			1: []uint32{1},
+		connections: map[int][]uint64{
+			0: []uint64{1},
+			1: []uint64{1},
 		},
 	}
 
@@ -594,7 +594,7 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 		index.Add(3, vec)
 	})
 
-	expectedResults := []int{
+	expectedResults := []uint64{
 		3, 2,
 	}
 
@@ -607,7 +607,7 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 }
 
 func TestDelete_TombstonedEntrypoint(t *testing.T) {
-	vecForID := func(ctx context.Context, id int32) ([]float32, error) {
+	vecForID := func(ctx context.Context, id uint64) ([]float32, error) {
 		// always return same vec  for all elements
 		return []float32{0.1, 0.2}, nil
 	}
@@ -634,5 +634,5 @@ func TestDelete_TombstonedEntrypoint(t *testing.T) {
 
 	res, err := index.SearchByVector(searchVec, 100, nil)
 	require.Nil(t, err)
-	assert.Equal(t, []int{1}, res, "should contain the only result")
+	assert.Equal(t, []uint64{1}, res, "should contain the only result")
 }

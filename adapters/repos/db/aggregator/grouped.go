@@ -57,7 +57,7 @@ func (ga *groupedAggregator) Do(ctx context.Context) (*aggregation.Result, error
 // (for each group) in a second step
 type group struct {
 	res    aggregation.Group
-	docIDs []uint32
+	docIDs []uint64
 }
 
 func (ga *groupedAggregator) identifyGroups(ctx context.Context) ([]group, error) {
@@ -69,7 +69,7 @@ func (ga *groupedAggregator) identifyGroups(ctx context.Context) ([]group, error
 }
 
 func (ga *groupedAggregator) aggregateGroup(ctx context.Context,
-	in aggregation.Group, ids []uint32) (aggregation.Group, error) {
+	in aggregation.Group, ids []uint64) (aggregation.Group, error) {
 	out := in
 	fa := newFilteredAggregator(ga.Aggregator)
 	props, err := fa.properties(ctx, ids)

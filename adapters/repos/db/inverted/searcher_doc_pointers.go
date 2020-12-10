@@ -15,7 +15,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"hash/crc32"
+	"hash/crc64"
 
 	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
@@ -53,7 +53,7 @@ func (fs *Searcher) docPointersInverted(prop []byte, b *bolt.Bucket, limit int,
 		pointers.docIDs = append(pointers.docIDs, curr.docIDs...)
 
 		hashes = append(hashes, curr.checksum)
-		if limit > 0 && pointers.count >= uint32(limit) {
+		if limit > 0 && pointers.count >= uint64(limit) {
 			return false, nil
 		}
 
@@ -86,9 +86,9 @@ func (fs *Searcher) docPointersGeo(pv *propValuePair) (docPointers, error) {
 
 	out.docIDs = make([]docPointer, len(res))
 	for i, id := range res {
-		out.docIDs[i] = docPointer{id: uint32(id)}
+		out.docIDs[i] = docPointer{id: id}
 	}
-	out.count = uint32(len(res))
+	out.count = uint64(len(res))
 
 	// we can not use the checksum in the same fashion as with the inverted
 	// index, i.e. it can not prevent a search as the underlying index does not
@@ -129,8 +129,8 @@ func combineChecksums(checksums [][]byte) ([]byte, error) {
 		total = append(total, chksum...)
 	}
 
-	newChecksum := crc32.ChecksumIEEE(total)
-	buf := bytes.NewBuffer(make([]byte, 0, 4))
+	newChecksum := crc64.Checksum(total, crc64.MakeTable(crc64.ISO))
+	buf := bytes.NewBuffer(make([]byte, 0, 8))
 	err := binary.Write(buf, binary.LittleEndian, &newChecksum)
 	return buf.Bytes(), err
 }
@@ -145,19 +145,19 @@ func combineChecksums(checksums [][]byte) ([]byte, error) {
 //
 // This is probably not the most efficient way to do this, as we are doing an
 // unnecessary binary.Write, just so we get a []byte which we can put into the
-// crc32 function. But given how rare we expect this case to be in use cases,
+// crc64 function. But given how rare we expect this case to be in use cases,
 // this seems like a good workaround for now. This might change.
-func docPointerChecksum(pointers []int) ([]byte, error) {
-	buf := bytes.NewBuffer(make([]byte, 0, len(pointers)*4))
+func docPointerChecksum(pointers []uint64) ([]byte, error) {
+	buf := bytes.NewBuffer(make([]byte, 0, len(pointers)*8))
 	for _, p := range pointers {
-		err := binary.Write(buf, binary.LittleEndian, uint32(p))
+		err := binary.Write(buf, binary.LittleEndian, uint64(p))
 		if err != nil {
 			return nil, errors.Wrap(err, "convert doc ids to little endian bytes")
 		}
 	}
 
-	chksum := crc32.ChecksumIEEE(buf.Bytes())
-	outBuf := bytes.NewBuffer(make([]byte, 0, 4))
+	chksum := crc64.Checksum(buf.Bytes(), crc64.MakeTable(crc64.ISO))
+	outBuf := bytes.NewBuffer(make([]byte, 0, 8))
 	err := binary.Write(outBuf, binary.LittleEndian, &chksum)
 	if err != nil {
 		return nil, errors.Wrap(err, "convert checksum to bytes")

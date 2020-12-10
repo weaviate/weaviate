@@ -52,34 +52,34 @@ func TestCondensor(t *testing.T) {
 		// these will be gone after condensing, this gives us a good way of testing
 		// whether they're really gone
 		for level := 0; level <= 3; level++ {
-			uncondensed.ReplaceLinksAtLevel(0, level, []uint32{1, 2, 3})
-			uncondensed.ReplaceLinksAtLevel(0, level, []uint32{1, 2})
-			uncondensed.ReplaceLinksAtLevel(0, level, []uint32{1})
-			uncondensed.ReplaceLinksAtLevel(0, level, []uint32{2})
-			uncondensed.ReplaceLinksAtLevel(0, level, []uint32{3})
-			uncondensed.ReplaceLinksAtLevel(0, level, []uint32{2, 3})
-			uncondensed.ReplaceLinksAtLevel(0, level, []uint32{1, 2, 3})
-			uncondensed.ReplaceLinksAtLevel(1, level, []uint32{0, 2, 3})
-			uncondensed.ReplaceLinksAtLevel(1, level, []uint32{0, 2})
-			uncondensed.ReplaceLinksAtLevel(1, level, []uint32{0})
-			uncondensed.ReplaceLinksAtLevel(1, level, []uint32{2})
-			uncondensed.ReplaceLinksAtLevel(1, level, []uint32{3})
-			uncondensed.ReplaceLinksAtLevel(1, level, []uint32{2, 3})
-			uncondensed.ReplaceLinksAtLevel(1, level, []uint32{0, 2, 3})
-			uncondensed.ReplaceLinksAtLevel(2, level, []uint32{0, 1, 3})
-			uncondensed.ReplaceLinksAtLevel(2, level, []uint32{0, 1})
-			uncondensed.ReplaceLinksAtLevel(2, level, []uint32{0})
-			uncondensed.ReplaceLinksAtLevel(2, level, []uint32{1})
-			uncondensed.ReplaceLinksAtLevel(2, level, []uint32{3})
-			uncondensed.ReplaceLinksAtLevel(2, level, []uint32{1, 3})
-			uncondensed.ReplaceLinksAtLevel(2, level, []uint32{0, 1, 3})
-			uncondensed.ReplaceLinksAtLevel(3, level, []uint32{0, 1, 2})
-			uncondensed.ReplaceLinksAtLevel(3, level, []uint32{0, 1})
-			uncondensed.ReplaceLinksAtLevel(3, level, []uint32{0})
-			uncondensed.ReplaceLinksAtLevel(3, level, []uint32{1})
-			uncondensed.ReplaceLinksAtLevel(3, level, []uint32{2})
-			uncondensed.ReplaceLinksAtLevel(3, level, []uint32{1, 2})
-			uncondensed.ReplaceLinksAtLevel(3, level, []uint32{0, 1, 2})
+			uncondensed.ReplaceLinksAtLevel(0, level, []uint64{1, 2, 3})
+			uncondensed.ReplaceLinksAtLevel(0, level, []uint64{1, 2})
+			uncondensed.ReplaceLinksAtLevel(0, level, []uint64{1})
+			uncondensed.ReplaceLinksAtLevel(0, level, []uint64{2})
+			uncondensed.ReplaceLinksAtLevel(0, level, []uint64{3})
+			uncondensed.ReplaceLinksAtLevel(0, level, []uint64{2, 3})
+			uncondensed.ReplaceLinksAtLevel(0, level, []uint64{1, 2, 3})
+			uncondensed.ReplaceLinksAtLevel(1, level, []uint64{0, 2, 3})
+			uncondensed.ReplaceLinksAtLevel(1, level, []uint64{0, 2})
+			uncondensed.ReplaceLinksAtLevel(1, level, []uint64{0})
+			uncondensed.ReplaceLinksAtLevel(1, level, []uint64{2})
+			uncondensed.ReplaceLinksAtLevel(1, level, []uint64{3})
+			uncondensed.ReplaceLinksAtLevel(1, level, []uint64{2, 3})
+			uncondensed.ReplaceLinksAtLevel(1, level, []uint64{0, 2, 3})
+			uncondensed.ReplaceLinksAtLevel(2, level, []uint64{0, 1, 3})
+			uncondensed.ReplaceLinksAtLevel(2, level, []uint64{0, 1})
+			uncondensed.ReplaceLinksAtLevel(2, level, []uint64{0})
+			uncondensed.ReplaceLinksAtLevel(2, level, []uint64{1})
+			uncondensed.ReplaceLinksAtLevel(2, level, []uint64{3})
+			uncondensed.ReplaceLinksAtLevel(2, level, []uint64{1, 3})
+			uncondensed.ReplaceLinksAtLevel(2, level, []uint64{0, 1, 3})
+			uncondensed.ReplaceLinksAtLevel(3, level, []uint64{0, 1, 2})
+			uncondensed.ReplaceLinksAtLevel(3, level, []uint64{0, 1})
+			uncondensed.ReplaceLinksAtLevel(3, level, []uint64{0})
+			uncondensed.ReplaceLinksAtLevel(3, level, []uint64{1})
+			uncondensed.ReplaceLinksAtLevel(3, level, []uint64{2})
+			uncondensed.ReplaceLinksAtLevel(3, level, []uint64{1, 2})
+			uncondensed.ReplaceLinksAtLevel(3, level, []uint64{0, 1, 2})
 		}
 		uncondensed.SetEntryPointWithMaxLayer(3, 3)
 		uncondensed.AddTombstone(2)
@@ -97,10 +97,10 @@ func TestCondensor(t *testing.T) {
 		// these will be gone after condensing, this gives us a good way of testing
 		// whether they're really gone
 		for level := 0; level <= 3; level++ {
-			perfect.ReplaceLinksAtLevel(0, level, []uint32{1, 2, 3})
-			perfect.ReplaceLinksAtLevel(1, level, []uint32{0, 2, 3})
-			perfect.ReplaceLinksAtLevel(2, level, []uint32{0, 1, 3})
-			perfect.ReplaceLinksAtLevel(3, level, []uint32{0, 1, 2})
+			perfect.ReplaceLinksAtLevel(0, level, []uint64{1, 2, 3})
+			perfect.ReplaceLinksAtLevel(1, level, []uint64{0, 2, 3})
+			perfect.ReplaceLinksAtLevel(2, level, []uint64{0, 1, 3})
+			perfect.ReplaceLinksAtLevel(3, level, []uint64{0, 1, 2})
 		}
 		perfect.SetEntryPointWithMaxLayer(3, 3)
 		perfect.AddTombstone(2)
@@ -187,8 +187,8 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 		res, err := NewDeserializer(logger).Do(fd, &initialState)
 		require.Nil(t, err)
 
-		assert.Contains(t, res.Nodes, &vertex{id: 0, level: 3, connections: map[int][]uint32{}})
-		assert.Equal(t, uint32(17), res.Entrypoint)
+		assert.Contains(t, res.Nodes, &vertex{id: 0, level: 3, connections: map[int][]uint64{}})
+		assert.Equal(t, uint64(17), res.Entrypoint)
 		assert.Equal(t, uint16(3), res.Level)
 	})
 }
@@ -203,7 +203,7 @@ func dumpIndexFromCommitLog(t *testing.T, fileName string) {
 	index := &hnsw{
 		nodes:               res.Nodes,
 		currentMaximumLayer: int(res.Level),
-		entryPointID:        int(res.Entrypoint),
+		entryPointID:        res.Entrypoint,
 		tombstones:          res.Tombstones,
 	}
 

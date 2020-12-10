@@ -19,7 +19,7 @@ import (
 )
 
 func (h *hnsw) KnnSearchByVectorMaxDist(searchVec []float32, dist float32,
-	ef int, allowList helpers.AllowList) ([]int, error) {
+	ef int, allowList helpers.AllowList) ([]uint64, error) {
 	entryPointID := h.entryPointID
 	entryPointDistance, ok, err := h.distBetweenNodeAndVec(entryPointID, searchVec)
 	if err != nil {
@@ -55,7 +55,7 @@ func (h *hnsw) KnnSearchByVectorMaxDist(searchVec []float32, dist float32,
 	}
 
 	flat := res.flattenInOrder()
-	out := make([]int, len(flat))
+	out := make([]uint64, len(flat))
 	i := 0
 	for _, elem := range flat {
 		if elem.dist > dist {

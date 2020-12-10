@@ -57,12 +57,12 @@ func (s *Shard) putObject(ctx context.Context, object *storobj.Object) error {
 func (s *Shard) updateVectorIndex(vector []float32,
 	status objectInsertStatus) error {
 	if status.docIDChanged {
-		if err := s.vectorIndex.Delete(int(status.oldDocID)); err != nil {
+		if err := s.vectorIndex.Delete(status.oldDocID); err != nil {
 			return errors.Wrapf(err, "delete doc id %d from vector index", status.oldDocID)
 		}
 	}
 
-	if err := s.vectorIndex.Add(int(status.docID), vector); err != nil {
+	if err := s.vectorIndex.Add(status.docID, vector); err != nil {
 		return errors.Wrapf(err, "insert doc id %d to vector index", status.docID)
 	}
 
@@ -110,9 +110,9 @@ func (s *Shard) putObjectInTx(tx *bolt.Tx, object *storobj.Object,
 }
 
 type objectInsertStatus struct {
-	docID        uint32
+	docID        uint64
 	docIDChanged bool
-	oldDocID     uint32
+	oldDocID     uint64
 }
 
 // to be called with the current contents of a row, if the row is empty (i.e.

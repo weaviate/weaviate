@@ -73,20 +73,20 @@ func TestSerialization(t *testing.T) {
 		}
 	})
 
-	t.Run("uint32", func(t *testing.T) {
-		subjects := []uint32{
+	t.Run("uint64", func(t *testing.T) {
+		subjects := []uint64{
 			0,
 			21,
 			400,
-			math.MaxUint32,
+			math.MaxUint64,
 		}
 
 		for _, sub := range subjects {
 			t.Run(fmt.Sprintf("with %d", sub), func(t *testing.T) {
-				bytes, err := LexicographicallySortableUint32(sub)
+				bytes, err := LexicographicallySortableUint64(sub)
 				require.Nil(t, err)
 
-				parsed, err := ParseLexicographicallySortableUint32(bytes)
+				parsed, err := ParseLexicographicallySortableUint64(bytes)
 				require.Nil(t, err)
 
 				assert.Equal(t, sub, parsed, "before and after must match")
