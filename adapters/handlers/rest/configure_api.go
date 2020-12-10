@@ -35,7 +35,7 @@ import (
 	schemarepo "github.com/semi-technologies/weaviate/adapters/repos/schema"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/search"
-	modcontextionary "github.com/semi-technologies/weaviate/modules/contextionary"
+	modcontextionary "github.com/semi-technologies/weaviate/modules/text2vec-contextionary"
 	"github.com/semi-technologies/weaviate/usecases/classification"
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/kinds"

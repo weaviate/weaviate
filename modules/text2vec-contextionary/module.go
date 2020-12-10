@@ -15,7 +15,7 @@ import (
 	"net/http"
 
 	"github.com/pkg/errors"
-	"github.com/semi-technologies/weaviate/modules/contextionary/extensions"
+	"github.com/semi-technologies/weaviate/modules/text2vec-contextionary/extensions"
 	"github.com/semi-technologies/weaviate/usecases/modules"
 )
 
@@ -34,7 +34,7 @@ type ContextionaryModule struct {
 }
 
 func (m *ContextionaryModule) Name() string {
-	return "contextionary"
+	return "text2vec-contextionary"
 }
 
 func (m *ContextionaryModule) Init() error {
