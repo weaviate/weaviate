@@ -86,7 +86,7 @@ func (s *storageBucket) Put(key, value []byte) error {
 	return s.repo.db.Batch(func(tx *bolt.Tx) error {
 		b := tx.Bucket(s.bucketKey)
 		if b == nil {
-			return fmt.Errorf("no bucket for key %s found", string(s.bucketKey))
+			return errors.Errorf("no bucket for key %s found", string(s.bucketKey))
 		}
 
 		if err := b.Put(key, value); err != nil {
@@ -102,7 +102,7 @@ func (s *storageBucket) Get(key []byte) ([]byte, error) {
 	err := s.repo.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(s.bucketKey)
 		if b == nil {
-			return fmt.Errorf("no bucket for key %s found", string(s.bucketKey))
+			return errors.Errorf("no bucket for key %s found", string(s.bucketKey))
 		}
 
 		out = b.Get(key)
