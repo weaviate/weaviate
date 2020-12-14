@@ -233,7 +233,7 @@ func (s *Shard) findDeletedDocs() error {
 func (s *Shard) startPeriodicCleanup() {
 	t := time.Tick(s.cleanupInterval)
 	batchCleanupInterval := 5 * time.Second
-	batchSize := 100
+	batchSize := 1000
 	go func(batchSize int, batchCleanupInterval time.Duration) {
 		for {
 			<-t
