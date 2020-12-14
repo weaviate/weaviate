@@ -38,6 +38,7 @@ func newCache(getFromSource VectorForID, logger logrus.FieldLogger) *vectorCache
 		maxSize:       50000, // TODO: make configurable
 		getFromSource: getFromSource,
 		cancel:        make(chan bool),
+		logger:        logger,
 	}
 
 	vc.watchForDeletion()
