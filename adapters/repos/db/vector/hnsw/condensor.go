@@ -92,7 +92,7 @@ func (c *MemoryCondensor) Do(fileName string) error {
 func (c *MemoryCondensor) writeUint64(w io.Writer, in uint64) error {
 	err := binary.Write(w, binary.LittleEndian, &in)
 	if err != nil {
-		return fmt.Errorf("writing uint64: %v", err)
+		return errors.Wrap(err, "writing uint64")
 	}
 
 	return nil
@@ -101,7 +101,7 @@ func (c *MemoryCondensor) writeUint64(w io.Writer, in uint64) error {
 func (c *MemoryCondensor) writeUint16(w io.Writer, in uint16) error {
 	err := binary.Write(w, binary.LittleEndian, &in)
 	if err != nil {
-		return fmt.Errorf("writing uint16: %v", err)
+		return errors.Wrap(err, "writing uint16")
 	}
 
 	return nil
@@ -110,7 +110,7 @@ func (c *MemoryCondensor) writeUint16(w io.Writer, in uint16) error {
 func (c *MemoryCondensor) writeCommitType(w io.Writer, in HnswCommitType) error {
 	err := binary.Write(w, binary.LittleEndian, &in)
 	if err != nil {
-		return fmt.Errorf("writing commit type: %v", err)
+		return errors.Wrap(err, "writing commit type")
 	}
 
 	return nil
@@ -119,7 +119,7 @@ func (c *MemoryCondensor) writeCommitType(w io.Writer, in HnswCommitType) error 
 func (c *MemoryCondensor) writeUint64Slice(w io.Writer, in []uint64) error {
 	err := binary.Write(w, binary.LittleEndian, &in)
 	if err != nil {
-		return fmt.Errorf("writing []uint64: %v", err)
+		return errors.Wrap(err, "writing []uint64")
 	}
 
 	return nil
