@@ -28,6 +28,9 @@ func reasonableEfFromK(k int) int {
 	if ef > 100 {
 		ef = 100
 	}
+	if k > ef {
+		ef = k // otherwise results will get cut off early
+	}
 
 	return ef
 }
