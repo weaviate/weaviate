@@ -87,21 +87,14 @@ func (h *hnsw) getEntrypoint() uint64 {
 	return h.entryPointID
 }
 
-// CleanUpTombstonedNodes removes nodes with a tombstone and reassignes edges
-// that were previously pointing to the tombstoned nodes
-func (h *hnsw) CleanUpTombstonedNodes() error {
-	deleteList := helpers.AllowList{}
-
+func (h *hnsw) copyTombstonesToAllowList() helpers.AllowList {
 	h.RLock()
+	defer h.RUnlock()
+
+	deleteList := helpers.AllowList{}
 	lenOfNodes := uint64(len(h.nodes))
-	tombstones := h.tombstones
-	h.RUnlock()
 
-	if lenOfNodes == 0 || len(tombstones) == 0 {
-		return nil
-	}
-
-	for id := range tombstones {
+	for id := range h.tombstones {
 		if lenOfNodes <= id {
 			// we're trying to delete an id outside the possible range, nothing to do
 			continue
@@ -110,11 +103,22 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 		deleteList.Insert(id)
 	}
 
+	return deleteList
+}
+
+// CleanUpTombstonedNodes removes nodes with a tombstone and reassignes edges
+// that were previously pointing to the tombstoned nodes
+func (h *hnsw) CleanUpTombstonedNodes() error {
+	deleteList := h.copyTombstonesToAllowList()
+	if len(deleteList) == 0 {
+		return nil
+	}
+
 	if err := h.reassignNeighborsOf(deleteList); err != nil {
 		return errors.Wrap(err, "reassign neighbor edges")
 	}
 
-	for id := range tombstones {
+	for id := range deleteList {
 		if h.getEntrypoint() == id {
 			// this a special case because:
 			//
@@ -132,7 +136,7 @@ func (h *hnsw) CleanUpTombstonedNodes() error {
 		}
 	}
 
-	for id := range tombstones {
+	for id := range deleteList {
 		h.Lock()
 		h.nodes[id] = nil
 		delete(h.tombstones, id)
