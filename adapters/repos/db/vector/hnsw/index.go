@@ -335,12 +335,18 @@ func (h *hnsw) Add(id uint64, vector []float32) error {
 func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 	h.Lock()
 	defer h.Unlock()
-	h.commitLog.SetEntryPointWithMaxLayer(node.id, 0)
+	if err := h.commitLog.SetEntryPointWithMaxLayer(node.id, 0); err != nil {
+		return err
+	}
+
 	h.entryPointID = node.id
 	h.currentMaximumLayer = 0
 	node.connections = map[int][]uint64{}
 	node.level = 0
-	h.commitLog.AddNode(node)
+	if err := h.commitLog.AddNode(node); err != nil {
+		return err
+	}
+
 	h.nodes[node.id] = node
 
 	// go h.insertHook(node.id, 0, node.connections)
@@ -378,7 +384,11 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 		return errors.Wrapf(err, "grow HNSW index to accommodate node %d", node.id)
 	}
 	h.nodes[nodeId] = node
-	h.commitLog.AddNode(node)
+	if err := h.commitLog.AddNode(node); err != nil {
+		h.Unlock()
+		return err
+	}
+
 	h.Unlock()
 
 	entryPointID, err = h.findBestEntrypointForNode(currentMaximumLayer, targetLevel,
@@ -398,7 +408,11 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 		// before = time.Now()
 		h.Lock()
 		// m.addBuildingLocking(before)
-		h.commitLog.SetEntryPointWithMaxLayer(nodeId, targetLevel)
+		if err := h.commitLog.SetEntryPointWithMaxLayer(nodeId, targetLevel); err != nil {
+			h.Unlock()
+			return err
+		}
+
 		h.entryPointID = nodeId
 		h.currentMaximumLayer = targetLevel
 		h.Unlock()
@@ -407,16 +421,21 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	return nil
 }
 
-func (v *vertex) linkAtLevel(level int, target uint64, cl CommitLogger) {
+func (v *vertex) linkAtLevel(level int, target uint64, cl CommitLogger) error {
 	v.Lock()
-	cl.AddLinkAtLevel(v.id, level, target)
+	defer v.Unlock()
+
+	if err := cl.AddLinkAtLevel(v.id, level, target); err != nil {
+		return err
+	}
+
 	if targetContained(v.connections[level], target) {
 		// already linked, nothing to do
-		v.Unlock()
-		return
+		return nil
 	}
+
 	v.connections[level] = append(v.connections[level], target)
-	v.Unlock()
+	return nil
 }
 
 func targetContained(haystack []uint64, needle uint64) bool {
@@ -529,8 +548,13 @@ func (h *hnsw) findAndConnectNeighbors(node *vertex,
 				continue
 			}
 
-			neighbor.linkAtLevel(level, node.id, h.commitLog)
-			node.linkAtLevel(level, neighbor.id, h.commitLog)
+			if err := neighbor.linkAtLevel(level, node.id, h.commitLog); err != nil {
+				return err
+			}
+
+			if err := node.linkAtLevel(level, neighbor.id, h.commitLog); err != nil {
+				return err
+			}
 
 			// before = time.Now()
 			neighbor.RLock()
@@ -558,7 +582,11 @@ func (h *hnsw) findAndConnectNeighbors(node *vertex,
 			// before = time.Now()
 			neighbor.Lock()
 			// m.addBuildingItemLocking(before)
-			h.commitLog.ReplaceLinksAtLevel(neighbor.id, level, updatedConnections)
+			if err := h.commitLog.ReplaceLinksAtLevel(neighbor.id, level,
+				updatedConnections); err != nil {
+				return err
+			}
+
 			neighbor.connections[level] = updatedConnections
 			neighbor.Unlock()
 		}

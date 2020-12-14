@@ -43,6 +43,7 @@ func NewCommitLogger(rootPath, name string,
 	logger logrus.FieldLogger) (*hnswCommitLogger, error) {
 	l := &hnswCommitLogger{
 		events:               make(chan []byte),
+		writeErrors:          make(chan error),
 		cancel:               make(chan struct{}),
 		rootPath:             rootPath,
 		id:                   name,
@@ -171,6 +172,7 @@ type condensor interface {
 
 type hnswCommitLogger struct {
 	events               chan []byte
+	writeErrors          chan error
 	cancel               chan struct{}
 	logFile              *os.File
 	rootPath             string
@@ -202,6 +204,10 @@ func (l *hnswCommitLogger) AddNode(node *vertex) error {
 	l.writeUint16(w, uint16(node.level))
 
 	l.events <- w.Bytes()
+	err := <-l.writeErrors
+	if err != nil {
+		return errors.Wrapf(err, "write node %d to commit log", node.id)
+	}
 
 	return nil
 }
@@ -213,6 +219,11 @@ func (l *hnswCommitLogger) SetEntryPointWithMaxLayer(id uint64, level int) error
 	l.writeUint16(w, uint16(level))
 
 	l.events <- w.Bytes()
+	err := <-l.writeErrors
+	if err != nil {
+		return errors.Wrapf(err, "write entrypoint %d (%d) to commit log", id, level)
+	}
+
 	return nil
 }
 
@@ -224,6 +235,12 @@ func (l *hnswCommitLogger) AddLinkAtLevel(nodeid uint64, level int, target uint6
 	l.writeUint64(w, target)
 
 	l.events <- w.Bytes()
+	err := <-l.writeErrors
+	if err != nil {
+		return errors.Wrapf(err, "write link at level %d->%d (%d) to commit log",
+			nodeid, target, level)
+	}
+
 	return nil
 }
 
@@ -246,6 +263,13 @@ func (l *hnswCommitLogger) ReplaceLinksAtLevel(nodeid uint64, level int, targets
 	l.writeUint64Slice(w, targets[:targetLength])
 
 	l.events <- w.Bytes()
+	err := <-l.writeErrors
+	if err != nil {
+		return errors.Wrapf(err,
+			"write (replacement) links at level %d->%v (%d) to commit log", nodeid,
+			targets, level)
+	}
+
 	return nil
 }
 
@@ -255,6 +279,12 @@ func (l *hnswCommitLogger) AddTombstone(nodeid uint64) error {
 	l.writeUint64(w, nodeid)
 
 	l.events <- w.Bytes()
+	err := <-l.writeErrors
+	if err != nil {
+		return errors.Wrapf(err,
+			"write tombstone %d to commit log", nodeid)
+	}
+
 	return nil
 }
 
@@ -264,6 +294,12 @@ func (l *hnswCommitLogger) RemoveTombstone(nodeid uint64) error {
 	l.writeUint64(w, nodeid)
 
 	l.events <- w.Bytes()
+	err := <-l.writeErrors
+	if err != nil {
+		return errors.Wrapf(err,
+			"write deletion of tombstone %d to commit log", nodeid)
+	}
+
 	return nil
 }
 
@@ -273,6 +309,12 @@ func (l *hnswCommitLogger) ClearLinks(nodeid uint64) error {
 	l.writeUint64(w, nodeid)
 
 	l.events <- w.Bytes()
+	err := <-l.writeErrors
+	if err != nil {
+		return errors.Wrapf(err,
+			"write clear links of node %d to commit log", nodeid)
+	}
+
 	return nil
 }
 
@@ -282,6 +324,12 @@ func (l *hnswCommitLogger) DeleteNode(nodeid uint64) error {
 	l.writeUint64(w, nodeid)
 
 	l.events <- w.Bytes()
+	err := <-l.writeErrors
+	if err != nil {
+		return errors.Wrapf(err,
+			"write delete node %d to commit log", nodeid)
+	}
+
 	return nil
 }
 
@@ -290,6 +338,11 @@ func (l *hnswCommitLogger) Reset() error {
 	l.writeCommitType(w, ResetIndex)
 
 	l.events <- w.Bytes()
+	err := <-l.writeErrors
+	if err != nil {
+		return errors.Wrap(err, "reset to commit log")
+	}
+
 	return nil
 }
 
@@ -323,7 +376,8 @@ func (l *hnswCommitLogger) startSwitchLogs() chan struct{} {
 			case <-cancel:
 				return
 			case event := <-l.events:
-				l.logFile.Write(event)
+				_, err := l.logFile.Write(event)
+				l.writeErrors <- err
 			case <-maintenance:
 				if err := l.maintenance(); err != nil {
 					l.logger.WithError(err).
