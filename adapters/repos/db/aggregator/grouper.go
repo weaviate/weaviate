@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -23,6 +22,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/aggregation"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
+	bolt "go.etcd.io/bbolt"
 )
 
 // grouper is the component which identifies the top-n groups for a specific

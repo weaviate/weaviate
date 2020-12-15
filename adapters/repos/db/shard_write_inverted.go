@@ -18,12 +18,12 @@ import (
 	"hash/crc64"
 	"io"
 
-	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/inverted"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	bolt "go.etcd.io/bbolt"
 )
 
 func (s *Shard) analyzeObject(object *storobj.Object) ([]inverted.Property, error) {
