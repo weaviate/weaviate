@@ -105,6 +105,11 @@ func (p CosineProvider) New(vec []float32) Distancer {
 	return newReusableDistancer(vec)
 }
 
+func (p CosineProvider) SingleDist(vec1, vec2 []float32) (float32, bool, error) {
+	res, err := cosineDist(vec1, vec2)
+	return res, err == nil, err
+}
+
 func NewCosineProvider() Provider {
 	return CosineProvider{}
 }

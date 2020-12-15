@@ -54,6 +54,10 @@ func (p GeoProvider) New(vec []float32) Distancer {
 	return GeoDistancer{a: vec}
 }
 
+func (p GeoProvider) SingleDist(vec1, vec2 []float32) (float32, bool, error) {
+	return geoDist(vec1, vec2)
+}
+
 func NewGeoProvider() Provider {
 	return GeoProvider{}
 }
