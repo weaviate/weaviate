@@ -35,7 +35,7 @@ func newCache(getFromSource VectorForID, logger logrus.FieldLogger) *vectorCache
 	vc := &vectorCache{
 		cache:         sync.Map{},
 		count:         0,
-		maxSize:       50000, // TODO: make configurable
+		maxSize:       500000, // TODO: make configurable
 		getFromSource: getFromSource,
 		cancel:        make(chan bool),
 		logger:        logger,
