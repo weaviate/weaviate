@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -36,6 +37,7 @@ func Test_CommitlogCombiner(t *testing.T) {
 		err := os.RemoveAll(rootPath)
 		fmt.Println(err)
 	}()
+	logger, _ := test.NewNullLogger()
 
 	threshold := int64(1000)
 	id := "combiner_test"
@@ -57,7 +59,7 @@ func Test_CommitlogCombiner(t *testing.T) {
 	})
 
 	t.Run("run combiner", func(t *testing.T) {
-		err := NewCommitLogCombiner(rootPath, id, threshold).Do()
+		err := NewCommitLogCombiner(rootPath, id, threshold, logger).Do()
 		require.Nil(t, err)
 	})
 

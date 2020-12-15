@@ -12,25 +12,28 @@
 package hnsw
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"strings"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 type CommitLogCombiner struct {
 	rootPath  string
 	id        string
 	threshold int64
+	logger    logrus.FieldLogger
 }
 
-func NewCommitLogCombiner(rootPath, id string, threshold int64) *CommitLogCombiner {
+func NewCommitLogCombiner(rootPath, id string, threshold int64,
+	logger logrus.FieldLogger) *CommitLogCombiner {
 	return &CommitLogCombiner{
 		rootPath:  rootPath,
 		id:        id,
 		threshold: threshold,
+		logger:    logger,
 	}
 }
 
@@ -94,8 +97,6 @@ func (c *CommitLogCombiner) combineFirstMatch(fileNames []string) (bool, error) 
 			continue
 		}
 
-		fmt.Printf("first match is \n%s and %s\n\n", fileName, fileNames[i+1])
-
 		if err := c.combine(fileName, fileNames[i+1]); err != nil {
 			return false, errors.Wrapf(err, "combine %q and %q", fileName, fileNames[i+1])
 		}
@@ -126,6 +127,14 @@ func (c *CommitLogCombiner) combine(first, second string) error {
 	if err := c.renameAndCleanUp(tmpName, finalName, first, second); err != nil {
 		return errors.Wrap(err, "rename and clean up files")
 	}
+
+	c.logger.WithFields(logrus.Fields{
+		"action":       "hnsw_commit_logger_combine_condensed_logs",
+		"id":           c.id,
+		"input_first":  first,
+		"input_second": second,
+		"output":       finalName,
+	}).Info("successfully combined previously condensed commit log files")
 
 	return nil
 }

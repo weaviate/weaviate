@@ -28,7 +28,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const maxUncondensedCommitLogSize = 50 * 1024 * 1024
+const maxUncondensedCommitLogSize = 500 * 1024 * 1024
 
 func commitLogFileName(rootPath, indexName, fileName string) string {
 	return fmt.Sprintf("%s/%s", commitLogDirectory(rootPath, indexName), fileName)
@@ -352,14 +352,14 @@ func (l *hnswCommitLogger) StartLogging() {
 	// switch log job
 	cancelSwitchLog := l.startSwitchLogs()
 	// condense old logs job
-	cancelCondenseLogs := l.startCondenseLogs()
+	cancelCombineAndCondenseLogs := l.startCombineAndCondenseLogs()
 	// cancel maintenance jobs on request
 	go func(cancel ...chan struct{}) {
 		<-l.cancel
 		for _, c := range cancel {
 			c <- struct{}{}
 		}
-	}(cancelCondenseLogs, cancelSwitchLog)
+	}(cancelCombineAndCondenseLogs, cancelSwitchLog)
 }
 
 func (l *hnswCommitLogger) startSwitchLogs() chan struct{} {
@@ -393,8 +393,8 @@ func (l *hnswCommitLogger) startSwitchLogs() chan struct{} {
 	return cancelSwitchLog
 }
 
-func (l *hnswCommitLogger) startCondenseLogs() chan struct{} {
-	cancelCondenseLogs := make(chan struct{})
+func (l *hnswCommitLogger) startCombineAndCondenseLogs() chan struct{} {
+	cancelFromOutside := make(chan struct{})
 
 	go func(cancel <-chan struct{}) {
 		if l.maintainenceInterval == 0 {
@@ -408,16 +408,22 @@ func (l *hnswCommitLogger) startCondenseLogs() chan struct{} {
 			case <-cancel:
 				return
 			case <-maintenance:
+				if err := l.combineLogs(); err != nil {
+					l.logger.WithError(err).
+						WithField("action", "hsnw_commit_log_combining").
+						Error("hnsw commit log maintenance (combining) failed")
+				}
+
 				if err := l.condenseOldLogs(); err != nil {
 					l.logger.WithError(err).
 						WithField("action", "hsnw_commit_log_condensing").
-						Error("hnsw commit log maintenance failed")
+						Error("hnsw commit log maintenance (condensing) failed")
 				}
 			}
 		}
-	}(cancelCondenseLogs)
+	}(cancelFromOutside)
 
-	return cancelCondenseLogs
+	return cancelFromOutside
 }
 
 func (l *hnswCommitLogger) maintenance() error {
@@ -477,6 +483,10 @@ func (l *hnswCommitLogger) condenseOldLogs() error {
 	}
 
 	return nil
+}
+
+func (l *hnswCommitLogger) combineLogs() error {
+	return NewCommitLogCombiner(l.rootPath, l.id, l.maxSize, l.logger).Do()
 }
 
 func (l *hnswCommitLogger) writeUint64(w io.Writer, in uint64) error {
