@@ -50,6 +50,7 @@ func NewCommitLogger(rootPath, name string,
 		maintainenceInterval: maintainenceInterval,
 		condensor:            NewMemoryCondensor(logger),
 		logger:               logger,
+		maxSize:              maxUncondensedCommitLogSize, // TODO: make configurable
 	}
 
 	fd, err := getLatestCommitFileOrCreate(rootPath, name)
@@ -180,6 +181,7 @@ type hnswCommitLogger struct {
 	condensor            condensor
 	maintainenceInterval time.Duration
 	logger               logrus.FieldLogger
+	maxSize              int64
 }
 
 type HnswCommitType uint8 // 256 options, plenty of room for future extensions
@@ -424,7 +426,7 @@ func (l *hnswCommitLogger) maintenance() error {
 		return err
 	}
 
-	if i.Size() > maxUncondensedCommitLogSize {
+	if i.Size() > l.maxSize {
 		l.logFile.Close()
 
 		// this is a new commit log, initialize with the current time stamp
