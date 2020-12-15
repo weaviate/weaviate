@@ -486,7 +486,12 @@ func (l *hnswCommitLogger) condenseOldLogs() error {
 }
 
 func (l *hnswCommitLogger) combineLogs() error {
-	return NewCommitLogCombiner(l.rootPath, l.id, l.maxSize, l.logger).Do()
+	// maxSize is the desired final size, since we assume a lot of redunancy we
+	// can set the combining threshold higher than the final threshold under the
+	// assumption that the combined file will be considerably smaller than the
+	// sum of both input files
+	threshold := int64(float64(l.maxSize) * 1.75)
+	return NewCommitLogCombiner(l.rootPath, l.id, threshold, l.logger).Do()
 }
 
 func (l *hnswCommitLogger) writeUint64(w io.Writer, in uint64) error {
