@@ -572,11 +572,7 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, bool, error) {
 		return 0, false, fmt.Errorf("got a nil or zero-length vector at docID %d", b)
 	}
 
-	// there is no performance benefit (but also no penalty) in using the
-	// reusable distancer here. However, it makes it much easier to switch out
-	// the distance function if there is only a single type that is used to
-	// calculate distances
-	return h.distancerProvider.New(vecA).Distance(vecB)
+	return h.distancerProvider.SingleDist(vecA, vecB)
 }
 
 func (h *hnsw) distBetweenNodeAndVec(node uint64, vecB []float32) (float32, bool, error) {
@@ -605,11 +601,7 @@ func (h *hnsw) distBetweenNodeAndVec(node uint64, vecB []float32) (float32, bool
 			"got a nil or zero-length vector as search vector")
 	}
 
-	// there is no performance benefit (but also no penalty) in using the
-	// reusable distancer here. However, it makes it much easier to switch out
-	// the distance function if there is only a single type that is used to
-	// calculate distances
-	return h.distancerProvider.New(vecA).Distance(vecB)
+	return h.distancerProvider.SingleDist(vecA, vecB)
 }
 
 func (h *hnsw) Stats() {

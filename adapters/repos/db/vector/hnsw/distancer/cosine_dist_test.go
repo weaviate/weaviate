@@ -25,7 +25,8 @@ func TestCosineDistancer(t *testing.T) {
 	dist, ok, err := NewCosineProvider().New(vec1).Distance(vec2)
 	require.Nil(t, err)
 	require.True(t, ok)
-	control, err := cosineDist(vec1, vec2)
+	control, ok, err := NewCosineProvider().SingleDist(vec1, vec2)
+	require.True(t, ok)
 	require.Nil(t, err)
 	assert.Equal(t, control, dist)
 }
