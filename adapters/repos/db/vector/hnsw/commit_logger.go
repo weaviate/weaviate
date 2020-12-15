@@ -28,7 +28,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const maxUncondensedCommitLogSize = 50 * 1024 * 1024
+const maxUncondensedCommitLogSize = 500 * 1024 * 1024
 
 func commitLogFileName(rootPath, indexName, fileName string) string {
 	return fmt.Sprintf("%s/%s", commitLogDirectory(rootPath, indexName), fileName)
@@ -43,12 +43,14 @@ func NewCommitLogger(rootPath, name string,
 	logger logrus.FieldLogger) (*hnswCommitLogger, error) {
 	l := &hnswCommitLogger{
 		events:               make(chan []byte),
+		writeErrors:          make(chan error),
 		cancel:               make(chan struct{}),
 		rootPath:             rootPath,
 		id:                   name,
 		maintainenceInterval: maintainenceInterval,
 		condensor:            NewMemoryCondensor(logger),
 		logger:               logger,
+		maxSize:              maxUncondensedCommitLogSize, // TODO: make configurable
 	}
 
 	fd, err := getLatestCommitFileOrCreate(rootPath, name)
@@ -171,6 +173,7 @@ type condensor interface {
 
 type hnswCommitLogger struct {
 	events               chan []byte
+	writeErrors          chan error
 	cancel               chan struct{}
 	logFile              *os.File
 	rootPath             string
@@ -178,6 +181,7 @@ type hnswCommitLogger struct {
 	condensor            condensor
 	maintainenceInterval time.Duration
 	logger               logrus.FieldLogger
+	maxSize              int64
 }
 
 type HnswCommitType uint8 // 256 options, plenty of room for future extensions
@@ -202,6 +206,10 @@ func (l *hnswCommitLogger) AddNode(node *vertex) error {
 	l.writeUint16(w, uint16(node.level))
 
 	l.events <- w.Bytes()
+	err := <-l.writeErrors
+	if err != nil {
+		return errors.Wrapf(err, "write node %d to commit log", node.id)
+	}
 
 	return nil
 }
@@ -213,6 +221,11 @@ func (l *hnswCommitLogger) SetEntryPointWithMaxLayer(id uint64, level int) error
 	l.writeUint16(w, uint16(level))
 
 	l.events <- w.Bytes()
+	err := <-l.writeErrors
+	if err != nil {
+		return errors.Wrapf(err, "write entrypoint %d (%d) to commit log", id, level)
+	}
+
 	return nil
 }
 
@@ -224,6 +237,12 @@ func (l *hnswCommitLogger) AddLinkAtLevel(nodeid uint64, level int, target uint6
 	l.writeUint64(w, target)
 
 	l.events <- w.Bytes()
+	err := <-l.writeErrors
+	if err != nil {
+		return errors.Wrapf(err, "write link at level %d->%d (%d) to commit log",
+			nodeid, target, level)
+	}
+
 	return nil
 }
 
@@ -246,6 +265,13 @@ func (l *hnswCommitLogger) ReplaceLinksAtLevel(nodeid uint64, level int, targets
 	l.writeUint64Slice(w, targets[:targetLength])
 
 	l.events <- w.Bytes()
+	err := <-l.writeErrors
+	if err != nil {
+		return errors.Wrapf(err,
+			"write (replacement) links at level %d->%v (%d) to commit log", nodeid,
+			targets, level)
+	}
+
 	return nil
 }
 
@@ -255,6 +281,12 @@ func (l *hnswCommitLogger) AddTombstone(nodeid uint64) error {
 	l.writeUint64(w, nodeid)
 
 	l.events <- w.Bytes()
+	err := <-l.writeErrors
+	if err != nil {
+		return errors.Wrapf(err,
+			"write tombstone %d to commit log", nodeid)
+	}
+
 	return nil
 }
 
@@ -264,6 +296,12 @@ func (l *hnswCommitLogger) RemoveTombstone(nodeid uint64) error {
 	l.writeUint64(w, nodeid)
 
 	l.events <- w.Bytes()
+	err := <-l.writeErrors
+	if err != nil {
+		return errors.Wrapf(err,
+			"write deletion of tombstone %d to commit log", nodeid)
+	}
+
 	return nil
 }
 
@@ -273,6 +311,12 @@ func (l *hnswCommitLogger) ClearLinks(nodeid uint64) error {
 	l.writeUint64(w, nodeid)
 
 	l.events <- w.Bytes()
+	err := <-l.writeErrors
+	if err != nil {
+		return errors.Wrapf(err,
+			"write clear links of node %d to commit log", nodeid)
+	}
+
 	return nil
 }
 
@@ -282,6 +326,12 @@ func (l *hnswCommitLogger) DeleteNode(nodeid uint64) error {
 	l.writeUint64(w, nodeid)
 
 	l.events <- w.Bytes()
+	err := <-l.writeErrors
+	if err != nil {
+		return errors.Wrapf(err,
+			"write delete node %d to commit log", nodeid)
+	}
+
 	return nil
 }
 
@@ -290,6 +340,11 @@ func (l *hnswCommitLogger) Reset() error {
 	l.writeCommitType(w, ResetIndex)
 
 	l.events <- w.Bytes()
+	err := <-l.writeErrors
+	if err != nil {
+		return errors.Wrap(err, "reset to commit log")
+	}
+
 	return nil
 }
 
@@ -297,14 +352,14 @@ func (l *hnswCommitLogger) StartLogging() {
 	// switch log job
 	cancelSwitchLog := l.startSwitchLogs()
 	// condense old logs job
-	cancelCondenseLogs := l.startCondenseLogs()
+	cancelCombineAndCondenseLogs := l.startCombineAndCondenseLogs()
 	// cancel maintenance jobs on request
 	go func(cancel ...chan struct{}) {
 		<-l.cancel
 		for _, c := range cancel {
 			c <- struct{}{}
 		}
-	}(cancelCondenseLogs, cancelSwitchLog)
+	}(cancelCombineAndCondenseLogs, cancelSwitchLog)
 }
 
 func (l *hnswCommitLogger) startSwitchLogs() chan struct{} {
@@ -323,7 +378,8 @@ func (l *hnswCommitLogger) startSwitchLogs() chan struct{} {
 			case <-cancel:
 				return
 			case event := <-l.events:
-				l.logFile.Write(event)
+				_, err := l.logFile.Write(event)
+				l.writeErrors <- err
 			case <-maintenance:
 				if err := l.maintenance(); err != nil {
 					l.logger.WithError(err).
@@ -337,8 +393,8 @@ func (l *hnswCommitLogger) startSwitchLogs() chan struct{} {
 	return cancelSwitchLog
 }
 
-func (l *hnswCommitLogger) startCondenseLogs() chan struct{} {
-	cancelCondenseLogs := make(chan struct{})
+func (l *hnswCommitLogger) startCombineAndCondenseLogs() chan struct{} {
+	cancelFromOutside := make(chan struct{})
 
 	go func(cancel <-chan struct{}) {
 		if l.maintainenceInterval == 0 {
@@ -352,16 +408,22 @@ func (l *hnswCommitLogger) startCondenseLogs() chan struct{} {
 			case <-cancel:
 				return
 			case <-maintenance:
+				if err := l.combineLogs(); err != nil {
+					l.logger.WithError(err).
+						WithField("action", "hsnw_commit_log_combining").
+						Error("hnsw commit log maintenance (combining) failed")
+				}
+
 				if err := l.condenseOldLogs(); err != nil {
 					l.logger.WithError(err).
 						WithField("action", "hsnw_commit_log_condensing").
-						Error("hnsw commit log maintenance failed")
+						Error("hnsw commit log maintenance (condensing) failed")
 				}
 			}
 		}
-	}(cancelCondenseLogs)
+	}(cancelFromOutside)
 
-	return cancelCondenseLogs
+	return cancelFromOutside
 }
 
 func (l *hnswCommitLogger) maintenance() error {
@@ -370,7 +432,7 @@ func (l *hnswCommitLogger) maintenance() error {
 		return err
 	}
 
-	if i.Size() > maxUncondensedCommitLogSize {
+	if i.Size() > l.maxSize {
 		l.logFile.Close()
 
 		// this is a new commit log, initialize with the current time stamp
@@ -421,6 +483,15 @@ func (l *hnswCommitLogger) condenseOldLogs() error {
 	}
 
 	return nil
+}
+
+func (l *hnswCommitLogger) combineLogs() error {
+	// maxSize is the desired final size, since we assume a lot of redunancy we
+	// can set the combining threshold higher than the final threshold under the
+	// assumption that the combined file will be considerably smaller than the
+	// sum of both input files
+	threshold := int64(float64(l.maxSize) * 1.75)
+	return NewCommitLogCombiner(l.rootPath, l.id, threshold, l.logger).Do()
 }
 
 func (l *hnswCommitLogger) writeUint64(w io.Writer, in uint64) error {
