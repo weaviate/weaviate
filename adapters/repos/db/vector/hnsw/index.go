@@ -17,9 +17,7 @@ import (
 	"io/ioutil"
 	"math"
 	"math/rand"
-	"os"
 	"sync"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -142,83 +140,11 @@ func New(cfg Config) (*hnsw, error) {
 		deleteLock:        &sync.Mutex{},
 	}
 
-	if err := index.restoreFromDisk(); err != nil {
-		return nil, errors.Wrapf(err, "restore hnsw index %q", cfg.ID)
+	if err := index.init(cfg); err != nil {
+		return nil, errors.Wrapf(err, "init index %q", index.id)
 	}
-
-	// init commit logger for future writes
-	cl, err := cfg.MakeCommitLoggerThunk()
-	if err != nil {
-		return nil, errors.Wrap(err, "create commit logger")
-	}
-
-	index.commitLog = cl
-	index.registerMaintainence(cfg)
 
 	return index, nil
-}
-
-// if a commit log is already present it will be read into memory, if not we
-// start with an empty model
-func (h *hnsw) restoreFromDisk() error {
-	fileNames, err := getCommitFileNames(h.rootPath, h.id)
-	if err != nil {
-		return err
-	}
-
-	if len(fileNames) == 0 {
-		// nothing to do
-		return nil
-	}
-
-	var state *DeserializationResult
-	for _, fileName := range fileNames {
-		fd, err := os.Open(fileName)
-		if err != nil {
-			return errors.Wrapf(err, "open commit log %q for reading", fileName)
-		}
-
-		state, err = NewDeserializer(h.logger).Do(fd, state)
-		if err != nil {
-			return errors.Wrapf(err, "deserialize commit log %q", fileName)
-		}
-	}
-
-	h.nodes = state.Nodes
-	h.currentMaximumLayer = int(state.Level)
-	h.entryPointID = state.Entrypoint
-	h.tombstones = state.Tombstones
-
-	return nil
-}
-
-func (h *hnsw) registerMaintainence(cfg Config) {
-	h.registerTombstoneCleanup(cfg)
-}
-
-func (h *hnsw) registerTombstoneCleanup(cfg Config) {
-	if cfg.TombstoneCleanupInterval == 0 {
-		// user is not interested in periodically cleaning up tombstones, clean up
-		// will be manual. (This is also helpful in tests where we want to
-		// explicitly control the point at which a cleanup happens)
-		return
-	}
-
-	go func() {
-		t := time.Tick(cfg.TombstoneCleanupInterval)
-		for {
-			select {
-			case <-h.cancel:
-				return
-			case <-t:
-				err := h.CleanUpTombstonedNodes()
-				if err != nil {
-					h.logger.WithField("action", "hnsw_tombstone_cleanup").
-						WithError(err).Error("tombstone cleanup errord")
-				}
-			}
-		}
-	}()
 }
 
 // TODO: use this for incoming replication
@@ -335,12 +261,18 @@ func (h *hnsw) Add(id uint64, vector []float32) error {
 func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 	h.Lock()
 	defer h.Unlock()
-	h.commitLog.SetEntryPointWithMaxLayer(node.id, 0)
+	if err := h.commitLog.SetEntryPointWithMaxLayer(node.id, 0); err != nil {
+		return err
+	}
+
 	h.entryPointID = node.id
 	h.currentMaximumLayer = 0
 	node.connections = map[int][]uint64{}
 	node.level = 0
-	h.commitLog.AddNode(node)
+	if err := h.commitLog.AddNode(node); err != nil {
+		return err
+	}
+
 	h.nodes[node.id] = node
 
 	// go h.insertHook(node.id, 0, node.connections)
@@ -378,7 +310,11 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 		return errors.Wrapf(err, "grow HNSW index to accommodate node %d", node.id)
 	}
 	h.nodes[nodeId] = node
-	h.commitLog.AddNode(node)
+	if err := h.commitLog.AddNode(node); err != nil {
+		h.Unlock()
+		return err
+	}
+
 	h.Unlock()
 
 	entryPointID, err = h.findBestEntrypointForNode(currentMaximumLayer, targetLevel,
@@ -398,7 +334,11 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 		// before = time.Now()
 		h.Lock()
 		// m.addBuildingLocking(before)
-		h.commitLog.SetEntryPointWithMaxLayer(nodeId, targetLevel)
+		if err := h.commitLog.SetEntryPointWithMaxLayer(nodeId, targetLevel); err != nil {
+			h.Unlock()
+			return err
+		}
+
 		h.entryPointID = nodeId
 		h.currentMaximumLayer = targetLevel
 		h.Unlock()
@@ -407,16 +347,21 @@ func (h *hnsw) insert(node *vertex, nodeVec []float32) error {
 	return nil
 }
 
-func (v *vertex) linkAtLevel(level int, target uint64, cl CommitLogger) {
+func (v *vertex) linkAtLevel(level int, target uint64, cl CommitLogger) error {
 	v.Lock()
-	cl.AddLinkAtLevel(v.id, level, target)
+	defer v.Unlock()
+
+	if err := cl.AddLinkAtLevel(v.id, level, target); err != nil {
+		return err
+	}
+
 	if targetContained(v.connections[level], target) {
 		// already linked, nothing to do
-		v.Unlock()
-		return
+		return nil
 	}
+
 	v.connections[level] = append(v.connections[level], target)
-	v.Unlock()
+	return nil
 }
 
 func targetContained(haystack []uint64, needle uint64) bool {
@@ -529,8 +474,13 @@ func (h *hnsw) findAndConnectNeighbors(node *vertex,
 				continue
 			}
 
-			neighbor.linkAtLevel(level, node.id, h.commitLog)
-			node.linkAtLevel(level, neighbor.id, h.commitLog)
+			if err := neighbor.linkAtLevel(level, node.id, h.commitLog); err != nil {
+				return err
+			}
+
+			if err := node.linkAtLevel(level, neighbor.id, h.commitLog); err != nil {
+				return err
+			}
 
 			// before = time.Now()
 			neighbor.RLock()
@@ -558,7 +508,11 @@ func (h *hnsw) findAndConnectNeighbors(node *vertex,
 			// before = time.Now()
 			neighbor.Lock()
 			// m.addBuildingItemLocking(before)
-			h.commitLog.ReplaceLinksAtLevel(neighbor.id, level, updatedConnections)
+			if err := h.commitLog.ReplaceLinksAtLevel(neighbor.id, level,
+				updatedConnections); err != nil {
+				return err
+			}
+
 			neighbor.connections[level] = updatedConnections
 			neighbor.Unlock()
 		}
