@@ -18,7 +18,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/docid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -29,6 +28,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
+	bolt "go.etcd.io/bbolt"
 )
 
 // Shard is the smallest completely-contained index unit. A shard mananages

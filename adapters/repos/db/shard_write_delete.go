@@ -15,7 +15,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/boltdb/bolt"
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -25,6 +24,7 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/sirupsen/logrus"
+	bolt "go.etcd.io/bbolt"
 )
 
 func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID) error {

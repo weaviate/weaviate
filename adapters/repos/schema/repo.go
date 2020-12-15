@@ -17,11 +17,11 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	schemauc "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/sirupsen/logrus"
+	bolt "go.etcd.io/bbolt"
 )
 
 var (

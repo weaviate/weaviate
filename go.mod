@@ -39,6 +39,7 @@ require (
 	github.com/sirupsen/logrus v1.6.0
 	github.com/square/go-jose v2.3.0+incompatible
 	github.com/stretchr/testify v1.6.1
+	go.etcd.io/bbolt v1.3.3
 	go.mongodb.org/mongo-driver v1.4.4 // indirect
 	golang.org/x/exp v0.0.0-20191030013958-a1ab85dbe136 // indirect
 	golang.org/x/net v0.0.0-20201021035429-f5854403a974

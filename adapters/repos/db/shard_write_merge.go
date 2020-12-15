@@ -14,13 +14,13 @@ package db
 import (
 	"context"
 
-	"github.com/boltdb/bolt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/storobj"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/usecases/objects"
+	bolt "go.etcd.io/bbolt"
 )
 
 func (s *Shard) mergeObject(ctx context.Context, merge objects.MergeDocument) error {

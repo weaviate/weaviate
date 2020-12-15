@@ -23,7 +23,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/boltdb/bolt"
+	bolt "go.etcd.io/bbolt"
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"

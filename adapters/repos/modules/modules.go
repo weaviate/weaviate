@@ -15,10 +15,10 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/sirupsen/logrus"
+	bolt "go.etcd.io/bbolt"
 )
 
 type Repo struct {
