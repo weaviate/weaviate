@@ -15,6 +15,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
@@ -26,6 +27,7 @@ type runWorker struct {
 	errorCount   *int64
 	ec           *errorCompounder
 	classify     classifyItemFn
+	batchWriter  writer
 	kind         kind.Kind
 	params       models.Classification
 	filters      filters
@@ -42,7 +44,7 @@ func (w *runWorker) work(wg *sync.WaitGroup) {
 
 	for i, item := range w.jobs {
 		originalIndex := (i * w.workerCount) + w.id
-		err := w.classify(item, originalIndex, w.kind, w.params, w.filters)
+		err := w.classify(item, originalIndex, w.kind, w.params, w.filters, w.batchWriter)
 		if err != nil {
 			w.ec.add(err)
 			atomic.AddInt64(w.errorCount, 1)
@@ -61,6 +63,7 @@ func newRunWorker(id int, workerCount int, rw *runWorkers) *runWorker {
 		params:       rw.params,
 		filters:      rw.filters,
 		classify:     rw.classify,
+		batchWriter:  rw.batchWriter,
 		id:           id,
 		workerCount:  workerCount,
 	}
@@ -75,10 +78,11 @@ type runWorkers struct {
 	kind         kind.Kind
 	params       models.Classification
 	filters      filters
+	batchWriter  writer
 }
 
 func newRunWorkers(amount int, classifyFn classifyItemFn, kind kind.Kind,
-	params models.Classification, filters filters) *runWorkers {
+	params models.Classification, filters filters, vectorRepo vectorRepo) *runWorkers {
 	var successCount int64
 	var errorCount int64
 
@@ -91,6 +95,7 @@ func newRunWorkers(amount int, classifyFn classifyItemFn, kind kind.Kind,
 		kind:         kind,
 		params:       params,
 		filters:      filters,
+		batchWriter:  newBatchWriter(vectorRepo),
 	}
 
 	for i := 0; i < amount; i++ {
@@ -107,7 +112,8 @@ func (ws *runWorkers) addJobs(jobs []search.Result) {
 }
 
 func (ws *runWorkers) work() runWorkerResults {
-	var ()
+	ws.batchWriter.Start()
+
 	wg := &sync.WaitGroup{}
 	for _, worker := range ws.workers {
 		wg.Add(1)
@@ -115,6 +121,16 @@ func (ws *runWorkers) work() runWorkerResults {
 	}
 
 	wg.Wait()
+
+	res := ws.batchWriter.Stop()
+
+	if res.successCount != *ws.successCount || res.errorCount != *ws.errorCount {
+		ws.ec.add(errors.New("data save error"))
+	}
+
+	if res.err != nil {
+		ws.ec.add(res.err)
+	}
 
 	return runWorkerResults{
 		successCount: *ws.successCount,
