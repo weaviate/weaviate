@@ -23,7 +23,6 @@ import (
 	"testing"
 	"time"
 
-	bolt "go.etcd.io/bbolt"
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/semi-technologies/weaviate/adapters/repos/db/helpers"
@@ -35,6 +34,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	bolt "go.etcd.io/bbolt"
 )
 
 func TestPerformCleanupIndexWithFrequencyProp(t *testing.T) {
@@ -51,7 +51,7 @@ func TestPerformCleanupIndexWithFrequencyProp(t *testing.T) {
 	testClass := &models.Class{
 		Class: testClassName,
 		Properties: []*models.Property{
-			&models.Property{
+			{
 				Name:     testPropName,
 				DataType: []string{"string"},
 			},
@@ -74,7 +74,7 @@ func TestPerformCleanupIndexWithFrequencyProp(t *testing.T) {
 	shard, err := NewShard("extend_invert_benchmark", index)
 	require.Nil(t, err)
 
-	var productsIds = []strfmt.UUID{
+	productsIds := []strfmt.UUID{
 		"1295c052-263d-4aae-99dd-920c5a370d06",
 		"1295c052-263d-4aae-99dd-920c5a370d07",
 	}
@@ -202,11 +202,11 @@ func TestPerformCleanupIndexWithPropWithoutFrequency(t *testing.T) {
 	testClass := &models.Class{
 		Class: testClassName,
 		Properties: []*models.Property{
-			&models.Property{
+			{
 				Name:     testPropNumber,
 				DataType: []string{"int"},
 			},
-			&models.Property{
+			{
 				Name:     testPropName,
 				DataType: []string{"string"},
 			},
@@ -229,7 +229,7 @@ func TestPerformCleanupIndexWithPropWithoutFrequency(t *testing.T) {
 	shard, err := NewShard("extend_invert_benchmark", index)
 	require.Nil(t, err)
 
-	var productsIds = []strfmt.UUID{
+	productsIds := []strfmt.UUID{
 		"1295c052-263d-4aae-99dd-920c5a370d05",
 		"1295c052-263d-4aae-99dd-920c5a370d06",
 		"1295c052-263d-4aae-99dd-920c5a370d07",
@@ -401,11 +401,11 @@ func TestPerformCleanupIndexOnUpdateWithProps(t *testing.T) {
 	testClass := &models.Class{
 		Class: testClassName,
 		Properties: []*models.Property{
-			&models.Property{
+			{
 				Name:     testPropNumber,
 				DataType: []string{"int"},
 			},
-			&models.Property{
+			{
 				Name:     testPropName,
 				DataType: []string{"string"},
 			},
@@ -428,7 +428,7 @@ func TestPerformCleanupIndexOnUpdateWithProps(t *testing.T) {
 	shard, err := NewShard("extend_invert_benchmark", index)
 	require.Nil(t, err)
 
-	var productsIds = []strfmt.UUID{
+	productsIds := []strfmt.UUID{
 		"1295c052-263d-4aae-99dd-920c5a370d05",
 		"1295c052-263d-4aae-99dd-920c5a370d06",
 		"1295c052-263d-4aae-99dd-920c5a370d07",
