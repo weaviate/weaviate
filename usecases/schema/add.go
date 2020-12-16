@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/semi-technologies/weaviate/deprecations"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
@@ -77,7 +76,7 @@ func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Pri
 		return err
 	}
 
-	err = m.validateClassNameAndKeywords(ctx, knd, class.Class, class.Keywords, VectorizeClassName(class))
+	err = m.validateClassName(ctx, knd, class.Class, VectorizeClassName(class))
 	if err != nil {
 		return err
 	}
@@ -85,7 +84,7 @@ func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Pri
 	// Check properties
 	foundNames := map[string]bool{}
 	for _, property := range class.Properties {
-		err = m.validatePropertyNameAndKeywords(ctx, class.Class, property.Name, property.Keywords,
+		err = m.validatePropertyName(ctx, class.Class, property.Name,
 			property.VectorizePropertyName)
 		if err != nil {
 			return err
@@ -107,8 +106,6 @@ func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Pri
 		if err != nil {
 			return fmt.Errorf("property '%s': invalid dataType: %v", property.Name, err)
 		}
-
-		m.handleDeprecatedFielsInProperty(property)
 	}
 
 	// The user has the option to no-index select properties, but if they
@@ -121,16 +118,6 @@ func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Pri
 
 	// all is fine!
 	return nil
-}
-
-func (m *Manager) handleDeprecatedFielsInProperty(prop *models.Property) {
-	if prop.Cardinality == "" {
-		// nothing to do
-		return
-	}
-
-	deprecations.Log(m.logger, "cardinality")
-	prop.Cardinality = ""
 }
 
 func upperCaseClassName(name string) string {

@@ -149,26 +149,7 @@ func classField(k kind.Kind, class *models.Class, description string,
 		Resolve: makeResolveClass(k),
 	}
 
-	fieldsField = extendArgsWithAnalyticsConfig(fieldsField, config)
 	return fieldsField, nil
-}
-
-func extendArgsWithAnalyticsConfig(field *graphql.Field, config config.Config) *graphql.Field {
-	if !config.AnalyticsEngine.Enabled {
-		return field
-	}
-
-	field.Args["useAnalyticsEngine"] = &graphql.ArgumentConfig{
-		DefaultValue: config.AnalyticsEngine.DefaultUseAnalyticsEngine,
-		Type:         graphql.Boolean,
-	}
-
-	field.Args["forceRecalculate"] = &graphql.ArgumentConfig{
-		DefaultValue: false,
-		Type:         graphql.Boolean,
-	}
-
-	return field
 }
 
 func classPropertyFields(class *models.Class) (graphql.Fields, error) {

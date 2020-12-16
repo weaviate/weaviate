@@ -30,7 +30,7 @@ import (
 
 func TestSimpleFieldParamsOK(t *testing.T) {
 	t.Parallel()
-	resolver := newMockResolver(emptyPeers())
+	resolver := newMockResolver()
 	expectedParams := traverser.GetParams{
 		Kind:       kind.Action,
 		ClassName:  "SomeAction",
@@ -46,7 +46,7 @@ func TestSimpleFieldParamsOK(t *testing.T) {
 func TestExtractIntField(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver(emptyPeers())
+	resolver := newMockResolver()
 
 	expectedParams := traverser.GetParams{
 		Kind:       kind.Action,
@@ -64,7 +64,7 @@ func TestExtractIntField(t *testing.T) {
 func TestExtractGeoCoordinatesField(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver(emptyPeers())
+	resolver := newMockResolver()
 
 	expectedParams := traverser.GetParams{
 		Kind:       kind.Action,
@@ -281,7 +281,7 @@ func TestExtractPhoneNumberField(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		resolver := newMockResolver(emptyPeers())
+		resolver := newMockResolver()
 
 		resolver.On("GetClass", test.expectedParams).
 			Return(test.resolverReturn, nil).Once()
@@ -551,7 +551,7 @@ func TestExtractUnderscoreFields(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		resolver := newMockResolver(emptyPeers())
+		resolver := newMockResolver()
 
 		resolver.On("GetClass", test.expectedParams).
 			Return(test.resolverReturn, nil).Once()
@@ -563,7 +563,7 @@ func TestExtractUnderscoreFields(t *testing.T) {
 func TestExploreRanker(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver(emptyPeers())
+	resolver := newMockResolver()
 
 	t.Run("for actions", func(t *testing.T) {
 		query := `{ Get { Actions { SomeAction(explore: {
@@ -642,7 +642,7 @@ func TestExploreRanker(t *testing.T) {
 func TestExtractPagination(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver(emptyPeers())
+	resolver := newMockResolver()
 
 	expectedParams := traverser.GetParams{
 		Kind:       kind.Action,
@@ -663,7 +663,7 @@ func TestExtractPagination(t *testing.T) {
 func TestExtractGroupParams(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver(emptyPeers())
+	resolver := newMockResolver()
 
 	expectedParams := traverser.GetParams{
 		Kind:       kind.Action,
@@ -686,7 +686,7 @@ func TestGetRelation(t *testing.T) {
 	t.Parallel()
 
 	t.Run("without using custom fragments", func(t *testing.T) {
-		resolver := newMockResolver(emptyPeers())
+		resolver := newMockResolver()
 
 		expectedParams := traverser.GetParams{
 			Kind:      kind.Action,
@@ -733,7 +733,7 @@ func TestGetRelation(t *testing.T) {
 	})
 
 	t.Run("with a custom fragment one level deep", func(t *testing.T) {
-		resolver := newMockResolver(emptyPeers())
+		resolver := newMockResolver()
 
 		expectedParams := traverser.GetParams{
 			Kind:      kind.Action,
@@ -765,7 +765,7 @@ func TestGetRelation(t *testing.T) {
 	})
 
 	t.Run("with a custom fragment multiple levels deep", func(t *testing.T) {
-		resolver := newMockResolver(emptyPeers())
+		resolver := newMockResolver()
 
 		expectedParams := traverser.GetParams{
 			Kind:      kind.Action,

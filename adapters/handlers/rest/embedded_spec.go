@@ -146,9 +146,6 @@ func init() {
             "$ref": "#/parameters/CommonLimitParameterQuery"
           },
           {
-            "$ref": "#/parameters/CommonMetaParameterQuery"
-          },
-          {
             "$ref": "#/parameters/CommonIncludeParameterQuery"
           }
         ],
@@ -310,9 +307,6 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
-          },
-          {
-            "$ref": "#/parameters/CommonMetaParameterQuery"
           },
           {
             "$ref": "#/parameters/CommonIncludeParameterQuery"
@@ -1770,9 +1764,6 @@ func init() {
             "$ref": "#/parameters/CommonLimitParameterQuery"
           },
           {
-            "$ref": "#/parameters/CommonMetaParameterQuery"
-          },
-          {
             "$ref": "#/parameters/CommonIncludeParameterQuery"
           }
         ],
@@ -1934,9 +1925,6 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
-          },
-          {
-            "$ref": "#/parameters/CommonMetaParameterQuery"
           },
           {
             "$ref": "#/parameters/CommonIncludeParameterQuery"
@@ -2391,9 +2379,6 @@ func init() {
           "type": "integer",
           "format": "int64"
         },
-        "meta": {
-          "$ref": "#/definitions/UnderscoreProperties"
-        },
         "schema": {
           "$ref": "#/definitions/PropertySchema"
         },
@@ -2660,9 +2645,6 @@ func init() {
         "description": {
           "description": "Description of the class.",
           "type": "string"
-        },
-        "keywords": {
-          "$ref": "#/definitions/Keywords"
         },
         "properties": {
           "description": "The properties of the class.",
@@ -3043,22 +3025,6 @@ func init() {
       "description": "JSON object value.",
       "type": "object"
     },
-    "Keywords": {
-      "description": "Describes a class or property using multiple weighted words.",
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "keyword": {
-            "type": "string"
-          },
-          "weight": {
-            "type": "number",
-            "format": "float"
-          }
-        }
-      }
-    },
     "Link": {
       "type": "object",
       "properties": {
@@ -3301,11 +3267,6 @@ func init() {
     "Property": {
       "type": "object",
       "properties": {
-        "cardinality": {
-          "description": "DEPRECATED - do not use anymore.",
-          "type": "string",
-          "default": ""
-        },
         "dataType": {
           "description": "Can be a reference to another type when it starts with a capital (for example Person), otherwise \"string\" or \"int\".",
           "type": "array",
@@ -3322,9 +3283,6 @@ func init() {
           "type": "boolean",
           "x-nullable": true
         },
-        "keywords": {
-          "$ref": "#/definitions/Keywords"
-        },
         "name": {
           "description": "Name of the property as URI relative to the schema URL.",
           "type": "string"
@@ -3338,15 +3296,6 @@ func init() {
     "PropertySchema": {
       "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
-    },
-    "ReferenceMeta": {
-      "description": "Additional Meta information about this particular reference.",
-      "properties": {
-        "classification": {
-          "description": "If a property was set through a classification, this meta field contains additional info",
-          "$ref": "#/definitions/ReferenceMetaClassification"
-        }
-      }
     },
     "ReferenceMetaClassification": {
       "description": "This meta field contains additional info about the classified reference property",
@@ -3499,10 +3448,6 @@ func init() {
           "type": "string",
           "format": "uri"
         },
-        "meta": {
-          "description": "Additional Meta information about this particular reference. Only shown if meta==true.",
-          "$ref": "#/definitions/ReferenceMeta"
-        },
         "schema": {
           "description": "If using a concept reference (rather than a direct reference), specify the desired properties here",
           "$ref": "#/definitions/PropertySchema"
@@ -3550,9 +3495,6 @@ func init() {
           "description": "Timestamp of the last Thing update in milliseconds since epoch UTC.",
           "type": "integer",
           "format": "int64"
-        },
-        "meta": {
-          "$ref": "#/definitions/UnderscoreProperties"
         },
         "schema": {
           "$ref": "#/definitions/PropertySchema"
@@ -3815,12 +3757,6 @@ func init() {
       "description": "The maximum number of items to be returned per page. Default value is set in Weaviate config.",
       "name": "limit",
       "in": "query"
-    },
-    "CommonMetaParameterQuery": {
-      "type": "boolean",
-      "description": "Should additional meta information (e.g. about classified properties) be included? Defaults to false.",
-      "name": "meta",
-      "in": "query"
     }
   },
   "securityDefinitions": {
@@ -3992,12 +3928,6 @@ func init() {
             "in": "query"
           },
           {
-            "type": "boolean",
-            "description": "Should additional meta information (e.g. about classified properties) be included? Defaults to false.",
-            "name": "meta",
-            "in": "query"
-          },
-          {
             "type": "string",
             "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector, interpretation, _interpretation",
             "name": "include",
@@ -4162,12 +4092,6 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
-          },
-          {
-            "type": "boolean",
-            "description": "Should additional meta information (e.g. about classified properties) be included? Defaults to false.",
-            "name": "meta",
-            "in": "query"
           },
           {
             "type": "string",
@@ -5632,12 +5556,6 @@ func init() {
             "in": "query"
           },
           {
-            "type": "boolean",
-            "description": "Should additional meta information (e.g. about classified properties) be included? Defaults to false.",
-            "name": "meta",
-            "in": "query"
-          },
-          {
             "type": "string",
             "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector, interpretation, _interpretation",
             "name": "include",
@@ -5802,12 +5720,6 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
-          },
-          {
-            "type": "boolean",
-            "description": "Should additional meta information (e.g. about classified properties) be included? Defaults to false.",
-            "name": "meta",
-            "in": "query"
           },
           {
             "type": "string",
@@ -6265,9 +6177,6 @@ func init() {
           "type": "integer",
           "format": "int64"
         },
-        "meta": {
-          "$ref": "#/definitions/UnderscoreProperties"
-        },
         "schema": {
           "$ref": "#/definitions/PropertySchema"
         },
@@ -6614,9 +6523,6 @@ func init() {
         "description": {
           "description": "Description of the class.",
           "type": "string"
-        },
-        "keywords": {
-          "$ref": "#/definitions/Keywords"
         },
         "properties": {
           "description": "The properties of the class.",
@@ -7003,25 +6909,6 @@ func init() {
       "description": "JSON object value.",
       "type": "object"
     },
-    "Keywords": {
-      "description": "Describes a class or property using multiple weighted words.",
-      "type": "array",
-      "items": {
-        "$ref": "#/definitions/KeywordsItems0"
-      }
-    },
-    "KeywordsItems0": {
-      "type": "object",
-      "properties": {
-        "keyword": {
-          "type": "string"
-        },
-        "weight": {
-          "type": "number",
-          "format": "float"
-        }
-      }
-    },
     "Link": {
       "type": "object",
       "properties": {
@@ -7264,11 +7151,6 @@ func init() {
     "Property": {
       "type": "object",
       "properties": {
-        "cardinality": {
-          "description": "DEPRECATED - do not use anymore.",
-          "type": "string",
-          "default": ""
-        },
         "dataType": {
           "description": "Can be a reference to another type when it starts with a capital (for example Person), otherwise \"string\" or \"int\".",
           "type": "array",
@@ -7285,9 +7167,6 @@ func init() {
           "type": "boolean",
           "x-nullable": true
         },
-        "keywords": {
-          "$ref": "#/definitions/Keywords"
-        },
         "name": {
           "description": "Name of the property as URI relative to the schema URL.",
           "type": "string"
@@ -7301,15 +7180,6 @@ func init() {
     "PropertySchema": {
       "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
-    },
-    "ReferenceMeta": {
-      "description": "Additional Meta information about this particular reference.",
-      "properties": {
-        "classification": {
-          "description": "If a property was set through a classification, this meta field contains additional info",
-          "$ref": "#/definitions/ReferenceMetaClassification"
-        }
-      }
     },
     "ReferenceMetaClassification": {
       "description": "This meta field contains additional info about the classified reference property",
@@ -7462,10 +7332,6 @@ func init() {
           "type": "string",
           "format": "uri"
         },
-        "meta": {
-          "description": "Additional Meta information about this particular reference. Only shown if meta==true.",
-          "$ref": "#/definitions/ReferenceMeta"
-        },
         "schema": {
           "description": "If using a concept reference (rather than a direct reference), specify the desired properties here",
           "$ref": "#/definitions/PropertySchema"
@@ -7513,9 +7379,6 @@ func init() {
           "description": "Timestamp of the last Thing update in milliseconds since epoch UTC.",
           "type": "integer",
           "format": "int64"
-        },
-        "meta": {
-          "$ref": "#/definitions/UnderscoreProperties"
         },
         "schema": {
           "$ref": "#/definitions/PropertySchema"
@@ -7804,12 +7667,6 @@ func init() {
       "format": "int64",
       "description": "The maximum number of items to be returned per page. Default value is set in Weaviate config.",
       "name": "limit",
-      "in": "query"
-    },
-    "CommonMetaParameterQuery": {
-      "type": "boolean",
-      "description": "Should additional meta information (e.g. about classified properties) be included? Defaults to false.",
-      "name": "meta",
       "in": "query"
     }
   },

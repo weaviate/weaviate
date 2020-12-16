@@ -50,6 +50,8 @@ var ByID = map[string]models.Deprecation{
 		Msg:          "use of deprecated property ?meta=true/false",
 		SinceVersion: "0.22.8",
 		SinceTime:    timeMust(time.Parse(time.RFC3339, "2020-06-15T16:18:06.000Z")),
+		RemovedIn:    ptString("0.23.0"),
+		RemovedTime:  timeMustPtr(time.Parse(time.RFC3339, "2020-06-15T16:18:06.000Z")),
 	},
 	"config-files": models.Deprecation{
 		ID:           "config-files",
@@ -68,6 +70,8 @@ var ByID = map[string]models.Deprecation{
 		Msg:          "use of deprecated property option 'cardinality'",
 		SinceVersion: "0.22.17",
 		SinceTime:    timeMust(time.Parse(time.RFC3339, "2020-09-16T09:06:00.000Z")),
+		RemovedIn:    ptString("0.23.0"),
+		RemovedTime:  timeMustPtr(time.Parse(time.RFC3339, "2020-09-16T09:06:00.000Z")),
 	},
 	"ref-meta-deprecated-fields": models.Deprecation{
 		ID:           "ref-meta-deprecated-fields",
@@ -77,5 +81,7 @@ var ByID = map[string]models.Deprecation{
 		Msg:          "response contains deprecated fields winningDistance and losingDistance",
 		SinceVersion: "0.22.20",
 		SinceTime:    timeMust(time.Parse(time.RFC3339, "2020-11-26T14:58:00.000Z")),
+		RemovedIn:    ptString("0.23.0"),
+		RemovedTime:  timeMustPtr(time.Parse(time.RFC3339, "2020-11-26T14:58:00.000Z")),
 	},
 }

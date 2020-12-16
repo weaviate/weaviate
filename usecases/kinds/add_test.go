@@ -47,7 +47,6 @@ func Test_Add_Action(t *testing.T) {
 			GetSchemaResponse: schema,
 		}
 		locks := &fakeLocks{}
-		network := &fakeNetwork{}
 		cfg := &config.WeaviateConfig{}
 		authorizer := &fakeAuthorizer{}
 		logger, _ := test.NewNullLogger()
@@ -55,7 +54,7 @@ func Test_Add_Action(t *testing.T) {
 		projector := &fakeProjector{}
 		vectorizer := &fakeVectorizer{}
 		vectorizer.On("Action", mock.Anything).Return([]float32{0, 1, 2}, nil)
-		manager = NewManager(locks, schemaManager, network, cfg, logger, authorizer, vectorizer, vectorRepo, extender, projector)
+		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vectorizer, vectorRepo, extender, projector)
 	}
 
 	t.Run("without an id set", func(t *testing.T) {
@@ -149,7 +148,6 @@ func Test_Add_Thing(t *testing.T) {
 			GetSchemaResponse: schema,
 		}
 		locks := &fakeLocks{}
-		network := &fakeNetwork{}
 		cfg := &config.WeaviateConfig{}
 		authorizer := &fakeAuthorizer{}
 		logger, _ := test.NewNullLogger()
@@ -157,7 +155,7 @@ func Test_Add_Thing(t *testing.T) {
 		projector := &fakeProjector{}
 		vectorizer := &fakeVectorizer{}
 		vectorizer.On("Thing", mock.Anything).Return([]float32{0, 1, 2}, nil)
-		manager = NewManager(locks, schemaManager, network, cfg, logger, authorizer, vectorizer, vectorRepo, extender, projector)
+		manager = NewManager(locks, schemaManager, cfg, logger, authorizer, vectorizer, vectorRepo, extender, projector)
 	}
 
 	t.Run("without an id set", func(t *testing.T) {

@@ -62,16 +62,8 @@ func FromEnv(config *Config) error {
 		config.Authorization.AdminList.Users = users
 	}
 
-	if enabled(os.Getenv("STANDALONE_MODE")) {
-		config.Standalone = true
-
-		if v := os.Getenv("PERSISTENCE_DATA_PATH"); v != "" {
-			config.Persistence.DataPath = v
-		}
-	}
-
-	if v := os.Getenv("CONFIGURATION_STORAGE_URL"); v != "" {
-		config.ConfigurationStorage.URL = v
+	if v := os.Getenv("PERSISTENCE_DATA_PATH"); v != "" {
+		config.Persistence.DataPath = v
 	}
 
 	if v := os.Getenv("ORIGIN"); v != "" {
@@ -89,23 +81,6 @@ func FromEnv(config *Config) error {
 		}
 
 		config.QueryDefaults.Limit = int64(asInt)
-	}
-
-	if v := os.Getenv("ESVECTOR_URL"); v != "" {
-		config.VectorIndex.URL = v
-
-		if v := os.Getenv("ESVECTOR_NUMBER_OF_SHARDS"); v != "" {
-			asInt, err := strconv.Atoi(v)
-			if err != nil {
-				return errors.Wrapf(err, "parse ESVECTOR_NUMBER_OF_SHARDS as int")
-			}
-
-			config.VectorIndex.NumberOfShards = &asInt
-		}
-
-		if v := os.Getenv("ESVECTOR_AUTO_EXPAND_REPLICAS"); v != "" {
-			config.VectorIndex.AutoExpandReplicas = &v
-		}
 	}
 
 	return nil

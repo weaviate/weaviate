@@ -146,16 +146,20 @@ func (ko *Object) LastUpdateTimeUnix() int64 {
 	}
 }
 
-func (ko *Object) Meta() *models.UnderscoreProperties {
-	return ko.UnderscoreProperties()
-}
-
+// UnderUnderscoreProperties groups all properties which are stored with the
+// object and not generated at runtime
 func (ko *Object) UnderscoreProperties() *models.UnderscoreProperties {
 	switch ko.Kind {
 	case kind.Thing:
-		return ko.Thing.Meta // TODO: Deal with deprecation
+		return &models.UnderscoreProperties{
+			Classification: ko.Thing.Classification,
+			Interpretation: ko.Thing.Interpretation,
+		}
 	case kind.Action:
-		return ko.Action.Meta // TODO: Deal with deprecation
+		return &models.UnderscoreProperties{
+			Classification: ko.Action.Classification,
+			Interpretation: ko.Action.Interpretation,
+		}
 	default:
 		panic("impossible kind")
 	}
@@ -343,7 +347,7 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 		return nil, err
 	}
 	schemaLength := uint32(len(schema))
-	meta, err := json.Marshal(ko.Meta())
+	meta, err := json.Marshal(ko.UnderscoreProperties())
 	if err != nil {
 		return nil, err
 	}
@@ -491,8 +495,9 @@ func (ko *Object) parseKind(uuid strfmt.UUID, create, update int64, className st
 			LastUpdateTimeUnix: update,
 			ID:                 uuid,
 			Schema:             schema,
-			Meta:               underscore,
 			VectorWeights:      vectorWeights,
+			Classification:     underscore.Classification,
+			Interpretation:     underscore.Interpretation,
 		}
 	} else if ko.Kind == kind.Action {
 		ko.Action = models.Action{
@@ -501,8 +506,9 @@ func (ko *Object) parseKind(uuid strfmt.UUID, create, update int64, className st
 			LastUpdateTimeUnix: update,
 			ID:                 uuid,
 			Schema:             schema,
-			Meta:               underscore,
 			VectorWeights:      vectorWeights,
+			Classification:     underscore.Classification,
+			Interpretation:     underscore.Interpretation,
 		}
 	}
 

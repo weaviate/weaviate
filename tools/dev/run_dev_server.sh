@@ -12,26 +12,21 @@ export LOG_FORMAT=text
 
 case $CONFIG in
   local-development)
-    CONFIGURATION_STORAGE_TYPE=etcd \
-      CONFIGURATION_STORAGE_URL=http://localhost:2379 \
       CONTEXTIONARY_URL=localhost:9999 \
       QUERY_DEFAULTS_LIMIT=20 \
       ORIGIN=http://localhost:8080 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      ESVECTOR_URL=http://localhost:9201 \
+      PERSISTENCE_DATA_PATH="./data" \
       go run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
         --port 8080
     ;;
   local-customdb)
-    CONFIGURATION_STORAGE_TYPE=etcd \
-      CONFIGURATION_STORAGE_URL=http://localhost:2379 \
       CONTEXTIONARY_URL=localhost:9999 \
       QUERY_DEFAULTS_LIMIT=20 \
       ORIGIN=http://localhost:8080 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      STANDALONE_MODE=true \
       PERSISTENCE_DATA_PATH="./data" \
       go run ./cmd/weaviate-server \
         --scheme http \
@@ -39,11 +34,10 @@ case $CONFIG in
         --port 8080
     ;;
   local-oidc)
-    CONFIGURATION_STORAGE_TYPE=etcd \
-      CONFIGURATION_STORAGE_URL=http://localhost:2379 \
       CONTEXTIONARY_URL=localhost:9999 \
       QUERY_DEFAULTS_LIMIT=20 \
       ORIGIN=http://localhost:8080 \
+      PERSISTENCE_DATA_PATH="./data" \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=false \
       AUTHENTICATION_OIDC_ENABLED=true \
       AUTHENTICATION_OIDC_ISSUER=http://localhost:9090/auth/realms/weaviate \
@@ -52,7 +46,6 @@ case $CONFIG in
       AUTHENTICATION_OIDC_CLIENT_ID=demo \
       AUTHORIZATION_ADMINLIST_ENABLED=true \
       AUTHORIZATION_ADMINLIST_USERS=john@doe.com \
-      ESVECTOR_URL=http://localhost:9201 \
       go run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \

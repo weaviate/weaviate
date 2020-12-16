@@ -65,7 +65,7 @@ func (m *Migrator) DropClass(ctx context.Context, kind kind.Kind, className stri
 	return nil
 }
 
-func (m *Migrator) UpdateClass(ctx context.Context, kind kind.Kind, className string, newClassName *string, newKeywords *models.Keywords) error {
+func (m *Migrator) UpdateClass(ctx context.Context, kind kind.Kind, className string, newClassName *string) error {
 	if newClassName != nil {
 		return errors.New("weaviate does not support renaming of classes")
 	}
@@ -89,7 +89,7 @@ func (m *Migrator) DropProperty(ctx context.Context, kind kind.Kind, className s
 	return nil
 }
 
-func (m *Migrator) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string, newKeywords *models.Keywords) error {
+func (m *Migrator) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string) error {
 	if newName != nil {
 		return errors.New("weaviate does not support renaming of properties")
 	}

@@ -53,7 +53,7 @@ func Test_BatchManager_AddActions(t *testing.T) {
 		vectorizer := &fakeVectorizer{}
 		vectorizer.On("Action", mock.Anything).Return([]float32{0, 1, 2}, nil)
 		manager = NewBatchManager(vectorRepo, vectorizer, locks,
-			schemaManager, nil, config, logger, authorizer)
+			schemaManager, config, logger, authorizer)
 	}
 
 	ctx := context.Background()
@@ -168,7 +168,7 @@ func Test_BatchManager_AddThings(t *testing.T) {
 		vectorizer := &fakeVectorizer{}
 		vectorizer.On("Thing", mock.Anything).Return([]float32{0, 1, 2}, nil)
 		manager = NewBatchManager(vectorRepo, vectorizer,
-			locks, schemaManager, nil, config, logger, authorizer)
+			locks, schemaManager, config, logger, authorizer)
 	}
 
 	ctx := context.Background()

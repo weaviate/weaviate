@@ -9,33 +9,10 @@ services:
     ports:
       - "9999:9999"
     environment:
-      SCHEMA_PROVIDER_URL: etcd:2379
+      EXTENSIONS_STORAGE_MODE: weaviate
+      EXTENSIONS_STORAGE_ORIGIN: http://host.docker.internal:8080
       OCCURRENCE_WEIGHT_LINEAR_FACTOR: 0.75
       LOG_LEVEL: debug
-  etcd:
-    image: gcr.io/etcd-development/etcd:v3.3.8
-    ports:
-      - "2379:2379"
-    entrypoint: /usr/local/bin/etcd
-    command: 
-      - "--name"
-      - "s1"
-      - "--data-dir"
-      - "/etcd-data"
-      - "--listen-client-urls"
-      - "http://0.0.0.0:2379"
-      - "--advertise-client-urls"
-      - "http://0.0.0.0:2379"
-      - "--listen-peer-urls"
-      - "http://0.0.0.0:2380"
-      - "--initial-advertise-peer-urls"
-      - "http://0.0.0.0:2380"
-      - "--initial-cluster"
-      - "s1=http://0.0.0.0:2380"
-      - "--initial-cluster-token"
-      - "tkn"
-      - "--initial-cluster-state"
-      - "new"
   keycloak:
     image: jboss/keycloak:5.0.0
     environment:
@@ -46,22 +23,3 @@ services:
       - ./tools/dev/keycloak/weaviate-realm.json:/tmp/weaviate-realm.json
     ports:
       - "9090:8080"
-  esvector:
-    image: semitechnologies/esvector:7.1.0
-    environment:
-      xpack.security.enabled: "false"
-      discovery.type: single-node
-      ES_JAVA_OPTS: -Xms500m -Xmx500m
-      path.repo: "/mounts/backups,"
-    volumes:
-      - "./esbackups:/mounts/backups"
-    ports: 
-      - "9201:9200"
-      - "9301:9300"
-
-  kibana:
-    image: kibana:7.1.0
-    environment:
-      ELASTICSEARCH_HOSTS: http://esvector:9200
-    ports:
-      - "5601:5601"

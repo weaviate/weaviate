@@ -15,7 +15,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/stretchr/testify/assert"
 )
@@ -96,57 +95,8 @@ func Test__SchemaSearch_Validation(t *testing.T) {
 				Name:       "foo",
 				Kind:       kind.Thing,
 				Certainty:  1.0,
-				Keywords: models.Keywords{{
-					Keyword: "foobar",
-					Weight:  1.0,
-				}},
 			},
 			expectedError: nil,
-		},
-		{
-			name: "keywords with empty names",
-			searchParams: SearchParams{
-				SearchType: SearchTypeClass,
-				Name:       "foo",
-				Kind:       kind.Thing,
-				Certainty:  1.0,
-				Keywords: models.Keywords{{
-					Keyword: "",
-					Weight:  1.0,
-				}},
-			},
-			expectedError: errors.New("invalid keyword at position 0: Keyword cannot be empty"),
-		},
-		{
-			name: "keywords with invalid weights",
-			searchParams: SearchParams{
-				SearchType: SearchTypeClass,
-				Name:       "foo",
-				Kind:       kind.Thing,
-				Certainty:  1.0,
-				Keywords: models.Keywords{{
-					Keyword: "bestkeyword",
-					Weight:  1.3,
-				}},
-			},
-			expectedError: errors.New("invalid keyword at position 0: invalid Weight: " +
-				"must be between 0 and 1, but got '1.300000'"),
-		},
-		{
-			name: "CamelCased keywords",
-			searchParams: SearchParams{
-				SearchType: SearchTypeClass,
-				Name:       "foo",
-				Kind:       kind.Thing,
-				Certainty:  1.0,
-				Keywords: models.Keywords{{
-					Keyword: "worstKeyword",
-					Weight:  0.8,
-				}},
-			},
-			expectedError: errors.New("invalid keyword at position 0: invalid Keyword: " +
-				"keywords cannot be camelCased - instead split your keyword up into several keywords, " +
-				"this way each word of your camelCased string can have its own weight, got 'worstKeyword'"),
 		},
 	}
 

@@ -23,7 +23,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/network"
 )
 
 type schemaManager interface {
@@ -43,7 +42,7 @@ type c11yMetaProvider interface {
 }
 
 func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.WeaviateConfig,
-	network network.Network, schemaManager schemaManager, c11y c11yMetaProvider) {
+	schemaManager schemaManager, c11y c11yMetaProvider) {
 	var swj swaggerJSON
 	err := json.Unmarshal(SwaggerJSON, &swj)
 	if err != nil {

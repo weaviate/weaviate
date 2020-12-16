@@ -50,9 +50,6 @@
         "schema": {
           "$ref": "#/definitions/PropertySchema"
         },
-        "meta": {
-          "$ref": "#/definitions/UnderscoreProperties"
-        },
         "id": {
           "description": "ID of the Action.",
           "format": "uuid",
@@ -605,9 +602,6 @@
           "description": "Name of the class as URI relative to the schema URL.",
           "type": "string"
         },
-        "keywords": {
-          "$ref": "#/definitions/Keywords"
-        },
         "vectorizeClassName": {
           "description": "Set this to true if the object vector should include the class name in calculating the overall vector position",
           "type": "boolean",
@@ -627,22 +621,6 @@
       },
       "type": "object"
     },
-    "Keywords": {
-      "description": "Describes a class or property using multiple weighted words.",
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "keyword": {
-            "type": "string"
-          },
-          "weight": {
-            "type": "number",
-            "format": "float"
-          }
-        }
-      }
-    },
     "Property": {
       "properties": {
         "dataType": {
@@ -651,11 +629,6 @@
             "type": "string"
           },
           "type": "array"
-        },
-        "cardinality": {
-          "description": "DEPRECATED - do not use anymore.",
-          "type": "string",
-          "default": ""
         },
         "description": {
           "description": "Description of the property.",
@@ -668,9 +641,6 @@
         "name": {
           "description": "Name of the property as URI relative to the schema URL.",
           "type": "string"
-        },
-        "keywords": {
-          "$ref": "#/definitions/Keywords"
         },
         "index": {
           "description": "Optional. By default each property is fully indexed both for full-text, as well as vector-search. You can ignore properties in searches by explicitly setting index to false. Not set is the same as true",
@@ -702,21 +672,8 @@
           "format": "uri",
           "type": "string"
         },
-        "meta": {
-          "description": "Additional Meta information about this particular reference. Only shown if meta==true.",
-          "$ref": "#/definitions/ReferenceMeta"
-        },
         "_classification": {
           "description": "Additional Meta information about classifications if the item was part of one",
-          "$ref": "#/definitions/ReferenceMetaClassification"
-        }
-      }
-    },
-    "ReferenceMeta": {
-      "description": "Additional Meta information about this particular reference.",
-      "properties": {
-        "classification": {
-          "description": "If a property was set through a classification, this meta field contains additional info",
           "$ref": "#/definitions/ReferenceMetaClassification"
         }
       }
@@ -1062,9 +1019,6 @@
         },
         "schema": {
           "$ref": "#/definitions/PropertySchema"
-        },
-        "meta": {
-          "$ref": "#/definitions/UnderscoreProperties"
         },
         "id": {
           "description": "ID of the Thing.",
@@ -1417,13 +1371,6 @@
       "required": false,
       "type": "integer"
     },
-    "CommonMetaParameterQuery": {
-      "description": "Should additional meta information (e.g. about classified properties) be included? Defaults to false.",
-      "in": "query",
-      "name": "meta",
-      "required": false,
-      "type": "boolean"
-    },
     "CommonIncludeParameterQuery": {
       "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector, interpretation, _interpretation",
       "in": "query",
@@ -1488,9 +1435,6 @@
         "parameters": [
           {
             "$ref": "#/parameters/CommonLimitParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonMetaParameterQuery"
           },
           {
             "$ref": "#/parameters/CommonIncludeParameterQuery"
@@ -1684,9 +1628,6 @@
             "name": "id",
             "required": true,
             "type": "string"
-          },
-          {
-            "$ref": "#/parameters/CommonMetaParameterQuery"
           },
           {
             "$ref": "#/parameters/CommonIncludeParameterQuery"
@@ -2707,9 +2648,6 @@
             "$ref": "#/parameters/CommonLimitParameterQuery"
           },
           {
-            "$ref": "#/parameters/CommonMetaParameterQuery"
-          },
-          {
             "$ref": "#/parameters/CommonIncludeParameterQuery"
           }
         ],
@@ -2901,9 +2839,6 @@
             "name": "id",
             "required": true,
             "type": "string"
-          },
-          {
-            "$ref": "#/parameters/CommonMetaParameterQuery"
           },
           {
             "$ref": "#/parameters/CommonIncludeParameterQuery"

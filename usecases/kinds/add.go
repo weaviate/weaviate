@@ -80,11 +80,6 @@ func (m *Manager) addActionToConnectorAndSchema(ctx context.Context, principal *
 		return nil, NewErrInvalidUserInput("invalid action: %v", err)
 	}
 
-	err = m.addNetworkDataTypesForAction(ctx, principal, class)
-	if err != nil {
-		return nil, NewErrInternal("could not update schema for network refs: %v", err)
-	}
-
 	now := m.timeSource.Now()
 	class.CreationTimeUnix = now
 	class.LastUpdateTimeUnix = now
@@ -94,7 +89,6 @@ func (m *Manager) addActionToConnectorAndSchema(ctx context.Context, principal *
 		return nil, NewErrInternal("add action: %v", err)
 	}
 
-	class.Meta = nil
 	return class, nil
 }
 
@@ -104,10 +98,7 @@ func (m *Manager) vectorizeAndPutAction(ctx context.Context, class *models.Actio
 		return fmt.Errorf("vectorize: %v", err)
 	}
 
-	if class.Meta == nil {
-		class.Meta = &models.UnderscoreProperties{}
-	}
-	class.Meta.Interpretation = &models.Interpretation{
+	class.Interpretation = &models.Interpretation{
 		Source: sourceFromInputElements(source),
 	}
 
@@ -143,7 +134,7 @@ func (m *Manager) validateAction(ctx context.Context, principal *models.Principa
 		return err
 	}
 
-	return validation.New(s, m.exists, m.network, m.config).Action(ctx, class)
+	return validation.New(s, m.exists, m.config).Action(ctx, class)
 }
 
 func (m *Manager) exists(ctx context.Context, k kind.Kind, id strfmt.UUID) (bool, error) {
@@ -182,11 +173,6 @@ func (m *Manager) addThingToConnectorAndSchema(ctx context.Context, principal *m
 		return nil, NewErrInvalidUserInput("invalid thing: %v", err)
 	}
 
-	err = m.addNetworkDataTypesForThing(ctx, principal, class)
-	if err != nil {
-		return nil, NewErrInternal("could not update schema for network refs: %v", err)
-	}
-
 	now := m.timeSource.Now()
 	class.CreationTimeUnix = now
 	class.LastUpdateTimeUnix = now
@@ -196,7 +182,6 @@ func (m *Manager) addThingToConnectorAndSchema(ctx context.Context, principal *m
 		return nil, NewErrInternal("add thing: %v", err)
 	}
 
-	class.Meta = nil
 	return class, nil
 }
 
@@ -206,10 +191,7 @@ func (m *Manager) vectorizeAndPutThing(ctx context.Context, class *models.Thing)
 		return fmt.Errorf("vectorize: %v", err)
 	}
 
-	if class.Meta == nil {
-		class.Meta = &models.UnderscoreProperties{}
-	}
-	class.Meta.Interpretation = &models.Interpretation{
+	class.Interpretation = &models.Interpretation{
 		Source: sourceFromInputElements(source),
 	}
 
@@ -233,15 +215,5 @@ func (m *Manager) validateThing(ctx context.Context, principal *models.Principal
 		return err
 	}
 
-	return validation.New(s, m.exists, m.network, m.config).Thing(ctx, class)
-}
-
-func (m *Manager) addNetworkDataTypesForThing(ctx context.Context, principal *models.Principal, class *models.Thing) error {
-	refSchemaUpdater := newReferenceSchemaUpdater(ctx, principal, m.schemaManager, m.network, class.Class, kind.Thing)
-	return refSchemaUpdater.addNetworkDataTypes(class.Schema)
-}
-
-func (m *Manager) addNetworkDataTypesForAction(ctx context.Context, principal *models.Principal, class *models.Action) error {
-	refSchemaUpdater := newReferenceSchemaUpdater(ctx, principal, m.schemaManager, m.network, class.Class, kind.Action)
-	return refSchemaUpdater.addNetworkDataTypes(class.Schema)
+	return validation.New(s, m.exists, m.config).Thing(ctx, class)
 }

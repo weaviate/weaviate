@@ -38,7 +38,7 @@ func (n *NilMigrator) DropClass(ctx context.Context, kind kind.Kind, className s
 	return nil
 }
 
-func (n *NilMigrator) UpdateClass(ctx context.Context, kind kind.Kind, className string, newClassName *string, newKeywords *models.Keywords) error {
+func (n *NilMigrator) UpdateClass(ctx context.Context, kind kind.Kind, className string, newClassName *string) error {
 	return nil
 }
 
@@ -46,7 +46,7 @@ func (n *NilMigrator) AddProperty(ctx context.Context, kind kind.Kind, className
 	return nil
 }
 
-func (n *NilMigrator) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string, newKeywords *models.Keywords) error {
+func (n *NilMigrator) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string) error {
 	return nil
 }
 
@@ -64,27 +64,20 @@ var schemaTests = []struct {
 }{
 	{name: "UpdateMeta", fn: testUpdateMeta},
 	{name: "AddThingClass", fn: testAddThingClass},
-	{name: "AddThingClassWithDeprecatedFields", fn: testAddThingClassWithDeprecatedFields},
 	{name: "AddThingClassWithVectorizedName", fn: testAddThingClassWithVectorizedName},
 	{name: "RemoveThingClass", fn: testRemoveThingClass},
 	{name: "CantAddSameClassTwice", fn: testCantAddSameClassTwice},
 	{name: "CantAddSameClassTwiceDifferentKind", fn: testCantAddSameClassTwiceDifferentKinds},
 	{name: "UpdateClassName", fn: testUpdateClassName},
 	{name: "UpdateClassNameCollision", fn: testUpdateClassNameCollision},
-	{name: "AddThingClassWithKeywords", fn: testAddThingClassWithKeywords},
-	{name: "AddThingClassWithInvalidKeywordWeights", fn: testAddThingClassWithInvalidKeywordWeights},
-	{name: "UpdateClassKeywords", fn: testUpdateClassKeywords},
 	{name: "AddPropertyDuringCreation", fn: testAddPropertyDuringCreation},
 	{name: "AddInvalidPropertyDuringCreation", fn: testAddInvalidPropertyDuringCreation},
 	{name: "AddInvalidPropertyWithEmptyDataTypeDuringCreation", fn: testAddInvalidPropertyWithEmptyDataTypeDuringCreation},
-	{name: "AddPropertyDWithInvalidKeywordWeightsDuringCreation", fn: testAddPropertyWithInvalidKeywordWeightsDuringCreation},
 	{name: "DropProperty", fn: testDropProperty},
 	{name: "UpdatePropertyName", fn: testUpdatePropertyName},
 	{name: "UpdatePropertyNameCollision", fn: testUpdatePropertyNameCollision},
-	{name: "UpdatePropertyKeywords", fn: testUpdatePropertyKeywords},
 	{name: "UpdatePropertyAddDataTypeNew", fn: testUpdatePropertyAddDataTypeNew},
 	{name: "UpdatePropertyAddDataTypeExisting", fn: testUpdatePropertyAddDataTypeExisting},
-	{name: "AddProperty with deprecated fields", fn: testAddPropertyWithDeprecatedFields},
 }
 
 func testUpdateMeta(t *testing.T, lsm *Manager) {
@@ -124,75 +117,6 @@ func testAddThingClass(t *testing.T, lsm *Manager) {
 	thingClasses = testGetClassNames(lsm, kind.Thing)
 	assert.Contains(t, thingClasses, "Car")
 	assert.False(t, lsm.VectorizeClassName("Car"), "class name should not be vectorized")
-}
-
-func testAddThingClassWithDeprecatedFields(t *testing.T, lsm *Manager) {
-	t.Parallel()
-
-	// create own manager, so we can hook into the logger
-	logger, hook := test.NewNullLogger()
-	sm, err := NewManager(&NilMigrator{}, newFakeRepo(), newFakeLocks(), nil,
-		logger, &fakeC11y{}, &fakeAuthorizer{}, &fakeStopwordDetector{})
-	require.Nil(t, err)
-
-	thingClasses := testGetClassNames(sm, kind.Thing)
-	assert.NotContains(t, thingClasses, "CarDeprecated")
-
-	err = sm.AddThing(context.Background(), nil, &models.Class{
-		Class: "CarDeprecated",
-		Properties: []*models.Property{{
-			DataType:    []string{"string"},
-			Name:        "dummy",
-			Cardinality: "foo",
-		}},
-	})
-
-	assert.Nil(t, err)
-
-	require.Len(t, hook.Entries, 1)
-	assert.Contains(t, hook.LastEntry().Message, "cardinality")
-	assert.Contains(t, hook.LastEntry().Message, "deprecated")
-	class := testGetClassByName(sm, kind.Thing, "CarDeprecated")
-	require.NotNil(t, class)
-	prop := testGetPropertyOfClass(class, "dummy")
-	require.NotNil(t, prop)
-	assert.Equal(t, "", prop.Cardinality)
-}
-
-func testAddPropertyWithDeprecatedFields(t *testing.T, lsm *Manager) {
-	t.Parallel()
-
-	// create own manager, so we can hook into the logger
-	logger, hook := test.NewNullLogger()
-	sm, err := NewManager(&NilMigrator{}, newFakeRepo(), newFakeLocks(), nil,
-		logger, &fakeC11y{}, &fakeAuthorizer{}, &fakeStopwordDetector{})
-	require.Nil(t, err)
-
-	thingClasses := testGetClassNames(sm, kind.Thing)
-	assert.NotContains(t, thingClasses, "CarPropDeprecated")
-
-	err = sm.AddThing(context.Background(), nil, &models.Class{
-		Class: "CarPropDeprecated",
-	})
-
-	assert.Nil(t, err)
-
-	err = sm.AddThingProperty(context.Background(), nil, "CarPropDeprecated",
-		&models.Property{
-			DataType:    []string{"string"},
-			Name:        "dummy",
-			Cardinality: "foo",
-		})
-	assert.Nil(t, err)
-
-	require.Len(t, hook.Entries, 1)
-	assert.Contains(t, hook.LastEntry().Message, "cardinality")
-	assert.Contains(t, hook.LastEntry().Message, "deprecated")
-	class := testGetClassByName(sm, kind.Thing, "CarPropDeprecated")
-	require.NotNil(t, class)
-	prop := testGetPropertyOfClass(class, "dummy")
-	require.NotNil(t, prop)
-	assert.Equal(t, "", prop.Cardinality)
 }
 
 func testAddThingClassWithVectorizedName(t *testing.T, lsm *Manager) {
@@ -314,101 +238,6 @@ func testUpdateClassNameCollision(t *testing.T, lsm *Manager) {
 	assert.Equal(t, thingClasses[0], "InitialName")
 }
 
-func testAddThingClassWithKeywords(t *testing.T, lsm *Manager) {
-	t.Parallel()
-
-	keywords := models.Keywords{
-		{Keyword: "vehicle", Weight: 0.6},
-		{Keyword: "transport", Weight: 0.4},
-	}
-
-	err := lsm.AddThing(context.Background(), nil, &models.Class{
-		Class:              "Car",
-		Keywords:           keywords,
-		VectorizeClassName: ptBool(true),
-	})
-	assert.Nil(t, err)
-
-	thingClasses := testGetClasses(lsm, kind.Thing)
-	require.Len(t, thingClasses, 1)
-	require.Len(t, thingClasses[0].Keywords, 2)
-	assert.Equal(t, thingClasses[0].Keywords[0].Keyword, "vehicle")
-	assert.Equal(t, thingClasses[0].Keywords[0].Weight, float32(0.6))
-	assert.Equal(t, thingClasses[0].Keywords[1].Keyword, "transport")
-	assert.Equal(t, thingClasses[0].Keywords[1].Weight, float32(0.4))
-}
-
-func testAddThingClassWithInvalidKeywordWeights(t *testing.T, lsm *Manager) {
-	t.Parallel()
-
-	// weight larger than 1.0
-	keywords := models.Keywords{
-		{Keyword: "vehicle", Weight: 1.2},
-	}
-	err := lsm.AddThing(context.Background(), nil, &models.Class{
-		Class:              "Car",
-		VectorizeClassName: ptBool(true),
-		Keywords:           keywords,
-	})
-	assert.NotNil(t, err)
-
-	// weight smaller than 0
-	keywords = models.Keywords{
-		{Keyword: "vehicle", Weight: -0.1},
-	}
-	err = lsm.AddThing(context.Background(), nil, &models.Class{
-		Class:              "Car",
-		VectorizeClassName: ptBool(true),
-		Keywords:           keywords,
-	})
-	assert.NotNil(t, err)
-
-	// weight exactly 1 should NOT error
-	keywords = models.Keywords{
-		{Keyword: "vehicle", Weight: 1},
-	}
-	err = lsm.AddThing(context.Background(), nil, &models.Class{
-		Class:              "Car",
-		VectorizeClassName: ptBool(true),
-		Keywords:           keywords,
-	})
-	assert.Nil(t, err)
-}
-
-func testUpdateClassKeywords(t *testing.T, lsm *Manager) {
-	t.Parallel()
-
-	// Create class with a keyword
-	keywords := models.Keywords{
-		{Keyword: "transport", Weight: 1.0},
-	}
-
-	err := lsm.AddThing(context.Background(), nil, &models.Class{
-		Class:              "Car",
-		Keywords:           keywords,
-		VectorizeClassName: ptBool(true),
-	})
-	assert.Nil(t, err)
-
-	// Now update just the keyword
-	updatedKeywords := models.Class{
-		Class:              "Car",
-		VectorizeClassName: ptBool(true),
-		Keywords: models.Keywords{
-			{Keyword: "vehicle", Weight: 1.0},
-		},
-	}
-
-	err = lsm.UpdateThing(context.Background(), nil, "Car", &updatedKeywords)
-	require.Nil(t, err)
-
-	thingClasses := testGetClasses(lsm, kind.Thing)
-	require.Len(t, thingClasses, 1)
-	require.Len(t, thingClasses[0].Keywords, 1)
-	assert.Equal(t, thingClasses[0].Keywords[0].Keyword, "vehicle")
-	assert.Equal(t, thingClasses[0].Keywords[0].Weight, float32(1.0))
-}
-
 func testAddPropertyDuringCreation(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
@@ -480,64 +309,6 @@ func testAddInvalidPropertyWithEmptyDataTypeDuringCreation(t *testing.T, lsm *Ma
 		Properties: properties,
 	})
 	assert.NotNil(t, err)
-}
-
-func testAddPropertyWithInvalidKeywordWeightsDuringCreation(t *testing.T, lsm *Manager) {
-	t.Parallel()
-
-	// keyword larger than 1
-	properties := []*models.Property{
-		{
-			Name:     "color",
-			DataType: []string{"string"},
-			Keywords: models.Keywords{{
-				Keyword: "paint",
-				Weight:  1.2,
-			}},
-		},
-	}
-
-	err := lsm.AddThing(context.Background(), nil, &models.Class{
-		Class:      "Car",
-		Properties: properties,
-	})
-	assert.NotNil(t, err)
-
-	// keyword smaller than 0
-	properties = []*models.Property{
-		{
-			Name:     "color",
-			DataType: []string{"string"},
-			Keywords: models.Keywords{{
-				Keyword: "paint",
-				Weight:  -0.1,
-			}},
-		},
-	}
-
-	err = lsm.AddThing(context.Background(), nil, &models.Class{
-		Class:      "Car",
-		Properties: properties,
-	})
-	assert.NotNil(t, err)
-
-	// keyword exactly 1 should NOT error
-	properties = []*models.Property{
-		{
-			Name:     "color",
-			DataType: []string{"string"},
-			Keywords: models.Keywords{{
-				Keyword: "paint",
-				Weight:  1,
-			}},
-		},
-	}
-
-	err = lsm.AddThing(context.Background(), nil, &models.Class{
-		Class:      "Car",
-		Properties: properties,
-	})
-	assert.Nil(t, err)
 }
 
 func testDropProperty(t *testing.T, lsm *Manager) {
@@ -629,51 +400,6 @@ func testUpdatePropertyNameCollision(t *testing.T, lsm *Manager) {
 	assert.Equal(t, thingClasses[0].Properties[1].Name, "smell")
 }
 
-func testUpdatePropertyKeywords(t *testing.T, lsm *Manager) {
-	t.Parallel()
-
-	// Create a class Car with a property color.
-
-	var properties []*models.Property = []*models.Property{
-		{Name: "color", DataType: []string{"string"}},
-	}
-
-	err := lsm.AddThing(context.Background(), nil, &models.Class{
-		Class:      "Car",
-		Properties: properties,
-	})
-	assert.Nil(t, err)
-
-	thingClasses := testGetClasses(lsm, kind.Thing)
-	require.Len(t, thingClasses, 1)
-	require.Len(t, thingClasses[0].Properties, 1)
-	assert.Equal(t, thingClasses[0].Properties[0].Name, "color")
-
-	// Assert that there are no keywords.
-	assert.Nil(t, thingClasses[0].Properties[0].Keywords)
-
-	// Now update the property, add keywords
-	newKeywords := &models.Property{
-		Keywords: models.Keywords{
-			&models.KeywordsItems0{Keyword: "color", Weight: 0.9},
-			&models.KeywordsItems0{Keyword: "paint", Weight: 0.1},
-		},
-		Name: "color",
-	}
-
-	err = lsm.UpdateThingProperty(context.Background(), nil, "Car", "color", newKeywords)
-	assert.Nil(t, err)
-
-	// Verify the content of the keywords.
-	thingClasses = testGetClasses(lsm, kind.Thing)
-	assert.Len(t, thingClasses, 1)
-	require.Len(t, thingClasses[0].Properties, 1)
-	assert.Equal(t, "color", thingClasses[0].Properties[0].Keywords[0].Keyword)
-	assert.Equal(t, float32(0.9), thingClasses[0].Properties[0].Keywords[0].Weight)
-	assert.Equal(t, "paint", thingClasses[0].Properties[0].Keywords[1].Keyword)
-	assert.Equal(t, float32(0.1), thingClasses[0].Properties[0].Keywords[1].Weight)
-}
-
 func testUpdatePropertyAddDataTypeNew(t *testing.T, lsm *Manager) {
 	t.Parallel()
 
@@ -750,7 +476,7 @@ func TestSchema(t *testing.T) {
 // New Local Schema *Manager
 func newSchemaManager() *Manager {
 	logger, _ := test.NewNullLogger()
-	sm, err := NewManager(&NilMigrator{}, newFakeRepo(), newFakeLocks(), nil,
+	sm, err := NewManager(&NilMigrator{}, newFakeRepo(), newFakeLocks(),
 		logger, &fakeC11y{}, &fakeAuthorizer{}, &fakeStopwordDetector{})
 	if err != nil {
 		panic(err.Error())
@@ -766,28 +492,6 @@ func testGetClasses(l *Manager, k kind.Kind) []*models.Class {
 	classes = append(classes, schema.SemanticSchemaFor(k).Classes...)
 
 	return classes
-}
-
-func testGetClassByName(l *Manager, k kind.Kind, name string) *models.Class {
-	classes := testGetClasses(l, k)
-	for _, class := range classes {
-		if class.Class == name {
-			return class
-		}
-	}
-
-	return nil
-}
-
-func testGetPropertyOfClass(class *models.Class,
-	propName string) *models.Property {
-	for _, prop := range class.Properties {
-		if prop.Name == propName {
-			return prop
-		}
-	}
-
-	return nil
 }
 
 func testGetClassNames(l *Manager, k kind.Kind) []string {

@@ -16,19 +16,10 @@ import (
 	"strings"
 
 	"github.com/graphql-go/graphql"
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get/refclasses"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
-	"github.com/semi-technologies/weaviate/usecases/network/crossrefs"
 )
-
-// NetworkRef is a WIP, it will most likely change
-type NetworkRef struct {
-	crossrefs.NetworkKind
-}
 
 func (b *classBuilder) referenceField(propertyType schema.PropertyDataType,
 	property *models.Property, kindName, className string) *graphql.Field {
@@ -37,29 +28,14 @@ func (b *classBuilder) referenceField(propertyType schema.PropertyDataType,
 	dataTypeClasses := []*graphql.Object{}
 
 	for _, refClassName := range refClasses {
-		if desiredRefClass, err := crossrefs.ParseClass(string(refClassName)); err == nil {
-			// is a network ref
-			refClass, ok := b.knownRefClasses[desiredRefClass]
-			if !ok {
-				// we seem to have referenced a network class that doesn't exist
-				// (anymore). This is unfortunate, but there are many good reasons for
-				// this to happen. For example a peer could have left the network. We
-				// therefore simply skip this refprop, so we don't destroy the entire
-				// graphql api every time a peer leaves unexpectedly
-				continue
-			}
-
-			dataTypeClasses = append(dataTypeClasses, refClass)
-		} else {
-			// is a local ref
-			refClass, ok := b.knownClasses[string(refClassName)]
-			if !ok {
-				panic(fmt.Sprintf("buildGetClass: unknown referenced class type for %s.%s.%s; %s",
-					kindName, className, property.Name, refClassName))
-			}
-
-			dataTypeClasses = append(dataTypeClasses, refClass)
+		// is a local ref
+		refClass, ok := b.knownClasses[string(refClassName)]
+		if !ok {
+			panic(fmt.Sprintf("buildGetClass: unknown referenced class type for %s.%s.%s; %s",
+				kindName, className, property.Name, refClassName))
 		}
+
+		dataTypeClasses = append(dataTypeClasses, refClass)
 	}
 
 	if (len(dataTypeClasses)) == 0 {
@@ -75,19 +51,18 @@ func (b *classBuilder) referenceField(propertyType schema.PropertyDataType,
 	classUnion := graphql.NewUnion(graphql.UnionConfig{
 		Name:        fmt.Sprintf("%s%s%s", className, propertyName, "Obj"),
 		Types:       dataTypeClasses,
-		ResolveType: makeResolveClassUnionType(&b.knownClasses, b.knownRefClasses),
+		ResolveType: makeResolveClassUnionType(&b.knownClasses),
 		Description: property.Description,
 	})
 
 	return &graphql.Field{
 		Type:        graphql.NewList(classUnion),
 		Description: property.Description,
-		Resolve:     makeResolveRefField(b.peers),
+		Resolve:     makeResolveRefField(),
 	}
 }
 
-func makeResolveClassUnionType(knownClasses *map[string]*graphql.Object,
-	knownRefClasses refclasses.ByNetworkClass) graphql.ResolveTypeFn {
+func makeResolveClassUnionType(knownClasses *map[string]*graphql.Object) graphql.ResolveTypeFn {
 	return func(p graphql.ResolveTypeParams) *graphql.Object {
 		valueMap := p.Value.(map[string]interface{})
 		refType := valueMap["__refClassType"].(string)
@@ -100,27 +75,13 @@ func makeResolveClassUnionType(knownClasses *map[string]*graphql.Object,
 					"local ref refers to class '%s', but no such kind exists in the peer network", className))
 			}
 			return classObj
-
-		case "network":
-			className := valueMap["__refClassName"].(string)
-			peerName := valueMap["__refClassPeerName"].(string)
-			remoteKind := crossrefs.NetworkClass{ClassName: className, PeerName: peerName}
-			classObj, ok := knownRefClasses[remoteKind]
-			if !ok {
-				panic(fmt.Errorf(
-					"network ref refers to remote kind %v, but no such kind exists in the peer network",
-					remoteKind))
-			}
-
-			return classObj
-
 		default:
 			panic(fmt.Sprintf("unknown ref type %#v", refType))
 		}
 	}
 }
 
-func makeResolveRefField(peers peers.Peers) graphql.FieldResolveFn {
+func makeResolveRefField() graphql.FieldResolveFn {
 	return func(p graphql.ResolveParams) (interface{}, error) {
 		if p.Source.(map[string]interface{})[p.Info.FieldName] == nil {
 			return nil, nil
@@ -136,65 +97,10 @@ func makeResolveRefField(peers peers.Peers) graphql.FieldResolveFn {
 				localRef["__refClassType"] = "local"
 				localRef["__refClassName"] = v.Class
 				results[i] = localRef
-
-			case NetworkRef:
-				networkRef := func() (interface{}, error) {
-					result, err := peers.RemoteKind(v.NetworkKind)
-					if err != nil {
-						return nil, fmt.Errorf("could not get remote kind for '%v': %s", v, err)
-					}
-
-					var schema map[string]interface{}
-					schema, err = extractSchemaFromKind(v, result)
-					if err != nil {
-						return nil, err
-					}
-
-					// inject some meta data so the ResolveType can determine the type
-					schema["__refClassType"] = "network"
-					schema["__refClassPeerName"] = v.PeerName
-					schema["uuid"] = v.ID
-					return schema, nil
-				}
-				results[i] = networkRef
-
 			default:
 				return nil, fmt.Errorf("unsupported type, expected search.LocalRef or NetworkRef, got %T", v)
 			}
 		}
 		return results, nil
-	}
-}
-
-func extractSchemaFromKind(v NetworkRef, result interface{}) (map[string]interface{}, error) {
-	switch v.Kind {
-	case kind.Thing:
-		thing, ok := result.(*models.Thing)
-		if !ok {
-			return nil, fmt.Errorf("expected a models.Thing, but remote instance returned %#v", result)
-		}
-
-		schema, ok := thing.Schema.(map[string]interface{})
-		if !ok {
-			return nil, fmt.Errorf("expected schema of '%v', to be a map, but is: %#v", v, schema)
-		}
-		schema["__refClassName"] = thing.Class
-
-		return schema, nil
-	case kind.Action:
-		action, ok := result.(models.Action)
-		if !ok {
-			return nil, fmt.Errorf("expected a models.Action, but remote instance returned %#v", result)
-		}
-
-		schema, ok := action.Schema.(map[string]interface{})
-		if !ok {
-			return nil, fmt.Errorf("expected schema of '%v', to be a map, but is: %#v", v, schema)
-		}
-		schema["__refClassName"] = action.Class
-		return schema, nil
-
-	default:
-		return nil, fmt.Errorf("not a known kind: %s", v.Kind)
 	}
 }
