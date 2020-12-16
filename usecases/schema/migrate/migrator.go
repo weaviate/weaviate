@@ -26,13 +26,13 @@ type Migrator interface {
 	AddClass(ctx context.Context, kind kind.Kind, class *models.Class) error
 	DropClass(ctx context.Context, kind kind.Kind, className string) error
 	UpdateClass(ctx context.Context, kind kind.Kind, className string,
-		newClassName *string, newKeywords *models.Keywords) error
+		newClassName *string) error
 
 	AddProperty(ctx context.Context, kind kind.Kind, className string,
 		prop *models.Property) error
 	DropProperty(ctx context.Context, kind kind.Kind, className string,
 		propertyName string) error
 	UpdateProperty(ctx context.Context, kind kind.Kind, className string,
-		propName string, newName *string, newKeywords *models.Keywords) error
+		propName string, newName *string) error
 	UpdatePropertyAddDataType(ctx context.Context, kind kind.Kind, className string, propName string, newDataType string) error
 }

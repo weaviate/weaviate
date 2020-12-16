@@ -127,16 +127,13 @@ func (b *BatchManager) validateAction(ctx context.Context, principal *models.Pri
 		action.CreationTimeUnix = unixNow()
 	}
 
-	err = validation.New(s, b.exists, b.network, b.config).Action(ctx, action)
+	err = validation.New(s, b.exists, b.config).Action(ctx, action)
 	ec.add(err)
 
 	vector, source, err := b.vectorizer.Action(ctx, action)
 	ec.add(err)
 
-	if action.Meta == nil {
-		action.Meta = &models.UnderscoreProperties{}
-	}
-	action.Meta.Interpretation = &models.Interpretation{
+	action.Interpretation = &models.Interpretation{
 		Source: sourceFromInputElements(source),
 	}
 
@@ -272,16 +269,13 @@ func (b *BatchManager) validateThing(ctx context.Context, principal *models.Prin
 
 	thing.ID = id
 
-	err = validation.New(s, b.exists, b.network, b.config).Thing(ctx, thing)
+	err = validation.New(s, b.exists, b.config).Thing(ctx, thing)
 	ec.add(err)
 
 	vector, source, err := b.vectorizer.Thing(ctx, thing)
 	ec.add(err)
 
-	if thing.Meta == nil {
-		thing.Meta = &models.UnderscoreProperties{}
-	}
-	thing.Meta.Interpretation = &models.Interpretation{
+	thing.Interpretation = &models.Interpretation{
 		Source: sourceFromInputElements(source),
 	}
 

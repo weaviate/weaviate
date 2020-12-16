@@ -33,7 +33,6 @@ func Test_ReferencesAdd(t *testing.T) {
 		vectorRepo    *fakeVectorRepo
 		schemaManager *fakeSchemaManager
 		locks         *fakeLocks
-		network       *fakeNetwork
 		cfg           *config.WeaviateConfig
 		manager       *Manager
 		authorizer    *fakeAuthorizer
@@ -44,13 +43,12 @@ func Test_ReferencesAdd(t *testing.T) {
 		vectorRepo = &fakeVectorRepo{}
 		schemaManager = &fakeSchemaManager{}
 		locks = &fakeLocks{}
-		network = &fakeNetwork{}
 		cfg = &config.WeaviateConfig{}
 		authorizer = &fakeAuthorizer{}
 		vectorizer = &fakeVectorizer{}
 		extender := &fakeExtender{}
 		projector := &fakeProjector{}
-		manager = NewManager(locks, schemaManager, network,
+		manager = NewManager(locks, schemaManager,
 			cfg, logger, authorizer, vectorizer, vectorRepo, extender, projector)
 	}
 

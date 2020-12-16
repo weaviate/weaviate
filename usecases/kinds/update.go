@@ -64,11 +64,6 @@ func (m *Manager) updateActionToConnectorAndSchema(ctx context.Context, principa
 		return nil, NewErrInvalidUserInput("invalid action: %v", err)
 	}
 
-	err = m.addNetworkDataTypesForAction(ctx, principal, class)
-	if err != nil {
-		return nil, NewErrInternal("could not update schema for network refs: %v", err)
-	}
-
 	class.LastUpdateTimeUnix = m.timeSource.Now()
 
 	err = m.vectorizeAndPutAction(ctx, class)
@@ -120,11 +115,6 @@ func (m *Manager) updateThingToConnectorAndSchema(ctx context.Context, principal
 	err = m.validateThing(ctx, principal, class)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid thing: %v", err)
-	}
-
-	err = m.addNetworkDataTypesForThing(ctx, principal, class)
-	if err != nil {
-		return nil, NewErrInternal("update schema for network refs: %v", err)
 	}
 
 	class.LastUpdateTimeUnix = m.timeSource.Now()

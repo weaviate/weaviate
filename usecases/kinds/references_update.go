@@ -68,12 +68,6 @@ func (m *Manager) updateActionReferenceToConnectorAndSchema(ctx context.Context,
 	action.Schema = updatedSchema
 	action.LastUpdateTimeUnix = m.timeSource.Now()
 
-	// the new refs could be network refs
-	err = m.addNetworkDataTypesForAction(ctx, principal, action)
-	if err != nil {
-		return NewErrInternal("could not update schema for network refs: %v", err)
-	}
-
 	err = m.vectorRepo.PutAction(ctx, action, actionRes.Vector)
 	if err != nil {
 		return NewErrInternal("could not store action: %v", err)
@@ -127,12 +121,6 @@ func (m *Manager) updateThingReferenceToConnectorAndSchema(ctx context.Context, 
 	thing.Schema = updatedSchema
 	thing.LastUpdateTimeUnix = m.timeSource.Now()
 
-	// the new refs could be network refs
-	err = m.addNetworkDataTypesForThing(ctx, principal, thing)
-	if err != nil {
-		return NewErrInternal("could not update schema for network refs: %v", err)
-	}
-
 	err = m.vectorRepo.PutThing(ctx, thing, thingRes.Vector)
 	if err != nil {
 		return NewErrInternal("could not store thing: %v", err)
@@ -142,7 +130,7 @@ func (m *Manager) updateThingReferenceToConnectorAndSchema(ctx context.Context, 
 }
 
 func (m *Manager) validateReferences(ctx context.Context, references models.MultipleRef) error {
-	err := validation.New(schema.Schema{}, m.exists, m.network, m.config).
+	err := validation.New(schema.Schema{}, m.exists, m.config).
 		ValidateMultipleRef(ctx, references, "reference not found")
 	if err != nil {
 		return NewErrInvalidUserInput("invalid references: %v", err)

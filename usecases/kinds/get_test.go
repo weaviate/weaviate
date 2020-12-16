@@ -53,14 +53,13 @@ func Test_GetAction(t *testing.T) {
 			GetSchemaResponse: schema,
 		}
 		locks := &fakeLocks{}
-		network := &fakeNetwork{}
 		cfg := &config.WeaviateConfig{}
 		authorizer := &fakeAuthorizer{}
 		logger, _ := test.NewNullLogger()
 		extender = &fakeExtender{}
 		projectorFake = &fakeProjector{}
 		vectorizer := &fakeVectorizer{}
-		manager = NewManager(locks, schemaManager, network, cfg, logger, authorizer,
+		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
 			vectorizer, vectorRepo, extender, projectorFake)
 	}
 
@@ -182,8 +181,6 @@ func Test_GetAction(t *testing.T) {
 							},
 						},
 					},
-					Meta: &models.UnderscoreProperties{ // TODO: remove after deprecation period
-					},
 				}
 
 				res, err := manager.GetAction(context.Background(), &models.Principal{}, id,
@@ -240,8 +237,6 @@ func Test_GetAction(t *testing.T) {
 								},
 							},
 						},
-						Meta: &models.UnderscoreProperties{ // TODO: remove after deprecation period
-						},
 					},
 				}
 
@@ -287,8 +282,6 @@ func Test_GetAction(t *testing.T) {
 						FeatureProjection: &models.FeatureProjection{
 							Vector: []float32{1, 2, 3},
 						},
-						Meta: &models.UnderscoreProperties{ // TODO: remove after deprecation period
-						},
 					},
 				}
 
@@ -327,14 +320,13 @@ func Test_GetThing(t *testing.T) {
 			GetSchemaResponse: schema,
 		}
 		locks := &fakeLocks{}
-		network := &fakeNetwork{}
 		cfg := &config.WeaviateConfig{}
 		authorizer := &fakeAuthorizer{}
 		logger, _ := test.NewNullLogger()
 		extender = &fakeExtender{}
 		projectorFake = &fakeProjector{}
 		vectorizer := &fakeVectorizer{}
-		manager = NewManager(locks, schemaManager, network, cfg, logger, authorizer,
+		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
 			vectorizer, vectorRepo, extender, projectorFake)
 	}
 
@@ -456,8 +448,6 @@ func Test_GetThing(t *testing.T) {
 							},
 						},
 					},
-					Meta: &models.UnderscoreProperties{ // TODO: remove after deprecation period
-					},
 				}
 
 				res, err := manager.GetThing(context.Background(), &models.Principal{}, id,
@@ -514,8 +504,6 @@ func Test_GetThing(t *testing.T) {
 								},
 							},
 						},
-						Meta: &models.UnderscoreProperties{ // TODO: remove after deprecation period
-						},
 					},
 				}
 
@@ -560,8 +548,6 @@ func Test_GetThing(t *testing.T) {
 						VectorWeights: (map[string]string)(nil),
 						FeatureProjection: &models.FeatureProjection{
 							Vector: []float32{1, 2, 3},
-						},
-						Meta: &models.UnderscoreProperties{ // TODO: remove after deprecation period
 						},
 					},
 				}

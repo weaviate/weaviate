@@ -155,7 +155,7 @@ func Test_Schema_Authorization(t *testing.T) {
 			t.Run(test.methodName, func(t *testing.T) {
 				authorizer := &authDenier{}
 				manager, err := NewManager(&NilMigrator{}, newFakeRepo(), newFakeLocks(),
-					nil, logger, &fakeC11y{}, authorizer, nil)
+					logger, &fakeC11y{}, authorizer, nil)
 				require.Nil(t, err)
 
 				var args []interface{}

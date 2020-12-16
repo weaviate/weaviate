@@ -62,12 +62,6 @@ func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, pr
 		return err
 	}
 
-	// the new ref could be a network ref
-	err = m.addNetworkDataTypesForAction(ctx, principal, action)
-	if err != nil {
-		return NewErrInternal("could not update schema for network refs: %v", err)
-	}
-
 	err = m.vectorRepo.AddReference(ctx, kind.Action, action.Class, action.ID,
 		propertyName, property)
 	if err != nil {
@@ -115,12 +109,6 @@ func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, pri
 		return err
 	}
 
-	// the new ref could be a network ref
-	err = m.addNetworkDataTypesForThing(ctx, principal, thing)
-	if err != nil {
-		return NewErrInternal("could not update schema for network refs: %v", err)
-	}
-
 	err = m.vectorRepo.AddReference(ctx, kind.Thing, thing.Class, thing.ID,
 		propertyName, property)
 	if err != nil {
@@ -131,7 +119,7 @@ func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, pri
 }
 
 func (m *Manager) validateReference(ctx context.Context, reference *models.SingleRef) error {
-	err := validation.New(schema.Schema{}, m.exists, m.network, m.config).
+	err := validation.New(schema.Schema{}, m.exists, m.config).
 		ValidateSingleRef(ctx, reference, "reference not found")
 	if err != nil {
 		return NewErrInvalidUserInput("invalid reference: %v", err)

@@ -63,12 +63,9 @@ func (m *Manager) addClassProperty(ctx context.Context, principal *models.Princi
 		return err
 	}
 
-	m.handleDeprecatedFielsInProperty(prop)
-
 	class.Properties = append(class.Properties, prop)
 
 	err = m.saveSchema(ctx)
-
 	if err != nil {
 		return nil
 	}
@@ -90,7 +87,7 @@ func (m *Manager) validateCanAddProperty(ctx context.Context, principal *models.
 		return err
 	}
 
-	err = m.validatePropertyNameAndKeywords(ctx, class.Class, property.Name, property.Keywords,
+	err = m.validatePropertyName(ctx, class.Class, property.Name,
 		property.VectorizePropertyName)
 	if err != nil {
 		return err
@@ -104,10 +101,6 @@ func (m *Manager) validateCanAddProperty(ctx context.Context, principal *models.
 
 	_, err = (&schema).FindPropertyDataType(property.DataType)
 	if err != nil {
-		return fmt.Errorf("Data type of property '%s' is invalid; %v", property.Name, err)
-	}
-
-	if err = m.validateNetworkCrossRefs(property.DataType); err != nil {
 		return fmt.Errorf("Data type of property '%s' is invalid; %v", property.Name, err)
 	}
 

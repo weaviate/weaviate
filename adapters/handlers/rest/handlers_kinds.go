@@ -21,7 +21,6 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/actions"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations/things"
-	"github.com/semi-technologies/weaviate/deprecations"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization/errors"
@@ -159,17 +158,6 @@ func (h *kindHandlers) getThing(params things.ThingsGetParams,
 			WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	if derefBool(params.Meta) {
-		deprecations.Log(h.logger, "rest-meta-prop")
-		underscores.Classification = true
-		underscores.RefMeta = true
-		underscores.Vector = true
-	}
-
-	if derefBool(params.Meta) || underscores.Classification {
-		deprecations.Log(h.logger, "ref-meta-deprecated-fields")
-	}
-
 	thing, err := h.manager.GetThing(params.HTTPRequest.Context(), principal, params.ID, underscores)
 	if err != nil {
 		switch err.(type) {
@@ -198,16 +186,6 @@ func (h *kindHandlers) getAction(params actions.ActionsGetParams,
 	if err != nil {
 		return actions.NewActionsGetBadRequest().
 			WithPayload(errPayloadFromSingleErr(err))
-	}
-
-	if derefBool(params.Meta) {
-		deprecations.Log(h.logger, "rest-meta-prop")
-		underscores.Classification = true
-		underscores.RefMeta = true
-		underscores.Vector = true
-	}
-	if derefBool(params.Meta) || underscores.Classification {
-		deprecations.Log(h.logger, "ref-meta-deprecated-fields")
 	}
 
 	action, err := h.manager.GetAction(params.HTTPRequest.Context(), principal, params.ID, underscores)
@@ -241,21 +219,6 @@ func (h *kindHandlers) getThings(params things.ThingsListParams,
 	}
 
 	var deprecationsRes []*models.Deprecation
-
-	if derefBool(params.Meta) {
-		deprecations.Log(h.logger, "rest-meta-prop")
-		d := deprecations.ByID["rest-meta-prop"]
-		deprecationsRes = append(deprecationsRes, &d)
-		underscores.Classification = true
-		underscores.RefMeta = true
-		underscores.Vector = true
-	}
-
-	if derefBool(params.Meta) || underscores.Classification {
-		deprecations.Log(h.logger, "ref-meta-deprecated-fields")
-		d := deprecations.ByID["ref-meta-deprecated-fields"]
-		deprecationsRes = append(deprecationsRes, &d)
-	}
 
 	list, err := h.manager.GetThings(params.HTTPRequest.Context(), principal, params.Limit, underscores)
 	if err != nil {
@@ -293,22 +256,6 @@ func (h *kindHandlers) getActions(params actions.ActionsListParams,
 	}
 
 	var deprecationsRes []*models.Deprecation
-
-	if derefBool(params.Meta) {
-		deprecations.Log(h.logger, "rest-meta-prop")
-		d := deprecations.ByID["rest-meta-prop"]
-		deprecationsRes = append(deprecationsRes, &d)
-		underscores.Classification = true
-		underscores.RefMeta = true
-		underscores.Vector = true
-	}
-
-	if derefBool(params.Meta) || underscores.Classification {
-		deprecations.Log(h.logger, "ref-meta-deprecated-fields")
-		d := deprecations.ByID["ref-meta-deprecated-fields"]
-		deprecationsRes = append(deprecationsRes, &d)
-	}
-
 	list, err := h.manager.GetActions(params.HTTPRequest.Context(), principal, params.Limit, underscores)
 	if err != nil {
 		switch err.(type) {
@@ -627,14 +574,6 @@ func setupKindHandlers(api *operations.WeaviateAPI,
 		ActionsReferencesDeleteHandlerFunc(h.deleteActionReference)
 	api.ActionsActionsReferencesUpdateHandler = actions.
 		ActionsReferencesUpdateHandlerFunc(h.updateActionReferences)
-}
-
-func derefBool(in *bool) bool {
-	if in == nil {
-		return false
-	}
-
-	return *in
 }
 
 func (h *kindHandlers) extendSchemaWithAPILinks(schema map[string]interface{}) map[string]interface{} {

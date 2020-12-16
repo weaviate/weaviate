@@ -20,7 +20,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
-	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	"github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/semi-technologies/weaviate/usecases/vectorizer"
@@ -83,30 +82,6 @@ func (f *fakeVectorizer) Action(ctx context.Context, action *models.Action) ([]f
 
 func (f *fakeVectorizer) Corpi(ctx context.Context, corpi []string) ([]float32, error) {
 	panic("not implemented")
-}
-
-type fakeNetwork struct {
-	peerURI string
-}
-
-func (f *fakeNetwork) ListPeers() (peers.Peers, error) {
-	myPeers := peers.Peers{
-		peers.Peer{
-			Name: "BestWeaviate",
-			URI:  strfmt.URI(f.peerURI),
-			Schema: schema.Schema{
-				Things: &models.Schema{
-					Classes: []*models.Class{
-						&models.Class{
-							Class: "BestThing",
-						},
-					},
-				},
-			},
-		},
-	}
-
-	return myPeers, nil
 }
 
 type fakeAuthorizer struct{}

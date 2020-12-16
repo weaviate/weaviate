@@ -26,10 +26,6 @@ var SimpleSchema = schema.Schema{
 						Name:     "intField",
 						DataType: []string{"int"},
 					},
-					&models.Property{
-						Name:     "NetworkRefField",
-						DataType: []string{"OtherInstance/SomeRemoteClass"},
-					},
 				},
 			},
 		},

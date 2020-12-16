@@ -28,7 +28,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/config"
 )
 
 // GroupedByFieldName is a special graphQL field that appears alongside the
@@ -62,11 +61,6 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 			return nil, fmt.Errorf("expected source to contain a usable Resolver, but was %t", p.Source)
 		}
 
-		cfg, ok := source["Config"].(config.Config)
-		if !ok {
-			return nil, fmt.Errorf("expected source to contain a config, but was %t", p.Source)
-		}
-
 		// There can only be exactly one ast.Field; it is the class name.
 		if len(p.Info.FieldASTs) != 1 {
 			panic("Only one Field expected here")
@@ -93,18 +87,12 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 			return nil, fmt.Errorf("could not extract filters: %s", err)
 		}
 
-		analytics, err := common_filters.ExtractAnalyticsProps(p.Args, cfg.AnalyticsEngine)
-		if err != nil {
-			return nil, fmt.Errorf("could not extract filters: %s", err)
-		}
-
 		params := &traverser.AggregateParams{
 			Kind:             kind,
 			Filters:          filters,
 			ClassName:        className,
 			Properties:       properties,
 			GroupBy:          groupBy,
-			Analytics:        analytics,
 			IncludeMetaCount: includeMeta,
 			Limit:            limit,
 		}

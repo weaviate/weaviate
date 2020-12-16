@@ -20,7 +20,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/network/crossrefs"
 )
 
 func (m *Manager) validateClassNameUniqueness(className string) error {
@@ -41,42 +40,10 @@ func (m *Manager) validateClassNameUniqueness(className string) error {
 
 // Check that the format of the name is correct
 // Check that the name is acceptable according to the contextionary
-func (m *Manager) validateClassNameAndKeywords(ctx context.Context, knd kind.Kind, className string, keywords models.Keywords, vectorizeClass bool) error {
+func (m *Manager) validateClassName(ctx context.Context, knd kind.Kind, className string, vectorizeClass bool) error {
 	_, err := schema.ValidateClassName(className)
 	if err != nil {
 		return err
-	}
-
-	// keywords
-	stopWordsFound := 0
-	for _, keyword := range keywords {
-		word := strings.ToLower(keyword.Keyword)
-		sw, err := m.stopwordDetector.IsStopWord(ctx, word)
-		if err != nil {
-			return fmt.Errorf("could not check stopword: %v", err)
-		}
-
-		if sw {
-			stopWordsFound++
-			continue
-		}
-
-		if err := validateWeight(keyword); err != nil {
-			return fmt.Errorf("invalid keyword %s: %v", keyword.Keyword, err)
-		}
-
-		present, err := m.c11yClient.IsWordPresent(ctx, word)
-		if err != nil {
-			return fmt.Errorf("could not check word presence: %v", err)
-		}
-
-		if !present {
-			return fmt.Errorf("Could not find the keyword '%s' for class '%s' in the contextionary", word, className)
-		}
-	}
-	if len(keywords) > 0 && len(keywords) == stopWordsFound {
-		return fmt.Errorf("all keywords for class '%s' are stopwords and are therefore not a valid list of keywords. "+
-			"Make sure at least one keyword in the list is not a stop word", className)
 	}
 
 	// class name
@@ -87,7 +54,7 @@ func (m *Manager) validateClassNameAndKeywords(ctx context.Context, knd kind.Kin
 	}
 
 	camelParts := camelcase.Split(className)
-	stopWordsFound = 0
+	stopWordsFound := 0
 	for _, part := range camelParts {
 		word := strings.ToLower(part)
 		sw, err := m.stopwordDetector.IsStopWord(ctx, word)
@@ -128,51 +95,12 @@ func validatePropertyNameUniqueness(propertyName string, class *models.Class) er
 	return nil
 }
 
-func validateWeight(keyword *models.KeywordsItems0) error {
-	if 0 <= keyword.Weight && keyword.Weight <= 1 {
-		return nil
-	}
-
-	return fmt.Errorf("weight must be between 0 and 1, but got %v", keyword.Weight)
-}
-
 // Check that the format of the name is correct
 // Check that the name is acceptable according to the contextionary
-func (m *Manager) validatePropertyNameAndKeywords(ctx context.Context, className string, propertyName string, keywords models.Keywords, vectorizeProperty bool) error {
+func (m *Manager) validatePropertyName(ctx context.Context, className string, propertyName string, vectorizeProperty bool) error {
 	_, err := schema.ValidatePropertyName(propertyName)
 	if err != nil {
 		return err
-	}
-
-	stopWordsFound := 0
-	for _, keyword := range keywords {
-		word := strings.ToLower(keyword.Keyword)
-		sw, err := m.stopwordDetector.IsStopWord(ctx, word)
-		if err != nil {
-			return fmt.Errorf("could not check stopword: %v", err)
-		}
-
-		if sw {
-			stopWordsFound++
-			continue
-		}
-
-		if err := validateWeight(keyword); err != nil {
-			return fmt.Errorf("invalid keyword %s: %v", keyword.Keyword, err)
-		}
-
-		present, err := m.c11yClient.IsWordPresent(ctx, word)
-		if err != nil {
-			return fmt.Errorf("could not check word presence: %v", err)
-		}
-
-		if !present {
-			return fmt.Errorf("Could not find the keyword '%s' for property '%s' in the class '%s' in the contextionary", word, propertyName, className)
-		}
-	}
-	if len(keywords) > 0 && len(keywords) == stopWordsFound {
-		return fmt.Errorf("all keywords for propertyName '%s' are stopwords and are therefore not a valid list of keywords. "+
-			"Make sure at least one keyword in the list is not a stop word", propertyName)
 	}
 
 	if !vectorizeProperty {
@@ -182,7 +110,7 @@ func (m *Manager) validatePropertyNameAndKeywords(ctx context.Context, className
 	}
 
 	camelParts := camelcase.Split(propertyName)
-	stopWordsFound = 0
+	stopWordsFound := 0
 	for _, part := range camelParts {
 		word := strings.ToLower(part)
 		sw, err := m.stopwordDetector.IsStopWord(ctx, word)
@@ -208,38 +136,6 @@ func (m *Manager) validatePropertyNameAndKeywords(ctx context.Context, className
 	if len(camelParts) == stopWordsFound {
 		return fmt.Errorf("the propertyName '%s' only consists of stopwords and is therefore not a valid property name. "+
 			"Make sure at least one word in the propertyname is not a stop word", propertyName)
-	}
-
-	return nil
-}
-
-func (m *Manager) validateNetworkCrossRefs(dataTypes []string) error {
-	for _, dataType := range dataTypes {
-		if !schema.ValidNetworkClassName(dataType) {
-			// we don't know anything about the validity of non-network-refs
-			// that's the concern of a separate validation
-			continue
-		}
-
-		if m.network == nil {
-			return fmt.Errorf(
-				"schema contains network-cross-ref '%s', but no network is configured", dataType)
-		}
-
-		peers, err := m.network.ListPeers()
-		if err != nil {
-			return fmt.Errorf(
-				"schema contains network-cross-ref '%s', but peers cannot be retrieved: %s", dataType, err)
-		}
-
-		networkClass, err := crossrefs.ParseClass(dataType)
-		if err != nil {
-			return err
-		}
-
-		if ok, err := peers.HasClass(networkClass); !ok {
-			return err
-		}
 	}
 
 	return nil

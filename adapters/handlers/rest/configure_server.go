@@ -18,7 +18,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
 	"github.com/semi-technologies/weaviate/entities/schema"
@@ -26,9 +25,6 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/auth/authentication/oidc"
 	"github.com/semi-technologies/weaviate/usecases/auth/authorization"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/network"
-	libnetworkFake "github.com/semi-technologies/weaviate/usecases/network/fake"
-	libnetworkP2P "github.com/semi-technologies/weaviate/usecases/network/p2p"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/sirupsen/logrus"
 )
@@ -50,7 +46,6 @@ func makeUpdateSchemaCall(logger logrus.FieldLogger, appState *state.State, trav
 		gql, err := rebuildGraphQL(
 			updatedSchema,
 			logger,
-			appState.Network,
 			appState.ServerConfig.Config,
 			traverser,
 		)
@@ -63,14 +58,8 @@ func makeUpdateSchemaCall(logger logrus.FieldLogger, appState *state.State, trav
 }
 
 func rebuildGraphQL(updatedSchema schema.Schema, logger logrus.FieldLogger,
-	network network.Network, config config.Config,
-	traverser *traverser.Traverser) (graphql.GraphQL, error) {
-	peers, err := network.ListPeers()
-	if err != nil {
-		return nil, fmt.Errorf("could not list network peers to regenerate schema: %v", err)
-	}
-
-	updatedGraphQL, err := graphql.Build(&updatedSchema, peers, traverser, logger, config)
+	config config.Config, traverser *traverser.Traverser) (graphql.GraphQL, error) {
+	updatedGraphQL, err := graphql.Build(&updatedSchema, traverser, logger, config)
 	if err != nil {
 		return nil, fmt.Errorf("Could not re-generate GraphQL schema, because: %v", err)
 	}
@@ -106,29 +95,4 @@ func configureAuthorizer(appState *state.State) authorization.Authorizer {
 func timeTillDeadline(ctx context.Context) string {
 	dl, _ := ctx.Deadline()
 	return time.Until(dl).String()
-}
-
-func connectToNetwork(logger *logrus.Logger, config config.Config) network.Network {
-	if config.Network == nil {
-		logger.Info("No network configured. Not Joining one.")
-		return libnetworkFake.FakeNetwork{}
-	}
-
-	genesisURL := strfmt.URI(config.Network.GenesisURL)
-	publicURL := strfmt.URI(config.Network.PublicURL)
-	peerName := config.Network.PeerName
-
-	logger.
-		WithField("peer_name", peerName).
-		WithField("genesis_url", genesisURL).
-		Info("Network configured. Attempting to join.")
-	newnet, err := libnetworkP2P.BootstrapNetwork(logger, genesisURL, publicURL, peerName)
-	if err != nil {
-		logger.WithField("action", "startup").
-			WithError(err).
-			Error("could not connect to network")
-		logger.Exit(1)
-	}
-
-	return newnet
 }

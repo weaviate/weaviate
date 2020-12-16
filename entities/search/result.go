@@ -51,7 +51,6 @@ func (r Result) Thing() *models.Thing {
 		Schema:             schema,
 		CreationTimeUnix:   r.Created,
 		LastUpdateTimeUnix: r.Updated,
-		Meta:               r.UnderscoreProperties,
 		VectorWeights:      r.VectorWeights,
 	}
 
@@ -84,7 +83,6 @@ func (r Result) Action() *models.Action {
 		Schema:             schema,
 		CreationTimeUnix:   r.Created,
 		LastUpdateTimeUnix: r.Updated,
-		Meta:               r.UnderscoreProperties,
 		VectorWeights:      r.VectorWeights,
 	}
 

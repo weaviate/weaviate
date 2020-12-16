@@ -51,17 +51,11 @@ func (m *Manager) updateClassProperty(ctx context.Context, className string, nam
 	defer unlock()
 
 	var newName *string
-	var newKeywords *models.Keywords
 
 	if property.Name != name {
 		// the name in the URI and body don't match, so we assume the user wants to rename
 		n := lowerCaseFirstLetter(property.Name)
 		newName = &n
-	}
-
-	// TODO gh-619: This implies that we can't undo setting keywords, because we can't detect if keywords is not present, or empty.
-	if len(property.Keywords) > 0 {
-		newKeywords = &property.Keywords
 	}
 
 	semanticSchema := m.state.SchemaFor(k)
@@ -76,7 +70,6 @@ func (m *Manager) updateClassProperty(ctx context.Context, className string, nam
 	}
 
 	propNameAfterUpdate := name
-	keywordsAfterUpdate := prop.Keywords
 	if newName != nil {
 		// verify uniqueness
 		err = validatePropertyNameUniqueness(*newName, class)
@@ -86,12 +79,8 @@ func (m *Manager) updateClassProperty(ctx context.Context, className string, nam
 		}
 	}
 
-	if newKeywords != nil {
-		keywordsAfterUpdate = *newKeywords
-	}
-
 	// Validate name / keywords in contextionary
-	err = m.validatePropertyNameAndKeywords(ctx, className, propNameAfterUpdate, keywordsAfterUpdate,
+	err = m.validatePropertyName(ctx, className, propNameAfterUpdate,
 		prop.VectorizePropertyName)
 	if err != nil {
 		return err
@@ -99,14 +88,13 @@ func (m *Manager) updateClassProperty(ctx context.Context, className string, nam
 
 	// Validated! Now apply the changes.
 	prop.Name = propNameAfterUpdate
-	prop.Keywords = keywordsAfterUpdate
 
 	err = m.saveSchema(ctx)
 	if err != nil {
 		return nil
 	}
 
-	return m.migrator.UpdateProperty(ctx, k, className, name, newName, newKeywords)
+	return m.migrator.UpdateProperty(ctx, k, className, name, newName)
 }
 
 // UpdatePropertyAddDataType adds another data type to a property. Warning: It does not lock on its own, assumes that it is called from when a schema lock is already held!

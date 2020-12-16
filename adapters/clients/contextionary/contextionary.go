@@ -79,12 +79,12 @@ func (c *Client) SafeGetSimilarWordsWithCertainty(ctx context.Context, word stri
 }
 
 // SchemaSearch for related classes and properties
+// TODO: is this still used?
 func (c *Client) SchemaSearch(ctx context.Context, params traverser.SearchParams) (traverser.SearchResults, error) {
 	pbParams := &pb.SchemaSearchParams{
 		Certainty:  params.Certainty,
 		Name:       params.Name,
 		Kind:       kindToProto(params.Kind),
-		Keywords:   keywordsToProto(params.Keywords),
 		SearchType: searchTypeToProto(params.SearchType),
 	}
 
@@ -116,18 +116,6 @@ func kindFromProto(k pb.Kind) kind.Kind {
 	default:
 		panic(fmt.Sprintf("unknown kind %v", k))
 	}
-}
-
-func keywordsToProto(kws models.Keywords) []*pb.Keyword {
-	output := make([]*pb.Keyword, len(kws))
-	for i, kw := range kws {
-		output[i] = &pb.Keyword{
-			Keyword: kw.Keyword,
-			Weight:  kw.Weight,
-		}
-	}
-
-	return output
 }
 
 func searchTypeToProto(input traverser.SearchType) pb.SearchType {

@@ -17,14 +17,6 @@ for arg in "$@"; do
   fi
 done
 
-
-if [ $norestart = true ]; then
-  echo "Found --no-restart flag, reusing running dependencies from previous run..."
-else
-  docker-compose down --remove-orphans
-  docker-compose up -d esvector
-fi
-
 tags=integrationTest
 if [ $includeslow = true ]; then
   echo "Found --include-slow flag, running all tests, including the slow ones"

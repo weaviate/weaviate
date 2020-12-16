@@ -12,8 +12,8 @@ deprecations:
     sinceVersion: "0.22.8"
     sinceTime: "2020-06-15T16:18:06+00:00"
     plannedRemovalVersion: "0.23.0"
-    removedIn: null
-    removedTime: null
+    removedIn: "0.23.0"
+    removedTime: "2020-12-18T18:00:00+00:00"
   - id: config-files
     status: deprecated # switch to removed once feature is completely removed
     apiType: Configuration
@@ -40,8 +40,8 @@ deprecations:
     sinceVersion: "0.22.17"
     sinceTime: "2020-09-16T09:06:00+00:00"
     plannedRemovalVersion: "0.23.0"
-    removedIn: null
-    removedTime: null
+    removedIn: "0.23.0"
+    removedTime: "2020-12-18T18:00:00+00:00"
   - id: ref-meta-deprecated-fields
     status: deprecated # switch to removed once feature is completely removed
     apiType: REST
@@ -61,5 +61,5 @@ deprecations:
     sinceVersion: "0.22.20"
     sinceTime: "2020-11-26T14:58:00+00:00"
     plannedRemovalVersion: "0.23.0"
-    removedIn: null
-    removedTime: null
+    removedIn: "0.23.0"
+    removedTime: "2020-12-18T18:00:00+00:00"
