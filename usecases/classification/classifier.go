@@ -24,6 +24,7 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
+	"github.com/semi-technologies/weaviate/usecases/kinds"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	libvectorizer "github.com/semi-technologies/weaviate/usecases/vectorizer"
@@ -85,8 +86,8 @@ type VectorRepo interface {
 
 type vectorRepo interface {
 	VectorRepo
-	PutThing(ctx context.Context, thing *models.Thing, vector []float32) error
-	PutAction(ctx context.Context, action *models.Action, vector []float32) error
+	BatchPutThings(ctx context.Context, things kinds.BatchThings) (kinds.BatchThings, error)
+	BatchPutActions(ctx context.Context, actions kinds.BatchActions) (kinds.BatchActions, error)
 }
 
 // NeighborRef is the result of an aggregation of the ref properties of k

@@ -30,7 +30,7 @@ import (
 // the respective files such as classifier_run_knn.go
 
 type classifyItemFn func(item search.Result, itemIndex int, kind kind.Kind,
-	params models.Classification, filters filters) error
+	params models.Classification, filters filters, writer writer) error
 
 func (c *Classifier) run(params models.Classification, kind kind.Kind,
 	filters filters) {
@@ -102,7 +102,7 @@ func (c *Classifier) runItems(classifyItem classifyItemFn, kind kind.Kind, param
 		workerCount = len(items)
 	}
 
-	workers := newRunWorkers(workerCount, classifyItem, kind, params, filters)
+	workers := newRunWorkers(workerCount, classifyItem, kind, params, filters, c.vectorRepo)
 	workers.addJobs(items)
 	res := workers.work()
 
@@ -133,19 +133,6 @@ func (c *Classifier) failRunWithError(params models.Classification, err error) {
 		c.logExecutionError("store failed run", err, params)
 	}
 	c.logFinish(params)
-}
-
-func (c *Classifier) store(item search.Result) error {
-	ctx, cancel := contextWithTimeout(2 * time.Second)
-	defer cancel()
-	switch item.Kind {
-	case kind.Thing:
-		return c.vectorRepo.PutThing(ctx, item.Thing(), item.Vector)
-	case kind.Action:
-		return c.vectorRepo.PutAction(ctx, item.Action(), item.Vector)
-	default:
-		return fmt.Errorf("impossible kind")
-	}
 }
 
 func (c *Classifier) extendItemWithObjectMeta(item *search.Result,
