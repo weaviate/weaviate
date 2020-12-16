@@ -95,6 +95,12 @@ type CommitLogger interface {
 	ClearLinks(nodeid uint64) error
 	Reset() error
 	Drop() error
+	NewBufferedLinksLogger() BufferedLinksLogger
+}
+
+type BufferedLinksLogger interface {
+	ReplaceLinksAtLevel(nodeid uint64, level int, targets []uint64) error
+	Close() error // Close should Flush and Close
 }
 
 type MakeCommitLogger func() (CommitLogger, error)
@@ -411,6 +417,9 @@ func (h *hnsw) findAndConnectNeighbors(node *vertex,
 	entryPointID uint64, nodeVec []float32, targetLevel, currentMaxLevel int,
 	denyList helpers.AllowList) error {
 	results := &binarySearchTreeGeneric{}
+
+	bufLinksLog := h.commitLog.NewBufferedLinksLogger()
+
 	dist, ok, err := h.distBetweenNodeAndVec(entryPointID, nodeVec)
 	if err != nil {
 		return errors.Wrapf(err, "calculate distance between insert node and final entrypoint")
@@ -508,7 +517,7 @@ func (h *hnsw) findAndConnectNeighbors(node *vertex,
 			// before = time.Now()
 			neighbor.Lock()
 			// m.addBuildingItemLocking(before)
-			if err := h.commitLog.ReplaceLinksAtLevel(neighbor.id, level,
+			if err := bufLinksLog.ReplaceLinksAtLevel(neighbor.id, level,
 				updatedConnections); err != nil {
 				return err
 			}
@@ -518,7 +527,7 @@ func (h *hnsw) findAndConnectNeighbors(node *vertex,
 		}
 	}
 
-	return nil
+	return bufLinksLog.Close()
 }
 
 type vertex struct {
