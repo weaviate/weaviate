@@ -122,6 +122,8 @@ func (r *batchWriter) storeAction(item search.Result) error {
 	return nil
 }
 
+// This goroutine is created in order to make possible the batch save operation to be run in background
+// and not to block the Store(item) operation invocation which is being done by the worker threads
 func (r *batchWriter) batchSave() {
 	for {
 		select {
