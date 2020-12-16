@@ -53,14 +53,13 @@ func Test_GetAction(t *testing.T) {
 			GetSchemaResponse: schema,
 		}
 		locks := &fakeLocks{}
-		network := &fakeNetwork{}
 		cfg := &config.WeaviateConfig{}
 		authorizer := &fakeAuthorizer{}
 		logger, _ := test.NewNullLogger()
 		extender = &fakeExtender{}
 		projectorFake = &fakeProjector{}
 		vectorizer := &fakeVectorizer{}
-		manager = NewManager(locks, schemaManager, network, cfg, logger, authorizer,
+		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
 			vectorizer, vectorRepo, extender, projectorFake)
 	}
 
@@ -321,14 +320,13 @@ func Test_GetThing(t *testing.T) {
 			GetSchemaResponse: schema,
 		}
 		locks := &fakeLocks{}
-		network := &fakeNetwork{}
 		cfg := &config.WeaviateConfig{}
 		authorizer := &fakeAuthorizer{}
 		logger, _ := test.NewNullLogger()
 		extender = &fakeExtender{}
 		projectorFake = &fakeProjector{}
 		vectorizer := &fakeVectorizer{}
-		manager = NewManager(locks, schemaManager, network, cfg, logger, authorizer,
+		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
 			vectorizer, vectorRepo, extender, projectorFake)
 	}
 

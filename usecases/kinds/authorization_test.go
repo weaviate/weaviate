@@ -183,14 +183,13 @@ func Test_Kinds_Authorization(t *testing.T) {
 		for _, test := range tests {
 			schemaManager := &fakeSchemaManager{}
 			locks := &fakeLocks{}
-			network := &fakeNetwork{}
 			cfg := &config.WeaviateConfig{}
 			authorizer := &authDenier{}
 			extender := &fakeExtender{}
 			projector := &fakeProjector{}
 			vectorizer := &fakeVectorizer{}
 			vectorRepo := &fakeVectorRepo{}
-			manager := NewManager(locks, schemaManager, network,
+			manager := NewManager(locks, schemaManager,
 				cfg, logger, authorizer, vectorizer, vectorRepo, extender, projector)
 
 			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
@@ -253,12 +252,11 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 		for _, test := range tests {
 			schemaManager := &fakeSchemaManager{}
 			locks := &fakeLocks{}
-			network := &fakeNetwork{}
 			cfg := &config.WeaviateConfig{}
 			authorizer := &authDenier{}
 			vectorRepo := &fakeVectorRepo{}
 			vectorizer := &fakeVectorizer{}
-			manager := NewBatchManager(vectorRepo, vectorizer, locks, schemaManager, network, cfg, logger, authorizer)
+			manager := NewBatchManager(vectorRepo, vectorizer, locks, schemaManager, cfg, logger, authorizer)
 
 			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 			out, _ := callFuncByName(manager, test.methodName, args...)

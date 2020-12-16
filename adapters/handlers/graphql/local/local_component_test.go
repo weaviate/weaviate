@@ -20,7 +20,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -40,8 +39,7 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 
 		// This tests asserts that an action-only schema doesn't lead to errors.
 		testCase{
-			name:  "with only actions locally",
-			peers: peers.Peers{},
+			name: "with only actions locally",
 			localSchema: schema.Schema{
 				Actions: &models.Schema{
 					Classes: []*models.Class{
@@ -62,8 +60,7 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 
 		// This tests asserts that a things-only schema doesn't lead to errors.
 		testCase{
-			name:  "with only things locally",
-			peers: peers.Peers{},
+			name: "with only things locally",
 			localSchema: schema.Schema{
 				Things: &models.Schema{
 					Classes: []*models.Class{
@@ -85,8 +82,7 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 		// This tests asserts that a class without any properties doesn't lead to
 		// errors.
 		testCase{
-			name:  "with things without properties locally",
-			peers: peers.Peers{},
+			name: "with things without properties locally",
 			localSchema: schema.Schema{
 				Things: &models.Schema{
 					Classes: []*models.Class{
@@ -102,227 +98,7 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 
 		testCase{
 			name:        "without any peers",
-			peers:       peers.Peers{},
 			localSchema: validSchema(),
-		},
-
-		testCase{
-			name:        "one peer with empty schema",
-			localSchema: validSchema(),
-			peers: peers.Peers{
-				peers.Peer{
-					Name:   "SomePeer",
-					Schema: schema.Schema{},
-				},
-			},
-		},
-
-		testCase{
-			name:        "one peer with a thing schema without classes",
-			localSchema: validSchema(),
-			peers: peers.Peers{
-				peers.Peer{
-					Name: "SomePeer",
-					Schema: schema.Schema{
-						Things: &models.Schema{
-							Classes: []*models.Class{},
-						},
-					},
-				},
-			},
-		},
-
-		// this test asserts that we don't error with property-less classes, as we
-		// could otherwise end up with empty Fields which would lead to a graphQL
-		// build error
-		testCase{
-			name:        "one peer with a thing schema without properties, but no actions",
-			localSchema: validSchema(),
-			peers: peers.Peers{
-				peers.Peer{
-					Name: "SomePeer",
-					Schema: schema.Schema{
-						Things: &models.Schema{
-							Classes: []*models.Class{
-								&models.Class{
-									Class:      "BestClass",
-									Properties: []*models.Property{},
-								},
-							},
-						},
-						Actions: &models.Schema{},
-					},
-				},
-			},
-		},
-
-		// this test asserts that we don't error with half-empty schemas, as we
-		// could otherwise end up with empty Fields which would lead to a graphQL
-		// build error
-		testCase{
-			name:        "one peer with a thing schema with properties, but no actions",
-			localSchema: validSchema(),
-			peers: peers.Peers{
-				peers.Peer{
-					Name: "SomePeer",
-					Schema: schema.Schema{
-						Things: &models.Schema{
-							Classes: []*models.Class{
-								&models.Class{
-									Class: "BestClass",
-									Properties: []*models.Property{
-										&models.Property{
-											Name:     "stringProp",
-											DataType: []string{"string"},
-										},
-									},
-								},
-							},
-						},
-						Actions: &models.Schema{},
-					},
-				},
-			},
-		},
-
-		testCase{
-			name:        "one peer with a both a thing and an action class",
-			localSchema: validSchema(),
-			peers: peers.Peers{
-				peers.Peer{
-					Name: "SomePeer",
-					Schema: schema.Schema{
-						Things: &models.Schema{
-							Classes: []*models.Class{
-								&models.Class{
-									Class:      "BestThing",
-									Properties: []*models.Property{},
-								},
-							},
-						},
-						Actions: &models.Schema{
-							Classes: []*models.Class{
-								&models.Class{
-									Class:      "BestAction",
-									Properties: []*models.Property{},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-
-		// The properties, albeit on different classes have the same names. This
-		// test asserts that there is no naming collision, i.e. that the properties
-		// are namespaced correctly by their respective classes.
-		testCase{
-			name:        "one peer with a both a thing and an action class with properties",
-			localSchema: validSchema(),
-			peers: peers.Peers{
-				peers.Peer{
-					Name: "SomePeer",
-					Schema: schema.Schema{
-						Things: &models.Schema{
-							Classes: []*models.Class{
-								&models.Class{
-									Class: "BestThing",
-									Properties: []*models.Property{
-										&models.Property{
-											DataType: []string{"string"},
-											Name:     "myStringProp",
-										},
-									},
-								},
-							},
-						},
-						Actions: &models.Schema{
-							Classes: []*models.Class{
-								&models.Class{
-									Class: "BestAction",
-									Properties: []*models.Property{
-										&models.Property{
-											DataType: []string{"string"},
-											Name:     "myStringProp",
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-
-		// This tests assert that there are no name collisions with multiple peers,
-		// i.e. that every peer has their objects and fields namespaced correctly.
-		testCase{
-			name:        "two peers with identical schemas",
-			localSchema: validSchema(),
-			peers: peers.Peers{
-				peers.Peer{
-					Name: "SomePeer",
-					Schema: schema.Schema{
-						Things: &models.Schema{
-							Classes: []*models.Class{
-								&models.Class{
-									Class: "BestThing",
-									Properties: []*models.Property{
-										&models.Property{
-											DataType: []string{"string"},
-											Name:     "myStringProp",
-										},
-									},
-								},
-							},
-						},
-						Actions: &models.Schema{
-							Classes: []*models.Class{
-								&models.Class{
-									Class: "BestAction",
-									Properties: []*models.Property{
-										&models.Property{
-											DataType: []string{"string"},
-											Name:     "myStringProp",
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-				peers.Peer{
-					Name: "SomeOtherPeer",
-					Schema: schema.Schema{
-						Things: &models.Schema{
-							Classes: []*models.Class{
-								&models.Class{
-									Class: "BestThing",
-									Properties: []*models.Property{
-										&models.Property{
-											DataType: []string{"string"},
-											Name:     "myStringProp",
-										},
-									},
-								},
-							},
-						},
-						Actions: &models.Schema{
-							Classes: []*models.Class{
-								&models.Class{
-									Class: "BestAction",
-									Properties: []*models.Property{
-										&models.Property{
-											DataType: []string{"string"},
-											Name:     "myStringProp",
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
 		},
 	}
 
@@ -331,7 +107,6 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 
 type testCase struct {
 	name        string
-	peers       peers.Peers
 	localSchema schema.Schema
 }
 
@@ -340,7 +115,7 @@ type testCases []testCase
 func (tests testCases) AssertNoError(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			localSchema, err := Build(&test.localSchema, test.peers, nil, config.Config{})
+			localSchema, err := Build(&test.localSchema, nil, config.Config{})
 			require.Nil(t, err, test.name)
 
 			schemaObject := graphql.ObjectConfig{

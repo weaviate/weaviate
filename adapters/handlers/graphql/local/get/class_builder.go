@@ -17,32 +17,26 @@ import (
 
 	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
-	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get/refclasses"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	"github.com/sirupsen/logrus"
 )
 
 type classBuilder struct {
-	schema          *schema.Schema
-	peers           peers.Peers
-	knownClasses    map[string]*graphql.Object
-	knownRefClasses refclasses.ByNetworkClass
-	beaconClass     *graphql.Object
-	logger          logrus.FieldLogger
+	schema       *schema.Schema
+	knownClasses map[string]*graphql.Object
+	beaconClass  *graphql.Object
+	logger       logrus.FieldLogger
 }
 
-func newClassBuilder(schema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger) *classBuilder {
+func newClassBuilder(schema *schema.Schema, logger logrus.FieldLogger) *classBuilder {
 	b := &classBuilder{}
 
 	b.logger = logger
 	b.schema = schema
-	b.peers = peers
 
 	b.initKnownClasses()
-	b.initRefs()
 	b.initBeaconClass()
 
 	return b
@@ -50,20 +44,6 @@ func newClassBuilder(schema *schema.Schema, peers peers.Peers, logger logrus.Fie
 
 func (b *classBuilder) initKnownClasses() {
 	b.knownClasses = map[string]*graphql.Object{}
-}
-
-func (b *classBuilder) initRefs() {
-	networkRefs := extractNetworkRefClassNames(b.schema)
-	knownRefClasses, err := refclasses.FromPeers(b.peers, networkRefs)
-	if err != nil {
-		msg := "an error occurred while trying to build known network ref classes, " +
-			"this kind of error won't block the graphql api, but it does mean that the mentioned refs " +
-			"will not be available. This error is expected when the network is not ready yet. If so, " +
-			"it should not reappear after a peer update"
-		b.logger.WithField("action", "graphql_rebuild").WithError(err).Warning(msg)
-	}
-
-	b.knownRefClasses = knownRefClasses
 }
 
 func (b *classBuilder) initBeaconClass() {

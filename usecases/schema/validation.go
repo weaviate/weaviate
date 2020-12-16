@@ -20,7 +20,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
-	"github.com/semi-technologies/weaviate/usecases/network/crossrefs"
 )
 
 func (m *Manager) validateClassNameUniqueness(className string) error {
@@ -208,38 +207,6 @@ func (m *Manager) validatePropertyNameAndKeywords(ctx context.Context, className
 	if len(camelParts) == stopWordsFound {
 		return fmt.Errorf("the propertyName '%s' only consists of stopwords and is therefore not a valid property name. "+
 			"Make sure at least one word in the propertyname is not a stop word", propertyName)
-	}
-
-	return nil
-}
-
-func (m *Manager) validateNetworkCrossRefs(dataTypes []string) error {
-	for _, dataType := range dataTypes {
-		if !schema.ValidNetworkClassName(dataType) {
-			// we don't know anything about the validity of non-network-refs
-			// that's the concern of a separate validation
-			continue
-		}
-
-		if m.network == nil {
-			return fmt.Errorf(
-				"schema contains network-cross-ref '%s', but no network is configured", dataType)
-		}
-
-		peers, err := m.network.ListPeers()
-		if err != nil {
-			return fmt.Errorf(
-				"schema contains network-cross-ref '%s', but peers cannot be retrieved: %s", dataType, err)
-		}
-
-		networkClass, err := crossrefs.ParseClass(dataType)
-		if err != nil {
-			return err
-		}
-
-		if ok, err := peers.HasClass(networkClass); !ok {
-			return err
-		}
 	}
 
 	return nil

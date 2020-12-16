@@ -13,8 +13,6 @@ package traverser
 
 import (
 	"context"
-	"crypto/md5"
-	"encoding/json"
 	"fmt"
 
 	"github.com/semi-technologies/weaviate/entities/filters"
@@ -53,7 +51,6 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 type AggregateParams struct {
 	Kind             kind.Kind
 	Filters          *filters.LocalFilter
-	Analytics        filters.AnalyticsProps
 	ClassName        schema.ClassName
 	Properties       []AggregateProperty
 	GroupBy          *filters.Path
@@ -114,35 +111,6 @@ var (
 type AggregateProperty struct {
 	Name        schema.PropertyName
 	Aggregators []Aggregator
-}
-
-// AnalyticsHash is a special hash for use with an external analytics engine
-// which has caching capabilities. Anything that would produce a different
-// result, such as new or different properties or different analytics props
-// will create a different hash. Chaning analytics-meta information, such as
-// 'forceRecalculate' however, will not change the hash. Doing so would prevent
-// us from ever retrieving a cached result that was generated with the
-// 'forceRecalculate' option on.
-func (p AggregateParams) AnalyticsHash() (string, error) {
-	// make sure to copy the params, so that we don't accidentally mutate the
-	// original
-	params := p
-	// always override analytical props to make sure they don't influence the
-	// hash
-	params.Analytics = filters.AnalyticsProps{}
-
-	return params.md5()
-}
-
-func (p AggregateParams) md5() (string, error) {
-	paramBytes, err := json.Marshal(p)
-	if err != nil {
-		return "", fmt.Errorf("couldnt convert params to json before hashing: %s", err)
-	}
-
-	hash := md5.New()
-	fmt.Fprintf(hash, "%s", paramBytes)
-	return fmt.Sprintf("%x", hash.Sum(nil)), nil
 }
 
 func ParseAggregatorProp(name string) (Aggregator, error) {

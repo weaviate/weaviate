@@ -22,7 +22,6 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	"github.com/sirupsen/logrus"
 )
 
@@ -41,30 +40,27 @@ type GraphQL interface {
 }
 
 type graphQL struct {
-	schema       graphql.Schema
-	traverser    Traverser
-	networkPeers peers.Peers
-	config       config.Config
+	schema    graphql.Schema
+	traverser Traverser
+	config    config.Config
 }
 
 // Construct a GraphQL API from the database schema, and resolver interface.
-func Build(schema *schema.Schema, peers peers.Peers, traverser Traverser,
+func Build(schema *schema.Schema, traverser Traverser,
 	logger logrus.FieldLogger, config config.Config) (GraphQL, error) {
 	logger.WithField("action", "graphql_rebuild").
-		WithField("peers", peers).
 		WithField("schema", schema).
 		Debug("rebuilding the graphql schema")
 
-	graphqlSchema, err := buildGraphqlSchema(schema, peers, logger, config)
+	graphqlSchema, err := buildGraphqlSchema(schema, logger, config)
 	if err != nil {
 		return nil, err
 	}
 
 	return &graphQL{
-		schema:       graphqlSchema,
-		traverser:    traverser,
-		networkPeers: peers,
-		config:       config,
+		schema:    graphqlSchema,
+		traverser: traverser,
+		config:    config,
 	}, nil
 }
 
@@ -73,9 +69,8 @@ func (g *graphQL) Resolve(context context.Context, query string, operationName s
 	return graphql.Do(graphql.Params{
 		Schema: g.schema,
 		RootObject: map[string]interface{}{
-			"Resolver":     g.traverser,
-			"NetworkPeers": g.networkPeers,
-			"Config":       g.config,
+			"Resolver": g.traverser,
+			"Config":   g.config,
 		},
 		RequestString:  query,
 		OperationName:  operationName,
@@ -84,9 +79,9 @@ func (g *graphQL) Resolve(context context.Context, query string, operationName s
 	})
 }
 
-func buildGraphqlSchema(dbSchema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger,
+func buildGraphqlSchema(dbSchema *schema.Schema, logger logrus.FieldLogger,
 	config config.Config) (graphql.Schema, error) {
-	localSchema, err := local.Build(dbSchema, peers, logger, config)
+	localSchema, err := local.Build(dbSchema, logger, config)
 	if err != nil {
 		return graphql.Schema{}, err
 	}

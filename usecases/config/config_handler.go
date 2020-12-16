@@ -33,20 +33,14 @@ type Flags struct {
 
 // Config outline of the config file
 type Config struct {
-	Name                 string          `json:"name" yaml:"name"`
-	AnalyticsEngine      AnalyticsEngine `json:"analytics_engine" yaml:"analytics_engine"`
-	Database             Database        `json:"database" yaml:"database"`
-	Network              *Network        `json:"network" yaml:"network"`
-	Debug                bool            `json:"debug" yaml:"debug"`
-	QueryDefaults        QueryDefaults   `json:"query_defaults" yaml:"query_defaults"`
-	Contextionary        Contextionary   `json:"contextionary" yaml:"contextionary"`
-	ConfigurationStorage ConfigStore     `json:"configuration_storage" yaml:"configuration_storage"`
-	Authentication       Authentication  `json:"authentication" yaml:"authentication"`
-	Authorization        Authorization   `json:"authorization" yaml:"authorization"`
-	VectorIndex          VectorIndex     `json:"vector_index" yaml:"vector_index"`
-	Standalone           bool            `json:"standalone_mode" yaml:"standalone_mode"`
-	Origin               string          `json:"origin" yaml:"origin"`
-	Persistence          Persistence     `json:"persistence" yaml:"persistence"`
+	Name           string         `json:"name" yaml:"name"`
+	Debug          bool           `json:"debug" yaml:"debug"`
+	QueryDefaults  QueryDefaults  `json:"query_defaults" yaml:"query_defaults"`
+	Contextionary  Contextionary  `json:"contextionary" yaml:"contextionary"`
+	Authentication Authentication `json:"authentication" yaml:"authentication"`
+	Authorization  Authorization  `json:"authorization" yaml:"authorization"`
+	Origin         string         `json:"origin" yaml:"origin"`
+	Persistence    Persistence    `json:"persistence" yaml:"persistence"`
 }
 
 // Validate the non-nested parameters. Nested objects must provide their own
@@ -64,13 +58,6 @@ type Contextionary struct {
 	URL string `json:"url" yaml:"url"`
 }
 
-type VectorIndex struct {
-	Enabled            bool    `json:"enabled" yaml:"enabled"`
-	URL                string  `json:"url" yaml:"url"`
-	NumberOfShards     *int    `json:"numberOfShards" yaml:"numberOfShards"`
-	AutoExpandReplicas *string `json:"autoExpandReplicas" yaml:"autoExpandReplicas"`
-}
-
 type Persistence struct {
 	DataPath string `json:"dataPath" yaml:"dataPath"`
 }
@@ -81,58 +68,6 @@ func (p Persistence) Validate() error {
 	}
 
 	return nil
-}
-
-func (v *VectorIndex) SetDefaults() {
-	if v.NumberOfShards == nil {
-		v.NumberOfShards = ptInt(3)
-	}
-
-	if v.AutoExpandReplicas == nil {
-		v.AutoExpandReplicas = ptString("0-2")
-	}
-}
-
-// AnalyticsEngine represents an external analytics engine, such as Spark for
-// Janusgraph
-type AnalyticsEngine struct {
-	// Enabled configures whether an analytics engine should be used. Setting
-	// this to true leads to the options "useAnalyticsEngine" and
-	// "forceRecalculate" to become available in the GraphQL Meta->Kind->Class
-	// and Aggregate->Kind->Class.
-	//
-	// Important: If enabled is set to true, you must also configure an analytics
-	// engine in your database connector. If the chosen connector does not
-	// support an external analytics engine, enabled must be set to false.
-	Enabled bool `json:"enabled" yaml:"enabled"`
-
-	// DefaultUseAnalyticsEngine configures what the "useAnalyticsEngine" in the
-	// GraphQL API will default to when not set.
-	DefaultUseAnalyticsEngine bool `json:"default_use_analytics_engine" yaml:"default_use_analytics_engine"`
-}
-
-type Network struct {
-	GenesisURL string `json:"genesis_url" yaml:"genesis_url"`
-	PublicURL  string `json:"public_url" yaml:"public_url"`
-	PeerName   string `json:"peer_name" yaml:"peer_name"`
-}
-
-type ConfigStore struct {
-	Type string `json:"type" yaml:"type"`
-	URL  string `json:"url" yaml:"url"`
-}
-
-// Database is the outline of the database
-type Database struct {
-	Name           string      `json:"name" yaml:"name"`
-	DatabaseConfig interface{} `json:"database_config" yaml:"database_config"`
-}
-
-// Instance is the outline for an external instance whereto crossreferences can be resolved
-type Instance struct {
-	URL      string `json:"url" yaml:"url"`
-	APIKey   string `json:"api_key" yaml:"api_key"`
-	APIToken string `json:"api_token" yaml:"api_token"`
 }
 
 // GetConfigOptionGroup creates a option group for swagger
@@ -200,12 +135,8 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, logger 
 		return fmt.Errorf("invalid config: %v", err)
 	}
 
-	(&f.Config.VectorIndex).SetDefaults()
-
-	if f.Config.Standalone {
-		if err := f.Config.Persistence.Validate(); err != nil {
-			return fmt.Errorf("invalid config: %v", err)
-		}
+	if err := f.Config.Persistence.Validate(); err != nil {
+		return fmt.Errorf("invalid config: %v", err)
 	}
 
 	return nil
@@ -235,12 +166,4 @@ func (f *WeaviateConfig) parseConfigFile(file []byte, name string) (Config, erro
 	}
 
 	return config, nil
-}
-
-func ptInt(in int) *int {
-	return &in
-}
-
-func ptString(in string) *string {
-	return &in
 }

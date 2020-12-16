@@ -17,19 +17,18 @@ import (
 	"github.com/graphql-go/graphql"
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/semi-technologies/weaviate/entities/schema"
-	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	"github.com/sirupsen/logrus"
 )
 
 // Build the Local.Get part of the graphql tree
-func Build(schema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger) (*graphql.Field, error) {
+func Build(schema *schema.Schema, logger logrus.FieldLogger) (*graphql.Field, error) {
 	getKinds := graphql.Fields{}
 
 	if len(schema.Actions.Classes) == 0 && len(schema.Things.Classes) == 0 {
 		return nil, fmt.Errorf("there are no Actions or Things classes defined yet")
 	}
 
-	cb := newClassBuilder(schema, peers, logger)
+	cb := newClassBuilder(schema, logger)
 
 	if len(schema.Actions.Classes) > 0 {
 		actions, err := cb.actions()

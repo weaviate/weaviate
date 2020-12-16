@@ -19,7 +19,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/locks"
-	"github.com/semi-technologies/weaviate/usecases/network"
 	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
 	"github.com/sirupsen/logrus"
 )
@@ -33,7 +32,6 @@ type Manager struct {
 	c11yClient       c11yClient
 	locks            locks.ConnectorSchemaLock
 	state            State
-	network          network.Network
 	callbacks        []func(updatedSchema schema.Schema)
 	logger           logrus.FieldLogger
 	authorizer       authorizer
@@ -63,14 +61,13 @@ type c11yClient interface {
 
 // NewManager creates a new manager
 func NewManager(migrator migrate.Migrator, repo Repo, locks locks.ConnectorSchemaLock,
-	network network.Network, logger logrus.FieldLogger, c11yClient c11yClient,
+	logger logrus.FieldLogger, c11yClient c11yClient,
 	authorizer authorizer, swd stopwordDetector) (*Manager, error) {
 	m := &Manager{
 		migrator:         migrator,
 		repo:             repo,
 		locks:            locks,
 		state:            State{},
-		network:          network,
 		logger:           logger,
 		stopwordDetector: swd,
 		authorizer:       authorizer,

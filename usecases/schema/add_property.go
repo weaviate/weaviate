@@ -104,10 +104,6 @@ func (m *Manager) validateCanAddProperty(ctx context.Context, principal *models.
 		return fmt.Errorf("Data type of property '%s' is invalid; %v", property.Name, err)
 	}
 
-	if err = m.validateNetworkCrossRefs(property.DataType); err != nil {
-		return fmt.Errorf("Data type of property '%s' is invalid; %v", property.Name, err)
-	}
-
 	// all is fine!
 	return nil
 }
