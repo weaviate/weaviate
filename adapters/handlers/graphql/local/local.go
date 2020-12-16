@@ -18,14 +18,13 @@ import (
 	"github.com/semi-technologies/weaviate/adapters/handlers/graphql/local/get"
 	"github.com/semi-technologies/weaviate/entities/schema"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	"github.com/sirupsen/logrus"
 )
 
 // Build the local queries from the database schema.
-func Build(dbSchema *schema.Schema, peers peers.Peers, logger logrus.FieldLogger,
+func Build(dbSchema *schema.Schema, logger logrus.FieldLogger,
 	config config.Config) (graphql.Fields, error) {
-	getField, err := get.Build(dbSchema, peers, logger)
+	getField, err := get.Build(dbSchema, logger)
 	if err != nil {
 		return nil, err
 	}

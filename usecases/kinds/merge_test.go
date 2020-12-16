@@ -205,13 +205,12 @@ func Test_MergeAction(t *testing.T) {
 				GetSchemaResponse: zooAnimalSchemaForTest(),
 			}
 			locks := &fakeLocks{}
-			network := &fakeNetwork{}
 			cfg := &config.WeaviateConfig{}
 			authorizer := &fakeAuthorizer{}
 			vectorizer := &fakeVectorizer{}
 			extender := &fakeExtender{}
 			projector := &fakeProjector{}
-			manager := NewManager(locks, schemaManager, network,
+			manager := NewManager(locks, schemaManager,
 				cfg, logger, authorizer, vectorizer, vectorRepo, extender, projector)
 			manager.timeSource = fakeTimeSource{}
 
@@ -421,13 +420,12 @@ func Test_MergeThing(t *testing.T) {
 				GetSchemaResponse: zooAnimalSchemaForTest(),
 			}
 			locks := &fakeLocks{}
-			network := &fakeNetwork{}
 			cfg := &config.WeaviateConfig{}
 			authorizer := &fakeAuthorizer{}
 			vectorizer := &fakeVectorizer{}
 			extender := &fakeExtender{}
 			projector := &fakeProjector{}
-			manager := NewManager(locks, schemaManager, network,
+			manager := NewManager(locks, schemaManager,
 				cfg, logger, authorizer, vectorizer, vectorRepo, extender, projector)
 			manager.timeSource = fakeTimeSource{}
 

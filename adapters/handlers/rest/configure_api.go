@@ -35,7 +35,6 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/kinds"
 	"github.com/semi-technologies/weaviate/usecases/modules"
 	"github.com/semi-technologies/weaviate/usecases/nearestneighbors"
-	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	"github.com/semi-technologies/weaviate/usecases/projector"
 	schemaUC "github.com/semi-technologies/weaviate/usecases/schema"
 	"github.com/semi-technologies/weaviate/usecases/schema/migrate"
@@ -104,38 +103,34 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	var schemaRepo schemaUC.Repo
 	var classifierRepo classification.Repo
 
-	if appState.ServerConfig.Config.Standalone {
-		repo := db.New(appState.Logger, db.Config{
-			RootPath: appState.ServerConfig.Config.Persistence.DataPath,
-		})
-		vectorMigrator = db.NewMigrator(repo, appState.Logger)
-		vectorRepo = repo
-		migrator = vectorMigrator
-		vectorizer = libvectorizer.New(appState.Contextionary, nil)
-		explorer = traverser.NewExplorer(repo, vectorizer, libvectorizer.NormalizedDistance,
-			appState.Logger, nnExtender, featureProjector, pathBuilder)
-		var err error
-		schemaRepo, err = schemarepo.NewRepo("./data", appState.Logger)
-		if err != nil {
-			appState.Logger.
-				WithField("action", "startup").WithError(err).
-				Fatal("could not initialize schema repo")
-			os.Exit(1)
-		}
+	repo := db.New(appState.Logger, db.Config{
+		RootPath: appState.ServerConfig.Config.Persistence.DataPath,
+	})
+	vectorMigrator = db.NewMigrator(repo, appState.Logger)
+	vectorRepo = repo
+	migrator = vectorMigrator
+	vectorizer = libvectorizer.New(appState.Contextionary, nil)
+	explorer = traverser.NewExplorer(repo, vectorizer, libvectorizer.NormalizedDistance,
+		appState.Logger, nnExtender, featureProjector, pathBuilder)
+	var err error
+	schemaRepo, err = schemarepo.NewRepo("./data", appState.Logger)
+	if err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("could not initialize schema repo")
+		os.Exit(1)
+	}
 
-		classifierRepo, err = classifications.NewRepo("./data", appState.Logger)
-		if err != nil {
-			appState.Logger.
-				WithField("action", "startup").WithError(err).
-				Fatal("could not initialize classifications repo")
-			os.Exit(1)
-		}
-	} else {
-		panic("tried to start up with non standalone mode")
+	classifierRepo, err = classifications.NewRepo("./data", appState.Logger)
+	if err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("could not initialize classifications repo")
+		os.Exit(1)
 	}
 
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
-		appState.Locks, appState.Network, appState.Logger, appState.Contextionary,
+		appState.Locks, appState.Logger, appState.Contextionary,
 		appState.Authorizer, appState.StopwordDetector)
 	if err != nil {
 		appState.Logger.
@@ -157,10 +152,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	kindsManager := kinds.NewManager(appState.Locks,
-		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,
+		schemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, vectorizer, vectorRepo, nnExtender, featureProjector)
 	batchKindsManager := kinds.NewBatchManager(vectorRepo, vectorizer, appState.Locks,
-		schemaManager, appState.Network, appState.ServerConfig, appState.Logger,
+		schemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer)
 	vectorInspector := libvectorizer.NewInspector(appState.Contextionary)
 
@@ -178,17 +173,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	schema := schemaManager.GetSchemaSkipAuth()
 	updateSchemaCallback(schema)
 
-	appState.Network.RegisterUpdatePeerCallback(func(peers peers.Peers) {
-		schemaManager.TriggerSchemaUpdateCallbacks()
-	})
-	appState.Network.RegisterSchemaGetter(schemaManager)
-
 	setupSchemaHandlers(api, schemaManager)
 	setupKindHandlers(api, kindsManager, appState.ServerConfig.Config, appState.Logger)
 	setupKindBatchHandlers(api, batchKindsManager)
 	setupC11yHandlers(api, vectorInspector, appState.Contextionary)
 	setupGraphQLHandlers(api, appState)
-	setupMiscHandlers(api, appState.ServerConfig, appState.Network, schemaManager, appState.Contextionary)
+	setupMiscHandlers(api, appState.ServerConfig, schemaManager, appState.Contextionary)
 	setupClassificationHandlers(api, classifier)
 
 	api.ServerShutdown = func() {}
@@ -240,18 +230,7 @@ func startupRoutine() *state.State {
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("configured OIDC and anonymous access client")
 
-	appState.Network = connectToNetwork(logger, appState.ServerConfig.Config)
-	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
-		Debug("network configured")
-
-	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
-		Debug("created db connector")
-
-	if appState.ServerConfig.Config.Standalone {
-		appState.Locks = &dummyLock{}
-	} else {
-		panic("tried to start up with non standalone mode")
-	}
+	appState.Locks = &dummyLock{}
 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("created etcd session")

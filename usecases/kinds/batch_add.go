@@ -127,7 +127,7 @@ func (b *BatchManager) validateAction(ctx context.Context, principal *models.Pri
 		action.CreationTimeUnix = unixNow()
 	}
 
-	err = validation.New(s, b.exists, b.network, b.config).Action(ctx, action)
+	err = validation.New(s, b.exists, b.config).Action(ctx, action)
 	ec.add(err)
 
 	vector, source, err := b.vectorizer.Action(ctx, action)
@@ -269,7 +269,7 @@ func (b *BatchManager) validateThing(ctx context.Context, principal *models.Prin
 
 	thing.ID = id
 
-	err = validation.New(s, b.exists, b.network, b.config).Thing(ctx, thing)
+	err = validation.New(s, b.exists, b.config).Thing(ctx, thing)
 	ec.add(err)
 
 	vector, source, err := b.vectorizer.Thing(ctx, thing)

@@ -21,15 +21,9 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
-	"github.com/semi-technologies/weaviate/usecases/network/crossrefs"
 )
 
 type exists func(context.Context, kind.Kind, strfmt.UUID) (bool, error)
-
-type peerLister interface {
-	ListPeers() (peers.Peers, error)
-}
 
 const (
 	// ErrorMissingActionThings message
@@ -65,19 +59,17 @@ const (
 )
 
 type Validator struct {
-	schema     schema.Schema
-	exists     exists
-	peerLister peerLister
-	config     *config.WeaviateConfig
+	schema schema.Schema
+	exists exists
+	config *config.WeaviateConfig
 }
 
-func New(schema schema.Schema, exists exists, peerLister peerLister,
+func New(schema schema.Schema, exists exists,
 	config *config.WeaviateConfig) *Validator {
 	return &Validator{
-		schema:     schema,
-		exists:     exists,
-		peerLister: peerLister,
-		config:     config,
+		schema: schema,
+		exists: exists,
+		config: config,
 	}
 }
 
@@ -116,7 +108,7 @@ func (v *Validator) ValidateSingleRef(ctx context.Context, cref *models.SingleRe
 	}
 
 	if !ref.Local {
-		return v.validateNetworkRef(ref)
+		return fmt.Errorf("unrecognized cross-ref ref format")
 	}
 
 	return v.validateLocalRef(ctx, ref, errorVal)
@@ -133,21 +125,6 @@ func (v *Validator) validateLocalRef(ctx context.Context, ref *crossref.Ref, err
 
 	if !ok {
 		return fmt.Errorf(ErrorNotFoundInDatabase, errorVal, ref.Kind.Name(), ref.TargetID)
-	}
-
-	return nil
-}
-
-func (v *Validator) validateNetworkRef(ref *crossref.Ref) error {
-	// Network ref
-	peers, err := v.peerLister.ListPeers()
-	if err != nil {
-		return fmt.Errorf("could not validate network reference: could not list network peers: %s", err)
-	}
-
-	_, err = peers.RemoteKind(crossrefs.NetworkKind{Kind: ref.Kind, ID: ref.TargetID, PeerName: ref.PeerName})
-	if err != nil {
-		return fmt.Errorf("invalid network reference: %s", err)
 	}
 
 	return nil

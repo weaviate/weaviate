@@ -27,7 +27,6 @@ import (
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 	"github.com/semi-technologies/weaviate/entities/search"
 	"github.com/semi-technologies/weaviate/usecases/config"
-	"github.com/semi-technologies/weaviate/usecases/network/common/peers"
 	"github.com/semi-technologies/weaviate/usecases/projector"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/semi-technologies/weaviate/usecases/vectorizer"
@@ -37,7 +36,6 @@ import (
 // Manager manages kind changes at a use-case level, i.e. agnostic of
 // underlying databases or storage providers
 type Manager struct {
-	network       network
 	config        *config.WeaviateConfig
 	locks         locks
 	schemaManager schemaManager
@@ -77,10 +75,6 @@ type authorizer interface {
 	Authorize(principal *models.Principal, verb, resource string) error
 }
 
-type network interface {
-	ListPeers() (peers.Peers, error)
-}
-
 type VectorRepo interface {
 	PutThing(ctx context.Context, concept *models.Thing, vector []float32) error
 	PutAction(ctx context.Context, concept *models.Action, vector []float32) error
@@ -107,11 +101,10 @@ type VectorRepo interface {
 
 // NewManager creates a new manager
 func NewManager(locks locks, schemaManager schemaManager,
-	network network, config *config.WeaviateConfig, logger logrus.FieldLogger,
+	config *config.WeaviateConfig, logger logrus.FieldLogger,
 	authorizer authorizer, vectorizer Vectorizer, vectorRepo VectorRepo,
 	nnExtender nnExtender, projector featureProjector) *Manager {
 	return &Manager{
-		network:       network,
 		config:        config,
 		locks:         locks,
 		schemaManager: schemaManager,

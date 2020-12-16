@@ -22,7 +22,6 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/config"
 	"github.com/semi-technologies/weaviate/usecases/locks"
 	"github.com/semi-technologies/weaviate/usecases/modules"
-	"github.com/semi-technologies/weaviate/usecases/network"
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 	"github.com/semi-technologies/weaviate/usecases/vectorizer"
 	"github.com/sirupsen/logrus"
@@ -32,7 +31,6 @@ import (
 // NOTE: This is not true yet, se gh-723
 // TODO: remove dependencies to anything that's not an ent or uc
 type State struct {
-	Network          network.Network
 	OIDC             *oidc.Client
 	AnonymousAccess  *anonymous.Client
 	Authorizer       authorization.Authorizer
