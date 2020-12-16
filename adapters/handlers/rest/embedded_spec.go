@@ -2646,9 +2646,6 @@ func init() {
           "description": "Description of the class.",
           "type": "string"
         },
-        "keywords": {
-          "$ref": "#/definitions/Keywords"
-        },
         "properties": {
           "description": "The properties of the class.",
           "type": "array",
@@ -3028,22 +3025,6 @@ func init() {
       "description": "JSON object value.",
       "type": "object"
     },
-    "Keywords": {
-      "description": "Describes a class or property using multiple weighted words.",
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "keyword": {
-            "type": "string"
-          },
-          "weight": {
-            "type": "number",
-            "format": "float"
-          }
-        }
-      }
-    },
     "Link": {
       "type": "object",
       "properties": {
@@ -3301,9 +3282,6 @@ func init() {
           "description": "Optional. By default each property is fully indexed both for full-text, as well as vector-search. You can ignore properties in searches by explicitly setting index to false. Not set is the same as true",
           "type": "boolean",
           "x-nullable": true
-        },
-        "keywords": {
-          "$ref": "#/definitions/Keywords"
         },
         "name": {
           "description": "Name of the property as URI relative to the schema URL.",
@@ -6546,9 +6524,6 @@ func init() {
           "description": "Description of the class.",
           "type": "string"
         },
-        "keywords": {
-          "$ref": "#/definitions/Keywords"
-        },
         "properties": {
           "description": "The properties of the class.",
           "type": "array",
@@ -6934,25 +6909,6 @@ func init() {
       "description": "JSON object value.",
       "type": "object"
     },
-    "Keywords": {
-      "description": "Describes a class or property using multiple weighted words.",
-      "type": "array",
-      "items": {
-        "$ref": "#/definitions/KeywordsItems0"
-      }
-    },
-    "KeywordsItems0": {
-      "type": "object",
-      "properties": {
-        "keyword": {
-          "type": "string"
-        },
-        "weight": {
-          "type": "number",
-          "format": "float"
-        }
-      }
-    },
     "Link": {
       "type": "object",
       "properties": {
@@ -7210,9 +7166,6 @@ func init() {
           "description": "Optional. By default each property is fully indexed both for full-text, as well as vector-search. You can ignore properties in searches by explicitly setting index to false. Not set is the same as true",
           "type": "boolean",
           "x-nullable": true
-        },
-        "keywords": {
-          "$ref": "#/definitions/Keywords"
         },
         "name": {
           "description": "Name of the property as URI relative to the schema URL.",

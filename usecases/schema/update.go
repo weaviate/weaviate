@@ -51,17 +51,11 @@ func (m *Manager) updateClass(ctx context.Context, className string,
 	defer unlock()
 
 	var newName *string
-	var newKeywords *models.Keywords
 
 	if class.Class != className {
 		// the name in the URI and body don't match, so we assume the user wants to rename
 		n := upperCaseClassName(class.Class)
 		newName = &n
-	}
-
-	// TODO gh-619: This implies that we can't undo setting keywords, because we can't detect if keywords is not present, or empty.
-	if len(class.Keywords) > 0 {
-		newKeywords = &class.Keywords
 	}
 
 	semanticSchema := m.state.SchemaFor(k)
@@ -72,7 +66,6 @@ func (m *Manager) updateClass(ctx context.Context, className string,
 	}
 
 	classNameAfterUpdate := className
-	keywordsAfterUpdate := class.Keywords
 
 	// First validate the request
 	if newName != nil {
@@ -83,19 +76,14 @@ func (m *Manager) updateClass(ctx context.Context, className string,
 		}
 	}
 
-	if newKeywords != nil {
-		keywordsAfterUpdate = *newKeywords
-	}
-
 	// Validate name / keywords in contextionary
-	if err = m.validateClassNameAndKeywords(ctx, k, classNameAfterUpdate, keywordsAfterUpdate,
+	if err = m.validateClassName(ctx, k, classNameAfterUpdate,
 		VectorizeClassName(class)); err != nil {
 		return err
 	}
 
 	// Validated! Now apply the changes.
 	class.Class = classNameAfterUpdate
-	class.Keywords = keywordsAfterUpdate
 
 	err = m.saveSchema(ctx)
 
@@ -103,5 +91,5 @@ func (m *Manager) updateClass(ctx context.Context, className string,
 		return nil
 	}
 
-	return m.migrator.UpdateClass(ctx, k, className, newName, newKeywords)
+	return m.migrator.UpdateClass(ctx, k, className, newName)
 }

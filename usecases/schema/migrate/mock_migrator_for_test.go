@@ -33,8 +33,8 @@ func (m *mockMigrator) DropClass(ctx context.Context, kind kind.Kind, className 
 	return args.Error(0)
 }
 
-func (m *mockMigrator) UpdateClass(ctx context.Context, kind kind.Kind, className string, newClassName *string, newKeywords *models.Keywords) error {
-	args := m.Called(ctx, kind, className, newClassName, newKeywords)
+func (m *mockMigrator) UpdateClass(ctx context.Context, kind kind.Kind, className string, newClassName *string) error {
+	args := m.Called(ctx, kind, className, newClassName)
 	return args.Error(0)
 }
 
@@ -48,8 +48,8 @@ func (m *mockMigrator) DropProperty(ctx context.Context, kind kind.Kind, classNa
 	return args.Error(0)
 }
 
-func (m *mockMigrator) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string, newKeywords *models.Keywords) error {
-	args := m.Called(ctx, kind, className, propName, newName, newKeywords)
+func (m *mockMigrator) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string) error {
+	args := m.Called(ctx, kind, className, propName, newName)
 	return args.Error(0)
 }
 

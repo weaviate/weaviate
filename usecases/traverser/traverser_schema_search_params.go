@@ -14,10 +14,10 @@ package traverser
 import (
 	"fmt"
 
-	"github.com/fatih/camelcase"
-	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
 )
+
+// TODO: is this still used?
 
 // SearchType to search for either class names or property names
 type SearchType string
@@ -37,10 +37,6 @@ type SearchParams struct {
 
 	// Name is the string-representation of the class or property name
 	Name string
-
-	// Keywords (optional). If no keywords are specified, only the class name
-	// will be used as a search query.
-	Keywords models.Keywords
 
 	// Kind as in Thing or Class, not required if SearchType == SearchTypeProperty
 	Kind kind.Kind
@@ -67,30 +63,6 @@ func (p SearchParams) Validate() error {
 
 	if p.Kind == "" {
 		return fmt.Errorf("Kind cannot be empty")
-	}
-
-	for i, keyword := range p.Keywords {
-		if err := p.validateKeyword(keyword); err != nil {
-			return fmt.Errorf("invalid keyword at position %d: %s", i, err)
-		}
-	}
-
-	return nil
-}
-
-func (p SearchParams) validateKeyword(kw *models.KeywordsItems0) error {
-	if kw.Keyword == "" {
-		return fmt.Errorf("Keyword cannot be empty")
-	}
-
-	if len(camelcase.Split(kw.Keyword)) > 1 {
-		return fmt.Errorf("invalid Keyword: keywords cannot be camelCased - "+
-			"instead split your keyword up into several keywords, this way each word "+
-			"of your camelCased string can have its own weight, got '%s'", kw.Keyword)
-	}
-
-	if err := p.validateCertaintyOrWeight(kw.Weight); err != nil {
-		return fmt.Errorf("invalid Weight: %s", err)
 	}
 
 	return nil

@@ -87,7 +87,7 @@ func (m *Manager) validateCanAddProperty(ctx context.Context, principal *models.
 		return err
 	}
 
-	err = m.validatePropertyNameAndKeywords(ctx, class.Class, property.Name, property.Keywords,
+	err = m.validatePropertyName(ctx, class.Class, property.Name,
 		property.VectorizePropertyName)
 	if err != nil {
 		return err

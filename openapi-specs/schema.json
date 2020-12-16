@@ -602,9 +602,6 @@
           "description": "Name of the class as URI relative to the schema URL.",
           "type": "string"
         },
-        "keywords": {
-          "$ref": "#/definitions/Keywords"
-        },
         "vectorizeClassName": {
           "description": "Set this to true if the object vector should include the class name in calculating the overall vector position",
           "type": "boolean",
@@ -623,22 +620,6 @@
         }
       },
       "type": "object"
-    },
-    "Keywords": {
-      "description": "Describes a class or property using multiple weighted words.",
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "keyword": {
-            "type": "string"
-          },
-          "weight": {
-            "type": "number",
-            "format": "float"
-          }
-        }
-      }
     },
     "Property": {
       "properties": {
@@ -660,9 +641,6 @@
         "name": {
           "description": "Name of the property as URI relative to the schema URL.",
           "type": "string"
-        },
-        "keywords": {
-          "$ref": "#/definitions/Keywords"
         },
         "index": {
           "description": "Optional. By default each property is fully indexed both for full-text, as well as vector-search. You can ignore properties in searches by explicitly setting index to false. Not set is the same as true",
