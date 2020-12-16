@@ -195,10 +195,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 func startupRoutine() *state.State {
 	appState := &state.State{}
 	// context for the startup procedure. (So far the only subcommand respecting
-	// the context is the schema initialization, as this uses the etcd client
-	// requiring context. Nevertheless it would make sense to have everything
-	// that goes on in here pay attention to the context, so we can have a
-	// "startup in x seconds or fail")
+	// the context is the schema initialization. Nevertheless it would make sense
+	// to have everything that goes on in here pay attention to the context, so
+	// we can have a "startup in x seconds or fail")
 	ctx := context.Background()
 	// The timeout is arbitrary we have to adjust it as we go along, if we
 	// realize it is to big/small
@@ -231,10 +230,6 @@ func startupRoutine() *state.State {
 		Debug("configured OIDC and anonymous access client")
 
 	appState.Locks = &dummyLock{}
-
-	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
-		Debug("created etcd session")
-		// END remove
 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("initialized schema")

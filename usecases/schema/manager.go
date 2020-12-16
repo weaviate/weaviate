@@ -110,7 +110,6 @@ func (s *State) SchemaFor(k kind.Kind) *models.Schema {
 func (m *Manager) saveSchema(ctx context.Context) error {
 	m.logger.
 		WithField("action", "schema_update").
-		WithField("configuration_store", "etcd").
 		Debug("saving updated schema to configuration store")
 
 	err := m.repo.SaveSchema(ctx, m.state)

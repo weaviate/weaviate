@@ -12,8 +12,6 @@ export LOG_FORMAT=text
 
 case $CONFIG in
   local-development)
-    CONFIGURATION_STORAGE_TYPE=etcd \
-      CONFIGURATION_STORAGE_URL=http://localhost:2379 \
       CONTEXTIONARY_URL=localhost:9999 \
       QUERY_DEFAULTS_LIMIT=20 \
       ORIGIN=http://localhost:8080 \
@@ -25,8 +23,6 @@ case $CONFIG in
         --port 8080
     ;;
   local-customdb)
-    CONFIGURATION_STORAGE_TYPE=etcd \
-      CONFIGURATION_STORAGE_URL=http://localhost:2379 \
       CONTEXTIONARY_URL=localhost:9999 \
       QUERY_DEFAULTS_LIMIT=20 \
       ORIGIN=http://localhost:8080 \
@@ -38,8 +34,6 @@ case $CONFIG in
         --port 8080
     ;;
   local-oidc)
-    CONFIGURATION_STORAGE_TYPE=etcd \
-      CONFIGURATION_STORAGE_URL=http://localhost:2379 \
       CONTEXTIONARY_URL=localhost:9999 \
       QUERY_DEFAULTS_LIMIT=20 \
       ORIGIN=http://localhost:8080 \
