@@ -649,11 +649,6 @@
           },
           "type": "array"
         },
-        "cardinality": {
-          "description": "DEPRECATED - do not use anymore.",
-          "type": "string",
-          "default": ""
-        },
         "description": {
           "description": "Description of the property.",
           "type": "string"
