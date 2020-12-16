@@ -50,9 +50,6 @@
         "schema": {
           "$ref": "#/definitions/PropertySchema"
         },
-        "meta": {
-          "$ref": "#/definitions/UnderscoreProperties"
-        },
         "id": {
           "description": "ID of the Action.",
           "format": "uuid",
@@ -702,21 +699,8 @@
           "format": "uri",
           "type": "string"
         },
-        "meta": {
-          "description": "Additional Meta information about this particular reference. Only shown if meta==true.",
-          "$ref": "#/definitions/ReferenceMeta"
-        },
         "_classification": {
           "description": "Additional Meta information about classifications if the item was part of one",
-          "$ref": "#/definitions/ReferenceMetaClassification"
-        }
-      }
-    },
-    "ReferenceMeta": {
-      "description": "Additional Meta information about this particular reference.",
-      "properties": {
-        "classification": {
-          "description": "If a property was set through a classification, this meta field contains additional info",
           "$ref": "#/definitions/ReferenceMetaClassification"
         }
       }
@@ -1062,9 +1046,6 @@
         },
         "schema": {
           "$ref": "#/definitions/PropertySchema"
-        },
-        "meta": {
-          "$ref": "#/definitions/UnderscoreProperties"
         },
         "id": {
           "description": "ID of the Thing.",

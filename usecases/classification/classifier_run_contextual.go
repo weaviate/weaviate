@@ -157,10 +157,8 @@ func (c *contextualItemClassifier) property(propName string) (string, error) {
 	c.item.Schema.(map[string]interface{})[propName] = models.MultipleRef{
 		&models.SingleRef{
 			Beacon: strfmt.URI(targetBeacon),
-			Meta: &models.ReferenceMeta{
-				Classification: &models.ReferenceMetaClassification{
-					WinningDistance: float64(distance),
-				},
+			Classification: &models.ReferenceMetaClassification{
+				WinningDistance: float64(distance),
 			},
 		},
 	}

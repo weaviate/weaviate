@@ -182,8 +182,6 @@ func Test_GetAction(t *testing.T) {
 							},
 						},
 					},
-					Meta: &models.UnderscoreProperties{ // TODO: remove after deprecation period
-					},
 				}
 
 				res, err := manager.GetAction(context.Background(), &models.Principal{}, id,
@@ -240,8 +238,6 @@ func Test_GetAction(t *testing.T) {
 								},
 							},
 						},
-						Meta: &models.UnderscoreProperties{ // TODO: remove after deprecation period
-						},
 					},
 				}
 
@@ -286,8 +282,6 @@ func Test_GetAction(t *testing.T) {
 						VectorWeights: (map[string]string)(nil),
 						FeatureProjection: &models.FeatureProjection{
 							Vector: []float32{1, 2, 3},
-						},
-						Meta: &models.UnderscoreProperties{ // TODO: remove after deprecation period
 						},
 					},
 				}
@@ -456,8 +450,6 @@ func Test_GetThing(t *testing.T) {
 							},
 						},
 					},
-					Meta: &models.UnderscoreProperties{ // TODO: remove after deprecation period
-					},
 				}
 
 				res, err := manager.GetThing(context.Background(), &models.Principal{}, id,
@@ -514,8 +506,6 @@ func Test_GetThing(t *testing.T) {
 								},
 							},
 						},
-						Meta: &models.UnderscoreProperties{ // TODO: remove after deprecation period
-						},
 					},
 				}
 
@@ -560,8 +550,6 @@ func Test_GetThing(t *testing.T) {
 						VectorWeights: (map[string]string)(nil),
 						FeatureProjection: &models.FeatureProjection{
 							Vector: []float32{1, 2, 3},
-						},
-						Meta: &models.UnderscoreProperties{ // TODO: remove after deprecation period
 						},
 					},
 				}

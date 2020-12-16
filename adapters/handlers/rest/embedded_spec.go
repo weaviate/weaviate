@@ -2391,9 +2391,6 @@ func init() {
           "type": "integer",
           "format": "int64"
         },
-        "meta": {
-          "$ref": "#/definitions/UnderscoreProperties"
-        },
         "schema": {
           "$ref": "#/definitions/PropertySchema"
         },
@@ -3339,15 +3336,6 @@ func init() {
       "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
     },
-    "ReferenceMeta": {
-      "description": "Additional Meta information about this particular reference.",
-      "properties": {
-        "classification": {
-          "description": "If a property was set through a classification, this meta field contains additional info",
-          "$ref": "#/definitions/ReferenceMetaClassification"
-        }
-      }
-    },
     "ReferenceMetaClassification": {
       "description": "This meta field contains additional info about the classified reference property",
       "properties": {
@@ -3499,10 +3487,6 @@ func init() {
           "type": "string",
           "format": "uri"
         },
-        "meta": {
-          "description": "Additional Meta information about this particular reference. Only shown if meta==true.",
-          "$ref": "#/definitions/ReferenceMeta"
-        },
         "schema": {
           "description": "If using a concept reference (rather than a direct reference), specify the desired properties here",
           "$ref": "#/definitions/PropertySchema"
@@ -3550,9 +3534,6 @@ func init() {
           "description": "Timestamp of the last Thing update in milliseconds since epoch UTC.",
           "type": "integer",
           "format": "int64"
-        },
-        "meta": {
-          "$ref": "#/definitions/UnderscoreProperties"
         },
         "schema": {
           "$ref": "#/definitions/PropertySchema"
@@ -6265,9 +6246,6 @@ func init() {
           "type": "integer",
           "format": "int64"
         },
-        "meta": {
-          "$ref": "#/definitions/UnderscoreProperties"
-        },
         "schema": {
           "$ref": "#/definitions/PropertySchema"
         },
@@ -7302,15 +7280,6 @@ func init() {
       "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
     },
-    "ReferenceMeta": {
-      "description": "Additional Meta information about this particular reference.",
-      "properties": {
-        "classification": {
-          "description": "If a property was set through a classification, this meta field contains additional info",
-          "$ref": "#/definitions/ReferenceMetaClassification"
-        }
-      }
-    },
     "ReferenceMetaClassification": {
       "description": "This meta field contains additional info about the classified reference property",
       "properties": {
@@ -7462,10 +7431,6 @@ func init() {
           "type": "string",
           "format": "uri"
         },
-        "meta": {
-          "description": "Additional Meta information about this particular reference. Only shown if meta==true.",
-          "$ref": "#/definitions/ReferenceMeta"
-        },
         "schema": {
           "description": "If using a concept reference (rather than a direct reference), specify the desired properties here",
           "$ref": "#/definitions/PropertySchema"
@@ -7513,9 +7478,6 @@ func init() {
           "description": "Timestamp of the last Thing update in milliseconds since epoch UTC.",
           "type": "integer",
           "format": "int64"
-        },
-        "meta": {
-          "$ref": "#/definitions/UnderscoreProperties"
         },
         "schema": {
           "$ref": "#/definitions/PropertySchema"

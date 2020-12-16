@@ -41,9 +41,6 @@ func (c *Classifier) classifyItemUsingKNN(item search.Result, itemIndex int, kin
 			&models.SingleRef{
 				Beacon:         agg.Beacon,
 				Classification: meta,
-				Meta: &models.ReferenceMeta{ // deprecated TODO: remove for v1.0.0
-					Classification: meta,
-				},
 			},
 		}
 

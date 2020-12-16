@@ -133,10 +133,7 @@ func (b *BatchManager) validateAction(ctx context.Context, principal *models.Pri
 	vector, source, err := b.vectorizer.Action(ctx, action)
 	ec.add(err)
 
-	if action.Meta == nil {
-		action.Meta = &models.UnderscoreProperties{}
-	}
-	action.Meta.Interpretation = &models.Interpretation{
+	action.Interpretation = &models.Interpretation{
 		Source: sourceFromInputElements(source),
 	}
 
@@ -278,10 +275,7 @@ func (b *BatchManager) validateThing(ctx context.Context, principal *models.Prin
 	vector, source, err := b.vectorizer.Thing(ctx, thing)
 	ec.add(err)
 
-	if thing.Meta == nil {
-		thing.Meta = &models.UnderscoreProperties{}
-	}
-	thing.Meta.Interpretation = &models.Interpretation{
+	thing.Interpretation = &models.Interpretation{
 		Source: sourceFromInputElements(source),
 	}
 

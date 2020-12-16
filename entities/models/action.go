@@ -56,9 +56,6 @@ type Action struct {
 	// Timestamp of the last update made to the Action since epoch UTC.
 	LastUpdateTimeUnix int64 `json:"lastUpdateTimeUnix,omitempty"`
 
-	// meta
-	Meta *UnderscoreProperties `json:"meta,omitempty"`
-
 	// schema
 	Schema PropertySchema `json:"schema,omitempty"`
 
@@ -91,10 +88,6 @@ func (m *Action) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateID(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateMeta(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -200,24 +193,6 @@ func (m *Action) validateID(formats strfmt.Registry) error {
 
 	if err := validate.FormatOf("id", "body", "uuid", m.ID.String(), formats); err != nil {
 		return err
-	}
-
-	return nil
-}
-
-func (m *Action) validateMeta(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.Meta) { // not required
-		return nil
-	}
-
-	if m.Meta != nil {
-		if err := m.Meta.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("meta")
-			}
-			return err
-		}
 	}
 
 	return nil
