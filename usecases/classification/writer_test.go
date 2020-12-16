@@ -46,6 +46,7 @@ func generateSearchResultsToSave(size int) search.Results {
 	}
 	return items
 }
+
 func TestWriter_SimpleWrite(t *testing.T) {
 	// given
 	searchResultsToBeSaved := testDataToBeClassified()
