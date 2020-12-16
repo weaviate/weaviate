@@ -32,6 +32,7 @@ type contextualItemClassifier struct {
 	kind        kind.Kind
 	params      models.Classification
 	classifier  *Classifier
+	writer      writer
 	schema      schema.Schema
 	filters     filters
 	context     contextualPreparationContext
@@ -44,8 +45,9 @@ type contextualItemClassifier struct {
 // classify function, but additionally allows us to inject data which is valid
 // for the entire run, such as tf-idf data and target vectors
 func (c *Classifier) makeClassifyItemContextual(preparedContext contextualPreparationContext) func(search.Result,
-	int, kind.Kind, models.Classification, filters) error {
-	return func(item search.Result, itemIndex int, kind kind.Kind, params models.Classification, filters filters) error {
+	int, kind.Kind, models.Classification, filters, writer) error {
+	return func(item search.Result, itemIndex int, kind kind.Kind, params models.Classification,
+		filters filters, writer writer) error {
 		schema := c.schemaGetter.GetSchemaSkipAuth()
 		run := &contextualItemClassifier{
 			item:        item,
@@ -53,6 +55,7 @@ func (c *Classifier) makeClassifyItemContextual(preparedContext contextualPrepar
 			kind:        kind,
 			params:      params,
 			classifier:  c,
+			writer:      writer,
 			schema:      schema,
 			filters:     filters,
 			context:     preparedContext,
@@ -83,7 +86,7 @@ func (c *contextualItemClassifier) do() error {
 	}
 
 	c.classifier.extendItemWithObjectMeta(&c.item, c.params, classified)
-	err := c.classifier.store(c.item)
+	err := c.writer.Store(c.item)
 	if err != nil {
 		return fmt.Errorf("store %s/%s: %v", c.item.ClassName, c.item.ID, err)
 	}
