@@ -43,9 +43,6 @@ type SingleRef struct {
 	// Format: uri
 	Href strfmt.URI `json:"href,omitempty"`
 
-	// Additional Meta information about this particular reference. Only shown if meta==true.
-	Meta *ReferenceMeta `json:"meta,omitempty"`
-
 	// If using a concept reference (rather than a direct reference), specify the desired properties here
 	Schema PropertySchema `json:"schema,omitempty"`
 }
@@ -67,10 +64,6 @@ func (m *SingleRef) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateHref(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateMeta(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -132,24 +125,6 @@ func (m *SingleRef) validateHref(formats strfmt.Registry) error {
 
 	if err := validate.FormatOf("href", "body", "uri", m.Href.String(), formats); err != nil {
 		return err
-	}
-
-	return nil
-}
-
-func (m *SingleRef) validateMeta(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.Meta) { // not required
-		return nil
-	}
-
-	if m.Meta != nil {
-		if err := m.Meta.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("meta")
-			}
-			return err
-		}
 	}
 
 	return nil

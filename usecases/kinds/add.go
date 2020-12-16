@@ -94,7 +94,6 @@ func (m *Manager) addActionToConnectorAndSchema(ctx context.Context, principal *
 		return nil, NewErrInternal("add action: %v", err)
 	}
 
-	class.Meta = nil
 	return class, nil
 }
 
@@ -104,10 +103,7 @@ func (m *Manager) vectorizeAndPutAction(ctx context.Context, class *models.Actio
 		return fmt.Errorf("vectorize: %v", err)
 	}
 
-	if class.Meta == nil {
-		class.Meta = &models.UnderscoreProperties{}
-	}
-	class.Meta.Interpretation = &models.Interpretation{
+	class.Interpretation = &models.Interpretation{
 		Source: sourceFromInputElements(source),
 	}
 
@@ -196,7 +192,6 @@ func (m *Manager) addThingToConnectorAndSchema(ctx context.Context, principal *m
 		return nil, NewErrInternal("add thing: %v", err)
 	}
 
-	class.Meta = nil
 	return class, nil
 }
 
@@ -206,10 +201,7 @@ func (m *Manager) vectorizeAndPutThing(ctx context.Context, class *models.Thing)
 		return fmt.Errorf("vectorize: %v", err)
 	}
 
-	if class.Meta == nil {
-		class.Meta = &models.UnderscoreProperties{}
-	}
-	class.Meta.Interpretation = &models.Interpretation{
+	class.Interpretation = &models.Interpretation{
 		Source: sourceFromInputElements(source),
 	}
 

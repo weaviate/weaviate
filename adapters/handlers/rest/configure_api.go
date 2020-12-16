@@ -14,23 +14,17 @@ package rest
 import (
 	"context"
 	"net/http"
-	"net/url"
 	"os"
 	"time"
 
-	"github.com/coreos/etcd/clientv3"
-	"github.com/elastic/go-elasticsearch/v5"
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/pkg/errors"
 	"github.com/semi-technologies/weaviate/adapters/clients/contextionary"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/operations"
 	"github.com/semi-technologies/weaviate/adapters/handlers/rest/state"
-	"github.com/semi-technologies/weaviate/adapters/locks"
 	"github.com/semi-technologies/weaviate/adapters/repos/classifications"
 	"github.com/semi-technologies/weaviate/adapters/repos/db"
-	"github.com/semi-technologies/weaviate/adapters/repos/esvector"
-	"github.com/semi-technologies/weaviate/adapters/repos/etcd"
 	modulestorage "github.com/semi-technologies/weaviate/adapters/repos/modules"
 	schemarepo "github.com/semi-technologies/weaviate/adapters/repos/schema"
 	"github.com/semi-technologies/weaviate/entities/models"
@@ -83,7 +77,7 @@ type explorer interface {
 }
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
-	appState, etcdClient, esClient := startupRoutine()
+	appState := startupRoutine()
 
 	validateContextionaryVersion(appState)
 
@@ -137,18 +131,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			os.Exit(1)
 		}
 	} else {
-		repo := esvector.NewRepo(esClient, appState.Logger, nil,
-			*appState.ServerConfig.Config.VectorIndex.NumberOfShards,     // guaranteed not to be nil as there are defaults
-			*appState.ServerConfig.Config.VectorIndex.AutoExpandReplicas, // guaranteed not to be nil as there are defaults
-		)
-		vectorMigrator = esvector.NewMigrator(repo)
-		vectorRepo = repo
-		migrator = vectorMigrator
-		vectorizer = libvectorizer.New(appState.Contextionary, nil)
-		explorer = traverser.NewExplorer(repo, vectorizer, libvectorizer.NormalizedDistance,
-			appState.Logger, nnExtender, featureProjector, pathBuilder)
-		schemaRepo = etcd.NewSchemaRepo(etcdClient)
-		classifierRepo = etcd.NewClassificationRepo(etcdClient)
+		panic("tried to start up with non standalone mode")
 	}
 
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
@@ -219,7 +202,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 }
 
 // TODO: Split up and don't write into global variables. Instead return an appState
-func startupRoutine() (*state.State, *clientv3.Client, *elasticsearch.Client) {
+func startupRoutine() *state.State {
 	appState := &state.State{}
 	// context for the startup procedure. (So far the only subcommand respecting
 	// the context is the schema initialization, as this uses the etcd client
@@ -264,46 +247,10 @@ func startupRoutine() (*state.State, *clientv3.Client, *elasticsearch.Client) {
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("created db connector")
 
-	var etcdClient *clientv3.Client
-	var esClient *elasticsearch.Client
-
 	if appState.ServerConfig.Config.Standalone {
 		appState.Locks = &dummyLock{}
 	} else {
-		// parse config store URL
-		configURL := serverConfig.Config.ConfigurationStorage.URL
-		configStore, err := url.Parse(configURL)
-		if err != nil || len(configURL) == 0 {
-			logger.WithField("action", "startup").WithField("url", configURL).
-				WithError(err).Fatal("cannot parse config store URL")
-		}
-
-		// Construct a distributed lock
-		etcdClient, err = clientv3.New(clientv3.Config{Endpoints: []string{configStore.String()}})
-		if err != nil {
-			logger.WithField("action", "startup").
-				WithError(err).Fatal("cannot construct distributed lock with etcd")
-		}
-		logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
-			Debug("created etcd client")
-
-		esClient, err = elasticsearch.NewClient(elasticsearch.Config{
-			Addresses: []string{serverConfig.Config.VectorIndex.URL},
-		})
-		if err != nil {
-			logger.WithField("action", "startup").
-				WithError(err).Fatal("cannot create es client for vector index")
-		}
-		logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
-			Debug("created es client for vector index")
-
-		// new lock
-		etcdLock, err := locks.NewEtcdLock(etcdClient, "/weaviate/schema-connector-rw-lock", logger)
-		if err != nil {
-			logger.WithField("action", "startup").
-				WithError(err).Fatal("cannot create etcd-based lock")
-		}
-		appState.Locks = etcdLock
+		panic("tried to start up with non standalone mode")
 	}
 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
@@ -325,7 +272,7 @@ func startupRoutine() (*state.State, *clientv3.Client, *elasticsearch.Client) {
 	appState.StopwordDetector = c11y
 	appState.Contextionary = c11y
 
-	return appState, etcdClient, esClient
+	return appState
 }
 
 // logger does not parse the regular config object, as logging needs to be

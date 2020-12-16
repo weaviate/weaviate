@@ -132,12 +132,10 @@ func TestCRUD(t *testing.T) {
 					Longitude: ptFloat32(2),
 				},
 			},
-			Meta: &models.UnderscoreProperties{
-				Interpretation: &models.Interpretation{
-					Source: []*models.InterpretationSource{
-						{Concept: "some", Occurrence: 1, Weight: 1},
-						{Concept: "value", Occurrence: 1, Weight: 1},
-					},
+			Interpretation: &models.Interpretation{
+				Source: []*models.InterpretationSource{
+					{Concept: "some", Occurrence: 1, Weight: 1},
+					{Concept: "value", Occurrence: 1, Weight: 1},
 				},
 			},
 		}
@@ -215,7 +213,6 @@ func TestCRUD(t *testing.T) {
 			ID:                 thingID,
 			Class:              "TheBestThingClass",
 			VectorWeights:      map[string]string(nil),
-			Meta:               &models.UnderscoreProperties{},
 			Schema: map[string]interface{}{
 				"stringProp": "updated value",
 				"phone": &models.PhoneNumber{
@@ -381,13 +378,11 @@ func TestCRUD(t *testing.T) {
 					},
 				},
 			},
-			Meta: &models.UnderscoreProperties{
-				Classification: &models.UnderscorePropertiesClassification{
-					ID:               "foo",
-					Scope:            []string{"scope1", "scope2"},
-					ClassifiedFields: []string{"field1", "field2"},
-					Completed:        timeMust(strfmt.ParseDateTime("2006-01-02T15:04:05.000Z")),
-				},
+			Classification: &models.UnderscorePropertiesClassification{
+				ID:               "foo",
+				Scope:            []string{"scope1", "scope2"},
+				ClassifiedFields: []string{"field1", "field2"},
+				Completed:        timeMust(strfmt.ParseDateTime("2006-01-02T15:04:05.000Z")),
 			},
 		}
 		vector := []float32{3, 1, 0.3, 12}
@@ -497,12 +492,10 @@ func TestCRUD(t *testing.T) {
 					Longitude: ptFloat32(2),
 				},
 			},
-			Meta: &models.UnderscoreProperties{
-				Interpretation: &models.Interpretation{
-					Source: []*models.InterpretationSource{
-						{Concept: "some", Occurrence: 1, Weight: 1},
-						{Concept: "value", Occurrence: 1, Weight: 1},
-					},
+			Interpretation: &models.Interpretation{
+				Source: []*models.InterpretationSource{
+					{Concept: "some", Occurrence: 1, Weight: 1},
+					{Concept: "value", Occurrence: 1, Weight: 1},
 				},
 			},
 		}
