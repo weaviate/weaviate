@@ -21,7 +21,7 @@ import (
 )
 
 func (c *Classifier) classifyItemUsingKNN(item search.Result, itemIndex int, kind kind.Kind,
-	params models.Classification, filters filters) error {
+	params models.Classification, filters filters, writer writer) error {
 	ctx, cancel := contextWithTimeout(2 * time.Second)
 	defer cancel()
 
@@ -53,7 +53,7 @@ func (c *Classifier) classifyItemUsingKNN(item search.Result, itemIndex int, kin
 	}
 
 	c.extendItemWithObjectMeta(&item, params, classified)
-	err = c.store(item)
+	err = writer.Store(item)
 	if err != nil {
 		return fmt.Errorf("store %s/%s: %v", item.ClassName, item.ID, err)
 	}
