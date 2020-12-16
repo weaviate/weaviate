@@ -1393,13 +1393,6 @@
       "required": false,
       "type": "integer"
     },
-    "CommonMetaParameterQuery": {
-      "description": "Should additional meta information (e.g. about classified properties) be included? Defaults to false.",
-      "in": "query",
-      "name": "meta",
-      "required": false,
-      "type": "boolean"
-    },
     "CommonIncludeParameterQuery": {
       "description": "Include additional information, such as classification infos. Allowed values include: classification, _classification, vector, _vector, interpretation, _interpretation",
       "in": "query",
@@ -1464,9 +1457,6 @@
         "parameters": [
           {
             "$ref": "#/parameters/CommonLimitParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonMetaParameterQuery"
           },
           {
             "$ref": "#/parameters/CommonIncludeParameterQuery"
@@ -1660,9 +1650,6 @@
             "name": "id",
             "required": true,
             "type": "string"
-          },
-          {
-            "$ref": "#/parameters/CommonMetaParameterQuery"
           },
           {
             "$ref": "#/parameters/CommonIncludeParameterQuery"
@@ -2683,9 +2670,6 @@
             "$ref": "#/parameters/CommonLimitParameterQuery"
           },
           {
-            "$ref": "#/parameters/CommonMetaParameterQuery"
-          },
-          {
             "$ref": "#/parameters/CommonIncludeParameterQuery"
           }
         ],
@@ -2877,9 +2861,6 @@
             "name": "id",
             "required": true,
             "type": "string"
-          },
-          {
-            "$ref": "#/parameters/CommonMetaParameterQuery"
           },
           {
             "$ref": "#/parameters/CommonIncludeParameterQuery"

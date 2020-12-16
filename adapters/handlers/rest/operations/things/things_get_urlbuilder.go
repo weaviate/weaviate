@@ -23,7 +23,6 @@ import (
 	"strings"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/go-openapi/swag"
 )
 
 // ThingsGetURL generates an URL for the things get operation
@@ -31,7 +30,6 @@ type ThingsGetURL struct {
 	ID strfmt.UUID
 
 	Include *string
-	Meta    *bool
 
 	_basePath string
 	// avoid unkeyed usage
@@ -80,14 +78,6 @@ func (o *ThingsGetURL) Build() (*url.URL, error) {
 	}
 	if includeQ != "" {
 		qs.Set("include", includeQ)
-	}
-
-	var metaQ string
-	if o.Meta != nil {
-		metaQ = swag.FormatBool(*o.Meta)
-	}
-	if metaQ != "" {
-		qs.Set("meta", metaQ)
 	}
 
 	_result.RawQuery = qs.Encode()

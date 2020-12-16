@@ -25,7 +25,6 @@ import (
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
-	"github.com/go-openapi/swag"
 )
 
 // NewActionsGetParams creates a new ActionsGetParams object
@@ -82,11 +81,6 @@ type ActionsGetParams struct {
 
 	*/
 	Include *string
-	/*Meta
-	  Should additional meta information (e.g. about classified properties) be included? Defaults to false.
-
-	*/
-	Meta *bool
 
 	timeout    time.Duration
 	Context    context.Context
@@ -148,17 +142,6 @@ func (o *ActionsGetParams) SetInclude(include *string) {
 	o.Include = include
 }
 
-// WithMeta adds the meta to the actions get params
-func (o *ActionsGetParams) WithMeta(meta *bool) *ActionsGetParams {
-	o.SetMeta(meta)
-	return o
-}
-
-// SetMeta adds the meta to the actions get params
-func (o *ActionsGetParams) SetMeta(meta *bool) {
-	o.Meta = meta
-}
-
 // WriteToRequest writes these params to a swagger request
 func (o *ActionsGetParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -182,22 +165,6 @@ func (o *ActionsGetParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Re
 		qInclude := qrInclude
 		if qInclude != "" {
 			if err := r.SetQueryParam("include", qInclude); err != nil {
-				return err
-			}
-		}
-
-	}
-
-	if o.Meta != nil {
-
-		// query param meta
-		var qrMeta bool
-		if o.Meta != nil {
-			qrMeta = *o.Meta
-		}
-		qMeta := swag.FormatBool(qrMeta)
-		if qMeta != "" {
-			if err := r.SetQueryParam("meta", qMeta); err != nil {
 				return err
 			}
 		}
