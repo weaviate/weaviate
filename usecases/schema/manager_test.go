@@ -64,7 +64,6 @@ var schemaTests = []struct {
 }{
 	{name: "UpdateMeta", fn: testUpdateMeta},
 	{name: "AddThingClass", fn: testAddThingClass},
-	{name: "AddThingClassWithDeprecatedFields", fn: testAddThingClassWithDeprecatedFields},
 	{name: "AddThingClassWithVectorizedName", fn: testAddThingClassWithVectorizedName},
 	{name: "RemoveThingClass", fn: testRemoveThingClass},
 	{name: "CantAddSameClassTwice", fn: testCantAddSameClassTwice},
@@ -84,7 +83,6 @@ var schemaTests = []struct {
 	{name: "UpdatePropertyKeywords", fn: testUpdatePropertyKeywords},
 	{name: "UpdatePropertyAddDataTypeNew", fn: testUpdatePropertyAddDataTypeNew},
 	{name: "UpdatePropertyAddDataTypeExisting", fn: testUpdatePropertyAddDataTypeExisting},
-	{name: "AddProperty with deprecated fields", fn: testAddPropertyWithDeprecatedFields},
 }
 
 func testUpdateMeta(t *testing.T, lsm *Manager) {
@@ -124,75 +122,6 @@ func testAddThingClass(t *testing.T, lsm *Manager) {
 	thingClasses = testGetClassNames(lsm, kind.Thing)
 	assert.Contains(t, thingClasses, "Car")
 	assert.False(t, lsm.VectorizeClassName("Car"), "class name should not be vectorized")
-}
-
-func testAddThingClassWithDeprecatedFields(t *testing.T, lsm *Manager) {
-	t.Parallel()
-
-	// create own manager, so we can hook into the logger
-	logger, hook := test.NewNullLogger()
-	sm, err := NewManager(&NilMigrator{}, newFakeRepo(), newFakeLocks(), nil,
-		logger, &fakeC11y{}, &fakeAuthorizer{}, &fakeStopwordDetector{})
-	require.Nil(t, err)
-
-	thingClasses := testGetClassNames(sm, kind.Thing)
-	assert.NotContains(t, thingClasses, "CarDeprecated")
-
-	err = sm.AddThing(context.Background(), nil, &models.Class{
-		Class: "CarDeprecated",
-		Properties: []*models.Property{{
-			DataType:    []string{"string"},
-			Name:        "dummy",
-			Cardinality: "foo",
-		}},
-	})
-
-	assert.Nil(t, err)
-
-	require.Len(t, hook.Entries, 1)
-	assert.Contains(t, hook.LastEntry().Message, "cardinality")
-	assert.Contains(t, hook.LastEntry().Message, "deprecated")
-	class := testGetClassByName(sm, kind.Thing, "CarDeprecated")
-	require.NotNil(t, class)
-	prop := testGetPropertyOfClass(class, "dummy")
-	require.NotNil(t, prop)
-	assert.Equal(t, "", prop.Cardinality)
-}
-
-func testAddPropertyWithDeprecatedFields(t *testing.T, lsm *Manager) {
-	t.Parallel()
-
-	// create own manager, so we can hook into the logger
-	logger, hook := test.NewNullLogger()
-	sm, err := NewManager(&NilMigrator{}, newFakeRepo(), newFakeLocks(), nil,
-		logger, &fakeC11y{}, &fakeAuthorizer{}, &fakeStopwordDetector{})
-	require.Nil(t, err)
-
-	thingClasses := testGetClassNames(sm, kind.Thing)
-	assert.NotContains(t, thingClasses, "CarPropDeprecated")
-
-	err = sm.AddThing(context.Background(), nil, &models.Class{
-		Class: "CarPropDeprecated",
-	})
-
-	assert.Nil(t, err)
-
-	err = sm.AddThingProperty(context.Background(), nil, "CarPropDeprecated",
-		&models.Property{
-			DataType:    []string{"string"},
-			Name:        "dummy",
-			Cardinality: "foo",
-		})
-	assert.Nil(t, err)
-
-	require.Len(t, hook.Entries, 1)
-	assert.Contains(t, hook.LastEntry().Message, "cardinality")
-	assert.Contains(t, hook.LastEntry().Message, "deprecated")
-	class := testGetClassByName(sm, kind.Thing, "CarPropDeprecated")
-	require.NotNil(t, class)
-	prop := testGetPropertyOfClass(class, "dummy")
-	require.NotNil(t, prop)
-	assert.Equal(t, "", prop.Cardinality)
 }
 
 func testAddThingClassWithVectorizedName(t *testing.T, lsm *Manager) {
@@ -766,28 +695,6 @@ func testGetClasses(l *Manager, k kind.Kind) []*models.Class {
 	classes = append(classes, schema.SemanticSchemaFor(k).Classes...)
 
 	return classes
-}
-
-func testGetClassByName(l *Manager, k kind.Kind, name string) *models.Class {
-	classes := testGetClasses(l, k)
-	for _, class := range classes {
-		if class.Class == name {
-			return class
-		}
-	}
-
-	return nil
-}
-
-func testGetPropertyOfClass(class *models.Class,
-	propName string) *models.Property {
-	for _, prop := range class.Properties {
-		if prop.Name == propName {
-			return prop
-		}
-	}
-
-	return nil
 }
 
 func testGetClassNames(l *Manager, k kind.Kind) []string {

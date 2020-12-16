@@ -23,7 +23,6 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
-	"github.com/go-openapi/swag"
 	"github.com/go-openapi/validate"
 )
 
@@ -52,10 +51,6 @@ type ThingsGetParams struct {
 	  In: query
 	*/
 	Include *string
-	/*Should additional meta information (e.g. about classified properties) be included? Defaults to false.
-	  In: query
-	*/
-	Meta *bool
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -76,11 +71,6 @@ func (o *ThingsGetParams) BindRequest(r *http.Request, route *middleware.Matched
 
 	qInclude, qhkInclude, _ := qs.GetOK("include")
 	if err := o.bindInclude(qInclude, qhkInclude, route.Formats); err != nil {
-		res = append(res, err)
-	}
-
-	qMeta, qhkMeta, _ := qs.GetOK("meta")
-	if err := o.bindMeta(qMeta, qhkMeta, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -137,28 +127,6 @@ func (o *ThingsGetParams) bindInclude(rawData []string, hasKey bool, formats str
 	}
 
 	o.Include = &raw
-
-	return nil
-}
-
-// bindMeta binds and validates parameter Meta from query.
-func (o *ThingsGetParams) bindMeta(rawData []string, hasKey bool, formats strfmt.Registry) error {
-	var raw string
-	if len(rawData) > 0 {
-		raw = rawData[len(rawData)-1]
-	}
-
-	// Required: false
-	// AllowEmptyValue: false
-	if raw == "" { // empty values pass all other validations
-		return nil
-	}
-
-	value, err := swag.ConvertBool(raw)
-	if err != nil {
-		return errors.InvalidType("meta", "query", "bool", raw)
-	}
-	o.Meta = &value
 
 	return nil
 }
