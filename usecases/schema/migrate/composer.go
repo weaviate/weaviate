@@ -53,10 +53,10 @@ func (c *Composer) DropClass(ctx context.Context, kind kind.Kind,
 
 // UpdateClass calls all internal UpdateClass methods and composes the errors
 func (c *Composer) UpdateClass(ctx context.Context, kind kind.Kind,
-	class string, newName *string, newKeywords *models.Keywords) error {
+	class string, newName *string) error {
 	ec := newErrorComposer()
 	for _, m := range c.migrators {
-		ec.Add(m.UpdateClass(ctx, kind, class, newName, newKeywords))
+		ec.Add(m.UpdateClass(ctx, kind, class, newName))
 	}
 
 	return ec.Compose()
@@ -86,11 +86,10 @@ func (c *Composer) DropProperty(ctx context.Context, kind kind.Kind,
 
 // UpdateProperty calls all internal UpdateProperty methods and composes the errors
 func (c *Composer) UpdateProperty(ctx context.Context, kind kind.Kind,
-	class string, prop string, newName *string,
-	newKeywords *models.Keywords) error {
+	class string, prop string, newName *string) error {
 	ec := newErrorComposer()
 	for _, m := range c.migrators {
-		ec.Add(m.UpdateProperty(ctx, kind, class, prop, newName, newKeywords))
+		ec.Add(m.UpdateProperty(ctx, kind, class, prop, newName))
 	}
 
 	return ec.Compose()

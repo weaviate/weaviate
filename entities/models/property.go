@@ -17,7 +17,6 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
@@ -36,9 +35,6 @@ type Property struct {
 	// Optional. By default each property is fully indexed both for full-text, as well as vector-search. You can ignore properties in searches by explicitly setting index to false. Not set is the same as true
 	Index *bool `json:"index,omitempty"`
 
-	// keywords
-	Keywords Keywords `json:"keywords,omitempty"`
-
 	// Name of the property as URI relative to the schema URL.
 	Name string `json:"name,omitempty"`
 
@@ -48,31 +44,6 @@ type Property struct {
 
 // Validate validates this property
 func (m *Property) Validate(formats strfmt.Registry) error {
-	var res []error
-
-	if err := m.validateKeywords(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
-	return nil
-}
-
-func (m *Property) validateKeywords(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.Keywords) { // not required
-		return nil
-	}
-
-	if err := m.Keywords.Validate(formats); err != nil {
-		if ve, ok := err.(*errors.Validation); ok {
-			return ve.ValidateName("keywords")
-		}
-		return err
-	}
-
 	return nil
 }
 

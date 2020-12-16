@@ -235,10 +235,6 @@ func Test_Validation_ClassNames(t *testing.T) {
 								DataType: []string{"string"},
 							},
 						},
-						Keywords: models.Keywords{{
-							Keyword: "something",
-							Weight:  0.7,
-						}},
 					}
 
 					m := newSchemaManager()
@@ -265,10 +261,6 @@ func Test_Validation_ClassNames(t *testing.T) {
 								DataType: []string{"string"},
 							},
 						},
-						Keywords: models.Keywords{{
-							Keyword: "something",
-							Weight:  0.7,
-						}},
 					}
 
 					m := newSchemaManager()
@@ -369,10 +361,6 @@ func Test_Validation_ClassNames(t *testing.T) {
 					class := &models.Class{
 						Class:              originalName,
 						VectorizeClassName: &test.vectorize,
-						Keywords: models.Keywords{{
-							Keyword: "something",
-							Weight:  0.7,
-						}},
 						Properties: []*models.Property{
 							&models.Property{
 								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
@@ -387,8 +375,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 
 					// now update
 					updatedClass := &models.Class{
-						Class:    test.input,
-						Keywords: class.Keywords,
+						Class: test.input,
 					}
 					err = m.UpdateThing(context.Background(), nil, originalName, updatedClass)
 					assert.Equal(t, test.valid, err == nil)
@@ -406,10 +393,6 @@ func Test_Validation_ClassNames(t *testing.T) {
 					class := &models.Class{
 						Class:              originalName,
 						VectorizeClassName: &test.vectorize,
-						Keywords: models.Keywords{{
-							Keyword: "someaction",
-							Weight:  0.7,
-						}},
 						Properties: []*models.Property{
 							&models.Property{
 								Name:     "dummyPropSoWeDontRunIntoAllNoindexedError",
@@ -424,8 +407,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 
 					// now update
 					updatedClass := &models.Class{
-						Class:    test.input,
-						Keywords: class.Keywords,
+						Class: test.input,
 					}
 					err = m.UpdateAction(context.Background(), nil, originalName, updatedClass)
 					assert.Equal(t, test.valid, err == nil)
@@ -643,7 +625,6 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						Properties: []*models.Property{{
 							DataType:              []string{"string"},
 							Name:                  test.input,
-							Keywords:              models.Keywords{{Keyword: "something", Weight: 0.7}},
 							VectorizePropertyName: test.vectorize,
 						}},
 					}
@@ -669,7 +650,6 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						Properties: []*models.Property{{
 							DataType:              []string{"string"},
 							Name:                  test.input,
-							Keywords:              models.Keywords{{Keyword: "something", Weight: 0.7}},
 							VectorizePropertyName: test.vectorize,
 						}},
 					}
@@ -773,7 +753,6 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						Properties: []*models.Property{{
 							DataType:              []string{"string"},
 							Name:                  test.input,
-							Keywords:              models.Keywords{{Keyword: "something", Weight: 0.7}},
 							VectorizePropertyName: test.vectorize,
 						}},
 					}
@@ -799,7 +778,6 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						Properties: []*models.Property{{
 							DataType:              []string{"string"},
 							Name:                  test.input,
-							Keywords:              models.Keywords{{Keyword: "something", Weight: 0.7}},
 							VectorizePropertyName: test.vectorize,
 						}},
 					}
@@ -905,7 +883,6 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						Properties: []*models.Property{{
 							DataType:              []string{"string"},
 							Name:                  test.input,
-							Keywords:              models.Keywords{{Keyword: "something", Weight: 0.7}},
 							VectorizePropertyName: test.vectorize,
 						}},
 					}
@@ -931,7 +908,6 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						Properties: []*models.Property{{
 							DataType:              []string{"string"},
 							Name:                  test.input,
-							Keywords:              models.Keywords{{Keyword: "something", Weight: 0.7}},
 							VectorizePropertyName: test.vectorize,
 						}},
 					}

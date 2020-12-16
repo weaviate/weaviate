@@ -76,7 +76,7 @@ func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Pri
 		return err
 	}
 
-	err = m.validateClassNameAndKeywords(ctx, knd, class.Class, class.Keywords, VectorizeClassName(class))
+	err = m.validateClassName(ctx, knd, class.Class, VectorizeClassName(class))
 	if err != nil {
 		return err
 	}
@@ -84,7 +84,7 @@ func (m *Manager) validateCanAddClass(ctx context.Context, principal *models.Pri
 	// Check properties
 	foundNames := map[string]bool{}
 	for _, property := range class.Properties {
-		err = m.validatePropertyNameAndKeywords(ctx, class.Class, property.Name, property.Keywords,
+		err = m.validatePropertyName(ctx, class.Class, property.Name,
 			property.VectorizePropertyName)
 		if err != nil {
 			return err

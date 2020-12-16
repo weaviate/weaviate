@@ -110,15 +110,14 @@ func Test_Composer(t *testing.T) {
 		kind := kind.Thing
 		class := "Foo"
 		newName := "Bar"
-		newKeywords := &models.Keywords{}
 
 		t.Run("no errors", func(t *testing.T) {
-			m1.On("UpdateClass", ctx, kind, class, &newName, newKeywords).
+			m1.On("UpdateClass", ctx, kind, class, &newName).
 				Return(nil).Once()
-			m2.On("UpdateClass", ctx, kind, class, &newName, newKeywords).
+			m2.On("UpdateClass", ctx, kind, class, &newName).
 				Return(nil).Once()
 
-			err := composer.UpdateClass(ctx, kind, class, &newName, newKeywords)
+			err := composer.UpdateClass(ctx, kind, class, &newName)
 
 			assert.Nil(t, err)
 			m1.AssertExpectations(t)
@@ -126,12 +125,12 @@ func Test_Composer(t *testing.T) {
 		})
 
 		t.Run("one of the two errors", func(t *testing.T) {
-			m1.On("UpdateClass", ctx, kind, class, &newName, newKeywords).
+			m1.On("UpdateClass", ctx, kind, class, &newName).
 				Return(errors.New("m1 errord")).Once()
-			m2.On("UpdateClass", ctx, kind, class, &newName, newKeywords).
+			m2.On("UpdateClass", ctx, kind, class, &newName).
 				Return(nil).Once()
 
-			err := composer.UpdateClass(ctx, kind, class, &newName, newKeywords)
+			err := composer.UpdateClass(ctx, kind, class, &newName)
 
 			assert.Equal(t, errors.New("migrator composer: m1 errord"), err)
 			m1.AssertExpectations(t)
@@ -139,12 +138,12 @@ func Test_Composer(t *testing.T) {
 		})
 
 		t.Run("both error", func(t *testing.T) {
-			m1.On("UpdateClass", ctx, kind, class, &newName, newKeywords).
+			m1.On("UpdateClass", ctx, kind, class, &newName).
 				Return(errors.New("m1 errord")).Once()
-			m2.On("UpdateClass", ctx, kind, class, &newName, newKeywords).
+			m2.On("UpdateClass", ctx, kind, class, &newName).
 				Return(errors.New("m2 errord")).Once()
 
-			err := composer.UpdateClass(ctx, kind, class, &newName, newKeywords)
+			err := composer.UpdateClass(ctx, kind, class, &newName)
 
 			assert.Equal(t, errors.New("migrator composer: m1 errord, m2 errord"), err)
 			m1.AssertExpectations(t)
@@ -244,15 +243,14 @@ func Test_Composer(t *testing.T) {
 		class := "Foo"
 		prop := "someProp"
 		newName := "otherProp"
-		newKeywords := &models.Keywords{}
 
 		t.Run("no errors", func(t *testing.T) {
-			m1.On("UpdateProperty", ctx, kind, class, prop, &newName, newKeywords).
+			m1.On("UpdateProperty", ctx, kind, class, prop, &newName).
 				Return(nil).Once()
-			m2.On("UpdateProperty", ctx, kind, class, prop, &newName, newKeywords).
+			m2.On("UpdateProperty", ctx, kind, class, prop, &newName).
 				Return(nil).Once()
 
-			err := composer.UpdateProperty(ctx, kind, class, prop, &newName, newKeywords)
+			err := composer.UpdateProperty(ctx, kind, class, prop, &newName)
 
 			assert.Nil(t, err)
 			m1.AssertExpectations(t)
@@ -260,12 +258,12 @@ func Test_Composer(t *testing.T) {
 		})
 
 		t.Run("one of the two errors", func(t *testing.T) {
-			m1.On("UpdateProperty", ctx, kind, class, prop, &newName, newKeywords).
+			m1.On("UpdateProperty", ctx, kind, class, prop, &newName).
 				Return(errors.New("m1 errord")).Once()
-			m2.On("UpdateProperty", ctx, kind, class, prop, &newName, newKeywords).
+			m2.On("UpdateProperty", ctx, kind, class, prop, &newName).
 				Return(nil).Once()
 
-			err := composer.UpdateProperty(ctx, kind, class, prop, &newName, newKeywords)
+			err := composer.UpdateProperty(ctx, kind, class, prop, &newName)
 
 			assert.Equal(t, errors.New("migrator composer: m1 errord"), err)
 			m1.AssertExpectations(t)
@@ -273,12 +271,12 @@ func Test_Composer(t *testing.T) {
 		})
 
 		t.Run("both error", func(t *testing.T) {
-			m1.On("UpdateProperty", ctx, kind, class, prop, &newName, newKeywords).
+			m1.On("UpdateProperty", ctx, kind, class, prop, &newName).
 				Return(errors.New("m1 errord")).Once()
-			m2.On("UpdateProperty", ctx, kind, class, prop, &newName, newKeywords).
+			m2.On("UpdateProperty", ctx, kind, class, prop, &newName).
 				Return(errors.New("m2 errord")).Once()
 
-			err := composer.UpdateProperty(ctx, kind, class, prop, &newName, newKeywords)
+			err := composer.UpdateProperty(ctx, kind, class, prop, &newName)
 
 			assert.Equal(t, errors.New("migrator composer: m1 errord, m2 errord"), err)
 			m1.AssertExpectations(t)
