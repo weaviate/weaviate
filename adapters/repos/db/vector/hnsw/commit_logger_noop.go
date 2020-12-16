@@ -58,3 +58,11 @@ func (n *NoopCommitLogger) Drop() error {
 func MakeNoopCommitLogger() (CommitLogger, error) {
 	return &NoopCommitLogger{}, nil
 }
+
+func (b *NoopCommitLogger) NewBufferedLinksLogger() BufferedLinksLogger {
+	return b // return self as it does not do anything anyway
+}
+
+func (b *NoopCommitLogger) Close() error {
+	return nil
+}
