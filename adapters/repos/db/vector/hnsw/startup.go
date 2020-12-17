@@ -12,6 +12,7 @@
 package hnsw
 
 import (
+	"context"
 	"os"
 	"time"
 
@@ -31,6 +32,8 @@ func (h *hnsw) init(cfg Config) error {
 
 	h.commitLog = cl
 	h.registerMaintainence(cfg)
+
+	h.prefillCache()
 
 	return nil
 }
@@ -99,6 +102,31 @@ func (h *hnsw) registerTombstoneCleanup(cfg Config) {
 						WithError(err).Error("tombstone cleanup errord")
 				}
 			}
+		}
+	}()
+}
+
+func (h *hnsw) prefillCache() {
+	// The motivation behind have a limit that is lower than the overall cache
+	// limit, is so we don't fill up the whole cache right away. This would lead
+	// to it overflowing on the next request which would reset it and in turn
+	// diminish the benefit of prefilling it in the first place.
+	//
+	// By setting the level lower, we make sure the topmost layers are present in
+	// the cache and anything that is cached for the remaineder follows user
+	// demand based on actual load as opposed to our predictions.
+	limit := 500000 / 2 // TODO: make configurable when cache is configurable.
+
+	go func() {
+		// delay prefill to give external startup routines some time
+		time.Sleep(1 * time.Second)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+
+		err := newVectorCachePrefiller(h.cache, h, h.logger).Prefill(ctx, limit)
+		if err != nil {
+			h.logger.WithError(err).Error("prefill vector cache")
 		}
 	}()
 }
