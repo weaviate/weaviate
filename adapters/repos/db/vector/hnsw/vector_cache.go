@@ -93,3 +93,8 @@ func (c *vectorCache) get(ctx context.Context, id uint64) ([]float32, error) {
 func (c *vectorCache) drop() {
 	c.cancel <- true
 }
+
+func (c *vectorCache) len() int32 {
+	// no need to lock as the count is only ever atomically written
+	return c.count
+}
