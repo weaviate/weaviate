@@ -81,19 +81,21 @@ func (pf *vectorCachePrefiller) prefillLevel(ctx context.Context,
 
 func (pf *vectorCachePrefiller) logLevel(level, count int, before time.Time) {
 	pf.logger.WithFields(logrus.Fields{
-		"action": "vector_cache_prefill_level",
-		"level":  level,
-		"count":  count,
-		"took":   time.Since(before),
+		"action":   "vector_cache_prefill_level",
+		"level":    level,
+		"count":    count,
+		"took":     time.Since(before),
+		"index_id": pf.index.id,
 	}).Debug("prefilled level in vector cache")
 }
 
 func (pf *vectorCachePrefiller) logTotal(count, limit int, before time.Time) {
 	pf.logger.WithFields(logrus.Fields{
-		"action": "vector_cache_prefill",
-		"limit":  limit,
-		"count":  count,
-		"took":   time.Since(before),
+		"action":   "vector_cache_prefill",
+		"limit":    limit,
+		"count":    count,
+		"took":     time.Since(before),
+		"index_id": pf.index.id,
 	}).Info("prefilled vector cache")
 }
 

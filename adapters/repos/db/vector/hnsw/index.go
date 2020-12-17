@@ -61,6 +61,8 @@ type hnsw struct {
 
 	vectorForID VectorForID
 
+	cache cache
+
 	vectorCacheDrop func()
 
 	commitLog CommitLogger
@@ -135,6 +137,7 @@ func New(cfg Config) (*hnsw, error) {
 		levelNormalizer:   1 / math.Log(float64(cfg.MaximumConnections)),
 		efConstruction:    cfg.EFConstruction,
 		nodes:             make([]*vertex, initialSize),
+		cache:             vectorCache,
 		vectorForID:       vectorCache.get,
 		vectorCacheDrop:   vectorCache.drop,
 		id:                cfg.ID,
