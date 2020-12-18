@@ -60,7 +60,7 @@ func (c *vectorCache) watchForDeletion() {
 }
 
 func (c *vectorCache) replaceMapIfFull() {
-	if c.count >= int32(c.maxSize) {
+	if atomic.LoadInt32(&c.count) >= int32(c.maxSize) {
 		c.Lock()
 		c.logger.WithField("action", "hnsw_delete_vector_cache").
 			Debug("deleting full vector cache")
@@ -92,4 +92,8 @@ func (c *vectorCache) get(ctx context.Context, id uint64) ([]float32, error) {
 
 func (c *vectorCache) drop() {
 	c.cancel <- true
+}
+
+func (c *vectorCache) len() int32 {
+	return atomic.LoadInt32(&c.count)
 }
