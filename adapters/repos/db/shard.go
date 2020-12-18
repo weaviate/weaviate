@@ -97,6 +97,7 @@ func NewShard(shardName string, index *Index) (*Shard, error) {
 	}
 
 	s.startPeriodicCleanup()
+	vi.PostStartup()
 
 	return s, nil
 }
