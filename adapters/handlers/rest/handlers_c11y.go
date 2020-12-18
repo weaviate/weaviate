@@ -30,17 +30,6 @@ type c11yProxy interface {
 }
 
 func setupC11yHandlers(api *operations.WeaviateAPI, inspector inspector, proxy c11yProxy) {
-	api.ContextionaryAPIC11yWordsHandler = contextionary_api.C11yWordsHandlerFunc(func(params contextionary_api.C11yWordsParams, principal *models.Principal) middleware.Responder {
-		ctx := params.HTTPRequest.Context()
-
-		res, err := inspector.GetWords(ctx, params.Words)
-		if err != nil {
-			return contextionary_api.NewC11yWordsBadRequest().WithPayload(errPayloadFromSingleErr(err))
-		}
-
-		return contextionary_api.NewC11yWordsOK().WithPayload(res)
-	})
-
 	api.ContextionaryAPIC11yConceptsHandler = contextionary_api.C11yConceptsHandlerFunc(
 		func(params contextionary_api.C11yConceptsParams, principal *models.Principal) middleware.Responder {
 			ctx := params.HTTPRequest.Context()
