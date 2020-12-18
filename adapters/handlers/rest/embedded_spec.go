@@ -1089,62 +1089,6 @@ func init() {
         ]
       }
     },
-    "/c11y/words/{words}": {
-      "get": {
-        "description": "Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/schema-schema.md#camelcase",
-        "tags": [
-          "contextionary-API"
-        ],
-        "summary": "Checks if a word or wordString is part of the contextionary.",
-        "operationId": "c11y.words",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "CamelCase list of words to validate.",
-            "name": "words",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/C11yWordsResponse"
-            }
-          },
-          "400": {
-            "description": "Incorrect request",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false,
-        "x-serviceIds": [
-          "weaviate.c11y.words.get"
-        ]
-      }
-    },
     "/classifications/": {
       "post": {
         "description": "Trigger a classification based on the specified params. Classifications will run in the background, use GET /classifications/\u003cid\u003e to retrieve the status of your classificaiton.",
@@ -4874,62 +4818,6 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.extensions.post"
-        ]
-      }
-    },
-    "/c11y/words/{words}": {
-      "get": {
-        "description": "Checks if a word or wordString is part of the contextionary. Words should be concatenated as described here: https://github.com/semi-technologies/weaviate/blob/master/docs/en/use/schema-schema.md#camelcase",
-        "tags": [
-          "contextionary-API"
-        ],
-        "summary": "Checks if a word or wordString is part of the contextionary.",
-        "operationId": "c11y.words",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "CamelCase list of words to validate.",
-            "name": "words",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/C11yWordsResponse"
-            }
-          },
-          "400": {
-            "description": "Incorrect request",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Forbidden",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false,
-        "x-serviceIds": [
-          "weaviate.c11y.words.get"
         ]
       }
     },
