@@ -33,8 +33,6 @@ func (h *hnsw) init(cfg Config) error {
 	h.commitLog = cl
 	h.registerMaintainence(cfg)
 
-	h.prefillCache()
-
 	return nil
 }
 
@@ -106,21 +104,27 @@ func (h *hnsw) registerTombstoneCleanup(cfg Config) {
 	}()
 }
 
+// PostStartup triggers routines that should happen after startup. The startup
+// process is triggered during the creation which in turn happens as part of
+// the shard creation. Some post-startup routines, such as prefilling the
+// vector cache, however, depend on the shard being ready as they will call
+// getVectorForID.
+func (h *hnsw) PostStartup() {
+	h.prefillCache()
+}
+
 func (h *hnsw) prefillCache() {
-	// The motivation behind have a limit that is lower than the overall cache
+	// The motivation behind having a limit that is lower than the overall cache
 	// limit, is so we don't fill up the whole cache right away. This would lead
 	// to it overflowing on the next request which would reset it and in turn
 	// diminish the benefit of prefilling it in the first place.
 	//
 	// By setting the level lower, we make sure the topmost layers are present in
-	// the cache and anything that is cached for the remaineder follows user
+	// the cache and anything that is cached subsequently follows user
 	// demand based on actual load as opposed to our predictions.
-	limit := 500000 / 2 // TODO: make configurable when cache is configurable.
+	limit := 500000 / 2 // TODO: v1 make configurable when cache is configurable.
 
 	go func() {
-		// delay prefill to give external startup routines some time
-		time.Sleep(1 * time.Second)
-
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 
