@@ -71,7 +71,7 @@ func newFakeVectorRepoKNN(unclassified, classified search.Results) *fakeVectorRe
 	return &fakeVectorRepoKNN{
 		unclassified: unclassified,
 		classified:   classified,
-		db:           map[strfmt.UUID]*models.Thing{},
+		db:           map[strfmt.UUID]*models.Object{},
 	}
 }
 
@@ -81,7 +81,7 @@ type fakeVectorRepoKNN struct {
 	sync.Mutex
 	unclassified      []search.Result
 	classified        []search.Result
-	db                map[strfmt.UUID]*models.Thing
+	db                map[strfmt.UUID]*models.Object
 	errorOnAggregate  error
 	batchStorageDelay time.Duration
 }
@@ -91,7 +91,7 @@ func (f *fakeVectorRepoKNN) GetUnclassified(ctx context.Context,
 	filter *libfilters.LocalFilter) ([]search.Result, error) {
 	f.Lock()
 	defer f.Unlock()
-	if k != kind.Thing {
+	if k != kind.Object {
 		return nil, fmt.Errorf("unsupported kind in test fake: %v", k)
 	}
 
@@ -107,7 +107,7 @@ func (f *fakeVectorRepoKNN) AggregateNeighbors(ctx context.Context, vector []flo
 	// simulate that this takes some time
 	time.Sleep(1 * time.Millisecond)
 
-	if ki != kind.Thing {
+	if ki != kind.Object {
 		return nil, fmt.Errorf("unsupported kind in test fake: %v", k)
 	}
 
@@ -161,7 +161,7 @@ func (f *fakeVectorRepoKNN) VectorClassSearch(ctx context.Context,
 	return nil, fmt.Errorf("vector class search not implemented in fake")
 }
 
-func (f *fakeVectorRepoKNN) BatchPutThings(ctx context.Context, things kinds.BatchThings) (kinds.BatchThings, error) {
+func (f *fakeVectorRepoKNN) BatchPutObjects(ctx context.Context, objects kinds.BatchObjects) (kinds.BatchObjects, error) {
 	f.Lock()
 	defer f.Unlock()
 
@@ -169,17 +169,13 @@ func (f *fakeVectorRepoKNN) BatchPutThings(ctx context.Context, things kinds.Bat
 		time.Sleep(f.batchStorageDelay)
 	}
 
-	for _, batchThing := range things {
-		f.db[batchThing.Thing.ID] = batchThing.Thing
+	for _, batchObject := range objects {
+		f.db[batchObject.Object.ID] = batchObject.Object
 	}
-	return things, nil
+	return objects, nil
 }
 
-func (f *fakeVectorRepoKNN) BatchPutActions(ctx context.Context, actions kinds.BatchActions) (kinds.BatchActions, error) {
-	return actions, fmt.Errorf("put action not implemented in fake")
-}
-
-func (f *fakeVectorRepoKNN) get(id strfmt.UUID) (*models.Thing, bool) {
+func (f *fakeVectorRepoKNN) get(id strfmt.UUID) (*models.Object, bool) {
 	f.Lock()
 	defer f.Unlock()
 	t, ok := f.db[id]
@@ -196,7 +192,7 @@ func newFakeVectorRepoContextual(unclassified, targets search.Results) *fakeVect
 	return &fakeVectorRepoContextual{
 		unclassified: unclassified,
 		targets:      targets,
-		db:           map[strfmt.UUID]*models.Thing{},
+		db:           map[strfmt.UUID]*models.Object{},
 	}
 }
 
@@ -206,11 +202,11 @@ type fakeVectorRepoContextual struct {
 	sync.Mutex
 	unclassified     []search.Result
 	targets          []search.Result
-	db               map[strfmt.UUID]*models.Thing
+	db               map[strfmt.UUID]*models.Object
 	errorOnAggregate error
 }
 
-func (f *fakeVectorRepoContextual) get(id strfmt.UUID) (*models.Thing, bool) {
+func (f *fakeVectorRepoContextual) get(id strfmt.UUID) (*models.Object, bool) {
 	f.Lock()
 	defer f.Unlock()
 	t, ok := f.db[id]
@@ -220,7 +216,7 @@ func (f *fakeVectorRepoContextual) get(id strfmt.UUID) (*models.Thing, bool) {
 func (f *fakeVectorRepoContextual) GetUnclassified(ctx context.Context,
 	k kind.Kind, class string, properties []string,
 	filter *libfilters.LocalFilter) ([]search.Result, error) {
-	if k != kind.Thing {
+	if k != kind.Object {
 		return nil, fmt.Errorf("unsupported kind in test fake: %v", k)
 	}
 
@@ -233,17 +229,13 @@ func (f *fakeVectorRepoContextual) AggregateNeighbors(ctx context.Context, vecto
 	panic("not implemented")
 }
 
-func (f *fakeVectorRepoContextual) BatchPutThings(ctx context.Context, things kinds.BatchThings) (kinds.BatchThings, error) {
+func (f *fakeVectorRepoContextual) BatchPutObjects(ctx context.Context, objects kinds.BatchObjects) (kinds.BatchObjects, error) {
 	f.Lock()
 	defer f.Unlock()
-	for _, batchThing := range things {
-		f.db[batchThing.Thing.ID] = batchThing.Thing
+	for _, batchObject := range objects {
+		f.db[batchObject.Object.ID] = batchObject.Object
 	}
-	return things, nil
-}
-
-func (f *fakeVectorRepoContextual) BatchPutActions(ctx context.Context, actions kinds.BatchActions) (kinds.BatchActions, error) {
-	return actions, fmt.Errorf("put action not implemented in fake")
+	return objects, nil
 }
 
 func (f *fakeVectorRepoContextual) VectorClassSearch(ctx context.Context,
@@ -256,7 +248,7 @@ func (f *fakeVectorRepoContextual) VectorClassSearch(ctx context.Context,
 	// simulate that this takes some time
 	time.Sleep(5 * time.Millisecond)
 
-	if params.Kind != kind.Thing {
+	if params.Kind != kind.Object {
 		return nil, fmt.Errorf("unsupported kind in test fake: %v", params.Kind)
 	}
 

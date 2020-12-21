@@ -16,8 +16,8 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/semi-technologies/weaviate/client/objects"
 	"github.com/semi-technologies/weaviate/client/schema"
-	"github.com/semi-technologies/weaviate/client/things"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/entities/schema/crossref"
 	"github.com/semi-technologies/weaviate/entities/schema/kind"
@@ -38,33 +38,33 @@ func Test_GraphQL(t *testing.T) {
 	t.Run("getting objects with underscore props", gettingObjectsWithUnderscoreProps)
 
 	// tear down
-	deleteThingClass(t, "Person")
-	deleteThingClass(t, "Country")
-	deleteThingClass(t, "City")
-	deleteThingClass(t, "Airport")
-	deleteThingClass(t, "Company")
+	deleteObjectClass(t, "Person")
+	deleteObjectClass(t, "Country")
+	deleteObjectClass(t, "City")
+	deleteObjectClass(t, "Airport")
+	deleteObjectClass(t, "Company")
 }
 
-func createThingClass(t *testing.T, class *models.Class) {
-	params := schema.NewSchemaThingsCreateParams().WithThingClass(class)
-	resp, err := helper.Client(t).Schema.SchemaThingsCreate(params, nil)
+func createObjectClass(t *testing.T, class *models.Class) {
+	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
+	resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
 }
 
-func createThing(t *testing.T, thing *models.Thing) {
-	params := things.NewThingsCreateParams().WithBody(thing)
-	resp, err := helper.Client(t).Things.ThingsCreate(params, nil)
+func createObject(t *testing.T, object *models.Object) {
+	params := objects.NewObjectsCreateParams().WithBody(object)
+	resp, err := helper.Client(t).Objects.ObjectsCreate(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
 }
 
-func deleteThingClass(t *testing.T, class string) {
-	delParams := schema.NewSchemaThingsDeleteParams().WithClassName(class)
-	delRes, err := helper.Client(t).Schema.SchemaThingsDelete(delParams, nil)
+func deleteObjectClass(t *testing.T, class string) {
+	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
+	delRes, err := helper.Client(t).Schema.SchemaObjectsDelete(delParams, nil)
 	helper.AssertRequestOk(t, delRes, err, nil)
 }
 
 func addTestSchema(t *testing.T) {
-	createThingClass(t, &models.Class{
+	createObjectClass(t, &models.Class{
 		Class:              "Country",
 		VectorizeClassName: ptBool(true),
 		Properties: []*models.Property{
@@ -75,7 +75,7 @@ func addTestSchema(t *testing.T) {
 		},
 	})
 
-	createThingClass(t, &models.Class{
+	createObjectClass(t, &models.Class{
 		Class:              "City",
 		VectorizeClassName: ptBool(true),
 		Properties: []*models.Property{
@@ -98,7 +98,7 @@ func addTestSchema(t *testing.T) {
 		},
 	})
 
-	createThingClass(t, &models.Class{
+	createObjectClass(t, &models.Class{
 		Class:              "Airport",
 		VectorizeClassName: ptBool(true),
 		Properties: []*models.Property{
@@ -117,7 +117,7 @@ func addTestSchema(t *testing.T) {
 		},
 	})
 
-	createThingClass(t, &models.Class{
+	createObjectClass(t, &models.Class{
 		Class:              "Company",
 		VectorizeClassName: ptBool(false),
 		Properties: []*models.Property{
@@ -134,7 +134,7 @@ func addTestSchema(t *testing.T) {
 		},
 	})
 
-	createThingClass(t, &models.Class{
+	createObjectClass(t, &models.Class{
 		Class:              "Person",
 		VectorizeClassName: ptBool(false),
 		Properties: []*models.Property{
@@ -168,14 +168,14 @@ const (
 
 func addTestDataCityAirport(t *testing.T) {
 	// countries
-	createThing(t, &models.Thing{
+	createObject(t, &models.Object{
 		Class: "Country",
 		ID:    netherlands,
 		Schema: map[string]interface{}{
 			"name": "Netherlands",
 		},
 	})
-	createThing(t, &models.Thing{
+	createObject(t, &models.Object{
 		Class: "Country",
 		ID:    germany,
 		Schema: map[string]interface{}{
@@ -184,7 +184,7 @@ func addTestDataCityAirport(t *testing.T) {
 	})
 
 	// cities
-	createThing(t, &models.Thing{
+	createObject(t, &models.Object{
 		Class: "City",
 		ID:    amsterdam,
 		Schema: map[string]interface{}{
@@ -196,12 +196,12 @@ func addTestDataCityAirport(t *testing.T) {
 			},
 			"inCountry": []interface{}{
 				map[string]interface{}{
-					"beacon": crossref.New("localhost", netherlands, kind.Thing).String(),
+					"beacon": crossref.New("localhost", netherlands, kind.Object).String(),
 				},
 			},
 		},
 	})
-	createThing(t, &models.Thing{
+	createObject(t, &models.Object{
 		Class: "City",
 		ID:    rotterdam,
 		Schema: map[string]interface{}{
@@ -209,12 +209,12 @@ func addTestDataCityAirport(t *testing.T) {
 			"population": 600000,
 			"inCountry": []interface{}{
 				map[string]interface{}{
-					"beacon": crossref.New("localhost", netherlands, kind.Thing).String(),
+					"beacon": crossref.New("localhost", netherlands, kind.Object).String(),
 				},
 			},
 		},
 	})
-	createThing(t, &models.Thing{
+	createObject(t, &models.Object{
 		Class: "City",
 		ID:    berlin,
 		Schema: map[string]interface{}{
@@ -222,12 +222,12 @@ func addTestDataCityAirport(t *testing.T) {
 			"population": 3470000,
 			"inCountry": []interface{}{
 				map[string]interface{}{
-					"beacon": crossref.New("localhost", germany, kind.Thing).String(),
+					"beacon": crossref.New("localhost", germany, kind.Object).String(),
 				},
 			},
 		},
 	})
-	createThing(t, &models.Thing{
+	createObject(t, &models.Object{
 		Class: "City",
 		ID:    dusseldorf,
 		Schema: map[string]interface{}{
@@ -235,7 +235,7 @@ func addTestDataCityAirport(t *testing.T) {
 			"population": 600000,
 			"inCountry": []interface{}{
 				map[string]interface{}{
-					"beacon": crossref.New("localhost", germany, kind.Thing).String(),
+					"beacon": crossref.New("localhost", germany, kind.Object).String(),
 				},
 			},
 			"location": map[string]interface{}{
@@ -245,7 +245,7 @@ func addTestDataCityAirport(t *testing.T) {
 		},
 	})
 
-	createThing(t, &models.Thing{
+	createObject(t, &models.Object{
 		Class: "City",
 		ID:    nullisland,
 		Schema: map[string]interface{}{
@@ -259,7 +259,7 @@ func addTestDataCityAirport(t *testing.T) {
 	})
 
 	// airports
-	createThing(t, &models.Thing{
+	createObject(t, &models.Object{
 		Class: "Airport",
 		ID:    airport1,
 		Schema: map[string]interface{}{
@@ -269,53 +269,53 @@ func addTestDataCityAirport(t *testing.T) {
 			},
 			"inCity": []interface{}{
 				map[string]interface{}{
-					"beacon": crossref.New("localhost", amsterdam, kind.Thing).String(),
+					"beacon": crossref.New("localhost", amsterdam, kind.Object).String(),
 				},
 			},
 		},
 	})
-	createThing(t, &models.Thing{
+	createObject(t, &models.Object{
 		Class: "Airport",
 		ID:    airport2,
 		Schema: map[string]interface{}{
 			"code": "20000",
 			"inCity": []interface{}{
 				map[string]interface{}{
-					"beacon": crossref.New("localhost", rotterdam, kind.Thing).String(),
+					"beacon": crossref.New("localhost", rotterdam, kind.Object).String(),
 				},
 			},
 		},
 	})
-	createThing(t, &models.Thing{
+	createObject(t, &models.Object{
 		Class: "Airport",
 		ID:    airport3,
 		Schema: map[string]interface{}{
 			"code": "30000",
 			"inCity": []interface{}{
 				map[string]interface{}{
-					"beacon": crossref.New("localhost", dusseldorf, kind.Thing).String(),
+					"beacon": crossref.New("localhost", dusseldorf, kind.Object).String(),
 				},
 			},
 		},
 	})
-	createThing(t, &models.Thing{
+	createObject(t, &models.Object{
 		Class: "Airport",
 		ID:    airport4,
 		Schema: map[string]interface{}{
 			"code": "40000",
 			"inCity": []interface{}{
 				map[string]interface{}{
-					"beacon": crossref.New("localhost", berlin, kind.Thing).String(),
+					"beacon": crossref.New("localhost", berlin, kind.Object).String(),
 				},
 			},
 		},
 	})
 
 	// wait for consistency
-	assertGetThingEventually(t, airport1)
-	assertGetThingEventually(t, airport2)
-	assertGetThingEventually(t, airport3)
-	assertGetThingEventually(t, airport4)
+	assertGetObjectEventually(t, airport1)
+	assertGetObjectEventually(t, airport2)
+	assertGetObjectEventually(t, airport3)
+	assertGetObjectEventually(t, airport4)
 
 	// give cache some time to become hot
 	time.Sleep(2 * time.Second)
@@ -358,11 +358,11 @@ func addTestDataCompanies(t *testing.T) {
 		for _, c := range company.inCity {
 			inCity = append(inCity,
 				map[string]interface{}{
-					"beacon": crossref.New("localhost", c, kind.Thing).String(),
+					"beacon": crossref.New("localhost", c, kind.Object).String(),
 				})
 		}
 
-		createThing(t, &models.Thing{
+		createObject(t, &models.Object{
 			Class: "Company",
 			ID:    company.id,
 			Schema: map[string]interface{}{
@@ -372,7 +372,7 @@ func addTestDataCompanies(t *testing.T) {
 		})
 	}
 
-	assertGetThingEventually(t, companies[len(companies)-1].id)
+	assertGetObjectEventually(t, companies[len(companies)-1].id)
 }
 
 func addTestDataPersons(t *testing.T) {
@@ -402,11 +402,11 @@ func addTestDataPersons(t *testing.T) {
 		for _, c := range person.livesIn {
 			livesIn = append(livesIn,
 				map[string]interface{}{
-					"beacon": crossref.New("localhost", c, kind.Thing).String(),
+					"beacon": crossref.New("localhost", c, kind.Object).String(),
 				})
 		}
 
-		createThing(t, &models.Thing{
+		createObject(t, &models.Object{
 			Class: "Person",
 			ID:    person.id,
 			Schema: map[string]interface{}{
@@ -416,7 +416,7 @@ func addTestDataPersons(t *testing.T) {
 		})
 	}
 
-	assertGetThingEventually(t, companies[len(companies)-1].id)
+	assertGetObjectEventually(t, companies[len(companies)-1].id)
 }
 
 func ptBool(in bool) *bool {

@@ -25,82 +25,40 @@ type batchKindHandlers struct {
 	manager *kinds.BatchManager
 }
 
-func (h *batchKindHandlers) addThings(params batching.BatchingThingsCreateParams,
+func (h *batchKindHandlers) addObjects(params batching.BatchingObjectsCreateParams,
 	principal *models.Principal) middleware.Responder {
-	things, err := h.manager.AddThings(params.HTTPRequest.Context(), principal,
-		params.Body.Things, params.Body.Fields)
+	objects, err := h.manager.AddObjects(params.HTTPRequest.Context(), principal,
+		params.Body.Objects, params.Body.Fields)
 	if err != nil {
 		switch err.(type) {
 		case errors.Forbidden:
-			return batching.NewBatchingThingsCreateForbidden().
+			return batching.NewBatchingObjectsCreateForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		case kinds.ErrInvalidUserInput:
-			return batching.NewBatchingThingsCreateUnprocessableEntity().
+			return batching.NewBatchingObjectsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return batching.NewBatchingThingsCreateInternalServerError().
+			return batching.NewBatchingObjectsCreateInternalServerError().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
 
-	return batching.NewBatchingThingsCreateOK().
-		WithPayload(h.thingsResponse(things))
+	return batching.NewBatchingObjectsCreateOK().
+		WithPayload(h.objectsResponse(objects))
 }
 
-func (h *batchKindHandlers) thingsResponse(input kinds.BatchThings) []*models.ThingsGetResponse {
-	response := make([]*models.ThingsGetResponse, len(input))
-	for i, thing := range input {
+func (h *batchKindHandlers) objectsResponse(input kinds.BatchObjects) []*models.ObjectsGetResponse {
+	response := make([]*models.ObjectsGetResponse, len(input))
+	for i, object := range input {
 		var errorResponse *models.ErrorResponse
-		if thing.Err != nil {
-			errorResponse = errPayloadFromSingleErr(thing.Err)
+		if object.Err != nil {
+			errorResponse = errPayloadFromSingleErr(object.Err)
 		}
 
-		thing.Thing.ID = thing.UUID
-		response[i] = &models.ThingsGetResponse{
-			Thing: *thing.Thing,
-			Result: &models.ThingsGetResponseAO2Result{
-				Errors: errorResponse,
-			},
-		}
-	}
-
-	return response
-}
-
-func (h *batchKindHandlers) addActions(params batching.BatchingActionsCreateParams,
-	principal *models.Principal) middleware.Responder {
-	actions, err := h.manager.AddActions(params.HTTPRequest.Context(), principal,
-		params.Body.Actions, params.Body.Fields)
-	if err != nil {
-		switch err.(type) {
-		case errors.Forbidden:
-			return batching.NewBatchingActionsCreateForbidden().
-				WithPayload(errPayloadFromSingleErr(err))
-		case kinds.ErrInvalidUserInput:
-			return batching.NewBatchingActionsCreateUnprocessableEntity().
-				WithPayload(errPayloadFromSingleErr(err))
-		default:
-			return batching.NewBatchingActionsCreateInternalServerError().
-				WithPayload(errPayloadFromSingleErr(err))
-		}
-	}
-
-	return batching.NewBatchingActionsCreateOK().
-		WithPayload(h.actionsResponse(actions))
-}
-
-func (h *batchKindHandlers) actionsResponse(input kinds.BatchActions) []*models.ActionsGetResponse {
-	response := make([]*models.ActionsGetResponse, len(input))
-	for i, action := range input {
-		var errorResponse *models.ErrorResponse
-		if action.Err != nil {
-			errorResponse = errPayloadFromSingleErr(action.Err)
-		}
-
-		action.Action.ID = action.UUID
-		response[i] = &models.ActionsGetResponse{
-			Action: *action.Action,
-			Result: &models.ActionsGetResponseAO2Result{
+		object.Object.ID = object.UUID
+		response[i] = &models.ObjectsGetResponse{
+			Object: *object.Object,
+			Result: &models.ObjectsGetResponseAO2Result{
 				Errors: errorResponse,
 			},
 		}
@@ -160,10 +118,8 @@ func (h *batchKindHandlers) referencesResponse(input kinds.BatchReferences) []*m
 func setupKindBatchHandlers(api *operations.WeaviateAPI, manager *kinds.BatchManager) {
 	h := &batchKindHandlers{manager}
 
-	api.BatchingBatchingThingsCreateHandler = batching.
-		BatchingThingsCreateHandlerFunc(h.addThings)
-	api.BatchingBatchingActionsCreateHandler = batching.
-		BatchingActionsCreateHandlerFunc(h.addActions)
+	api.BatchingBatchingObjectsCreateHandler = batching.
+		BatchingObjectsCreateHandlerFunc(h.addObjects)
 	api.BatchingBatchingReferencesCreateHandler = batching.
 		BatchingReferencesCreateHandlerFunc(h.addReferences)
 }

@@ -42,89 +42,47 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedVerb:     "list",
 			expectedResource: "schema/*",
 		},
-
 		testCase{
-			methodName:       "AddThing",
+			methodName:       "AddObject",
 			additionalArgs:   []interface{}{&models.Class{}},
 			expectedVerb:     "create",
-			expectedResource: "schema/things",
+			expectedResource: "schema/objects",
 		},
 		testCase{
-			methodName:       "AddAction",
-			additionalArgs:   []interface{}{&models.Class{}},
-			expectedVerb:     "create",
-			expectedResource: "schema/actions",
-		},
-
-		testCase{
-			methodName:       "UpdateThing",
+			methodName:       "UpdateObject",
 			additionalArgs:   []interface{}{"somename", &models.Class{}},
 			expectedVerb:     "update",
-			expectedResource: "schema/things",
+			expectedResource: "schema/objects",
 		},
 		testCase{
-			methodName:       "UpdateAction",
-			additionalArgs:   []interface{}{"somename", &models.Class{}},
-			expectedVerb:     "update",
-			expectedResource: "schema/actions",
-		},
-
-		testCase{
-			methodName:       "DeleteThing",
+			methodName:       "DeleteObject",
 			additionalArgs:   []interface{}{"somename"},
 			expectedVerb:     "delete",
-			expectedResource: "schema/things",
+			expectedResource: "schema/objects",
 		},
 		testCase{
-			methodName:       "DeleteAction",
-			additionalArgs:   []interface{}{"somename"},
-			expectedVerb:     "delete",
-			expectedResource: "schema/actions",
-		},
-
-		testCase{
-			methodName:       "AddThingProperty",
+			methodName:       "AddObjectProperty",
 			additionalArgs:   []interface{}{"somename", &models.Property{}},
 			expectedVerb:     "update",
-			expectedResource: "schema/things",
+			expectedResource: "schema/objects",
 		},
 		testCase{
-			methodName:       "AddActionProperty",
-			additionalArgs:   []interface{}{"somename", &models.Property{}},
-			expectedVerb:     "update",
-			expectedResource: "schema/actions",
-		},
-
-		testCase{
-			methodName:       "UpdateThingProperty",
+			methodName:       "UpdateObjectProperty",
 			additionalArgs:   []interface{}{"somename", "someprop", &models.Property{}},
 			expectedVerb:     "update",
-			expectedResource: "schema/things",
-		},
-		testCase{
-			methodName:       "UpdateActionProperty",
-			additionalArgs:   []interface{}{"somename", "someprop", &models.Property{}},
-			expectedVerb:     "update",
-			expectedResource: "schema/actions",
+			expectedResource: "schema/objects",
 		},
 		testCase{
 			methodName:       "UpdatePropertyAddDataType",
-			additionalArgs:   []interface{}{kind.Thing, "somename", "someprop", "datatype"},
+			additionalArgs:   []interface{}{kind.Object, "somename", "someprop", "datatype"},
 			expectedVerb:     "update",
-			expectedResource: "schema/things",
-		},
-
-		testCase{
-			methodName:       "DeleteThingProperty",
-			additionalArgs:   []interface{}{"somename", "someprop"},
-			expectedVerb:     "update",
-			expectedResource: "schema/things",
+			expectedResource: "schema/objects",
 		},
 		testCase{
-			methodName:       "DeleteActionProperty",
+			methodName:       "DeleteObjectProperty",
 			additionalArgs:   []interface{}{"somename", "someprop"},
 			expectedVerb:     "update",
-			expectedResource: "schema/actions",
+			expectedResource: "schema/objects",
 		},
 	}
 

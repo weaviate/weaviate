@@ -55,7 +55,7 @@ func Test_ReferencesAdd(t *testing.T) {
 	t.Run("without prior refs", func(t *testing.T) {
 		reset()
 		vectorRepo.On("Exists", mock.Anything).Return(true, nil)
-		vectorRepo.On("ThingByID", mock.Anything, mock.Anything, mock.Anything).Return(&search.Result{
+		vectorRepo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything).Return(&search.Result{
 			ClassName: "Zoo",
 			Schema: map[string]interface{}{
 				"name": "MyZoo",
@@ -63,15 +63,15 @@ func Test_ReferencesAdd(t *testing.T) {
 		}, nil)
 		schemaManager.GetSchemaResponse = zooAnimalSchemaForTest()
 		newRef := &models.SingleRef{
-			Beacon: strfmt.URI("weaviate://localhost/things/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7"),
+			Beacon: strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7"),
 		}
 		expectedRef := &models.SingleRef{
-			Beacon: strfmt.URI("weaviate://localhost/things/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7"),
+			Beacon: strfmt.URI("weaviate://localhost/d18c8e5e-a339-4c15-8af6-56b0cfe33ce7"),
 		}
 		expectedRefProperty := "hasAnimals"
-		vectorRepo.On("AddReference", kind.Thing, mock.Anything, expectedRefProperty, expectedRef).Return(nil)
+		vectorRepo.On("AddReference", kind.Object, mock.Anything, expectedRefProperty, expectedRef).Return(nil)
 
-		err := manager.AddThingReference(context.Background(), nil, strfmt.UUID("my-id"), "hasAnimals", newRef)
+		err := manager.AddObjectReference(context.Background(), nil, strfmt.UUID("my-id"), "hasAnimals", newRef)
 		require.Nil(t, err)
 		vectorRepo.AssertExpectations(t)
 	})
@@ -79,7 +79,7 @@ func Test_ReferencesAdd(t *testing.T) {
 
 func zooAnimalSchemaForTest() schema.Schema {
 	return schema.Schema{
-		Actions: &models.Schema{
+		Objects: &models.Schema{
 			Classes: []*models.Class{
 				&models.Class{
 					Class: "ZooAction",
@@ -119,10 +119,6 @@ func zooAnimalSchemaForTest() schema.Schema {
 						},
 					},
 				},
-			},
-		},
-		Things: &models.Schema{
-			Classes: []*models.Class{
 				&models.Class{
 					Class: "Zoo",
 					Properties: []*models.Property{

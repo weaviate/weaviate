@@ -115,7 +115,7 @@ func (s *Shard) performCleanup(deletedDocIDs []uint64) error {
 	defer s.metrics.InvertedDeleteDelta(before)
 
 	className := s.index.Config.ClassName
-	schemaModel := s.index.getSchema.GetSchemaSkipAuth().Things
+	schemaModel := s.index.getSchema.GetSchemaSkipAuth().Objects
 	class, err := schema.GetClassByName(schemaModel, className.String())
 	if err != nil {
 		return errors.Wrapf(err, "get class %s", className)

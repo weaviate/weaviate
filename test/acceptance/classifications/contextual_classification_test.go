@@ -17,7 +17,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/semi-technologies/weaviate/client/classifications"
-	"github.com/semi-technologies/weaviate/client/things"
+	"github.com/semi-technologies/weaviate/client/objects"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 	testhelper "github.com/semi-technologies/weaviate/test/helper"
@@ -49,19 +49,19 @@ func contextualClassification(t *testing.T) {
 
 	// wait for latest changes to be indexed / wait for consistency
 	testhelper.AssertEventuallyEqual(t, true, func() interface{} {
-		res, err := helper.Client(t).Things.ThingsGet(things.NewThingsGetParams().
+		res, err := helper.Client(t).Objects.ObjectsGet(objects.NewObjectsGetParams().
 			WithID(article1), nil)
 		require.Nil(t, err)
 		return res.Payload.Schema.(map[string]interface{})["ofCategory"] != nil
 	})
 	testhelper.AssertEventuallyEqual(t, true, func() interface{} {
-		res, err := helper.Client(t).Things.ThingsGet(things.NewThingsGetParams().
+		res, err := helper.Client(t).Objects.ObjectsGet(objects.NewObjectsGetParams().
 			WithID(article2), nil)
 		require.Nil(t, err)
 		return res.Payload.Schema.(map[string]interface{})["ofCategory"] != nil
 	})
 	testhelper.AssertEventuallyEqual(t, true, func() interface{} {
-		res, err := helper.Client(t).Things.ThingsGet(things.NewThingsGetParams().
+		res, err := helper.Client(t).Objects.ObjectsGet(objects.NewObjectsGetParams().
 			WithID(article3), nil)
 		require.Nil(t, err)
 		return res.Payload.Schema.(map[string]interface{})["ofCategory"] != nil
@@ -70,13 +70,11 @@ func contextualClassification(t *testing.T) {
 	gres := AssertGraphQL(t, nil, `
 {
   Get {
-	  Things {
-		  Article {
-			  uuid
-				OfCategory {
-				  ... on Category {
-					  name
-				  }
+		Article {
+			uuid
+			OfCategory {
+				... on Category {
+					name
 				}
 			}
 		}
@@ -88,7 +86,7 @@ func contextualClassification(t *testing.T) {
 		article2: "Food and Drink",
 		article3: "Politics",
 	}
-	articles := gres.Get("Get", "Things", "Article").AsSlice()
+	articles := gres.Get("Get", "Article").AsSlice()
 	for _, article := range articles {
 		actual := article.(map[string]interface{})["OfCategory"].([]interface{})[0].(map[string]interface{})["name"].(string)
 		id := article.(map[string]interface{})["uuid"].(string)

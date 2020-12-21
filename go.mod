@@ -10,7 +10,7 @@ require (
 	github.com/danaugrs/go-tsne v0.0.0-20200708172100-6b7d1d577fd3
 	github.com/davecgh/go-spew v1.1.1
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
-	github.com/elastic/go-elasticsearch/v5 v5.6.0
+	github.com/elastic/go-elasticsearch/v5 v5.6.0 // indirect
 	github.com/fatih/camelcase v1.0.0
 	github.com/fatih/color v1.9.0 // indirect
 	github.com/go-openapi/errors v0.19.9

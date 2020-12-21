@@ -37,11 +37,7 @@ func (f *fakeLocks) LockSchema() (func() error, error) {
 
 type fakeVectorizer struct{}
 
-func (f *fakeVectorizer) Thing(ctx context.Context, thing *models.Thing) ([]float32, error) {
-	panic("not implemented")
-}
-
-func (f *fakeVectorizer) Action(ctx context.Context, thing *models.Action) ([]float32, error) {
+func (f *fakeVectorizer) Object(ctx context.Context, object *models.Object) ([]float32, error) {
 	panic("not implemented")
 }
 
@@ -111,13 +107,8 @@ type fakeVectorRepo struct {
 	mock.Mock
 }
 
-func (f *fakeVectorRepo) PutThing(ctx context.Context, index string,
-	concept *models.Thing, vector []float32) error {
-	return nil
-}
-
-func (f *fakeVectorRepo) PutAction(ctx context.Context, index string,
-	concept *models.Action, vector []float32) error {
+func (f *fakeVectorRepo) PutObject(ctx context.Context, index string,
+	concept *models.Object, vector []float32) error {
 	return nil
 }
 
@@ -132,17 +123,10 @@ func (f *fakeVectorRepo) Aggregate(ctx context.Context,
 	return args.Get(0).(*aggregation.Result), args.Error(1)
 }
 
-func (f *fakeVectorRepo) GetThing(ctx context.Context, uuid strfmt.UUID,
-	res *models.Thing) error {
+func (f *fakeVectorRepo) GetObject(ctx context.Context, uuid strfmt.UUID,
+	res *models.Object) error {
 	args := f.Called(uuid)
-	*res = args.Get(0).(models.Thing)
-	return args.Error(1)
-}
-
-func (f *fakeVectorRepo) GetAction(ctx context.Context, uuid strfmt.UUID,
-	res *models.Action) error {
-	args := f.Called(uuid)
-	*res = args.Get(0).(models.Action)
+	*res = args.Get(0).(models.Object)
 	return args.Error(1)
 }
 

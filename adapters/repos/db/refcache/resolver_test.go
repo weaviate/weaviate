@@ -61,7 +61,7 @@ func TestResolver(t *testing.T) {
 				Schema: map[string]interface{}{
 					"refProp": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: "weaviate://localhost/things/123",
+							Beacon: "weaviate://localhost/123",
 						},
 					},
 				},
@@ -77,10 +77,10 @@ func TestResolver(t *testing.T) {
 	t.Run("with single ref and matching select prop", func(t *testing.T) {
 		cacher := newFakeCacher()
 		r := NewResolver(cacher)
-		cacher.lookup[multi.Identifier{ID: id1, Kind: kind.Thing, ClassName: "SomeClass"}] = search.Result{
+		cacher.lookup[multi.Identifier{ID: id1, Kind: kind.Object, ClassName: "SomeClass"}] = search.Result{
 			ClassName: "SomeClass",
 			ID:        strfmt.UUID(id1),
-			Kind:      kind.Thing,
+			Kind:      kind.Object,
 			Schema: map[string]interface{}{
 				"bar": "some string",
 			},
@@ -92,7 +92,7 @@ func TestResolver(t *testing.T) {
 				Schema: map[string]interface{}{
 					"refProp": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", id1)),
+							Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", id1)),
 						},
 					},
 				},
@@ -139,28 +139,28 @@ func TestResolver(t *testing.T) {
 	t.Run("with a nested lookup", func(t *testing.T) {
 		cacher := newFakeCacher()
 		r := NewResolver(cacher)
-		cacher.lookup[multi.Identifier{ID: id1, Kind: kind.Thing, ClassName: "SomeClass"}] = search.Result{
+		cacher.lookup[multi.Identifier{ID: id1, Kind: kind.Object, ClassName: "SomeClass"}] = search.Result{
 			ClassName: "SomeClass",
 			ID:        strfmt.UUID(id1),
-			Kind:      kind.Thing,
+			Kind:      kind.Object,
 			Schema: map[string]interface{}{
 				"primitive": "foobar",
 				"ignoredRef": models.MultipleRef{
 					&models.SingleRef{
-						Beacon: strfmt.URI("weaviate://localhost/things/ignoreMe"),
+						Beacon: strfmt.URI("weaviate://localhost/ignoreMe"),
 					},
 				},
 				"nestedRef": models.MultipleRef{
 					&models.SingleRef{
-						Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", id2)),
+						Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", id2)),
 					},
 				},
 			},
 		}
-		cacher.lookup[multi.Identifier{ID: id2, Kind: kind.Thing, ClassName: "SomeNestedClass"}] = search.Result{
+		cacher.lookup[multi.Identifier{ID: id2, Kind: kind.Object, ClassName: "SomeNestedClass"}] = search.Result{
 			ClassName: "SomeNestedClass",
 			ID:        strfmt.UUID(id2),
-			Kind:      kind.Thing,
+			Kind:      kind.Object,
 			Schema: map[string]interface{}{
 				"name": "John Doe",
 			},
@@ -172,7 +172,7 @@ func TestResolver(t *testing.T) {
 				Schema: map[string]interface{}{
 					"refProp": models.MultipleRef{
 						&models.SingleRef{
-							Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/things/%s", id1)),
+							Beacon: strfmt.URI(fmt.Sprintf("weaviate://localhost/%s", id1)),
 						},
 					},
 				},
@@ -221,7 +221,7 @@ func TestResolver(t *testing.T) {
 								"primitive": "foobar",
 								"ignoredRef": models.MultipleRef{
 									&models.SingleRef{
-										Beacon: strfmt.URI("weaviate://localhost/things/ignoreMe"),
+										Beacon: strfmt.URI("weaviate://localhost/ignoreMe"),
 									},
 								},
 								"NestedRef": []interface{}{

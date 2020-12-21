@@ -23,7 +23,7 @@ import (
 
 func testSchema() schema.Schema {
 	return schema.Schema{
-		Things: &models.Schema{
+		Objects: &models.Schema{
 			Classes: []*models.Class{
 				&models.Class{
 					Class: "ExactCategory",
@@ -69,7 +69,7 @@ func testSchema() schema.Schema {
 func testDataToBeClassified() search.Results {
 	return search.Results{
 		search.Result{
-			Kind:      kind.Thing,
+			Kind:      kind.Object,
 			ID:        "75ba35af-6a08-40ae-b442-3bec69b355f9",
 			ClassName: "Article",
 			Vector:    []float32{0.78, 0, 0},
@@ -78,7 +78,7 @@ func testDataToBeClassified() search.Results {
 			},
 		},
 		search.Result{
-			Kind:      kind.Thing,
+			Kind:      kind.Object,
 			ID:        "f850439a-d3cd-4f17-8fbf-5a64405645cd",
 			ClassName: "Article",
 			Vector:    []float32{0.90, 0, 0},
@@ -87,7 +87,7 @@ func testDataToBeClassified() search.Results {
 			},
 		},
 		search.Result{
-			Kind:      kind.Thing,
+			Kind:      kind.Object,
 			ID:        "a2bbcbdc-76e1-477d-9e72-a6d2cfb50109",
 			ClassName: "Article",
 			Vector:    []float32{0, 0.78, 0},
@@ -96,7 +96,7 @@ func testDataToBeClassified() search.Results {
 			},
 		},
 		search.Result{
-			Kind:      kind.Thing,
+			Kind:      kind.Object,
 			ID:        "069410c3-4b9e-4f68-8034-32a066cb7997",
 			ClassName: "Article",
 			Vector:    []float32{0, 0.90, 0},
@@ -105,7 +105,7 @@ func testDataToBeClassified() search.Results {
 			},
 		},
 		search.Result{
-			Kind:      kind.Thing,
+			Kind:      kind.Object,
 			ID:        "06a1e824-889c-4649-97f9-1ed3fa401d8e",
 			ClassName: "Article",
 			Vector:    []float32{0, 0, 0.78},
@@ -114,7 +114,7 @@ func testDataToBeClassified() search.Results {
 			},
 		},
 		search.Result{
-			Kind:      kind.Thing,
+			Kind:      kind.Object,
 			ID:        "6402e649-b1e0-40ea-b192-a64eab0d5e56",
 			ClassName: "Article",
 			Vector:    []float32{0, 0, 0.90},
@@ -156,7 +156,7 @@ const (
 func testDataPossibleTargets() search.Results {
 	return search.Results{
 		search.Result{
-			Kind:      kind.Thing,
+			Kind:      kind.Object,
 			ID:        idMainCategoryPoliticsAndSociety,
 			ClassName: "MainCategory",
 			Vector:    []float32{1.01, 1.01, 0},
@@ -165,7 +165,7 @@ func testDataPossibleTargets() search.Results {
 			},
 		},
 		search.Result{
-			Kind:      kind.Thing,
+			Kind:      kind.Object,
 			ID:        idMainCategoryFoodAndDrink,
 			ClassName: "MainCategory",
 			Vector:    []float32{0, 0, 0.99},
@@ -174,7 +174,7 @@ func testDataPossibleTargets() search.Results {
 			},
 		},
 		search.Result{
-			Kind:      kind.Thing,
+			Kind:      kind.Object,
 			ID:        idCategoryPolitics,
 			ClassName: "ExactCategory",
 			Vector:    []float32{0.99, 0, 0},
@@ -183,7 +183,7 @@ func testDataPossibleTargets() search.Results {
 			},
 		},
 		search.Result{
-			Kind:      kind.Thing,
+			Kind:      kind.Object,
 			ID:        idCategorySociety,
 			ClassName: "ExactCategory",
 			Vector:    []float32{0, 0.90, 0},
@@ -192,7 +192,7 @@ func testDataPossibleTargets() search.Results {
 			},
 		},
 		search.Result{
-			Kind:      kind.Thing,
+			Kind:      kind.Object,
 			ID:        idCategoryFoodAndDrink,
 			ClassName: "ExactCategory",
 			Vector:    []float32{0, 0, 0.99},
@@ -204,7 +204,7 @@ func testDataPossibleTargets() search.Results {
 }
 
 func beaconRef(target string) *models.SingleRef {
-	beacon := fmt.Sprintf("weaviate://localhost/things/%s", target)
+	beacon := fmt.Sprintf("weaviate://localhost/%s", target)
 	return &models.SingleRef{Beacon: strfmt.URI(beacon)}
 }
 

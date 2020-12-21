@@ -58,7 +58,7 @@ func TestIndex_DropIndex(t *testing.T) {
 	}()
 	testClassName := "deletetest"
 	index, err := NewIndex(IndexConfig{
-		RootPath: dirName, Kind: kind.Thing, ClassName: schema.ClassName(testClassName),
+		RootPath: dirName, Kind: kind.Object, ClassName: schema.ClassName(testClassName),
 	}, &fakeSchemaGetter{}, nil, nil)
 	require.Nil(t, err)
 
@@ -86,7 +86,7 @@ func TestIndex_DropEmptyAndRecreateEmptyIndex(t *testing.T) {
 	}()
 	testClassName := "deletetest"
 	index, err := NewIndex(IndexConfig{
-		RootPath: dirName, Kind: kind.Thing, ClassName: schema.ClassName(testClassName),
+		RootPath: dirName, Kind: kind.Object, ClassName: schema.ClassName(testClassName),
 	}, &fakeSchemaGetter{}, nil, nil)
 	require.Nil(t, err)
 
@@ -101,7 +101,7 @@ func TestIndex_DropEmptyAndRecreateEmptyIndex(t *testing.T) {
 	require.Nil(t, err)
 
 	index, err = NewIndex(IndexConfig{
-		RootPath: dirName, Kind: kind.Thing, ClassName: schema.ClassName(testClassName),
+		RootPath: dirName, Kind: kind.Object, ClassName: schema.ClassName(testClassName),
 	}, &fakeSchemaGetter{}, nil, nil)
 	require.Nil(t, err)
 
@@ -134,7 +134,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		},
 	}
 	fakeSchema := schema.Schema{
-		Things: &models.Schema{
+		Objects: &models.Schema{
 			Classes: []*models.Class{
 				testClass,
 			},
@@ -143,7 +143,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	// create index with data
 	index, err := NewIndex(IndexConfig{
 		RootPath:  dirName,
-		Kind:      kind.Thing,
+		Kind:      kind.Object,
 		ClassName: schema.ClassName(testClassName),
 	}, &fakeSchemaGetter{schema: fakeSchema}, nil, logger)
 	require.Nil(t, err)
@@ -169,13 +169,13 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	})
 
 	for i, p := range products {
-		thing := models.Thing{
+		thing := models.Object{
 			Class:  testClass.Class,
 			ID:     productsIds[i],
 			Schema: p,
 		}
 
-		err := index.putObject(context.TODO(), storobj.FromThing(&thing, []float32{0.1, 0.2, 0.01, 0.2}))
+		err := index.putObject(context.TODO(), storobj.FromObject(&thing, []float32{0.1, 0.2, 0.01, 0.2}))
 		require.Nil(t, err)
 	}
 
@@ -198,7 +198,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	// recreate the index
 	index, err = NewIndex(IndexConfig{
 		RootPath:  dirName,
-		Kind:      kind.Thing,
+		Kind:      kind.Object,
 		ClassName: schema.ClassName(testClassName),
 	}, &fakeSchemaGetter{schema: fakeSchema}, nil, logger)
 	require.Nil(t, err)
@@ -224,13 +224,13 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 
 	// insert some data in the recreated index
 	for i, p := range products {
-		thing := models.Thing{
+		thing := models.Object{
 			Class:  testClass.Class,
 			ID:     productsIds[i],
 			Schema: p,
 		}
 
-		err := index.putObject(context.TODO(), storobj.FromThing(&thing, []float32{0.1, 0.2, 0.01, 0.2}))
+		err := index.putObject(context.TODO(), storobj.FromObject(&thing, []float32{0.1, 0.2, 0.01, 0.2}))
 		require.Nil(t, err)
 	}
 

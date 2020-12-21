@@ -20,7 +20,7 @@ import (
 
 func parkingGaragesSchema() schema.Schema {
 	return schema.Schema{
-		Things: &models.Schema{
+		Objects: &models.Schema{
 			Classes: []*models.Class{
 				&models.Class{
 					Class: "MultiRefParkingGarage",
@@ -123,7 +123,7 @@ func parkingGaragesSchema() schema.Schema {
 
 func cityCountryAirportSchema() schema.Schema {
 	return schema.Schema{
-		Things: &models.Schema{
+		Objects: &models.Schema{
 			Classes: []*models.Class{
 				{
 					Class:              "Country",

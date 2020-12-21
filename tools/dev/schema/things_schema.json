@@ -1,7 +1,7 @@
 {
   "@context": "",
   "version": "0.0.1",
-  "type": "thing",
+  "type": "object",
   "name": "weaviate demo things schema",
   "maintainer": "yourfriends@weaviate.com",
   "classes": [

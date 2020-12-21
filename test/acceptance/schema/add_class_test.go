@@ -29,7 +29,7 @@ func TestInvalidDataTypeInProperty(t *testing.T) {
 	className := "WrongPropertyClass"
 
 	t.Run("asserting that this class does not exist yet", func(t *testing.T) {
-		assert.NotContains(t, GetThingClassNames(t), className)
+		assert.NotContains(t, GetObjectClassNames(t), className)
 	})
 
 	t.Run("trying to import empty string as data type", func(t *testing.T) {
@@ -43,10 +43,10 @@ func TestInvalidDataTypeInProperty(t *testing.T) {
 			},
 		}
 
-		params := schema.NewSchemaThingsCreateParams().WithThingClass(c)
-		resp, err := helper.Client(t).Schema.SchemaThingsCreate(params, nil)
+		params := schema.NewSchemaObjectsCreateParams().WithObjectClass(c)
+		resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
 		helper.AssertRequestFail(t, resp, err, func() {
-			parsed, ok := err.(*schema.SchemaThingsCreateUnprocessableEntity)
+			parsed, ok := err.(*schema.SchemaObjectsCreateUnprocessableEntity)
 			require.True(t, ok, "error should be unprocessable entity")
 			assert.Equal(t, "property 'someProperty': invalid dataType: dataType cannot be an empty string",
 				parsed.Payload.Error[0].Message)
@@ -54,36 +54,36 @@ func TestInvalidDataTypeInProperty(t *testing.T) {
 	})
 }
 
-func TestAddAndRemoveThingClass(t *testing.T) {
-	randomThingClassName := "YellowCars"
+func TestAddAndRemoveObjectClass(t *testing.T) {
+	randomObjectClassName := "YellowCars"
 
 	// Ensure that this name is not in the schema yet.
 	t.Log("Asserting that this class does not exist yet")
-	assert.NotContains(t, GetThingClassNames(t), randomThingClassName)
+	assert.NotContains(t, GetObjectClassNames(t), randomObjectClassName)
 
 	tc := &models.Class{
-		Class:              randomThingClassName,
+		Class:              randomObjectClassName,
 		VectorizeClassName: ptBool(true),
 	}
 
 	t.Log("Creating class")
-	params := schema.NewSchemaThingsCreateParams().WithThingClass(tc)
-	resp, err := helper.Client(t).Schema.SchemaThingsCreate(params, nil)
+	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(tc)
+	resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
 	helper.AssertRequestOk(t, resp, err, nil)
 
 	t.Log("Asserting that this class is now created")
-	assert.Contains(t, GetThingClassNames(t), randomThingClassName)
+	assert.Contains(t, GetObjectClassNames(t), randomObjectClassName)
 
 	t.Run("pure http - without the auto-generated client", testGetSchemaWithoutClient)
 
 	// Now clean up this class.
 	t.Log("Remove the class")
-	delParams := schema.NewSchemaThingsDeleteParams().WithClassName(randomThingClassName)
-	delResp, err := helper.Client(t).Schema.SchemaThingsDelete(delParams, nil)
+	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(randomObjectClassName)
+	delResp, err := helper.Client(t).Schema.SchemaObjectsDelete(delParams, nil)
 	helper.AssertRequestOk(t, delResp, err, nil)
 
 	// And verify that the class does not exist anymore.
-	assert.NotContains(t, GetThingClassNames(t), randomThingClassName)
+	assert.NotContains(t, GetObjectClassNames(t), randomObjectClassName)
 }
 
 // TODO: https://github.com/semi-technologies/weaviate/issues/973
@@ -92,7 +92,7 @@ func TestAddAndRemoveThingClass(t *testing.T) {
 // func TestDeleteSingleProperties(t *testing.T) {
 // 	t.Parallel()
 
-// 	randomThingClassName := "RedShip"
+// 	randomObjectClassName := "RedShip"
 
 // 	// Ensure that this name is not in the schema yet.
 // 	t.Log("Asserting that this class does not exist yet")
