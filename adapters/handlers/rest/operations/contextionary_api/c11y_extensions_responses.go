@@ -27,7 +27,7 @@ import (
 // C11yExtensionsOKCode is the HTTP code returned for type C11yExtensionsOK
 const C11yExtensionsOKCode int = 200
 
-/*C11yExtensionsOK Successfully extended the contextionary with the custom cocnept
+/*C11yExtensionsOK Successfully extended the contextionary with the custom concept
 
 swagger:response c11yExtensionsOK
 */

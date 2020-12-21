@@ -23,10 +23,7 @@ import (
 func TestRefFinder(t *testing.T) {
 	t.Run("on an empty schema", func(t *testing.T) {
 		s := schema.Schema{
-			Actions: &models.Schema{
-				Classes: nil,
-			},
-			Things: &models.Schema{
+			Objects: &models.Schema{
 				Classes: nil,
 			},
 		}
@@ -39,7 +36,7 @@ func TestRefFinder(t *testing.T) {
 
 	t.Run("on an schema containing only the target class and unrelated classes", func(t *testing.T) {
 		s := schema.Schema{
-			Things: &models.Schema{
+			Objects: &models.Schema{
 				Classes: []*models.Class{
 					{
 						Class: "Car",
@@ -55,19 +52,6 @@ func TestRefFinder(t *testing.T) {
 						Properties: []*models.Property{
 							{
 								Name:     "kind",
-								DataType: []string{string(schema.DataTypeString)},
-							},
-						},
-					},
-				},
-			},
-			Actions: &models.Schema{
-				Classes: []*models.Class{
-					{
-						Class: "Drive",
-						Properties: []*models.Property{
-							{
-								Name:     "destination",
 								DataType: []string{string(schema.DataTypeString)},
 							},
 						},
@@ -84,7 +68,7 @@ func TestRefFinder(t *testing.T) {
 
 	t.Run("on a schema containing a single level ref to the target", func(t *testing.T) {
 		s := schema.Schema{
-			Things: &models.Schema{
+			Objects: &models.Schema{
 				Classes: []*models.Class{
 					{
 						Class: "Car",
@@ -104,10 +88,15 @@ func TestRefFinder(t *testing.T) {
 							},
 						},
 					},
-				},
-			},
-			Actions: &models.Schema{
-				Classes: []*models.Class{
+					{
+						Class: "Drive",
+						Properties: []*models.Property{
+							{
+								Name:     "destination",
+								DataType: []string{string(schema.DataTypeString)},
+							},
+						},
+					},
 					{
 						Class: "Drive",
 						Properties: []*models.Property{
@@ -142,7 +131,7 @@ func TestRefFinder(t *testing.T) {
 
 	t.Run("on a schema containing a single level and a multi level ref to the target", func(t *testing.T) {
 		s := schema.Schema{
-			Things: &models.Schema{
+			Objects: &models.Schema{
 				Classes: []*models.Class{
 					{
 						Class: "Dog",
@@ -183,10 +172,6 @@ func TestRefFinder(t *testing.T) {
 							},
 						},
 					},
-				},
-			},
-			Actions: &models.Schema{
-				Classes: []*models.Class{
 					{
 						Class: "Drive",
 						Properties: []*models.Property{

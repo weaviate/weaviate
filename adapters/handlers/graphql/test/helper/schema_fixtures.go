@@ -17,7 +17,7 @@ import (
 )
 
 var SimpleSchema = schema.Schema{
-	Things: &models.Schema{
+	Objects: &models.Schema{
 		Classes: []*models.Class{
 			&models.Class{
 				Class: "SomeThing",
@@ -28,10 +28,6 @@ var SimpleSchema = schema.Schema{
 					},
 				},
 			},
-		},
-	},
-	Actions: &models.Schema{
-		Classes: []*models.Class{
 			&models.Class{
 				Class: "SomeAction",
 				Properties: []*models.Property{
@@ -63,7 +59,7 @@ var SimpleSchema = schema.Schema{
 
 // CarSchema contains a car which has every primtive field and a ref field there is
 var CarSchema = schema.Schema{
-	Things: &models.Schema{
+	Objects: &models.Schema{
 		Classes: []*models.Class{
 			&models.Class{
 				Class: "Manufacturer",
@@ -104,8 +100,5 @@ var CarSchema = schema.Schema{
 				},
 			},
 		},
-	},
-	Actions: &models.Schema{
-		Classes: []*models.Class{},
 	},
 }

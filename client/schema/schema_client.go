@@ -38,126 +38,15 @@ type Client struct {
 
 // ClientService is the interface for Client methods
 type ClientService interface {
-	SchemaActionsCreate(params *SchemaActionsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsCreateOK, error)
-
-	SchemaActionsDelete(params *SchemaActionsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsDeleteOK, error)
-
-	SchemaActionsPropertiesAdd(params *SchemaActionsPropertiesAddParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsPropertiesAddOK, error)
-
 	SchemaDump(params *SchemaDumpParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaDumpOK, error)
 
-	SchemaThingsCreate(params *SchemaThingsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsCreateOK, error)
+	SchemaObjectsCreate(params *SchemaObjectsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsCreateOK, error)
 
-	SchemaThingsDelete(params *SchemaThingsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsDeleteOK, error)
+	SchemaObjectsDelete(params *SchemaObjectsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsDeleteOK, error)
 
-	SchemaThingsPropertiesAdd(params *SchemaThingsPropertiesAddParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsPropertiesAddOK, error)
+	SchemaObjectsPropertiesAdd(params *SchemaObjectsPropertiesAddParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsPropertiesAddOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
-}
-
-/*
-  SchemaActionsCreate creates a new action class in the schema
-*/
-func (a *Client) SchemaActionsCreate(params *SchemaActionsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsCreateOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewSchemaActionsCreateParams()
-	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "schema.actions.create",
-		Method:             "POST",
-		PathPattern:        "/schema/actions",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
-		Schemes:            []string{"https"},
-		Params:             params,
-		Reader:             &SchemaActionsCreateReader{formats: a.formats},
-		AuthInfo:           authInfo,
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	})
-	if err != nil {
-		return nil, err
-	}
-	success, ok := result.(*SchemaActionsCreateOK)
-	if ok {
-		return success, nil
-	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
-	msg := fmt.Sprintf("unexpected success response for schema.actions.create: API contract not enforced by server. Client expected to get an error, but got: %T", result)
-	panic(msg)
-}
-
-/*
-  SchemaActionsDelete removes an action class and all data in the instances from the schema
-*/
-func (a *Client) SchemaActionsDelete(params *SchemaActionsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsDeleteOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewSchemaActionsDeleteParams()
-	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "schema.actions.delete",
-		Method:             "DELETE",
-		PathPattern:        "/schema/actions/{className}",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
-		Schemes:            []string{"https"},
-		Params:             params,
-		Reader:             &SchemaActionsDeleteReader{formats: a.formats},
-		AuthInfo:           authInfo,
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	})
-	if err != nil {
-		return nil, err
-	}
-	success, ok := result.(*SchemaActionsDeleteOK)
-	if ok {
-		return success, nil
-	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
-	msg := fmt.Sprintf("unexpected success response for schema.actions.delete: API contract not enforced by server. Client expected to get an error, but got: %T", result)
-	panic(msg)
-}
-
-/*
-  SchemaActionsPropertiesAdd adds a property to an action class
-*/
-func (a *Client) SchemaActionsPropertiesAdd(params *SchemaActionsPropertiesAddParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaActionsPropertiesAddOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewSchemaActionsPropertiesAddParams()
-	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "schema.actions.properties.add",
-		Method:             "POST",
-		PathPattern:        "/schema/actions/{className}/properties",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
-		Schemes:            []string{"https"},
-		Params:             params,
-		Reader:             &SchemaActionsPropertiesAddReader{formats: a.formats},
-		AuthInfo:           authInfo,
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	})
-	if err != nil {
-		return nil, err
-	}
-	success, ok := result.(*SchemaActionsPropertiesAddOK)
-	if ok {
-		return success, nil
-	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
-	msg := fmt.Sprintf("unexpected success response for schema.actions.properties.add: API contract not enforced by server. Client expected to get an error, but got: %T", result)
-	panic(msg)
 }
 
 /*
@@ -196,23 +85,23 @@ func (a *Client) SchemaDump(params *SchemaDumpParams, authInfo runtime.ClientAut
 }
 
 /*
-  SchemaThingsCreate creates a new thing class in the schema
+  SchemaObjectsCreate creates a new object class in the schema
 */
-func (a *Client) SchemaThingsCreate(params *SchemaThingsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsCreateOK, error) {
+func (a *Client) SchemaObjectsCreate(params *SchemaObjectsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsCreateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewSchemaThingsCreateParams()
+		params = NewSchemaObjectsCreateParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "schema.things.create",
+		ID:                 "schema.objects.create",
 		Method:             "POST",
-		PathPattern:        "/schema/things",
+		PathPattern:        "/schema/objects",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &SchemaThingsCreateReader{formats: a.formats},
+		Reader:             &SchemaObjectsCreateReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -220,34 +109,34 @@ func (a *Client) SchemaThingsCreate(params *SchemaThingsCreateParams, authInfo r
 	if err != nil {
 		return nil, err
 	}
-	success, ok := result.(*SchemaThingsCreateOK)
+	success, ok := result.(*SchemaObjectsCreateOK)
 	if ok {
 		return success, nil
 	}
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
-	msg := fmt.Sprintf("unexpected success response for schema.things.create: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	msg := fmt.Sprintf("unexpected success response for schema.objects.create: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
 /*
-  SchemaThingsDelete removes a thing class and all data in the instances from the schema
+  SchemaObjectsDelete removes an object class and all data in the instances from the schema
 */
-func (a *Client) SchemaThingsDelete(params *SchemaThingsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsDeleteOK, error) {
+func (a *Client) SchemaObjectsDelete(params *SchemaObjectsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsDeleteOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewSchemaThingsDeleteParams()
+		params = NewSchemaObjectsDeleteParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "schema.things.delete",
+		ID:                 "schema.objects.delete",
 		Method:             "DELETE",
-		PathPattern:        "/schema/things/{className}",
+		PathPattern:        "/schema/objects/{className}",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &SchemaThingsDeleteReader{formats: a.formats},
+		Reader:             &SchemaObjectsDeleteReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -255,34 +144,34 @@ func (a *Client) SchemaThingsDelete(params *SchemaThingsDeleteParams, authInfo r
 	if err != nil {
 		return nil, err
 	}
-	success, ok := result.(*SchemaThingsDeleteOK)
+	success, ok := result.(*SchemaObjectsDeleteOK)
 	if ok {
 		return success, nil
 	}
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
-	msg := fmt.Sprintf("unexpected success response for schema.things.delete: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	msg := fmt.Sprintf("unexpected success response for schema.objects.delete: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
 /*
-  SchemaThingsPropertiesAdd adds a property to a thing class
+  SchemaObjectsPropertiesAdd adds a property to an object class
 */
-func (a *Client) SchemaThingsPropertiesAdd(params *SchemaThingsPropertiesAddParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaThingsPropertiesAddOK, error) {
+func (a *Client) SchemaObjectsPropertiesAdd(params *SchemaObjectsPropertiesAddParams, authInfo runtime.ClientAuthInfoWriter) (*SchemaObjectsPropertiesAddOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
-		params = NewSchemaThingsPropertiesAddParams()
+		params = NewSchemaObjectsPropertiesAddParams()
 	}
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "schema.things.properties.add",
+		ID:                 "schema.objects.properties.add",
 		Method:             "POST",
-		PathPattern:        "/schema/things/{className}/properties",
+		PathPattern:        "/schema/objects/{className}/properties",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
 		Params:             params,
-		Reader:             &SchemaThingsPropertiesAddReader{formats: a.formats},
+		Reader:             &SchemaObjectsPropertiesAddReader{formats: a.formats},
 		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
@@ -290,13 +179,13 @@ func (a *Client) SchemaThingsPropertiesAdd(params *SchemaThingsPropertiesAddPara
 	if err != nil {
 		return nil, err
 	}
-	success, ok := result.(*SchemaThingsPropertiesAddOK)
+	success, ok := result.(*SchemaObjectsPropertiesAddOK)
 	if ok {
 		return success, nil
 	}
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
-	msg := fmt.Sprintf("unexpected success response for schema.things.properties.add: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	msg := fmt.Sprintf("unexpected success response for schema.objects.properties.add: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

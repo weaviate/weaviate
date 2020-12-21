@@ -84,21 +84,18 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("creating the thing class", func(t *testing.T) {
 		require.Nil(t,
-			migrator.AddClass(context.Background(), kind.Thing, thingclass))
+			migrator.AddClass(context.Background(), kind.Object, thingclass))
 	})
 
 	t.Run("creating the action class", func(t *testing.T) {
 		require.Nil(t,
-			migrator.AddClass(context.Background(), kind.Action, actionclass))
+			migrator.AddClass(context.Background(), kind.Object, actionclass))
 	})
 
 	// update schema getter so it's in sync with class
 	schemaGetter.schema = schema.Schema{
-		Actions: &models.Schema{
-			Classes: []*models.Class{actionclass},
-		},
-		Things: &models.Schema{
-			Classes: []*models.Class{thingclass},
+		Objects: &models.Schema{
+			Classes: []*models.Class{actionclass, thingclass},
 		},
 	}
 
@@ -111,7 +108,7 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("adding a thing", func(t *testing.T) {
-		thing := &models.Thing{
+		thing := &models.Object{
 			CreationTimeUnix:   1565612833955,
 			LastUpdateTimeUnix: 1000001,
 			ID:                 thingID,
@@ -141,7 +138,7 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{1, 3, 5, 0.4}
 
-		err := repo.PutThing(context.Background(), thing, vector)
+		err := repo.PutObject(context.Background(), thing, vector)
 
 		assert.Nil(t, err)
 	})
@@ -153,7 +150,7 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("trying to add a thing to a non-existing class", func(t *testing.T) {
-		thing := &models.Thing{
+		thing := &models.Object{
 			CreationTimeUnix:   1565612833955,
 			LastUpdateTimeUnix: 1000001,
 			ID:                 thingID,
@@ -164,7 +161,7 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{1, 3, 5, 0.4}
 
-		err := repo.PutThing(context.Background(), thing, vector)
+		err := repo.PutObject(context.Background(), thing, vector)
 		assert.Equal(t,
 			fmt.Errorf("import into non-existing index for thing/WrongClass"), err)
 	})
@@ -178,7 +175,7 @@ func TestCRUD(t *testing.T) {
 	}
 
 	t.Run("updating the thing", func(t *testing.T) {
-		thing := &models.Thing{
+		thing := &models.Object{
 			CreationTimeUnix:   1565612833955,
 			LastUpdateTimeUnix: 10000020,
 			ID:                 thingID,
@@ -202,12 +199,12 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{1, 3, 5, 0.4}
 
-		err := repo.PutThing(context.Background(), thing, vector)
+		err := repo.PutObject(context.Background(), thing, vector)
 		assert.Nil(t, err)
 	})
 
 	t.Run("validating the updates are reflected", func(t *testing.T) {
-		expected := &models.Thing{
+		expected := &models.Object{
 			CreationTimeUnix:   1565612833955,
 			LastUpdateTimeUnix: 10000020,
 			ID:                 thingID,
@@ -231,18 +228,18 @@ func TestCRUD(t *testing.T) {
 			},
 		}
 
-		res, err := repo.ThingByID(context.Background(), thingID, nil,
+		res, err := repo.ObjectByID(context.Background(), thingID, nil,
 			traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 
-		assert.Equal(t, expected, res.Thing())
+		assert.Equal(t, expected, res.Object())
 	})
 
 	t.Run("finding the updated object by querying for an updated value",
 		func(t *testing.T) {
 			// This is to verify the inverted index was updated correctly
 			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
-				Kind:       kind.Thing,
+				Kind:       kind.Object,
 				ClassName:  "TheBestThingClass",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters: &filters.LocalFilter{
@@ -270,7 +267,7 @@ func TestCRUD(t *testing.T) {
 		func(t *testing.T) {
 			// This is to verify the inverted index was cleaned up correctly
 			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
-				Kind:       kind.Thing,
+				Kind:       kind.Object,
 				ClassName:  "TheBestThingClass",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters: &filters.LocalFilter{
@@ -297,7 +294,7 @@ func TestCRUD(t *testing.T) {
 			// old ones, we don't actually touch those that were present and still
 			// should be
 			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
-				Kind:       kind.Thing,
+				Kind:       kind.Object,
 				ClassName:  "TheBestThingClass",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters: &filters.LocalFilter{
@@ -322,7 +319,7 @@ func TestCRUD(t *testing.T) {
 		})
 
 	t.Run("updating the thing back to its original value", func(t *testing.T) {
-		thing := &models.Thing{
+		thing := &models.Object{
 			CreationTimeUnix:   1565612833955,
 			LastUpdateTimeUnix: 1000001,
 			ID:                 thingID,
@@ -346,13 +343,13 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{1, 3, 5, 0.4}
 
-		err := repo.PutThing(context.Background(), thing, vector)
+		err := repo.PutObject(context.Background(), thing, vector)
 		assert.Nil(t, err)
 	})
 
 	actionID := strfmt.UUID("022ca5ba-7c0b-4a78-85bf-26346bbcfae7")
 	t.Run("adding an action", func(t *testing.T) {
-		action := &models.Action{
+		action := &models.Object{
 			CreationTimeUnix:   1000002,
 			LastUpdateTimeUnix: 1000003,
 			ID:                 actionID,
@@ -374,7 +371,7 @@ func TestCRUD(t *testing.T) {
 							LosingCount:            1,
 						},
 						Beacon: strfmt.URI(
-							crossref.New("localhost", thingID, kind.Thing).String()),
+							crossref.New("localhost", thingID, kind.Object).String()),
 					},
 				},
 			},
@@ -387,7 +384,7 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{3, 1, 0.3, 12}
 
-		err := repo.PutAction(context.Background(), action, vector)
+		err := repo.PutObject(context.Background(), action, vector)
 
 		assert.Nil(t, err)
 	})
@@ -402,13 +399,13 @@ func TestCRUD(t *testing.T) {
 		require.Nil(t, err)
 		require.Equal(t, true, len(res) >= 2)
 		assert.Equal(t, actionID, res[0].ID)
-		assert.Equal(t, kind.Action, res[0].Kind)
+		assert.Equal(t, kind.Object, res[0].Kind)
 		assert.Equal(t, "TheBestActionClass", res[0].ClassName)
 		assert.Equal(t, "TheBestActionClass", res[0].ClassName)
 		assert.Equal(t, int64(1000002), res[0].Created)
 		assert.Equal(t, int64(1000003), res[0].Updated)
 		assert.Equal(t, thingID, res[1].ID)
-		assert.Equal(t, kind.Thing, res[1].Kind)
+		assert.Equal(t, kind.Object, res[1].Kind)
 		assert.Equal(t, "TheBestThingClass", res[1].ClassName)
 		assert.Equal(t, int64(1565612833955), res[1].Created)
 		assert.Equal(t, int64(1000001), res[1].Updated)
@@ -421,7 +418,7 @@ func TestCRUD(t *testing.T) {
 
 		params := traverser.GetParams{
 			SearchVector: searchVector,
-			Kind:         kind.Thing,
+			Kind:         kind.Object,
 			ClassName:    "TheBestThingClass",
 			Pagination:   &filters.Pagination{Limit: 10},
 			Filters:      nil,
@@ -431,7 +428,7 @@ func TestCRUD(t *testing.T) {
 		require.Nil(t, err)
 		require.Len(t, res, 1, "got exactly one result")
 		assert.Equal(t, thingID, res[0].ID, "extracted the ID")
-		assert.Equal(t, kind.Thing, res[0].Kind, "matches the kind")
+		assert.Equal(t, kind.Object, res[0].Kind, "matches the kind")
 		assert.Equal(t, "TheBestThingClass", res[0].ClassName, "matches the class name")
 		schema := res[0].Schema.(map[string]interface{})
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
@@ -452,7 +449,7 @@ func TestCRUD(t *testing.T) {
 	t.Run("searching by class type", func(t *testing.T) {
 		params := traverser.GetParams{
 			SearchVector: nil,
-			Kind:         kind.Thing,
+			Kind:         kind.Object,
 			ClassName:    "TheBestThingClass",
 			Pagination:   &filters.Pagination{Limit: 10},
 			Filters:      nil,
@@ -462,7 +459,7 @@ func TestCRUD(t *testing.T) {
 		require.Nil(t, err)
 		require.Len(t, res, 1, "got exactly one result")
 		assert.Equal(t, thingID, res[0].ID, "extracted the ID")
-		assert.Equal(t, kind.Thing, res[0].Kind, "matches the kind")
+		assert.Equal(t, kind.Object, res[0].Kind, "matches the kind")
 		assert.Equal(t, "TheBestThingClass", res[0].ClassName, "matches the class name")
 		schema := res[0].Schema.(map[string]interface{})
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
@@ -471,7 +468,7 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("adding a thing with interpretation underscore property", func(t *testing.T) {
-		thing := &models.Thing{
+		thing := &models.Object{
 			CreationTimeUnix:   1565612833955,
 			LastUpdateTimeUnix: 1000001,
 			ID:                 thingID,
@@ -501,21 +498,21 @@ func TestCRUD(t *testing.T) {
 		}
 		vector := []float32{1, 3, 5, 0.4}
 
-		err := repo.PutThing(context.Background(), thing, vector)
+		err := repo.PutObject(context.Background(), thing, vector)
 
 		assert.Nil(t, err)
 	})
 
 	t.Run("searching all things", func(t *testing.T) {
 		// as the test suits grow we might have to extend the limit
-		res, err := repo.ThingSearch(context.Background(), 100, nil, traverser.UnderscoreProperties{})
+		res, err := repo.ObjectSearch(context.Background(), 100, nil, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 
 		item, ok := findID(res, thingID)
 		require.Equal(t, true, ok, "results should contain our desired thing id")
 
 		assert.Equal(t, thingID, item.ID, "extracted the ID")
-		assert.Equal(t, kind.Thing, item.Kind, "matches the kind")
+		assert.Equal(t, kind.Object, item.Kind, "matches the kind")
 		assert.Equal(t, "TheBestThingClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
@@ -526,14 +523,14 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("searching all things with Vector underscore props", func(t *testing.T) {
 		// as the test suits grow we might have to extend the limit
-		res, err := repo.ThingSearch(context.Background(), 100, nil, traverser.UnderscoreProperties{Vector: true})
+		res, err := repo.ObjectSearch(context.Background(), 100, nil, traverser.UnderscoreProperties{Vector: true})
 		require.Nil(t, err)
 
 		item, ok := findID(res, thingID)
 		require.Equal(t, true, ok, "results should contain our desired thing id")
 
 		assert.Equal(t, thingID, item.ID, "extracted the ID")
-		assert.Equal(t, kind.Thing, item.Kind, "matches the kind")
+		assert.Equal(t, kind.Object, item.Kind, "matches the kind")
 		assert.Equal(t, "TheBestThingClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
@@ -546,14 +543,14 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("searching all things with Vector and Interpretation underscore props", func(t *testing.T) {
 		// as the test suits grow we might have to extend the limit
-		res, err := repo.ThingSearch(context.Background(), 100, nil, traverser.UnderscoreProperties{Vector: true, Interpretation: true})
+		res, err := repo.ObjectSearch(context.Background(), 100, nil, traverser.UnderscoreProperties{Vector: true, Interpretation: true})
 		require.Nil(t, err)
 
 		item, ok := findID(res, thingID)
 		require.Equal(t, true, ok, "results should contain our desired thing id")
 
 		assert.Equal(t, thingID, item.ID, "extracted the ID")
-		assert.Equal(t, kind.Thing, item.Kind, "matches the kind")
+		assert.Equal(t, kind.Object, item.Kind, "matches the kind")
 		assert.Equal(t, "TheBestThingClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
@@ -571,12 +568,12 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("searching a thing by ID", func(t *testing.T) {
-		item, err := repo.ThingByID(context.Background(), thingID, traverser.SelectProperties{}, traverser.UnderscoreProperties{})
+		item, err := repo.ObjectByID(context.Background(), thingID, traverser.SelectProperties{}, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
 		assert.Equal(t, thingID, item.ID, "extracted the ID")
-		assert.Equal(t, kind.Thing, item.Kind, "matches the kind")
+		assert.Equal(t, kind.Object, item.Kind, "matches the kind")
 		assert.Equal(t, "TheBestThingClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
@@ -589,12 +586,12 @@ func TestCRUD(t *testing.T) {
 			multi.Identifier{
 				ID:        "be685717-e61e-450d-8d5c-f44f32d0336c", // this id does not exist
 				ClassName: "TheBestThingClass",
-				Kind:      kind.Thing,
+				Kind:      kind.Object,
 			},
 			multi.Identifier{
 				ID:        thingID.String(),
 				ClassName: "TheBestThingClass",
-				Kind:      kind.Thing,
+				Kind:      kind.Object,
 			},
 		}
 		res, err := repo.MultiGet(context.Background(), query, traverser.UnderscoreProperties{})
@@ -605,7 +602,7 @@ func TestCRUD(t *testing.T) {
 
 		item := res[1]
 		assert.Equal(t, thingID, item.ID, "extracted the ID")
-		assert.Equal(t, kind.Thing, item.Kind, "matches the kind")
+		assert.Equal(t, kind.Object, item.Kind, "matches the kind")
 		assert.Equal(t, "TheBestThingClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some value", schema["stringProp"], "has correct string prop")
@@ -614,12 +611,12 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("searching an action by ID without meta", func(t *testing.T) {
-		item, err := repo.ActionByID(context.Background(), actionID, traverser.SelectProperties{}, traverser.UnderscoreProperties{})
+		item, err := repo.ObjectByID(context.Background(), actionID, traverser.SelectProperties{}, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
 		assert.Equal(t, actionID, item.ID, "extracted the ID")
-		assert.Equal(t, kind.Action, item.Kind, "matches the kind")
+		assert.Equal(t, kind.Object, item.Kind, "matches the kind")
 		assert.Equal(t, "TheBestActionClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some act-citing value", schema["stringProp"], "has correct string prop")
@@ -627,20 +624,20 @@ func TestCRUD(t *testing.T) {
 		expectedRefProp := models.MultipleRef{
 			&models.SingleRef{
 				Beacon: strfmt.URI(
-					crossref.New("localhost", thingID, kind.Thing).String()),
+					crossref.New("localhost", thingID, kind.Object).String()),
 			},
 		}
 		assert.Equal(t, expectedRefProp, schema["refProp"])
 	})
 
 	t.Run("searching an action by ID with Classification and Vector underscore properties", func(t *testing.T) {
-		item, err := repo.ActionByID(context.Background(), actionID, traverser.SelectProperties{},
+		item, err := repo.ObjectByID(context.Background(), actionID, traverser.SelectProperties{},
 			traverser.UnderscoreProperties{Classification: true, Vector: true, RefMeta: true})
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
 		assert.Equal(t, actionID, item.ID, "extracted the ID")
-		assert.Equal(t, kind.Action, item.Kind, "matches the kind")
+		assert.Equal(t, kind.Object, item.Kind, "matches the kind")
 		assert.Equal(t, "TheBestActionClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some act-citing value", schema["stringProp"], "has correct string prop")
@@ -669,19 +666,19 @@ func TestCRUD(t *testing.T) {
 					LosingCount:            1,
 				},
 				Beacon: strfmt.URI(
-					crossref.New("localhost", thingID, kind.Thing).String()),
+					crossref.New("localhost", thingID, kind.Object).String()),
 			},
 		}
 		assert.Equal(t, expectedRefProp, schema["refProp"])
 	})
 
 	t.Run("searching an action by ID with only Vector underscore property", func(t *testing.T) {
-		item, err := repo.ActionByID(context.Background(), actionID, traverser.SelectProperties{}, traverser.UnderscoreProperties{Vector: true})
+		item, err := repo.ObjectByID(context.Background(), actionID, traverser.SelectProperties{}, traverser.UnderscoreProperties{Vector: true})
 		require.Nil(t, err)
 		require.NotNil(t, item, "must have a result")
 
 		assert.Equal(t, actionID, item.ID, "extracted the ID")
-		assert.Equal(t, kind.Action, item.Kind, "matches the kind")
+		assert.Equal(t, kind.Object, item.Kind, "matches the kind")
 		assert.Equal(t, "TheBestActionClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some act-citing value", schema["stringProp"], "has correct string prop")
@@ -691,14 +688,14 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("searching all actions", func(t *testing.T) {
-		res, err := repo.ActionSearch(context.Background(), 10, nil, traverser.UnderscoreProperties{})
+		res, err := repo.ObjectSearch(context.Background(), 10, nil, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 
 		item, ok := findID(res, actionID)
 		require.Equal(t, true, ok, "results should contain our desired action id")
 
 		assert.Equal(t, actionID, item.ID, "extracted the ID")
-		assert.Equal(t, kind.Action, item.Kind, "matches the kind")
+		assert.Equal(t, kind.Object, item.Kind, "matches the kind")
 		assert.Equal(t, "TheBestActionClass", item.ClassName, "matches the class name")
 		schema := item.Schema.(map[string]interface{})
 		assert.Equal(t, "some act-citing value", schema["stringProp"], "has correct string prop")
@@ -708,7 +705,7 @@ func TestCRUD(t *testing.T) {
 		// This is a control for the upcoming deletion, after the deletion it should not
 		// be indexed anymore.
 		res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
-			Kind:       kind.Thing,
+			Kind:       kind.Object,
 			ClassName:  "TheBestThingClass",
 			Pagination: &filters.Pagination{Limit: 10},
 			Filters: &filters.LocalFilter{
@@ -733,7 +730,7 @@ func TestCRUD(t *testing.T) {
 		// This is a control for the upcoming deletion, after the deletion it should not
 		// be indexed anymore.
 		res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
-			Kind:       kind.Action,
+			Kind:       kind.Object,
 			ClassName:  "TheBestActionClass",
 			Pagination: &filters.Pagination{Limit: 10},
 			Filters: &filters.LocalFilter{
@@ -755,21 +752,21 @@ func TestCRUD(t *testing.T) {
 	})
 
 	t.Run("deleting a thing again", func(t *testing.T) {
-		err := repo.DeleteThing(context.Background(),
+		err := repo.DeleteObject(context.Background(),
 			"TheBestThingClass", thingID)
 
 		assert.Nil(t, err)
 	})
 
 	t.Run("deleting a action again", func(t *testing.T) {
-		err := repo.DeleteAction(context.Background(),
+		err := repo.DeleteObject(context.Background(),
 			"TheBestActionClass", actionID)
 
 		assert.Nil(t, err)
 	})
 
 	t.Run("trying to delete from a non-existing class", func(t *testing.T) {
-		err := repo.DeleteThing(context.Background(),
+		err := repo.DeleteObject(context.Background(),
 			"WrongClass", thingID)
 
 		assert.Equal(t, fmt.Errorf(
@@ -779,7 +776,7 @@ func TestCRUD(t *testing.T) {
 	t.Run("verifying the thing is NOT indexed in the inverted index",
 		func(t *testing.T) {
 			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
-				Kind:       kind.Thing,
+				Kind:       kind.Object,
 				ClassName:  "TheBestThingClass",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters: &filters.LocalFilter{
@@ -803,7 +800,7 @@ func TestCRUD(t *testing.T) {
 	t.Run("verifying the action is NOT indexed in the inverted index",
 		func(t *testing.T) {
 			res, err := repo.ClassSearch(context.Background(), traverser.GetParams{
-				Kind:       kind.Action,
+				Kind:       kind.Object,
 				ClassName:  "TheBestActionClass",
 				Pagination: &filters.Pagination{Limit: 10},
 				Filters: &filters.LocalFilter{
@@ -825,14 +822,14 @@ func TestCRUD(t *testing.T) {
 		})
 
 	t.Run("trying to get the deleted thing by ID", func(t *testing.T) {
-		item, err := repo.ThingByID(context.Background(), thingID,
+		item, err := repo.ObjectByID(context.Background(), thingID,
 			traverser.SelectProperties{}, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 		require.Nil(t, item, "must not have a result")
 	})
 
 	t.Run("trying to get the deleted action by ID", func(t *testing.T) {
-		item, err := repo.ActionByID(context.Background(), actionID,
+		item, err := repo.ObjectByID(context.Background(), actionID,
 			traverser.SelectProperties{}, traverser.UnderscoreProperties{})
 		require.Nil(t, err)
 		require.Nil(t, item, "must not have a result")
@@ -843,7 +840,7 @@ func TestCRUD(t *testing.T) {
 			searchVector := []float32{2.9, 1.1, 0.5, 8.01}
 			params := traverser.GetParams{
 				SearchVector: searchVector,
-				Kind:         kind.Thing,
+				Kind:         kind.Object,
 				ClassName:    "TheBestThingClass",
 				Pagination:   &filters.Pagination{Limit: 10},
 				Filters:      nil,
@@ -859,7 +856,7 @@ func TestCRUD(t *testing.T) {
 		searchVector := []float32{2.9, 1.1, 0.5, 8.01}
 		params := traverser.GetParams{
 			SearchVector: searchVector,
-			Kind:         kind.Action,
+			Kind:         kind.Object,
 			ClassName:    "TheBestActionClass",
 			Pagination:   &filters.Pagination{Limit: 10},
 			Filters:      nil,

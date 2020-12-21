@@ -53,7 +53,7 @@ const (
 	WhereOperatorEnum = "An object containing the Operators that can be applied to a 'where' filter"
 )
 
-const WherePath = "Specify the path from the Things or Actions fields to the property name (e.g. ['Things', 'City', 'population'] leads to the 'population' property of a 'City' object)"
+const WherePath = "Specify the path from the Objects fields to the property name (e.g. ['Things', 'City', 'population'] leads to the 'population' property of a 'City' object)"
 
 const (
 	WhereValueInt                          = "Specify an Integer value that the target property will be compared to"
@@ -104,7 +104,7 @@ const (
 )
 
 const (
-	FetchFuzzyValue     = "Specify the concept that will be used to fetch Things or Actions on the network (e.g. 'Airplane', or 'City')"
+	FetchFuzzyValue     = "Specify the concept that will be used to fetch Objects on the network (e.g. 'Airplane', or 'City')"
 	FetchFuzzyCertainty = "Specify how much a Beacon's characteristics must match the provided concept on a scale of 0 to 1"
 )
 

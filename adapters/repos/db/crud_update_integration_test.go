@@ -57,20 +57,20 @@ func TestUpdateJourney(t *testing.T) {
 	migrator := NewMigrator(repo, logger)
 
 	schema := libschema.Schema{
-		Things: &models.Schema{
+		Objects: &models.Schema{
 			Classes: []*models.Class{updateTestClass()},
 		},
 	}
 
 	t.Run("add schema", func(t *testing.T) {
-		err := migrator.AddClass(context.Background(), kind.Thing, updateTestClass())
+		err := migrator.AddClass(context.Background(), kind.Object, updateTestClass())
 		require.Nil(t, err)
 	})
 	schemaGetter.schema = schema
 
 	t.Run("import some objects", func(t *testing.T) {
 		for _, res := range updateTestData() {
-			err := repo.PutThing(context.Background(), res.Thing(), res.Vector)
+			err := repo.PutObject(context.Background(), res.Object(), res.Vector)
 			require.Nil(t, err)
 		}
 	})
@@ -82,7 +82,7 @@ func TestUpdateJourney(t *testing.T) {
 			res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
 				ClassName:    "UpdateTestClass",
 				SearchVector: searchVector,
-				Kind:         kind.Thing,
+				Kind:         kind.Object,
 				Pagination: &filters.Pagination{
 					Limit: 100,
 				},
@@ -98,7 +98,7 @@ func TestUpdateJourney(t *testing.T) {
 		})
 
 	searchInv := func(t *testing.T, op filters.Operator, value int) []interface{} {
-		res, err := repo.ThingSearch(context.Background(), 100,
+		res, err := repo.ObjectSearch(context.Background(), 100,
 			&filters.LocalFilter{
 				Root: &filters.Clause{
 					Operator: op,
@@ -142,11 +142,11 @@ func TestUpdateJourney(t *testing.T) {
 			updatedVec := []float32{-0.1, -0.12, -0.105}
 			id := updateTestData()[0].ID
 
-			old, err := repo.ThingByID(context.Background(), id, traverser.SelectProperties{},
+			old, err := repo.ObjectByID(context.Background(), id, traverser.SelectProperties{},
 				traverser.UnderscoreProperties{})
 			require.Nil(t, err)
 
-			err = repo.PutThing(context.Background(), old.Thing(), updatedVec)
+			err = repo.PutObject(context.Background(), old.Object(), updatedVec)
 			require.Nil(t, err)
 		})
 
@@ -154,7 +154,7 @@ func TestUpdateJourney(t *testing.T) {
 		res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
 			ClassName:    "UpdateTestClass",
 			SearchVector: searchVector,
-			Kind:         kind.Thing,
+			Kind:         kind.Object,
 			Pagination: &filters.Pagination{
 				Limit: 100,
 			},
@@ -196,13 +196,13 @@ func TestUpdateJourney(t *testing.T) {
 			updatedVec := []float32{-0.1, -0.12, -0.105123}
 			id := updateTestData()[2].ID
 
-			old, err := repo.ThingByID(context.Background(), id, traverser.SelectProperties{},
+			old, err := repo.ObjectByID(context.Background(), id, traverser.SelectProperties{},
 				traverser.UnderscoreProperties{})
 			require.Nil(t, err)
 
 			old.Schema.(map[string]interface{})["intProp"] = int64(21)
 
-			err = repo.PutThing(context.Background(), old.Thing(), updatedVec)
+			err = repo.PutObject(context.Background(), old.Object(), updatedVec)
 			require.Nil(t, err)
 		})
 
@@ -210,7 +210,7 @@ func TestUpdateJourney(t *testing.T) {
 		res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
 			ClassName:    "UpdateTestClass",
 			SearchVector: searchVector,
-			Kind:         kind.Thing,
+			Kind:         kind.Object,
 			Pagination: &filters.Pagination{
 				Limit: 100,
 			},

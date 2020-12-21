@@ -22,7 +22,7 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// UnderscoreProperties Additional Meta information about a single thing/action object.
+// UnderscoreProperties Additional Meta information about a single object object.
 //
 // swagger:model UnderscoreProperties
 type UnderscoreProperties struct {

@@ -26,18 +26,18 @@ import (
 //
 // However, error'd actions are not removed to make sure that the list in
 // BatchActions matches the order and content of the incoming batch request
-type BatchAction struct {
-	OriginalIndex int
-	Err           error
-	Action        *models.Action
-	UUID          strfmt.UUID
-	Vector        []float32
-}
+// type BatchAction struct {
+// 	OriginalIndex int
+// 	Err           error
+// 	Action        *models.Action
+// 	UUID          strfmt.UUID
+// 	Vector        []float32
+// }
 
 // BatchActions groups many BatchAction items together. The order matches the
 // order from the original request. It can be turned into the expected response
 // type using the .Response() method
-type BatchActions []BatchAction
+// type BatchActions []BatchAction
 
 // BatchThing is a helper type that groups all the info about one thing in a
 // batch that belongs together, i.e. uuid, thing body and error state.
@@ -48,18 +48,28 @@ type BatchActions []BatchAction
 //
 // However, error'd things are not removed to make sure that the list in
 // Things matches the order and content of the incoming batch request
-type BatchThing struct {
-	OriginalIndex int
-	Err           error
-	Thing         *models.Thing
-	UUID          strfmt.UUID
-	Vector        []float32
-}
+// type BatchThing struct {
+// 	OriginalIndex int
+// 	Err           error
+// 	Thing         *models.Thing
+// 	UUID          strfmt.UUID
+// 	Vector        []float32
+// }
 
 // BatchThings groups many Thing items together. The order matches the
 // order from the original request. It can be turned into the expected response
 // type using the .Response() method
-type BatchThings []BatchThing
+// type BatchThings []BatchThing
+
+type BatchObject struct {
+	OriginalIndex int
+	Err           error
+	Object        *models.Object
+	UUID          strfmt.UUID
+	Vector        []float32
+}
+
+type BatchObjects []BatchObject
 
 // BatchReference is a helper type that groups all the info about one references in a
 // batch that belongs together, i.e. from, to, original index and error state

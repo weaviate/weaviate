@@ -87,7 +87,7 @@ func Test_Classifier_KNN(t *testing.T) {
 			assert.Equal(t, models.ClassificationStatusCompleted, class.Status)
 		})
 
-		t.Run("the classifier updated the things/actions with the classified references", func(t *testing.T) {
+		t.Run("the classifier updated the actions with the classified references", func(t *testing.T) {
 			vectorRepo.Lock()
 			require.Len(t, vectorRepo.db, 6)
 			vectorRepo.Unlock()
@@ -251,7 +251,7 @@ func Test_Classifier_Contextual(t *testing.T) {
 			assert.Equal(t, models.ClassificationStatusCompleted, class.Status)
 		})
 
-		t.Run("the classifier updated the things/actions with the classified references", func(t *testing.T) {
+		t.Run("the classifier updated the actions with the classified references", func(t *testing.T) {
 			vectorRepo.Lock()
 			require.Len(t, vectorRepo.db, 6)
 			vectorRepo.Unlock()
@@ -370,14 +370,14 @@ func Test_Classifier_Contextual(t *testing.T) {
 }
 
 type genericFakeRepo interface {
-	get(strfmt.UUID) (*models.Thing, bool)
+	get(strfmt.UUID) (*models.Object, bool)
 }
 
 func checkRef(t *testing.T, repo genericFakeRepo, source, propName, target string) {
-	thing, ok := repo.get(strfmt.UUID(source))
-	require.True(t, ok, "thing must be present")
+	object, ok := repo.get(strfmt.UUID(source))
+	require.True(t, ok, "object must be present")
 
-	schema, ok := thing.Schema.(map[string]interface{})
+	schema, ok := object.Schema.(map[string]interface{})
 	require.True(t, ok, "schema must be map")
 
 	prop, ok := schema[propName]
@@ -387,7 +387,7 @@ func checkRef(t *testing.T, repo genericFakeRepo, source, propName, target strin
 	require.True(t, ok, "ref prop must be models.MultipleRef")
 	require.Len(t, refs, 1, "refs must have len 1")
 
-	assert.Equal(t, fmt.Sprintf("weaviate://localhost/things/%s", target), refs[0].Beacon.String(), "beacon must match")
+	assert.Equal(t, fmt.Sprintf("weaviate://localhost/%s", target), refs[0].Beacon.String(), "beacon must match")
 }
 
 func waitForStatusToNoLongerBeRunning(t *testing.T, classifier *Classifier, id strfmt.UUID) {

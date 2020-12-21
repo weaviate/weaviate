@@ -43,27 +43,22 @@ func Parse(uriString string) (*Ref, error) {
 	}
 
 	pathSegments := strings.Split(uri.Path, "/")
-	if len(pathSegments) != 3 {
+	if len(pathSegments) != 2 {
 		return nil, fmt.Errorf(
-			"invalid cref URI: path must be of format '/{things,actions}/<uuid>', but got '%s'",
+			"invalid cref URI: path must be of format '/<uuid>', but got '%s'",
 			uri.Path)
 	}
 
-	if ok := strfmt.IsUUID(pathSegments[2]); !ok {
+	if ok := strfmt.IsUUID(pathSegments[1]); !ok {
 		return nil, fmt.Errorf("invalid cref URI: 2nd path segment must be uuid, but got '%s'",
-			pathSegments[2])
-	}
-
-	k, err := parseKind(pathSegments[1])
-	if err != nil {
-		return nil, fmt.Errorf("invalid cref URI: %s", err)
+			pathSegments[1])
 	}
 
 	return &Ref{
 		Local:    (uri.Host == "localhost"),
 		PeerName: uri.Host,
-		TargetID: strfmt.UUID(pathSegments[2]),
-		Kind:     k,
+		TargetID: strfmt.UUID(pathSegments[1]),
+		Kind:     kind.Object,
 	}, nil
 }
 
@@ -87,10 +82,8 @@ func New(peerName string, target strfmt.UUID, k kind.Kind) *Ref {
 
 func parseKind(kinds string) (kind.Kind, error) {
 	switch kinds {
-	case "things":
-		return kind.Thing, nil
-	case "actions":
-		return kind.Action, nil
+	case "objects":
+		return kind.Object, nil
 	default:
 		return "", fmt.Errorf("invalid kind, expected 'things' or 'actions', but got '%s'", kinds)
 	}
@@ -100,14 +93,10 @@ func (r *Ref) String() string {
 	uri := url.URL{
 		Host:   r.PeerName,
 		Scheme: "weaviate",
-		Path:   fmt.Sprintf("/%s/%s", pluralizeKindName(r.Kind), r.TargetID),
+		Path:   fmt.Sprintf("/%s", r.TargetID),
 	}
 
 	return uri.String()
-}
-
-func pluralizeKindName(k kind.Kind) string {
-	return strings.ToLower(k.Name()) + "s"
 }
 
 // SingleRef converts the parsed Ref back into the API helper construct

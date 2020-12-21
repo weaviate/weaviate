@@ -50,20 +50,20 @@ func TestDeleteJourney(t *testing.T) {
 	migrator := NewMigrator(repo, logger)
 
 	schema := libschema.Schema{
-		Things: &models.Schema{
+		Objects: &models.Schema{
 			Classes: []*models.Class{updateTestClass()},
 		},
 	}
 
 	t.Run("add schema", func(t *testing.T) {
-		err := migrator.AddClass(context.Background(), kind.Thing, updateTestClass())
+		err := migrator.AddClass(context.Background(), kind.Object, updateTestClass())
 		require.Nil(t, err)
 	})
 	schemaGetter.schema = schema
 
 	t.Run("import some objects", func(t *testing.T) {
 		for _, res := range updateTestData() {
-			err := repo.PutThing(context.Background(), res.Thing(), res.Vector)
+			err := repo.PutObject(context.Background(), res.Object(), res.Vector)
 			require.Nil(t, err)
 		}
 	})
@@ -75,7 +75,7 @@ func TestDeleteJourney(t *testing.T) {
 			res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
 				ClassName:    "UpdateTestClass",
 				SearchVector: searchVector,
-				Kind:         kind.Thing,
+				Kind:         kind.Object,
 				Pagination: &filters.Pagination{
 					Limit: 100,
 				},
@@ -91,7 +91,7 @@ func TestDeleteJourney(t *testing.T) {
 		})
 
 	searchInv := func(t *testing.T, op filters.Operator, value int) []interface{} {
-		res, err := repo.ThingSearch(context.Background(), 100,
+		res, err := repo.ObjectSearch(context.Background(), 100,
 			&filters.LocalFilter{
 				Root: &filters.Clause{
 					Operator: op,
@@ -133,10 +133,10 @@ func TestDeleteJourney(t *testing.T) {
 		func(t *testing.T) {
 			id := updateTestData()[0].ID
 
-			err := repo.DeleteThing(context.Background(), "UpdateTestClass", id)
+			err := repo.DeleteObject(context.Background(), "UpdateTestClass", id)
 			require.Nil(t, err)
 
-			index := repo.GetIndex(kind.Thing, "UpdateTestClass")
+			index := repo.GetIndex(kind.Object, "UpdateTestClass")
 			require.NotNil(t, index)
 
 			deletedIDsCount := len(index.Shards["single"].deletedDocIDs.GetAll())
@@ -147,7 +147,7 @@ func TestDeleteJourney(t *testing.T) {
 		res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
 			ClassName:    "UpdateTestClass",
 			SearchVector: searchVector,
-			Kind:         kind.Thing,
+			Kind:         kind.Object,
 			Pagination: &filters.Pagination{
 				Limit: 100,
 			},
@@ -182,10 +182,10 @@ func TestDeleteJourney(t *testing.T) {
 		func(t *testing.T) {
 			id := updateTestData()[1].ID
 
-			err := repo.DeleteThing(context.Background(), "UpdateTestClass", id)
+			err := repo.DeleteObject(context.Background(), "UpdateTestClass", id)
 			require.Nil(t, err)
 
-			index := repo.GetIndex(kind.Thing, "UpdateTestClass")
+			index := repo.GetIndex(kind.Object, "UpdateTestClass")
 			require.NotNil(t, index)
 
 			deletedIDsCount := len(index.Shards["single"].deletedDocIDs.GetAll())
@@ -196,7 +196,7 @@ func TestDeleteJourney(t *testing.T) {
 		res, err := repo.VectorClassSearch(context.Background(), traverser.GetParams{
 			ClassName:    "UpdateTestClass",
 			SearchVector: searchVector,
-			Kind:         kind.Thing,
+			Kind:         kind.Object,
 			Pagination: &filters.Pagination{
 				Limit: 100,
 			},
@@ -229,7 +229,7 @@ func TestDeleteJourney(t *testing.T) {
 			ticker := time.Tick(70 * time.Second)
 			<-ticker
 
-			index := repo.GetIndex(kind.Thing, "UpdateTestClass")
+			index := repo.GetIndex(kind.Object, "UpdateTestClass")
 			require.NotNil(t, index)
 
 			deletedIDsCount := len(index.Shards["single"].deletedDocIDs.GetAll())

@@ -44,14 +44,13 @@ func Test_Accessors(t *testing.T) {
 	}
 
 	schema := Empty()
-	schema.Things.Classes = []*models.Class{car, train}
-	schema.Actions.Classes = []*models.Class{action}
+	schema.Objects.Classes = []*models.Class{car, train, action}
 
 	t.Run("GetClass by kind and name", func(t *testing.T) {
-		class := schema.GetClass(kind.Thing, "Car")
+		class := schema.GetClass(kind.Object, "Car")
 		assert.Equal(t, car, class)
 
-		class = schema.GetClass(kind.Thing, "Invalid")
+		class = schema.GetClass(kind.Object, "Invalid")
 		assert.Equal(t, (*models.Class)(nil), class)
 	})
 
@@ -69,11 +68,11 @@ func Test_Accessors(t *testing.T) {
 	t.Run("GetKindOfClass", func(t *testing.T) {
 		k, ok := schema.GetKindOfClass("Car")
 		assert.True(t, ok)
-		assert.Equal(t, kind.Thing, k)
+		assert.Equal(t, kind.Object, k)
 
 		k, ok = schema.GetKindOfClass("SomeAction")
 		assert.True(t, ok)
-		assert.Equal(t, kind.Action, k)
+		assert.Equal(t, kind.Object, k)
 
 		_, ok = schema.GetKindOfClass("Invalid")
 		assert.False(t, ok)
@@ -101,7 +100,7 @@ func Test_Accessors(t *testing.T) {
 	})
 
 	t.Run("GetProperty by kind, classname, name", func(t *testing.T) {
-		prop, err := schema.GetProperty(kind.Thing, "Car", "modelName")
+		prop, err := schema.GetProperty(kind.Object, "Car", "modelName")
 		assert.Nil(t, err)
 
 		expectedProp := &models.Property{
@@ -113,12 +112,12 @@ func Test_Accessors(t *testing.T) {
 	})
 
 	t.Run("GetProperty for invalid class", func(t *testing.T) {
-		_, err := schema.GetProperty(kind.Thing, "WrongClass", "modelName")
+		_, err := schema.GetProperty(kind.Object, "WrongClass", "modelName")
 		assert.Equal(t, errors.New("no such class with name 'WrongClass' found in the schema. Check your schema files for which classes are available"), err)
 	})
 
 	t.Run("GetProperty for invalid prop", func(t *testing.T) {
-		_, err := schema.GetProperty(kind.Thing, "Car", "wrongProperty")
+		_, err := schema.GetProperty(kind.Object, "Car", "wrongProperty")
 		assert.Equal(t, errors.New("no such prop with name 'wrongProperty' found in class 'Car' in the schema. Check your schema files for which properties in this class are available"), err)
 	})
 }

@@ -23,12 +23,12 @@ import (
 	"github.com/semi-technologies/weaviate/usecases/traverser"
 )
 
-// AddActionReference Class Instance to the connected DB. If the class contains a network
+// AddObjectReference Class Instance to the connected DB. If the class contains a network
 // ref, it has a side-effect on the schema: The schema will be updated to
 // include this particular network ref class.
-func (m *Manager) AddActionReference(ctx context.Context, principal *models.Principal,
+func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
-	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("actions/%s", id.String()))
+	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("%s", id.String()))
 	if err != nil {
 		return err
 	}
@@ -39,30 +39,30 @@ func (m *Manager) AddActionReference(ctx context.Context, principal *models.Prin
 	}
 	defer unlock()
 
-	return m.addActionReferenceToConnectorAndSchema(ctx, principal, id, propertyName, property)
+	return m.addObjectReferenceToConnectorAndSchema(ctx, principal, id, propertyName, property)
 }
 
-func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, principal *models.Principal,
+func (m *Manager) addObjectReferenceToConnectorAndSchema(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
-	// get action to see if it exists
-	actionRes, err := m.getActionFromRepo(ctx, id, traverser.UnderscoreProperties{})
+	// get object to see if it exists
+	objectRes, err := m.getObjectFromRepo(ctx, id, traverser.UnderscoreProperties{})
 	if err != nil {
 		return err
 	}
 
-	action := actionRes.Action()
+	object := objectRes.Object()
 
 	err = m.validateReference(ctx, property)
 	if err != nil {
 		return err
 	}
 
-	err = m.validateCanModifyReference(principal, kind.Action, action.Class, propertyName)
+	err = m.validateCanModifyReference(principal, kind.Object, object.Class, propertyName)
 	if err != nil {
 		return err
 	}
 
-	err = m.vectorRepo.AddReference(ctx, kind.Action, action.Class, action.ID,
+	err = m.vectorRepo.AddReference(ctx, kind.Object, object.Class, object.ID,
 		propertyName, property)
 	if err != nil {
 		return NewErrInternal("add reference to vector repo: %v", err)
@@ -74,49 +74,49 @@ func (m *Manager) addActionReferenceToConnectorAndSchema(ctx context.Context, pr
 // AddThingReference Class Instance to the connected DB. If the class contains a network
 // ref, it has a side-effect on the schema: The schema will be updated to
 // include this particular network ref class.
-func (m *Manager) AddThingReference(ctx context.Context, principal *models.Principal,
-	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
-	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("things/%s", id.String()))
-	if err != nil {
-		return err
-	}
+// func (m *Manager) AddThingReference(ctx context.Context, principal *models.Principal,
+// 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
+// 	err := m.authorizer.Authorize(principal, "update", fmt.Sprintf("things/%s", id.String()))
+// 	if err != nil {
+// 		return err
+// 	}
 
-	unlock, err := m.locks.LockSchema()
-	if err != nil {
-		return NewErrInternal("could not acquire lock: %v", err)
-	}
-	defer unlock()
+// 	unlock, err := m.locks.LockSchema()
+// 	if err != nil {
+// 		return NewErrInternal("could not acquire lock: %v", err)
+// 	}
+// 	defer unlock()
 
-	return m.addThingReferenceToConnectorAndSchema(ctx, principal, id, propertyName, property)
-}
+// 	return m.addThingReferenceToConnectorAndSchema(ctx, principal, id, propertyName, property)
+// }
 
-func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, principal *models.Principal,
-	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
-	// get thing to see if it exists
-	thingRes, err := m.getThingFromRepo(ctx, id, traverser.UnderscoreProperties{})
-	if err != nil {
-		return err
-	}
+// func (m *Manager) addThingReferenceToConnectorAndSchema(ctx context.Context, principal *models.Principal,
+// 	id strfmt.UUID, propertyName string, property *models.SingleRef) error {
+// 	// get thing to see if it exists
+// 	thingRes, err := m.getThingFromRepo(ctx, id, traverser.UnderscoreProperties{})
+// 	if err != nil {
+// 		return err
+// 	}
 
-	thing := thingRes.Thing()
-	err = m.validateReference(ctx, property)
-	if err != nil {
-		return err
-	}
+// 	thing := thingRes.Thing()
+// 	err = m.validateReference(ctx, property)
+// 	if err != nil {
+// 		return err
+// 	}
 
-	err = m.validateCanModifyReference(principal, kind.Thing, thing.Class, propertyName)
-	if err != nil {
-		return err
-	}
+// 	err = m.validateCanModifyReference(principal, kind.Thing, thing.Class, propertyName)
+// 	if err != nil {
+// 		return err
+// 	}
 
-	err = m.vectorRepo.AddReference(ctx, kind.Thing, thing.Class, thing.ID,
-		propertyName, property)
-	if err != nil {
-		return NewErrInternal("add reference to vector repo: %v", err)
-	}
+// 	err = m.vectorRepo.AddReference(ctx, kind.Thing, thing.Class, thing.ID,
+// 		propertyName, property)
+// 	if err != nil {
+// 		return NewErrInternal("add reference to vector repo: %v", err)
+// 	}
 
-	return nil
-}
+// 	return nil
+// }
 
 func (m *Manager) validateReference(ctx context.Context, reference *models.SingleRef) error {
 	err := validation.New(schema.Schema{}, m.exists, m.config).

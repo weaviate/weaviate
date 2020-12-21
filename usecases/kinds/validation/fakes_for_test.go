@@ -22,7 +22,7 @@ import (
 
 func testSchema() schema.Schema {
 	return schema.Schema{
-		Things: &models.Schema{
+		Objects: &models.Schema{
 			Classes: []*models.Class{
 				&models.Class{
 					Class: "Person",

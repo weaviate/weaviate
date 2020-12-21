@@ -17,42 +17,42 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/semi-technologies/weaviate/client/actions"
+	"github.com/semi-technologies/weaviate/client/objects"
 	"github.com/semi-technologies/weaviate/entities/models"
 	"github.com/semi-technologies/weaviate/test/acceptance/helper"
 	"github.com/stretchr/testify/assert"
 )
 
 // executed in setup_test.go
-func addingActions(t *testing.T) {
-	t.Run("can create action", func(t *testing.T) {
-		// Set all action values to compare
-		actionTestString := "Test string"
-		actionTestInt := 1
-		actionTestBoolean := true
-		actionTestNumber := 1.337
-		actionTestDate := "2017-10-06T08:15:30+01:00"
+func addingObjects(t *testing.T) {
+	t.Run("can create object", func(t *testing.T) {
+		// Set all object values to compare
+		objectTestString := "Test string"
+		objectTestInt := 1
+		objectTestBoolean := true
+		objectTestNumber := 1.337
+		objectTestDate := "2017-10-06T08:15:30+01:00"
 
-		params := actions.NewActionsCreateParams().WithBody(
-			&models.Action{
-				Class: "TestAction",
+		params := objects.NewObjectsCreateParams().WithBody(
+			&models.Object{
+				Class: "TestObject",
 				Schema: map[string]interface{}{
-					"testString":      actionTestString,
-					"testWholeNumber": actionTestInt,
-					"testTrueFalse":   actionTestBoolean,
-					"testNumber":      actionTestNumber,
-					"testDateTime":    actionTestDate,
+					"testString":      objectTestString,
+					"testWholeNumber": objectTestInt,
+					"testTrueFalse":   objectTestBoolean,
+					"testNumber":      objectTestNumber,
+					"testDateTime":    objectTestDate,
 				},
 			})
 
-		resp, err := helper.Client(t).Actions.ActionsCreate(params, nil)
+		resp, err := helper.Client(t).Objects.ObjectsCreate(params, nil)
 
 		// Ensure that the response is OK
 		helper.AssertRequestOk(t, resp, err, func() {
-			action := resp.Payload
-			assert.Regexp(t, strfmt.UUIDPattern, action.ID)
+			object := resp.Payload
+			assert.Regexp(t, strfmt.UUIDPattern, object.ID)
 
-			schema, ok := action.Schema.(map[string]interface{})
+			schema, ok := object.Schema.(map[string]interface{})
 			if !ok {
 				t.Fatal("The returned schema is not an JSON object")
 			}
@@ -61,37 +61,37 @@ func addingActions(t *testing.T) {
 			testNumber, _ := schema["testNumber"].(json.Number).Float64()
 
 			// Check whether the returned information is the same as the data added
-			assert.Equal(t, actionTestString, schema["testString"])
-			assert.Equal(t, actionTestInt, int(testWholeNumber))
-			assert.Equal(t, actionTestBoolean, schema["testTrueFalse"])
-			assert.Equal(t, actionTestNumber, testNumber)
-			assert.Equal(t, actionTestDate, schema["testDateTime"])
+			assert.Equal(t, objectTestString, schema["testString"])
+			assert.Equal(t, objectTestInt, int(testWholeNumber))
+			assert.Equal(t, objectTestBoolean, schema["testTrueFalse"])
+			assert.Equal(t, objectTestNumber, testNumber)
+			assert.Equal(t, objectTestDate, schema["testDateTime"])
 		})
 	})
 
-	t.Run("can create and get action", func(t *testing.T) {
-		actionTestString := "Test string"
-		actionTestInt := 1
-		actionTestBoolean := true
-		actionTestNumber := 1.337
-		actionTestDate := "2017-10-06T08:15:30+01:00"
+	t.Run("can create and get object", func(t *testing.T) {
+		objectTestString := "Test string"
+		objectTestInt := 1
+		objectTestBoolean := true
+		objectTestNumber := 1.337
+		objectTestDate := "2017-10-06T08:15:30+01:00"
 
-		actionID := assertCreateAction(t, "TestAction", map[string]interface{}{
-			"testString":      actionTestString,
-			"testWholeNumber": actionTestInt,
-			"testTrueFalse":   actionTestBoolean,
-			"testNumber":      actionTestNumber,
-			"testDateTime":    actionTestDate,
+		objectID := assertCreateObject(t, "TestObject", map[string]interface{}{
+			"testString":      objectTestString,
+			"testWholeNumber": objectTestInt,
+			"testTrueFalse":   objectTestBoolean,
+			"testNumber":      objectTestNumber,
+			"testDateTime":    objectTestDate,
 		})
-		assertGetActionEventually(t, actionID)
+		assertGetObjectEventually(t, objectID)
 
-		// Now fetch the action
-		getResp, err := helper.Client(t).Actions.ActionsGet(actions.NewActionsGetParams().WithID(actionID), nil)
+		// Now fetch the object
+		getResp, err := helper.Client(t).Objects.ObjectsGet(objects.NewObjectsGetParams().WithID(objectID), nil)
 
 		helper.AssertRequestOk(t, getResp, err, func() {
-			action := getResp.Payload
+			object := getResp.Payload
 
-			schema, ok := action.Schema.(map[string]interface{})
+			schema, ok := object.Schema.(map[string]interface{})
 			if !ok {
 				t.Fatal("The returned schema is not an JSON object")
 			}
@@ -100,31 +100,31 @@ func addingActions(t *testing.T) {
 			testNumber, _ := schema["testNumber"].(json.Number).Float64()
 
 			// Check whether the returned information is the same as the data added
-			assert.Equal(t, actionTestString, schema["testString"])
-			assert.Equal(t, actionTestInt, int(testWholeNumber))
-			assert.Equal(t, actionTestBoolean, schema["testTrueFalse"])
-			assert.Equal(t, actionTestNumber, testNumber)
-			assert.Equal(t, actionTestDate, schema["testDateTime"])
+			assert.Equal(t, objectTestString, schema["testString"])
+			assert.Equal(t, objectTestInt, int(testWholeNumber))
+			assert.Equal(t, objectTestBoolean, schema["testTrueFalse"])
+			assert.Equal(t, objectTestNumber, testNumber)
+			assert.Equal(t, objectTestDate, schema["testDateTime"])
 		})
 	})
 
 	t.Run("can add single ref", func(t *testing.T) {
 		fmt.Println("before first")
-		firstID := assertCreateAction(t, "TestAction", map[string]interface{}{})
-		assertGetActionEventually(t, firstID)
+		firstID := assertCreateObject(t, "TestObject", map[string]interface{}{})
+		assertGetObjectEventually(t, firstID)
 
-		secondID := assertCreateAction(t, "TestActionTwo", map[string]interface{}{
+		secondID := assertCreateObject(t, "TestObjectTwo", map[string]interface{}{
 			"testString": "stringy",
 			"testReference": []interface{}{
 				map[string]interface{}{
-					"beacon": fmt.Sprintf("weaviate://localhost/actions/%s", firstID),
+					"beacon": fmt.Sprintf("weaviate://localhost/%s", firstID),
 				},
 			},
 		})
 
-		secondAction := assertGetActionEventually(t, secondID)
+		secondObject := assertGetObjectEventually(t, secondID)
 
-		singleRef := secondAction.Schema.(map[string]interface{})["testReference"].([]interface{})[0].(map[string]interface{})
-		assert.Equal(t, singleRef["beacon"].(string), fmt.Sprintf("weaviate://localhost/actions/%s", firstID))
+		singleRef := secondObject.Schema.(map[string]interface{})["testReference"].([]interface{})[0].(map[string]interface{})
+		assert.Equal(t, singleRef["beacon"].(string), fmt.Sprintf("weaviate://localhost/%s", firstID))
 	})
 }

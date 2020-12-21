@@ -27,49 +27,24 @@ import (
 
 // Build the Aggreate Kinds schema
 func Build(dbSchema *schema.Schema, config config.Config) (*graphql.Field, error) {
-	getKinds := graphql.Fields{}
-
-	if len(dbSchema.Actions.Classes) == 0 && len(dbSchema.Things.Classes) == 0 {
-		return nil, fmt.Errorf("there are no Actions or Things classes defined yet")
+	if len(dbSchema.Objects.Classes) == 0 {
+		return nil, fmt.Errorf("there are no Objects classes defined yet")
 	}
 
-	if len(dbSchema.Actions.Classes) > 0 {
-		localAggregateActions, err := classFields(dbSchema.Actions.Classes, kind.Action, config)
+	var err error
+	var localAggregateObjects *graphql.Object
+	if len(dbSchema.Objects.Classes) > 0 {
+		localAggregateObjects, err = classFields(dbSchema.Objects.Classes, kind.Object, config)
 		if err != nil {
 			return nil, err
-		}
-
-		getKinds["Actions"] = &graphql.Field{
-			Name:        "AggregateActions",
-			Description: descriptions.AggregateActions,
-			Type:        localAggregateActions,
-			Resolve:     passThroughResolver,
-		}
-	}
-
-	if len(dbSchema.Things.Classes) > 0 {
-		localAggregateThings, err := classFields(dbSchema.Things.Classes, kind.Thing, config)
-		if err != nil {
-			return nil, err
-		}
-
-		getKinds["Things"] = &graphql.Field{
-			Name:        "AggregateThings",
-			Description: descriptions.AggregateThings,
-			Type:        localAggregateThings,
-			Resolve:     passThroughResolver,
 		}
 	}
 
 	field := graphql.Field{
 		Name:        "Aggregate",
 		Description: descriptions.AggregateWhere,
-		Type: graphql.NewObject(graphql.ObjectConfig{
-			Name:        "AggregateObj",
-			Fields:      getKinds,
-			Description: descriptions.AggregateObj,
-		}),
-		Resolve: passThroughResolver,
+		Type:        localAggregateObjects,
+		Resolve:     passThroughResolver,
 	}
 
 	return &field, nil
@@ -91,7 +66,7 @@ func classFields(databaseSchema []*models.Class, k kind.Kind,
 	return graphql.NewObject(graphql.ObjectConfig{
 		Name:        fmt.Sprintf("Aggregate%ssObj", k.TitleizedName()),
 		Fields:      fields,
-		Description: descriptions.AggregateThingsActionsObj,
+		Description: descriptions.AggregateObjectsObj,
 	}), nil
 }
 
